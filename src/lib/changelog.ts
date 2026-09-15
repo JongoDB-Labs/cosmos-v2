@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.369.0",
+    date: "2026-09-15",
+    title: "Scroll through time on the timeline",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Gantt timeline no longer stops at the first and last dates on your board. Scroll into either edge of the chart and it keeps going — another quarter of calendar appears each time, left or right, as far back or as far forward as you care to look, at whatever zoom you are on. Short plans get room to scroll into as well, so you can look at next year on a board that only covers next week. Where the request left the choice open — truly unbounded scrolling versus simply a wider fixed margin around your work — we built the unbounded version, and only the dates near your view are drawn, so panning years out stays quick.",
+      },
+    ],
+  },
+  {
     version: "2.368.12",
     date: "2026-09-15",
     title: "Deliveries stop failing on a step that was already fixed elsewhere",
