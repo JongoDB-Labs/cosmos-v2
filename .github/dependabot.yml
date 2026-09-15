@@ -97,6 +97,27 @@ updates:
       # re-run brand.test.ts to confirm rather than assuming.
       - dependency-name: "pdfkit"
         versions: ["0.20.x"]
+      # @tanstack/react-table 9 is a rearchitecture, not an upgrade. Held until
+      # it can be done deliberately as its own piece of work.
+      #
+      # Measured 2026-09-15 by installing it: **372 type errors across 25 files**
+      # — the finance, payroll, invoicing and PM dashboards. v9 makes table
+      # features TYPE-LEVEL, so every `ColumnDef<T>` becomes
+      # `ColumnDef<TableFeatures, T>`, `useReactTable` becomes `useTable`, the
+      # imported row-model factories rename `get*` -> `create*`, and generics
+      # need `<T extends RowData>`.
+      #
+      # It is NOT regex-able: the `get*RowModel` rename applies only to the
+      # IMPORTED factories — table instance methods keep their `get*` names, so
+      # a blanket rewrite breaks every `table.getFilteredRowModel()` call site.
+      # And the obvious `ColumnDef<Row, unknown>` shortcut puts the row type in
+      # the features slot and makes things worse (one file went 6 -> 15 errors).
+      #
+      # Re-raising this weekly just re-runs a doomed CI job. Remove this entry
+      # when the migration is scheduled; the full recipe is in the PR that
+      # added this comment.
+      - dependency-name: "@tanstack/react-table"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
