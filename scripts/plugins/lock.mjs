@@ -20,22 +20,31 @@
  *   node scripts/plugins/lock.mjs --write     # record current plugin HEADs
  *   node scripts/plugins/lock.mjs --write --prune
  *                                             # ...and DROP plugins with no checkout
+ *   node scripts/plugins/lock.mjs --write --allow-rollback
+ *                                             # ...and permit a pin to move BACKWARDS
  *
  * --write keeps the pin of any plugin that is not checked out locally. Each
  * plugin is a separate private repo, so holding one of them is the normal state
  * of a dev box; rebuilding the file from what happens to be present would
  * silently unpin the rest. Removing a plugin is deliberate: --prune.
+ *
+ * For the same reason, a stale checkout must not silently REVERT a plugin: a pin
+ * may only move to a descendant of the commit it replaces — see
+ * lock-direction.mjs for the two production PRs that rule exists for. Reverting
+ * is deliberate too: --allow-rollback.
  */
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { mergeLock } from "./lock-merge.mjs";
+import { judgeLockMoves } from "./lock-direction.mjs";
 
 const ROOT = process.cwd();
 const LOCK = join(ROOT, "plugins.lock.json");
 const PLUGINS_DIR = join(ROOT, "plugins");
 const write = process.argv.includes("--write");
 const prune = process.argv.includes("--prune");
+const allowRollback = process.argv.includes("--allow-rollback");
 
 /** A ref the assembly build will accept: a full SHA, or `main` for a plugin
  *  deliberately tracked at head. Anything else is a ref-injection risk. */
@@ -87,6 +96,49 @@ function headOf(dir) {
   }
 }
 
+/** True if `dir` holds `sha` as a commit object. A checkout fetched before that
+ *  commit existed does not, which is the signal `ancestryIn` needs. */
+function hasCommit(dir, sha) {
+  try {
+    execFileSync("git", ["-C", dir, "cat-file", "-e", `${sha}^{commit}`], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** True if `a` is an ancestor of `b`. `merge-base --is-ancestor` answers by exit
+ *  status, so a non-zero exit — which execFileSync raises — is the "no". */
+function isAncestor(dir, a, b) {
+  try {
+    execFileSync("git", ["-C", dir, "merge-base", "--is-ancestor", a, b], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * How `to` relates to `from` inside a plugin checkout.
+ *
+ * Both commits are confirmed present FIRST. Without that, a missing object
+ * makes `merge-base` exit non-zero, which is indistinguishable from an honest
+ * "not an ancestor" — and would report the stale-checkout case, the one this
+ * guard exists for, as a clean advance.
+ *
+ * @returns {import("./lock-direction.mjs").Ancestry}
+ */
+function ancestryIn(dir, from, to) {
+  if (!hasCommit(dir, from) || !hasCommit(dir, to)) return "unknown";
+  if (isAncestor(dir, from, to)) return "advance";
+  if (isAncestor(dir, to, from)) return "rollback";
+  return "diverged";
+}
+
 const current = {};
 for (const slug of listDir(PLUGINS_DIR).sort()) {
   // A plugin is only lockable if it is its own checkout — the composed tree has
@@ -104,6 +156,25 @@ if (write) {
   const kept = [];
   const plugins = mergeLock(current, locked, { prune, onKept: (slug) => kept.push(slug) });
 
+  // DIRECTION CHECK, before anything is written. Judged against `plugins` —
+  // the map about to be persisted — so nothing can move a pin behind the guard's
+  // back. A stale checkout is the normal state of a dev box, and the old code
+  // recorded its HEAD as an advance without ever asking which way it pointed.
+  const { verdicts, problems } = judgeLockMoves(plugins, locked, (slug, from, to) =>
+    ancestryIn(join(PLUGINS_DIR, slug), from, to),
+  );
+
+  if (problems.length > 0 && !allowRollback) {
+    for (const p of problems) console.error(`[plugin-lock] ${p.message}`);
+    console.error(
+      `[plugin-lock] ${problems.length} pin(s) would not move forward — plugins.lock.json NOT written.`,
+    );
+    process.exit(1);
+  }
+  for (const p of problems) {
+    console.warn(`[plugin-lock] --allow-rollback: writing anyway — ${p.message}`);
+  }
+
   const next = {
     $comment:
       "Plugin commits this core release composes with. The assembly build reads this " +
@@ -113,10 +184,11 @@ if (write) {
   };
   writeFileSync(LOCK, `${JSON.stringify(next, null, 2)}\n`);
 
-  for (const [slug, { ref }] of Object.entries(plugins)) {
-    if (kept.includes(slug)) continue;
-    const was = locked[slug]?.ref;
-    console.log(`[plugin-lock] ${slug}: ${was && was !== ref ? `${was.slice(0, 9)} → ` : ""}${ref.slice(0, 9)}`);
+  // The verdict carries the direction, so the log now says which way a pin moved
+  // rather than leaving "a → b" to be read as progress by default.
+  for (const v of verdicts) {
+    if (kept.includes(v.slug)) continue;
+    console.log(`[plugin-lock] ${v.message}`);
   }
   // Say what was carried over rather than leaving it to be noticed in the diff:
   // silence here is what made the old behaviour dangerous.
