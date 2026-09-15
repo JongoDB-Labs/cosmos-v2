@@ -12,6 +12,9 @@ import { notifyError } from "@/lib/errors/notify";
 interface ProviderStatus {
   configured: boolean;
   enabled: boolean;
+  /** Non-secret, returned so the form can prefill. The secret never comes back. */
+  clientId: string | null;
+  tenant: string | null;
 }
 
 const CARD = "rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5";
@@ -47,8 +50,14 @@ export function SignInProvidersManager() {
         // stored value.
         const m = j.providers?.microsoft;
         setEnabled(m?.configured ? (m.enabled ?? true) : true);
+        // Prefill the non-secret fields. Without this the inputs render blank on
+        // every visit and Save stays disabled (it requires a valid clientId), so
+        // editing just the tenant silently sent nothing at all.
+        setClientId(m?.clientId ?? "");
+        setTenant(m?.tenant ?? "");
         const g = j.providers?.google;
         setGEnabled(g?.configured ? (g.enabled ?? true) : true);
+        setGClientId(g?.clientId ?? "");
       }
     } finally {
       setLoading(false);
@@ -90,12 +99,18 @@ export function SignInProvidersManager() {
     clientId.trim(),
   );
   // First-time setup requires a secret; once configured a blank secret keeps the
-  // stored one.
-  const canSave =
-    !saving &&
-    clientId.trim().length > 0 &&
-    clientIdValid &&
-    (ms?.configured || clientSecret.trim().length > 0);
+  // stored one. A tenant is REQUIRED: blank falls back to the /common endpoint,
+  // which single-tenant app registrations reject with AADSTS50194.
+  const missingReason = !clientId.trim().length
+    ? "Enter the Application (client) ID."
+    : !clientIdValid
+      ? "The Application (client) ID must be a GUID."
+      : !tenant.trim().length
+        ? "Enter the Tenant (Directory ID, a domain, or \"common\" for a multi-tenant app)."
+        : !ms?.configured && !clientSecret.trim().length
+          ? "Enter the client secret Value."
+          : null;
+  const canSave = !saving && missingReason === null;
 
   async function save() {
     setSaving(true);
@@ -182,18 +197,19 @@ export function SignInProvidersManager() {
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="ms-tenant">
-              Tenant <span className="text-[var(--text-muted)]">(optional)</span>
-            </Label>
+            <Label htmlFor="ms-tenant">Tenant</Label>
             <Input
               id="ms-tenant"
               value={tenant}
               onChange={(e) => setTenant(e.target.value)}
-              placeholder="common · a domain (example.com) · or a directory id"
+              placeholder="Directory (tenant) ID · a domain (example.com) · or common"
             />
             <p className="text-[11px] text-[var(--text-muted)]">
-              Leave blank for <span className="font-mono">common</span> (any Microsoft
-              account). Set a domain/tenant to lock sign-in to that organization.
+              Normally the <b>Directory (tenant) ID</b> from the app&apos;s Overview page,
+              which locks sign-in to that organization. Use{" "}
+              <span className="font-mono">common</span> only if the app registration is
+              multi-tenant — a single-tenant app rejects it with{" "}
+              <span className="font-mono">AADSTS50194</span>.
             </p>
           </div>
 
@@ -206,10 +222,15 @@ export function SignInProvidersManager() {
             Show the &ldquo;Sign in with Microsoft&rdquo; button
           </label>
 
-          <div>
+          <div className="space-y-1">
             <Button onClick={save} disabled={!canSave} className="w-fit">
               {saving ? "Saving…" : "Save Microsoft sign-in"}
             </Button>
+            {/* Say WHY the button is disabled — an inert button with no explanation
+                reads as "saved" and silently discards the edit. */}
+            {missingReason && !saving && (
+              <p className="text-[11px] text-[var(--text-muted)]">{missingReason}</p>
+            )}
           </div>
         </div>
 
