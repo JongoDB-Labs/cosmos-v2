@@ -14,13 +14,11 @@ type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; riskId: string }>;
 };
 
-const riskInclude = { programBranch: { select: { id: true, code: true, name: true } } };
 
 const updateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().nullish(),
   category: z.string().max(80).nullish(),
-  branchId: z.string().uuid().nullish(),
   likelihood: z.number().int().min(1).max(5).optional(),
   impact: z.number().int().min(1).max(5).optional(),
   owner: z.string().max(120).nullish(),
@@ -59,7 +57,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ...(data.title !== undefined && { title: data.title }),
         ...(data.description !== undefined && { description: data.description }),
         ...(data.category !== undefined && { category: data.category }),
-        ...(data.branchId !== undefined && { branchId: data.branchId }),
         ...(data.likelihood !== undefined && { likelihood: data.likelihood }),
         ...(data.impact !== undefined && { impact: data.impact }),
         ...(recompute && { score, level: riskLevelFromScore(score) }),
@@ -76,7 +73,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           dateIdentified: data.dateIdentified ? new Date(data.dateIdentified) : null,
         }),
       },
-      include: riskInclude,
     });
 
     // Audit field changes (best-effort). Label-keyed maps so the Activity log
@@ -91,7 +87,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         impact: existing.impact,
         owner: existing.owner,
         mitigation: existing.mitigation,
-        branchId: existing.branchId,
         category: existing.category,
         escalate: existing.escalate,
       },
@@ -102,7 +97,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         impact: updated.impact,
         owner: updated.owner,
         mitigation: updated.mitigation,
-        branchId: updated.branchId,
         category: updated.category,
         escalate: updated.escalate,
       },

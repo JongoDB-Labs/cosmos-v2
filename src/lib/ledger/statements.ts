@@ -76,6 +76,55 @@ export async function profitAndLoss(orgId: string, from?: Date, to?: Date) {
   const { accounts, lines } = await loadAccountsAndLines(orgId, Object.keys(dateFilter).length ? { date: dateFilter } : undefined);
   return computeProfitAndLoss(accounts, lines);
 }
+export type AccountBalance = {
+  code: string;
+  name: string;
+  type: AccountType;
+  /** Debit-positive: assets and expenses positive, the rest negative. */
+  balance: Prisma.Decimal;
+  /** Signed the way the account reads on a statement — revenue positive when earned. */
+  natural: Prisma.Decimal;
+};
+
+/**
+ * Per-account balances over a date range, from the same lines the statements
+ * use.
+ *
+ * `profitAndLoss` answers "what did the firm earn"; this answers "how much sat
+ * in each account while it did", which is what any ratio between two accounts
+ * needs. Exported rather than left to callers to assemble from `journalLine`,
+ * because a second implementation of debit-positive balancing is a second set of
+ * numbers, free to disagree with the statement it is supposed to explain.
+ *
+ * Both bounds are inclusive and optional: omit `from` for a cumulative
+ * position (a balance-sheet account), give both for period activity (a P&L one).
+ */
+export async function accountBalances(
+  orgId: string,
+  range?: { from?: Date; to?: Date },
+): Promise<AccountBalance[]> {
+  const dateFilter = {
+    ...(range?.from ? { gte: range.from } : {}),
+    ...(range?.to ? { lte: range.to } : {}),
+  };
+  const { accounts, lines } = await loadAccountsAndLines(
+    orgId,
+    Object.keys(dateFilter).length ? { date: dateFilter } : undefined,
+  );
+  assertClassified(accounts, lines);
+  const bal = debitPositiveBalances(lines);
+  return accounts.map((a) => {
+    const balance = bal.get(a.id) ?? ZERO();
+    return {
+      code: a.code ?? "",
+      name: a.name ?? "",
+      type: a.type,
+      balance,
+      natural: accountNaturalBalance(a.type, balance),
+    };
+  });
+}
+
 export async function balanceSheet(orgId: string, asOf?: Date) {
   const { accounts, lines } = await loadAccountsAndLines(orgId, asOf ? { date: { lte: asOf } } : undefined);
   return computeBalanceSheet(accounts, lines);

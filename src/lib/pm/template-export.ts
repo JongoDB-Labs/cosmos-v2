@@ -78,7 +78,6 @@ interface RegisterSpec {
 
 // ── data loading (mirrors export.ts buildProjectWorkbook) ────────────────────
 
-const branchSel = { programBranch: { select: { code: true } } };
 
 async function loadRegisterRows(
   tracker: Exclude<Tracker, "burn">,
@@ -91,13 +90,13 @@ async function loadRegisterRows(
   const rows = await (async () => {
     switch (tracker) {
       case "risks":
-        return prisma.risk.findMany({ where, include: branchSel, orderBy: { code: "asc" } });
+        return prisma.risk.findMany({ where, orderBy: { code: "asc" } });
       case "changes":
-        return prisma.changeRequest.findMany({ where, include: branchSel, orderBy: { code: "asc" } });
+        return prisma.changeRequest.findMany({ where, orderBy: { code: "asc" } });
       case "blockers":
-        return prisma.blocker.findMany({ where, include: branchSel, orderBy: { code: "asc" } });
+        return prisma.blocker.findMany({ where, orderBy: { code: "asc" } });
       case "deliverables":
-        return prisma.deliverable.findMany({ where, include: branchSel, orderBy: { code: "asc" } });
+        return prisma.deliverable.findMany({ where, orderBy: { code: "asc" } });
       case "schedule":
         return loadMilestonesWithDerived(orgId, projectId);
       case "staffing":
@@ -142,7 +141,7 @@ const REGISTERS: Record<Exclude<Tracker, "burn">, RegisterSpec> = {
     firstDataRow: 5,
     columns: [
       { headerMatch: "risk id", value: (x) => str(x.code) },
-      { headerMatch: "branch", value: (x) => branchCode(x) },
+      { headerMatch: "branch", value: () => "" },
       { headerMatch: "risk title", value: (x) => str(x.title) },
       { headerMatch: "risk description", value: (x) => str(x.description ?? x.mitigation) },
       { headerMatch: "category", value: (x) => str(x.category) },
@@ -167,7 +166,7 @@ const REGISTERS: Record<Exclude<Tracker, "burn">, RegisterSpec> = {
       { headerMatch: "change description", value: (x) => str(x.description) },
       { headerMatch: "change type", value: (x) => titleCase(str(x.type)) },
       { headerMatch: "initiated by", value: (x) => str(x.initiatedBy) },
-      { headerMatch: "branch impacted", value: (x) => branchCode(x) },
+      { headerMatch: "branch impacted", value: () => "" },
       { headerMatch: "cost impact", value: (x) => numOrBlank(x.costImpact) },
       { headerMatch: "schedule impact", value: (x) => numOrBlank(x.scheduleDaysImpact) },
       { headerMatch: "scope impact", value: (x) => str(x.scopeImpact) },
@@ -184,7 +183,7 @@ const REGISTERS: Record<Exclude<Tracker, "burn">, RegisterSpec> = {
     firstDataRow: 5, // R4 is an annotation sub-header; R5 is the "▶ COPY THIS ROW" template.
     columns: [
       { headerMatch: "blocker id", value: (x) => str(x.code) },
-      { headerMatch: "branch", value: (x) => branchCode(x) },
+      { headerMatch: "branch", value: () => "" },
       { headerMatch: "blocker type", value: (x) => titleCase(str(x.type)) },
       { headerMatch: "blocker title", value: (x) => str(x.title) },
       { headerMatch: "full description", value: (x) => str(x.description ?? x.whatUnblocks) },
@@ -203,15 +202,15 @@ const REGISTERS: Record<Exclude<Tracker, "burn">, RegisterSpec> = {
     firstDataRow: 5, // R4 annotation, R5 template row.
     columns: [
       { headerMatch: "milestone name", value: (x) => str(x.title) },
-      { headerMatch: "milestone type", value: (x) => str(x.milestoneType) },
-      { headerMatch: "branch", value: (x) => branchCode(x) },
+      { headerMatch: "milestone type", value: () => "" },
+      { headerMatch: "branch", value: () => "" },
       { headerMatch: "current projected", value: (x) => fmtDate(x.dueDate as Date) },
       // I/J (days variance, direction) are AUTO formulas — skip.
       { headerMatch: "status", value: (x) => statusLabel(str(x.status)) },
       { headerMatch: "root cause", value: (x) => str(x.rootCause) },
       { headerMatch: "downstream milestones", value: (x) => str(x.downstreamImpact) },
       { headerMatch: "escalate to", value: (x) => yesNo(x.scheduleEscalate) },
-      { headerMatch: "related cr", value: (x) => str(x.relatedRef) },
+      { headerMatch: "related cr", value: () => "" },
       { headerMatch: "notes", value: (x) => str(x.notes) },
     ],
   },
@@ -224,7 +223,7 @@ const REGISTERS: Record<Exclude<Tracker, "burn">, RegisterSpec> = {
       { headerMatch: "deliverable id", value: (x) => str(x.code) },
       { headerMatch: "clin", value: (x) => str(x.clin) },
       { headerMatch: "deliverable title", value: (x) => str(x.title) },
-      { headerMatch: "branch owner", value: (x) => str(x.branchOwner) || branchCode(x) },
+      { headerMatch: "branch owner", value: () => "" },
       { headerMatch: "deliverable owner", value: (x) => str(x.owner) },
       { headerMatch: "baseline due", value: (x) => fmtDate(x.baselineDue as Date) },
       { headerMatch: "actual submission", value: (x) => fmtDate(x.actualSubmission as Date) },
@@ -291,10 +290,6 @@ function numOrBlank(v: unknown): number | "" {
 }
 function yesNo(v: unknown): string {
   return v ? "Yes" : "No";
-}
-function branchCode(x: Record<string, unknown>): string {
-  const b = x.programBranch as { code?: string } | null | undefined;
-  return b?.code ?? "";
 }
 function titleCase(s: string): string {
   if (!s) return "";

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/client";
+import { allocateTicketNumber } from "@/lib/work-items/allocate";
 import { IntervalKind, SprintStatus } from "@prisma/client";
 import {
   IGNORE,
@@ -397,11 +398,13 @@ export async function runImport(
   }
 
   // ── commit ──
-  const maxTicket = await prisma.workItem.aggregate({
-    where: { orgId: ctx.orgId, projectId: ctx.projectId },
-    _max: { ticketNumber: true },
-  });
-  let nextTicket = (maxTicket._max.ticketNumber ?? 0) + 1;
+  // Ticket numbers are allocated per row, inside that row's own transaction,
+  // rather than counted up from one reading taken here. An import can run for a
+  // long time and its rows commit independently, so a counter captured up front
+  // goes stale the moment anyone else creates a ticket in this project — and
+  // every remaining row then collides with the unique constraint and lands in
+  // `commitErrors`. Allocating per row keeps each lock brief and lets an import
+  // interleave with ordinary work instead of failing against it.
 
   const done = new Set(existing); // externalIds already materialized (DB + this run)
   const keyToId = new Map<string, string>(); // externalKey → item id (this run)
@@ -453,17 +456,23 @@ export async function runImport(
         id = up.id;
         updated++;
       } else {
-        const cr = await prisma.workItem.create({
-          data: {
-            ...base,
+        const cr = await prisma.$transaction(async (tx) => {
+          const ticketNumber = await allocateTicketNumber(tx, {
             orgId: ctx.orgId,
             projectId: ctx.projectId,
-            ticketNumber: nextTicket++,
-            sortOrder: 0,
-            columnEnteredAt: new Date(),
-            createdById: ctx.userId,
-          },
-          select: { id: true },
+          });
+          return tx.workItem.create({
+            data: {
+              ...base,
+              orgId: ctx.orgId,
+              projectId: ctx.projectId,
+              ticketNumber,
+              sortOrder: 0,
+              columnEnteredAt: new Date(),
+              createdById: ctx.userId,
+            },
+            select: { id: true },
+          });
         });
         id = cr.id;
         created++;

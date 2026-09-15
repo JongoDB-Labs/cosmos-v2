@@ -16,7 +16,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import { matchesFilters } from "@/lib/work-items/board-filters";
+import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { cn } from "@/lib/utils";
+import { highlightLabel, highlightStyle } from "@/lib/work-items/highlights";
 import type { WorkItem, OrgMember, Interval, Board, BoardColumn } from "@/types/models";
 import { bareTypeKey } from "@/components/boards/shared/filter-bar";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
@@ -68,6 +72,15 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
   });
 
   const items: WorkItem[] = useMemo(() => itemsQ.data ?? [], [itemsQ.data]);
+
+  // The shared filter bar and the ONE shared predicate, same as every other
+  // board. Layered on top of whatever the board itself already narrows.
+  const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
+  const projectStatuses = useProjectStatuses(orgId, projectId);
+  const visibleItems = useMemo(
+    () => items.filter((it) => matchesFilters(it, filters)),
+    [items, filters],
+  );
   const members: OrgMember[] = membersQ.data ?? [];
   const columns: BoardColumn[] = boardQ.data?.columns ?? [];
   const intervals: Interval[] = useMemo(() => intervalsQ.data ?? [], [intervalsQ.data]);
@@ -95,15 +108,15 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
   // type). Each row buckets its features by the PI they're scheduled into.
   const rows = useMemo(() => {
     const childrenByParent = new Map<string, WorkItem[]>();
-    for (const it of items) {
+    for (const it of visibleItems) {
       if (!it.parentId) continue;
       const arr = childrenByParent.get(it.parentId) ?? [];
       arr.push(it);
       childrenByParent.set(it.parentId, arr);
     }
-    let lanes = items.filter(isEpic);
+    let lanes = visibleItems.filter(isEpic);
     if (lanes.length === 0) {
-      lanes = items.filter((i) => !i.parentId && childrenByParent.has(i.id));
+      lanes = visibleItems.filter((i) => !i.parentId && childrenByParent.has(i.id));
     }
     lanes = [...lanes].sort((a, b) => a.sortOrder - b.sortOrder);
 
@@ -121,7 +134,7 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
       }
       return { epic, feats, total: feats.length, done, byCol };
     });
-  }, [items]);
+  }, [visibleItems]);
 
   // Only render PI columns that actually hold a feature somewhere (keeps the grid
   // from sprawling across empty future PIs) — but always keep the real PIs; drop
@@ -136,12 +149,28 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
 
   if (rows.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center p-6">
+      // The bar renders ABOVE the empty state on purpose: filtering can now
+      // EMPTY this board, and hiding the control that did it strands the user
+      // on a blank screen with no way back.
+      <div className="flex h-full flex-col">
+        <div className="border-b border-[var(--border)] px-4 py-2">
+          <FilterBar
+            filters={filters}
+            onFilterChange={setFilters}
+            members={membersQ.data ?? []}
+            intervals={[]}
+            teams={[]}
+            orgId={orgId}
+            boardColumns={projectStatuses}
+          />
+        </div>
+        <div className="flex flex-1 items-center justify-center p-6">
         <EmptyState
           icon={MapIcon}
           title="No epics to roadmap yet"
           description="Create Epic-type work items (with Features under them) and assign them to increments — they'll appear here as strategic swimlanes across your PIs."
         />
+        </div>
       </div>
     );
   }
@@ -158,6 +187,17 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
 
   return (
     <div className="flex h-full flex-col">
+      <div className="border-b border-[var(--border)] px-4 py-2">
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={membersQ.data ?? []}
+          intervals={[]}
+          teams={[]}
+          orgId={orgId}
+          boardColumns={projectStatuses}
+        />
+      </div>
       {/* toolbar */}
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-[var(--border)] px-4 py-2 text-sm">
         <div className="flex items-center gap-2 font-medium text-[var(--text)]">
@@ -292,6 +332,7 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
       </div>
 
       <CardDetailSheet
+        statusColumns={projectStatuses}
         item={detailItem}
         open={detailItem !== null}
         onOpenChange={(o) => !o && setDetailId(null)}
@@ -322,6 +363,12 @@ function FeatureCard({ item, onClick }: { item: WorkItem; onClick: () => void })
   return (
     <button
       onClick={onClick}
+      data-highlight={item.highlight ?? undefined}
+      // Read-only here: this card has no context menu, so the highlight is set
+      // from the detail sheet this button opens (or from any board that does
+      // have one) and rendered here.
+      style={highlightStyle(item.highlight)}
+      title={highlightLabel(item.highlight) ?? undefined}
       className={cn(
         "flex w-full items-start gap-1.5 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-left text-xs transition-colors hover:border-[var(--primary)]",
         done && "opacity-70",

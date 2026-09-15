@@ -9,12 +9,15 @@ import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { loadMilestonesWithDerived } from "@/lib/pm/schedule";
+import { assertMilestoneInterval } from "@/lib/pm/milestone-interval";
 import { logPmActivity } from "@/lib/pm/activity-log";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 const milestoneInclude = {
-  programBranch: { select: { id: true, code: true, name: true } },
+  interval: {
+    select: { id: true, number: true, name: true, startDate: true, endDate: true },
+  },
 };
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
@@ -40,8 +43,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 const createSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().nullish(),
-  phase: z.string().max(120).nullish(),
-  branchId: z.string().uuid().nullish(),
+  intervalId: z.string().uuid().nullish(),
   dueDate: z.string().min(1), // required
   actualDate: z.string().nullish(),
   status: z.nativeEnum(MilestoneStatus).default(MilestoneStatus.UPCOMING),
@@ -50,9 +52,7 @@ const createSchema = z.object({
   recoveryTarget: z.string().nullish(),
   scheduleEscalate: z.boolean().default(false),
   autoStatus: z.boolean().default(true), // derive status from linked work items
-  milestoneType: z.string().nullish(),
   downstreamImpact: z.string().nullish(),
-  relatedRef: z.string().nullish(),
   notes: z.string().nullish(),
 });
 
@@ -69,6 +69,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!project) return new Response("Not found", { status: 404 });
 
     const data = createSchema.parse(await request.json());
+    await assertMilestoneInterval(data.intervalId, orgId, projectId);
     const dueDate = new Date(data.dueDate);
 
     const created = await prisma.milestone.create({
@@ -77,8 +78,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         projectId,
         title: data.title,
         description: data.description ?? null,
-        phase: data.phase ?? null,
-        branchId: data.branchId ?? null,
+        intervalId: data.intervalId ?? null,
         dueDate,
         actualDate: data.actualDate ? new Date(data.actualDate) : null,
         status: data.status,
@@ -87,9 +87,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         recoveryTarget: data.recoveryTarget ? new Date(data.recoveryTarget) : null,
         scheduleEscalate: data.scheduleEscalate,
         autoStatus: data.autoStatus,
-        milestoneType: data.milestoneType ?? null,
         downstreamImpact: data.downstreamImpact ?? null,
-        relatedRef: data.relatedRef ?? null,
         notes: data.notes ?? null,
       },
       include: milestoneInclude,

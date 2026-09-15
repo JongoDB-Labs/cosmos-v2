@@ -94,8 +94,19 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         const completionPercentage =
           totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
 
+        // Excludes the Program Increment, which is ACTIVE for as long as any
+        // sprint inside it runs — an unqualified findFirst here reported the
+        // increment's name as the project's current iteration on the portfolio
+        // view. Ordered too: a findFirst without one returns whatever the
+        // planner picks, which is not stable across runs.
         const activeInterval = await prisma.interval.findFirst({
-          where: { orgId, projectId: project.id, status: "ACTIVE" },
+          where: {
+            orgId,
+            projectId: project.id,
+            status: "ACTIVE",
+            intervalKind: { not: "PROGRAM_INCREMENT" },
+          },
+          orderBy: { number: "desc" },
           select: { name: true },
         });
 

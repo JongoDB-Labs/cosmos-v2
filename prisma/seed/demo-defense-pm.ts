@@ -1,5 +1,5 @@
 /**
- * Govcon PM-Dashboard demo seed — adds the 6 program branches, plus Risks,
+ * Govcon PM-Dashboard demo seed — adds Risks,
  * Deliverables, Blockers, and Change Requests to "Apex Defense Systems" /
  * SENTINEL so the PM Dashboard and its Government / Executive views show
  * realistic content.
@@ -78,17 +78,6 @@ async function main() {
   if (!project) throw new Error(`project "${PKEY}" not found — run demo-defense.ts first`);
   const base = { orgId: org.id, projectId: project.id };
 
-  // Branches first — build a code -> id map for FK wiring.
-  const branchId: Record<string, string> = {};
-  for (const [i, b] of BRANCHES.entries()) {
-    const row = await prisma.programBranch.upsert({
-      where: { orgId_code: { orgId: org.id, code: b.code } },
-      update: { name: b.name, sortOrder: i },
-      create: { orgId: org.id, code: b.code, name: b.name, sortOrder: i },
-    });
-    branchId[b.code] = row.id;
-  }
-
   const risks: RiskSeed[] = [
     { code: "R-001", title: "ATO timeline slip", description: "RMF package submission may slip due to incomplete STIG remediation, blocking the phase gate.", category: "Security", branchCode: "3.0", likelihood: 4, impact: 5, owner: "Security Lead", mitigation: "Accelerate STIG remediation; prioritize ATO-blocking findings.", status: "OPEN", trend: "↑ Increasing", escalate: true, targetDate: d(45) },
     { code: "R-002", title: "C3PAO assessment scheduling delay", description: "Limited C3PAO availability may push the CMMC L2 assessment window.", category: "Schedule", branchCode: "1.0", likelihood: 3, impact: 4, owner: "PM", mitigation: "Hold tentative dates with two C3PAOs.", status: "MITIGATING", trend: "→ Stable", escalate: false, targetDate: d(30) },
@@ -100,10 +89,10 @@ async function main() {
     const branch = BRANCHES.find((b) => b.code === r.branchCode)!;
     await prisma.risk.upsert({
       where: { orgId_code: { orgId: org.id, code: r.code } },
-      update: { branchId: branchId[r.branchCode] },
+      update: {},
       create: {
         ...base, code: r.code, title: r.title, description: r.description, category: r.category,
-        branch: `${branch.code} ${branch.name}`, branchId: branchId[r.branchCode],
+        branch: `${branch.code} ${branch.name}`,
         likelihood: r.likelihood, impact: r.impact, score, level: riskLevelFromScore(score),
         owner: r.owner, mitigation: r.mitigation, status: r.status, trend: r.trend,
         escalate: r.escalate, targetDate: r.targetDate,
@@ -120,8 +109,8 @@ async function main() {
   for (const x of deliverables) {
     await prisma.deliverable.upsert({
       where: { orgId_code: { orgId: org.id, code: x.code } },
-      update: { branchId: branchId[x.branchCode] },
-      create: { ...base, code: x.code, title: x.title, clin: x.clin, branchId: branchId[x.branchCode], status: x.status, baselineDue: x.baselineDue, actualSubmission: x.actualSubmission, owner: x.owner },
+      update: {},
+      create: { ...base, code: x.code, title: x.title, clin: x.clin, status: x.status, baselineDue: x.baselineDue, actualSubmission: x.actualSubmission, owner: x.owner },
     });
   }
 
@@ -133,8 +122,8 @@ async function main() {
   for (const b of blockers) {
     await prisma.blocker.upsert({
       where: { orgId_code: { orgId: org.id, code: b.code } },
-      update: { branchId: branchId[b.branchCode] },
-      create: { ...base, code: b.code, title: b.title, description: b.description, branchId: branchId[b.branchCode], type: b.type, status: b.status, whatUnblocks: b.whatUnblocks, owner: b.owner, customerNotified: b.customerNotified, escalate: b.escalate },
+      update: {},
+      create: { ...base, code: b.code, title: b.title, description: b.description, type: b.type, status: b.status, whatUnblocks: b.whatUnblocks, owner: b.owner, customerNotified: b.customerNotified, escalate: b.escalate },
     });
   }
 
@@ -145,8 +134,8 @@ async function main() {
   for (const c of changes) {
     await prisma.changeRequest.upsert({
       where: { orgId_code: { orgId: org.id, code: c.code } },
-      update: { branchId: branchId[c.branchCode] },
-      create: { ...base, code: c.code, title: c.title, description: c.description, type: c.type, branchId: branchId[c.branchCode], status: c.status, costImpact: c.costImpact, scheduleDaysImpact: c.scheduleDaysImpact, modRequired: c.modRequired },
+      update: {},
+      create: { ...base, code: c.code, title: c.title, description: c.description, type: c.type, status: c.status, costImpact: c.costImpact, scheduleDaysImpact: c.scheduleDaysImpact, modRequired: c.modRequired },
     });
   }
 

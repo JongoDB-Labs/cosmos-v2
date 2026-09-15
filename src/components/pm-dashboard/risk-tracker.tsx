@@ -38,19 +38,12 @@ import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 type RiskStatus = "OPEN" | "MONITORING" | "MITIGATED" | "CLOSED" | "ESCALATED";
 
-interface BranchLite {
-  id: string;
-  code: string;
-  name: string;
-}
 interface Risk {
   id: string;
   code: string;
   title: string;
   description: string | null;
   category: string | null;
-  branchId: string | null;
-  programBranch: BranchLite | null;
   likelihood: number;
   impact: number;
   score: number;

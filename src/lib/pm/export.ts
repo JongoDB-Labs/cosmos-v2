@@ -17,7 +17,6 @@ function fmtDate(d: Date | string | null | undefined): string {
 const num = (d: { toString(): string } | number | null | undefined): number | "" =>
   d == null ? "" : Number(d);
 
-const branchSel = { programBranch: { select: { code: true } } };
 
 /** The 8 PM register trackers, in the order their sheets appear in the workbook. */
 export type ExportTracker =
@@ -51,10 +50,10 @@ export async function buildProjectWorkbook(
   const where = { orgId, projectId };
   const [risks, changes, blockers, deliverables, milestones, vendors, staffing, clins] =
     await Promise.all([
-      prisma.risk.findMany({ where, include: branchSel, orderBy: { code: "asc" } }),
-      prisma.changeRequest.findMany({ where, include: branchSel, orderBy: { code: "asc" } }),
-      prisma.blocker.findMany({ where, include: branchSel, orderBy: { code: "asc" } }),
-      prisma.deliverable.findMany({ where, include: branchSel, orderBy: { code: "asc" } }),
+      prisma.risk.findMany({ where, orderBy: { code: "asc" } }),
+      prisma.changeRequest.findMany({ where, orderBy: { code: "asc" } }),
+      prisma.blocker.findMany({ where, orderBy: { code: "asc" } }),
+      prisma.deliverable.findMany({ where, orderBy: { code: "asc" } }),
       loadMilestonesWithDerived(orgId, projectId),
       prisma.contract.findMany({
         where,
@@ -79,30 +78,29 @@ export async function buildProjectWorkbook(
   };
 
   if (want("risks")) addSheet("Risks", risks.map((r) => ({
-    ID: r.code, Title: r.title, Branch: r.programBranch?.code ?? "", Category: r.category ?? "",
+    ID: r.code, Title: r.title, Category: r.category ?? "",
     Likelihood: r.likelihood, Impact: r.impact, Score: r.score, Level: r.level,
     Owner: r.owner ?? "", Status: r.status, Mitigation: r.mitigation ?? "",
   })));
   if (want("changes")) addSheet("Change Log", changes.map((c) => ({
-    ID: c.code, Title: c.title, Type: c.type, Branch: c.programBranch?.code ?? "",
+    ID: c.code, Title: c.title, Type: c.type,
     Submitted: fmtDate(c.submittedDate), "Cost Impact": num(c.costImpact), "Schedule Days": c.scheduleDaysImpact ?? "",
     "Scope Impact": c.scopeImpact ?? "", "Initiated By": c.initiatedBy ?? "",
     "Decision Authority": c.decisionAuthority ?? "", Status: c.status, Notes: c.notes ?? "",
   })));
   if (want("blockers")) addSheet("Blocked Items", blockers.map((b) => ({
-    ID: b.code, Title: b.title, Type: b.type, Branch: b.programBranch?.code ?? "",
+    ID: b.code, Title: b.title, Type: b.type,
     Owner: b.owner ?? "", "What Unblocks": b.whatUnblocks ?? "", "Related Ref": b.relatedRef ?? "",
     Escalated: b.escalate ? "Yes" : "", Status: b.status, Notes: b.notes ?? "",
   })));
   if (want("schedule")) addSheet("Schedule", milestones.map((m) => ({
-    Title: m.title, Type: m.milestoneType ?? "", Branch: m.programBranch?.code ?? "",
+    Title: m.title, "Program Increment": m.interval?.name ?? "",
     "Projected End": fmtDate(m.dueDate), Actual: fmtDate(m.actualDate), Status: m.status, "Progress %": m.completionPercent ?? "",
     "Root Cause": m.rootCause ?? "", "Downstream Impact": m.downstreamImpact ?? "",
-    "Related Ref": m.relatedRef ?? "", Escalate: m.scheduleEscalate ? "Yes" : "", Notes: m.notes ?? "",
+    Escalate: m.scheduleEscalate ? "Yes" : "", Notes: m.notes ?? "",
   })));
   if (want("deliverables")) addSheet("Deliverables", deliverables.map((d) => ({
-    ID: d.code, Title: d.title, CLIN: d.clin ?? "", Branch: d.programBranch?.code ?? "",
-    "Branch Owner": d.branchOwner ?? "", "Baseline Due": fmtDate(d.baselineDue),
+    ID: d.code, Title: d.title, CLIN: d.clin ?? "", "Baseline Due": fmtDate(d.baselineDue),
     "Actual Submission": fmtDate(d.actualSubmission), Status: d.status, Owner: d.owner ?? "",
     "Work Item Ref": d.workItemRef ?? "", Notes: d.notes ?? "",
   })));

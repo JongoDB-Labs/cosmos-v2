@@ -21,6 +21,7 @@ import { StaggeredGrid } from "@/components/ui/staggered-grid";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HomeDashboard } from "@/components/home/home-dashboard";
 import { PluginSlot } from "@/components/plugins/plugin-slot";
+import { formatDateStable } from "@/lib/format/stable-date";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -229,7 +230,7 @@ async function ProjectGrid({
           </div>
           <Badge variant="progress">Active</Badge>
           <p className="mt-3 text-xs text-[var(--text-muted)]">
-            Updated {new Date(p.updatedAt).toLocaleDateString()}
+            Updated {formatDateStable(p.updatedAt)}
           </p>
         </Link>
       ))}

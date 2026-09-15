@@ -13,13 +13,11 @@ type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; blockerId: string }>;
 };
 
-const blockerInclude = { programBranch: { select: { id: true, code: true, name: true } } };
 
 const updateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().nullish(),
   type: z.nativeEnum(BlockerType).optional(),
-  branchId: z.string().uuid().nullish(),
   source: z.string().max(200).nullish(),
   identifiedBy: z.string().max(120).nullish(),
   owner: z.string().max(120).nullish(),
@@ -55,7 +53,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ...(data.title !== undefined && { title: data.title }),
         ...(data.description !== undefined && { description: data.description }),
         ...(data.type !== undefined && { type: data.type }),
-        ...(data.branchId !== undefined && { branchId: data.branchId }),
         ...(data.source !== undefined && { source: data.source }),
         ...(data.identifiedBy !== undefined && { identifiedBy: data.identifiedBy }),
         ...(data.owner !== undefined && { owner: data.owner }),
@@ -74,7 +71,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ...(data.relatedRef !== undefined && { relatedRef: data.relatedRef }),
         ...(data.notes !== undefined && { notes: data.notes }),
       },
-      include: blockerInclude,
     });
 
     // Audit field changes (best-effort). Label-keyed maps so the Activity log
@@ -86,7 +82,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         title: existing.title,
         status: existing.status,
         type: existing.type,
-        branchId: existing.branchId,
         owner: existing.owner,
         source: existing.source,
         identifiedBy: existing.identifiedBy,
@@ -100,7 +95,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         title: updated.title,
         status: updated.status,
         type: updated.type,
-        branchId: updated.branchId,
         owner: updated.owner,
         source: updated.source,
         identifiedBy: updated.identifiedBy,

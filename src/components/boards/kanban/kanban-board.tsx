@@ -31,29 +31,20 @@ import {
   serializeFilters,
   bareTypeKey,
   customFieldHasValue,
-  matchesCustomFieldFilters,
   type BoardFilters,
 } from "@/components/boards/shared/filter-bar";
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
-import { matchesLabelFilter, presentLabels } from "@/lib/work-items/label-filter";
-import { matchesOneOf, matchesDuePreset } from "@/lib/work-items/metadata-filters";
+import { matchesFilters } from "@/lib/work-items/board-filters";
+import { presentLabels } from "@/lib/work-items/label-filter";
 import {
   blockedItemIds,
-  matchesBlocked,
   milestoneItemIds,
-  matchesMilestone,
   presentStoryPoints,
-  matchesStoryPoints,
 } from "@/lib/work-items/relation-filters";
-import { matchesEstimateBand, hasAnyEstimate } from "@/lib/work-items/estimate-filter";
-import {
-  teamsByUser,
-  teamLaneFor,
-  itemMatchesTeam,
-  type TeamLike,
-} from "@/lib/teams/item-teams";
+import { hasAnyEstimate } from "@/lib/work-items/estimate-filter";
+import { teamsByUser, teamLaneFor, type TeamLike } from "@/lib/teams/item-teams";
 import { selectRange } from "@/lib/boards/multi-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -73,6 +64,11 @@ import { useOrgSlug } from "@/lib/query/keys";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
+import {
+  MoveDatesDialog,
+  type MoveDatesPrompt,
+} from "@/components/boards/shared/move-dates-dialog";
+import { blockingChildren, describeBlockers } from "@/lib/boards/parent-done-guard";
 import type {
   Board,
   BoardColumn,
@@ -100,6 +96,13 @@ interface KanbanBoardProps {
    * actually showing, instead of highlighting a sprint the board has moved off.
    */
   onIntervalChange?: (intervalId: string | null) => void;
+  /**
+   * Whether to offer the Milestone filter. A milestone spans months and cuts
+   * across sprints, so on a board already scoped to ONE sprint it filters a set
+   * that is nearly always all-or-nothing — noise in a row of controls that
+   * should earn their space. Cross-sprint boards keep it.
+   */
+  showMilestoneFilter?: boolean;
 }
 
 // Separator for composite swimlane droppable ids: `${laneId}::${columnKey}`.
@@ -142,6 +145,7 @@ function KanbanBoardInner({
   boardId,
   initialIntervalId,
   onIntervalChange,
+  showMilestoneFilter = true,
 }: KanbanBoardProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -202,6 +206,11 @@ function KanbanBoardInner({
   const canBulkEdit = can(Permission.ITEM_BULK_EDIT);
   const canBulkDelete = can(Permission.ITEM_DELETE);
   const [selectMode, setSelectMode] = useState(false);
+  // Set when a move causes the SERVER to stamp an actual start/end, so the user
+  // can correct it. Detected from the PUT response rather than re-deriving the
+  // rule client-side — the server owns which columns mean started/finished.
+  const [datePrompt, setDatePrompt] = useState<MoveDatesPrompt | null>(null);
+
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkPending, setBulkPending] = useState(false);
   // Selection anchor for shift-click range selection: the last card the user
@@ -336,16 +345,20 @@ function KanbanBoardInner({
               staleTime,
             })
             .catch(() => null),
-          qc
-            .fetchQuery({
-              queryKey: milestonesKey,
-              queryFn: () =>
-                jsonFetch<{ id: string; title: string; links?: { workItemId: string }[] }[]>(
-                  `${basePath}/milestones`,
-                ),
-              staleTime,
-            })
-            .catch(() => null),
+          // Skipped entirely when the filter is hidden — a request whose only
+          // consumer is a control that will not render.
+          showMilestoneFilter
+            ? qc
+                .fetchQuery({
+                  queryKey: milestonesKey,
+                  queryFn: () =>
+                    jsonFetch<{ id: string; title: string; links?: { workItemId: string }[] }[]>(
+                      `${basePath}/milestones`,
+                    ),
+                  staleTime,
+                })
+                .catch(() => null)
+            : Promise.resolve(null),
           qc
             .fetchQuery({
               queryKey: teamsKey,
@@ -463,67 +476,19 @@ function KanbanBoardInner({
   const presentPointValues = useMemo(() => presentStoryPoints(items), [items]);
   const showEstimate = useMemo(() => hasAnyEstimate(items), [items]);
 
-  const filteredItems = items.filter((item) => {
-    if (
-      filters.search &&
-      !item.title.toLowerCase().includes(filters.search.toLowerCase()) &&
-      !String(item.ticketNumber).includes(filters.search)
-    ) {
-      return false;
-    }
-    if (
-      filters.types.length > 0 &&
-      !filters.types.includes(bareTypeKey(item.workItemType?.key))
-    ) {
-      return false;
-    }
-    if (
-      filters.priorities.length > 0 &&
-      !filters.priorities.includes(item.priority)
-    ) {
-      return false;
-    }
-    // Multi-assign: match the primary OR any member of the assignee set.
-    if (
-      filters.assigneeId &&
-      item.assigneeId !== filters.assigneeId &&
-      !item.assignees?.some((a) => a.userId === filters.assigneeId)
-    ) {
-      return false;
-    }
-    if (filters.intervalId && item.intervalId !== filters.intervalId) {
-      return false;
-    }
-    // A team's work is what its members are assigned. Unlike the swimlane, this
-    // is a membership test, so an item owned by someone on two teams matches
-    // both — filtering to one team must not hide work whose owner also helps
-    // out elsewhere.
-    if (!itemMatchesTeam(item.assigneeId, filters.teamId, teamsByUserId)) {
-      return false;
-    }
-    if (!matchesLabelFilter(item.tags, filters.labels)) {
-      return false;
-    }
-    if (!matchesOneOf(item.columnKey, filters.columnKeys)) return false;
-    if (!matchesOneOf(item.workCategory, filters.workCategories)) return false;
-    if (filters.createdById && item.createdById !== filters.createdById) return false;
-    if (!matchesDuePreset(item.dueDate, filters.due, filterNow)) return false;
-    if (!matchesMilestone(item.id, filters.milestoneId, milestoneMap)) return false;
-    if (!matchesBlocked(item.id, filters.blocked, blockedIds)) return false;
-    if (!matchesStoryPoints(item.storyPoints, filters.storyPoints)) return false;
-    if (!matchesEstimateBand(item.originalEstimate, filters.estimate)) return false;
-
-    if (
-      !matchesCustomFieldFilters(
-        item.customFields,
-        filters.customFields,
-        projectCustomFields,
-      )
-    ) {
-      return false;
-    }
-    return true;
-  });
+  // ONE predicate, shared with every other board — see lib/work-items/board-filters.
+  //
+  // This was a 61-line copy of it, clause for clause and in the same order. A
+  // second copy is how the two drift apart, and a filter that quietly means
+  // something different depending on which board you are looking at is worse
+  // than no filter at all. A team's work is still a membership test, so an item
+  // owned by someone on two teams matches both.
+  const filteredItems = items.filter((item) =>
+    matchesFilters(item, filters, projectCustomFields, teamsByUserId, filterNow, {
+      blocked: blockedIds,
+      milestones: milestoneMap,
+    }),
+  );
 
   // Selection narrowed to what's actually on screen under the current filters.
   // Drives the "N selected" counter, the Delete confirm label, and the bulk
@@ -768,6 +733,33 @@ function KanbanBoardInner({
         toast.warning(`"${label}" is at its limit (${wipLimit})`);
       }
 
+      // A parent finishes when its children do. Letting one into a Done column
+      // over open children makes every rollup lie — the board says finished, the
+      // children say otherwise, and the timeline stamps a completion on a span
+      // that has not closed. This BLOCKS, unlike the old "move the parent too?"
+      // prompt, which pushed the opposite way and asked on every ordinary move.
+      //
+      // Children come from the item's own relation, not from the board's visible
+      // list: a filter that hides a child must not quietly unlock the parent.
+      if (isEnteringNewColumn && targetColumn?.category === "DONE") {
+        const kids = (movedItem.children ?? []).map((c) => ({
+          id: c.id,
+          title: c.title,
+          columnKey: c.columnKey ?? null,
+        }));
+        const settled = (cat: string) =>
+          new Set(columns.filter((c) => c.category === cat).map((c) => c.key));
+        const blockers = blockingChildren(kids, settled("DONE"), settled("CANCELLED"));
+        if (blockers.length > 0) {
+          applyItems(beforeDragItemsRef.current);
+          notifyError(
+            new Error("children-open"),
+            `Finish ${describeBlockers(blockers)} first — "${movedItem.title}" still has open children.`,
+          );
+          return;
+        }
+      }
+
       // Build the target column's new order (moved card inserted at newOrder)
       // and re-sequence EVERY card in it to a unique 0..n sortOrder. The server
       // stores sortOrder verbatim (no sibling shift), so assigning the moved
@@ -835,6 +827,32 @@ function KanbanBoardInner({
           );
           if (results.some((r) => !r.ok)) {
             throw new Error("Failed to persist the new order");
+          }
+          // Did the server stamp an actual date on this move? Compare the echoed
+          // item against the pre-drag snapshot: a field that was empty and now
+          // holds a value was auto-captured, and "now" is only right if the board
+          // is being updated the same day the work happened.
+          const moved = await results[0].json().catch(() => null);
+          const savedItem = (moved?.data ?? moved) as WorkItem | null;
+          // Ask about dates whenever a move STARTS or FINISHES work, and never
+          // otherwise. Shuffling within the backlog says nothing about when
+          // anything happened, so a prompt there is pure friction; those two
+          // moves are the only ones that stamp an actual.
+          const targetCat = columns.find((c) => c.key === targetColumnKey)?.category;
+          if (savedItem && (targetCat === "IN_PROGRESS" || targetCat === "DONE")) {
+            setDatePrompt({
+              itemId: activeId,
+              itemTitle: savedItem.title,
+              columnName:
+                columns.find((c) => c.key === targetColumnKey)?.name ?? targetColumnKey,
+              phase: targetCat === "DONE" ? "finished" : "started",
+              current: {
+                startDate: savedItem.startDate ?? null,
+                dueDate: savedItem.dueDate ?? null,
+                actualStart: savedItem.actualStart ?? null,
+                completedAt: savedItem.completedAt ?? null,
+              },
+            });
           }
         } catch (err) {
           console.error("Failed to update work item position:", err);
@@ -975,7 +993,7 @@ function KanbanBoardInner({
         teams={teams}
         presentLabelNames={presentLabelNames}
         boardColumns={columns}
-        milestoneOptions={milestones}
+        milestoneOptions={showMilestoneFilter ? milestones : []}
         presentPointValues={presentPointValues}
         showEstimate={showEstimate}
         orgId={orgId}
@@ -1236,6 +1254,30 @@ function KanbanBoardInner({
           )}
         </DragOverlay>
       </DndContext>
+
+      <MoveDatesDialog
+        prompt={datePrompt}
+        onClose={() => setDatePrompt(null)}
+        onConfirm={(itemId, changes) => {
+          // Optimistic: the board already shows the card in its new column, and
+          // the dates it displays come from these fields.
+          applyItems((prev) =>
+            prev.map((i) => (i.id === itemId ? { ...i, ...changes } : i)),
+          );
+          void (async () => {
+            try {
+              const res = await fetch(`${basePath}/work-items/${itemId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(changes),
+              });
+              if (!res.ok) throw new Error("Failed to save the dates");
+            } catch (err) {
+              notifyError(err, "Couldn't save the dates — the card kept what it had.");
+            }
+          })();
+        }}
+      />
 
       <CardDetailSheet
         item={detailItem}

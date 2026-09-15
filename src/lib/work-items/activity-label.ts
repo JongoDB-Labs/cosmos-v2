@@ -19,6 +19,8 @@
  * saying nothing is the only phrasing that is true in both.
  */
 
+import { formatDateStable } from "@/lib/format/stable-date";
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const FIELD_LABELS: Record<string, string> = {
@@ -70,6 +72,14 @@ export function activityValueLabel(
     case "workItemTypeId":
       resolved = resolvers.type?.(value);
       break;
+    // Dates are stored as ISO strings so the trail is unambiguous and
+    // machine-comparable; the FEED should read like a date. formatDateStable
+    // pins locale + zone, so this renders identically on server and client.
+    case "startDate":
+    case "dueDate":
+    case "actualStart":
+    case "completedAt":
+      return formatDateStable(value) || value;
     case "columnKey":
       // columnKey is a slug (e.g. "in_progress"), not a GUID — resolve to the
       // column's display name when known, else show the slug itself.

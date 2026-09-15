@@ -8,7 +8,6 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
-import { resolveBranchScope, branchScopeWhere } from "@/lib/rbac/branch-scope";
 import { logPmActivity } from "@/lib/pm/activity-log";
 import { classificationOmit } from "@/lib/compliance/classification";
 import { assertOrgMember } from "@/lib/rbac/assert-org-member";
@@ -16,7 +15,6 @@ import { assertOrgMember } from "@/lib/rbac/assert-org-member";
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 const deliverableInclude = {
-  programBranch: { select: { id: true, code: true, name: true } },
   ownerUser: { select: { id: true, displayName: true, avatarUrl: true } },
 };
 
@@ -32,9 +30,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });
 
-    const branchScope = await resolveBranchScope(orgId, ctx.userId);
     const deliverables = await prisma.deliverable.findMany({
-      where: { orgId, projectId, ...branchScopeWhere(branchScope) },
+      where: { orgId, projectId },
       include: deliverableInclude,
       omit: classificationOmit(org.tenantClass),
       orderBy: [{ baselineDue: "asc" }, { createdAt: "desc" }],
@@ -50,7 +47,6 @@ const createSchema = z.object({
   description: z.string().nullish(),
   deliverableType: z.string().max(80).nullish(),
   clin: z.string().max(80).nullish(),
-  branchId: z.string().uuid().nullish(),
   owner: z.string().max(120).nullish(),
   ownerUserId: z.string().uuid().nullish(),
   baselineDue: z.string().nullish(),
@@ -62,7 +58,6 @@ const createSchema = z.object({
   revRequired: z.boolean().default(false),
   escalate: z.boolean().default(false),
   status: z.nativeEnum(DeliverableStatus).default(DeliverableStatus.NOT_STARTED),
-  branchOwner: z.string().nullish(),
   workItemRef: z.string().nullish(),
   notes: z.string().nullish(),
 });
@@ -103,7 +98,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         description: data.description ?? null,
         deliverableType: data.deliverableType ?? null,
         clin: data.clin ?? null,
-        branchId: data.branchId ?? null,
         owner: data.owner ?? null,
         ownerUserId: data.ownerUserId ?? null,
         baselineDue: data.baselineDue ? new Date(data.baselineDue) : null,
@@ -115,7 +109,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         revRequired: data.revRequired,
         escalate: data.escalate,
         status: data.status,
-        branchOwner: data.branchOwner ?? null,
         workItemRef: data.workItemRef ?? null,
         notes: data.notes ?? null,
       },

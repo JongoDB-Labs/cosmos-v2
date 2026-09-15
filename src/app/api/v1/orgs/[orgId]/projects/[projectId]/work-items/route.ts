@@ -9,6 +9,10 @@ import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
+import {
+  allocateTicketNumber,
+  allocateSortOrder,
+} from "@/lib/work-items/allocate";
 import { z } from "zod";
 import { Priority, Prisma } from "@prisma/client";
 
@@ -66,6 +70,19 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const sp = request.nextUrl.searchParams;
     const where: Record<string, unknown> = { orgId, projectId };
 
+    // Archived items are out of the way by default. This route feeds the BOARD
+    // surfaces (kanban, table, backlog, timeline), which query it directly
+    // rather than through the shared where-builder — so the rule has to be
+    // stated in both places, and `archive-filtering.test.ts` pins that it is.
+    //
+    // Same vocabulary as the shared builder: `?archived=only` selects them,
+    // `?archived=all` (or the `?includeArchived=1` alias that shipped first)
+    // shows both, anything else means active.
+    const archivedMode = sp.get("archived");
+    if (archivedMode === "only") where.archivedAt = { not: null };
+    else if (archivedMode !== "all" && sp.get("includeArchived") !== "1")
+      where.archivedAt = null;
+
     if (sp.get("workItemTypeId")) where.workItemTypeId = sp.get("workItemTypeId");
     if (sp.get("priority")) where.priority = sp.get("priority");
     if (sp.get("columnKey")) where.columnKey = sp.get("columnKey");
@@ -81,7 +98,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where,
       include: {
         parent: { select: { id: true, title: true, ticketNumber: true, workItemTypeId: true } },
-        children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true } },
+        children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true, completedAt: true } },
         workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
         assignees: {
           orderBy: { sortOrder: "asc" },
@@ -168,17 +185,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const item = await prisma.$transaction(async (tx) => {
-      const maxTicket = await tx.workItem.aggregate({
-        where: { orgId, projectId },
-        _max: { ticketNumber: true },
+      const ticketNumber = await allocateTicketNumber(tx, { orgId, projectId });
+      const sortOrder = await allocateSortOrder(tx, {
+        orgId,
+        projectId,
+        columnKey: data.columnKey,
       });
-      const ticketNumber = (maxTicket._max.ticketNumber ?? 0) + 1;
-
-      const maxSort = await tx.workItem.aggregate({
-        where: { orgId, projectId, columnKey: data.columnKey },
-        _max: { sortOrder: true },
-      });
-      const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
 
       // Full assignee set: explicit list wins; a legacy single assigneeId
       // becomes a one-member set. First member is the primary.
@@ -220,7 +232,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           createdById: ctx.userId,
         },
         include: {
-          children: { select: { id: true, title: true, columnKey: true, workItemTypeId: true } },
+          children: { select: { id: true, title: true, columnKey: true, workItemTypeId: true, completedAt: true } },
           workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
           assignees: {
             orderBy: { sortOrder: "asc" },

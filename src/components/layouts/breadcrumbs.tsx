@@ -49,6 +49,7 @@ const LABEL_OVERRIDES: Record<string, string> = {
   "pm-dashboard": "PM Dashboard",
   // Built-in boards, core set.
   "okr-view": "OKR View",
+  "sprint-review-retro": "Sprint Review / Retro",
   "raid-log": "RAID Log",
   "rfi-tracker": "RFI Tracker",
   "timeline-gantt": "Timeline / Gantt",

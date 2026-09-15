@@ -24,6 +24,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
+import { localDateString } from "@/lib/time/local-date";
 
 interface AccountOption {
   id: string;
@@ -67,7 +68,7 @@ export function JournalEntryDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => localDateString());
   const [memo, setMemo] = useState("");
   const [lines, setLines] = useState<Line[]>(() => [newLine("DEBIT"), newLine("CREDIT")]);
 

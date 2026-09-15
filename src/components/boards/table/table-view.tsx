@@ -4,7 +4,14 @@ import { useState, useMemo, useCallback, type ReactNode } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import { matchesFilters } from "@/lib/work-items/board-filters";
+import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
+import { archiveAction, copyLinkAction } from "@/lib/work-items/item-actions";
+import { useOrgSlug } from "@/lib/query/keys";
+import { highlightRowStyle } from "@/lib/work-items/highlights";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import {
@@ -112,6 +119,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [grouping, setGrouping] = useState<GroupingState>([]);
   const [editingCell, setEditingCell] = useState<EditingCell>(null);
+  const orgSlug = useOrgSlug();
   const [density, setDensity] = useState<Density>("comfortable");
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [tagDraft, setTagDraft] = useState("");
@@ -187,6 +195,16 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         ? allItems
         : allItems.filter((i) => i.workItemType?.key && typeKeys.includes(i.workItemType.key)),
     [allItems, typeKeys],
+  );
+
+  // Layered ON TOP of the board's own typeKeys, which is a saved board
+  // CONFIGURATION (what this board is about) rather than a transient view
+  // filter (what I am looking at right now). The two compose.
+  const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
+  const projectStatuses = useProjectStatuses(orgId, projectId);
+  const visibleItems = useMemo(
+    () => items.filter((it) => matchesFilters(it, filters)),
+    [items, filters],
   );
 
   // Persist a change to the board's type filter (optimistic: patch the board
@@ -287,6 +305,8 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       else if (field === "assigneeId") payload = { assigneeId: value || null };
       else if (field === "storyPoints") payload = { storyPoints: value ? Number(value) : null };
       else if (field === "columnKey") payload = { columnKey: value };
+      else if (field === "highlight") payload = { highlight: value || null };
+      else if (field === "archivedAt") payload = { archivedAt: value || null };
       else if (field === "dueDate")
         payload = { dueDate: value ? new Date(value).toISOString() : null };
       else return;
@@ -517,6 +537,29 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         });
       }
 
+      groups.push({
+        items: [
+          ...copyLinkAction(
+            { id: item.id, ticketKey: projectKey ? `${projectKey}-${item.ticketNumber}` : null },
+            orgSlug,
+          ),
+          ...archiveAction({
+            item,
+            canEdit: canCreate,
+            onToggle: (next) => void saveEdit(item.id, "archivedAt", next ?? ""),
+          }),
+        ],
+      });
+
+      groups.push(
+        highlightMenuGroup({
+          current: item.highlight,
+          canEdit: canCreate,
+          // "" is how saveEdit clears a nullable field (same as assigneeId).
+          onPick: (next) => void saveEdit(item.id, "highlight", next ?? ""),
+        }),
+      );
+
       if (canBulkDelete) {
         groups.push({
           items: [
@@ -532,7 +575,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
 
       return groups;
     },
-    [canBulkDelete, canCreate, bulkDeleteMutation, projectKey, basePath, qc, itemsKey],
+    [canBulkDelete, canCreate, bulkDeleteMutation, projectKey, basePath, qc, itemsKey, saveEdit, orgSlug],
   );
 
   const columnHelper = createColumnHelper<WorkItem>();
@@ -982,6 +1025,18 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         </div>
       </div>
 
+      <div className="border-b border-[var(--border)] px-4 py-2">
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={members}
+          intervals={intervals}
+          teams={[]}
+          orgId={orgId}
+          boardColumns={projectStatuses}
+        />
+      </div>
+
       {/* Table */}
       <div
         className={cn(
@@ -993,13 +1048,14 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       >
         <DataTable<WorkItem>
           columns={tableColumns}
-          data={items}
+          data={visibleItems}
           rowSelection={rowSelection}
           onRowSelectionChange={setRowSelection}
           grouping={grouping}
           onGroupingChange={setGrouping}
           getGroupLabel={getGroupLabel}
           rowActions={rowActions}
+          rowStyle={(row) => highlightRowStyle(row.highlight)}
           onRowClick={(row) => setDetailId(row.id)}
           pagination={{ pageSize: 50 }}
           stickyHeader

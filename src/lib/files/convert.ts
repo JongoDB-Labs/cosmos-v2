@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { roadmapSlug } from "@/lib/roadmap/import";
+import { allocateTicketNumber, allocateTicketNumbers, allocateSortOrder } from "@/lib/work-items/allocate";
 
 /** The item kinds a single document block can be converted into. */
 export type ConvertItemType =
@@ -89,13 +90,14 @@ export async function convertBlockToWorkItem(input: {
   const description = block.text.slice(0, 20_000);
 
   const result = await prisma.$transaction(async (tx) => {
-    const maxTicket = await tx.workItem.aggregate({
-      where: { orgId: input.orgId, projectId: input.projectId },
-      _max: { ticketNumber: true },
+    const ticketNumber = await allocateTicketNumber(tx, {
+      orgId: input.orgId,
+      projectId: input.projectId,
     });
-    const maxSort = await tx.workItem.aggregate({
-      where: { orgId: input.orgId, projectId: input.projectId, columnKey },
-      _max: { sortOrder: true },
+    const sortOrder = await allocateSortOrder(tx, {
+      orgId: input.orgId,
+      projectId: input.projectId,
+      columnKey,
     });
     const item = await tx.workItem.create({
       data: {
@@ -106,8 +108,8 @@ export async function convertBlockToWorkItem(input: {
         description,
         columnKey,
         priority: "MEDIUM",
-        ticketNumber: (maxTicket._max.ticketNumber ?? 0) + 1,
-        sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
+        ticketNumber,
+        sortOrder,
         columnEnteredAt: new Date(),
         tags: ["from-document"],
         createdById: input.userId,
@@ -228,16 +230,20 @@ export async function convertTableToWorkItems(input: {
   const { typeId, columnKey } = await resolveTypeAndColumn(input.projectId, input.columnKey);
 
   await prisma.$transaction(async (tx) => {
-    const maxTicket = await tx.workItem.aggregate({
-      where: { orgId: input.orgId, projectId: input.projectId },
-      _max: { ticketNumber: true },
+    // One reservation for the whole batch: the advisory lock taken here is
+    // held until this transaction ends, so nothing else can allocate in this
+    // project while the loop below counts up from it.
+    const firstTicket = await allocateTicketNumbers(tx, {
+      orgId: input.orgId,
+      projectId: input.projectId,
+    }, records.length);
+    const firstSort = await allocateSortOrder(tx, {
+      orgId: input.orgId,
+      projectId: input.projectId,
+      columnKey,
     });
-    const maxSort = await tx.workItem.aggregate({
-      where: { orgId: input.orgId, projectId: input.projectId, columnKey },
-      _max: { sortOrder: true },
-    });
-    let ticket = maxTicket._max.ticketNumber ?? 0;
-    let sort = maxSort._max.sortOrder ?? -1;
+    let ticket = firstTicket - 1;
+    let sort = firstSort - 1;
     for (const rec of records) {
       const item = await tx.workItem.create({
         data: {
