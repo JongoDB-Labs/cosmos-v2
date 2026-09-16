@@ -312,6 +312,17 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.369.1",
+    date: "2026-09-15",
+    title: "Asking the assistant for sprint data no longer ends in a database error",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Ask the assistant to pull your sprint data — to prepare a retro, say — and it sometimes answered with a raw database error instead. When it reached for a sprint or project it had not looked up first, it passed along an id the database could not read, and the whole reply fell over at that point. Two separate steps could trip over the same bad id, so both were fixed: the tool now tells the assistant the id was not a real one and to look the record up by name, and the check that decides how sensitive a project's data is no longer stumbles on an id no project could have. The assistant retries and answers you. If a lookup fails for any other reason, you get a plain explanation rather than the database's own words.",
+      },
+    ],
+  },
+  {
     version: "2.369.0",
     date: "2026-09-15",
     title: "Scroll through time on the timeline",
