@@ -55,6 +55,25 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.372.2",
+    date: "2026-09-16",
+    title: "Foreman finishes what it starts, and stops calling a paused daemon dead",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Foreman's builds were being cut off part-way through. Each one carried a limit on how many steps it was allowed to take, and when a ticket needed more thinking than that number allowed, the work was interrupted — no answer produced, the whole cost already spent, and the ticket handed back for a person to pick up. The limits were guesses, and the measurements say they were guesses in the middle of the range they were meant to cover: the review step was being cut off on roughly a fifth of its runs and the on-screen verification step on about a quarter, even after both had already been raised once. Foreman now works a ticket through to its own conclusion and is bounded by time instead — which was already the real limit — so a job that needs longer takes longer rather than being abandoned near the end. “Hit the turn limit” is gone from the activity feed.",
+      },
+      {
+        kind: "fix",
+        text: "The Foreman console could greet you with a red “Stale — daemon not responding” the instant you switched autonomous delivery back on — for a daemon that was running perfectly well and got on with its work seconds later. A paused Foreman was not recording that it was still alive, so its last-seen time sat frozen for however long the pause lasted. That was invisible while it was paused, because the console showed “Paused” and looked no further; un-pausing removed that and left the stale time on display until the next check came round. A paused daemon now records that it is alive every minute, so resuming reads as resumed and “Stale” means the daemon really has stopped.",
+      },
+      {
+        kind: "fix",
+        text: "Separately, the console and the daemon were asking different questions about whether delivery was paused at all: the daemon also requires at least one project still in its pool, so archiving or removing the last pooled project would quietly stop it working while the console went on believing it should be busy — and then called it dead when no activity arrived. Both now decide the same way.",
+      },
+    ],
+  },
+  {
     version: "2.372.0",
     date: "2026-09-15",
     title: "Notes boxes rest four lines deep, so you can read what you type",
