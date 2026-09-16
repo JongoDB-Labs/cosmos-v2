@@ -950,7 +950,8 @@ function MilestoneDialog({
                 value={form.notes}
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
                 placeholder="Additional notes"
-                rows={2}
+                // No `rows`: notes are prose and take the primitive's resting
+                // depth. The fields above it stay at the two rows they ask for.
               />
             )}
           </FormField>
