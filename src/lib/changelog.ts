@@ -44,6 +44,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.375.2",
+    date: "2026-09-16",
+    title: "Two safeguards that had never been watched work",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The safeguard that retries a merge when someone else lands a change at the same moment had been in place for several releases without ever actually running — every merge so far happened to succeed first time. It is now exercised directly, so we know it recovers rather than merely that it was written.",
+      },
+      {
+        kind: "improvement",
+        text: "Foreman collects evidence about whether its size limit on automatic merges is too strict, against a standard set in advance. Nothing was assembling that evidence into an answer, so the standard could never actually be applied. Foreman now reports where it stands after each nightly tidy-up — and it only reports, never relaxing the limit on its own. Builds it cannot judge are excluded and counted rather than quietly assumed good.",
+      },
+    ],
+  },
+  {
     version: "2.375.1",
     date: "2026-09-15",
     title: "Open an overdue ticket without leaving Sprint Health",
