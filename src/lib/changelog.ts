@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.371.5",
+    date: "2026-09-15",
+    title: "Foreman can now find out whether its own size limit is the right one",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Foreman sets aside any change above a fixed size — nine files or four hundred lines — for a person to approve. Nobody has ever been able to tell whether that limit is set sensibly, because a change it sets aside skips the very checks that would show whether it was actually risky, so the evidence needed to judge the limit could never be gathered. There is now an optional experiment: set a number of samples and Foreman runs those remaining checks on that many more set-aside changes before handing them over, adding roughly ten to fifteen minutes each. It counts down and stops on its own, it is off unless you turn it on, and the change is still handed to you either way. The standard it must meet to justify relaxing the limit was written down before any results came in, so the answer cannot bend to whoever reads it.",
+      },
+    ],
+  },
+  {
     version: "2.371.4",
     date: "2026-09-15",
     title: "Client details need CRM access, and the API key reference explains project scoping",
