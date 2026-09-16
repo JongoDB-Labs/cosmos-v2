@@ -44,6 +44,20 @@ const classifierLatency: Histogram = meter.createHistogram("cosmos.classifier.la
   unit: "ms",
 });
 
+const assistantStreamTtft: Histogram = meter.createHistogram("cosmos.assistant.stream.ttft", {
+  description: "Assistant time-to-first-token: request start → first forwarded SSE text delta.",
+  unit: "ms",
+});
+
+const assistantStreamGap: Histogram = meter.createHistogram("cosmos.assistant.stream.gap", {
+  description: "Assistant inter-token latency: mean gap between consecutive forwarded SSE text deltas.",
+  unit: "ms",
+});
+
+const assistantStreamDeltas: Counter = meter.createCounter("cosmos.assistant.stream.deltas", {
+  description: "SSE text deltas forwarded to the assistant client. Rising deltas-per-answer = finer-grained streaming.",
+});
+
 /**
  * Record one egress gate decision. Attributes are LOW-CARDINALITY ENUMS only — never the
  * conversationId, content, or hash (those live in the audit table, not in metric labels).
@@ -95,6 +109,27 @@ export function recordClassifierError(): void {
   try {
     classifierErrors.add(1);
     classifierInvocations.add(1, { result: "error" });
+  } catch {
+    /* fire-and-forget */
+  }
+}
+
+/**
+ * Record the latency shape of ONE streamed assistant answer (COSMOS-24). Counts and
+ * milliseconds only — never the answer text, the conversation id, or the user. This is
+ * the server half of the streaming-fluidity signal: `ttft` for perceived start latency,
+ * `gap` for smoothness, and `deltas` (against `chars`, not recorded as a label) for how
+ * finely the answer was chunked. Fire-and-forget, like every other recorder here.
+ */
+export function recordAssistantStream(d: {
+  ttftMs: number | null;
+  deltas: number;
+  meanGapMs: number | null;
+}): void {
+  try {
+    if (d.ttftMs !== null) assistantStreamTtft.record(d.ttftMs);
+    if (d.meanGapMs !== null) assistantStreamGap.record(d.meanGapMs);
+    if (d.deltas > 0) assistantStreamDeltas.add(d.deltas);
   } catch {
     /* fire-and-forget */
   }
