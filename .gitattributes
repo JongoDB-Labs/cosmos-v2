@@ -1,0 +1,14 @@
+
+# The product changelog is APPEND-ONLY and its order is computed at runtime
+# (src/lib/changelog.ts sorts by version), so two branches that each add a
+# release entry have no reason to conflict — union keeps both sides' added
+# lines and the sort puts them right.
+#
+# Without this, every release inserts at the same first line, so a branch that
+# sits while several releases land collides with all of them. That happened on
+# 2026-09-15: seven releases in a day left auto/COSMOS-158 unrebaseable and its
+# change had to be lifted onto a fresh branch by hand.
+#
+# Safe for ADDING entries; if two branches rewrite the SAME entry, union keeps
+# both texts and a human has to pick.
+src/lib/changelog.ts merge=union

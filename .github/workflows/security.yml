@@ -299,12 +299,24 @@ jobs:
           # on a PR whose versions were perfectly correct. -m1 stops grep itself,
           # so nothing is left to write and there is no pipe to break.
           PKG="$(grep -m1 -oE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' package.json | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
-          TOP="$(grep -m1 -oE 'version: "[0-9]+\.[0-9]+\.[0-9]+"' src/lib/changelog.ts | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
-          if [ "$PKG" != "$TOP" ]; then
-            echo "FAIL: CHANGELOG top ($TOP) != package.json version ($PKG) - every release must add a Whats-new entry" | tee -a evidence/${{ github.sha }}/config-asserts.txt
+          # NEWEST, not FIRST. src/lib/changelog.ts is marked `merge=union` in
+          # .gitattributes and sorts itself at runtime, so the order of entries
+          # in the file is arbitrary by design — two branches that each add a
+          # release both keep their lines and neither is guaranteed to be on top.
+          # Asserting position would fail a perfectly correct merge.
+          #
+          # Numeric sort per component: `sort -V` is not portable and a plain
+          # sort ranks 2.99.0 above 2.372.0.
+          #
+          # No `-m1` here and no EPIPE risk: sort consumes the whole stream, so
+          # grep is never writing into a closed pipe (see the note above for why
+          # that mattered for the package.json read).
+          MAX="$(grep -oE 'version: "[0-9]+\.[0-9]+\.[0-9]+"' src/lib/changelog.ts | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+          if [ "$PKG" != "$MAX" ]; then
+            echo "FAIL: newest CHANGELOG entry ($MAX) != package.json version ($PKG) - every release must add a Whats-new entry" | tee -a evidence/${{ github.sha }}/config-asserts.txt
             exit 1
           fi
-          echo "PASS: CHANGELOG top matches $PKG" | tee -a evidence/${{ github.sha }}/config-asserts.txt
+          echo "PASS: newest CHANGELOG entry matches $PKG" | tee -a evidence/${{ github.sha }}/config-asserts.txt
 
       # Assert: a PR that changes SHIPPABLE code also bumps the version.
       #

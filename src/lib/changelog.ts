@@ -2,7 +2,28 @@
  * Product changelog for the in-app "What's new" modal (FR: catch users up on new
  * features/fixes when a version ships, SaaS-style). Keep it USER-FACING — describe
  * the value, not the implementation — and add an entry whenever you bump the app
- * version for something users would notice. Newest first; `CHANGELOG[0]` is latest.
+ * version for something users would notice.
+ *
+ * ## Order is COMPUTED, not maintained — and that is the point
+ *
+ * `CHANGELOG` is `RELEASES` sorted newest-first at module load, so `CHANGELOG[0]`
+ * is still the latest release. The literal below may be in ANY order.
+ *
+ * That freedom exists to kill a specific, recurring failure. Every release
+ * inserts a new entry, and while this file required newest-first ordering, every
+ * release inserted at the SAME first line — so two branches that each add an
+ * entry always collide, and a branch that sits while several releases land
+ * collides with all of them. On 2026-09-15 seven core releases shipped in a day
+ * and `auto/COSMOS-158` became unrebaseable against every one of them; its change
+ * had to be lifted onto a fresh branch by hand.
+ *
+ * With order computed, `.gitattributes` marks this file `merge=union`: git keeps
+ * BOTH sides' added lines instead of reporting a conflict, and the sort puts them
+ * right. Two branches adding different releases now merge cleanly.
+ *
+ * Union merge is safe for ADDING entries and unsafe for rewriting one in place —
+ * it would keep both texts. Edit an existing entry in a branch that nothing else
+ * touches, or accept the duplicate and fix it.
  */
 
 export type ChangeKind = "feature" | "improvement" | "fix";
@@ -19,7 +40,20 @@ export interface Release {
   highlights: ChangeEntry[];
 }
 
-export const CHANGELOG: Release[] = [
+/** Release entries as authored, in whatever order the file happens to hold them.
+ *  Never read this directly — `CHANGELOG` is the ordered view. */
+const RELEASES: Release[] = [
+  {
+    version: "2.372.1",
+    date: "2026-09-16",
+    title: "Two changes released close together no longer collide over the release notes",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Every release adds an entry to these notes, and each one was added at the very top of the same file — so two pieces of work finished around the same time always clashed over that one spot, and a change that waited while several releases went out clashed with every one of them. Yesterday that left three finished changes unable to merge, one of which had to be reassembled by hand. Entries can now be added anywhere in the file and are put in order automatically when you read them, so work finished in parallel merges without anyone untangling it.",
+      },
+    ],
+  },
   {
     version: "2.372.0",
     date: "2026-09-15",
@@ -5954,3 +5988,15 @@ export function releasesSince(lastSeen: string | null): Release[] {
   if (!lastSeen) return CHANGELOG.slice(0, 3);
   return CHANGELOG.filter((r) => compareVersions(r.version, lastSeen) > 0);
 }
+
+/** Semver descending. Numeric per component — a string compare puts "2.99.0"
+ *  above "2.372.0", which would show a months-old release as the newest. */
+export function newestFirst(a: Release, b: Release): number {
+  const pa = a.version.split(".").map(Number);
+  const pb = b.version.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pb[i] - pa[i];
+  return 0;
+}
+
+/** The ordered view every consumer reads. `CHANGELOG[0]` is the latest release. */
+export const CHANGELOG: Release[] = [...RELEASES].sort(newestFirst);
