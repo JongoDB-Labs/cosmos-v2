@@ -44,6 +44,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.375.3",
+    date: "2026-09-16",
+    title: "Resumed work gets a full working session, and says why it stopped",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When you asked Foreman to revisit a piece of work, it was quietly given half the working time a fresh attempt gets — and when it ran out, it simply reported that the attempt had not finished, listing three possible reasons without saying which. Revisited work now gets the same allowance as any other, and when something does stop it, Foreman names what happened: it ran out of time, it ran out of steps while still making progress, or it never started at all. Each of those needs a different response, and telling them apart is the point.",
+      },
+    ],
+  },
+  {
     version: "2.375.2",
     date: "2026-09-16",
     title: "Two safeguards that had never been watched work",
