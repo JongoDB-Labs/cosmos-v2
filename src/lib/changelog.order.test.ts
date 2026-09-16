@@ -13,10 +13,26 @@
  * lifted onto a fresh branch by hand — while two other Foreman PRs sat in the
  * same state.
  *
- * With order computed, `.gitattributes` can mark the file `merge=union`: git
- * keeps both sides' added lines rather than reporting a conflict, and the sort
- * puts them right. These tests are what make that safe — if the sort is wrong,
- * union merge silently ships a changelog in arbitrary order.
+ * With order computed, an entry may be inserted anywhere, so a rebase no longer
+ * has to preserve a specific position — which is what makes the ship path's
+ * `prependChangelogEntry` resolution valid.
+ *
+ * ## CORRECTED 2026-09-16 — the union-merge half was wrong
+ *
+ * This file used to conclude that computed order let `.gitattributes` mark the
+ * changelog `merge=union`, "and the sort puts them right". It does not. Union
+ * merges LINES with no notion of nesting, and the two inserted entries share
+ * enough identical lines (`    version: "…",`, `      {`, `        kind: "fix",`)
+ * that git aligns on them and splices one entry's opening to another's closing.
+ * The array is then unbalanced and the file does not parse.
+ *
+ * It is not merely useless — exiting 0 HIDES the file from
+ * `git diff --diff-filter=U`, so the ship path's mechanical resolver (which
+ * handles this file correctly) never sees it. COSMOS-176 parked on the wreckage.
+ *
+ * The sorted-order half below is still right and still load-bearing; only the
+ * merge-driver half was wrong. `changelog.merge-attr.test.ts` now guards the
+ * absence of that driver, with the measurement.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -102,11 +118,9 @@ describe("the ordering is APPLIED, not merely available", () => {
   });
 });
 
-describe("the union-merge attribute is actually declared", () => {
-  it(".gitattributes marks the changelog merge=union", () => {
-    // Without this line the sort above buys nothing: every release still
-    // collides on the same first line. The two halves only work together.
-    const ga = readFileSync(join(__dirname, "..", "..", ".gitattributes"), "utf8");
-    expect(ga).toMatch(/^src\/lib\/changelog\.ts merge=union$/m);
-  });
-});
+// The "union-merge attribute is actually declared" block that lived here
+// asserted the defect. It has been REPLACED by changelog.merge-attr.test.ts,
+// which asserts the driver is ABSENT and records why. Deleting it rather than
+// inverting it in place is deliberate: an inverted assertion under the old
+// describe() name would read, to anyone scanning, as though union were still
+// the design.
