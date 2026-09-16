@@ -1599,11 +1599,11 @@ const RELEASES: Release[] = [
   {
     version: "2.311.0",
     date: "2026-08-26",
-    title: "Your feedback draft survives picking a Type or Project",
+    title: "A dropdown no longer takes its dialog down with it",
     highlights: [
       {
         kind: "fix",
-        text: "Choosing an option in the submit-feedback form's Type or Project dropdown could dismiss the whole form, so you had to reopen it and re-edit a half-finished draft to file anything with those fields set. The form now stays put — pick a Type and Project and submit in one pass — and it no longer disappears if you click past it while typing. Cancel, the X and Escape still close it.",
+        text: "While a dropdown was open in a dialog — the Type or Project picker in Submit feedback, say — a click that didn't land on an option closed the whole dialog rather than just the dropdown, discarding anything half-written in it. The click now belongs to the dropdown: the list closes and the form stays exactly as you left it, so you can pick a Type and a Project and submit in one pass.",
       },
     ],
   },
