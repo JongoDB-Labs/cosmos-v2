@@ -136,7 +136,24 @@ function SelectContent({
     "align" | "alignOffset" | "side" | "sideOffset" | "alignItemWithTrigger"
   >) {
   return (
-    <SelectPrimitive.Portal>
+    // The stacking classes belong on the PORTAL element, not only on the
+    // positioner below (COSMOS-173).
+    //
+    // A modal Select renders an invisible full-viewport "internal backdrop"
+    // (position:fixed, inset:0, NO z-index) as a sibling of the positioner.
+    // That backdrop is what absorbs a press aimed anywhere other than the
+    // option list, so such a press closes the list and nothing else.
+    //
+    // Inside a Dialog the Select portals into the DIALOG's portal element, so
+    // that backdrop shares a stacking context with DialogOverlay — which we
+    // paint at z-50. An auto z-index loses to z-50, so the backdrop sat
+    // UNDERNEATH the dialog's overlay and never received the press: the overlay
+    // did, and the dialog dismissed, taking an unsaved draft with it. Raising
+    // the portal (equal z-index, later sibling) puts the backdrop AND the popup
+    // above the overlay, so the press lands where it was aimed.
+    //
+    // Outside a dialog this is a no-op — the positioner already carried z-50.
+    <SelectPrimitive.Portal data-slot="select-portal" className="relative z-50">
       <SelectPrimitive.Positioner
         side={side}
         sideOffset={sideOffset}
