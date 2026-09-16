@@ -34,6 +34,7 @@ import type { IntervalChange } from "@/lib/dashboard/scope-change";
 import type { WorkItemLinkLike, ObjectiveLike } from "@/lib/dashboard/impediments";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
+import { projectStatusColumns } from "@/lib/boards/project-statuses";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { burndown } from "@/lib/intervals/burndown";
 import { defaultCeremonyInterval } from "@/lib/intervals/ceremony-intervals";
@@ -138,8 +139,10 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   const objectivesKey = useOrgQueryKey("objectives", projectId);
   const membersKey = useOrgQueryKey("members");
   const intervalsKey = useOrgQueryKey("intervals", projectId);
+  const boardsKey = useOrgQueryKey("boards", projectId);
 
-  const [boardQ, itemsQ, membersQ, intervalsQ, changesQ, linksQ, objectivesQ] = useQueries({
+  const [boardQ, itemsQ, membersQ, intervalsQ, changesQ, linksQ, objectivesQ, boardsQ] =
+    useQueries({
     queries: [
       {
         queryKey: boardKey,
@@ -178,14 +181,32 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
         queryKey: objectivesKey,
         queryFn: () => jsonFetch<ObjectiveLike[]>(`${basePath}/objectives`),
       },
+      {
+        // A DASHBOARD board owns NO columns: `POST /boards` seeds them from
+        // `BOARD_TYPE_REGISTRY[type].defaultColumns` and only the two ceremony
+        // types declare any. Every category on this screen is therefore read
+        // from a board that has nothing to say about categories — see `columns`
+        // below. Same key the boards list already uses, so this is shared.
+        queryKey: boardsKey,
+        queryFn: () => jsonFetch<Board[]>(`${basePath}/boards`),
+      },
     ],
-  });
+    });
 
   const board: Board | null = boardQ.data ?? null;
-  const columns: BoardColumn[] = useMemo(
-    () => (board?.columns ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder),
-    [board],
-  );
+  // What "done" and "in progress" MEAN on this board.
+  //
+  // This read the host board's own columns, and a Dashboard board is created
+  // with none — so the map was empty, every item fell through to TODO, and
+  // Completed / In Progress sat at 0 next to a Status Distribution donut that
+  // was 100% "TODO" whatever the tickets actually said. `columnKey` is a
+  // PROJECT-level value, so when the host board has no workflow of its own the
+  // project's is the right one to describe it with. A board that DOES own
+  // columns still wins, so nothing changes on the boards that have them.
+  const columns: BoardColumn[] = useMemo(() => {
+    const own = (board?.columns ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+    return own.length > 0 ? own : projectStatusColumns(boardsQ.data ?? []);
+  }, [board, boardsQ.data]);
   // Memoised because `?? []` mints a NEW array on every render, which would make
   // every downstream useMemo — filtering, metrics, burndown — recompute each
   // time regardless of whether the data changed.

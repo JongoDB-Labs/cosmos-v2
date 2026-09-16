@@ -339,6 +339,14 @@ const RELEASES: Release[] = [
         kind: "fix",
         text: "Clicking a ticket in Sprint Health's Overdue list (or any of its drill-downs) navigated away to the Issues page, so chasing a few late items meant leaving the board and finding your way back each time. The ticket now opens in the same editable panel every other board uses, and any change you make is reflected in the numbers behind it straight away.",
       },
+      {
+        kind: "fix",
+        text: "Status could not be changed from a ticket opened on the Dashboard, Table, Calendar or RAID boards: the picker listed nothing and showed the internal status code (\"review\") in place of its name. It now offers your project's full workflow, wherever the ticket was opened from.",
+      },
+      {
+        kind: "fix",
+        text: "Sprint Health's Completed and In Progress counts sat at zero and its Status Distribution showed everything as \"To Do\", however far along the work actually was. They now read your project's real workflow, so the board describes the sprint it is reporting on.",
+      },
     ],
   },
   {
