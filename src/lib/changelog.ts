@@ -44,6 +44,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.375.0",
+    date: "2026-09-16",
+    title: "See what a build actually cost",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A build now reports its time and token use the way a finished job does: how long it ran, how much of that was spent waiting on the model rather than running tests and tools, how many tokens went in and out, and how much of the input was served from cache. A high cached share means a cheaper build, not a more expensive one.",
+      },
+      {
+        kind: "fix",
+        text: "The note explaining the token figure had been wrong since it was last changed. It said cache usage was excluded when it had in fact been included for months, so a perfectly efficient build looked alarming to anyone reading it. It now says what the number is — and what it is not.",
+      },
+      {
+        kind: "fix",
+        text: "The token figure itself was also reading a field that covers only the main agent, leaving out work handed to helpers. It now reads the figure that covers everything, so a build that delegates is no longer under-reported.",
+      },
+    ],
+  },
+  {
     version: "2.374.4",
     date: "2026-09-16",
     title: "A release's notes were filed under the wrong version number",
