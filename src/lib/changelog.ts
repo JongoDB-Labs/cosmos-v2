@@ -44,6 +44,15 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.373.0",
+    date: "2026-09-16",
+    title: "Approvals survive a moving main",
+    notes: [
+      "Approving a change no longer fails when someone else merges in the same second. GitHub rejects a merge whose base moved between reading the pull request and applying it — a race, not a conflict — and Foreman now re-reads and tries again instead of parking the ticket for a human.",
+      "A real conflict, a failing check or a permissions problem still stops on the first attempt, so a change that genuinely cannot land never looks like one that can.",
+    ],
+  },
+  {
     version: "2.372.5",
     date: "2026-09-16",
     title: "When approving a change fails, Foreman now says why",
