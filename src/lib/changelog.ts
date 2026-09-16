@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.371.4",
+    date: "2026-09-15",
+    title: "Client details need CRM access, and the API key reference explains project scoping",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The client list — including legal names, email addresses and phone numbers — was available to anyone who could read projects, rather than requiring CRM access the way contracts, partners and products always have. That also meant an API key issued only for work tracking could read it. Viewing or adding clients now needs CRM permission.",
+      },
+      {
+        kind: "improvement",
+        text: "The API & MCP reference on the API keys page now covers limiting a key to specific projects, which it never mentioned even though the option exists when you create one. It also describes the item-writing scope accurately — it allows updating items and posting comments, not just creating them, and deliberately does not allow deleting — and explains that a mistyped filter now returns an error instead of quietly returning unfiltered results.",
+      },
+    ],
+  },
+  {
     version: "2.371.3",
     date: "2026-09-15",
     title: "Foreman's own release notes can no longer fall silently out of date",
