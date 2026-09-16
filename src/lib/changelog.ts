@@ -44,6 +44,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.375.4",
+    date: "2026-09-16",
+    title: "Archiving a ticket now stops Foreman working on it",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Archiving a ticket put it out of sight everywhere a person looks, but Foreman never checked — so it went on picking the ticket up, building it, and adding it to the list of things waiting on you. Filing something away is the clearest way to say \"not this\", and it was the one instruction Foreman could not hear. It now honours archiving everywhere it chooses what to work on, including at the moment it claims a ticket, so archiving something mid-flight takes effect immediately.",
+      },
+      {
+        kind: "improvement",
+        text: "Before writing anything, a build now looks for the mechanism this codebase already has for the problem in front of it — another screen doing the same interaction, an existing helper or rule — and extends that rather than adding a second way to do the same thing. Two ways to do one thing drift apart, and then a fix lands in only one of them.",
+      },
+    ],
+  },
+  {
     version: "2.375.3",
     date: "2026-09-16",
     title: "Resumed work gets a full working session, and says why it stopped",
