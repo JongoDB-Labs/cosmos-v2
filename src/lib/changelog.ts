@@ -44,6 +44,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.372.5",
+    date: "2026-09-16",
+    title: "When approving a change fails, Foreman now says why",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If the safety re-check that runs while approving a change failed, Foreman reported only that a command had failed — not what it said — and then deleted the workspace holding the evidence, so the reason was gone for good. It now reports what the check actually said, whether the main branch had really moved underneath (checked rather than assumed), and whether the machine ran out of memory instead of finding a real problem.",
+      },
+      {
+        kind: "fix",
+        text: "A release note re-applied while updating a change against newer releases could be written into the wrong part of the notes file, silently, after the file was reorganised. It now writes to the right place and fails loudly if the file is ever reshaped again, instead of quietly doing nothing.",
+      },
+    ],
+  },
+  {
     version: "2.372.4",
     date: "2026-09-16",
     title: "The Foreman console stops calling a working daemon idle",
