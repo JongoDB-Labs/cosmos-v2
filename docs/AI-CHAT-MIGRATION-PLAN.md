@@ -12,6 +12,50 @@ Driven by the survey of `/home/deploy/okr-dashboard` in 2026-05-28. Cosmos alrea
 - [x] Tool calls surface as separate `tool_call_start` + `tool_call_result` events; UI strips raw `TOOL_CALL: {...}` markers from streamed text
 - [x] Backwards-compatible: clients that omit the Accept header still get the JSON behavior
 
+### Phase 1a — streaming fluidity audit (COSMOS-24, 2026-09-16)
+
+Reported symptom: the assistant streamed "several chunks of tokens at a time" with a
+delay before text appeared. The whole path was audited end to end; the defect was in
+Cosmos, not on the wire.
+
+**Root cause — the route's delta offset was not turn-aware.** `runAgentLoop`'s `onDelta`
+carries the *cumulative* text of the **current turn**, and the loop restarts that buffer
+at `""` on every turn. A tool-using answer therefore streams a preamble in turn N and the
+real answer in turn N+1. The route tracked a single running offset across the whole run,
+so once turn N+1 began, every delta shorter than the preamble was dropped and the first
+one that finally exceeded it was emitted with its head sliced off. On screen: a stall
+after the tool chips, then one lump of text. The fix is `src/lib/ai/stream-deltas.ts`
+(`createDeltaTracker`), which detects the per-turn restart; the route now forwards
+exactly one SSE `text` event per model delta.
+
+**Connectivity / buffering audit — no change needed, recorded so it isn't re-litigated:**
+
+| Hop | Finding |
+|---|---|
+| Anthropic → `egress/provider.ts` | `messages.stream()` + `.on("text")` — already one callback per `content_block_delta`. No accumulate-then-flush. |
+| `agent-loop` → route | `onDelta` fires synchronously per delta; no timer, no coalescing. (The *chat bot* path in `bot-runner.ts` throttles to ~5 Hz **on purpose** — it publishes to the realtime bus, which `NOTIFY`s per event. That throttle is correct there and is deliberately not shared with the assistant panel, which owns a private SSE connection.) |
+| Route → browser | One `controller.enqueue` per delta. `Cache-Control: no-cache, no-transform` (which is what makes Next's gzip layer skip the body — gzip would otherwise re-chunk it), `X-Accel-Buffering: no`, `Connection: keep-alive`. Already correct; now pinned by `messages/stream.test.ts`. |
+| Caddy (`compose/Caddyfile`) | No `encode` directive, so the front door does not compress or buffer `text/event-stream`. Nothing to change. |
+| Cloudflare / upstream LB | Only relevant in the deploy where TLS terminates upstream. `no-transform` + `X-Accel-Buffering: no` are the headers that opt out of proxy buffering there too, and both are already set. |
+| Browser | The panel appends per event and re-renders; no throttle, no `requestAnimationFrame` batching of text. |
+
+**Lessons taken from okr-dashboard's chat panel:** its SSE loop keeps the *server* as the
+only place that decides chunk boundaries and has the client do nothing but append — no
+client-side smoothing or typewriter timer, which hides real latency instead of fixing it.
+We match that. Its per-conversation system prompt (identity of the requesting user) is
+already ported in `assistant-prompt.ts`, and its tool-call event contract
+(`tool_call_start` / `tool_call_result`) is what our SSE contract preserves. Its one
+optimization we still have not taken is the persistent process/session pool (Phase 2) —
+that targets time-to-*first* token, which this ticket now measures rather than guesses at.
+
+**Measurement.** `summarizeStreamTiming` (same pure helper, both ends) reports TTFT,
+delta count, chars, and mean/max inter-delta gap. Server-side it feeds
+`cosmos.assistant.stream.{ttft,gap,deltas}` (counts and milliseconds only — never text);
+client-side it is logged at `console.debug` on `done` alongside the server's numbers, so a
+client gap materially wider than the server's points at buffering on the wire rather than
+at the model. `chars / deltas` is the chunking metric: it should track the model's token
+size, and a jump means something upstream started batching again.
+
 ---
 
 ## Phase 2 — Persistent CLI process pool

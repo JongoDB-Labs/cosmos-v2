@@ -44,6 +44,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.375.5",
+    date: "2026-09-16",
+    title: "Cosmo's answers arrive word by word again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Cosmo used a tool before answering — looking something up, creating an item — its reply stopped arriving smoothly: you would wait through a pause and then get a block of text landing at once, sometimes starting mid-word. Cosmo writes its reply in stages, and after a tool ran, the part of the reply already sent was being measured against the wrong stage, so the opening of the answer was held back and then released in one lump. Replies now stream through as they are written, from the first word.",
+      },
+      {
+        kind: "improvement",
+        text: "Cosmo's replies are now timed as they arrive — how long until the first word appears, and how evenly the rest follows — so a slow or stuttering reply shows up as a measurement rather than as a hunch. The path the words travel, from Anthropic through our servers and the front door to your browser, was audited at the same time and carries nothing that holds them back.",
+      },
+    ],
+  },
+  {
     version: "2.375.4",
     date: "2026-09-16",
     title: "Archiving a ticket now stops Foreman working on it",

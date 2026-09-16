@@ -17,6 +17,10 @@ import type { ResolvedEntity } from "@/lib/mentions/refs";
 import { ENTITY_PREFIX } from "@/lib/mentions/refs";
 import { isToolCallRunning, finalizeToolCalls } from "@/lib/assistant/tool-status";
 import {
+  summarizeStreamTiming,
+  type StreamTiming,
+} from "@/lib/ai/stream-deltas";
+import {
   artifactsFromToolCalls,
   type ChatArtifact,
 } from "@/lib/assistant/artifacts";
@@ -666,6 +670,9 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
 
     const controller = new AbortController();
     abortRef.current = controller;
+    // Clock for client-side TTFT — started before the request leaves the browser,
+    // so it covers the whole round trip the user actually waits through.
+    const requestStartedAt = Date.now();
 
     try {
       const res = await fetch(
@@ -703,6 +710,11 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
       let buffer = "";
       let accumulated = "";
       const liveToolCalls: LiveToolCall[] = [];
+      // COSMOS-24 client telemetry: when each text delta actually ARRIVED in the
+      // browser. Compared against the server's own timing on `done`, a wide gap
+      // between the two means buffering somewhere on the wire (proxy, gzip)
+      // rather than in the model. Timestamps only — never message text.
+      const deltaAt: number[] = [];
 
       while (true) {
         const { value, done } = await reader.read();
@@ -731,9 +743,11 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
                 messageId?: string;
                 message?: string;
                 title?: string;
+                timing?: StreamTiming;
               };
               if (evt.type === "text" && evt.text) {
                 accumulated += evt.text;
+                deltaAt.push(Date.now());
                 // First token clears the "Thinking…" status.
                 setStreamingStatus(null);
                 setMessages((prev) =>
@@ -781,6 +795,19 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
                 );
               } else if (evt.type === "done") {
                 setStreamingStatus(null);
+                // Streaming-fluidity telemetry (COSMOS-24). `console.debug` is
+                // filtered out of the browser console by default, so this is a
+                // verbose-level signal you can turn on to confirm fluid delivery
+                // in any supported browser — client gaps tracking server gaps
+                // means nothing on the wire is re-batching the deltas.
+                console.debug("[cosmo] stream timing", {
+                  client: summarizeStreamTiming(
+                    requestStartedAt,
+                    deltaAt,
+                    accumulated.length,
+                  ),
+                  server: evt.timing ?? null,
+                });
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === streamingId

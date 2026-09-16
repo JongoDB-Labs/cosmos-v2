@@ -20,6 +20,11 @@ import {
   generateConversationTitle,
   DEFAULT_CONVERSATION_TITLE,
 } from "@/lib/ai/conversation-title";
+import {
+  createDeltaTracker,
+  summarizeStreamTiming,
+} from "@/lib/ai/stream-deltas";
+import { recordAssistantStream } from "@/lib/observability/metrics";
 
 const sendMessageSchema = z.object({
   content: z.string().min(1),
@@ -275,12 +280,22 @@ function runStreaming(ctx: IterationCtx): Response {
       }
 
       try {
-        // The unified loop streams the final answer's text via `onDelta`
-        // (cumulative text-so-far); forward each update as a `text` SSE event.
+        // The unified loop streams text via `onDelta` (cumulative text-so-far
+        // for the CURRENT turn); forward each update as a `text` SSE event.
         // Tool calls are surfaced after the run as `tool_call_*` events so the
         // existing client event contract (text / tool_call_start /
         // tool_call_result / done / error) is preserved.
-        let lastSent = "";
+        //
+        // COSMOS-24: the offset is tracked by `createDeltaTracker`, which knows
+        // the loop restarts its cumulative buffer on every turn. The previous
+        // single `lastSent` offset silently dropped every delta of a post-tool
+        // turn that was shorter than the preamble, then emitted the rest in one
+        // head-truncated lump — the visible "chunks of tokens at a time".
+        const tracker = createDeltaTracker();
+        // TTFT + inter-token gaps for THIS answer. Timestamps only; summarized
+        // once the answer is delivered (see `timing` below).
+        const startedAt = Date.now();
+        const deltaAt: number[] = [];
         const result = await runAgentLoop({
           orgId: ctx.orgId,
           userId: ctx.userId,
@@ -290,13 +305,14 @@ function runStreaming(ctx: IterationCtx): Response {
           initialPrompt: ctx.initialPrompt,
           model: ctx.model,
           onDelta: (textSoFar) => {
-            // onDelta carries the cumulative text for the current (final) turn.
             // Emit only the newly-appended slice so the client appends, not
-            // re-renders, matching the previous per-delta `text` events.
-            if (textSoFar.length <= lastSent.length) return;
-            const delta = textSoFar.slice(lastSent.length);
-            lastSent = textSoFar;
-            if (delta) send({ type: "text", text: delta });
+            // re-renders. One SSE event per model delta — never coalesced,
+            // never throttled: the granularity the model produces is the
+            // granularity the browser paints.
+            const delta = tracker.next(textSoFar);
+            if (!delta) return;
+            deltaAt.push(Date.now());
+            send({ type: "text", text: delta });
           },
         });
 
@@ -312,21 +328,30 @@ function runStreaming(ctx: IterationCtx): Response {
         }
 
         // If the final answer never streamed any text (e.g. a tool-only run),
-        // emit it once so the client has the full content before `done`.
-        if (result.text && result.text !== lastSent) {
-          send({ type: "text", text: result.text.slice(lastSent.length) || result.text });
-        }
+        // emit it once so the client has the full content before `done`. Run it
+        // through the SAME tracker: a fully-streamed answer yields "" here.
+        const tail = tracker.next(result.text);
+        if (tail) send({ type: "text", text: tail });
 
         const assistantMsg = await persistAssistantMessage(
           ctx,
           result.text,
           result.toolCalls,
         );
+        // Latency shape of this answer: recorded as metrics AND handed to the
+        // client on `done` so both halves of the path can be compared.
+        const timing = summarizeStreamTiming(
+          startedAt,
+          deltaAt,
+          tracker.sent().length,
+        );
+        recordAssistantStream(timing);
         send({
           type: "done",
           messageId: assistantMsg.id,
           content: result.text,
           toolCalls: result.toolCalls,
+          timing,
         });
 
         // Auto-title AFTER `done` so the message renders immediately; the title
