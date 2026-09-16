@@ -44,6 +44,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.372.4",
+    date: "2026-09-16",
+    title: "The Foreman console stops calling a working daemon idle",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Every five minutes, Foreman tidies the parked and completed side of its board — and while it did that, which takes about eighty seconds, it stopped telling the console it was alive. The status pill would fade from green to amber “idle” for the better part of a minute, on a daemon doing exactly what it should, and then snap back. Measured over six consecutive cycles on the running instance: the gap between check-ins was about 78 seconds most of the time and about 160 seconds on every third one, landing either side of the two-minute mark the pill uses. Foreman now keeps reporting itself during the tidy-up, so the pill stays green unless something is genuinely wrong. Nothing about what Foreman does, or how often it does it, has changed — only what it says about itself while doing it.",
+      },
+      {
+        kind: "improvement",
+        text: "This was the third and last place the same gap could appear: the daemon reports its health at one point in each cycle, so any long piece of work inside that cycle used to leave a stretch of silence behind it. The two earlier cases — a paused daemon, and a preview build — were already fixed. There is now a test covering the general rule rather than the three known spots, so a fourth long-running step added later cannot reintroduce it quietly.",
+      },
+    ],
+  },
+  {
     version: "2.372.3",
     date: "2026-09-16",
     title: "Approving a change no longer fails when it needs updating against several releases",
