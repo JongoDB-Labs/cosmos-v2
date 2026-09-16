@@ -44,6 +44,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.373.0",
+    date: "2026-09-16",
+    title: "Approving a change survives a busy main branch",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Approving a change could fail outright if anything else merged in the same moment. GitHub refuses a merge whose target branch moved between reading the change and applying it — a timing race, not a real conflict — and Foreman treated that refusal as final, parking the work for a human even though nothing was wrong with it. It now re-reads and tries again, briefly, which is all the situation ever needed.",
+      },
+      {
+        kind: "improvement",
+        text: "Only that specific race is retried. A genuine conflict, a failing check or a permissions problem still stops on the first attempt, so a change that truly cannot be merged is never made to look like one that can.",
+      },
+      {
+        kind: "improvement",
+        text: "When a merge is refused, Foreman now records what it had been told about the change's readiness a moment earlier. Two quite different problems used to produce the same one-line failure, which is why this one took three attempts to pin down.",
+      },
+    ],
+  },
+  {
     version: "2.372.5",
     date: "2026-09-16",
     title: "When approving a change fails, Foreman now says why",
