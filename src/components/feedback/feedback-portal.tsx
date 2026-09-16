@@ -676,15 +676,14 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
         </div>
       )}
 
-      {/* Submit dialog.
-          `disablePointerDismissal` (COSMOS-173): the Type/Project pickers render
-          their option list through a Portal, so it lives OUTSIDE the dialog's DOM
-          subtree. Pressing an option could therefore reach the dialog's
-          outside-press dismissal and close the form mid-draft — the value was
-          applied, but you had to reopen and re-edit to submit it. This dialog
-          holds unsaved input, so no outside press may discard it; Cancel, the X
-          and Escape still dismiss it deliberately. */}
-      <Dialog open={open} onOpenChange={setOpen} disablePointerDismissal>
+      {/* Submit dialog. Plain dismissal on purpose: backdrop press, Escape,
+          Cancel and the X all close it. This once carried
+          `disablePointerDismissal` to stop the Type/Project pickers taking the
+          dialog down with them (COSMOS-173); that bought it by disabling
+          click-outside-to-dismiss for everyone, and it was aimed at a path
+          base-ui already blocks. The picker press is fixed where it went wrong,
+          in <SelectContent>'s stacking — see the comment on its portal. */}
+      <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Submit feedback</DialogTitle>
