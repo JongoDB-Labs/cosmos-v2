@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.372.0",
+    date: "2026-09-15",
+    title: "Notes boxes rest four lines deep, so you can read what you type",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Every “Notes” box in the product — on meetings, contracts, contacts, partners, compliance assessments and the PM trackers — sat about one line deep, so a note longer than a few words scrolled out of sight while you were still writing it, and the only way to read it back was to save the record and reopen it. Each of those fields had been written to be two, three or four lines tall, but browsers were ignoring that instruction entirely and sizing them to whatever had been typed so far. Every multi-line field now actually rests at the depth it was written to have, Notes fields rest four lines deep, and all of them still grow as you keep typing and can be dragged taller. Nothing about what gets saved, or when, has changed.",
+      },
+      {
+        kind: "improvement",
+        text: "The report behind this — “the Notes input box is one line deep” — did not say which screen it was on, and every Notes field in the app is the same underlying control, so the depth was fixed once in that control. Boxes meant to stay compact — the retro board's add-a-note composer, the inline comment editors — keep the smaller size they were given rather than being deepened along with them. Four lines deep is the depth we assumed was wanted for Notes; if that is too shallow or too deep, a single screen can be changed on its own.",
+      },
+    ],
+  },
+  {
     version: "2.371.5",
     date: "2026-09-15",
     title: "Foreman can now find out whether its own size limit is the right one",
