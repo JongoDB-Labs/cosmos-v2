@@ -44,6 +44,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.372.1",
+    date: "2026-09-16",
+    title: "Two changes released close together no longer collide over the release notes",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Every release adds an entry to these notes, and each one was added at the very top of the same file — so two pieces of work finished around the same time always clashed over that one spot, and a change that waited while several releases went out clashed with every one of them. Yesterday that left three finished changes unable to merge, one of which had to be reassembled by hand. Entries can now be added anywhere in the file and are put in order automatically when you read them, so work finished in parallel merges without anyone untangling it.",
+      },
+    ],
+  },
+  {
     version: "2.372.0",
     date: "2026-09-15",
     title: "Notes boxes rest four lines deep, so you can read what you type",
