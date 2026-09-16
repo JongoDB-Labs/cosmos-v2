@@ -44,6 +44,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.372.2",
+    date: "2026-09-16",
+    title: "Approving a change no longer fails when it needs updating against more than one release",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When you approve a finished change, Foreman first updates it against everything released since it was written. If that update needed adjusting more than once — which happens whenever the change itself spans several steps — Foreman stopped after the first and reported a raw error, and the work had to be reassembled by hand. It now carries the update through to the end however many steps it takes, while still stopping for a person when the clash is a genuine disagreement in the code rather than routine bookkeeping.",
+      },
+    ],
+  },
+  {
     version: "2.372.1",
     date: "2026-09-16",
     title: "Two changes released close together no longer collide over the release notes",
