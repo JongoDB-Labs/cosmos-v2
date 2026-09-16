@@ -202,7 +202,12 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   // was 100% "TODO" whatever the tickets actually said. `columnKey` is a
   // PROJECT-level value, so when the host board has no workflow of its own the
   // project's is the right one to describe it with. A board that DOES own
-  // columns still wins, so nothing changes on the boards that have them.
+  // columns still wins, so nothing changes on the boards that have them —
+  // `POST /projects` seeds real columns onto every board it creates, and those
+  // beat a union that is ordered across boards and includes ceremony lanes.
+  //
+  // Same precedence as `board-item-detail-sheet.tsx`; the two describe one
+  // workflow and `status-column-precedence.test.tsx` asserts them together.
   const columns: BoardColumn[] = useMemo(() => {
     const own = (board?.columns ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
     return own.length > 0 ? own : projectStatusColumns(boardsQ.data ?? []);

@@ -341,7 +341,7 @@ const RELEASES: Release[] = [
       },
       {
         kind: "fix",
-        text: "Status could not be changed from a ticket opened on the Dashboard, Table, Calendar or RAID boards: the picker listed nothing and showed the internal status code (\"review\") in place of its name. It now offers your project's full workflow, wherever the ticket was opened from.",
+        text: "Status could not be changed from a ticket opened on a Dashboard, Table, Calendar or RAID board that has no workflow of its own: the picker listed nothing and showed the internal status code (\"review\") in place of its name. Those boards now offer your project's statuses. A board that has its own columns still offers exactly those, in its own order.",
       },
       {
         kind: "fix",
