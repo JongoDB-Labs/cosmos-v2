@@ -44,6 +44,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.374.0",
+    date: "2026-09-16",
+    title: "Foreman stops blaming a working connection",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Foreman could not read the Claude connection it works through, it always said the same thing — that there was no connection, and that you should go and connect one. That covered three quite different situations, and the most common of them was a momentary read failure on a connection that was perfectly fine. It happened on 2026-09-15: a ticket was skipped for a missing connection, and another ticket built successfully for the same organisation sixty seconds later. Foreman now distinguishes a connection that was never made, one whose stored credential cannot be decrypted, and one that simply failed to read for a moment — and tells you the follow-up that actually applies, including \"nothing\" when nothing is wrong.",
+      },
+      {
+        kind: "fix",
+        text: "A momentary read failure no longer counts against a ticket. Foreman gives up on a ticket after repeated failures so that an organisation which genuinely has not connected stops occupying the queue — but a working organisation was being charged for those blips too, which could quietly drop healthy work.",
+      },
+    ],
+  },
+  {
     version: "2.373.0",
     date: "2026-09-16",
     title: "Approving a change survives a busy main branch",
