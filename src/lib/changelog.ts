@@ -44,6 +44,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.375.5",
+    date: "2026-09-16",
+    title: "Archived tickets leave the Foreman queue as well",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Yesterday's change stopped Foreman picking up archived tickets, but the Foreman page kept listing them — so filing something away made it disappear from your boards while still sitting in the queue of things apparently waiting on you. The page now leaves them out too, both in the review queue and in what Foreman says it will work on next.",
+      },
+    ],
+  },
+  {
     version: "2.375.4",
     date: "2026-09-16",
     title: "Archiving a ticket now stops Foreman working on it",
