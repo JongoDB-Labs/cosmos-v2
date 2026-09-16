@@ -44,6 +44,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.374.1",
+    date: "2026-09-16",
+    title: "A release note could corrupt the notes file while merging",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When two changes each added a release note and one was brought up to date against the other, the two notes could be spliced together into a single broken entry — one note's beginning joined to the other note's ending. Nothing reported it at the time; the damage only surfaced much later as a batch of confusing errors pointing at a part of the file that was fine. A change caught by this could not be released until someone repaired the file by hand. Release notes are now combined the careful way, which was always the intended behaviour.",
+      },
+    ],
+  },
+  {
     version: "2.374.0",
     date: "2026-09-16",
     title: "Foreman stops blaming a working connection",

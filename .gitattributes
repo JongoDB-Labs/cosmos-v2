@@ -1,14 +1,39 @@
-
-# The product changelog is APPEND-ONLY and its order is computed at runtime
-# (src/lib/changelog.ts sorts by version), so two branches that each add a
-# release entry have no reason to conflict — union keeps both sides' added
-# lines and the sort puts them right.
+# NO merge driver for src/lib/changelog.ts. It must CONFLICT.
 #
-# Without this, every release inserts at the same first line, so a branch that
-# sits while several releases land collides with all of them. That happened on
-# 2026-09-15: seven releases in a day left auto/COSMOS-158 unrebaseable and its
-# change had to be lifted onto a fresh branch by hand.
+# 2026-09-15 this file carried `src/lib/changelog.ts merge=union`, on the
+# reasoning that the changelog is append-only and sorted at runtime, so two
+# branches adding entries "have no reason to conflict". The comment claimed it
+# was "safe for ADDING entries". **That is false, and it broke a release.**
 #
-# Safe for ADDING entries; if two branches rewrite the SAME entry, union keeps
-# both texts and a human has to pick.
-src/lib/changelog.ts merge=union
+# `merge=union` works on LINES and knows nothing about nesting. Both sides
+# insert right after `const RELEASES: Release[] = [`, and the inserted blocks
+# share plenty of common lines (`    version: "…",`, `    date: "…",`, `      {`,
+# `        kind: "fix",`). Git aligns on those, so the union keeps one side's
+# opening brace and the other side's closing one and splices the two entries
+# together:
+#
+#       {
+#         kind: "improvement",
+#         text: "…",
+#     version: "2.372.6",        <- the other entry starts MID-OBJECT
+#
+# Everything after that point is unbalanced. Measured on auto/COSMOS-176 vs
+# main, 2026-09-16:
+#
+#   git merge-file          → exit 1, 1 conflict marker   (what we WANT)
+#   git merge-file --union  → exit 0, silently corrupt    (what we HAD)
+#
+# The corrupt file then fails the post-rebase typecheck with a cluster of
+# TS1005s near the END of the array — far from the damage — and the approve
+# parks instead of shipping. That is exactly what happened to COSMOS-176:
+#   COSMOS-176 approve → merge FAILED (post-rebase typecheck failed …
+#   src/lib/changelog.ts(6076,42): error TS1005: ',' expected.)
+#
+# The union driver is not merely unnecessary here, it is HARMFUL: by exiting 0
+# it hides the file from `git diff --diff-filter=U`, so the ship path's
+# mechanical resolver never sees it. That resolver already handles this file
+# correctly — `src/lib/changelog.ts` is in VERSION_RACE_TRIO, so a conflict is
+# resolved by taking main's copy and re-applying the branch's entry through
+# `prependChangelogEntry`, which produces valid TypeScript by construction.
+#
+# So: let it conflict. The conflict is the mechanism, not the problem.
