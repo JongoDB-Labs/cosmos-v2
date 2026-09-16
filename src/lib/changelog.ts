@@ -44,6 +44,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.374.4",
+    date: "2026-09-16",
+    title: "A release's notes were filed under the wrong version number",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The note describing the assistant's sprint-data fix — “Asking the assistant for sprint data no longer ends in a database error” — was filed against version 2.369.1 instead of 2.374.2, the release it actually shipped in. So 2.374.2 appeared to ship with no notes at all, while 2.369.1 showed two unrelated changes. The note now sits under the version it belongs to. Nothing about the fix itself has changed; only where it is listed.",
+      },
+    ],
+  },
+  {
     version: "2.374.3",
     date: "2026-09-16",
     title: "A reworked change stops describing the problem it fixed",
@@ -323,7 +334,7 @@ const RELEASES: Release[] = [
     ],
   },
   {
-    version: "2.369.1",
+    version: "2.374.2",
     date: "2026-09-15",
     title: "Asking the assistant for sprint data no longer ends in a database error",
     highlights: [
