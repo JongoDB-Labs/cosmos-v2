@@ -195,7 +195,7 @@ enum IdpProtocol {
 // ─────────────────────────────────────────────
 
 model Organization {
-  flags Flag[]
+  flags          Flag[]
   id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name           String
   slug           String      @unique
@@ -267,6 +267,56 @@ model Organization {
   meetingTypeOptions     MeetingTypeOption[]
   savedViews             SavedView[]
   labels                 Label[]
+
+  // ── Cascade back-relations (added so deleting an org actually deletes its rows) ──
+  accounts            Account[]
+  accountingPeriods   AccountingPeriod[]
+  activities          Activity[]
+  bankAccounts        BankAccount[]
+  bankRules           BankRule[]
+  bankTransactions    BankTransaction[]
+  boards              Board[]
+  boardTemplates      BoardTemplate[]
+  clins               Clin[]
+  comments            Comment[]
+  contracts           Contract[]
+  crmContacts         CrmContact[]
+  customFields        CustomField[]
+  documentBlocks      DocumentBlock[]
+  documentItemLinks   DocumentItemLink[]
+  employees           Employee[]
+  employeeCostRates   EmployeeCostRate[]
+  employeeSupervisors EmployeeSupervisor[]
+  expenses            Expense[]
+  feedbackAttachments FeedbackAttachment[]
+  frozenOrgs          FrozenOrg[]
+  invoices            Invoice[]
+  journalEntries      JournalEntry[]
+  journalLines        JournalLine[]
+  keyResultLinks      KeyResultLink[]
+  notes               Note[]
+  notifications       Notification[]
+  objectiveLinks      ObjectiveLink[]
+  partners            Partner[]
+  payRuns             PayRun[]
+  payments            Payment[]
+  pmLinks             PmLink[]
+  products            Product[]
+  references          Reference[]
+  revenues            Revenue[]
+  sprintCeremonies    SprintCeremony[]
+  supervisorRequests  SupervisorRequest[]
+  syncMeetings        SyncMeeting[]
+  taxRates            TaxRate[]
+  themes              Theme[]
+  timeEntries         TimeEntry[]
+  timeEntryRevisions  TimeEntryRevision[]
+  timesheets          Timesheet[]
+  workItems           WorkItem[]
+  workItemAttachments WorkItemAttachment[]
+  workItemLabels      WorkItemLabel[]
+  workItemLinks       WorkItemLink[]
+  workItemWatchers    WorkItemWatcher[]
 
   @@map("organizations")
 }
@@ -808,23 +858,24 @@ model ProjectMember {
 }
 
 model Board {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId     String    @map("org_id") @db.Uuid
-  projectId String    @map("project_id") @db.Uuid
+  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String       @map("org_id") @db.Uuid
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId String       @map("project_id") @db.Uuid
   /// The team this board belongs to, or null for a board the whole project
   /// shares. Null is the default and every existing row, so nothing narrows
   /// until someone assigns one — the same opt-in shape as teamScopedAccess.
   /// SetNull on team delete: losing a team must not hide its boards forever.
-  teamId    String?   @map("team_id") @db.Uuid
+  teamId    String?      @map("team_id") @db.Uuid
   name      String
   // URL slug, unique per project (prod-parity). Nullable so the additive migration
   // can land before any backfill populates existing rows (Postgres treats NULLs as
   // distinct, so the unique index coexists with not-yet-slugged rows).
   slug      String?
   type      BoardType
-  config    Json      @default("{}")
-  sortOrder Int       @default(0) @map("sort_order")
-  createdAt DateTime  @default(now()) @map("created_at")
+  config    Json         @default("{}")
+  sortOrder Int          @default(0) @map("sort_order")
+  createdAt DateTime     @default(now()) @map("created_at")
 
   project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   team             Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
@@ -858,6 +909,7 @@ model BoardColumn {
 model WorkItem {
   id              String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId           String                      @map("org_id") @db.Uuid
+  org             Organization                @relation(fields: [orgId], references: [id], onDelete: Cascade)
   projectId       String                      @map("project_id") @db.Uuid
   title           String
   description     String                      @default("")
@@ -989,11 +1041,12 @@ model WorkItemAssignee {
 // star toggle, not auto-follow. `orgId` denormalized so "my watched across the
 // org" is one indexed scan.
 model WorkItemWatcher {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId      String   @map("org_id") @db.Uuid
-  workItemId String   @map("work_item_id") @db.Uuid
-  userId     String   @map("user_id") @db.Uuid
-  createdAt  DateTime @default(now()) @map("created_at")
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String       @map("org_id") @db.Uuid
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workItemId String       @map("work_item_id") @db.Uuid
+  userId     String       @map("user_id") @db.Uuid
+  createdAt  DateTime     @default(now()) @map("created_at")
 
   workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1034,11 +1087,12 @@ model Label {
 }
 
 model WorkItemLabel {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId      String   @map("org_id") @db.Uuid
-  workItemId String   @map("work_item_id") @db.Uuid
-  labelId    String   @map("label_id") @db.Uuid
-  createdAt  DateTime @default(now()) @map("created_at")
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String       @map("org_id") @db.Uuid
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workItemId String       @map("work_item_id") @db.Uuid
+  labelId    String       @map("label_id") @db.Uuid
+  createdAt  DateTime     @default(now()) @map("created_at")
 
   workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
   label    Label    @relation(fields: [labelId], references: [id], onDelete: Cascade)
@@ -1072,17 +1126,18 @@ model SavedView {
 }
 
 model Activity {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String   @map("org_id") @db.Uuid
-  workItemId  String?  @map("work_item_id") @db.Uuid
-  subjectType String?  @map("subject_type")
-  subjectId   String?  @map("subject_id") @db.Uuid
-  userId      String   @map("user_id") @db.Uuid
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workItemId  String?      @map("work_item_id") @db.Uuid
+  subjectType String?      @map("subject_type")
+  subjectId   String?      @map("subject_id") @db.Uuid
+  userId      String       @map("user_id") @db.Uuid
   action      String
   field       String?
-  oldValue    String?  @map("old_value")
-  newValue    String?  @map("new_value")
-  createdAt   DateTime @default(now()) @map("created_at")
+  oldValue    String?      @map("old_value")
+  newValue    String?      @map("new_value")
+  createdAt   DateTime     @default(now()) @map("created_at")
 
   workItem WorkItem? @relation(fields: [workItemId], references: [id], onDelete: Cascade)
 
@@ -1092,15 +1147,16 @@ model Activity {
 }
 
 model Comment {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String   @map("org_id") @db.Uuid
-  workItemId  String?  @map("work_item_id") @db.Uuid
-  subjectType String?  @map("subject_type")
-  subjectId   String?  @map("subject_id") @db.Uuid
-  authorId    String   @map("author_id") @db.Uuid
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workItemId  String?      @map("work_item_id") @db.Uuid
+  subjectType String?      @map("subject_type")
+  subjectId   String?      @map("subject_id") @db.Uuid
+  authorId    String       @map("author_id") @db.Uuid
   content     String
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
 
   workItem WorkItem? @relation(fields: [workItemId], references: [id], onDelete: Cascade)
 
@@ -1159,8 +1215,9 @@ model Client {
 }
 
 model CrmContact {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId        String   @map("org_id") @db.Uuid
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String       @map("org_id") @db.Uuid
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   name         String
   // First-class contact attributes. The edit form + contact card have always
   // read/written these (and the client type declared them), but they had no
@@ -1176,15 +1233,15 @@ model CrmContact {
   // omitted stage to "LEAD". A contact whose stage is not a canonical key would
   // be invisible on the board (counted only in stats). If a future migration
   // touches this table, flip the default to 'LEAD'.
-  stage        String   @default("lead")
+  stage        String       @default("lead")
   value        String?
-  dealValue    Decimal? @map("deal_value") @db.Decimal(19, 4)
-  contactInfo  String?  @map("contact_info")
-  ownerId      String?  @map("owner_id") @db.Uuid
+  dealValue    Decimal?     @map("deal_value") @db.Decimal(19, 4)
+  contactInfo  String?      @map("contact_info")
+  ownerId      String?      @map("owner_id") @db.Uuid
   notes        String?
-  customFields Json     @default("{}") @map("custom_fields")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  customFields Json         @default("{}") @map("custom_fields")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
 
   @@index([orgId, stage])
   @@map("crm_contacts")
@@ -1193,6 +1250,7 @@ model CrmContact {
 model Note {
   id           String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId        String                      @map("org_id") @db.Uuid
+  org          Organization                @relation(fields: [orgId], references: [id], onDelete: Cascade)
   authorId     String                      @map("author_id") @db.Uuid
   title        String                      @default("")
   content      String                      @default("")
@@ -1254,8 +1312,8 @@ model Flag {
   body     String       @default("")
 
   /// What it is about, where core knows the entity.
-  projectId String? @map("project_id") @db.Uuid
-  userId    String? @map("user_id") @db.Uuid
+  projectId   String? @map("project_id") @db.Uuid
+  userId      String? @map("user_id") @db.Uuid
   /// ...and where it does not. A plugin's own subject — a fee phase, a milestone
   /// — identified by type and id rather than a foreign key, because core cannot
   /// carry a column for every plugin's entities and a nullable FK to a table
@@ -1278,42 +1336,44 @@ model Flag {
 }
 
 model Notification {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId     String   @map("org_id") @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
+  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String       @map("org_id") @db.Uuid
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId    String       @map("user_id") @db.Uuid
   type      String
   title     String
-  body      String   @default("")
-  refType   String?  @map("ref_type")
-  refId     String?  @map("ref_id")
-  read      Boolean  @default(false)
+  body      String       @default("")
+  refType   String?      @map("ref_type")
+  refId     String?      @map("ref_id")
+  read      Boolean      @default(false)
   url       String?
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime     @default(now()) @map("created_at")
 
   @@index([userId, read])
   @@map("notifications")
 }
 
 model Partner {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId         String    @map("org_id") @db.Uuid
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String       @map("org_id") @db.Uuid
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   name          String
-  type          String    @default("vendor")
-  status        String    @default("active")
+  type          String       @default("vendor")
+  status        String       @default("active")
   website       String?
-  contactName   String?   @map("contact_name")
-  contactEmail  String?   @map("contact_email")
-  contactPhone  String?   @map("contact_phone")
-  socioEconomic String?   @map("socio_economic") // SDVOSB / WOSB / 8(a) / HUBZone / SB / LB
-  cageCode      String?   @map("cage_code")
-  perfRating    Int?      @map("perf_rating") // 1-5
-  ndaOnFile     Boolean   @default(false) @map("nda_on_file")
-  ndaExpiry     DateTime? @map("nda_expiry")
-  pocName       String?   @map("poc_name")
-  pocEmail      String?   @map("poc_email")
+  contactName   String?      @map("contact_name")
+  contactEmail  String?      @map("contact_email")
+  contactPhone  String?      @map("contact_phone")
+  socioEconomic String?      @map("socio_economic") // SDVOSB / WOSB / 8(a) / HUBZone / SB / LB
+  cageCode      String?      @map("cage_code")
+  perfRating    Int?         @map("perf_rating") // 1-5
+  ndaOnFile     Boolean      @default(false) @map("nda_on_file")
+  ndaExpiry     DateTime?    @map("nda_expiry")
+  pocName       String?      @map("poc_name")
+  pocEmail      String?      @map("poc_email")
   notes         String?
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
 
   contracts Contract[]
 
@@ -1322,17 +1382,18 @@ model Partner {
 }
 
 model Product {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String   @map("org_id") @db.Uuid
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   name        String
   description String?
   sku         String?
-  price       Decimal? @db.Decimal(19, 4)
-  currency    String   @default("USD")
-  status      String   @default("active")
+  price       Decimal?     @db.Decimal(19, 4)
+  currency    String       @default("USD")
+  status      String       @default("active")
   category    String?
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
 
   contracts Contract[]
 
@@ -1343,6 +1404,7 @@ model Product {
 model Contract {
   id                 String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId              String                      @map("org_id") @db.Uuid
+  org                Organization                @relation(fields: [orgId], references: [id], onDelete: Cascade)
   partnerId          String?                     @map("partner_id") @db.Uuid
   productId          String?                     @map("product_id") @db.Uuid
   projectId          String?                     @map("project_id") @db.Uuid
@@ -1404,23 +1466,24 @@ enum FieldType {
 }
 
 model BoardTemplate {
-  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId             String?  @map("org_id") @db.Uuid
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId             String?       @map("org_id") @db.Uuid
+  org               Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   slug              String
   name              String
   category          String
-  boardType         String   @default("KANBAN") @map("board_type")
+  boardType         String        @default("KANBAN") @map("board_type")
   methodology       String?
-  description       String   @default("")
-  sortOrder         Int      @default(0) @map("sort_order")
-  thumbnailUrl      String?  @map("thumbnail_url")
-  isBuiltIn         Boolean  @default(false) @map("is_built_in")
-  isPublished       Boolean  @default(true) @map("is_published")
-  defaultConfig     Json     @default("{}") @map("default_config")
-  createdAt         DateTime @default(now()) @map("created_at")
-  projectTemplateId String?  @map("project_template_id") @db.Uuid
+  description       String        @default("")
+  sortOrder         Int           @default(0) @map("sort_order")
+  thumbnailUrl      String?       @map("thumbnail_url")
+  isBuiltIn         Boolean       @default(false) @map("is_built_in")
+  isPublished       Boolean       @default(true) @map("is_published")
+  defaultConfig     Json          @default("{}") @map("default_config")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  projectTemplateId String?       @map("project_template_id") @db.Uuid
   sector            String?
-  sourceTemplateId  String?  @map("source_template_id") @db.Uuid
+  sourceTemplateId  String?       @map("source_template_id") @db.Uuid
 
   widgets         BoardTemplateWidget[]
   projectTemplate ProjectTemplate?      @relation(fields: [projectTemplateId], references: [id])
@@ -1588,6 +1651,7 @@ model IntervalCapacity {
 model SprintCeremony {
   id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId      String         @map("org_id") @db.Uuid
+  org        Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   boardId    String         @map("board_id") @db.Uuid
   intervalId String         @map("interval_id") @db.Uuid
   kind       CeremonyKind
@@ -1665,16 +1729,17 @@ model RetroActionItem {
 }
 
 model CustomField {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId     String    @map("org_id") @db.Uuid
-  projectId String?   @map("project_id") @db.Uuid
+  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String       @map("org_id") @db.Uuid
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId String?      @map("project_id") @db.Uuid
   name      String
   key       String
-  fieldType FieldType @map("field_type")
-  options   Json      @default("[]")
-  required  Boolean   @default(false)
-  sortOrder Int       @default(0) @map("sort_order")
-  createdAt DateTime  @default(now()) @map("created_at")
+  fieldType FieldType    @map("field_type")
+  options   Json         @default("[]")
+  required  Boolean      @default(false)
+  sortOrder Int          @default(0) @map("sort_order")
+  createdAt DateTime     @default(now()) @map("created_at")
 
   typeBindings WorkItemTypeField[]
 
@@ -1730,6 +1795,7 @@ enum RevenueType {
 model TimeEntry {
   id           String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId        String          @map("org_id") @db.Uuid
+  org          Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
   userId       String          @map("user_id") @db.Uuid
   projectId    String?         @map("project_id") @db.Uuid
   workItemId   String?         @map("work_item_id") @db.Uuid
@@ -1809,6 +1875,7 @@ enum TimesheetStatus {
 model Timesheet {
   id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId             String          @map("org_id") @db.Uuid
+  org               Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
   userId            String          @map("user_id") @db.Uuid
   periodStart       DateTime        @map("period_start") @db.Date
   periodEnd         DateTime        @map("period_end") @db.Date
@@ -1862,9 +1929,10 @@ model Timesheet {
 ///
 /// No update or delete path exists, in the application or the database.
 model TimeEntryRevision {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String   @map("org_id") @db.Uuid
-  timeEntryId String   @map("time_entry_id") @db.Uuid
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  timeEntryId String       @map("time_entry_id") @db.Uuid
   /// Full prior state. JSON rather than a column per field so adding a field to
   /// TimeEntry never needs a migration here — and so a revision keeps meaning
   /// what it meant even after the entry's shape changes.
@@ -1873,9 +1941,9 @@ model TimeEntryRevision {
   changed     Json
   /// Required once the entry has left OPEN, under a strict policy.
   reason      String?
-  actorId     String   @map("actor_id") @db.Uuid
-  actorIp     String?  @map("actor_ip")
-  createdAt   DateTime @default(now()) @map("created_at")
+  actorId     String       @map("actor_id") @db.Uuid
+  actorIp     String?      @map("actor_ip")
+  createdAt   DateTime     @default(now()) @map("created_at")
 
   entry TimeEntry @relation(fields: [timeEntryId], references: [id], onDelete: Cascade)
 
@@ -1884,18 +1952,19 @@ model TimeEntryRevision {
 }
 
 model Revenue {
-  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String      @map("org_id") @db.Uuid
-  amount      Decimal     @db.Decimal(19, 4)
-  currency    String      @default("USD")
-  date        DateTime    @db.Date
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  amount      Decimal      @db.Decimal(19, 4)
+  currency    String       @default("USD")
+  date        DateTime     @db.Date
   client      String?
   product     String?
-  type        RevenueType @default(ONE_TIME)
-  description String      @default("")
-  createdById String      @map("created_by_id") @db.Uuid
-  createdAt   DateTime    @default(now()) @map("created_at")
-  updatedAt   DateTime    @updatedAt @map("updated_at")
+  type        RevenueType  @default(ONE_TIME)
+  description String       @default("")
+  createdById String       @map("created_by_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
 
   @@index([orgId, date])
   @@map("revenues")
@@ -1904,6 +1973,7 @@ model Revenue {
 model Expense {
   id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId        String        @map("org_id") @db.Uuid
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   amount       Decimal       @db.Decimal(19, 4)
   currency     String        @default("USD")
   date         DateTime      @db.Date
@@ -1928,6 +1998,7 @@ model Expense {
 model SyncMeeting {
   id                 String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId              String                      @map("org_id") @db.Uuid
+  org                Organization                @relation(fields: [orgId], references: [id], onDelete: Cascade)
   title              String                      @default("")
   projectId          String?                     @map("project_id") @db.Uuid
   sprintId           String?                     @map("sprint_id") @db.Uuid
@@ -2132,19 +2203,20 @@ model WebhookDelivery {
 }
 
 model Theme {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId      String?   @map("org_id") @db.Uuid
+  id         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String?       @map("org_id") @db.Uuid
+  org        Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   slug       String
   name       String
-  mode       ThemeMode @default(DARK)
-  colors     Json      @default("{}")
-  typography Json      @default("{}")
-  spacing    Json      @default("{}")
-  branding   Json      @default("{}")
-  isBuiltIn  Boolean   @default(false) @map("is_built_in")
-  isActive   Boolean   @default(false) @map("is_active")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
+  mode       ThemeMode     @default(DARK)
+  colors     Json          @default("{}")
+  typography Json          @default("{}")
+  spacing    Json          @default("{}")
+  branding   Json          @default("{}")
+  isBuiltIn  Boolean       @default(false) @map("is_built_in")
+  isActive   Boolean       @default(false) @map("is_active")
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
 
   @@unique([orgId, slug])
   @@map("themes")
@@ -2521,12 +2593,13 @@ model AgentPolicy {
 /// (scripts/cutover/lib/model-graph.ts EXCLUDED_GLOBAL_MODELS) — a frozen flag must never
 /// be exported/imported as part of a tenant's data.
 model FrozenOrg {
-  id       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId    String   @unique @map("org_id") @db.Uuid
-  orgSlug  String   @unique @map("org_slug")
-  reason   String   @default("")
-  frozenBy String?  @map("frozen_by")
-  frozenAt DateTime @default(now()) @map("frozen_at")
+  id       String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId    String       @unique @map("org_id") @db.Uuid
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  orgSlug  String       @unique @map("org_slug")
+  reason   String       @default("")
+  frozenBy String?      @map("frozen_by")
+  frozenAt DateTime     @default(now()) @map("frozen_at")
 
   @@index([orgSlug])
   @@map("frozen_orgs")
@@ -2905,11 +2978,12 @@ model KeyResult {
 // measurable outcome. When a KR has ≥1 link, its progress AUTO-derives from how
 // many of its linked items are done (see the OKR read path). Both ends cascade.
 model KeyResultLink {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String   @map("org_id") @db.Uuid
-  keyResultId String   @map("key_result_id") @db.Uuid
-  workItemId  String   @map("work_item_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at")
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  keyResultId String       @map("key_result_id") @db.Uuid
+  workItemId  String       @map("work_item_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
 
   keyResult KeyResult @relation(fields: [keyResultId], references: [id], onDelete: Cascade)
   workItem  WorkItem  @relation(fields: [workItemId], references: [id], onDelete: Cascade)
@@ -2935,11 +3009,12 @@ model KeyResultLink {
 // offers first is configuration — `Project.objectiveLinkTypeId` — not a
 // property of the link.
 model ObjectiveLink {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String   @map("org_id") @db.Uuid
-  objectiveId String   @map("objective_id") @db.Uuid
-  workItemId  String   @map("work_item_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at")
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  objectiveId String       @map("objective_id") @db.Uuid
+  workItemId  String       @map("work_item_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
 
   objective Objective @relation(fields: [objectiveId], references: [id], onDelete: Cascade)
   workItem  WorkItem  @relation(fields: [workItemId], references: [id], onDelete: Cascade)
@@ -3268,17 +3343,18 @@ model FeedbackItem {
 // through an auth-checked route, not the raw storage URL. (FR: attach screenshots
 // to bug/FR tickets, viewable by admins.)
 model FeedbackAttachment {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  feedbackItemId String?  @map("feedback_item_id") @db.Uuid
-  orgId          String   @map("org_id") @db.Uuid
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  feedbackItemId String?      @map("feedback_item_id") @db.Uuid
+  orgId          String       @map("org_id") @db.Uuid
+  org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   kind           String
   url            String
-  storageKey     String   @map("storage_key")
+  storageKey     String       @map("storage_key")
   filename       String
-  contentType    String   @map("content_type")
+  contentType    String       @map("content_type")
   size           Int
-  uploadedById   String   @map("uploaded_by_id") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at")
+  uploadedById   String       @map("uploaded_by_id") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at")
 
   feedbackItem FeedbackItem? @relation(fields: [feedbackItemId], references: [id], onDelete: Cascade)
 
@@ -3416,6 +3492,7 @@ enum PeriodStatus {
 model Account {
   id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId         String        @map("org_id") @db.Uuid
+  org           Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   code          String
   name          String
   type          AccountType
@@ -3437,6 +3514,7 @@ model Account {
 model JournalEntry {
   id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId       String         @map("org_id") @db.Uuid
+  org         Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   entryNumber Int            @map("entry_number")
   date        DateTime       @db.Date
   memo        String         @default("")
@@ -3463,6 +3541,7 @@ model JournalEntry {
 model JournalLine {
   id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId           String         @map("org_id") @db.Uuid
+  org             Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   journalEntryId  String         @map("journal_entry_id") @db.Uuid
   accountId       String         @map("account_id") @db.Uuid
   direction       EntryDirection
@@ -3487,6 +3566,7 @@ model JournalLine {
 model AccountingPeriod {
   id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId      String       @map("org_id") @db.Uuid
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   startDate  DateTime     @map("start_date") @db.Date
   endDate    DateTime     @map("end_date") @db.Date
   status     PeriodStatus @default(OPEN)
@@ -3584,12 +3664,13 @@ model UserAiSettings {
 
 // Directed dependency/relation edge between two work items (FULLY WIRED).
 model WorkItemLink {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId        String   @map("org_id") @db.Uuid
-  sourceItemId String   @map("source_item_id") @db.Uuid
-  targetItemId String   @map("target_item_id") @db.Uuid
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String       @map("org_id") @db.Uuid
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  sourceItemId String       @map("source_item_id") @db.Uuid
+  targetItemId String       @map("target_item_id") @db.Uuid
   type         LinkType
-  createdAt    DateTime @default(now()) @map("created_at")
+  createdAt    DateTime     @default(now()) @map("created_at")
 
   sourceItem WorkItem @relation("WorkItemLinkSource", fields: [sourceItemId], references: [id], onDelete: Cascade)
   targetItem WorkItem @relation("WorkItemLinkTarget", fields: [targetItemId], references: [id], onDelete: Cascade)
@@ -3600,15 +3681,16 @@ model WorkItemLink {
 
 // Attachment metadata for a work item (SCHEMA-ONLY; no upload UI in v2 yet).
 model WorkItemAttachment {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String   @map("org_id") @db.Uuid
-  workItemId  String   @map("work_item_id") @db.Uuid
-  fileName    String   @map("file_name")
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workItemId  String       @map("work_item_id") @db.Uuid
+  fileName    String       @map("file_name")
   url         String
-  mimeType    String?  @map("mime_type")
-  sizeBytes   Int?     @map("size_bytes")
-  externalRef String?  @map("external_ref")
-  createdAt   DateTime @default(now()) @map("created_at")
+  mimeType    String?      @map("mime_type")
+  sizeBytes   Int?         @map("size_bytes")
+  externalRef String?      @map("external_ref")
+  createdAt   DateTime     @default(now()) @map("created_at")
 
   workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
 
@@ -3621,6 +3703,7 @@ model WorkItemAttachment {
 model Invoice {
   id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId       String        @map("org_id") @db.Uuid
+  org         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   number      String
   contactId   String?       @map("contact_id") @db.Uuid
   contractId  String?       @map("contract_id") @db.Uuid
@@ -3666,15 +3749,16 @@ model InvoiceLineItem {
 }
 
 model Payment {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String   @map("org_id") @db.Uuid
-  invoiceId   String   @map("invoice_id") @db.Uuid
-  amount      Decimal  @db.Decimal(19, 4)
-  method      String   @default("other")
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  invoiceId   String       @map("invoice_id") @db.Uuid
+  amount      Decimal      @db.Decimal(19, 4)
+  method      String       @default("other")
   reference   String?
-  receivedAt  DateTime @map("received_at") @db.Date
-  createdById String   @map("created_by_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at")
+  receivedAt  DateTime     @map("received_at") @db.Date
+  createdById String       @map("created_by_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
@@ -3685,6 +3769,7 @@ model Payment {
 model Employee {
   id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId          String         @map("org_id") @db.Uuid
+  org            Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   userId         String         @map("user_id") @db.Uuid
   employmentType EmploymentType @default(HOURLY) @map("employment_type")
   /// The CURRENT cost rate. Superseded for anything historical by the
@@ -3746,15 +3831,16 @@ model Employee {
 /// the history reproduces the single-column behaviour exactly and the migration
 /// itself moves no number. History only begins once a second row is added.
 model EmployeeCostRate {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId         String   @map("org_id") @db.Uuid
-  employeeId    String   @map("employee_id") @db.Uuid
-  costRate      Decimal  @map("cost_rate") @db.Decimal(19, 4)
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String       @map("org_id") @db.Uuid
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  employeeId    String       @map("employee_id") @db.Uuid
+  costRate      Decimal      @map("cost_rate") @db.Decimal(19, 4)
   /// First date this rate applies. Date, not timestamp: rates change on a day,
   /// and TimeEntry.date is the thing being priced.
-  effectiveFrom DateTime @map("effective_from") @db.Date
-  createdById   String   @map("created_by_id") @db.Uuid
-  createdAt     DateTime @default(now()) @map("created_at")
+  effectiveFrom DateTime     @map("effective_from") @db.Date
+  createdById   String       @map("created_by_id") @db.Uuid
+  createdAt     DateTime     @default(now()) @map("created_at")
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
@@ -3779,14 +3865,15 @@ model EmployeeCostRate {
 /// reports visibly UNSUPERVISED — which the product now surfaces on the
 /// timesheet — rather than silently supervised by a deleted record.
 model EmployeeSupervisor {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId        String   @map("org_id") @db.Uuid
-  employeeId   String   @map("employee_id") @db.Uuid
-  supervisorId String   @map("supervisor_id") @db.Uuid
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String       @map("org_id") @db.Uuid
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  employeeId   String       @map("employee_id") @db.Uuid
+  supervisorId String       @map("supervisor_id") @db.Uuid
   /// Who made this assignment. The audit trail records the change; this keeps
   /// the answer on the row itself for the common "who set this up?" question.
-  createdById  String   @map("created_by_id") @db.Uuid
-  createdAt    DateTime @default(now()) @map("created_at")
+  createdById  String       @map("created_by_id") @db.Uuid
+  createdAt    DateTime     @default(now()) @map("created_at")
 
   employee   Employee @relation("SupervisedBy", fields: [employeeId], references: [id], onDelete: Cascade)
   supervisor Employee @relation("Supervises", fields: [supervisorId], references: [id], onDelete: Cascade)
@@ -3813,15 +3900,16 @@ model EmployeeSupervisor {
 /// the table a work queue rather than a ledger. The permanent record of who
 /// asked for what lives in the audit log, which is where audit belongs.
 model SupervisorRequest {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId         String   @map("org_id") @db.Uuid
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String       @map("org_id") @db.Uuid
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   /// The employee who wants a supervisor.
-  employeeId    String   @map("employee_id") @db.Uuid
+  employeeId    String       @map("employee_id") @db.Uuid
   /// The employee they are asking for.
-  supervisorId  String   @map("supervisor_id") @db.Uuid
+  supervisorId  String       @map("supervisor_id") @db.Uuid
   /// User id of whoever made the request — normally the subject themselves.
-  requestedById String   @map("requested_by_id") @db.Uuid
-  createdAt     DateTime @default(now()) @map("created_at")
+  requestedById String       @map("requested_by_id") @db.Uuid
+  createdAt     DateTime     @default(now()) @map("created_at")
 
   employee   Employee @relation("SupervisionRequestedBy", fields: [employeeId], references: [id], onDelete: Cascade)
   supervisor Employee @relation("SupervisionRequestedOf", fields: [supervisorId], references: [id], onDelete: Cascade)
@@ -3836,6 +3924,7 @@ model SupervisorRequest {
 model PayRun {
   id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId       String       @map("org_id") @db.Uuid
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   label       String       @default("")
   periodStart DateTime     @map("period_start") @db.Date
   periodEnd   DateTime     @map("period_end") @db.Date
@@ -3851,16 +3940,17 @@ model PayRun {
 }
 
 model TaxRate {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId        String   @map("org_id") @db.Uuid
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String       @map("org_id") @db.Uuid
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   name         String
-  rate         Decimal  @db.Decimal(9, 6)
+  rate         Decimal      @db.Decimal(9, 6)
   jurisdiction String?
-  isDefault    Boolean  @default(false) @map("is_default")
-  isActive     Boolean  @default(true) @map("is_active")
-  createdById  String   @map("created_by_id") @db.Uuid
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  isDefault    Boolean      @default(false) @map("is_default")
+  isActive     Boolean      @default(true) @map("is_active")
+  createdById  String       @map("created_by_id") @db.Uuid
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
 
   @@index([orgId, isActive])
   @@map("tax_rates")
@@ -3917,6 +4007,7 @@ model DocumentBlock {
   id         String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   documentId String             @map("document_id") @db.Uuid
   orgId      String             @map("org_id") @db.Uuid
+  org        Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
   kind       DocumentBlockKind
   level      Int?
   text       String             @default("")
@@ -3953,6 +4044,7 @@ enum LinkedItemType {
 model DocumentItemLink {
   id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId     String         @map("org_id") @db.Uuid
+  org       Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   projectId String         @map("project_id") @db.Uuid
   blockId   String         @map("block_id") @db.Uuid
   itemType  LinkedItemType @map("item_type")
@@ -4069,6 +4161,7 @@ model ChatBotRun {
 model BankAccount {
   id              String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId           String              @map("org_id") @db.Uuid
+  org             Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
   name            String
   institution     String?
   mask            String?
@@ -4089,6 +4182,7 @@ model BankAccount {
 model BankTransaction {
   id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId            String        @map("org_id") @db.Uuid
+  org              Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   bankAccountId    String        @map("bank_account_id") @db.Uuid
   externalId       String?       @map("external_id")
   fingerprint      String        @map("fingerprint")
@@ -4111,19 +4205,20 @@ model BankTransaction {
 }
 
 model BankRule {
-  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId               String   @map("org_id") @db.Uuid
-  name                String   @default("")
-  descriptionContains String?  @map("description_contains")
-  direction           String   @default("any")
-  amountMin           Decimal? @map("amount_min") @db.Decimal(19, 4)
-  amountMax           Decimal? @map("amount_max") @db.Decimal(19, 4)
+  id                  String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId               String       @map("org_id") @db.Uuid
+  org                 Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name                String       @default("")
+  descriptionContains String?      @map("description_contains")
+  direction           String       @default("any")
+  amountMin           Decimal?     @map("amount_min") @db.Decimal(19, 4)
+  amountMax           Decimal?     @map("amount_max") @db.Decimal(19, 4)
   category            String
-  priority            Int      @default(0)
-  isActive            Boolean  @default(true) @map("is_active")
-  createdById         String   @map("created_by_id") @db.Uuid
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  priority            Int          @default(0)
+  isActive            Boolean      @default(true) @map("is_active")
+  createdById         String       @map("created_by_id") @db.Uuid
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
 
   @@index([orgId, isActive, priority])
   @@map("bank_rules")
@@ -4216,8 +4311,8 @@ model Risk {
   createdAt      DateTime             @default(now()) @map("created_at")
   updatedAt      DateTime             @updatedAt @map("updated_at")
 
-  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, code])
   @@index([orgId, projectId, status])
@@ -4288,15 +4383,15 @@ model Blocker {
   createdAt        DateTime             @default(now()) @map("created_at")
   updatedAt        DateTime             @updatedAt @map("updated_at")
 
-  org                  Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project              Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  org                  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project              Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   source               String?
-  identifiedBy         String?        @map("identified_by")
-  decisionAuthority    String?        @map("decision_authority")
-  relatedRiskCode      String?        @map("related_risk_code")
-  targetDate           DateTime?      @map("target_date")
-  customerNotifiedDate DateTime?      @map("customer_notified_date")
-  relatedRef           String?        @map("related_ref")
+  identifiedBy         String?      @map("identified_by")
+  decisionAuthority    String?      @map("decision_authority")
+  relatedRiskCode      String?      @map("related_risk_code")
+  targetDate           DateTime?    @map("target_date")
+  customerNotifiedDate DateTime?    @map("customer_notified_date")
+  relatedRef           String?      @map("related_ref")
   notes                String?
 
   @@unique([orgId, code])
@@ -4323,16 +4418,16 @@ model ChangeRequest {
   createdAt          DateTime             @default(now()) @map("created_at")
   updatedAt          DateTime             @updatedAt @map("updated_at")
 
-  org               Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project           Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  initiatedBy       String?        @map("initiated_by")
-  decisionAuthority String?        @map("decision_authority")
-  approvedBy        String?        @map("approved_by")
-  modNumber         String?        @map("mod_number")
-  implDate          DateTime?      @map("impl_date")
-  relatedRiskCode   String?        @map("related_risk_code")
-  submittedDate     DateTime?      @map("submitted_date")
-  scopeImpact       String?        @map("scope_impact")
+  org               Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project           Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  initiatedBy       String?      @map("initiated_by")
+  decisionAuthority String?      @map("decision_authority")
+  approvedBy        String?      @map("approved_by")
+  modNumber         String?      @map("mod_number")
+  implDate          DateTime?    @map("impl_date")
+  relatedRiskCode   String?      @map("related_risk_code")
+  submittedDate     DateTime?    @map("submitted_date")
+  scopeImpact       String?      @map("scope_impact")
   notes             String?
 
   @@unique([orgId, code])
@@ -4369,18 +4464,19 @@ model DeliverableRevision {
 // and expenses attribute to a CLIN; burn = labor (hours x cost rate) + expenses
 // vs the funded value / ceiling. See lib/pm/burn.ts.
 model Clin {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String    @map("org_id") @db.Uuid
-  projectId   String    @map("project_id") @db.Uuid
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId   String       @map("project_id") @db.Uuid
   code        String
   title       String
-  value       Decimal   @default(0) @db.Decimal(19, 4) // ceiling
-  fundedValue Decimal   @default(0) @map("funded_value") @db.Decimal(19, 4)
-  popStart    DateTime? @map("pop_start")
-  popEnd      DateTime? @map("pop_end")
-  status      String    @default("active")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  value       Decimal      @default(0) @db.Decimal(19, 4) // ceiling
+  fundedValue Decimal      @default(0) @map("funded_value") @db.Decimal(19, 4)
+  popStart    DateTime?    @map("pop_start")
+  popEnd      DateTime?    @map("pop_end")
+  status      String       @default("active")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
 
   @@unique([orgId, projectId, code])
   @@index([orgId, projectId])
@@ -4393,15 +4489,16 @@ model Clin {
 // the polymorphic subject kinds without per-kind columns. The detail drawer's
 // "Related" tab reads links in either direction and resolves the far end.
 model PmLink {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String   @map("org_id") @db.Uuid
-  projectId   String   @map("project_id") @db.Uuid
-  fromType    String   @map("from_type")
-  fromId      String   @map("from_id") @db.Uuid
-  toType      String   @map("to_type")
-  toId        String   @map("to_id") @db.Uuid
-  createdById String   @map("created_by_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at")
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId   String       @map("project_id") @db.Uuid
+  fromType    String       @map("from_type")
+  fromId      String       @map("from_id") @db.Uuid
+  toType      String       @map("to_type")
+  toId        String       @map("to_id") @db.Uuid
+  createdById String       @map("created_by_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
 
   @@unique([fromType, fromId, toType, toId])
   @@index([orgId, fromType, fromId])
@@ -4413,14 +4510,15 @@ model PmLink {
 /// references a `target` entity (any type). Polymorphic + org-scoped, no FKs
 /// (target/source span many tables); stale rows resolve to nothing at render.
 model Reference {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String   @map("org_id") @db.Uuid
-  sourceType  String   @map("source_type")
-  sourceId    String   @map("source_id") @db.Uuid
-  targetType  String   @map("target_type")
-  targetId    String   @map("target_id") @db.Uuid
-  createdById String?  @map("created_by_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at")
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  sourceType  String       @map("source_type")
+  sourceId    String       @map("source_id") @db.Uuid
+  targetType  String       @map("target_type")
+  targetId    String       @map("target_id") @db.Uuid
+  createdById String?      @map("created_by_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
 
   @@unique([sourceType, sourceId, targetType, targetId])
   @@index([orgId, targetType, targetId])
