@@ -44,6 +44,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.375.1",
+    date: "2026-09-15",
+    title: "Open an overdue ticket without leaving Sprint Health",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Clicking a ticket in Sprint Health's Overdue list (or any of its drill-downs) navigated away to the Issues page, so chasing a few late items meant leaving the board and finding your way back each time. The ticket now opens in the same editable panel every other board uses, and any change you make is reflected in the numbers behind it straight away.",
+      },
+      {
+        kind: "fix",
+        text: "Status could not be changed from a ticket opened on a Dashboard, Table, Calendar or RAID board that has no workflow of its own: the picker listed nothing and showed the internal status code (\"review\") in place of its name. Those boards now offer your project's statuses. A board that has its own columns still offers exactly those, in its own order.",
+      },
+      {
+        kind: "fix",
+        text: "Sprint Health's Completed and In Progress counts sat at zero and its Status Distribution showed everything as \"To Do\", however far along the work actually was. They now read your project's real workflow, so the board describes the sprint it is reporting on.",
+      },
+    ],
+  },
+  {
     version: "2.375.0",
     date: "2026-09-16",
     title: "See what a build actually cost",
@@ -327,6 +346,25 @@ const RELEASES: Release[] = [
       {
         kind: "feature",
         text: "Assigning an issue no longer means scrolling an unordered list of everyone in the organisation. The assignee pickers on the New issue dialog and the issue detail panel now list people alphabetically and accept a search: type any part of someone's name or their email address to narrow it. The request did not say what the list should be ordered by or what search should look at, so we sorted by the name already shown in each row (falling back to the email address for people without one) and match your typing against both the name and the email, even though only the name is displayed.",
+      },
+    ],
+  },
+  {
+    version: "2.369.3",
+    date: "2026-09-15",
+    title: "Open an overdue ticket without leaving Sprint Health",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Clicking a ticket in Sprint Health's Overdue list (or any of its drill-downs) navigated away to the Issues page, so chasing a few late items meant leaving the board and finding your way back each time. The ticket now opens in the same editable panel every other board uses, and any change you make is reflected in the numbers behind it straight away.",
+      },
+      {
+        kind: "fix",
+        text: "Status could not be changed from a ticket opened on a Dashboard, Table, Calendar or RAID board that has no workflow of its own: the picker listed nothing and showed the internal status code (\"review\") in place of its name. Those boards now offer your project's statuses. A board that has its own columns still offers exactly those, in its own order.",
+      },
+      {
+        kind: "fix",
+        text: "Sprint Health's Completed and In Progress counts sat at zero and its Status Distribution showed everything as \"To Do\", however far along the work actually was. They now read your project's real workflow, so the board describes the sprint it is reporting on.",
       },
     ],
   },

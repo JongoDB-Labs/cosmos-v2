@@ -1,8 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
 import { useQueries } from "@tanstack/react-query";
 import { GridLayout, verticalCompactor } from "react-grid-layout";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -35,6 +33,8 @@ import {
 import type { IntervalChange } from "@/lib/dashboard/scope-change";
 import type { WorkItemLinkLike, ObjectiveLike } from "@/lib/dashboard/impediments";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
+import { projectStatusColumns } from "@/lib/boards/project-statuses";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { burndown } from "@/lib/intervals/burndown";
 import { defaultCeremonyInterval } from "@/lib/intervals/ceremony-intervals";
@@ -139,8 +139,10 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   const objectivesKey = useOrgQueryKey("objectives", projectId);
   const membersKey = useOrgQueryKey("members");
   const intervalsKey = useOrgQueryKey("intervals", projectId);
+  const boardsKey = useOrgQueryKey("boards", projectId);
 
-  const [boardQ, itemsQ, membersQ, intervalsQ, changesQ, linksQ, objectivesQ] = useQueries({
+  const [boardQ, itemsQ, membersQ, intervalsQ, changesQ, linksQ, objectivesQ, boardsQ] =
+    useQueries({
     queries: [
       {
         queryKey: boardKey,
@@ -179,14 +181,37 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
         queryKey: objectivesKey,
         queryFn: () => jsonFetch<ObjectiveLike[]>(`${basePath}/objectives`),
       },
+      {
+        // A DASHBOARD board owns NO columns: `POST /boards` seeds them from
+        // `BOARD_TYPE_REGISTRY[type].defaultColumns` and only the two ceremony
+        // types declare any. Every category on this screen is therefore read
+        // from a board that has nothing to say about categories — see `columns`
+        // below. Same key the boards list already uses, so this is shared.
+        queryKey: boardsKey,
+        queryFn: () => jsonFetch<Board[]>(`${basePath}/boards`),
+      },
     ],
-  });
+    });
 
   const board: Board | null = boardQ.data ?? null;
-  const columns: BoardColumn[] = useMemo(
-    () => (board?.columns ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder),
-    [board],
-  );
+  // What "done" and "in progress" MEAN on this board.
+  //
+  // This read the host board's own columns, and a Dashboard board is created
+  // with none — so the map was empty, every item fell through to TODO, and
+  // Completed / In Progress sat at 0 next to a Status Distribution donut that
+  // was 100% "TODO" whatever the tickets actually said. `columnKey` is a
+  // PROJECT-level value, so when the host board has no workflow of its own the
+  // project's is the right one to describe it with. A board that DOES own
+  // columns still wins, so nothing changes on the boards that have them —
+  // `POST /projects` seeds real columns onto every board it creates, and those
+  // beat a union that is ordered across boards and includes ceremony lanes.
+  //
+  // Same precedence as `board-item-detail-sheet.tsx`; the two describe one
+  // workflow and `status-column-precedence.test.tsx` asserts them together.
+  const columns: BoardColumn[] = useMemo(() => {
+    const own = (board?.columns ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+    return own.length > 0 ? own : projectStatusColumns(boardsQ.data ?? []);
+  }, [board, boardsQ.data]);
   // Memoised because `?? []` mints a NEW array on every render, which would make
   // every downstream useMemo — filtering, metrics, burndown — recompute each
   // time regardless of whether the data changed.
@@ -277,10 +302,15 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   }, [filteredItems]);
 
   // Drill-down (FR 81918e0e): clicking a metric or chart segment opens a list
-  // of the matching tickets, each deep-linking to its detail on the Issues page.
-  const params = useParams();
-  const orgSlug = typeof params?.orgSlug === "string" ? params.orgSlug : "";
+  // of the matching tickets.
+  //
+  // A row used to be a <Link> to `/{org}/issues?item=…`, which threw the reader
+  // out of Sprint Health entirely to edit one overdue ticket — and left them on
+  // the Issues page afterwards. Every other board opens the ticket in place, so
+  // this does too: same sheet, same editing, and a save lands in the very
+  // `work-items` cache entry this board's numbers are computed from.
   const [drill, setDrill] = useState<{ title: string; rows: WorkItem[] } | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const openDrill = (title: string, filter: (i: WorkItem) => boolean) =>
     setDrill({ title, rows: filteredItems.filter(filter) });
   const catOf = (i: WorkItem) => columnCategoryMap.get(i.columnKey) ?? "TODO";
@@ -666,11 +696,16 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
               <p className="p-6 text-center text-sm text-muted-foreground">No matching items.</p>
             ) : (
               drill?.rows.map((i) => (
-                <Link
+                <button
                   key={i.id}
-                  href={`/${orgSlug}/issues?item=${i.id}`}
-                  className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"
-                  onClick={() => setDrill(null)}
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/50"
+                  onClick={() => {
+                    // The list dialog closes first: two stacked modals fight over
+                    // the focus trap, and the sheet is what the user asked for.
+                    setDrill(null);
+                    setDetailId(i.id);
+                  }}
                 >
                   <span className="shrink-0 font-mono text-xs text-muted-foreground">
                     {projectKey}-{i.ticketNumber}
@@ -679,12 +714,21 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
                   <span className="shrink-0 text-xs text-muted-foreground">
                     {(columnCategoryMap.get(i.columnKey) ?? "TODO").replace("_", " ").toLowerCase()}
                   </span>
-                </Link>
+                </button>
               ))
             )}
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* The same editable ticket the Table, Calendar and RAID boards open. */}
+      <BoardItemDetailSheet
+        itemId={detailId}
+        onOpenChange={(open) => !open && setDetailId(null)}
+        orgId={orgId}
+        projectId={projectId}
+        boardId={boardId}
+      />
     </>
   );
 }

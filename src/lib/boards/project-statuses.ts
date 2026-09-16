@@ -21,10 +21,16 @@ export interface StatusColumn {
   category?: string;
 }
 
-export function projectStatusColumns(
-  boards: { columns?: StatusColumn[] | null }[]
-): StatusColumn[] {
-  const byKey = new Map<string, StatusColumn>();
+/**
+ * Generic in the column type so a caller that hands in FULL `BoardColumn` rows
+ * gets full rows back. Sprint Health needs each column's `category` to decide
+ * what "done" means, and narrowing the union to `StatusColumn` on the way out
+ * would have forced a cast or a second copy of this rule.
+ */
+export function projectStatusColumns<T extends StatusColumn>(
+  boards: { columns?: T[] | null }[]
+): T[] {
+  const byKey = new Map<string, T>();
 
   for (const board of boards) {
     for (const column of board.columns ?? []) {
