@@ -44,6 +44,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.374.3",
+    date: "2026-09-16",
+    title: "A reworked change stops describing the problem it fixed",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When you asked Foreman to rework a change, it updated the work itself but left the change's own summary describing the original problem — so a fix that had been made and checked still read, to anyone opening it, as though the fault were still there. That summary is also one of the things Foreman weighs when recommending whether to accept a change, so a corrected piece of work could be sent back on the strength of a stale description of it. Reworking now rewrites the summary to match what was actually done.",
+      },
+    ],
+  },
+  {
     version: "2.374.1",
     date: "2026-09-16",
     title: "A release note could corrupt the notes file while merging",
