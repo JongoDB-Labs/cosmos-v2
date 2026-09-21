@@ -44,6 +44,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.376.0",
+    date: "2026-08-26",
+    title: "A dropdown no longer takes its dialog down with it",
+    highlights: [
+      {
+        kind: "fix",
+        text: "While a dropdown was open in a dialog — the Type or Project picker in Submit feedback, say — a click that didn't land on an option closed the whole dialog rather than just the dropdown, discarding anything half-written in it. The click now belongs to the dropdown: the list closes and the form stays exactly as you left it, so you can pick a Type and a Project and submit in one pass.",
+      },
+    ],
+  },
+  {
     version: "2.375.6",
     date: "2026-09-20",
     title: "A stalled Foreman job no longer spends a second hour repeating itself",
@@ -1593,6 +1604,17 @@ const RELEASES: Release[] = [
       {
         kind: "improvement",
         text: "The Plugins screen could report a version that had not been current for months, and organisations could sit on an old one indefinitely. Versions are now recorded as each release is picked up, so what you see is what is running.",
+      },
+    ],
+  },
+  {
+    version: "2.311.0",
+    date: "2026-08-26",
+    title: "A dropdown no longer takes its dialog down with it",
+    highlights: [
+      {
+        kind: "fix",
+        text: "While a dropdown was open in a dialog — the Type or Project picker in Submit feedback, say — a click that didn't land on an option closed the whole dialog rather than just the dropdown, discarding anything half-written in it. The click now belongs to the dropdown: the list closes and the form stays exactly as you left it, so you can pick a Type and a Project and submit in one pass.",
       },
     ],
   },
