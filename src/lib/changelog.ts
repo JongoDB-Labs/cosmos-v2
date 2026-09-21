@@ -44,6 +44,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.376.1",
+    date: "2026-09-20",
+    title: "Deleting an organization now deletes that organization's data",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Deleting an organization removed the organization but left most of its records sitting in the database — work items, boards, comments, notes, time entries, invoices, payroll, contracts and more. None of it was reachable afterwards, because every screen and every API call is scoped to an organization you belong to, so nothing was exposed; but the data was still there, and a delete that says it removed a tenant's information should actually have removed it. Forty-eight kinds of record were affected. They are now tied to the organization properly, so removing one takes its data with it. Audit history is the deliberate exception — it has to outlive the organization to record that the deletion happened.",
+      },
+      {
+        kind: "improvement",
+        text: "Records left behind by earlier deletions are cleared as part of this change. On this instance there were none to clear. Built-in templates and themes that belong to no organization are untouched.",
+      },
+    ],
+  },
+  {
     version: "2.376.0",
     date: "2026-08-26",
     title: "A dropdown no longer takes its dialog down with it",
