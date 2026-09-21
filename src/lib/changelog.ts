@@ -44,6 +44,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.376.2",
+    date: "2026-09-20",
+    title: "Regression cover for dragging cards into To Do",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The report that cards could not be dragged into To Do from other columns has never reproduced, and still does not. Rather than close it on that, the behaviour is now pinned by nine automated drag scenarios across both board types — including the Sprint board, which is the screen the report came from and had no coverage at all. Nothing about how the boards work has changed; if this ever does break, it now fails a named test instead of arriving as another report.",
+      },
+    ],
+  },
+  {
     version: "2.376.1",
     date: "2026-09-20",
     title: "Deleting an organization now deletes that organization's data",
