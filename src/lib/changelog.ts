@@ -44,6 +44,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.376.3",
+    date: "2026-09-21",
+    title: "Foreman tidies up properly after it ships, and can take a note",
+    highlights: [
+      {
+        kind: "fix",
+        text: "After merging a change, Foreman refreshes its own working copy so it reads the new version. That step had been failing silently since it was written — the failure was caught and discarded, so nothing reported it, and Foreman was left pointing at the branch it had just shipped rather than the main line. It now does what the code always said it did. This is the third place the same one-line mistake lived; the other two were fixed separately, so a check now covers every such step rather than the one that happened to be noticed.",
+      },
+      {
+        kind: "feature",
+        text: "You can now leave Foreman a note on a ticket without it starting work — useful for recording context, a decision, or a constraint you want it to have next time it picks the ticket up.",
+      },
+    ],
+  },
+  {
     version: "2.376.2",
     date: "2026-09-20",
     title: "Regression cover for dragging cards into To Do",
