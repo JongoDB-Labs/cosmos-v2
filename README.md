@@ -320,9 +320,18 @@ workflow actions. Many runbooks are NIST 800-171 control-mapped.
 - **PostgreSQL with the `pgvector` and `pgcrypto` extensions** — a vanilla
   Postgres image will fail the extension/vector migrations. The
   `pgvector/pgvector:pg16` image is what CI uses.
-- **npm** (the repo uses `package-lock.json`).
-- **Docker** — only needed for the full `docker-compose` stack or the container
-  acceptance suites; not required to run `npm run dev` against a local Postgres.
+- **npm** (the repo uses `package-lock.json`). npm ≥ 11.10 — which ships with
+  Node 24 — gates dependency install scripts, so `npm install` ends with an
+  `allow-scripts` warning naming ~7 packages (`@prisma/engines`,
+  `onnxruntime-node`, `sharp`, `esbuild`, …). **This is expected and harmless
+  here**: all of them ship prebuilt platform packages, and Prisma, tsx, sharp,
+  and onnxruntime all work with the scripts unrun. No `npm approve-scripts`
+  step is needed.
+- **Docker** — required for the `docker-compose` stack and the container
+  acceptance suites. Strictly speaking `npm run dev` only needs *a* Postgres
+  with the right extensions, but since step 3 below gets that from a container,
+  a machine without Docker needs a pgvector-enabled Postgres from somewhere
+  else.
 
 ### First-time setup
 
@@ -334,8 +343,17 @@ npm install
 #    non-Docker local flow, set DATABASE_URL and DIRECT_URL to the localhost
 #    form (the template defaults to the docker-compose hostname):
 #      postgres://cosmos:cosmos@localhost:5432/cosmos
-#    Two loaders read two files: the Prisma CLI/Migrate reads `.env`, and the
-#    seed scripts read `.env.local` — keep the value in both.
+#    Two files, two consumers — keep the value in both:
+#      `.env`       the Prisma CLI / Migrate (prisma.config.ts does
+#                   `import "dotenv/config"`), and every CLI script you run
+#                   with `node --env-file=.env` (see step 6).
+#      `.env.local` the Next.js dev server, which loads it natively.
+#    NOTE: most seeds/scripts do NOT load a dotenv file — they read plain
+#    process.env. Run them via `node --env-file=.env` or export DATABASE_URL
+#    first, or they fail with a confusing "SASL: client password must be a
+#    string" instead of "DATABASE_URL unset". (The one exception is
+#    prisma/seed/bootstrap-org.ts, which falls back to reading .env.local
+#    itself via its resolveDbUrl() helper.)
 cp .env.example .env
 cp .env.example .env.local
 
@@ -352,9 +370,13 @@ npx prisma db execute --file prisma/sql/ci-roles.sql
 npx prisma generate
 npx prisma migrate deploy
 
-# 6. Seed. Deterministic fixtures (what CI/e2e use):
-npx tsx prisma/seed/test-fixtures.ts
-#   or the general seed:  npm run seed        (demo data: npm run seed:demo)
+# 6. Seed. Deterministic fixtures (what CI/e2e use). The `--env-file` is load-
+#    bearing — see step 6's note above; `npx tsx prisma/seed/test-fixtures.ts`
+#    on its own only works if DATABASE_URL is already exported in the shell.
+node --env-file=.env node_modules/.bin/tsx prisma/seed/test-fixtures.ts
+#   or the general seed:  node --env-file=.env node_modules/.bin/tsx prisma/seed/index.ts
+#   (`npm run seed` / `npm run seed:demo` are the same scripts without the
+#    env-file, so export DATABASE_URL before using those forms.)
 
 # 7. Run the app
 npm run dev        # http://localhost:3000
@@ -371,9 +393,10 @@ the feature-gated extras — object storage, web push, SSO vault, Anthropic, etc
 | `ALLOWED_EMAILS` | Comma-separated sign-in allowlist — your account must be listed. |
 
 **Signing in locally** — use Google OAuth (with the vars above), or run
-`node scripts/create-dev-session.mjs` to mint a dev session as the first org's
-owner and set it on the `session` cookie. Never generate real secret values;
-follow `.env.example`'s notes (e.g. `openssl rand -base64 32`).
+`node --env-file=.env scripts/create-dev-session.mjs` to mint a dev session as
+the first org's owner and set the printed `sessionId` on the `session` cookie
+at `localhost:3000`. Never generate real secret values; follow `.env.example`'s
+notes (e.g. `openssl rand -base64 32`).
 
 ### Everyday commands
 
