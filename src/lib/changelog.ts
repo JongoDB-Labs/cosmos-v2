@@ -44,6 +44,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.376.0",
+    date: "2026-09-20",
+    title: "Leave a note on a ticket without setting Foreman off",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Every comment on a ticket Foreman has paused on is treated as an instruction to carry on — which is what makes replying in plain English work, but it meant there was no way to simply record something. Writing \"leaving this alone for now, here is why\" started the very work it was explaining. You can now use /note to record context on a ticket without waking anything up; it appears in the activity like any other comment, and says on its face that Foreman will not act on it.",
+      },
+      {
+        kind: "fix",
+        text: "A revisited piece of work that ran out of time no longer gets a second full allowance before giving up.",
+      },
+    ],
+  },
+  {
     version: "2.375.5",
     date: "2026-09-16",
     title: "Archived tickets leave the Foreman queue as well",
