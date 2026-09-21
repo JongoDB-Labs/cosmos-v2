@@ -44,6 +44,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.376.4",
+    date: "2026-09-21",
+    title: "Answer Foreman's open questions in one click — or let it answer them",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When Foreman needs a decision before it can build something, it lists the plausible answers. Those were shown as text, mixed in with everything else sitting in the review column, so answering meant reading the options on one screen and then typing a reply on another. The Foreman page now has an \u201cOpen questions\u201d section listing only the tickets that need a decision, with each answer as a button — one click sends it and the build resumes. Tickets still appear in the review queue as well, so nothing moved or disappeared; and when nothing needs you, the section says so rather than vanishing.",
+      },
+      {
+        kind: "feature",
+        text: "You can also hand those decisions over. A new setting on the Foreman page — Open questions: \u201cask me\u201d or \u201cForeman decides\u201d — lets Foreman take its own recommended answer instead of waiting. It only does this where it actually made a recommendation; where it had no preference, it still waits for you. Either way the work comes back as a pull request for review before anything ships, and the ticket records that the choice was automatic and how to change it. The default is unchanged: Foreman asks.",
+      },
+    ],
+  },
+  {
     version: "2.376.3",
     date: "2026-09-21",
     title: "Foreman tidies up properly after it ships, and can take a note",
