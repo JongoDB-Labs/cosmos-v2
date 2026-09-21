@@ -44,6 +44,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.375.6",
+    date: "2026-09-20",
+    title: "A stalled Foreman job no longer spends a second hour repeating itself",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Foreman picks up a job it had to pause, it resumes the session it was already working in. If that resume runs out of time, it was then starting again from scratch — a fresh attempt that re-read the same work and predictably ran out of the same time, having thrown away the session that at least still knew what it had done. A recent change gave each of those attempts a full ninety minutes rather than forty-five, which quietly turned a wasted hour and a half into a wasted three hours on a single ticket. Foreman now stops after the first attempt when the cause was running out of time, and still starts fresh when the cause was a lost session — which is what that second attempt was actually for.",
+      },
+    ],
+  },
+  {
     version: "2.375.5",
     date: "2026-09-16",
     title: "Archived tickets leave the Foreman queue as well",
