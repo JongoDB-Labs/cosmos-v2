@@ -44,6 +44,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.377.1",
+    date: "2026-09-22",
+    title: "Foreman can look for work instead of only waiting for it",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Foreman has only ever worked on tickets people raised. It can now run a cleanup sweep once a night: it reads the codebase without changing anything, groups what it finds into related batches, and opens one cleanup ticket per batch — each listing exactly which files it proposes to touch and why. The sweep is off until you turn it on, and even then it does nothing until a project with the key CLEANUP exists to receive the tickets, so a mis-set schedule cannot drop machine-written tickets onto a board someone is running a sprint on. Turn it on, pick an hour and how many tickets a night to allow, under Foreman's deploy cadence settings.",
+      },
+      {
+        kind: "improvement",
+        text: "Cleanup tickets arrive in the backlog rather than queued to build, so you see them before anything acts on them, and they are capped at two a night by default. Foreman will not answer its own questions on a ticket it raised itself, even when it is otherwise set to decide questions on its own — work it proposed, on code it chose, judged by nobody else is a loop with no outside opinion in it. Areas of the code where a mistake is expensive — sign-in, permissions, database migrations, the deployment files and Foreman's own code — are never included in a sweep.",
+      },
+    ],
+  },
+  {
     version: "2.377.0",
     date: "2026-09-22",
     title: "Feedback remembers which walkthrough it came from",
