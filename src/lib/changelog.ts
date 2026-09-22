@@ -44,6 +44,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.377.2",
+    date: "2026-09-22",
+    title: "Tenant data now really is deleted with the tenant",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Seven tables behind Foreman — its event feed, its build records and its internal loop bookkeeping — held rows tagged with an organisation but with nothing in the database enforcing that link. Deleting an organisation left those rows behind rather than removing them: 17,034 of them on this instance. Nothing was exposed by it, because every screen in the product filters by the organisation you are signed in to, but data that should have gone was still there. It is now removed with its organisation, and the check that is supposed to catch this class of mistake was itself not running over these tables — it is now, so the same gap cannot open again quietly.",
+      },
+      {
+        kind: "improvement",
+        text: "The nightly cleanup sweep added in the previous release now reads a bounded part of the codebase each night — about two dozen areas, rotating so that a different part is covered each night and the whole tree comes round within a fortnight — rather than attempting all of it in one go. On its first run it tried to read everything at once, which would have taken hours and, while it ran, stopped Foreman from picking up work or installing new releases. It now also stops after twenty minutes regardless, and says in its own log how much it got through, so a short night cannot be mistaken for a clean codebase.",
+      },
+    ],
+  },
+  {
     version: "2.377.1",
     date: "2026-09-22",
     title: "Foreman can look for work instead of only waiting for it",
