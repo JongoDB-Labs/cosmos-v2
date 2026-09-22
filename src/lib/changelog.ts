@@ -17,13 +17,18 @@
  * and `auto/COSMOS-158` became unrebaseable against every one of them; its change
  * had to be lifted onto a fresh branch by hand.
  *
- * With order computed, `.gitattributes` marks this file `merge=union`: git keeps
- * BOTH sides' added lines instead of reporting a conflict, and the sort puts them
- * right. Two branches adding different releases now merge cleanly.
+ * Computed order was HALF of an attempted fix. The other half — marking this file
+ * `merge=union` in `.gitattributes` so git kept both sides' added lines — was
+ * tried on 2026-09-15 and REVERTED the next day: union aligns on lines two
+ * inserted entries happen to share, so it spliced one entry's opening brace onto
+ * another's closing brace and produced a file that did not parse, while exiting
+ * 0. See `.gitattributes`, which now says NO driver and why.
  *
- * Union merge is safe for ADDING entries and unsafe for rewriting one in place —
- * it would keep both texts. Edit an existing entry in a branch that nothing else
- * touches, or accept the duplicate and fix it.
+ * So this file still CONFLICTS on concurrent releases, deliberately. That is the
+ * cheap failure: `src/lib/changelog.ts` is in VERSION_RACE_TRIO, so the rebase
+ * resolver treats the conflict as mechanical and resolves it. Computed order
+ * still earns its keep — an entry may be inserted ANYWHERE in the literal, so
+ * resolving means keeping both sides rather than re-ordering them.
  */
 
 export type ChangeKind = "feature" | "improvement" | "fix";
@@ -43,6 +48,21 @@ export interface Release {
 /** Release entries as authored, in whatever order the file happens to hold them.
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
+  {
+    version: "2.377.3",
+    date: "2026-09-22",
+    title: "When an automated merge stops, it now says why",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Foreman prepares an approved change for merging, it first brings the branch up to date with everything that landed while the work was in progress. If that step stopped for a reason other than a conflict it could resolve, the ticket came back with a message that named no cause — it said only that nothing conflicted, which was true and useless. It now reports exactly what the underlying tool said, so a stalled merge can be read and acted on instead of re-run to find out.",
+      },
+      {
+        kind: "improvement",
+        text: "Foreman is running an experiment to decide whether it can safely merge larger changes without asking first, and that experiment only counts a build once the outcome is known. Builds it cannot count were previously lumped into a single number, which made a growing pile look like a growing problem. They are now broken down by reason — and measured against the 173 builds recorded here, 154 of them had never been assessed at all rather than assessed and turned down, which is what the single number had been reporting. Only one of the reasons represents information actually lost, and on this instance it is zero.",
+      },
+    ],
+  },
   {
     version: "2.377.2",
     date: "2026-09-22",
