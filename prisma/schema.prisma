@@ -3313,6 +3313,14 @@ model FeedbackItem {
   // Auto-captured client context on BUG reports (route, userAgent, stack,
   // componentStack, digest, errorSignature). Append-only sightings; {} for FRs.
   telemetry   Json           @default("{}")
+  /// WHERE this was raised, so a release's feedback can be read as a set.
+  /// "app" for the feedback button, "tour" for a guided walkthrough. Kept as a
+  /// column rather than inside `telemetry` because it is the thing you filter
+  /// a queue by, and a JSON probe is not an index.
+  source      String         @default("app")
+  /// Identifies the thing named by `source` — for a walkthrough, "<tourId>/<stepId>",
+  /// so feedback points at the step that prompted it rather than the release in general.
+  sourceRef   String?        @map("source_ref")
   // Auto-remediation loop (FR 695aa097): when the scheduled triage delivers this
   // item into the work backlog, `deliveredAt` is stamped (idempotency key — the
   // poller only ever picks up rows where it's null), `workItemId` links the
@@ -3335,6 +3343,8 @@ model FeedbackItem {
   // Backs the poller's "OPEN + not yet delivered" scan.
   @@index([orgId, deliveredAt])
   @@index([orgId, projectId])
+  // Pulling one walkthrough's feedback out of the queue is the whole point.
+  @@index([orgId, source, sourceRef])
   @@map("feedback_items")
 }
 

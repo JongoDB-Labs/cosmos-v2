@@ -56,6 +56,11 @@ export function TourFeedback({
           description:
             `${body}\n\n---\nRaised from the "${tourName}" walkthrough, ` +
             `step "${step.title}" (${tourId}/${step.id}). Marked as: ${chosen.label}.`,
+          // The same provenance, structured. It stays in the description too so
+          // the item still reads on its own wherever it is shown, but the queue
+          // filters on these.
+          source: "tour",
+          sourceRef: `${tourId}/${step.id}`,
         }),
       });
       setState(res.ok ? "sent" : "error");
