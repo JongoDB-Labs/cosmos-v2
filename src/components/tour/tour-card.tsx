@@ -47,10 +47,14 @@ export function TourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string })
   }, [target, pathname, router]);
 
   // Bring the anchored element into view once the step lands.
+  //
+  // Started immediately and cancelled on the way out, because the helper waits
+  // for the element itself: a step that changes page has nothing to scroll to
+  // for several seconds, and the fixed delay this used to have expired long
+  // before the new route had rendered.
   useEffect(() => {
     if (!step?.anchor) return;
-    const t = setTimeout(() => scrollAnchorIntoView(step.anchor), 350);
-    return () => clearTimeout(t);
+    return scrollAnchorIntoView(step.anchor);
   }, [step?.anchor, index]);
 
   if (!tour || !step) return null;

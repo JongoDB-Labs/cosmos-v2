@@ -6,7 +6,7 @@
 // second and must simply be treated as absent until it is not.
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, act } from "@testing-library/react";
-import { useAnchor } from "../use-anchor";
+import { useAnchor, scrollAnchorIntoView } from "../use-anchor";
 
 function Probe({ anchor }: { anchor?: string }) {
   const box = useAnchor(anchor);
@@ -113,5 +113,65 @@ describe("anchors with awkward names", () => {
     sized(el, 50, 50);
     document.body.appendChild(el);
     expect(() => render(<Probe anchor={'odd"name'} />)).not.toThrow();
+  });
+});
+
+// A step that changes page has NO anchor to find at the moment it becomes
+// current — the route is still loading, and on this app that takes seconds.
+// A single attempt found nothing, scrolled nothing, and said nothing: the
+// reader landed on a page with the ring somewhere off screen. That was every
+// step in a walkthrough that moves between pages.
+describe("scrollAnchorIntoView waits for the page it is aiming at", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.innerHTML = "";
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const plant = (name: string) => {
+    const el = document.createElement("div");
+    el.setAttribute("data-tour", name);
+    el.scrollIntoView = vi.fn();
+    document.body.appendChild(el);
+    return el;
+  };
+
+  it("scrolls as soon as the element exists", () => {
+    const el = plant("late");
+    scrollAnchorIntoView("late");
+    expect(el.scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps looking while the route is still rendering", () => {
+    scrollAnchorIntoView("late");
+    vi.advanceTimersByTime(1000); // nothing there yet
+    const el = plant("late");
+    vi.advanceTimersByTime(400);
+    expect(el.scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
+  it("scrolls only once, not on every poll", () => {
+    scrollAnchorIntoView("late");
+    vi.advanceTimersByTime(600);
+    const el = plant("late");
+    vi.advanceTimersByTime(3000);
+    expect(el.scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops when cancelled, so stepping on does not drag the reader back", () => {
+    const cancel = scrollAnchorIntoView("late");
+    vi.advanceTimersByTime(400);
+    cancel();
+    const el = plant("late");
+    vi.advanceTimersByTime(3000);
+    expect(el.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("gives up rather than polling for ever", () => {
+    scrollAnchorIntoView("never");
+    vi.advanceTimersByTime(30_000);
+    const el = plant("never");
+    vi.advanceTimersByTime(5_000);
+    expect(el.scrollIntoView).not.toHaveBeenCalled();
   });
 });

@@ -49,13 +49,13 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
-    version: "2.377.4",
+    version: "2.378.0",
     date: "2026-09-22",
-    title: "Routine dependency updates",
+    title: "A walkthrough step that changes page now scrolls to what it is pointing at",
     highlights: [
       {
-        kind: "improvement",
-        text: "The third-party libraries the product is built on have been moved forward — twenty-seven packages in all, covering the editor, the AI client, file handling, animation and the Google integration. No behaviour is meant to change; these are the routine patches that keep known vulnerabilities from accumulating, and they are shipped together so a single release carries them rather than one release each. Every automated check the product has — type checking, unit tests and the full end-to-end suite — passed against this set before it shipped.",
+        kind: "fix",
+        text: "A step that moves you to another page looked for the thing it was describing before that page had finished rendering, found nothing, and left you at the top of a screen with the highlight somewhere out of sight. It now waits for the page and then scrolls, which was every step in a walkthrough that changes page.",
       },
     ],
   },

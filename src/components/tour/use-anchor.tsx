@@ -82,9 +82,41 @@ export function useAnchor(anchor: string | undefined): AnchorBox | null {
   return box;
 }
 
-/** Scroll an anchored element into view once, when a step becomes current. */
-export function scrollAnchorIntoView(anchor: string | undefined): void {
-  if (!anchor) return;
-  const el = document.querySelector(`[data-tour="${CSS.escape(anchor)}"]`);
-  el?.scrollIntoView({ block: "center", behavior: "smooth" });
+/**
+ * Scroll an anchored element into view, WAITING for it to exist.
+ *
+ * A step that changes page has no anchor to find at the moment it becomes
+ * current: the route is still loading, and on this app that takes seconds, not
+ * milliseconds. A single attempt therefore found nothing, scrolled nothing and
+ * reported nothing — the reader arrived at a page with the ring somewhere off
+ * screen, which is every step in a walkthrough that moves between pages.
+ *
+ * Polls until the element appears, then scrolls once. Returns a cancel so a
+ * reader who steps on again is not dragged around by the previous step's
+ * pending scroll.
+ */
+export function scrollAnchorIntoView(anchor: string | undefined): () => void {
+  if (!anchor) return () => {};
+  let cancelled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = Date.now() + 8000;
+
+  const attempt = () => {
+    if (cancelled) return;
+    const el = document.querySelector(`[data-tour="${CSS.escape(anchor)}"]`);
+    if (el) {
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
+    }
+    // Still navigating. Give up eventually rather than poll for ever — a step
+    // naming an anchor that never renders is a bug for the arch test to catch,
+    // not something to spin on.
+    if (Date.now() < deadline) timer = setTimeout(attempt, 200);
+  };
+  attempt();
+
+  return () => {
+    cancelled = true;
+    if (timer) clearTimeout(timer);
+  };
 }
