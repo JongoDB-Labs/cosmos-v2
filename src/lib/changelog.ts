@@ -60,6 +60,17 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.377.4",
+    date: "2026-09-22",
+    title: "Routine dependency updates",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The third-party libraries the product is built on have been moved forward — twenty-seven packages in all, covering the editor, the AI client, file handling, animation and the Google integration. No behaviour is meant to change; these are the routine patches that keep known vulnerabilities from accumulating, and they are shipped together so a single release carries them rather than one release each. Every automated check the product has — type checking, unit tests and the full end-to-end suite — passed against this set before it shipped.",
+      },
+    ],
+  },
+  {
     version: "2.377.3",
     date: "2026-09-22",
     title: "When an automated merge stops, it now says why",
