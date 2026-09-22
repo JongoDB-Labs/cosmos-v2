@@ -44,6 +44,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.377.0",
+    date: "2026-09-22",
+    title: "Feedback remembers which walkthrough it came from",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Feedback raised inside a guided walkthrough now records the walkthrough and the step it came from as data rather than only in its text, so everything one release prompted can be read as a single set instead of picked out of the queue by eye.",
+      },
+    ],
+  },
+  {
     version: "2.376.4",
     date: "2026-09-21",
     title: "Answer Foreman's open questions in one click — or let it answer them",

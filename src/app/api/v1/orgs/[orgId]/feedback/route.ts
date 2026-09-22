@@ -24,14 +24,28 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const querySchema = z.object({
       type: z.nativeEnum(FeedbackType).optional(),
       status: z.nativeEnum(FeedbackStatus).optional(),
+      source: z.enum(["app", "tour"]).optional(),
+      // A whole walkthrough ("<tourId>") or one step ("<tourId>/<stepId>"), so
+      // a release's feedback can be read as a set — the question this queue
+      // exists to answer once people comment through the walkthrough.
+      sourceRef: z.string().max(200).optional(),
     });
-    const { type, status } = querySchema.parse({
+    const { type, status, source, sourceRef } = querySchema.parse({
       type: request.nextUrl.searchParams.get("type") ?? undefined,
       status: request.nextUrl.searchParams.get("status") ?? undefined,
+      source: request.nextUrl.searchParams.get("source") ?? undefined,
+      sourceRef: request.nextUrl.searchParams.get("sourceRef") ?? undefined,
     });
 
     const items = await prisma.feedbackItem.findMany({
-      where: { orgId, ...(type ? { type } : {}), ...(status ? { status } : {}) },
+      where: {
+        orgId,
+        ...(type ? { type } : {}),
+        ...(status ? { status } : {}),
+        ...(source ? { source } : {}),
+        // Prefix match, so a tour id alone returns every step's feedback.
+        ...(sourceRef ? { sourceRef: { startsWith: sourceRef } } : {}),
+      },
       orderBy: [{ voteCount: "desc" }, { createdAt: "desc" }],
       take: 200,
       include: {
@@ -93,6 +107,12 @@ const createSchema = z.object({
   // an org-level surface with no implicit "current project"). Validated below
   // against THIS org's live projects; null/omitted stays app-wide.
   projectId: z.string().uuid().nullable().optional(),
+  // Where this was raised. Constrained rather than free text so the queue can
+  // be filtered on it; anything unrecognised is recorded as the default.
+  source: z.enum(["app", "tour"]).default("app"),
+  // "<tourId>/<stepId>" for a walkthrough. Bounded because it is a label, not
+  // a payload.
+  sourceRef: z.string().max(200).nullable().optional(),
 });
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
@@ -133,6 +153,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         title: data.title,
         description: data.description,
         projectId: data.projectId ?? null,
+        source: data.source,
+        // Only meaningful alongside a source that names something.
+        sourceRef: data.source === "app" ? null : (data.sourceRef ?? null),
       },
     });
 
