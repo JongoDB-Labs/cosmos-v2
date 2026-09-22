@@ -76,7 +76,7 @@
     "file-type": "^22.1.1",
     "framer-motion": "^13.4.0",
     "google-auth-library": "^11.1.0",
-    "googleapis": "^180.0.0",
+    "googleapis": "^181.0.0",
     "ipaddr.js": "^2.5.0",
     "lexical": "^0.51.0",
     "lucide-react": "^1.47.0",
