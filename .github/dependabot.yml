@@ -125,6 +125,24 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     labels: ["dependencies", "ci", "security"]
+    groups:
+      # github/codeql-action/* MUST move as one.
+      #
+      # Its sub-actions refuse to interoperate across versions: `init` writes a
+      # config stamped with its own version and `analyze` then rejects it —
+      # "Loaded a configuration file for version '4.38.1', but running version
+      # '4.38.0'". Dependabot names each sub-action as its own dependency
+      # (`github/codeql-action/init`), so ungrouped it bumps one and leaves the
+      # other, and the SAST gate fails on its own dependency update. That is
+      # PR #934 (2026-09-22), and it would recur on every CodeQL release.
+      #
+      # This is the one case where all-or-nothing grouping is right rather than
+      # a hazard (contrast the npm `framework` split above): these are not
+      # independent packages that merely arrived together, they are one tool
+      # whose parts are version-locked to each other by design.
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
 
   - package-ecosystem: docker
     directory: "/"
