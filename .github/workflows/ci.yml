@@ -145,7 +145,17 @@ jobs:
   # exercises the safe fallback to the neutral default. Reuses `check`'s setup.
   build-alt-product:
     runs-on: ubuntu-latest
-    needs: check
+    # NOT `needs: check`. These jobs share NO artifact with it — this workflow
+    # uploads none at all, and each job below runs its own checkout, setup-node
+    # (npm-cached) and `npm ci`. The dependency was pure ordering, and what it
+    # ordered was wall-clock: measured on run 35797046409, `check` took 564s and
+    # every other job started at +566s, so a ~600s workflow cost ~1,130s.
+    #
+    # The thing given up is real but small: when `check` fails, these now run
+    # anyway instead of being skipped. On a PUBLIC repo using GitHub-hosted
+    # runners that time is free, the failure surfaces sooner rather than later,
+    # and `concurrency.cancel-in-progress` at the top of this file already kills
+    # superseded runs, so the waste is bounded to one round per broken push.
     timeout-minutes: 15
     env:
       NODE_OPTIONS: --max-old-space-size=4096
@@ -172,7 +182,17 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    needs: check
+    # NOT `needs: check`. These jobs share NO artifact with it — this workflow
+    # uploads none at all, and each job below runs its own checkout, setup-node
+    # (npm-cached) and `npm ci`. The dependency was pure ordering, and what it
+    # ordered was wall-clock: measured on run 35797046409, `check` took 564s and
+    # every other job started at +566s, so a ~600s workflow cost ~1,130s.
+    #
+    # The thing given up is real but small: when `check` fails, these now run
+    # anyway instead of being skipped. On a PUBLIC repo using GitHub-hosted
+    # runners that time is free, the failure surfaces sooner rather than later,
+    # and `concurrency.cancel-in-progress` at the top of this file already kills
+    # superseded runs, so the waste is bounded to one round per broken push.
     # The full Playwright suite (~97 tests: a11y+smoke+chat) runs against
     # `next dev`, which cold-compiles each route on first hit — too slow to
     # finish serially in one job (it timed out even at 30m). Shard it across
@@ -269,7 +289,17 @@ jobs:
   # E2E_INCLUDE_INTERACTION=1 and runs ONLY the drag spec.
   e2e-interaction:
     runs-on: ubuntu-latest
-    needs: check
+    # NOT `needs: check`. These jobs share NO artifact with it — this workflow
+    # uploads none at all, and each job below runs its own checkout, setup-node
+    # (npm-cached) and `npm ci`. The dependency was pure ordering, and what it
+    # ordered was wall-clock: measured on run 35797046409, `check` took 564s and
+    # every other job started at +566s, so a ~600s workflow cost ~1,130s.
+    #
+    # The thing given up is real but small: when `check` fails, these now run
+    # anyway instead of being skipped. On a PUBLIC repo using GitHub-hosted
+    # runners that time is free, the failure surfaces sooner rather than later,
+    # and `concurrency.cancel-in-progress` at the top of this file already kills
+    # superseded runs, so the waste is bounded to one round per broken push.
     continue-on-error: true
     timeout-minutes: 20
     services:
