@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.378.2",
+    date: "2026-09-24",
+    title: "Foreman can tell again whether its work was changed after the fact",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The previous release stopped Foreman's record of \"was this change corrected by a person afterwards\" from reporting a figure it could not know. This one restores the figure. It used to work by asking who wrote each commit, which failed entirely once the machine doing the work had no name GitHub recognised — and even at its best could never spot a correction made by the same person who opened the request, which here is most of them. It now compares what was finally merged against exactly what Foreman built, which needs no names at all. Where a branch was rebuilt onto newer work and the comparison cannot be made, it records that it does not know rather than guessing either way.",
+      },
+    ],
+  },
+  {
     version: "2.378.1",
     date: "2026-09-24",
     title: "A measurement that had been reporting a number it could not know",
