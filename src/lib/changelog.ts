@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.378.1",
+    date: "2026-09-24",
+    title: "A measurement that had been reporting a number it could not know",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Foreman keeps a record of whether the changes it merges were left alone or corrected by a person afterwards — the figure that is supposed to tell you how far it can be trusted to work unattended. Since late July that record has been wrong for every change: it works by asking who wrote each commit, and the machine doing the work had no name configured, so every commit looked like a person had written it. Eighty-eight merged changes, and the last sixty-eight all counted as corrected whether they were or not. The record now says \"unknown\" in that situation rather than guessing, which also unblocks the separate mechanism that was waiting on this figure to decide whether Foreman may take on larger pieces of work — it had been stuck at zero and could never have moved. Restoring the measurement itself still needs the machine to be given a name of its own.",
+      },
+      {
+        kind: "improvement",
+        text: "The nightly cleanup sweep no longer stops to ask a person about every judgement call it meets. It used to raise a ticket and then wait indefinitely, which turned a maintenance job into a queue nobody was working; it now follows whatever decision setting the instance is on. If you have it set to ask before acting, nothing changes — that setting still wins, and nothing the sweep writes can override it.",
+      },
+    ],
+  },
+  {
     version: "2.378.0",
     date: "2026-09-22",
     title: "A walkthrough step that changes page now scrolls to what it is pointing at",
