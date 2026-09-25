@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.378.4",
+    date: "2026-09-25",
+    title: "Housekeeping in the API layer",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Removed several unused API endpoints and tidied up some duplicated internal settings behind the scenes. Nothing you use changes, but there is less code to go wrong — in particular, the window you have to finish a two-step sign-in now comes from one place instead of being written down separately in each screen that uses it, so those two can no longer disagree.",
+      },
+    ],
+  },
+  {
     version: "2.378.3",
     date: "2026-09-25",
     title: "Foreman can finish more of its own work without stopping to ask",

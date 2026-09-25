@@ -9,6 +9,7 @@ import {
 import {
   finishPasswordLogin,
   MFA_PENDING_COOKIE,
+  MFA_PENDING_TTL_MS,
 } from "@/lib/auth/local-session";
 import {
   loadFirstLoginUser,
@@ -18,8 +19,6 @@ import {
 import { sealSecret } from "@/lib/crypto/vault";
 import { rateLimit } from "@/lib/rate-limit/bucket";
 import { getIpAddress } from "@/lib/api-helpers";
-
-const MFA_PENDING_TTL = 300;
 
 const schema = z.object({ newPassword: z.string().min(1).max(200) });
 
@@ -96,7 +95,7 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       sameSite: "lax",
       path: "/",
-      maxAge: MFA_PENDING_TTL,
+      maxAge: MFA_PENDING_TTL_MS / 1000,
       secure: process.env.NODE_ENV === "production",
     });
     res.cookies.delete(FIRST_LOGIN_COOKIE);
