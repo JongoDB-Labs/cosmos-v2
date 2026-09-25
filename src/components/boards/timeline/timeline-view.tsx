@@ -35,25 +35,17 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { jsonFetch } from "@/lib/query/json-fetcher";
-import {
-  teamsByUser,
-  itemMatchesTeam,
-  type TeamLike,
-} from "@/lib/teams/item-teams";
-import { matchesLabelFilter, presentLabels } from "@/lib/work-items/label-filter";
-import { matchesOneOf, matchesDuePreset } from "@/lib/work-items/metadata-filters";
+import { teamsByUser, type TeamLike } from "@/lib/teams/item-teams";
+import { presentLabels } from "@/lib/work-items/label-filter";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { HighlightUnderline } from "@/components/work-items/highlight-underline";
-import { blockersByItem, isBlockingLink } from "@/lib/work-items/blocking";
+import { isBlockingLink } from "@/lib/work-items/blocking";
 import {
   blockedItemIds,
-  matchesBlocked,
   milestoneItemIds,
-  matchesMilestone,
   presentStoryPoints,
-  matchesStoryPoints,
 } from "@/lib/work-items/relation-filters";
-import { matchesEstimateBand, hasAnyEstimate } from "@/lib/work-items/estimate-filter";
+import { hasAnyEstimate } from "@/lib/work-items/estimate-filter";
 import { useOrgQueryKey, useOrgSlug, orgQueryKey } from "@/lib/query/keys";
 import { dateOnlyKey } from "@/lib/time/date-only";
 import { usePublishNewIssueContext } from "@/hooks/use-new-issue-context";
@@ -64,13 +56,12 @@ import { cn } from "@/lib/utils";
 import { buildTimelineTree } from "@/lib/boards/timeline-tree";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { slipDays } from "@/lib/schedule/health";
-import type { WorkItem, OrgMember, Interval, Board, BoardColumn, CustomField } from "@/types/models";
+import type { WorkItem, OrgMember, Interval, Board, BoardColumn } from "@/types/models";
 import {
   bareTypeKey,
   customFieldHasValue,
   FilterBar,
   emptyFilters,
-  matchesCustomFieldFilters,
   type BoardFilters,
 } from "@/components/boards/shared/filter-bar";
 import { useCustomFields } from "@/hooks/use-custom-fields";
@@ -116,15 +107,15 @@ interface WorkItemLink {
  * marks. Three bands keep the chart readable at a glance and leave green and red
  * to mean one thing each.
  */
-type BarColors = { fill: string; stroke: string; text: string };
+type BarColors = { fill: string; stroke: string };
 
 const BAND_COLORS = {
   /** The containers work is planned INTO. */
-  initiative: { fill: "#8b5cf6", stroke: "#6d28d9", text: "text-purple-100" },
+  initiative: { fill: "#8b5cf6", stroke: "#6d28d9" },
   /** The work itself — everything a team actually moves across a board. */
-  delivery: { fill: "#3b82f6", stroke: "#1d4ed8", text: "text-blue-100" },
+  delivery: { fill: "#3b82f6", stroke: "#1d4ed8" },
   /** A point in time rather than a span; drawn as a diamond, never a bar. */
-  milestone: { fill: "#f97316", stroke: "#c2410c", text: "text-orange-100" },
+  milestone: { fill: "#f97316", stroke: "#c2410c" },
 } satisfies Record<string, BarColors>;
 
 const TYPE_BAND: Record<string, keyof typeof BAND_COLORS> = {
@@ -178,8 +169,6 @@ function barColorsFor(typeKey: string | null | undefined, milestone: boolean): B
 
 const ROW_HEIGHT = 40;
 const HEADER_HEIGHT = 50;
-// Day column width at 100% zoom. The rendered width is BASE_DAY_WIDTH * zoom —
-// see `dayWidth` in the component, which every x/width computation reads.
 type CriticalMode = "dependencies" | "duration" | "latest-finish" | "at-risk";
 const CRITICAL_MODES: { key: CriticalMode; label: string; hint: string }[] = [
   { key: "dependencies", label: "Most dependencies", hint: "The chain with the most linked items" },
@@ -197,6 +186,8 @@ const CRITICAL_MODES: { key: CriticalMode; label: string; hint: string }[] = [
  *  `data-table.tsx` uses for its own selection cells. */
 const SELECT_GUTTER = "flex w-7 shrink-0 items-center";
 
+// Day column width at 100% zoom. The rendered width is BASE_DAY_WIDTH * zoom —
+// see `dayWidth` in the component, which every x/width computation reads.
 const BASE_DAY_WIDTH = 28;
 const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 3;
@@ -262,8 +253,8 @@ function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-/** The effective [start, end] a bar is drawn from — the SAME fallback the bar
- *  renderer uses (no startDate → createdAt; no dueDate → start + 7), so a drag
+/** The effective [start, end] a bar is drawn from (no startDate → createdAt; no
+ *  dueDate → start + 7). The bar renderer draws from this too, so a drag
  *  computes against exactly what's on screen. */
 function itemSpan(item: WorkItem): { start: Date; end: Date } {
   const start = item.startDate
@@ -299,12 +290,6 @@ const PHANTOM_OPACITY = 0.45;
 const STRIPE_OPACITY = 0.95;
 
 type DragMode = "move" | "start" | "end";
-
-/** Client-side board-filter match (search/type/priority/assignee/interval + custom
- *  fields) — mirrors the Kanban/Table logic so the Gantt's FilterBar behaves
- *  identically, including filtering by admin-defined custom fields. `defs` is the
- *  project's custom-field definitions (needed to interpret each active
- *  constraint's kind); an empty list makes the custom-field check inert. */
 
 /** 0..1 completion for a bar's progress fill. A parent rolls up its children's
  *  done ratio; a leaf is complete (1) if it's completed or sits in a DONE column. */
@@ -476,7 +461,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const presentLabelNames = useMemo(() => presentLabels(items), [items]);
   const filterNow = useMemo(() => new Date(), [items]);
   const blockedIds = useMemo(() => blockedItemIds(links), [links]);
-  const blockers = useMemo(() => blockersByItem(links), [links]);
   const milestoneRows = useMemo(
     () => (milestonesQ.data as { id: string; title: string; links?: { workItemId: string }[] }[] | undefined) ?? [],
     [milestonesQ.data],
@@ -1814,33 +1798,29 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           calendar, so every strip that isn't one of those two gets out of the way. */}
       {!fullscreen && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-[var(--surface)] px-4 py-1.5 text-[11px] text-muted-foreground">
-          {(
-            <>
-              <span className="text-[var(--text-muted)]">Plan:</span>
-              <span className="inline-flex items-center gap-1.5">
-                <span
-                  className="inline-block h-2.5 w-2 rounded-sm"
-                  style={{ backgroundColor: BAND_COLORS.delivery.fill, opacity: PHANTOM_OPACITY }}
-                />
-                Planned
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span
-                  className="inline-block h-2.5 w-2 rounded-sm"
-                  style={{ backgroundColor: DRIFT_COLOR.green }}
-                />
-                Ahead
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span
-                  className="inline-block h-2.5 w-2 rounded-sm"
-                  style={{ backgroundColor: DRIFT_COLOR.red }}
-                />
-                Behind
-              </span>
-              <span className="text-[var(--text-muted)]">striped where it overlaps actual work</span>
-            </>
-          )}
+          <span className="text-[var(--text-muted)]">Plan:</span>
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="inline-block h-2.5 w-2 rounded-sm"
+              style={{ backgroundColor: BAND_COLORS.delivery.fill, opacity: PHANTOM_OPACITY }}
+            />
+            Planned
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="inline-block h-2.5 w-2 rounded-sm"
+              style={{ backgroundColor: DRIFT_COLOR.green }}
+            />
+            Ahead
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="inline-block h-2.5 w-2 rounded-sm"
+              style={{ backgroundColor: DRIFT_COLOR.red }}
+            />
+            Behind
+          </span>
+          <span className="text-[var(--text-muted)]">striped where it overlaps actual work</span>
         </div>
       )}
       {/* ONE scroll container holds both the item labels and the chart, so
@@ -2307,12 +2287,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
             {/* Work item bars */}
             {sortedItems.map((item, i) => {
-              const start = item.startDate
-                ? startOfDay(new Date(item.startDate))
-                : startOfDay(new Date(item.createdAt));
-              const end = item.dueDate
-                ? startOfDay(new Date(item.dueDate))
-                : addDays(start, 7);
+              const { start, end } = itemSpan(item);
 
               const startOffset = diffDays(timelineStart, start);
               const duration = Math.max(diffDays(start, end), 1);
@@ -2889,7 +2864,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     <text
                       x={primaryX + 6}
                       y={y + h / 2 + 3.5}
-                      className={cn("text-[10px]", colors.text)}
+                      className="text-[10px]"
                       style={{ fontSize: 10, fill: "white", pointerEvents: "none" }}
                     >
                       {item.title.length > Math.floor(primaryW / 6)

@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.378.5",
+    date: "2026-09-25",
+    title: "Housekeeping on the release timeline",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Tidied up the code behind the release timeline (the Gantt chart): removed unused leftovers and comments that described how it used to work rather than how it works now, and made the bars read their dates from one place instead of two. Nothing about the chart looks or behaves differently — this just makes the next change to it safer to make.",
+      },
+    ],
+  },
+  {
     version: "2.378.4",
     date: "2026-09-25",
     title: "Sign-in and admin endpoints are now always reviewed by a person",

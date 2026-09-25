@@ -6,19 +6,6 @@
 // Reported: the red phantoms "don't reflect the slipped end dates very well".
 // They could not — one ghost covered the WHOLE planned span in a single health
 // colour, so a late item just went red end to end and never showed the slip.
-//
-// Original header of the file this harness came from — COSMOS-62: on the Release Timeline (Gantt), scrolling the chart
-// left the ticket list behind — the timeline "wasn't associated with the
-// tickets". Root cause: the labels and the chart lived in two SEPARATE scroll
-// containers kept in sync by mirroring scrollTop in JS. The chart pane is taller
-// (and its viewport is shortened by the horizontal scrollbar), so it could
-// scroll while the label pane had nothing to scroll — the tickets didn't move.
-//
-// The fix puts both panes inside ONE scroll container as direct children, so
-// vertical scroll is structurally locked. jsdom has no layout, so we can't
-// measure scroll offsets; instead we assert the invariant that makes the desync
-// impossible: a single scroll container, both panes as its direct children, and
-// no independently-scrollable label column.
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -97,21 +84,11 @@ const ITEMS = [
   item(3, "2026-01-15", "2026-01-25"),
 ];
 
-// A minimal parent→child hierarchy (an epic with one story) so a collapse
-// chevron actually renders — the flat ITEMS above have no parents, so no row is
-// collapsible.
-// A fixture whose API order is deliberately NOT its drawn order: roots are
-// ordered by start date and a child is drawn under its parent, so the raw list
-// (r3, r2, epic, child) renders as 301, 304, 302, 303. Ranging over the raw list
-// instead of the drawn one would select rows the user never dragged across —
-// this is what makes "the currently VISIBLE, ordered row list" testable.
 // The work-items the fetcher mock serves; swapped per describe block so a test
 // can opt into the hierarchy without changing the default flat dataset.
 let activeItems: unknown[] = ITEMS;
 // Dependency edges the Blocked lens reads. Swapped per describe block.
 let activeLinks: unknown[] = [];
-// Real Milestone rows, as the milestones API returns them. Dated inside the
-// window the ITEMS fixture spans so a marker has somewhere to land.
 const activeMilestones: unknown[] = [];
 
 vi.mock("@/lib/query/json-fetcher", () => ({
