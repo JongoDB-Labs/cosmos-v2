@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.378.3",
+    date: "2026-09-25",
+    title: "Foreman can finish more of its own work without stopping to ask",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Foreman sets a change aside for a person when it judges the change too large to land on its own, and the limits it used for that — eight files, four hundred lines — were carried over from an early guess and never checked. They were stopping work it had already finished and checked: one change arrived with its build clean, its browser check clean and its own reviewer recommending approval, and was set aside anyway for being ten files. The limits are now thirty files and fifteen hundred lines, which covers everything Foreman has actually produced to date with room to spare. Changes that touch the database schema or security-sensitive code are unaffected — those are set aside on what they touch rather than how big they are, and still always will be.",
+      },
+      {
+        kind: "improvement",
+        text: "A side effect worth naming, because it is the larger one: a change set aside as too large also skipped the reproduction and browser-regression checks that run on everything else, so the evidence needed to clear it was never gathered — the size limit was quietly starving the thing that would have let the work through. With fewer changes set aside, that evidence now gets collected in the normal course.",
+      },
+    ],
+  },
+  {
     version: "2.378.2",
     date: "2026-09-24",
     title: "Foreman can tell again whether its work was changed after the fact",
