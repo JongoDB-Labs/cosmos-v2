@@ -24,7 +24,7 @@
 - Vitest: `npm test` = `vitest run`; single file `npx vitest run <path>`. `npx tsc --noEmit` is the type gate (use `NODE_OPTIONS=--max_old_space_size=8192` if it OOMs).
 - **Migrations:** `prisma migrate dev` WILL demand a reset on this DB (pre-existing `content_tsv` drift) — do NOT reset. Use the surgical path in Task 1.
 - **Client-bundle rule:** client files import only `@/lib/classification/rank`/`format` (+ `ClassificationChip`) and `ClassificationLevel` as `import type`. Never the `@/lib/classification` barrel or `effective.ts`.
-- `OrgMember.permissions` is BigInt — never include it in a Prisma select returned via `success()`.
+- Permission masks are decimal-string `TEXT`, not `BigInt` — `prisma/schema.prisma` declares `permissions String @default("0")`. Keep all bit-math on `bigint` and cross the DB boundary with `maskFromDb()` (read) / `maskToDb()` (write) from `@/lib/rbac/permissions`; never `BigInt(row.permissions)`. Never select `OrgMember.permissions` into a `success()` payload.
 - Commit after each task; stage only listed files (never `git add -A`).
 
 ## File structure
@@ -41,7 +41,7 @@
 | `src/app/(dashboard)/[orgSlug]/projects/[projectKey]/board-tabs.tsx` | + Documents tab |
 | `src/app/(dashboard)/[orgSlug]/projects/[projectKey]/documents/page.tsx` | server page |
 | `src/components/documents/documents-panel.tsx` | client list/upload/reclassify |
-| `package.json` | bump to 3.42.0 |
+| `package.json` + `src/lib/changelog.ts` | bump to 3.42.0 + matching changelog entry (same commit) |
 
 ---
 
@@ -587,19 +587,31 @@ to:
 
 - [ ] **Step 2: Create the server page**
 
-Create `src/app/(dashboard)/[orgSlug]/projects/[projectKey]/documents/page.tsx`:
+Create `src/app/(dashboard)/[orgSlug]/projects/[projectKey]/documents/page.tsx`.
+
+Cache Components is ON, so per `AGENTS.md` the page must NOT `await params` (or read cookies via `getAuthContext`) at the top — awaiting params at the top of a page breaks instant validation. The default export is synchronous and passes `params` through as a Promise to a Suspense-wrapped child that does the awaiting. Model it on `src/app/(dashboard)/[orgSlug]/page.tsx`.
+
 ```tsx
+import { Suspense } from "react";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { redirect, notFound } from "next/navigation";
 import { effectiveClassification } from "@/lib/classification/effective";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { hasPermission, Permission } from "@/lib/rbac/permissions";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DocumentsPanel } from "@/components/documents/documents-panel";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
-export default async function DocumentsPage({ params }: PageParams) {
+export default function DocumentsPage({ params }: PageParams) {
+  return (
+    <Suspense fallback={<DocumentsSkeleton />}>
+      <DocumentsContent params={params} />
+    </Suspense>
+  );
+}
+
+async function DocumentsContent({ params }: PageParams) {
   const { orgSlug, projectKey } = await params;
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
@@ -611,15 +623,7 @@ export default async function DocumentsPage({ params }: PageParams) {
   if (!project) notFound();
 
   const eff = await effectiveClassification(ctx.orgId, project.id);
-
-  // requirePermission throws on denial; wrap it for a boolean (check.ts has no
-  // ctx-based boolean checker).
-  let canWrite = true;
-  try {
-    requirePermission(ctx, Permission.DOCUMENT_WRITE);
-  } catch {
-    canWrite = false;
-  }
+  const canWrite = hasPermission(ctx.permissions, Permission.DOCUMENT_WRITE);
 
   return (
     <DocumentsPanel
@@ -630,7 +634,18 @@ export default async function DocumentsPage({ params }: PageParams) {
     />
   );
 }
+
+function DocumentsSkeleton() {
+  return (
+    <div className="space-y-3 p-4">
+      <Skeleton className="h-9 w-64" />
+      <Skeleton className="h-20 w-full" />
+    </div>
+  );
+}
 ```
+
+`ctx.permissions` is already a `bigint` (`getAuthContext` reads it through `maskFromDb()`), and `hasPermission(userPermissions: bigint, required: bigint): boolean` is exported from `src/lib/rbac/permissions.ts` — so no try/catch around `requirePermission` is needed for a boolean. Keep `requirePermission` for the API routes, where throwing is what you want.
 
 - [ ] **Step 3: Create the client panel**
 
@@ -809,26 +824,64 @@ export function DocumentsPanel({
 Run: `npx tsc --noEmit`
 Expected: no errors. (`jsonFetch`/`useOrgQueryKey`/`useOrgMutation` and `Select`/`Input`/`Button`/`EmptyState` are used exactly as in `src/components/projects/project-card.tsx`; the file picker is a native `<input>` to sidestep ref-forwarding. `useOrgMutation` generics are `<TData, TError, TVariables>` per that file.)
 
-- [ ] **Step 5: Component smoke test (capped dropdown)**
+- [ ] **Step 5: Component test (capped dropdown)**
+
+The test must RENDER `DocumentsPanel` and assert on the options the user is actually
+offered. Re-asserting `levelsUpTo` here would be vacuous coverage — phase 1's
+`src/lib/classification/rank.test.ts` already covers that helper, so such a test
+passes unchanged even if the panel is deleted, which is exactly what `AGENTS.md`
+warns about ("a test that passes either way is worse than no test"). Mutation-test
+it: change `levelsUpTo(ceiling)` in the panel to the full level list and confirm
+this named test fails.
 
 Create `src/components/documents/documents-panel.test.tsx`:
 ```tsx
-import { describe, expect, it } from "vitest";
-import { levelsUpTo } from "@/lib/classification/rank";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { DocumentsPanel } from "./documents-panel";
 
-// The upload + reclassify dropdowns are built from levelsUpTo(ceiling); this locks
-// the cap contract the panel relies on (full DOM render needs a QueryClient + fetch
-// mock, covered by manual verification).
-describe("DocumentsPanel classification options", () => {
-  it("offers only levels at or below the project ceiling", () => {
-    expect(levelsUpTo("CUI")).toEqual(["PUBLIC", "UNCLASSIFIED", "FOUO", "CUI"]);
-    expect(levelsUpTo("FOUO")).not.toContain("CUI");
+// The panel fetches its list on mount; an empty list is enough to reach the
+// upload controls, which are what this test is about.
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("[]", { status: 200, headers: { "content-type": "application/json" } })),
+  );
+});
+
+function renderPanel(ceiling: "FOUO" | "CUI") {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <DocumentsPanel orgId="org_1" projectId="proj_1" ceiling={ceiling} canWrite />
+    </QueryClientProvider>,
+  );
+}
+
+describe("DocumentsPanel upload level dropdown", () => {
+  it("offers every level up to the project ceiling", async () => {
+    renderPanel("CUI");
+    await userEvent.click(await screen.findByRole("combobox"));
+    const options = (await screen.findAllByRole("option")).map((o) => o.textContent);
+    expect(options).toEqual(["PUBLIC", "UNCLASSIFIED", "FOUO", "CUI"]);
+  });
+
+  it("does not offer a level above the project ceiling", async () => {
+    renderPanel("FOUO");
+    await userEvent.click(await screen.findByRole("combobox"));
+    const options = (await screen.findAllByRole("option")).map((o) => o.textContent);
+    expect(options).not.toContain("CUI");
+    expect(options).toContain("FOUO");
   });
 });
 ```
 
 Run: `npx vitest run src/components/documents/documents-panel.test.tsx`
-Expected: PASS — 1 test.
+Expected: PASS — 2 tests. If base-ui `Select` renders its options through a portal
+that jsdom cannot reach, keep the render and assert on the panel's rendered option
+set another way — do NOT fall back to asserting `levelsUpTo` directly.
 
 - [ ] **Step 6: Commit**
 
@@ -841,9 +894,27 @@ git commit -m "feat(documents): Documents tab + panel (upload/list/reclassify ca
 
 ## Task 7: Version bump + final verify
 
-- [ ] **Step 1:** `npm version minor --no-git-tag-version` → `v3.42.0`.
-- [ ] **Step 2:** Commit: `git add package.json package-lock.json && git commit -m "chore(release): 3.42.0 — per-project Documents module"`
-- [ ] **Step 3:** Final: `set -a && . ./.env.local && set +a && npx vitest run` (all green) and `NODE_OPTIONS=--max_old_space_size=8192 npx tsc --noEmit` (clean).
+Per `AGENTS.md`: use `npm run release:bump <version>`, **not** `npm version`, and ship the changelog entry in the SAME commit — CI's "Config assertions" job fails unless `package.json`'s version equals the TOP `version:` in `src/lib/changelog.ts`. `release:bump` leaves the index and the working tree disagreeing on purpose, so commit immediately with only the changelog added explicitly and never `git add -A` afterwards.
+
+- [ ] **Step 1:** `npm run release:bump 3.42.0` → `package.json` version `3.42.0`, staged.
+- [ ] **Step 2:** Add a `Release` entry to `RELEASES` in `src/lib/changelog.ts` (order inside the literal does not matter — `CHANGELOG` sorts newest-first at load):
+
+```ts
+  {
+    version: "3.42.0",
+    date: "2026-06-04",
+    title: "Project documents",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each project now has a Documents tab for uploading and downloading files. Every document carries a classification level, and the levels you can pick from are capped at the project's own ceiling so a file cannot be marked above the project that holds it.",
+      },
+    ],
+  },
+```
+
+- [ ] **Step 3:** Commit: `git add package.json package-lock.json src/lib/changelog.ts && git commit -m "chore(release): 3.42.0 — per-project Documents module"`, then verify with `git show HEAD:package.json | grep '"version"'`.
+- [ ] **Step 4:** Final: `set -a && . ./.env.local && set +a && npx vitest run` (all green) and `NODE_OPTIONS=--max_old_space_size=8192 npx tsc --noEmit` (clean).
 
 ---
 
@@ -859,8 +930,8 @@ git commit -m "feat(documents): Documents tab + panel (upload/list/reclassify ca
 - Default = ceiling, audit on apply/raise/lower → Tasks 4–5 (`logAudit`) ✓
 - Deferred (documented): `DocumentVersion`, delete endpoint, declassification-authority on downgrade, strict project-membership gating (uses the app's org-scoped model).
 
-**Placeholder scan:** none — full code/commands in every step. The two formerly-uncertain symbols are resolved in-plan: the page uses `requirePermission` in a try/catch for `canWrite` (check.ts exposes no ctx-based boolean checker), and the panel uses a native file `<input>` (base-ui `Input` ref-forwarding is unconfirmed).
+**Placeholder scan:** none — full code/commands in every step. The two formerly-uncertain symbols are resolved in-plan: the page computes `canWrite` with `hasPermission(ctx.permissions, Permission.DOCUMENT_WRITE)` (both exported from `permissions.ts`; `ctx.permissions` is already a `bigint`), and the panel uses a native file `<input>` (base-ui `Input` ref-forwarding is unconfirmed).
 
 **Type consistency:** `cappedLevel(requested, ceiling): ClassificationLevel | null` is used identically in the upload + reclassify routes; `ClassificationLevel` flows from schema → routes → `DocumentDto` → panel; `levelsUpTo(ceiling)` (Phase 1) drives both dropdowns; `effectiveClassification(orgId, projectId)` supplies the ceiling everywhere.
 
-**Note for executor:** all symbols are verified against the codebase — `requirePermission` (check.ts), `hasPermission(bitmask, required)` (permissions.ts, unused here), `Input` (base-ui, plain fn component → native file input used), `useOrgMutation<TData,TError,TVariables>` / `useOrgQueryKey` / `jsonFetch` (per project-card.tsx). Do not invent APIs.
+**Note for executor:** all symbols are verified against the codebase — `hasPermission(userPermissions: bigint, required: bigint): boolean` and `maskFromDb`/`maskToDb` (permissions.ts), `requirePermission` (check.ts — used in the API routes, where throwing is wanted), `Input` (base-ui, plain fn component → native file input used), `useOrgMutation<TData,TError,TVariables>` / `useOrgQueryKey` / `jsonFetch` (per project-card.tsx). Do not invent APIs.

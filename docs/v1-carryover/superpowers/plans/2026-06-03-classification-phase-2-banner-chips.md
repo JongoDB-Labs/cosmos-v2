@@ -17,7 +17,7 @@
 - **Client-bundle rule (critical):** `src/lib/classification/effective.ts` imports Prisma (`@/lib/db/client`). A **client** component must NEVER transitively import it. Client/presentational components import ONLY from `@/lib/classification/format` and `@/lib/classification/rank` (pure), and import `ClassificationLevel` / `EffectiveClassification` as **`import type`** (type-only imports are erased at build, so `@prisma/client` is not bundled). NEVER import from the `@/lib/classification` barrel (`index.ts`) in a client component — it re-exports `effective.ts`.
 - `project-card.tsx` is a `"use client"` file. The existing `src/components/security/classification-manager.tsx` is also client and deliberately uses a local string-union for levels — same reasoning.
 - The husky pre-commit hook runs `lint-staged` (eslint/prettier) on staged files; it may reformat. That's fine. Stage only the files each task lists — there is unrelated uncommitted WIP in the tree (notes editor, a stray pdf, `prisma/seed/demo-defense-extra.ts`); never `git add -A`/`git add .`.
-- Cache Components: the project layout already does dynamic reads (`getAuthContext`, `prisma`) at the top without a Suspense boundary — this is the established pattern for that file. Follow it (await the classification there too); do NOT restructure the layout into Suspense.
+- Cache Components is ON, so per `AGENTS.md` there are **no dynamic API reads outside a `<Suspense>` boundary** — `params`, cookies, `getAuthContext()` and Prisma reads all belong in a Suspense-wrapped child. Do NOT `await effectiveClassification` at the top of the project layout: fetch it inside a Suspense-wrapped child that renders the banner, modelled on `src/app/(dashboard)/[orgSlug]/page.tsx` (synchronous default export → `<Suspense fallback={…}><Child params={params} /></Suspense>`, with the awaits inside the child). This is what the propagation design §6 Phase 2 means by "follow the AGENTS.md Suspense rules".
 
 ## File structure
 
@@ -29,7 +29,7 @@
 | `src/app/(dashboard)/[orgSlug]/projects/[projectKey]/layout.tsx` | Mounts the banner for all project pages | Modify |
 | `src/lib/cache/queries.ts` | Add `classificationLevel` to `ProjectRollup` via one batched read | Modify |
 | `src/components/projects/project-card.tsx` | Render the chip on cards + table rows | Modify |
-| `package.json` | Minor version bump (user-visible feature) | Modify |
+| `package.json` + `src/lib/changelog.ts` | Minor version bump (user-visible feature) + matching changelog entry (same commit) | Modify |
 
 ---
 
@@ -297,28 +297,38 @@ git commit -m "feat(classification): ClassificationBanner (suppressed below FOUO
 **Files:**
 - Modify: `src/app/(dashboard)/[orgSlug]/projects/[projectKey]/layout.tsx`
 
-The layout already loads `ctx` and `project` and renders a header followed by the board tabs. Add the banner between them. No unit test (server layout); verified by `tsc` + the suite.
+The layout already loads `ctx` and `project` and renders a header followed by the board tabs. Add the banner between them. `effectiveClassification` is a Prisma read, so per the conventions above it must NOT be awaited in the layout body — it goes in its own Suspense-wrapped child. No unit test (server layout); verified by `tsc` + the suite.
 
 - [ ] **Step 1: Add imports**
 
 At the top of `layout.tsx`, after the existing `import { ProjectBoardTabs } from "./board-tabs";` line, add:
 
 ```ts
+import { Suspense } from "react";
 import { effectiveClassification } from "@/lib/classification/effective";
 import { ClassificationBanner } from "@/components/security/classification-banner";
 ```
 
-- [ ] **Step 2: Resolve the classification after the project is loaded**
+- [ ] **Step 2: Add the Suspense child that resolves the classification**
 
-Immediately after the `if (!project) notFound();` line, add:
+Add this async component at the bottom of `layout.tsx` (it owns the dynamic read, so the layout body stays free of one):
 
-```ts
-  const classification = await effectiveClassification(ctx.orgId, project.id);
+```tsx
+async function ProjectClassificationBanner({
+  orgId,
+  projectId,
+}: {
+  orgId: string;
+  projectId: string;
+}) {
+  const classification = await effectiveClassification(orgId, projectId);
+  return <ClassificationBanner classification={classification} />;
+}
 ```
 
 - [ ] **Step 3: Render the banner between the header and the tabs**
 
-In the returned JSX, locate the closing `</div>` of the "Project header" block (the one right before the `{/* Board tabs */}` comment) and insert the banner immediately after it, so the structure reads:
+In the returned JSX, locate the closing `</div>` of the "Project header" block (the one right before the `{/* Board tabs */}` comment) and insert the Suspense-wrapped banner immediately after it, so the structure reads:
 
 ```tsx
       {/* Project header */}
@@ -326,7 +336,11 @@ In the returned JSX, locate the closing `</div>` of the "Project header" block (
         {/* …unchanged header content… */}
       </div>
 
-      <ClassificationBanner classification={classification} />
+      {/* Banner streams in behind its own boundary — the classification is a
+          Prisma read and Cache Components forbids one outside <Suspense>. */}
+      <Suspense fallback={null}>
+        <ProjectClassificationBanner orgId={ctx.orgId} projectId={project.id} />
+      </Suspense>
 
       {/* Board tabs */}
       <ProjectBoardTabs
@@ -473,21 +487,43 @@ git commit -m "feat(classification): classification chip on project cards + tabl
 ## Task 6: Version bump (user-visible feature)
 
 **Files:**
-- Modify: `package.json` (+ `package-lock.json`)
+- Modify: `package.json` (+ `package-lock.json`), `src/lib/changelog.ts`
 
 Phase 2 ships visible UI, so per `AGENTS.md` this is a **minor** bump (current `3.36.4` → `3.37.0`). No git tag on a feature branch.
 
+`AGENTS.md`: use `npm run release:bump <version>`, **not** `npm version` — the composed-plugin tree needs the bump staged specially. CI's "Config assertions" job fails unless `package.json`'s version equals the TOP `version:` in `src/lib/changelog.ts`, so the changelog entry ships in the SAME commit. `release:bump` leaves the index and the working tree disagreeing on purpose: commit immediately with only the changelog added explicitly, and never `git add -A` afterwards (that restages the restored `package.json` and silently reverts the bump).
+
 - [ ] **Step 1: Bump**
 
-Run: `npm version minor --no-git-tag-version`
-Expected: prints `v3.37.0`; `package.json` `version` is now `3.37.0`.
+Run: `npm run release:bump 3.37.0`
+Expected: `package.json` `version` is now `3.37.0` and staged.
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 2: Prepend the changelog entry**
+
+Add a new `Release` entry to `RELEASES` in `src/lib/changelog.ts` (order inside the literal does not matter — `CHANGELOG` sorts newest-first at load):
+
+```ts
+  {
+    version: "3.37.0",
+    date: "2026-06-03",
+    title: "Classification banner and project chips",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Every project page now shows its effective classification in a banner, and project cards and table rows carry a matching level chip, so it is obvious at a glance how a project's contents must be handled.",
+      },
+    ],
+  },
+```
+
+- [ ] **Step 3: Commit**
 
 ```bash
-git add package.json package-lock.json
+git add package.json package-lock.json src/lib/changelog.ts
 git commit -m "chore(release): 3.37.0 — project classification banner + card chips"
 ```
+
+Verify: `git show HEAD:package.json | grep '"version"'` prints `3.37.0`.
 
 ---
 

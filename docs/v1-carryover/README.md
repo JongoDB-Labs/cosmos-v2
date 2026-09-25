@@ -3,7 +3,8 @@
 This directory preserves the **forward-looking** roadmap/design/plan docs that lived in the
 v1 repos (`cosmos-saas`, `cosmos-prod`) but were **not yet present in cosmos-v2** at cutover
 time (2026-06-07). They are kept here verbatim, under their original `docs/` sub-paths, so no
-future plan is lost in the replatform. Provenance: all 13 came from `cosmos-prod/docs`.
+future plan is lost in the replatform. Provenance: all 13 came from `cosmos-prod/docs`; 11 remain
+(the two bank-feeds plans were deleted once v2 shipped the feature — see below).
 
 > These are **carried-over intent**, not statements of what v2 has already built. Each entry
 > below notes the current v2 status so you know what's design-only vs partially shipped.
@@ -21,14 +22,23 @@ The AI-first product roadmap is at [`docs/roadmap/cosmos-ai-first-roadmap.md`](.
 
 ## Carried-over designs & plans (with v2 status)
 
-### Finance — bank feeds (design-only in v2)
+### Finance — bank feeds (SHIPPED in v2)
 - `superpowers/specs/2026-06-04-bank-feeds-design.md`
 - `superpowers/specs/2026-06-05-bank-feeds-2c-inflow-match-design.md`
-- `superpowers/plans/2026-06-04-bank-feeds-2a-import.md`
-- `superpowers/plans/2026-06-04-bank-feeds-2b-inbox.md`
-- **v2 status:** the `bank_accounts` / `bank_rules` / `bank_transactions` tables exist (added by
-  the prod-parity reconciliation migration), but there is **no bank-feeds UI/logic** in `src/`.
-  Forward-looking. Build on top of the v2 finance/accounting spine.
+- **v2 status:** **built.** The `bank_accounts` / `bank_rules` / `bank_transactions` tables exist
+  (added by the prod-parity reconciliation migration) *and* the feature is implemented:
+  `src/lib/bank/` holds `types.ts`, `parsers/{ofx,csv}.ts`, `import.ts`
+  (`fingerprintTxn`/`importTransactions`), `rules.ts`, `reconcile.ts`
+  (`categorizeTransaction`/`matchTransaction`/`excludeTransaction`/`listMatchCandidates`) and
+  `reconciliation.ts`; the `bank-accounts` (incl. `/import`, `/reconciliation`,
+  `/transactions`), `bank-rules` and `bank-transactions/[txnId]/{categorize,match,exclude,candidates}`
+  routes exist; and the inbox UI is `src/components/banking/banking-inbox.tsx` +
+  `bank-rules-dialog.tsx` under `(dashboard)/[orgSlug]/accounting/banking`.
+  The **plans** `2a-import` and `2b-inbox` were therefore deleted per the rule above
+  (implemented in v2 → delete the carry-over copy). The two **designs** are kept as the
+  as-built reference; 2c (sign-aware inflow matching) also looks implemented —
+  `reconcileKind`/`revenueAmountFor` and `BankTransaction.matchedRevenueId` are present — so
+  verify it against the code before treating any of it as outstanding work.
 
 ### Finance — AR invoicing (not built in v2)
 - `superpowers/specs/2026-06-05-ar-invoicing-v1-design.md`
@@ -69,7 +79,7 @@ candidates because the data is already live:
 
 | Module | Tables | v2 UI |
 |---|---|---|
-| Bank feeds | `bank_accounts`, `bank_rules`, `bank_transactions` | ❌ (see designs above) |
+| Bank feeds | `bank_accounts`, `bank_rules`, `bank_transactions` | ✅ `accounting/banking` (import + inbox + rules) |
 | AR invoicing | `invoices`, `invoice_line_items`, `payments` | ❌ |
 | Payroll | `pay_runs` (+ `time_entries.pay_run_id`) | ❌ |
 | HR / employees | `employees` | ❌ |
