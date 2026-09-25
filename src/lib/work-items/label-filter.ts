@@ -15,6 +15,17 @@
  * Labels reach the client as `WorkItem.tags` — the API projects the WorkItemLabel
  * rows back onto that field — so nothing extra is fetched to support this.
  */
+/**
+ * The rule above, said in the UI where the tags are ticked.
+ *
+ * It lives next to the predicate rather than in the filter bar so the sentence
+ * cannot drift from the behaviour it describes: change `matchesLabelFilter` to
+ * an AND and this string is right there, wrong, in the same diff. OR is only
+ * obvious after you have watched a second tick ADD cards — before that, a
+ * widening board reads as the filter having failed.
+ */
+export const LABEL_FILTER_HINT = "Cards with ANY of the selected tags";
+
 export function matchesLabelFilter(
   itemLabels: string[] | null | undefined,
   selected: string[],

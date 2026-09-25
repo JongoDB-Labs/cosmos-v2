@@ -15,9 +15,12 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { DUE_PRESETS, type DuePreset } from "@/lib/work-items/metadata-filters";
+import { LABEL_FILTER_HINT } from "@/lib/work-items/label-filter";
 import { ESTIMATE_BANDS, type EstimateBand } from "@/lib/work-items/estimate-filter";
 import {
   BLOCKED_OPTIONS,
@@ -307,6 +310,7 @@ function MultiSelectMenu({
   colorMap,
   labelMap,
   verbatim = false,
+  hint,
 }: {
   label: string;
   options: readonly string[];
@@ -321,8 +325,32 @@ function MultiSelectMenu({
    * and stops the menu entry matching the chip on the card.
    */
   verbatim?: boolean;
+  /**
+   * What ticking more than one of these options does, said in the menu where
+   * the choice is made. Every multi-select here combines as OR, which is only
+   * obvious once you have seen a second tick ADD cards; without it the widening
+   * reads as the filter having failed. Rendered as the group label for the
+   * options, so it also names the group for a screen reader.
+   */
+  hint?: string;
 }) {
   const count = selected.length;
+  const items = options.map((opt) => (
+    <DropdownMenuCheckboxItem
+      key={opt}
+      checked={selected.includes(opt)}
+      onCheckedChange={(c) =>
+        onChange(c ? [...selected, opt] : selected.filter((s) => s !== opt))
+      }
+    >
+      <span className={cn("rounded px-1.5 py-0.5 text-xs", colorMap?.[opt])}>
+        {/* Title-casing suits enum-ish values (BUSINESS → Business) but
+            mangles a label the user typed and turns "13" into "13". An
+            explicit labelMap entry wins outright. */}
+        {labelMap?.[opt] ?? (verbatim ? opt : opt.charAt(0) + opt.slice(1).toLowerCase())}
+      </span>
+    </DropdownMenuCheckboxItem>
+  ));
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -342,23 +370,17 @@ function MultiSelectMenu({
         <ChevronDown className="h-3 w-3" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-44">
-        {options.map((opt) => (
-          <DropdownMenuCheckboxItem
-            key={opt}
-            checked={selected.includes(opt)}
-            onCheckedChange={(c) =>
-              onChange(c ? [...selected, opt] : selected.filter((s) => s !== opt))
-            }
-          >
-            <span className={cn("rounded px-1.5 py-0.5 text-xs", colorMap?.[opt])}>
-              {/* Title-casing suits enum-ish values (BUSINESS → Business) but
-                  mangles a label the user typed and turns "13" into "13". An
-                  explicit labelMap entry wins outright. */}
-              {labelMap?.[opt] ??
-                (verbatim ? opt : opt.charAt(0) + opt.slice(1).toLowerCase())}
-            </span>
-          </DropdownMenuCheckboxItem>
-        ))}
+        {hint ? (
+          // base-ui's GroupLabel throws production error #31 without a Group
+          // ancestor — see dropdown-menu.test.tsx. Wrapping the options too (not
+          // just the label) is what makes the hint their accessible group name.
+          <DropdownMenuGroup>
+            <DropdownMenuLabel className="text-[11px] font-normal">{hint}</DropdownMenuLabel>
+            {items}
+          </DropdownMenuGroup>
+        ) : (
+          items
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -587,6 +609,7 @@ export function FilterBar({
           selected={filters.labels}
           onChange={(labels) => onFilterChange({ ...filters, labels })}
           verbatim
+          hint={LABEL_FILTER_HINT}
         />
       )}
 

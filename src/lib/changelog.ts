@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.379.0",
+    date: "2026-09-25",
+    title: "The tag filter says what a second tag does",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Picking more than one tag on a board shows every card carrying ANY of the tags you picked, so a second tag widens what you see rather than narrowing it — and the Label menu now says that, above the tags, where the choice is made. Until now the rule was only written here, in this list: on the board itself a filter that ADDED cards looked like a filter that had failed, and there was nothing on screen to say otherwise. The sentence also names the list of tags for a screen reader, so it is announced rather than only seen.",
+      },
+      {
+        kind: "improvement",
+        text: "ANY rather than ALL was decided automatically. The request did not settle whether several tags should mean \"any of these\" or \"all of these\", and delivery took the default instead of waiting for an answer — ANY, which is how the Type and Priority filters already behave. If you wanted \"only cards carrying ALL of the selected tags\", reply on the ticket: it is a different question, and would get its own control rather than changing what the tag filter means everywhere.",
+      },
+    ],
+  },
+  {
     version: "2.318.0",
     date: "2026-08-28",
     title: "Pick tags on a sprint board and see only those cards",
