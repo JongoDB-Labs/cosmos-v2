@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.378.4",
+    date: "2026-09-25",
+    title: "Sign-in and admin endpoints are now always reviewed by a person",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Foreman treats some parts of the codebase as always requiring a person's approval before a change to them can ship, however small it is — the sign-in and permission code among them. That protection covered the underlying code but not the endpoints the browser actually calls, so a change to signing in, multi-factor setup, password reset, the list of permitted email addresses, or the control that installs updates was judged only on how large it was. Those endpoints are now covered. This was found while watching the nightly cleanup run propose a change to exactly those files; the change was stopped by an unrelated check, which is luck rather than the protection working.",
+      },
+      {
+        kind: "fix",
+        text: "When Foreman asks you to choose between options, the longer ones were being cut off mid-sentence before they were ever saved — so the full wording existed nowhere, including on the ticket itself. Three of ten live questions were affected, one of them ending mid-clause while describing what you would be committing to. The full text is now kept, and shortened only where a surface genuinely cannot show it, on a word boundary rather than mid-word. Long answers in the console also now wrap instead of running off the side of the screen.",
+      },
+    ],
+  },
+  {
     version: "2.378.3",
     date: "2026-09-25",
     title: "Foreman can finish more of its own work without stopping to ask",
