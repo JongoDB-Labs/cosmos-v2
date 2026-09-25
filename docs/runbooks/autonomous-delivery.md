@@ -54,28 +54,36 @@ A graceful/kill/breaker stop exits 0 and stays down; an unexpected crash — or 
 `.deploy/foreman.service` (gitignored, host-local); `ExecStartPre` clears a stale
 `FOREMAN_STOP`/`FOREMAN_LOCK` on every (re)start.
 
-**Self-reload after a self-modifying ship** — tsx loads Foreman's modules once at
-boot and never hot-reloads, so after Foreman ships a change touching its own
-runtime it would keep executing the OLD code until restarted. On such a ship the
-daemon arms a clean self-restart: finishes any in-flight build/ship, then exits
-non-zero so `Restart=on-failure` brings it back on the now-current checkout
-(`mergePr` hard-resets the local repo to the merged commit). It's logged
-(`self-restart …` with version + commit) and guarded to once per shipped commit
-(stamp: `.deploy/FOREMAN_RESTART_COMMIT`), so it can't restart-loop.
+**Self-reload after a self-modifying ship — built, and currently DORMANT.** tsx
+loads Foreman's modules once at boot and never hot-reloads, so after Foreman
+ships a change touching its own runtime it keeps executing the OLD code until
+restarted. The daemon has machinery for exactly this: on such a ship it arms a
+clean self-restart, finishes any in-flight build/ship, then exits non-zero so
+`Restart=on-failure` brings it back on the now-current checkout (`mergePr`
+hard-resets the local repo to the merged commit) — logged (`self-restart …` with
+version + commit) and guarded to once per shipped commit (stamp:
+`.deploy/FOREMAN_RESTART_COMMIT`) so it can't restart-loop.
 
-**Which daemon this describes.** Everything above is the behaviour of the Foreman
-plugin commit pinned in [`plugins.lock.json`](../../plugins.lock.json) — the
-assembly build composes that ref and nothing else, so the lock, not this file, is
-the source of truth for what runs. Read it before trusting any paragraph here:
-a plugin release changes the daemon only once a core commit advances that ref
-(the `chore(plugins): compose with foreman <v>` commits).
+**That machinery does not fire, so read the paragraph above as the design and not
+as observed behaviour.** Its trigger tests the shipped core diff against
+`src/plugins/foreman/` — a path a core commit can never contain since the P3
+extraction (below) — so nothing ever arms it, and **Foreman does keep
+running stale code after a ship that changes Foreman.** That is the open ticket,
+not a description of a working safeguard.
 
-**…but since the P3 plugin extraction that TRIGGER cannot fire.** It tests a
-shipped core diff against `src/plugins/foreman/`, and Foreman's code no longer
-lives in this repo: `scripts/plugins/sync.mjs` composes it in from the private
-plugin repo and adds every composed path to `.git/info/exclude`, so a core commit
-can never contain one. Three gaps follow, none of which can be closed anywhere
-but the PLUGIN repo — the core tree has no Foreman code to change:
+**Which daemon any of this describes.** The assembly build composes the Foreman
+plugin commit pinned in [`plugins.lock.json`](../../plugins.lock.json) and
+nothing else, so that file — not this page — is the source of truth for what
+runs. Check it before trusting any version-specific claim here: a plugin release
+changes the daemon only once a core commit advances that ref (the
+`chore(plugins): compose with foreman <v>` commits).
+
+**Why it cannot fire: the P3 plugin extraction.** Foreman's code no longer lives
+in this repo — `scripts/plugins/sync.mjs` composes it in from the private plugin
+repo and adds every composed path to `.git/info/exclude`, so no core commit can
+contain the `src/plugins/foreman/**` path the trigger matches on. Three gaps
+follow, none of which can be closed anywhere but the PLUGIN repo — the core tree
+has no Foreman code to change:
 
 - The core-side signal that Foreman's runtime moved is a **`plugins.lock.json` ref
   bump** (the `chore(plugins): compose with foreman <v>` commits), not a
@@ -97,10 +105,19 @@ but the PLUGIN repo — the core tree has no Foreman code to change:
   also makes `FOREMAN_STOP` outrank an armed restart.
 
   **Not composed yet** — at this commit `plugins.lock.json` still pins 1.131.0,
-  so the running daemon is the exit-non-zero one described above. The remaining
-  step is the ordinary two-parter: merge the plugin change, then land a core
-  `chore(plugins): compose with foreman 1.132.0` advancing the foreman ref. Until
-  that ref moves, treat this bullet as a plan and the paragraphs above as fact.
+  so the running daemon is the exit-non-zero one. The remaining step is the
+  ordinary two-parter: merge the plugin change, then land a core
+  `chore(plugins): compose with foreman 1.132.0` advancing the foreman ref.
+
+**So COSMOS-153 is not closed by this commit.** The third bullet is built and
+tested; the first two are not, and until all three land Foreman still runs stale
+code after a self-modifying ship. Fixing the trigger alone would be worse than
+leaving it: the daemon runs the COMPOSED tree, so a restart that nothing
+re-composed reloads the same code it was already running — a restart that looks
+like a safeguard and changes nothing. Bullets one and two have to land together,
+and doing so means deciding who invokes `refresh-daemon.sh` (725 lines, host-side,
+root/owner-sensitive, and it restarts the service itself — which has to be
+reconciled with the re-exec in bullet three). That decision is not made here.
 
 ## The audit trail — reworking or rolling back a change
 
