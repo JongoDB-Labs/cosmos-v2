@@ -5,7 +5,6 @@ import { prisma } from "@/lib/db/client";
  * Test-only email → userId lookup. Disabled unless E2E_TEST_AUTH === "1".
  * Used by Playwright fixtures to construct <@uuid> mention tokens.
  *
- * GET /api/__test__/user-id?email=alice%40test.local
  * Returns: { userId: string }
  */
 export async function GET(req: NextRequest) {

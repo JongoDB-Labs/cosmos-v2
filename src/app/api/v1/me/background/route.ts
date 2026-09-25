@@ -19,8 +19,7 @@ export async function POST(request: NextRequest) {
     if (!user) return new Response("Unauthorized", { status: 401 });
 
     const formData = await request.formData();
-    const queryMode = new URL(request.url).searchParams.get("mode");
-    const mode = (formData.get("mode") as string | null) ?? queryMode;
+    const mode = formData.get("mode") as string | null;
     const file = formData.get("file") as File | null;
 
     if (!mode || (mode !== "dark" && mode !== "light")) {
@@ -56,14 +55,11 @@ export async function POST(request: NextRequest) {
     const filePath = path.join(UPLOAD_DIR, filename);
     const publicUrl = `/uploads/bg/${filename}`;
 
-    // Ensure directory exists
     await mkdir(UPLOAD_DIR, { recursive: true });
 
-    // Write file to disk
     const buffer = Buffer.from(await file.arrayBuffer());
     await writeFile(filePath, buffer);
 
-    // Update preferences
     const column = mode === "dark" ? "bgDarkUrl" : "bgLightUrl";
     await prisma.userPreferences.upsert({
       where: { userId: user.id },
@@ -99,7 +95,6 @@ export async function DELETE(request: NextRequest) {
 
     const column = mode === "dark" ? "bgDarkUrl" : "bgLightUrl";
 
-    // Look up current URL to find the file
     const prefs = await prisma.userPreferences.findUnique({
       where: { userId: user.id },
     });
@@ -114,7 +109,6 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    // Set column to null
     await prisma.userPreferences.upsert({
       where: { userId: user.id },
       create: {

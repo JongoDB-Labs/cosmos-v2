@@ -27,24 +27,6 @@ async function requirePlatformOwner() {
   return user;
 }
 
-export async function GET(_request: NextRequest, { params }: RouteParams) {
-  try {
-    const { orgId } = await params;
-    const user = await requirePlatformOwner();
-    if (!user) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-    const org = await prisma.organization.findUnique({
-      where: { id: orgId },
-      select: { id: true, slug: true, name: true, plan: true },
-    });
-    if (!org) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-    return success(org);
-  } catch (error) {
-    return handleApiError(error);
-  }
-}
-
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
