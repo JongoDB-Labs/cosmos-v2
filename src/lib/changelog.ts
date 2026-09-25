@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.378.5",
+    date: "2026-09-25",
+    title: "Answering one of Foreman's questions no longer looks like answering all of them",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Foreman is waiting on more than one decision and you chose an answer to one of them, every other open question briefly showed the same feedback — so it looked as though you had answered them all at once. Only the one you clicked was ever sent; the fault was entirely in what the screen showed back to you, which is the worse kind, because there is no way to tell from looking what you actually did. The feedback now applies to the question you answered, and the remaining choices on that question stay locked until it is sent so a second click cannot contradict the first.",
+      },
+      {
+        kind: "fix",
+        text: "The nightly cleanup setting described itself as putting new tickets somewhere you would see them before anything was built from them. That was not true — whether they get built depends on whether the cleanup project is one Foreman delivers for, and once it is, they are picked up like any other ticket. The description now says what actually decides it.",
+      },
+    ],
+  },
+  {
     version: "2.378.4",
     date: "2026-09-25",
     title: "Sign-in and admin endpoints are now always reviewed by a person",
