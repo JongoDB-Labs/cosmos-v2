@@ -31,7 +31,7 @@ export const CHANGELOG: Release[] = [
       },
       {
         kind: "improvement",
-        text: "ASSUMED, because the request did not say: selecting several tags shows a card that carries ANY of them, so adding a second tag widens what you see rather than narrowing it. That matches how the Type and Priority filters already behave. If you meant \"show only cards that have ALL of these tags\", say so — it is a different question and would get its own control rather than quietly changing what the tag filter means everywhere.",
+        text: "Selecting several tags shows a card that carries ANY of them, so adding a second tag widens what you see rather than narrowing it. That matches how the Type and Priority filters already behave. Showing only cards that carry ALL of the selected tags is a different question, and would get its own control rather than changing what the tag filter means everywhere.",
       },
     ],
   },

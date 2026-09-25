@@ -168,8 +168,8 @@ describe("selecting tags on a sprint board", () => {
   });
 
   it("shows cards carrying EITHER tag once a second is selected", async () => {
-    // The assumption this ticket was built on, asserted so that flipping it to
-    // AND fails by name instead of quietly changing every board: several tags
+    // The behaviour this ticket specifies, asserted so that flipping it to AND
+    // fails by name instead of quietly changing every board: several tags
     // combine as OR, so adding one widens the result.
     render(<MiniBoard />);
     await tickTag("API");
