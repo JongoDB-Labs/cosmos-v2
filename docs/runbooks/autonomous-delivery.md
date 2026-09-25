@@ -49,26 +49,39 @@ Each pass:
 | Per-org opt-in | **Settings → Feedback automation → Autonomous delivery** (choose the projects); the daemon idles when no org has it on |
 
 A graceful/kill/breaker stop exits 0 and stays down; an unexpected crash — or a
-deliberate **self-restart** (below) — exits non-zero, which `Restart=on-failure`
-brings back (a clean restart reclaims any stranded ticket). The unit lives at
-`.deploy/foreman.service` (gitignored, host-local); `ExecStartPre` clears a stale
-`FOREMAN_STOP`/`FOREMAN_LOCK` on every (re)start.
+**self-restart** (below) running under this unit — exits non-zero, which
+`Restart=on-failure` brings back (a clean restart reclaims any stranded ticket).
+The unit lives at `.deploy/foreman.service` (gitignored, host-local);
+`ExecStartPre` clears a stale `FOREMAN_STOP`/`FOREMAN_LOCK` on every (re)start.
 
 **Self-reload after a self-modifying ship** — tsx loads Foreman's modules once at
 boot and never hot-reloads, so after Foreman ships a change touching its own
 runtime it would keep executing the OLD code until restarted. On such a ship the
-daemon arms a clean self-restart: finishes any in-flight build/ship, then exits
-non-zero so `Restart=on-failure` brings it back on the now-current checkout
-(`mergePr` hard-resets the local repo to the merged commit). It's logged
-(`self-restart …` with version + commit) and guarded to once per shipped commit
-(stamp: `.deploy/FOREMAN_RESTART_COMMIT`), so it can't restart-loop.
+daemon arms a clean self-restart: finishes any in-flight build/ship, then comes
+back on the now-current checkout (`mergePr` hard-resets the local repo to the
+merged commit). It's logged (`self-restart …` with version + commit) and guarded
+to once per shipped commit (stamp: `.deploy/FOREMAN_RESTART_COMMIT`), so it can't
+restart-loop.
 
-**…but since the P3 plugin extraction that trigger cannot fire (COSMOS-153).**
-It tests a shipped core diff against `src/plugins/foreman/`, and Foreman's code no
-longer lives in this repo: `scripts/plugins/sync.mjs` composes it in from the
-private plugin repo and adds every composed path to `.git/info/exclude`, so a core
-commit can never contain one. Two gaps follow, both fixed in the PLUGIN repo — the
-core tree has no Foreman code to change:
+*How* it comes back no longer depends on a process manager (COSMOS-153, plugin
+1.132.0). Once drained, the daemon **spawns a detached replacement of itself** —
+same interpreter and loader flags, same cwd, same env, same arguments — and exits
+0; `FOREMAN_REEXEC_GENERATION` counts the replacements and is logged with each.
+The one exception is a supervisor that owns its cgroup: under systemd (detected
+via `INVOCATION_ID`) a detached child is killed with the parent, so there the
+restart stays a non-zero exit and `Restart=on-failure` does it. Either way
+`FOREMAN_STOP` wins — an armed restart that finds the stop file set exits 0 and
+stays down.
+
+**…but since the P3 plugin extraction that TRIGGER cannot fire, and 1.132.0 did
+not change that.** It tests a shipped core diff against `src/plugins/foreman/`,
+and Foreman's code no longer lives in this repo: `scripts/plugins/sync.mjs`
+composes it in from the private plugin repo and adds every composed path to
+`.git/info/exclude`, so a core commit can never contain one. What 1.132.0 fixed is
+the restart MECHANISM, on every path that reaches it — the console's
+restart-the-daemon request (`foreman_state.refresh_requested_at`) reaches it
+today. Two trigger gaps remain, both to be fixed in the PLUGIN repo — the core
+tree has no Foreman code to change:
 
 - The core-side signal that Foreman's runtime moved is a **`plugins.lock.json` ref
   bump** (the `chore(plugins): compose with foreman <v>` commits), not a
