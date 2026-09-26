@@ -67,6 +67,10 @@ const RELEASES: Release[] = [
       },
       {
         kind: "improvement",
+        text: "Undo on the timeline takes the whole cascade back, not just the bar you dragged — the parent that stretched and every item that was pushed out behind it all return to the dates they held, in one step. Redo puts them all back again. Shifting several selected rows at once moves shared downstream work exactly once, by the number of days you asked for.",
+      },
+      {
+        kind: "improvement",
         text: "Every date the cascade changes is recorded on the item's own history alongside hand-made edits, so “why did this move?” is answerable from the ticket. Whether to cascade automatically or only warn was an open question nobody answered; automatic cascading was chosen, and it can be changed by replying on COSMOS-154.",
       },
     ],
