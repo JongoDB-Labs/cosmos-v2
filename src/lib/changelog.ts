@@ -59,7 +59,11 @@ const RELEASES: Release[] = [
       },
       {
         kind: "improvement",
-        text: "An epic with nothing left under it after filtering is still hidden, so this does not quietly widen what a filter shows. Assumed, and worth saying because nobody answered the question: non-matching rows are HIDDEN rather than dimmed or greyed out, matching the list views. If you would rather keep every row on screen and fade the ones that do not match, say so on the ticket and it can be changed.",
+        text: "A parent kept this way is clearly marked as context rather than as a result: it is faded, italicised, says so when you hover it, and is left out of the row count, out of “select all” and out of anything the Shift buttons move — so asking to shift everything you have selected can never re-plan an epic the filter just told you was not yours. It is also held open while the filter is on, because collapsing it would hide the very item it was kept for. An epic with nothing left under it is hidden outright, so this never widens what a filter shows.",
+      },
+      {
+        kind: "improvement",
+        text: "Worth saying plainly because nobody answered the question it turned on: non-matching rows are HIDDEN here, matching the list views, rather than every row staying on screen with the non-matching ones greyed out. That was decided automatically. If the other behaviour is what you wanted, say so on the ticket and it can be changed.",
       },
     ],
   },

@@ -298,6 +298,13 @@ const PHANTOM_OPACITY = 0.45;
  */
 const STRIPE_OPACITY = 0.95;
 
+/**
+ * A row kept on a filtered chart only because one of its descendants matched.
+ * Faded enough to read as the backdrop a group header is, strong enough to
+ * still be legible — the row's whole job is to say WHERE the match sits.
+ */
+const STRUCTURAL_OPACITY = 0.4;
+
 type DragMode = "move" | "start" | "end";
 
 /** Client-side board-filter match (search/type/priority/assignee/interval + custom
@@ -553,7 +560,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // kept for structure, so narrowing to one team never re-roots that team's
   // stories away from the epic they belong to. `withAncestors` is the rule the
   // Dependencies lens below already used; it is now shared rather than copied.
-  const filteredItems = useMemo(() => {
+  const { filteredItems, structuralIds } = useMemo(() => {
     const matched = new Set(
       lensItems
         .filter((it) =>
@@ -564,7 +571,21 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         )
         .map((it) => it.id),
     );
-    return withAncestors(lensItems, matched);
+    const kept = withAncestors(lensItems, matched);
+    // The rows carried along for structure — on the chart ONLY because a match
+    // sits under them, and not results in their own right. That distinction has
+    // to survive into the render or this becomes the worst of both worlds: the
+    // Gantt would be the one view that answers "show me Alice's work" with a row
+    // that is not Alice's, drawn exactly like one that is. A grouped list draws
+    // its group headers as headers; these are the Gantt's. Everything below —
+    // the dim, the selection, the drag, the collapse — reads this set.
+    //
+    // With no filter applied every row matches, so this is empty and nothing in
+    // the view behaves any differently from before.
+    return {
+      filteredItems: kept,
+      structuralIds: new Set(kept.filter((it) => !matched.has(it.id)).map((it) => it.id)),
+    };
   }, [lensItems, filters, projectCustomFields, teamsByUserId, filterNow, blockedIds, milestoneMap]);
   // ── Hierarchy rows (FR f396a6a9) ─────────────────────────────────────────
   // Depth-first parent→children row order with per-parent collapse. Collapsing a
@@ -594,9 +615,21 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     setPan(NO_PAN);
   }, [boardId]);
 
+  // A structural row is FORCE-EXPANDED while the filter holds it on the chart.
+  // It is there to carry a match; collapsing it would hide the one thing it was
+  // kept for, and the chart would answer the filter with a single row belonging
+  // to somebody else. The user's own collapse set is not touched — this is a
+  // view of it — so clearing the filter restores exactly what they had collapsed.
+  const effectiveCollapsedIds = useMemo(() => {
+    if (structuralIds.size === 0) return collapsedIds;
+    const next = new Set<string>();
+    for (const id of collapsedIds) if (!structuralIds.has(id)) next.add(id);
+    return next;
+  }, [collapsedIds, structuralIds]);
+
   const fullTree = useMemo(
-    () => buildTimelineTree(filteredItems, collapsedIds),
-    [filteredItems, collapsedIds],
+    () => buildTimelineTree(filteredItems, effectiveCollapsedIds),
+    [filteredItems, effectiveCollapsedIds],
   );
 
   // When the Dependencies lens is on, focus on the interdependent set.
@@ -616,8 +649,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // behave exactly as when the lens is off — no more flat, depth-0 list.
   const depsTree = useMemo(() => {
     if (!showDeps) return { treeRows: [], parentIds: new Set<string>() };
-    return buildTimelineTree(withAncestors(filteredItems, linkedIds), collapsedIds);
-  }, [showDeps, filteredItems, linkedIds, collapsedIds]);
+    return buildTimelineTree(
+      withAncestors(filteredItems, linkedIds),
+      effectiveCollapsedIds,
+    );
+  }, [showDeps, filteredItems, linkedIds, effectiveCollapsedIds]);
 
   const { treeRows, parentIds } = showDeps ? depsTree : fullTree;
   const visibleRows = treeRows;
@@ -882,6 +918,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const beginDrag = useCallback(
     (item: WorkItem, mode: DragMode, e: React.PointerEvent) => {
       if (!canEdit) return;
+      // Every drag entry point (move, and both resize handles) funnels through
+      // here, so one guard covers them all: a row the filter kept only for
+      // structure is not something this view is offering to reschedule.
+      if (structuralIds.has(item.id)) return;
       e.preventDefault();
       e.stopPropagation();
       const { start, end } = itemSpan(item);
@@ -896,7 +936,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       setDragPreview({ id: item.id, mode, deltaDays: 0 });
       setHoveredItem(null);
     },
-    [canEdit],
+    [canEdit, structuralIds],
   );
 
   const onDragMove = useCallback((e: React.PointerEvent) => {
@@ -1165,6 +1205,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   type SelectIntent = "replace" | "toggle" | "range";
   const selectRow = useCallback(
     (id: string, intent: SelectIntent) => {
+      // A structural row is context, not a result. It has no checkbox, so this
+      // is the bar-click and range paths — and the range one is the reason the
+      // guard lives HERE rather than at the call sites: dragging a selection
+      // down the column passes straight over an epic the filter already said
+      // was not yours, and the Shift buttons would then move its dates.
+      if (structuralIds.has(id)) return;
       // Resolve the range against the rows ACTUALLY ON SCREEN, in the order
       // they are drawn — a range the user traced down the column has to mean
       // the rows they traced, not whatever lies between them in the unfiltered
@@ -1187,7 +1233,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           // the count and undone by Clear.
           const next = new Set(prev);
           const [a, b] = from < to ? [from, to] : [to, from];
-          for (let i = a; i <= b; i++) next.add(sortedItems[i].id);
+          for (let i = a; i <= b; i++) {
+            if (structuralIds.has(sortedItems[i].id)) continue;
+            next.add(sortedItems[i].id);
+          }
           return next;
         }
         if (intent === "replace") return new Set([id]);
@@ -1201,7 +1250,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       // Shift-click always has a live row to measure from.
       if (!ranged) anchorIdRef.current = id;
     },
-    [sortedItems],
+    [sortedItems, structuralIds],
   );
 
   // ── Bar clicks ───────────────────────────────────────────────────────────
@@ -1244,12 +1293,20 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // Dependencies lens can take a row away long after it was ticked, and moving
   // an item the user can no longer see is the same invisible bulk edit this
   // selection exists to prevent.
+  // …and, for the same reason, with the rows that are RESULTS. A row already
+  // ticked when a filter demotes it to structure must drop straight back out of
+  // the count and out of the bulk payload: the count is the only thing standing
+  // between "shift my 12 items" and quietly re-planning somebody else's epic.
+  const selectableItems = useMemo(
+    () => sortedItems.filter((it) => !structuralIds.has(it.id)),
+    [sortedItems, structuralIds],
+  );
   const selectedItems = useMemo(
-    () => sortedItems.filter((it) => selectedIds.has(it.id)),
-    [sortedItems, selectedIds],
+    () => selectableItems.filter((it) => selectedIds.has(it.id)),
+    [selectableItems, selectedIds],
   );
   const allVisibleSelected =
-    sortedItems.length > 0 && selectedItems.length === sortedItems.length;
+    selectableItems.length > 0 && selectedItems.length === selectableItems.length;
 
   // ── ⌘K / Ctrl+K → "New issue in <KEY> timeline" ──────────────────────────
   // Publish this board's create context so the command palette can offer the
@@ -1900,11 +1957,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                   indeterminate={selectedItems.length > 0 && !allVisibleSelected}
                   onChange={() =>
                     setSelectedIds(
-                      allVisibleSelected ? new Set() : new Set(sortedItems.map((it) => it.id)),
+                      allVisibleSelected
+                        ? new Set()
+                        : new Set(selectableItems.map((it) => it.id)),
                     )
                   }
                   aria-label="Select all work items"
-                  title="Select every row on screen"
+                  title="Select every matching row on screen"
                 />
               </span>
             )}
@@ -1913,8 +1972,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           {visibleRows.map(({ item, depth }) => {
             const colors = barColorsFor(item.workItemType?.key, isMilestoneItem(item));
             const isParent = parentIds.has(item.id);
-            const isCollapsed = collapsedIds.has(item.id);
+            // The EFFECTIVE set, not the stored one: a structural row is held
+            // open regardless of what the user collapsed earlier, and a chevron
+            // pointing the other way would be the control lying about the rows
+            // underneath it.
+            const isCollapsed = effectiveCollapsedIds.has(item.id);
             const isSelected = selectedIds.has(item.id);
+            // Kept for structure: this row is not one of the filter's answers.
+            const isStructural = structuralIds.has(item.id);
             return (
               <div
                 key={item.id}
@@ -1925,8 +1990,17 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 style={{ height: ROW_HEIGHT, paddingLeft: 6 }}
               >
                 {/* Ticking a row is what aims the Shift buttons at it. Only for
-                    editors: with nothing to shift, a selection is just noise. */}
-                {canEdit && (
+                    editors: with nothing to shift, a selection is just noise —
+                    and a structural row has no box at all, the same way a
+                    grouped table's header row has none. It is not one of the
+                    things the filter said you were looking at, so "select
+                    everything here" must not reach it. */}
+                {canEdit && isStructural && (
+                  // The gutter still has to hold its width, or every structural
+                  // row's label steps left out of the column.
+                  <span className={SELECT_GUTTER} aria-hidden />
+                )}
+                {canEdit && !isStructural && (
                   <span className={cn(SELECT_GUTTER, "justify-center")}>
                     <Checkbox
                       checked={isSelected}
@@ -1975,9 +2049,28 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                   <button
                     type="button"
                     onClick={() => toggleCollapse(item.id)}
+                    // A structural row is held open, so its chevron is shown
+                    // DISABLED rather than removed or left live. Removed, the
+                    // row would stop saying it has children — which is the only
+                    // reason it is on the chart. Left live, it would either do
+                    // nothing (a dead control) or collapse away the very match
+                    // it was kept to carry, which is the bug this pass exists to
+                    // fix. Disabled says both true things at once: there is a
+                    // subtree here, and it is not yours to fold right now.
+                    disabled={isStructural}
                     aria-label={isCollapsed ? "Expand children" : "Collapse children"}
                     aria-expanded={!isCollapsed}
-                    className="mr-0.5 shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    title={
+                      isStructural
+                        ? "Held open while a filter is on — collapsing it would hide the matching item below"
+                        : undefined
+                    }
+                    className={cn(
+                      "mr-0.5 shrink-0 rounded p-0.5 text-muted-foreground",
+                      isStructural
+                        ? "cursor-default opacity-40"
+                        : "hover:bg-muted hover:text-foreground",
+                    )}
                   >
                     <ChevronRight
                       className={cn("size-3.5 transition-transform", !isCollapsed && "rotate-90")}
@@ -1989,8 +2082,18 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 <button
                   type="button"
                   onClick={() => setDetailId(item.id)}
-                  title={`${projectKey}-${item.ticketNumber}: ${item.title}`}
-                  className="flex h-full min-w-0 flex-1 items-center gap-2 pr-3 text-left"
+                  title={
+                    isStructural
+                      ? `${projectKey}-${item.ticketNumber}: ${item.title} — shown for context; it does not match the current filter, but something under it does`
+                      : `${projectKey}-${item.ticketNumber}: ${item.title}`
+                  }
+                  className={cn(
+                    "flex h-full min-w-0 flex-1 items-center gap-2 pr-3 text-left",
+                    // Matches the bar's fade, so the row reads the same way in
+                    // both panes rather than muted on one side and solid on the
+                    // other.
+                    isStructural && "opacity-60",
+                  )}
                 >
                   <div
                     className="w-2 h-2 rounded-full shrink-0"
@@ -2000,7 +2103,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     {/* em, not text-xs: a rem-based Tailwind size would OVERRIDE
                         the zoom-scaled fontSize on the column and the label
                         would never move. 0.75em reproduces text-xs at 100%. */}
-                    <p className="truncate" style={{ fontSize: "0.75em" }}>
+                    <p
+                      className={cn("truncate", isStructural && "italic text-muted-foreground")}
+                      style={{ fontSize: "0.75em" }}
+                    >
                       <span className="text-muted-foreground mr-1">
                         {projectKey}-{item.ticketNumber}
                       </span>
@@ -2361,13 +2467,18 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               // reads at a glance. Dimmed, not hidden — a path needs the rest of
               // the plan visible to be critical relative to anything.
               const critDim = showCritical && criticalIsolate && !isCrit ? 0.15 : 1;
+              // A row the filter kept only to carry a match reads as CONTEXT,
+              // not as an answer. Without this the Gantt draws an epic that is
+              // demonstrably not yours at full strength beside one that is, and
+              // the only way to tell them apart is to hover each in turn.
+              const structDim = structuralIds.has(item.id) ? STRUCTURAL_OPACITY : 1;
               // ONE dim, not four multiplied together. Four active lenses used to
               // reach 0.85 x 0.35 x 0.22 x 0.15 — well under 1% opacity, a bar
               // present in the DOM and invisible on screen. Taking the STRONGEST
               // single factor keeps every dimmed element at a predictable level,
               // so planned-vs-actual and the outline marks stay legible however
               // many lenses are on.
-              const lensDim = Math.min(dimForBlockedLens, depDim, critDim);
+              const lensDim = Math.min(dimForBlockedLens, depDim, critDim, structDim);
 
               // PRIMARY (solid) = the ACTUAL span at real dates. The plan shows up
               // as drift PHANTOMS around it — amber/green for the start, red for an
@@ -2977,6 +3088,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               <p className="text-sm font-medium mb-1">
                 {projectKey}-{hoveredItem.ticketNumber}: {hoveredItem.title}
               </p>
+              {/* Say it outright rather than leaving the reader to deduce it
+                  from an Assignee line that names somebody they did not filter
+                  for. */}
+              {structuralIds.has(hoveredItem.id) && (
+                <p className="text-xs italic text-muted-foreground mb-1">
+                  Doesn&apos;t match the filter — shown because something under it does
+                </p>
+              )}
               <div className="text-xs text-muted-foreground space-y-0.5">
                 <p>
                   Type: {hoveredItem.workItemType?.name ?? "Unknown"}
