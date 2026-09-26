@@ -8,7 +8,7 @@ import type { NavGroupDef } from "./nav-config";
 import { isHrefActive, resolveHref, hrefFor } from "./nav-active";
 
 /**
- * A Monograph-style collapsible parent group: a parent row with a chevron that
+ * A collapsible parent group: a parent row with a chevron that
  * expands to reveal indented child links. Keyboard-operable (the parent row is
  * a real <button>), with the standard focus ring and aria-expanded.
  *

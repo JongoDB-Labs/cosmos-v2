@@ -88,13 +88,23 @@ function iconFor(name: string): LucideIcon {
 
 export function ImportWizard(props: WizardProps) {
   const [selected, setSelected] = useState<Selected>(null);
+  /**
+   * The list on offer is the authority for BOTH steps, not just the picker.
+   *
+   * Resolving the pick against core's registry instead is silently fatal for any
+   * record type a plugin contributes: the card is drawn from this list, so it
+   * appears and is clickable, but the lookup deciding what to render next has
+   * never heard of the key and returns nothing — which lands back on the picker.
+   * Clicking the card then looks like the click did not register.
+   */
+  const offered = props.entities ?? ENTITY_DEFS;
 
   // ── Step 1: entity picker ──
   if (selected === null) {
     return (
       <EntityPicker
         onPick={setSelected}
-        entities={props.entities ?? ENTITY_DEFS}
+        entities={offered}
         withWorkItems={Boolean(props.projectId)}
       />
     );
@@ -124,12 +134,12 @@ export function ImportWizard(props: WizardProps) {
   }
 
   // ── Any registry entity → the generic flow ──
-  const def = getEntityDef(selected);
+  const def = offered.find((e) => e.key === selected) ?? getEntityDef(selected);
   if (!def) {
     return (
       <EntityPicker
         onPick={setSelected}
-        entities={props.entities ?? ENTITY_DEFS}
+        entities={offered}
         withWorkItems={Boolean(props.projectId)}
       />
     );

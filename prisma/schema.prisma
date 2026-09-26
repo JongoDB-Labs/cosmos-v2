@@ -753,8 +753,9 @@ model Project {
   /// speculative work legitimately has no client, and a project must not be
   /// blocked from existing before one is chosen.
   clientId            String?       @map("client_id") @db.Uuid
-  /// This project's id in the system it was imported FROM — a Monograph project
-  /// number, a JIRA key, an ERP code. Null for anything created here.
+  /// This project's id in the system it was imported FROM — a job number from a
+  /// practice-management tool, a JIRA key, an ERP code. Null for anything created
+  /// here. A plugin's importer is what knows which system that is.
   ///
   /// The key every RE-import matches on. Names get edited and project keys get
   /// reused, but the source system's own id stays put, so next week's export
