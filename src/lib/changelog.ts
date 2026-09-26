@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.379.0",
+    date: "2026-09-26",
+    title: "Commit a tentative date from the calendar straight onto the PI board",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Calendar board now tells pencilled-in work apart from work a Program Increment has already taken on. Anything with a date but no interval is drawn with a dashed edge and marked Tentative, a new \"Tentative only\" button narrows the month down to just those, and opening a day gives each tentative event a Commit button that moves it onto the Program Increment covering its dates — keeping the dates exactly as they are. Committed events say which PI they went to instead, and if no PI covers the day the button says so rather than disappearing.",
+      },
+      {
+        kind: "improvement",
+        text: "What Commit does was an open question on the request, and it was decided without a reply: it transfers the event and nothing else — no planning milestones or after-action tasks are created for you. If your team wants those generated too, say so on the ticket and it can be added.",
+      },
+    ],
+  },
+  {
     version: "2.378.5",
     date: "2026-09-25",
     title: "Answering one of Foreman's questions no longer looks like answering all of them",
