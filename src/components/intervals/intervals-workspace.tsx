@@ -41,6 +41,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { buildIntervalTree } from "@/lib/intervals/interval-tree";
+import { assignableScopeFor } from "@/lib/intervals/assignable-scope";
 import { CapacityDialog } from "./capacity-dialog";
 import { AddIssuesDialog } from "./add-issues-dialog";
 import { StartSprintDialog } from "./start-sprint-dialog";
@@ -142,6 +143,10 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Set when the create dialog was opened from a PI's "Add sprint" — the new
+  // interval is a SPRINT nested under that PI, so planning a PI reads
+  // top-down ("add N sprints under PI-1") instead of make-then-reparent.
+  const [createParentId, setCreateParentId] = useState<string | null>(null);
 
   // Delete confirmation.
   const [deleteTarget, setDeleteTarget] = useState<Interval | null>(null);
@@ -160,6 +165,8 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
   // Program Increments (top-level PI intervals) — used both to render the PI
   // grouping and to populate each sprint's "Move to PI" selector.
   const pis = intervals.filter((c) => c.intervalKind === PI_KIND);
+  // Name of the PI the create dialog is adding a sprint to, if any.
+  const createParentName = pis.find((p) => p.id === createParentId)?.name ?? null;
   // Ordered top-down (ascending), with each PI's sprints grouped under it. The
   // API returns `number: desc`; ordering here rather than there keeps the five
   // other consumers of that endpoint untouched.
@@ -292,6 +299,15 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
     setKind(defaultKind);
     setStartDate("");
     setEndDate("");
+    setCreateParentId(null);
+  }
+
+  // Open the create dialog to add a sprint INSIDE a Program Increment.
+  function openCreateSprintIn(pi: Interval) {
+    resetForm();
+    setKind("SPRINT");
+    setCreateParentId(pi.id);
+    setOpen(true);
   }
 
   // Open the dialog pre-filled to EDIT an existing interval (FR: "edit/delete a
@@ -339,6 +355,8 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
               startDate: new Date(startDate).toISOString(),
               endDate: new Date(endDate).toISOString(),
               intervalKind: kind,
+              // Null unless the dialog was opened from a PI's "Add sprint".
+              parentId: createParentId,
             }),
           });
       if (!res.ok) throw new Error("Failed to save interval");
@@ -582,6 +600,11 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
                   return (
                     <div
                       key={pi.id}
+                      // A labelled group, so the controls inside it ("Add
+                      // sprint") are announced against the PI they belong to
+                      // without every one of them repeating its name.
+                      role="group"
+                      aria-label={pi.name}
                       className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3"
                     >
                       <div className="flex items-start gap-2">
@@ -612,12 +635,23 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
                         <div className="ml-3 space-y-2 border-l-2 border-primary/20 pl-3">
                           {children.length === 0 ? (
                             <p className="py-1 text-xs text-muted-foreground">
-                              No sprints in this PI yet — use “Move to PI” on a sprint below.
+                              No sprints in this PI yet — add one below, or use
+                              “Move to PI” on an existing sprint.
                             </p>
                           ) : (
                             children.map((child) => (
                               <IntervalCard key={child.id} {...cardProps(child)} />
                             ))
+                          )}
+                          {canCreate && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => openCreateSprintIn(pi)}
+                            >
+                              <Plus className="h-3.5 w-3.5 mr-1" />
+                              Add sprint
+                            </Button>
                           )}
                         </div>
                       )}
@@ -661,10 +695,17 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editId ? "Edit interval" : "Plan an interval"}</DialogTitle>
+            <DialogTitle>
+              {editId
+                ? "Edit interval"
+                : createParentName
+                  ? `Add a sprint to ${createParentName}`
+                  : "Plan an interval"}
+            </DialogTitle>
             <DialogDescription>
-              A time-boxed iteration (sprint, phase, release…) to group and track
-              work.
+              {createParentName
+                ? `A time-boxed sprint inside ${createParentName}. Its issue picker starts narrowed to this PI's work.`
+                : "A time-boxed iteration (sprint, phase, release…) to group and track work."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -677,7 +718,8 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
-            {!editId && (
+            {/* Kind is fixed when adding into a PI — only sprints nest. */}
+            {!editId && !createParentId && (
               <div className="space-y-1.5">
                 <Label htmlFor="interval-kind">Kind</Label>
                 <Select value={kind} onValueChange={(v) => setKind(v ?? "SPRINT")}>
@@ -818,6 +860,9 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
         onOpenChange={(o) => !o && setAddIssuesTarget(null)}
         onAdded={fetchIntervals}
         intervalNames={intervalNames}
+        // A sprint inside a PI plans from that PI's work by default; the
+        // picker keeps a control to widen back to the project (COSMOS-160).
+        scope={assignableScopeFor(addIssuesTarget, intervals)}
       />
 
       {/* Sprint review / completion — step 1 shows retrospective metrics, step 2

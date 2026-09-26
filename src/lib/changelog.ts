@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.379.0",
+    date: "2026-09-26",
+    title: "Program Increments now carry real planning weight",
+    highlights: [
+      {
+        kind: "feature",
+        text: "You can add sprints straight from a Program Increment. Putting a sprint inside PI-1 used to mean creating it at the top of the list and then moving it in with a second control, which made a PI feel like a label rather than something sprints live in. Each PI now has its own “Add sprint” button, and the sprint it creates starts inside that PI.",
+      },
+      {
+        kind: "improvement",
+        text: "When you add issues to a sprint that sits inside a Program Increment, the list now starts with just that PI's work — what you staged on the PI itself, plus what is already in its other sprints. Staging everything on PI-1 and then dealing it out across its sprints previously bought you nothing, because the sprint's picker was still the whole project and just as long. It is a starting point, not a restriction: one checkbox in the picker widens it back to every issue in the project.",
+      },
+      {
+        kind: "improvement",
+        text: "Where a PI has been set up but has no sprints yet, and where the narrowed picker has nothing left to offer, the screen now says so and names the control that changes it — rather than showing an empty list with no visible cause.",
+      },
+    ],
+  },
+  {
     version: "2.378.5",
     date: "2026-09-25",
     title: "Answering one of Foreman's questions no longer looks like answering all of them",

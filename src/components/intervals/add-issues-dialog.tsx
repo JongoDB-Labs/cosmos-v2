@@ -16,6 +16,10 @@ import {
 } from "@/components/ui/dialog";
 import { notifyError } from "@/lib/errors/notify";
 import { Search } from "lucide-react";
+import {
+  narrowToScope,
+  type AssignableScope,
+} from "@/lib/intervals/assignable-scope";
 
 /**
  * "Add issues to a sprint" picker (FR 0e31d1ef). Interval planning previously
@@ -23,6 +27,11 @@ import { Search } from "lucide-react";
  * project issues from the Intervals workspace and move them into an interval in one
  * action (via the bulk work-items endpoint). Moving an issue only changes its
  * interval — status/column are untouched.
+ *
+ * When the interval sits inside a Program Increment, the list starts narrowed
+ * to that PI's items (COSMOS-160) — see `@/lib/intervals/assignable-scope` for
+ * why, and for what "the PI's items" covers. It is a default, not a rule: the
+ * checkbox widens it back to the whole project.
  */
 
 interface WorkItemLite {
@@ -43,6 +52,8 @@ interface AddIssuesDialogProps {
   onAdded: () => void;
   /** intervalId → interval name, for the "currently in X" badge on candidates. */
   intervalNames: Record<string, string>;
+  /** The parent PI to start narrowed to, or null to list the whole project. */
+  scope?: AssignableScope | null;
 }
 
 export function AddIssuesDialog({
@@ -54,6 +65,7 @@ export function AddIssuesDialog({
   onOpenChange,
   onAdded,
   intervalNames,
+  scope = null,
 }: AddIssuesDialogProps) {
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
   const [items, setItems] = useState<WorkItemLite[]>([]);
@@ -61,6 +73,8 @@ export function AddIssuesDialog({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
+  // Widened = show the whole project rather than just the parent PI's items.
+  const [widened, setWidened] = useState(false);
 
   // Load candidate issues each time the dialog opens.
   /* eslint-disable react-hooks/set-state-in-effect */
@@ -70,6 +84,7 @@ export function AddIssuesDialog({
     setLoading(true);
     setSelected(new Set());
     setQuery("");
+    setWidened(false);
     (async () => {
       try {
         const res = await fetch(`${basePath}/work-items`);
@@ -88,10 +103,11 @@ export function AddIssuesDialog({
   }, [open, interval, basePath]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // Candidates = everything not already in THIS interval, matching the search.
+  // Candidates = everything in scope, not already in THIS interval, matching
+  // the search. Scope is the PI narrowing; widening passes null for "project".
   const candidates = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return items
+    return narrowToScope(items, widened ? null : scope)
       .filter((i) => i.intervalId !== interval?.id)
       .filter(
         (i) =>
@@ -99,7 +115,7 @@ export function AddIssuesDialog({
           i.title.toLowerCase().includes(q) ||
           `${projectKey}-${i.ticketNumber}`.toLowerCase().includes(q),
       );
-  }, [items, interval, query, projectKey]);
+  }, [items, interval, query, projectKey, scope, widened]);
 
   const allVisibleSelected =
     candidates.length > 0 && candidates.every((c) => selected.has(c.id));
@@ -164,6 +180,16 @@ export function AddIssuesDialog({
           />
         </div>
 
+        {scope && (
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+            <Checkbox
+              checked={!widened}
+              onChange={() => setWidened((w) => !w)}
+            />
+            <span>Only issues in {scope.piName}</span>
+          </label>
+        )}
+
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <button
             type="button"
@@ -185,7 +211,13 @@ export function AddIssuesDialog({
             </div>
           ) : candidates.length === 0 ? (
             <p className="p-6 text-center text-sm text-muted-foreground">
-              {items.length === 0 ? "No issues in this project yet." : "Every issue is already in this interval."}
+              {items.length === 0
+                ? "No issues in this project yet."
+                : scope && !widened
+                  ? // Say WHY the list is empty, and name the control that fixes
+                    // it — a silently-filtered empty list reads as "no issues".
+                    `Nothing left to add from ${scope.piName}. Untick “Only issues in ${scope.piName}” to pick from the whole project.`
+                  : "Every issue is already in this interval."}
             </p>
           ) : (
             candidates.map((i) => (
