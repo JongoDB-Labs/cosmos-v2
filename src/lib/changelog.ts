@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.379.0",
+    date: "2026-09-26",
+    title: "Filtering the Timeline by team no longer loses the plan's structure",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Filtering the Timeline/Gantt by team — or by anyone, or anything else — used to take the epic away with it. Nobody is assigned to an epic, so it never matched a team, and its stories were re-drawn at the top level with nothing above them: the filter answered “whose work is this” by throwing away “what is it part of”. A parent that still holds something you filtered to now stays on the chart, so narrowing to one team shows that team's work where it actually sits in the plan. Every other board already behaved this way; the Timeline was the one that did not, because it is the only one that draws a hierarchy.",
+      },
+      {
+        kind: "improvement",
+        text: "A parent kept this way is clearly marked as context rather than as a result: it is faded, italicised, says so when you hover it, and is left out of the row count, out of “select all” and out of anything the Shift buttons move — so asking to shift everything you have selected can never re-plan an epic the filter just told you was not yours. It is also held open while the filter is on, because collapsing it would hide the very item it was kept for. An epic with nothing left under it is hidden outright, so this never widens what a filter shows.",
+      },
+      {
+        kind: "improvement",
+        text: "Worth saying plainly because nobody answered the question it turned on: non-matching rows are HIDDEN here, matching the list views, rather than every row staying on screen with the non-matching ones greyed out. That was decided automatically. If the other behaviour is what you wanted, say so on the ticket and it can be changed.",
+      },
+    ],
+  },
+  {
     version: "2.378.5",
     date: "2026-09-25",
     title: "Answering one of Foreman's questions no longer looks like answering all of them",
