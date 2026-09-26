@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { highlightColor, highlightLabel } from "@/lib/work-items/highlights";
-import { commitState, isTentative, type CommitState } from "@/lib/work-items/pi-commit";
+import { commitState, eventDay, isTentative, type CommitState } from "@/lib/work-items/pi-commit";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { WorkItem, OrgMember, Interval } from "@/types/models";
 
@@ -72,6 +72,30 @@ function isSameDay(a: Date, b: Date) {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate()
   );
+}
+
+/**
+ * A grid cell's key (`year-monthIndex-day`, month 0-based) for a `YYYY-MM-DD`.
+ *
+ * This is the ONLY way an item reaches a cell. It used to be
+ * `new Date(iso)` + `getMonth()`/`getDate()` — local parts off a full instant,
+ * which is precisely what `src/lib/time/date-only.ts` says never to do, and the
+ * grid was the last caller still doing it.
+ *
+ * It mattered here because the cell an item is drawn in and the day the Commit
+ * control reasons about were computed two different ways. A due date stored at
+ * UTC midnight (seeds and imports write those; only the app's own date pickers
+ * use midday) reads one day EARLIER in local parts anywhere west of UTC — so in
+ * America/New_York a panel headed "Sunday, September 20" carried a Commit button
+ * refusing "2026-09-21", and an event due Sep 1 was drawn on Aug 31 and dropped
+ * out of September altogether. Same defect twice: two answers to one question.
+ *
+ * Now both sides read `eventDay`, so there is one answer and the header, the
+ * cell and the button cannot disagree.
+ */
+function cellKeyForDay(day: string): string {
+  const [year, month, date] = day.split("-").map(Number);
+  return `${year}-${month - 1}-${date}`;
 }
 
 export function CalendarView({ orgId, projectId, projectKey, boardId }: CalendarViewProps) {
@@ -144,10 +168,10 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
   const dateItemsMap = useMemo(() => {
     const map = new Map<string, WorkItem[]>();
     for (const item of visibleItems) {
-      const dateStr = item.dueDate ?? item.startDate;
-      if (!dateStr) continue;
-      const d = new Date(dateStr);
-      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      // `eventDay` — the same due-then-start reading the Commit control uses.
+      const day = eventDay(item);
+      if (!day) continue;
+      const key = cellKeyForDay(day);
       const existing = map.get(key) ?? [];
       existing.push(item);
       map.set(key, existing);
