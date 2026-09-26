@@ -12,6 +12,7 @@ import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
+import { cascadeSchedule, type CascadedItem } from "@/lib/work-items/schedule-cascade-io";
 import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
 import { z } from "zod";
 import { Priority, Prisma, WorkCategory } from "@prisma/client";
@@ -32,6 +33,12 @@ const updateItemSchema = z.object({
   sortOrder: z.number().int().optional(),
   dueDate: z.string().datetime().nullable().optional(),
   startDate: z.string().datetime().nullable().optional(),
+  // Interdependent rescheduling (COSMOS-154): the OTHER items this same user
+  // action is writing by hand, each in its own request. Their dates are settled
+  // by those requests, so this one's cascade must neither move them nor reach
+  // past them — otherwise a multi-select Shift, or an undo restoring a whole
+  // cascade, moves shared dependents once per member. Not a stored field.
+  cascadeSkipIds: z.array(z.string().uuid()).max(500).optional(),
   actualStart: z.string().datetime().nullable().optional(),
   completedAt: z.string().datetime().nullable().optional(),
   workCategory: z.nativeEnum(WorkCategory).optional(),
@@ -302,7 +309,36 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         });
       }
 
-      return updated;
+      // INTERDEPENDENT RESCHEDULING (COSMOS-154). A date edit is never about one
+      // item: the epic above it claims a finish date its children no longer meet,
+      // and everything linked downstream is still planned against the old one. So
+      // a save that moves `startDate`/`dueDate` pulls the parent chain out to the
+      // envelope of its children and shifts each downstream successor by the same
+      // slip. Inside this transaction, so a failure leaves NO half-moved plan.
+      let cascaded: CascadedItem[] = [];
+      if ("startDate" in updateData || "dueDate" in updateData) {
+        const beforeDue = existing.dueDate ? new Date(existing.dueDate).getTime() : null;
+        const afterDue = updated.dueDate ? new Date(updated.dueDate).getTime() : null;
+        // Only a SLIP travels downstream — see the planner for why pulling an
+        // item in must not drag its dependents earlier with it.
+        const dueShiftMs = beforeDue !== null && afterDue !== null ? afterDue - beforeDue : 0;
+        cascaded = await cascadeSchedule(tx, {
+          orgId,
+          projectId,
+          itemId,
+          dueShiftMs,
+          userId: ctx.userId,
+          skipIds: data.cascadeSkipIds,
+        });
+      }
+
+      // The echo carries WHAT ELSE MOVED, and where it moved FROM. A cascade is
+      // only reversible if the caller is told its full extent: the slip rule is
+      // one-directional by design, so putting the dragged bar back cascades
+      // nothing and would strand every item this just pushed. The Gantt's Undo
+      // restores this set alongside the bar. Derived, not a column — and not
+      // included in the row the PUT writes.
+      return { ...updated, scheduleCascade: cascaded };
     });
 
     // RAG: re-embed when searchable text changed. Same skip-when-untouched
