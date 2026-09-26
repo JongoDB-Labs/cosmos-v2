@@ -138,7 +138,13 @@ function coerceField(field: ImportField, raw: string): CoercedCell {
 
 // ── Per-row mapping → coerced field bag ──────────────────────────────────────
 
-interface MappedRow {
+/**
+ * A source row after mapping + coercion. Exported so an org-scoped import runs
+ * the SAME coercion as the project-scoped one — two implementations of "what
+ * does this cell mean" would drift, and the drift would show up as one import
+ * reading a date the other rejects.
+ */
+export interface MappedRow {
   rowNum: number;
   /** fieldKey → coerced value (only fields that mapped to a present column). */
   fields: Record<string, unknown>;
@@ -157,7 +163,7 @@ function headerForField(mapping: Record<string, string>): Record<string, string>
   return first;
 }
 
-function mapRows(def: EntityDef, req: EntityImportRequest): MappedRow[] {
+export function mapRows(def: EntityDef, req: EntityImportRequest): MappedRow[] {
   const headerOf = headerForField(req.mapping);
 
   return req.rows.map((row, i) => {
@@ -272,7 +278,7 @@ async function loadExistingIds(
  * code-keyed entities must carry a non-blank code (it anchors idempotency, and
  * we never auto-generate one).
  */
-function codeKeyError(def: EntityDef, fields: Record<string, unknown>): string | null {
+export function codeKeyError(def: EntityDef, fields: Record<string, unknown>): string | null {
   if (def.naturalKey.includes("code")) {
     const code = fields.code;
     if (code === undefined || code === null || code === "") {
