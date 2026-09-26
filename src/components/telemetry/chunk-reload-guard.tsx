@@ -2,6 +2,8 @@
 
 import { useEffect } from "react";
 
+import { isChunkLoadError } from "@/lib/telemetry/ignore-error";
+
 /**
  * Recovers from stale-chunk errors after a deploy.
  *
@@ -18,9 +20,6 @@ import { useEffect } from "react";
 
 const RELOAD_FLAG = "cosmos:chunk-reloaded";
 
-const CHUNK_ERROR =
-  /ChunkLoadError|Loading chunk [\w./-]+ failed|Failed to load chunk|error loading dynamically imported module|Importing a module script failed|Failed to fetch dynamically imported module/i;
-
 export function ChunkReloadGuard() {
   useEffect(() => {
     // If we recovered earlier and the app has now been stable, clear the flag
@@ -34,7 +33,7 @@ export function ChunkReloadGuard() {
     }, 10_000);
 
     function recover(message: string | undefined) {
-      if (!message || !CHUNK_ERROR.test(message)) return;
+      if (!isChunkLoadError(message)) return;
       try {
         if (sessionStorage.getItem(RELOAD_FLAG)) return; // already tried this interval
         sessionStorage.setItem(RELOAD_FLAG, "1");

@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.378.7",
+    date: "2026-09-26",
+    title: "A crypto-wallet extension can no longer make it look like Cosmos crashed",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If you have a browser wallet extension such as MetaMask installed, it injects its own code into every page you open — including Cosmos. When that extension failed to reconnect to your wallet in the background, the failure landed on Cosmos as though the app itself had broken: you got the \"Something went wrong\" prompt, and reporting it filed a bug against a product that has no wallet feature and never asked for your wallet. Errors coming from a browser extension are now recognised as not ours and ignored, so the prompt no longer appears and nothing you were doing is interrupted. Real Cosmos errors still prompt exactly as before.",
+      },
+      {
+        kind: "improvement",
+        text: "Decided automatically without waiting for an answer: the failure is treated as \"not connected\" and swallowed rather than retried or shown to you. Cosmos has no wallet integration to reconnect to, so there is nothing for it to retry and nothing for you to act on. Reply on the ticket if you would rather it behaved differently.",
+      },
+    ],
+  },
+  {
     version: "2.378.5",
     date: "2026-09-25",
     title: "Answering one of Foreman's questions no longer looks like answering all of them",
