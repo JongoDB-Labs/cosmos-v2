@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.379.0",
+    date: "2026-09-26",
+    title: "Filtering the Timeline by team no longer loses the plan's structure",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Filtering the Timeline/Gantt by team — or by anyone, or anything else — used to take the epic away with it. Nobody is assigned to an epic, so it never matched a team, and its stories were re-drawn at the top level with nothing above them: the filter answered “whose work is this” by throwing away “what is it part of”. A parent that still holds something you filtered to now stays on the chart, so narrowing to one team shows that team's work where it actually sits in the plan. Every other board already behaved this way; the Timeline was the one that did not, because it is the only one that draws a hierarchy.",
+      },
+      {
+        kind: "improvement",
+        text: "An epic with nothing left under it after filtering is still hidden, so this does not quietly widen what a filter shows. Assumed, and worth saying because nobody answered the question: non-matching rows are HIDDEN rather than dimmed or greyed out, matching the list views. If you would rather keep every row on screen and fade the ones that do not match, say so on the ticket and it can be changed.",
+      },
+    ],
+  },
+  {
     version: "2.378.5",
     date: "2026-09-25",
     title: "Answering one of Foreman's questions no longer looks like answering all of them",

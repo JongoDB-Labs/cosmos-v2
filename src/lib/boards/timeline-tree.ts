@@ -39,6 +39,43 @@ const startMs = (n: TimelineTreeNode): number =>
   new Date(n.startDate ?? n.createdAt).getTime();
 
 /**
+ * Widen a kept set to include the ANCESTOR CHAIN of everything in it.
+ *
+ * This is what narrowing a hierarchy means, and it is the same rule the list
+ * views apply: a row that does not match is hidden, but a parent still holding
+ * a match is STRUCTURE rather than a match of its own — a grouped table shows
+ * the group header for every group that still has a row in it, and a Gantt's
+ * indentation is the only thing saying which epic a story belongs to. Drop the
+ * epic and its story re-roots to depth 0, so filtering to one team quietly
+ * rewrites the plan's shape as well as its contents.
+ *
+ * Ancestors are resolved only among `items`, so a chain that leaves the given
+ * set simply stops — `buildTimelineTree` then surfaces that row as a root, as
+ * it already does for a child whose parent was never in view at all.
+ *
+ * Order is `items`' own; membership is the only thing this changes.
+ */
+export function withAncestors<T extends TimelineTreeNode>(
+  items: T[],
+  keptIds: ReadonlySet<string>,
+): T[] {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const keep = new Set<string>();
+  for (const it of items) {
+    if (!keptIds.has(it.id)) continue;
+    keep.add(it.id);
+    let pid = it.parentId;
+    // `!keep.has(pid)` is both the already-walked short-circuit and the cycle
+    // guard: anything in `keep` already had its own chain walked.
+    while (pid && byId.has(pid) && !keep.has(pid)) {
+      keep.add(pid);
+      pid = byId.get(pid)!.parentId;
+    }
+  }
+  return items.filter((it) => keep.has(it.id));
+}
+
+/**
  * Build the depth-first row list for the timeline. A child whose parent is not
  * in `items` surfaces as a root, so a filter can never silently hide it.
  * `collapsedIds` members keep their own row but their subtree is omitted.

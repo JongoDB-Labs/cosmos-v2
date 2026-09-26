@@ -61,7 +61,7 @@ import type { NewIssueContext } from "@/lib/boards/new-issue-context";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { cn } from "@/lib/utils";
-import { buildTimelineTree } from "@/lib/boards/timeline-tree";
+import { buildTimelineTree, withAncestors } from "@/lib/boards/timeline-tree";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { slipDays } from "@/lib/schedule/health";
 import type { WorkItem, OrgMember, Interval, Board, BoardColumn, CustomField } from "@/types/models";
@@ -535,26 +535,45 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     [projectStatuses, columns],
   );
 
-  const filteredItems = useMemo(
+  // Hide-done lens. Finished work still occupies rows, and on a long-running
+  // plan it crowds out what is actually in play. Applied BEFORE the filters and
+  // kept separate from them, because it is a lens rather than a filter: a done
+  // parent must stay gone even when a child of it survives the filter, so it is
+  // not a candidate for the ancestor rule below.
+  const lensItems = useMemo(
     () =>
-      items.filter(
-        (it) =>
+      hideDone
+        ? items.filter((it) => !(it.columnKey != null && doneKeys.has(it.columnKey)))
+        : items,
+    [items, hideDone, doneKeys],
+  );
+
+  // What the FilterBar leaves on the board. Non-matching rows are HIDDEN — the
+  // same answer the list views give — but a parent that still holds a match is
+  // kept for structure, so narrowing to one team never re-roots that team's
+  // stories away from the epic they belong to. `withAncestors` is the rule the
+  // Dependencies lens below already used; it is now shared rather than copied.
+  const filteredItems = useMemo(() => {
+    const matched = new Set(
+      lensItems
+        .filter((it) =>
           matchesFilters(it, filters, projectCustomFields, teamsByUserId, filterNow, {
             blocked: blockedIds,
             milestones: milestoneMap,
-          }) &&
-          // Hide-done lens. Finished work still occupies rows, and on a
-          // long-running plan it crowds out what is actually in play.
-          !(hideDone && it.columnKey != null && doneKeys.has(it.columnKey)),
-      ),
-    [items, filters, projectCustomFields, teamsByUserId, filterNow, blockedIds, milestoneMap, hideDone, doneKeys],
-  );
+          }),
+        )
+        .map((it) => it.id),
+    );
+    return withAncestors(lensItems, matched);
+  }, [lensItems, filters, projectCustomFields, teamsByUserId, filterNow, blockedIds, milestoneMap]);
   // ── Hierarchy rows (FR f396a6a9) ─────────────────────────────────────────
   // Depth-first parent→children row order with per-parent collapse. Collapsing a
   // parent hides its whole subtree (rows, bars, and arrows all key off the row
-  // list). A child whose parent is filtered out surfaces as a root so a filter
-  // can never hide items silently. Ordering (roots by start date, sub-items by
-  // their manual sortOrder — FR COSMOS-5) lives in `buildTimelineTree`.
+  // list). A filter no longer strands a match at depth 0 — `withAncestors`
+  // above keeps its parents — so surfacing a parentless child as a root is now
+  // only about data whose parent was never in view. Ordering (roots by start
+  // date, sub-items by their manual sortOrder — FR COSMOS-5) lives in
+  // `buildTimelineTree`.
   //
   // The collapse state is seeded from (and written back to) sessionStorage keyed
   // by board, so it persists across navigating away and back within the session
@@ -597,21 +616,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // behave exactly as when the lens is off — no more flat, depth-0 list.
   const depsTree = useMemo(() => {
     if (!showDeps) return { treeRows: [], parentIds: new Set<string>() };
-    const byId = new Map(filteredItems.map((i) => [i.id, i]));
-    const keep = new Set<string>();
-    for (const it of filteredItems) {
-      if (!linkedIds.has(it.id)) continue;
-      keep.add(it.id);
-      let pid = it.parentId;
-      while (pid && byId.has(pid) && !keep.has(pid)) {
-        keep.add(pid);
-        pid = byId.get(pid)!.parentId;
-      }
-    }
-    return buildTimelineTree(
-      filteredItems.filter((it) => keep.has(it.id)),
-      collapsedIds,
-    );
+    return buildTimelineTree(withAncestors(filteredItems, linkedIds), collapsedIds);
   }, [showDeps, filteredItems, linkedIds, collapsedIds]);
 
   const { treeRows, parentIds } = showDeps ? depsTree : fullTree;
