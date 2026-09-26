@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.381.0",
+    date: "2026-09-26",
+    title: "An Import screen for the whole organisation",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Settings now has an Import screen for bringing in an export that spans every project at once, rather than importing one project at a time. Upload the file, check the columns it matched, see exactly what would be created or changed, and only then commit it.",
+      },
+    ],
+  },
+  {
     version: "2.380.0",
     date: "2026-09-26",
     title: "Import a whole organisation's worth of records in one go",

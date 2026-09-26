@@ -52,13 +52,27 @@ interface MemberOpt { id: string; name: string; email: string }
 
 interface WizardProps {
   orgId: string;
-  projectId: string;
   orgSlug: string;
-  projectKey: string;
-  columns: ColumnOpt[];
-  types: TypeOpt[];
-  members: MemberOpt[];
-  defaults: { columnKey: string; workItemTypeId: string };
+  /**
+   * The project being imported into, when there is one.
+   *
+   * Absent for an ORG-WIDE import: an export from another system carries every
+   * project at once and may name projects this org has never heard of, so
+   * there is no single project to be "in". Everything that only makes sense
+   * inside a project — the work-item flow and its columns, types and members —
+   * is hidden in that mode rather than shown broken.
+   */
+  projectId?: string;
+  projectKey?: string;
+  columns?: ColumnOpt[];
+  types?: TypeOpt[];
+  members?: MemberOpt[];
+  defaults?: { columnKey: string; workItemTypeId: string };
+  /**
+   * Which record types to offer. Supplied by the page, because only the server
+   * knows which plugins this org has switched on; defaults to core's own.
+   */
+  entities?: EntityDef[];
 }
 
 /** "work-item" is the sentinel for the existing dedicated flow. */
@@ -77,11 +91,21 @@ export function ImportWizard(props: WizardProps) {
 
   // ── Step 1: entity picker ──
   if (selected === null) {
-    return <EntityPicker onPick={setSelected} />;
+    return (
+      <EntityPicker
+        onPick={setSelected}
+        entities={props.entities ?? ENTITY_DEFS}
+        withWorkItems={Boolean(props.projectId)}
+      />
+    );
   }
 
   // ── Work Items → the EXISTING flow, untouched ──
-  if (selected === "work-item") {
+  //
+  // Only reachable with a project: the picker does not offer the card without
+  // one. The guard is what tells the compiler that, and it keeps the existing
+  // flow's props required rather than loosening them for a mode it never runs in.
+  if (selected === "work-item" && props.projectId && props.projectKey && props.columns && props.types && props.members && props.defaults) {
     return (
       <div className="space-y-4">
         <BackToPicker onBack={() => setSelected(null)} label="Work Items" />
@@ -102,7 +126,13 @@ export function ImportWizard(props: WizardProps) {
   // ── Any registry entity → the generic flow ──
   const def = getEntityDef(selected);
   if (!def) {
-    return <EntityPicker onPick={setSelected} />;
+    return (
+      <EntityPicker
+        onPick={setSelected}
+        entities={props.entities ?? ENTITY_DEFS}
+        withWorkItems={Boolean(props.projectId)}
+      />
+    );
   }
   return (
     <div className="space-y-4">
@@ -131,15 +161,28 @@ function BackToPicker({ onBack, label }: { onBack: () => void; label: string }) 
   );
 }
 
-function EntityPicker({ onPick }: { onPick: (k: Selected) => void }) {
+function EntityPicker({
+  onPick,
+  entities,
+  withWorkItems,
+}: {
+  onPick: (k: Selected) => void;
+  entities: EntityDef[];
+  withWorkItems: boolean;
+}) {
   const cards: { key: Selected; label: string; icon: string; blurb: string }[] = [
-    {
-      key: "work-item",
-      label: "Work Items",
-      icon: "ListChecks",
-      blurb: "Issues / tasks / epics from a Jira, Linear, or CSV export — with status + assignee mapping.",
-    },
-    ...ENTITY_DEFS.map((e) => ({ key: e.key, label: e.label, icon: e.icon, blurb: e.blurb })),
+    // Work items import into a project; there is no such thing org-wide.
+    ...(withWorkItems
+      ? [
+          {
+            key: "work-item" as Selected,
+            label: "Work Items",
+            icon: "ListChecks",
+            blurb: "Issues / tasks / epics from a Jira, Linear, or CSV export — with status + assignee mapping.",
+          },
+        ]
+      : []),
+    ...entities.map((e) => ({ key: e.key as Selected, label: e.label, icon: e.icon, blurb: e.blurb })),
   ];
 
   return (
@@ -186,9 +229,10 @@ function GenericImportFlow({
 }: {
   def: EntityDef;
   orgId: string;
-  projectId: string;
   orgSlug: string;
-  projectKey: string;
+  /** Absent for an org-wide import — see WizardProps. */
+  projectId?: string;
+  projectKey?: string;
 }) {
   const router = useRouter();
   const [step, setStep] = useState<GStep>("upload");
@@ -317,8 +361,13 @@ function GenericImportFlow({
     if (!parsed) return;
     setBusy(true);
     try {
+      // Two doors, same contract. An org-wide entity has no project to import
+      // into, and the org route is the one that can create them.
+      const endpoint = projectId
+        ? `/api/v1/orgs/${orgId}/projects/${projectId}/import`
+        : `/api/v1/orgs/${orgId}/import/entities`;
       const res = await fetch(
-        `/api/v1/orgs/${orgId}/projects/${projectId}/import`,
+        endpoint,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -353,8 +402,14 @@ function GenericImportFlow({
           {committed.skipped ? `, skipped ${committed.skipped}` : ""}.
         </p>
         <div className="mt-5 flex justify-center gap-2">
-          <Button onClick={() => router.push(`/${orgSlug}/projects/${projectKey}`)}>
-            Go to project
+          {/* An org-wide import has no single project to return to — it may
+              have touched twenty — so it offers the org instead. */}
+          <Button
+            onClick={() =>
+              router.push(projectKey ? `/${orgSlug}/projects/${projectKey}` : `/${orgSlug}`)
+            }
+          >
+            {projectKey ? "Go to project" : "Done"}
           </Button>
           <Button
             variant="outline"
