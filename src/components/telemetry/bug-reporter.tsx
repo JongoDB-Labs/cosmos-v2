@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { toast } from "sonner";
 import { usePermissions } from "@/components/providers/permissions-provider";
 import { initBreadcrumbs, getBreadcrumbs } from "@/lib/telemetry/breadcrumbs";
+import { isReportableClientError } from "@/lib/telemetry/ignore-error";
 
 /**
  * Turns an UNCAUGHT client error (window error / unhandledrejection) into a
@@ -14,11 +15,9 @@ import { initBreadcrumbs, getBreadcrumbs } from "@/lib/telemetry/breadcrumbs";
  * that files a deduped BUG FeedbackItem via /feedback/report-bug.
  *
  * Mounted inside the dashboard's PermissionsProvider so it has the current
- * org id. Chunk-load errors are excluded — ChunkReloadGuard recovers those.
+ * org id. Chunk-load errors and browser-extension errors are excluded — see
+ * `isReportableClientError`.
  */
-
-const CHUNK_ERROR =
-  /ChunkLoadError|Loading chunk [\w./-]+ failed|Failed to load chunk|error loading dynamically imported module|Importing a module script failed|Failed to fetch dynamically imported module/i;
 
 // Module-level so a given error signature is offered at most once per page load
 // (survives re-subscribes when the active org changes).
@@ -29,7 +28,7 @@ export function BugReporter() {
 
   useEffect(() => {
     function offer(message: string | undefined, stack?: string) {
-      if (!message || CHUNK_ERROR.test(message)) return;
+      if (!isReportableClientError(message, stack)) return;
       const sig = message.split("\n")[0].slice(0, 160);
       if (offered.has(sig)) return;
       offered.add(sig);
