@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.382.2",
+    date: "2026-09-26",
+    title: "A change that passes every check can now actually ship",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Foreman completed a change that passed every check it has \u2014 types, linting, unit tests, a proof that the new test fails before the fix and passes after it, and a full browser-test comparison against the current release \u2014 and was cleared to merge on its own for the first time. It then could not, because the version-bump step leaves two files in a state the merge step refuses to work from. The change was kept and handed over for a person to merge instead, so nothing was lost, but the point of clearing every check is that no person has to. Those two files are now put back before the merge is attempted.",
+      },
+    ],
+  },
+  {
     version: "2.382.1",
     date: "2026-09-26",
     title: "Foreman no longer decides how your data is shaped",
