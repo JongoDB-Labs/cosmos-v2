@@ -68,7 +68,7 @@ function pushInto(map: Map<string, string[]>, key: string, value: string): void 
 }
 
 /**
- * Plan the cascade for a save on `originId`.
+ * Plan the cascade for a save on `origin.id`.
  *
  * `items` must already carry the origin's NEW dates — the planner reads the
  * post-save world and never rewrites the origin itself, so what the user
@@ -77,14 +77,26 @@ function pushInto(map: Map<string, string[]>, key: string, value: string): void 
  * `dueShiftMs` is how far the origin's finish moved LATER (0 or negative when it
  * did not slip). Returns one update per affected item; an empty array means
  * nothing else has to move.
+ *
+ * `origin.skipIds` names the OTHER items the same user action is writing by
+ * hand — a multi-select Shift on the Gantt, or an undo restoring a whole
+ * cascade. Each of those arrives as its own request, so without this every
+ * member's cascade would move every other member's dependents a second time:
+ * select both ends of `A → B → C`, shift by five days, and C gets ten, because
+ * A's cascade pushes it and then B's cascade pushes it again. They are treated
+ * as already-settled — never moved, and never propagated THROUGH, since an item
+ * whose own request is setting its dates will run its own cascade from them.
+ * That makes the batch order-independent, which matters because the requests go
+ * out in parallel.
  */
 export function planScheduleCascade(
   items: CascadeItem[],
   links: CascadeLink[],
-  origin: { id: string; dueShiftMs: number },
+  origin: { id: string; dueShiftMs: number; skipIds?: readonly string[] },
 ): CascadeUpdate[] {
   const byId = new Map<string, CascadeItem>(items.map((i) => [i.id, { ...i }]));
   if (!byId.has(origin.id)) return [];
+  const skip = new Set(origin.skipIds ?? []);
 
   // from → [to]: `to` depends on `from`, so `to` is downstream of it.
   const successors = new Map<string, string[]>();
@@ -101,7 +113,9 @@ export function planScheduleCascade(
   // The origin is seeded as already-shifted: it is the thing the user saved, so
   // no rule may move it again — and seeding it is also what stops a dependency
   // cycle (legacy links can contain one) from walking forever.
-  const shifted = new Set<string>([origin.id]);
+  // Batch siblings join the origin here: seeded as settled, so the worklist can
+  // neither move them nor reach past them.
+  const shifted = new Set<string>([origin.id, ...skip]);
   const queue: Array<{ id: string; dueShiftMs: number }> = [
     { id: origin.id, dueShiftMs: origin.dueShiftMs },
   ];
@@ -139,8 +153,10 @@ export function planScheduleCascade(
     const parentId = node.parentId;
     if (!parentId) continue;
     const parent = byId.get(parentId);
-    // Never re-derive the origin or an item the user's own save is anchored on.
-    if (!parent || parentId === origin.id) continue;
+    // Never re-derive the origin, nor a parent whose own request in this batch
+    // is setting its dates — an undo restoring a parent alongside its child
+    // must not have the child's cascade widen it straight back out.
+    if (!parent || parentId === origin.id || skip.has(parentId)) continue;
 
     let startDate = parent.startDate;
     let dueDate = parent.dueDate;

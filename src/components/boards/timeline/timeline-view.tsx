@@ -100,6 +100,24 @@ interface TimelineViewProps {
   boardId: string;
 }
 
+/** A date range as the work-item PUT takes it, and as the cascade reports it. */
+interface DateRange {
+  startDate: string | null;
+  dueDate: string | null;
+}
+
+/** One item a single user action moved, and where it moved from. */
+interface ItemDateSnapshot {
+  id: string;
+  before: DateRange;
+  after: DateRange;
+}
+
+/** What the work-item PUT echoes back about the items IT moved (COSMOS-154). */
+interface ScheduleCascadeEcho {
+  scheduleCascade?: ItemDateSnapshot[];
+}
+
 /** A work-item dependency link as returned by the work-item-links endpoint. */
 interface WorkItemLink {
   id: string;
@@ -705,12 +723,17 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const justDraggedRef = useRef(false);
 
   // Undo/redo for drag reschedules (the Gantt's mutating action). Each edit stores
-  // the item's full before/after date range so undo/redo just re-commits a snapshot.
-  type ScheduleEdit = {
-    id: string;
-    before: { startDate: string; dueDate: string };
-    after: { startDate: string; dueDate: string };
-  };
+  // the full before/after date range of EVERY item the action moved, so undo/redo
+  // just re-commits a snapshot.
+  //
+  // "Every item" is the load-bearing word since COSMOS-154. A drag now cascades
+  // on the server — parents widen, downstream successors shift — and the rule
+  // that does it is deliberately one-directional: only a slip travels downstream,
+  // and a parent expands but never shrinks. So putting the dragged bar back
+  // cascades NOTHING, and an undo that knew only about that bar would leave every
+  // item it pushed stranded at its slipped dates, permanently. The server reports
+  // what it moved (`scheduleCascade`); the snapshot below is the whole set.
+  type ScheduleEdit = { items: ItemDateSnapshot[] };
   const [undoStack, setUndoStack] = useState<ScheduleEdit[]>([]);
   const [redoStack, setRedoStack] = useState<ScheduleEdit[]>([]);
   const loading = itemsQ.isLoading || membersQ.isLoading;
@@ -947,26 +970,73 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     setDragPreview(null);
   }, []);
 
-  // Persist a date snapshot (optimistic cache write + PUT). Shared by drag commit
-  // and undo/redo so they behave identically.
-  const commitDates = useCallback(
-    (id: string, body: { startDate: string; dueDate: string }) => {
+  // Persist the date snapshots ONE user action produced (optimistic cache write,
+  // then a PUT each). Shared by drag commit, bulk Shift and undo/redo so they
+  // behave identically. Returns what the server cascaded BEYOND the targets.
+  //
+  // Sequential, and each request declares everything this action has already
+  // settled — its sibling targets, plus every item an earlier request in the
+  // same action cascaded. Both halves are needed, because each PUT cascades a
+  // RELATIVE shift and cannot see the others:
+  //
+  //   - siblings: select both ends of A → B → C and Shift. Without the skip list
+  //     A's cascade pushes B and then C, and B's own PUT — which read its dates
+  //     before any of this landed — pushes C again. C moves twice.
+  //   - already-cascaded: A → C and B → C, both selected. A's cascade moves C;
+  //     naming C in B's skip list is the only thing that stops B moving it again.
+  //     That is also why these go out in series rather than through
+  //     Promise.allSettled: the second request has to know what the first did.
+  //
+  // The cost is a request chain rather than a fan-out. A wrong plan is worse
+  // than a slow one, and "how far did that item move?" had no stable answer at
+  // all while these raced.
+  const commitSchedule = useCallback(
+    async (targets: Array<{ id: string; dates: DateRange }>): Promise<ItemDateSnapshot[]> => {
+      if (targets.length === 0) return [];
       qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
-        prev?.map((it) => (it.id === id ? { ...it, ...body } : it)),
+        prev?.map((it) => {
+          const t = targets.find((x) => x.id === it.id);
+          return t ? { ...it, ...t.dates } : it;
+        }),
       );
-      void (async () => {
+
+      const settled = new Set(targets.map((t) => t.id));
+      const cascaded: ItemDateSnapshot[] = [];
+      let failed = 0;
+      for (const t of targets) {
         try {
-          await jsonFetch(`${basePath}/work-items/${id}`, {
+          const echo = await jsonFetch<ScheduleCascadeEcho>(`${basePath}/work-items/${t.id}`, {
             method: "PUT",
-            body: JSON.stringify(body),
+            body: JSON.stringify({
+              ...t.dates,
+              cascadeSkipIds: [...settled].filter((id) => id !== t.id),
+            }),
           });
-          toast.success("Schedule updated");
-          qc.invalidateQueries({ queryKey: itemsKey });
+          for (const moved of echo?.scheduleCascade ?? []) {
+            if (settled.has(moved.id)) continue;
+            settled.add(moved.id);
+            cascaded.push(moved);
+          }
         } catch (err) {
-          notifyError(err, "Couldn't reschedule the item.");
-          qc.invalidateQueries({ queryKey: itemsKey });
+          failed++;
+          if (targets.length === 1) notifyError(err, "Couldn't reschedule the item.");
         }
-      })();
+      }
+
+      if (failed > 0 && targets.length > 1) {
+        notifyError(
+          new Error("Some items couldn't be rescheduled"),
+          `${failed} of ${targets.length} failed`,
+        );
+      } else if (failed === 0) {
+        toast.success(
+          targets.length === 1
+            ? "Schedule updated"
+            : `Rescheduled ${targets.length} item${targets.length === 1 ? "" : "s"}`,
+        );
+      }
+      qc.invalidateQueries({ queryKey: itemsKey });
+      return cascaded;
     },
     [qc, itemsKey, basePath],
   );
@@ -1004,27 +1074,37 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         startDate: newStart.toISOString(),
         dueDate: newEnd.toISOString(),
       };
-      setUndoStack((prev) => [...prev, { id: d.id, before, after }]);
       setRedoStack([]);
-      commitDates(d.id, after);
+      // The undo entry is completed by the RESPONSE, not by the gesture: what
+      // else moved is the server's answer, and an entry written before it lands
+      // would undo the drag while leaving the cascade in place. Undo therefore
+      // arms a moment after the drop, which is also honest — there is nothing to
+      // take back until the save has happened.
+      void (async () => {
+        const cascaded = await commitSchedule([{ id: d.id, dates: after }]);
+        setUndoStack((prev) => [...prev, { items: [{ id: d.id, before, after }, ...cascaded] }]);
+      })();
     },
-    [dayWidth, commitDates],
+    [dayWidth, commitSchedule],
   );
 
+  // Undo/redo restore the WHOLE snapshot — the bar plus everything its cascade
+  // moved — in one action, so each request skips the others and nothing is
+  // cascaded a second time on the way back.
   const undo = useCallback(() => {
     if (undoStack.length === 0) return;
     const op = undoStack[undoStack.length - 1];
-    commitDates(op.id, op.before);
+    void commitSchedule(op.items.map((i) => ({ id: i.id, dates: i.before })));
     setUndoStack((s) => s.slice(0, -1));
     setRedoStack((r) => [...r, op]);
-  }, [undoStack, commitDates]);
+  }, [undoStack, commitSchedule]);
   const redo = useCallback(() => {
     if (redoStack.length === 0) return;
     const op = redoStack[redoStack.length - 1];
-    commitDates(op.id, op.after);
+    void commitSchedule(op.items.map((i) => ({ id: i.id, dates: i.after })));
     setRedoStack((s) => s.slice(0, -1));
     setUndoStack((u) => [...u, op]);
-  }, [redoStack, commitDates]);
+  }, [redoStack, commitSchedule]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
@@ -1314,41 +1394,26 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     ) => {
       if (!canEdit || busy || targets.length === 0) return;
       setBusy(true);
-      const updates = targets.map((it) => {
-        const next = compute(itemSpan(it));
-        return {
-          id: it.id,
-          startDate: next.start.toISOString(),
-          dueDate: next.end.toISOString(),
-        };
-      });
-      qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
-        prev?.map((it) => {
-          const u = updates.find((x) => x.id === it.id);
-          return u ? { ...it, startDate: u.startDate, dueDate: u.dueDate } : it;
+      // Through the SAME commit path a drag and an undo use. It used to fan the
+      // PUTs out with Promise.allSettled, which was free while a date edit
+      // touched one row; now that each one cascades, two selected items sharing
+      // a dependent moved it once EACH, by an amount that depended on which
+      // request happened to land first.
+      await commitSchedule(
+        targets.map((it) => {
+          const next = compute(itemSpan(it));
+          return {
+            id: it.id,
+            dates: {
+              startDate: next.start.toISOString(),
+              dueDate: next.end.toISOString(),
+            },
+          };
         }),
       );
-      const results = await Promise.allSettled(
-        updates.map((u) =>
-          jsonFetch(`${basePath}/work-items/${u.id}`, {
-            method: "PUT",
-            body: JSON.stringify({ startDate: u.startDate, dueDate: u.dueDate }),
-          }),
-        ),
-      );
-      const failed = results.filter((r) => r.status === "rejected").length;
-      if (failed > 0) {
-        notifyError(
-          new Error("Some items couldn't be rescheduled"),
-          `${failed} of ${updates.length} failed`,
-        );
-      } else {
-        toast.success(`Rescheduled ${updates.length} item${updates.length === 1 ? "" : "s"}`);
-      }
-      qc.invalidateQueries({ queryKey: itemsKey });
       setBusy(false);
     },
-    [canEdit, busy, qc, itemsKey, basePath],
+    [canEdit, busy, commitSchedule],
   );
 
   const shiftDays = (days: number) =>
