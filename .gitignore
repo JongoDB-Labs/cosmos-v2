@@ -92,3 +92,9 @@ prisma/seed/real/
 
 # private plugin repos, composed at build time by scripts/plugins/sync.mjs
 /plugins/
+
+# Local-only working directories. Real exports and one-off scripts get dropped
+# here while working against a live database; this repo is public, so they must
+# never become committable by an absent-minded `git add -A`.
+/scratch/
+/mono-fixtures/

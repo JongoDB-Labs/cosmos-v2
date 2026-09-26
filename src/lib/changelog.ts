@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.382.0",
+    date: "2026-09-26",
+    title: "Record types added by a plugin can now actually be picked",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On the Import screen, choosing a record type contributed by one of your plugins did nothing — the card was there and clickable, but the screen simply returned to the list of choices. Those imports are now reachable, which is what makes them usable at all.",
+      },
+    ],
+  },
+  {
     version: "2.381.0",
     date: "2026-09-26",
     title: "An Import screen for the whole organisation",
