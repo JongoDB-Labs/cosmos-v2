@@ -753,6 +753,14 @@ model Project {
   /// speculative work legitimately has no client, and a project must not be
   /// blocked from existing before one is chosen.
   clientId            String?       @map("client_id") @db.Uuid
+  /// This project's id in the system it was imported FROM — a Monograph project
+  /// number, a JIRA key, an ERP code. Null for anything created here.
+  ///
+  /// The key every RE-import matches on. Names get edited and project keys get
+  /// reused, but the source system's own id stays put, so next week's export
+  /// updates these rows instead of forking a second copy of every project.
+  /// Same shape as RoadmapNode.externalRef.
+  externalRef         String?       @map("external_ref")
   krLinkTypeId        String?       @map("kr_link_type_id") @db.Uuid
   // Objectives ladder to other objectives by default (Objective.parentId), so
   // NULL here means objective→objective. Set it to offer objective→work-item
@@ -787,6 +795,9 @@ model Project {
   // @plugin-backrel:Project
 
   @@unique([orgId, key])
+  /// Unique per org, so a re-import can never fork one source record into two.
+  /// NULLs are distinct in Postgres, so hand-created projects coexist freely.
+  @@unique([orgId, externalRef])
   @@index([orgId, status])
   @@map("projects")
 }
