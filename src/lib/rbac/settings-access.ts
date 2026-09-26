@@ -9,6 +9,7 @@ import {
   LayoutGrid,
   ListFilter,
   PanelsTopLeft,
+  Upload,
   Puzzle,
   ScrollText,
   Server,
@@ -56,6 +57,7 @@ export const SETTINGS_ACCESS: Record<string, SettingsAccess> = {
   "/settings/classifications": { view: Permission.CLASSIFICATION_READ, manage: Permission.CLASSIFICATION_MANAGE },
   "/settings/compliance": { view: Permission.COMPLIANCE_READ, manage: Permission.COMPLIANCE_MANAGE },
   "/settings/navigation": { view: Permission.ORG_UPDATE },
+  "/settings/import": { view: Permission.ORG_IMPORT },
   "/settings/security": { view: Permission.SECURITY_MANAGE },
   "/settings/audit-logs": { view: Permission.AUDIT_LOG_READ },
 };
@@ -88,6 +90,7 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
     { icon: Building2, label: "Organization", href: "/settings/organization" },
     { icon: UserCog, label: "Roles & Access", href: "/settings/roles" },
     { icon: PanelsTopLeft, label: "Navigation", href: "/settings/navigation" },
+    { icon: Upload, label: "Import", href: "/settings/import" },
   ]},
   { label: "AI & Integrations", items: [
     { icon: Sparkles, label: "AI / Model", href: "/settings/ai" },
