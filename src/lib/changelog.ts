@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.380.0",
+    date: "2026-09-26",
+    title: "Import a whole organisation's worth of records in one go",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An export from another system can now be imported across the whole organisation rather than one project at a time, creating any projects it names that do not exist yet. Checking the file reports exactly what it would create and change, and writes nothing until you say so.",
+      },
+    ],
+  },
+  {
     version: "2.379.1",
     date: "2026-09-26",
     title: "A Claude connection that had quietly expired can now repair itself",
