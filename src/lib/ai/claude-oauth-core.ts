@@ -341,6 +341,30 @@ export async function refreshClaudeTokenCore(
 /* -------------------------------------------------------------------------- */
 
 /**
+ * Is this row's access token due for a refresh?
+ *
+ * The distinction that matters is `null` vs `a recorded expiry that has passed`,
+ * and those are OPPOSITE answers: no expiry was ever recorded (a long-lived
+ * session token) must SKIP the refresh, while a recorded expiry in the past must
+ * TAKE it. The previous form collapsed both onto a number —
+ * `row.expiresAt ? getTime() : 0`, then `expiresAtMs > 0` — which made
+ * `new Date(0)` indistinguishable from "never expires", because
+ * `new Date(0).getTime()` IS `0`.
+ *
+ * That cost a night of delivery. A rotated credential was persisted with an
+ * epoch-zero expiry; the UI rendered it as "Connected — Authorization valid
+ * until Dec 31, 1969"; and this predicate then refused to refresh it, disabling
+ * the one mechanism that could have healed the row. Every claim failed for 35
+ * minutes and only a manual reconnect recovered it. Keeping absence in the type
+ * (`!= null`) instead of smuggling it into the value range is what prevents a
+ * repeat: an expiry in the past — epoch or otherwise — now refreshes.
+ */
+function needsRefresh(expiresAt: Date | null | undefined, now = Date.now()): boolean {
+  if (expiresAt == null) return false;
+  return now > expiresAt.getTime() - REFRESH_SKEW_MS;
+}
+
+/**
  * Return a usable Claude OAuth bearer token from the store, auto-refreshing
  * when within 5 minutes of expiry. Returns null when there's no connection or
  * the token can't be unsealed/refreshed. THIS is what the egress layer calls
@@ -352,10 +376,10 @@ export async function getClaudeTokenCore(
   const row = await store.read();
   if (!row || row.access == null) return null;
 
-  // Refresh when within the skew window (or already expired). Tokens with no
-  // recorded expiry (e.g. long-lived session tokens) skip the refresh path.
-  const expiresAtMs = row.expiresAt ? row.expiresAt.getTime() : 0;
-  if (expiresAtMs > 0 && Date.now() > expiresAtMs - REFRESH_SKEW_MS) {
+  // Refresh when within the skew window or already expired; a row with no
+  // recorded expiry skips it. See needsRefresh for why this is `!= null` and
+  // not a `> 0` test on a coerced number.
+  if (needsRefresh(row.expiresAt)) {
     const refreshed = await refreshClaudeTokenCore(store);
     if (refreshed) return refreshed;
   }
@@ -379,8 +403,7 @@ export async function getClaudeCredsCore(
   let row = await store.read();
   if (!row || row.access == null) return null;
 
-  const expiresAtMs = row.expiresAt ? row.expiresAt.getTime() : 0;
-  if (expiresAtMs > 0 && Date.now() > expiresAtMs - REFRESH_SKEW_MS) {
+  if (needsRefresh(row.expiresAt)) {
     const refreshed = await refreshClaudeTokenCore(store);
     if (refreshed) row = (await store.read()) ?? row;
   }
