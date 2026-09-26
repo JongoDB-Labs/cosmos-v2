@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.379.0",
+    date: "2026-09-26",
+    title: "Import data from another system, across the whole organisation",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A project can now record the id it carries in whatever system it was imported from. That id is what a repeated import matches on, so re-importing next week's export updates the same projects instead of creating a second copy of each one.",
+      },
+      {
+        kind: "improvement",
+        text: "Plugins can add their own importable record types to the import wizard, so an export from a tool a particular practice uses can be brought in through the same upload-and-map screen as everything else. Only plugins the organisation has switched on can offer them.",
+      },
+    ],
+  },
+  {
     version: "2.378.5",
     date: "2026-09-25",
     title: "Answering one of Foreman's questions no longer looks like answering all of them",

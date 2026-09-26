@@ -51,6 +51,22 @@ export interface EntityDef {
   fields: ImportField[];
   /** The field key(s) that anchor idempotency (create-or-skip). */
   naturalKey: string[];
+  /**
+   * What the import is scoped to.
+   *
+   * "project" (the default, and what every entity here has always been) imports
+   * INTO one project the user has already opened. "org" imports across the whole
+   * organisation and may create projects itself — the shape an export from
+   * another system arrives in, since it carries every project at once and knows
+   * nothing about which one you happen to be looking at.
+   */
+  scope?: "project" | "org";
+  /**
+   * The plugin that contributed this, or undefined for core's own. Set by the
+   * registry when merging, never written by hand — it is what lets the writer
+   * be looked up on the right plugin's server hooks.
+   */
+  pluginSlug?: string;
 }
 
 // ── Shared enum value lists (mirror prisma/schema.prisma; the server coerces
@@ -281,9 +297,40 @@ export const ENTITY_DEFS: EntityDef[] = [
   },
 ];
 
-/** Look up an entity definition by key. */
+/** Look up a CORE entity definition by key. */
 export function getEntityDef(key: string): EntityDef | undefined {
   return ENTITY_DEFS.find((e) => e.key === key);
+}
+
+/**
+ * Core's entities plus those contributed by ENABLED plugins.
+ *
+ * Pure, and the same shape as availableTours: the enablement set is the
+ * caller's to supply, so this stays unit-testable and one notion of "enabled"
+ * serves every surface that reads it.
+ *
+ * A disabled plugin's entities are withheld rather than offered-and-broken —
+ * its writer is not registered, so importing one would fail at the last step
+ * after the reader had already done the mapping work.
+ *
+ * Core wins on a key collision: a plugin cannot quietly redefine "milestone"
+ * and change what an existing import does.
+ */
+export function availableEntityDefs(
+  plugins: readonly { slug: string; importEntities?: EntityDef[] }[],
+  enabled: ReadonlySet<string>,
+): EntityDef[] {
+  const out = [...ENTITY_DEFS];
+  const claimed = new Set(out.map((e) => e.key));
+  for (const p of plugins) {
+    if (!enabled.has(p.slug)) continue;
+    for (const def of p.importEntities ?? []) {
+      if (claimed.has(def.key)) continue;
+      claimed.add(def.key);
+      out.push({ ...def, pluginSlug: p.slug });
+    }
+  }
+  return out;
 }
 
 /**

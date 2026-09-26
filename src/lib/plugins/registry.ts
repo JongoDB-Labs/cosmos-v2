@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { EntityDef } from "@/lib/import/entity-fields";
 import type { LucideIcon } from "lucide-react";
 import type { SectorKey } from "@/lib/entitlements/modules";
 import type { Tour } from "@/lib/tours/types";
@@ -101,6 +102,16 @@ export type PluginManifest = {
    * cannot reach.
    */
   tours?: Tour[];
+  /**
+   * Import entities this plugin adds to the org-wide import wizard, offered
+   * only while the plugin is enabled.
+   *
+   * Definitions ONLY — field lists, synonyms, natural keys. The code that
+   * writes the rows lives on the plugin's server hooks as `importWriters`,
+   * because this object is read by the wizard in the browser and a writer
+   * dragged into that bundle would take the database client with it.
+   */
+  importEntities?: EntityDef[];
 };
 
 /**
@@ -149,6 +160,20 @@ export type RuleRunSummary = {
   notified?: number;
 };
 
+/**
+ * Persists one import entity's rows. Returns what it did (or would do), so the
+ * preview and the commit report are produced by the same code path.
+ */
+export type PluginImportWriter = (args: {
+  prisma: PrismaClient;
+  orgId: string;
+  userId: string;
+  /** Mapped + coerced values, one object per source row. */
+  rows: Record<string, unknown>[];
+  /** false = dry run. Write nothing; report as if you had. */
+  commit: boolean;
+}) => Promise<{ created: number; updated: number; skipped: number; errors: { row: number; message: string }[] }>;
+
 export type PluginServerHooks = {
   /** Must match a registered manifest slug. */
   slug: string;
@@ -168,6 +193,17 @@ export type PluginServerHooks = {
   onProjectCreate?: (prisma: PrismaClient, orgId: string, projectId: string) => Promise<void>;
   /** AI tools appended to the org's agent catalog while the plugin is enabled. */
   aiTools?: ToolDefinition[];
+  /**
+   * Writers for the entities this plugin declares in `importEntities`, keyed by
+   * entity key. Server-side by construction: this module is never bundled for
+   * the browser, which is why the definitions and the writers live apart.
+   *
+   * A writer receives rows already mapped, coerced and validated by the shared
+   * engine, so it only has to persist them — and it MUST honour `commit`:
+   * false means report what would happen and write nothing, which is the
+   * promise the preview screen makes.
+   */
+  importWriters?: Record<string, PluginImportWriter>;
   /**
    * Executor for those tools. Return undefined for "not mine" (falls through).
    *
