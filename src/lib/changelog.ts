@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.382.1",
+    date: "2026-09-26",
+    title: "Foreman no longer decides how your data is shaped",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Foreman is set to answer its own questions rather than wait, it was also answering questions about how your data should be structured. One ticket asked how a Program Increment should relate to the sprint board; Foreman decided to add a new kind of record that owns sprints, and to require every sprint to belong to one \u2014 then spent forty minutes building it. Nothing reached production, because a change that alters the database always waits for a person. But the answer to that question governs every later choice about sprints and planning, and the moment to disagree with it is before the work, not after. Foreman now holds back on any question whose answer would change how records relate to each other, and says on the ticket that it has done so. Questions about how a screen or a feature behaves are unaffected.",
+      },
+      {
+        kind: "fix",
+        text: "Leftover folders that briefly hold a copy of the Claude credentials are cleaned up at startup, and the count of what was removed \u2014 and of anything that could not be \u2014 is now recorded. Previously a folder it could not delete was skipped without a trace, which is how a set of them accumulated unnoticed since August.",
+      },
+    ],
+  },
+  {
     version: "2.382.0",
     date: "2026-09-26",
     title: "Record types added by a plugin can now actually be picked",
