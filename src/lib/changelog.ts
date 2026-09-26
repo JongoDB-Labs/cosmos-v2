@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.381.1",
+    date: "2026-09-26",
+    title: "The System Security Plan now matches the controls that shipped",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The System Security Plan described several security measures as planned or deferred that have in fact been in place for months — encryption of stored secrets, encrypted database backups with a tested restore, tamper-evident audit logging, and single sign-on — while the control matrix beside it recorded them as delivered. It also carried a stale date and version, mis-numbered sections that made two of its own cross-references point nowhere, and an open issues list that counted one item that was already closed. The plan now says what is actually true, and a new check keeps the two documents from drifting apart again.",
+      },
+    ],
+  },
+  {
     version: "2.381.0",
     date: "2026-09-26",
     title: "An Import screen for the whole organisation",
