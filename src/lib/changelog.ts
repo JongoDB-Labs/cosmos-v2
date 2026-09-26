@@ -49,6 +49,37 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.379.1",
+    date: "2026-09-26",
+    title: "A Claude connection that had quietly expired can now repair itself",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A connected Claude account could end up storing an expiry date of 1 January 1970, and when that happened the connection was stuck for good. The page went on saying it was connected \u2014 while showing, if you looked closely, that the authorization was valid until December 1969 \u2014 and every request made with it failed. Worse, the automatic renewal that exists precisely for an expired token read that date as \"this token never expires\" and skipped renewing it, so nothing short of disconnecting and reconnecting by hand would fix it. An expiry in the past is now always treated as needing renewal, whatever the date, and a connection with no expiry recorded at all is still left alone as before.",
+      },
+      {
+        kind: "fix",
+        text: "Foreman could describe a dead connection as a momentary blip. When a build could not use the Claude connection, the explanation it gave checked only that a token was stored and could be decrypted \u2014 not that the token was usable \u2014 so a credential that was expired, or that decrypted to nothing at all, was reported as \"no action needed, the connection is live\". One such credential produced that message on every attempt for half an hour while nothing could be built. The explanation now distinguishes an expired credential and an empty one from a genuine momentary failure, and says to reconnect when that is what is actually needed.",
+      },
+      {
+        kind: "fix",
+        text: "Two of Foreman's checks on its own work could not run at all on any change that included a version bump, which in practice means every change. One refused because the release files looked modified; the other refused because the same files were tidied up while it was watching. Bug fixes were therefore unable to produce the evidence that they fix the bug, and changes to a screen were unable to produce the evidence that the screen works. Both checks now ignore the release files, which are never the change under test.",
+      },
+      {
+        kind: "fix",
+        text: "Foreman's check on whether a screen works could record a broken screen as a working one. The verdict is read from a single line, and the wording it looked for matched any line merely starting with it \u2014 so when the check wrote a heading that named both possible verdicts before giving its real answer, the heading was read as the answer and the real one ignored. A screen described as broken was recorded as verified. The verdict now has to be the whole answer, and an unreadable verdict stops the change for a person to look at rather than passing it.",
+      },
+      {
+        kind: "fix",
+        text: "Foreman's record of what happened during a build was silently losing entries whenever a tool it ran produced output containing a byte the database cannot store. The entry was dropped, an error was noted where nobody would see it, and the build carried on \u2014 so the history simply had gaps in it with nothing to say why. That byte is now removed before the entry is stored.",
+      },
+      {
+        kind: "fix",
+        text: "Temporary folders holding a live copy of the Claude credentials could be left behind when a build crashed, and nothing ever cleaned them up. Twenty-one had accumulated, the oldest from late August, six of them still containing a usable token. They are now removed at startup along with the folders that were already being cleaned.",
+      },
+    ],
+  },
+  {
     version: "2.379.0",
     date: "2026-09-26",
     title: "Import data from another system, across the whole organisation",

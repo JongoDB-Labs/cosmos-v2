@@ -170,6 +170,47 @@ describe("claude-oauth-core", () => {
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 
+    it("REFRESHES an epoch-zero expiry instead of reading it as \"never expires\"", async () => {
+      // The bug this exists to stop: a rotated credential was persisted with
+      // `new Date(0)`. `new Date(0).getTime()` is 0, so the old `expiresAtMs > 0`
+      // test classified it as "no expiry recorded" and SKIPPED the refresh —
+      // disabling the only path that could heal the row. The credential stayed
+      // unusable for 35 minutes and only a manual reconnect recovered it.
+      const store = fakeStore({
+        access: { sealed: sealSecret("STALE") },
+        refresh: { sealed: sealSecret("RT") },
+        expiresAt: new Date(0),
+      });
+      const fetchSpy = vi.fn(
+        async () => new Response(JSON.stringify({ access_token: "HEALED", refresh_token: "RT2", expires_in: 3600 })),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const token = await getClaudeTokenCore(store);
+
+      expect(fetchSpy).toHaveBeenCalled(); // it must TRY, not silently skip
+      expect(token).toBe("HEALED");
+      // And the healed expiry must be a real future one, not another epoch.
+      expect((store.lastWrite().expiresAt as Date).getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it("still SKIPS the refresh when no expiry was ever recorded (long-lived session token)", async () => {
+      // The other half of the distinction, and previously untested: `null` means
+      // nobody recorded an expiry, which must NOT trigger a refresh. Without
+      // this, tightening the epoch case could silently start refreshing session
+      // tokens that have no expiry to be near.
+      const store = fakeStore({
+        access: { sealed: sealSecret("SESSION-TOKEN") },
+        refresh: { sealed: sealSecret("RT") },
+        expiresAt: null,
+      });
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      expect(await getClaudeTokenCore(store)).toBe("SESSION-TOKEN");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
     it("returns null when the store has no connection at all", async () => {
       const store = fakeStore(null);
       expect(await getClaudeTokenCore(store)).toBeNull();
@@ -212,6 +253,26 @@ describe("claude-oauth-core", () => {
       expect(creds?.accessToken).toBe("AT2");
       expect(creds?.refreshToken).toBe("RT2");
       expect(creds?.expiresAt).toBeGreaterThanOrEqual(before + 3600 * 1000);
+    });
+
+    it("refreshes an epoch-zero expiry and returns a HEALED triple with a future expiry", async () => {
+      // getClaudeCredsCore is the daemon's entry point — this is the call whose
+      // epoch-zero row bricked delivery. A healed triple must carry a real
+      // expiry, because it is materialized into the agent's .credentials.json.
+      const store = fakeStore({
+        access: { sealed: sealSecret("STALE") },
+        refresh: { sealed: sealSecret("RT1") },
+        expiresAt: new Date(0),
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify({ access_token: "AT2", refresh_token: "RT2", expires_in: 3600 }))),
+      );
+
+      const creds = await getClaudeCredsCore(store);
+
+      expect(creds?.accessToken).toBe("AT2");
+      expect(creds?.expiresAt).toBeGreaterThan(Date.now());
     });
 
     it("returns null when there is no connection", async () => {
