@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.379.0",
+    date: "2026-09-26",
+    title: "A date that slips now moves everything it was holding up",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Work items no longer reschedule in isolation. When you change a start or due date — by dragging a bar on the timeline or editing the dates on a ticket — the parent above it stretches to cover its children, so an epic can never claim a finish date its own stories have already blown past. Anything linked downstream moves with it: every successor of the item that slipped shifts by the same number of days, keeping its duration, and so does everything after that, following the Blocks / Blocked by / Predecessor / Successor links you already set on tickets.",
+      },
+      {
+        kind: "improvement",
+        text: "Only a slip travels downstream. Pulling an item in leaves the work waiting on it exactly where you planned it, so tightening one estimate never quietly eats the slack you built into the rest of the plan. Parent dates are widened, never narrowed — an epic deliberately scheduled longer than its children stays that way.",
+      },
+      {
+        kind: "improvement",
+        text: "The timeline calls out what it cannot fix for you. A predecessor still finishing after the item waiting on it — a link added long after both were scheduled, a dependency loop, an item with no dates to shift — shows as a red arrow, and the count appears in the toolbar as a scheduling-conflict badge. Clicking the badge turns the dependency arrows on so you can see the chain, and hovering an arrow says how many days over it runs.",
+      },
+      {
+        kind: "improvement",
+        text: "Every date the cascade changes is recorded on the item's own history alongside hand-made edits, so “why did this move?” is answerable from the ticket. Whether to cascade automatically or only warn was an open question nobody answered; automatic cascading was chosen, and it can be changed by replying on COSMOS-154.",
+      },
+    ],
+  },
+  {
     version: "2.378.5",
     date: "2026-09-25",
     title: "Answering one of Foreman's questions no longer looks like answering all of them",

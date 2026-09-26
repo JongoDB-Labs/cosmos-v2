@@ -12,6 +12,7 @@ import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
+import { cascadeSchedule } from "@/lib/work-items/schedule-cascade-io";
 import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
 import { z } from "zod";
 import { Priority, Prisma, WorkCategory } from "@prisma/client";
@@ -300,6 +301,21 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             newValue: f.newVal,
           })),
         });
+      }
+
+      // INTERDEPENDENT RESCHEDULING (COSMOS-154). A date edit is never about one
+      // item: the epic above it claims a finish date its children no longer meet,
+      // and everything linked downstream is still planned against the old one. So
+      // a save that moves `startDate`/`dueDate` pulls the parent chain out to the
+      // envelope of its children and shifts each downstream successor by the same
+      // slip. Inside this transaction, so a failure leaves NO half-moved plan.
+      if ("startDate" in updateData || "dueDate" in updateData) {
+        const beforeDue = existing.dueDate ? new Date(existing.dueDate).getTime() : null;
+        const afterDue = updated.dueDate ? new Date(updated.dueDate).getTime() : null;
+        // Only a SLIP travels downstream — see the planner for why pulling an
+        // item in must not drag its dependents earlier with it.
+        const dueShiftMs = beforeDue !== null && afterDue !== null ? afterDue - beforeDue : 0;
+        await cascadeSchedule(tx, { orgId, projectId, itemId, dueShiftMs, userId: ctx.userId });
       }
 
       return updated;
