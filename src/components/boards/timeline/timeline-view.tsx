@@ -14,6 +14,7 @@ import {
   ChevronsUpDown,
   Loader2,
   Ban,
+  AlertTriangle,
   EyeOff,
   Waypoints,
   Undo2,
@@ -45,6 +46,8 @@ import { matchesOneOf, matchesDuePreset } from "@/lib/work-items/metadata-filter
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { HighlightUnderline } from "@/components/work-items/highlight-underline";
 import { blockersByItem, isBlockingLink } from "@/lib/work-items/blocking";
+import { scheduleViolations } from "@/lib/work-items/schedule-cascade";
+import { directedDependencyEdge } from "@/lib/work-items/dependency-graph";
 import {
   blockedItemIds,
   matchesBlocked,
@@ -477,6 +480,29 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const filterNow = useMemo(() => new Date(), [items]);
   const blockedIds = useMemo(() => blockedItemIds(links), [links]);
   const blockers = useMemo(() => blockersByItem(links), [links]);
+  // Dependency edges the schedule contradicts — a predecessor still finishing
+  // AFTER the item waiting on it. The server cascades on save (COSMOS-154), so
+  // these are the ones it could not resolve on its own: a cycle, an item with no
+  // dates to shift, or a link added after the fact. Surfaced as a badge rather
+  // than silently, because an unresolvable constraint is a planning decision.
+  const violations = useMemo(
+    () =>
+      scheduleViolations(
+        items.map((i) => ({
+          id: i.id,
+          startDate: i.startDate ? new Date(i.startDate) : null,
+          dueDate: i.dueDate ? new Date(i.dueDate) : null,
+        })),
+        links,
+      ),
+    [items, links],
+  );
+  // Keyed `from>to` so the arrow layer can recolour an edge without re-deriving
+  // the direction it was normalized to.
+  const violationEdges = useMemo(
+    () => new Map(violations.map((v) => [`${v.fromId}>${v.toId}`, v])),
+    [violations],
+  );
   const milestoneRows = useMemo(
     () => (milestonesQ.data as { id: string; title: string; links?: { workItemId: string }[] }[] | undefined) ?? [],
     [milestonesQ.data],
@@ -1657,6 +1683,23 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               title="Show links between items; hover a bar to trace its upstream (amber) and downstream (blue) dependencies — everything else fades"
               accent="#0ea5e9"
             />
+            {/* Scheduling conflicts (COSMOS-154). Saving a date already cascades
+                to parents and downstream successors, so anything still listed
+                here is a constraint the server could NOT resolve by shifting —
+                it needs a human. A button, not a bare label: the arrows that
+                explain it are the Dependencies lens, so the badge turns it on. */}
+            {violations.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowDeps(true)}
+                title="A predecessor still finishes after the item waiting on it. Show the dependency arrows."
+                className="inline-flex items-center gap-1.5 rounded-md border border-[var(--status-critical)]/40 bg-[var(--status-critical)]/10 px-2 py-1 text-xs font-medium text-[var(--status-critical)] transition-colors hover:bg-[var(--status-critical)]/20"
+              >
+                <AlertTriangle className="size-3.5" />
+                {violations.length} scheduling{" "}
+                {violations.length === 1 ? "conflict" : "conflicts"}
+              </button>
+            )}
             <div className="mx-1 h-5 w-px bg-border" />
             {parentIds.size > 0 && (
               <button
@@ -2260,11 +2303,25 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 // deps off: only the critical chain (and blocking edges, when
                 // that lens is on) shows.
                 if (!crit && !showDeps && !isBlockEdge) return null;
+                // A constraint this edge's own dates contradict (COSMOS-154).
+                // Normalized through the same helper the planner uses, so the
+                // arrow that turns red is the arrow the cascade would have moved.
+                const dir = directedDependencyEdge(link.type, link.sourceItemId, link.targetItemId);
+                const violation = dir
+                  ? violationEdges.get(`${dir.from}>${dir.to}`)
+                  : undefined;
                 let stroke = "#94a3b8";
                 let sw = 1.25;
                 let opacity = 0.34;
                 let marker = "url(#timeline-dep-arrow)";
-                if (isBlockEdge) {
+                if (violation) {
+                  // Loudest state an edge has: the plan is not merely tight, it
+                  // is impossible as drawn.
+                  stroke = "var(--status-critical)";
+                  sw = 2.5;
+                  opacity = 1;
+                  marker = "url(#timeline-dep-arrow-crit)";
+                } else if (isBlockEdge) {
                   // Red, and heavier than a plain dependency: an impediment is
                   // not the same class of fact as an ordering constraint.
                   stroke = "var(--status-critical)";
@@ -2300,6 +2357,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     <title>
                       {projectKey}-{link.sourceTicketNumber} {link.type}{" "}
                       {projectKey}-{link.targetTicketNumber}
+                      {violation
+                        ? ` — finishes ${violation.overlapDays} day${violation.overlapDays === 1 ? "" : "s"} after the item waiting on it`
+                        : ""}
                     </title>
                   </path>
                 );
