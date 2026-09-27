@@ -220,14 +220,12 @@ export async function createWorkItem(
   }
   const data = parsed.data;
 
-  const project = await prisma.project.findFirst({
-    where: { id: data.projectId, orgId: ctx.orgId },
-    select: { id: true },
-  });
-  if (!project) return { error: "Project not found" };
-
   // Creating a ticket in a project you cannot open plants work in someone
-  // else's board and confirms the project exists.
+  // else's board and confirms the project exists. This is also the EXISTENCE
+  // check: `assertProjectRead` forwards to `isProjectVisible`, which scopes its
+  // own lookup by orgId, so a missing or cross-tenant project already reads as
+  // "Project not found" here — a preceding `project.findFirst` only added a
+  // round-trip with the same answer.
   const outOfScope = await assertProjectRead(ctx, data.projectId, "ITEM_CREATE");
   if (outOfScope) return { error: "Project not found" };
 

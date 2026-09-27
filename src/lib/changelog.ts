@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.382.3",
+    date: "2026-09-27",
+    title: "Housekeeping in the assistant",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Creating a work item through the assistant now checks the project once instead of twice — the same answer, one fewer database round-trip. Alongside it, a batch of notes left behind by earlier fixes has been cleared out of the assistant's code: each one described a rule the code had already stopped following, and two of them argued for undoing a permission fix that is still needed. Nothing changes about what the assistant can see or do; this is the sort of tidying that stops an old comment from talking a future change into reintroducing a bug.",
+      },
+    ],
+  },
+  {
     version: "2.382.2",
     date: "2026-09-26",
     title: "A change that passes every check can now actually ship",

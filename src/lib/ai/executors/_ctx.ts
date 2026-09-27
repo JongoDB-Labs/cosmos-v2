@@ -28,9 +28,11 @@ export interface ActorPermissions {
  * bitmask. Returns `null` if the user isn't a member of the org — callers
  * should treat that as "forbidden, no permissions".
  *
- * IMPORTANT: do not `include`/`select` raw `permissions: true` and ship it
- * through JSON — BigInt isn't serializable. We resolve to a bigint here and
- * keep it server-side; tool executors only ever read it via `assertPermission`.
+ * IMPORTANT: do not `include`/`select` raw `permissions: true` into a payload —
+ * it is a permission mask, and the rule against shipping one is written down in
+ * AGENTS.md ("Server-side response patterns") and on the column itself. We
+ * resolve to a bigint here and keep it server-side; tool executors only ever
+ * read it via `assertPermission`.
  */
 export async function loadActorPermissions(
   ctx: ToolContext

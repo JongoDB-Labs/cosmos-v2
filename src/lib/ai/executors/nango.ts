@@ -76,6 +76,8 @@ export async function executeNangoTool(
 
   if (!nangoEnabled()) return NOT_CONFIGURED;
 
+  // No `default` arm: the guard above admits only the three names in
+  // NANGO_TOOL_NAMES, which are exactly the cases below.
   switch (name) {
     case "nango_list_connections":
       // The org's connected providers (structural metadata) — never the creds.
@@ -105,9 +107,6 @@ export async function executeNangoTool(
         data: args.data,
       });
     }
-
-    default:
-      return null;
   }
 }
 

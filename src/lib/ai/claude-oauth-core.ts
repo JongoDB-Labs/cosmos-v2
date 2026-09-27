@@ -92,10 +92,6 @@ function generateState(): string {
 /** The `{ sealed }` shape callers persist into their Json columns. */
 type SealedJson = { sealed: string };
 
-function toSealedJson(plaintext: string): SealedJson {
-  return { sealed: sealSecret(plaintext) };
-}
-
 /** Read a { sealed } Json value back to plaintext, or null when absent/invalid. */
 function fromSealedJson(value: unknown): string | null {
   if (
@@ -267,8 +263,8 @@ export async function exchangeClaudeCodeCore(
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
     await store.write({
-      access: toSealedJson(accessToken).sealed,
-      refresh: refreshToken ? toSealedJson(refreshToken).sealed : null,
+      access: sealSecret(accessToken),
+      refresh: refreshToken ? sealSecret(refreshToken) : null,
       expiresAt,
     });
 
@@ -328,8 +324,8 @@ export async function refreshClaudeTokenCore(
   if (!newAccessToken) return null;
 
   await store.write({
-    access: toSealedJson(newAccessToken).sealed,
-    refresh: toSealedJson(newRefreshToken).sealed,
+    access: sealSecret(newAccessToken),
+    refresh: sealSecret(newRefreshToken),
     expiresAt: new Date(Date.now() + expiresIn * 1000),
   });
 

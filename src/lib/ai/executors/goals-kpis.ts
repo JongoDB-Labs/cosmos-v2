@@ -11,7 +11,8 @@ import { assertPermission, assertProjectManage, assertProjectRead, type ToolCont
  * PERMISSIONS: no GOAL or KPI permission bits exist, so — per the brief — both
  * domains use the OKR planning bits (OKR_READ / OKR_CREATE / OKR_UPDATE). This
  * matches the goals HTTP routes; the KPI HTTP routes use ANALYTICS_READ /
- * PROJECT_UPDATE, so the assistant surface is intentionally OKR-uniform instead.
+ * PROJECT_UPDATE, and the KPI writes below pass PROJECT_UPDATE to
+ * `assertProjectManage` so the project gate matches those routes — see _ctx.ts.
  */
 
 function invalid(error: z.ZodError): { error: string } {
