@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.382.3",
+    date: "2026-09-27",
+    title: "A test-only ticket is no longer mistaken for a database change",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Yesterday's change stopped Foreman answering questions about how your data is structured, so those wait for a person. It was too broad: it also held back a ticket whose only job was to add tests proving existing behaviour still works, because one of the options described that work as a \u201cmigration step\u201d \u2014 meaning a step in a rollout, not a change to the database. Foreman now only holds back when the wording actually refers to the database. A rollout step, a JSON schema, or migrating users off an old page no longer count.",
+      },
+    ],
+  },
+  {
     version: "2.382.2",
     date: "2026-09-26",
     title: "A change that passes every check can now actually ship",
