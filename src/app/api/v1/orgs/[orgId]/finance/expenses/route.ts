@@ -16,6 +16,7 @@ const createExpenseSchema = z.object({
   description: z.string().nullish(),
   recurring: z.boolean().optional(),
   clinId: z.string().uuid().nullish(),
+  projectId: z.string().uuid().nullish(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -39,6 +40,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const status = sp.get("status");
 
     const where: Record<string, unknown> = { orgId };
+
+    // Filterable, because "what did this job cost us" is the question the
+
+    // field was added to answer.
+
+    const projectId = sp.get("projectId");
+
+    if (projectId) where.projectId = projectId;
     if (category) where.category = category;
     if (vendor) where.vendor = vendor;
     if (status && ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED"].includes(status)) {
@@ -92,6 +101,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         description: data.description ?? "",
         recurring: data.recurring ?? false,
         clinId: data.clinId ?? null,
+        projectId: data.projectId ?? null,
         createdById: ctx.userId,
       },
     });

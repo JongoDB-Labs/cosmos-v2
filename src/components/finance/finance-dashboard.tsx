@@ -149,6 +149,8 @@ interface ExpenseFormData {
   vendor: string;
   description: string;
   recurring: boolean;
+  /** Empty string means the firm's cost rather than a job's — see the schema. */
+  projectId: string;
 }
 
 const emptyRevenueForm: RevenueFormData = {
@@ -169,6 +171,7 @@ const emptyExpenseForm: ExpenseFormData = {
   vendor: "",
   description: "",
   recurring: false,
+  projectId: "",
 };
 
 export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
@@ -197,6 +200,13 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
   const summaryKey = useOrgQueryKey("finance", "summary", { dateFrom, dateTo });
   const revenueKey = useOrgQueryKey("finance", "revenue", { dateFrom, dateTo });
   const expensesKey = useOrgQueryKey("finance", "expenses", { dateFrom, dateTo });
+
+  // Only to fill the picker below. An expense that belongs to a job is the
+  // whole reason the column exists, and typing a uuid is not a way to say so.
+  const projectsQ = useQuery({
+    queryKey: orgQueryKey(orgSlug, ["projects", "picker"]),
+    queryFn: () => jsonFetch<{ id: string; name: string; key: string }[]>(`/api/v1/orgs/${orgId}/projects`),
+  });
 
   const summaryQ = useQuery({
     queryKey: summaryKey,
@@ -388,6 +398,7 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
       vendor: expenseForm.vendor || null,
       description: expenseForm.description,
       recurring: expenseForm.recurring,
+      projectId: expenseForm.projectId || null,
     };
     if (editingExpense) {
       updateExpenseMutation.mutate({ id: editingExpense, body });
@@ -436,6 +447,7 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
       vendor: exp.vendor ?? "",
       description: exp.description,
       recurring: exp.recurring,
+      projectId: exp.projectId ?? "",
     });
     setExpenseDialogOpen(true);
   };
@@ -450,6 +462,7 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
       vendor: exp.vendor ?? "",
       description: exp.description,
       recurring: exp.recurring,
+      projectId: exp.projectId ?? "",
     });
     setExpenseDialogOpen(true);
   };
@@ -1035,6 +1048,28 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
                           setExpenseForm({ ...expenseForm, description: e.target.value })
                         }
                       />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="exp-project">Project</Label>
+                      <select
+                        id="exp-project"
+                        value={expenseForm.projectId}
+                        onChange={(e) =>
+                          setExpenseForm({ ...expenseForm, projectId: e.target.value })
+                        }
+                        className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+                      >
+                        {/* The default stays "no project": most costs are the
+                            firm's, and a picker that defaults to a job would
+                            attribute the office broadband to whatever sorted
+                            first. */}
+                        <option value="">No project — firm overhead</option>
+                        {(projectsQ.data ?? []).map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.key} · {p.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                     <label className="flex items-center gap-2 text-sm">
                       <input
