@@ -221,8 +221,7 @@ export async function slackPostMessage(args: ToolArgs, ctx: SlackToolContext) {
 // ── Dispatch ─────────────────────────────────────────────────────────────
 
 /**
- * Map of Slack tool name → executor. Returns `null` if the name is not a Slack tool,
- * so the parent dispatcher falls through to other tool families.
+ * Map of Slack tool name → executor. Returns `null` if the name is not a Slack tool.
  */
 export async function executeSlackTool(
   name: string,
@@ -241,7 +240,7 @@ export async function executeSlackTool(
   }
 }
 
-/** Names of all Slack tools — for O(1) membership in the central dispatcher. */
+/** Names of all Slack tools. */
 export const SLACK_TOOL_NAMES: ReadonlySet<string> = new Set([
   "slack_list_channels",
   "slack_search_messages",

@@ -57,8 +57,7 @@ export async function listObjectives(input: Record<string, unknown>, ctx: ToolCo
   const { projectId, limit } = parsed.data;
 
   // `projectId` is OPTIONAL here — omitting it lists the org's objectives —
-  // so the gate applies only when one is named. Objectives with no project are
-  // not project-scoped data and nothing narrows them.
+  // so the gate applies only when one is named.
   if (projectId) {
     const outOfScope = await assertProjectRead(ctx, projectId, "OKR_READ");
     if (outOfScope) return outOfScope;
