@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.382.4",
+    date: "2026-09-27",
+    title: "Removing a file no longer fails the checks that follow it",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Foreman finished a change that deleted a file, the automated checks that run before anything ships failed \u2014 not because of the change, but because the linter was handed the path of the file that had just been removed and stopped with an error rather than a result. The failure was recorded as \"lint failed\", which reads as a problem with the code. It never was. This is what the nightly cleanup work does by definition, so every cleanup ticket had been failing this way and waiting for a person who had nothing to fix. Deleted files are now left out of that list.",
+      },
+    ],
+  },
+  {
     version: "2.382.3",
     date: "2026-09-27",
     title: "A test-only ticket is no longer mistaken for a database change",
