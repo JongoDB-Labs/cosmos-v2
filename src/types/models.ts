@@ -492,7 +492,7 @@ export interface Expense {
   approvedAt: string | null;
   createdById: string;
   createdAt: string;
-  updatedAt: string;
+  updatedAt: string;  projectId: string | null;
 }
 
 export interface SyncMeeting {

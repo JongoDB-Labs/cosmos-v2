@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.383.0",
+    date: "2026-09-27",
+    title: "An expense can belong to a project",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Expenses could be categorised, approved and posted, but there was no way to say which job one was for. The only link a row carried went through a contract line, which is how government work is billed \u2014 if you bill a project directly, as most practices do, your expenses reached no project at all. That is why a project's profit figure has been treating its expenses as nothing: the column to hold them did not exist. Now an expense can name its project, and the list can be filtered to one. It still defaults to no project, because a great many costs are the firm's rather than a job's \u2014 a subscription, the office broadband \u2014 and quietly charging those to whichever project happened to be first would be worse than leaving them where they belong.",
+      },
+    ],
+  },
+  {
     version: "2.382.4",
     date: "2026-09-27",
     title: "Removing a file no longer fails the checks that follow it",

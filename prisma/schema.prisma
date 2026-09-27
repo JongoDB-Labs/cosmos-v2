@@ -795,6 +795,7 @@ model Project {
   feedbackItems       FeedbackItem[]
   // @plugin-backrel:Project
 
+  expenses          Expense[]
   @@unique([orgId, key])
   /// Unique per org, so a re-import can never fork one source record into two.
   /// NULLs are distinct in Postgres, so hand-created projects coexist freely.
@@ -1995,6 +1996,18 @@ model Expense {
   recurring    Boolean       @default(false)
   status       ExpenseStatus @default(DRAFT)
   clinId       String?       @map("clin_id") @db.Uuid
+  /// The project this expense belongs to.
+  ///
+  /// Nullable because plenty of costs are the firm's rather than a job's — a
+  /// subscription, an office bill — and forcing those onto a project would be a
+  /// worse lie than leaving them unattributed.
+  ///
+  /// Distinct from `clinId`, which attributes through a contract line and is the
+  /// path government work takes. Most practices bill a project directly and have
+  /// no CLIN at all, so expenses simply never reached a project: this is why a
+  /// project's profit-and-loss has had to treat its expenses as zero.
+  projectId    String?       @map("project_id") @db.Uuid
+  project      Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
   approvedById String?       @map("approved_by_id") @db.Uuid
   submittedAt  DateTime?     @map("submitted_at")
   approvedAt   DateTime?     @map("approved_at")
@@ -2004,6 +2017,7 @@ model Expense {
 
   @@index([orgId, date])
   @@index([orgId, status])
+  @@index([orgId, projectId])
   @@map("expenses")
 }
 
