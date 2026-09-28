@@ -8,7 +8,7 @@ const { prisma, getAuthContext, readableTimeUserIds } = vi.hoisted(() => ({
   prisma: {
     organization: { findUnique: vi.fn() },
     timesheet: { findMany: vi.fn() },
-    timeEntry: { findMany: vi.fn() },
+    timeEntry: { groupBy: vi.fn() },
   },
   getAuthContext: vi.fn(),
   readableTimeUserIds: vi.fn(),
@@ -51,7 +51,7 @@ beforeEach(() => {
   getAuthContext.mockResolvedValue(ctx());
   readableTimeUserIds.mockResolvedValue(null); // null = may read everybody
   prisma.timesheet.findMany.mockResolvedValue([]);
-  prisma.timeEntry.findMany.mockResolvedValue([]);
+  prisma.timeEntry.groupBy.mockResolvedValue([]);
 });
 
 const body = async (r: Response) => {
@@ -79,10 +79,10 @@ describe("GET timesheets/periods", () => {
   });
 
   it("totals hours from the entries, not from the sheet", async () => {
-    prisma.timeEntry.findMany.mockResolvedValue([
-      { date: new Date("2026-03-02T00:00:00.000Z"), hours: 6 },
-      { date: new Date("2026-03-04T00:00:00.000Z"), hours: 2.5 },
-      { date: new Date("2026-03-10T00:00:00.000Z"), hours: 1 },
+    prisma.timeEntry.groupBy.mockResolvedValue([
+      { date: new Date("2026-03-02T00:00:00.000Z"), _sum: { hours: 6 } },
+      { date: new Date("2026-03-04T00:00:00.000Z"), _sum: { hours: 2.5 } },
+      { date: new Date("2026-03-10T00:00:00.000Z"), _sum: { hours: 1 } },
     ]);
     const rows = await body(await GET(req("?year=2026"), { params }));
     expect(rows.find((r) => r.start === "2026-03-02")!.hours).toBe(8.5);

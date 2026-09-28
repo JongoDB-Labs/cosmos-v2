@@ -68,7 +68,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const first = periods[0].start;
     const last = periods[periods.length - 1].end;
 
-    const [sheets, entries] = await Promise.all([
+    const [sheets, days] = await Promise.all([
       prisma.timesheet.findMany({
         where: {
           orgId,
@@ -78,7 +78,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         },
         select: { periodStart: true, status: true, submittedAt: true, updatedAt: true },
       }),
-      prisma.timeEntry.findMany({
+      // Summed in the DATABASE, by day. This screen wants a total per period and
+      // nothing else, so it never reaches a per-person row and never touches a
+      // rate — the same reason burn and the template export sit outside the
+      // TIME_READ reader rule. Pulling every entry to add them up here would
+      // put pay-adjacent columns within reach for no gain.
+      prisma.timeEntry.groupBy({
+        by: ["date"],
         where: {
           orgId,
           userId: subject,
@@ -88,16 +94,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           },
           ...NOT_VOIDED,
         },
-        select: { date: true, hours: true },
+        _sum: { hours: true },
       }),
     ]);
 
     const iso = (d: Date) => d.toISOString().slice(0, 10);
     const sheetByStart = new Map(sheets.map((s) => [iso(s.periodStart), s]));
     const hoursByStart = new Map<string, number>();
-    for (const e of entries) {
-      const key = periodFor(iso(e.date), DEFAULT_PERIOD_LENGTH).start;
-      hoursByStart.set(key, (hoursByStart.get(key) ?? 0) + e.hours);
+    for (const day of days) {
+      const key = periodFor(iso(day.date), DEFAULT_PERIOD_LENGTH).start;
+      hoursByStart.set(key, (hoursByStart.get(key) ?? 0) + (day._sum.hours ?? 0));
     }
 
     return success(
