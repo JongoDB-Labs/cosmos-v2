@@ -49,7 +49,6 @@ import {
 export interface EntityEngineCtx {
   orgId: string;
   projectId: string;
-  userId: string;
 }
 
 // ── Tolerant scalar coercion ────────────────────────────────────────────────

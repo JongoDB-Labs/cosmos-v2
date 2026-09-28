@@ -84,7 +84,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const req = importSchema.parse(body) as EntityImportRequest;
 
     const report = await runEntityImport(
-      { orgId: org.id, projectId: project.id, userId: ctx.userId },
+      { orgId: org.id, projectId: project.id },
       req,
     );
     return success(report);
