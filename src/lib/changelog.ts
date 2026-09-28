@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.386.1",
+    date: "2026-09-27",
+    title: "The Time off screen opens",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Time off shipped yesterday and did not open: it asked the server who everybody was so it could put names beside the requests waiting on you, then read that answer as a list when the list was one level inside it. The screen went down on first load over the least important thing on it. It now reads the answer correctly, treats a name it cannot resolve as simply unknown, and no longer depends on that request succeeding at all \u2014 your own requests and the queue render either way.",
+      },
+    ],
+  },
+  {
     version: "2.386.0",
     date: "2026-09-27",
     title: "Ask for time off, and answer the people who asked you",

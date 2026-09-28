@@ -58,6 +58,25 @@ type Status = "PENDING" | "APPROVED" | "DENIED" | "WITHDRAWN";
 
 type Person = { userId: string; displayName: string | null; isSelf: boolean };
 
+/** What `/time-entries/people` actually answers: the list, and a count beside it. */
+type Roster = { data: Person[]; total: number };
+
+/**
+ * Read the roster out of that response.
+ *
+ * The array is one level in, because the body carries a `total` alongside it.
+ * `jsonFetch` unwraps a lone `data` key and this body has two, so what arrives
+ * is the OBJECT -- and calling `.map` on it took this whole screen down on
+ * first load, with the names it wanted being the least important thing on it.
+ * Both shapes are accepted here so the screen survives the endpoint growing or
+ * losing its envelope, and the caller can never see anything but an array.
+ */
+export function rosterOf(payload: Roster | Person[] | undefined | null): Person[] {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  return Array.isArray(payload.data) ? payload.data : [];
+}
+
 const KIND: Record<Kind, string> = {
   VACATION: "Holiday",
   SICK: "Sick",
@@ -114,11 +133,11 @@ export function TimeOff({ orgId }: { orgId: string }) {
   });
   const people = useQuery({
     queryKey: useOrgQueryKey(["time-people"]),
-    queryFn: () => jsonFetch<Person[]>(`/api/v1/orgs/${orgId}/time-entries/people`),
+    queryFn: () => jsonFetch<Roster>(`/api/v1/orgs/${orgId}/time-entries/people`),
   });
 
   const nameOf = useMemo(() => {
-    const byId = new Map((people.data ?? []).map((p) => [p.userId, p.displayName]));
+    const byId = new Map(rosterOf(people.data).map((p) => [p.userId, p.displayName]));
     return (id: string) => byId.get(id) || "Someone";
   }, [people.data]);
 
