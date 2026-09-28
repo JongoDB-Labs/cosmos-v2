@@ -20,6 +20,7 @@ import {
   BookOpen,
   type LucideIcon,
   Upload,
+  Inbox,
 } from "lucide-react";
 import { Permission } from "@/lib/rbac/permissions";
 
@@ -79,6 +80,14 @@ export const SIDEBAR_NAV: NavEntry[] = [
     icon: LayoutDashboard,
     label: "Overview",
     href: "",
+  },
+  {
+    type: "leaf",
+    id: "inbox",
+    icon: Inbox,
+    label: "Inbox",
+    href: "/inbox",
+    anyOf: [Permission.NOTIFICATION_READ],
   },
   {
     type: "leaf",

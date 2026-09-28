@@ -11,10 +11,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Bell, Check } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
 import type { Notification } from "@/types/models";
-
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -51,7 +51,10 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch(`/api/v1/orgs/${orgId}/notifications`);
+        // The dropdown shows ten. Asking for the whole inbox and throwing all
+        // but ten away is how a 500-notice inbox becomes a slow page load; the
+        // full list lives at /inbox.
+        const r = await fetch(`/api/v1/orgs/${orgId}/notifications?limit=10`);
         if (!r.ok) return;
         const data: Notification[] = await r.json();
         if (!cancelled) setNotifications(data);
@@ -126,9 +129,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     }
   }
 
-  function handleNotificationClick(
-    n: Notification & { url?: string | null },
-  ) {
+  function handleNotificationClick(n: Notification & { url?: string | null }) {
     markRead(n.id);
     if (!orgSlug || !n.url) return;
     let path = n.url.startsWith("/") ? n.url : `/${n.url}`;
@@ -227,6 +228,14 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
             </DropdownMenuItem>
           ))
         )}
+        <div className="border-t border-[var(--border)] px-3 py-2">
+          <Link
+            href={`/${orgSlug}/inbox`}
+            className="text-sm text-[var(--primary)] hover:underline"
+          >
+            Open inbox
+          </Link>
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );
