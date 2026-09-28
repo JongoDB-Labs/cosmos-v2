@@ -6,6 +6,7 @@ import {
   DollarSign,
   Briefcase,
   FolderKanban,
+  FolderOpen,
   ListChecks,
   Activity,
   Handshake,
@@ -109,6 +110,14 @@ export const SIDEBAR_NAV: NavEntry[] = [
     label: "Time Tracking",
     href: "/time-tracking",
     anyOf: [Permission.TIME_READ],
+  },
+  {
+    type: "leaf",
+    id: "files",
+    icon: FolderOpen,
+    label: "Files",
+    href: "/files",
+    anyOf: [Permission.ORG_READ],
   },
   {
     type: "group",
