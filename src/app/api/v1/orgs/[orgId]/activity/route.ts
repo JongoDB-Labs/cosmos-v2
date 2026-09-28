@@ -6,6 +6,7 @@ import { success, handleApiError } from "@/lib/api-helpers";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { readableTimeUserIds } from "@/lib/time/scope";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
+import { redactRates } from "@/lib/time/visibility";
 import { mergePage, decodeCursor, type FeedItem } from "@/lib/activity/merge";
 import type { AuthContext } from "@/lib/rbac/check";
 
@@ -35,7 +36,11 @@ const EMPTY = { data: [], nextCursor: null as string | null };
  * there, and what happens to a bulk import without it.
  */
 
-type Actor = { id: string; displayName: string | null; avatarUrl: string | null };
+type Actor = {
+  id: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+};
 
 type FeedRow = FeedItem & {
   kind: "work-item" | "time";
@@ -52,7 +57,12 @@ type FeedRow = FeedItem & {
     title: string;
     columnKey: string | null;
     project: { id: string; key: string; name: string };
-    type: { id: string; name: string; icon: string | null; color: string | null } | null;
+    type: {
+      id: string;
+      name: string;
+      icon: string | null;
+      color: string | null;
+    } | null;
   } | null;
   time: {
     hours: number;
@@ -102,7 +112,9 @@ async function workItemEvents(
       title: true,
       columnKey: true,
       projectId: true,
-      workItemType: { select: { id: true, name: true, icon: true, color: true } },
+      workItemType: {
+        select: { id: true, name: true, icon: true, color: true },
+      },
     },
   });
   if (items.length === 0) return [];
@@ -169,7 +181,8 @@ async function timeEvents(
 
   const allowed = await readableTimeUserIds(ctx); // null = may read everybody
   const userFilter = sp.get("userId");
-  if (userFilter && allowed !== null && !allowed.includes(userFilter)) return [];
+  if (userFilter && allowed !== null && !allowed.includes(userFilter))
+    return [];
 
   const projectFilter = sp.get("projectId");
   // A type filter is a work-item notion; asking for one excludes time entirely
@@ -199,7 +212,16 @@ async function timeEvents(
   });
   if (entries.length === 0) return [];
 
-  const projectIds = [...new Set(entries.map((e) => e.projectId).filter(Boolean))] as string[];
+  // The feed never shows money, and the select above does not ask for a rate.
+  // Routing the rows through the shared redactor anyway is deliberate: it puts
+  // the guarantee in the one place that owns it, so adding `rate` to that
+  // select later cannot quietly start leaking pay. "We happen not to select it"
+  // is not a rule, it is a coincidence waiting to be edited.
+  const visible = redactRates(ctx, entries);
+
+  const projectIds = [
+    ...new Set(visible.map((e) => e.projectId).filter(Boolean)),
+  ] as string[];
   const projects = projectIds.length
     ? await prisma.project.findMany({
         where: { id: { in: projectIds } },
@@ -208,7 +230,7 @@ async function timeEvents(
     : [];
   const projectById = new Map(projects.map((p) => [p.id, p]));
 
-  return entries.map((e) => {
+  return visible.map((e) => {
     const at = e.date.toISOString();
     return {
       at,
@@ -244,7 +266,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const canItems = hasPermission(ctx.permissions, Permission.ITEM_READ);
     const canTime = hasPermission(ctx.permissions, Permission.TIME_READ);
     // Refused only when there is no half of the feed they could read.
-    if (!canItems && !canTime) return new Response("Forbidden", { status: 403 });
+    if (!canItems && !canTime)
+      return new Response("Forbidden", { status: 403 });
 
     const sp = request.nextUrl.searchParams;
     const limit = Math.min(
@@ -252,14 +275,20 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       MAX_LIMIT,
     );
     const cursor = decodeCursor(sp.get("cursor"));
-    const wanted = (sp.get("sources") ?? "work,time").split(",").map((x) => x.trim());
+    const wanted = (sp.get("sources") ?? "work,time")
+      .split(",")
+      .map((x) => x.trim());
 
     const [work, time] = await Promise.all([
       wanted.includes("work") ? workItemEvents(orgId, ctx, sp, limit) : [],
       wanted.includes("time") ? timeEvents(orgId, ctx, sp, limit) : [],
     ]);
 
-    const { page, nextCursor } = mergePage<FeedRow>([work, time], limit, cursor);
+    const { page, nextCursor } = mergePage<FeedRow>(
+      [work, time],
+      limit,
+      cursor,
+    );
     if (page.length === 0) return success(EMPTY);
 
     // One batch for every actor on the merged page.
