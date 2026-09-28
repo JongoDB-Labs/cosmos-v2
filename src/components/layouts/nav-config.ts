@@ -14,6 +14,7 @@ import {
   FileSignature,
   Landmark,
   Receipt,
+  CreditCard,
   Wallet,
   Percent,
   BookOpen,
@@ -228,6 +229,14 @@ export const SIDEBAR_NAV: NavEntry[] = [
         href: "/accounting/invoices",
         anyOf: [Permission.FINANCE_READ, Permission.ACCOUNTING_READ],
       },
+      {
+        type: "leaf",
+        id: "acct-bills",
+        icon: CreditCard,
+        label: "Bills",
+        href: "/accounting/bills",
+        anyOf: [Permission.FINANCE_READ, Permission.ACCOUNTING_READ],
+      },
     ],
   },
   {
@@ -254,7 +263,12 @@ export const SIDEBAR_NAV: NavEntry[] = [
  */
 export const FIXED_NAV_IDS = ["overview", "settings"] as const;
 
-export function topLevelNavMeta(): { id: string; label: string; isGroup: boolean; fixed: boolean }[] {
+export function topLevelNavMeta(): {
+  id: string;
+  label: string;
+  isGroup: boolean;
+  fixed: boolean;
+}[] {
   return SIDEBAR_NAV.map((e) => ({
     id: e.id,
     label: e.label,
@@ -264,7 +278,10 @@ export function topLevelNavMeta(): { id: string; label: string; isGroup: boolean
 }
 
 /** True when the user (permission mask) may see this leaf. */
-export function canSeeLeaf(leaf: NavLeaf, can: (p: bigint) => boolean): boolean {
+export function canSeeLeaf(
+  leaf: NavLeaf,
+  can: (p: bigint) => boolean,
+): boolean {
   if (!leaf.anyOf || leaf.anyOf.length === 0) return true;
   return leaf.anyOf.some((p) => can(p));
 }
@@ -306,8 +323,12 @@ export function applyAdminLayout(
   if (!cfg.order || cfg.order.length === 0) return visible;
   const orderIndex = new Map(cfg.order.map((id, i) => [id, i]));
   return [...visible].sort((a, b) => {
-    const ai = orderIndex.has(a.id) ? orderIndex.get(a.id)! : Number.MAX_SAFE_INTEGER;
-    const bi = orderIndex.has(b.id) ? orderIndex.get(b.id)! : Number.MAX_SAFE_INTEGER;
+    const ai = orderIndex.has(a.id)
+      ? orderIndex.get(a.id)!
+      : Number.MAX_SAFE_INTEGER;
+    const bi = orderIndex.has(b.id)
+      ? orderIndex.get(b.id)!
+      : Number.MAX_SAFE_INTEGER;
     return ai - bi;
   });
 }

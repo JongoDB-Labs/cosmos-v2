@@ -22,10 +22,7 @@ import { MOBILE_NAV_DESTINATIONS } from "./mobile-nav";
  *     here instead of shipping a redirect into a 404).
  */
 
-const APP_ORG_DIR = path.resolve(
-  __dirname,
-  "../../app/(dashboard)/[orgSlug]",
-);
+const APP_ORG_DIR = path.resolve(__dirname, "../../app/(dashboard)/[orgSlug]");
 
 /** Does an org-relative path resolve to a real page route? */
 function routeExists(orgRelativePath: string): boolean {
@@ -35,9 +32,7 @@ function routeExists(orgRelativePath: string): boolean {
 
 /** Every leaf in the sidebar tree, flattened out of its groups. */
 function allNavLeaves(): NavLeaf[] {
-  return SIDEBAR_NAV.flatMap((e) =>
-    e.type === "group" ? e.children : [e],
-  );
+  return SIDEBAR_NAV.flatMap((e) => (e.type === "group" ? e.children : [e]));
 }
 
 describe("legacy /finance -> /accounting redirects", () => {
@@ -77,9 +72,10 @@ describe("legacy /finance -> /accounting redirects", () => {
 
   it("sends every old path to a route that actually exists", () => {
     for (const [from, to] of Object.entries(LEGACY_ORG_PATH_REDIRECTS)) {
-      expect(routeExists(to), `${from} -> ${to} but ${to} has no page.tsx`).toBe(
-        true,
-      );
+      expect(
+        routeExists(to),
+        `${from} -> ${to} but ${to} has no page.tsx`,
+      ).toBe(true);
     }
   });
 
@@ -95,9 +91,10 @@ describe("legacy /finance -> /accounting redirects", () => {
   it("never redirects to a path that is itself redirected (no chains or loops)", () => {
     const sources = new Set(Object.keys(LEGACY_ORG_PATH_REDIRECTS));
     for (const [from, to] of Object.entries(LEGACY_ORG_PATH_REDIRECTS)) {
-      expect(sources.has(to), `${from} -> ${to} chains into another redirect`).toBe(
-        false,
-      );
+      expect(
+        sources.has(to),
+        `${from} -> ${to} chains into another redirect`,
+      ).toBe(false);
     }
   });
 
@@ -142,7 +139,7 @@ describe("navigation points at the new URLs only", () => {
     }
   });
 
-  it("gives the Accounting group the six children the URLs promise", () => {
+  it("gives the Accounting group the seven children the URLs promise", () => {
     const group = SIDEBAR_NAV.find(
       (e) => e.type === "group" && e.id === "accounting",
     );
@@ -156,17 +153,21 @@ describe("navigation points at the new URLs only", () => {
       "Banking",
       "Payroll",
       "Tax",
+      // Invoices and Bills are the two directions of the same money and sit
+      // together: what the practice is owed, then what it owes.
       "Invoices",
+      "Bills",
     ]);
     // The whole point of the move: label and URL segment agree, and the group
     // label is not repeated by a child.
     for (const child of children) {
-      expect(
-        child.href,
-        `${child.label} must live under /accounting/`,
-      ).toMatch(/^\/accounting\//);
+      expect(child.href, `${child.label} must live under /accounting/`).toMatch(
+        /^\/accounting\//,
+      );
       expect(child.label).not.toBe("Accounting");
-      expect(routeExists(child.href), `${child.href} has no page.tsx`).toBe(true);
+      expect(routeExists(child.href), `${child.href} has no page.tsx`).toBe(
+        true,
+      );
     }
   });
 

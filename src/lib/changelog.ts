@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.387.0",
+    date: "2026-09-28",
+    title: "Bills: what the practice owes",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Money coming in had a screen; money going out did not. Consultant and supplier invoices were tracked in email and a spreadsheet, so the cost side of a job existed only once somebody totted it up by hand. Accounting now has Bills. Each one records the vendor, the job it belongs to and the client invoice it is recovered through, and the page leads with four figures \u2014 total, paid, owed and past due \u2014 that always add up, because owed and past due are the two halves of the same outstanding money rather than two separate sums. A bill on \u201cpay when paid\u201d terms carries no due date at all and is never shown as overdue: it is not owed until the client settles the invoice it belongs to, and red on a payables screen means go and pay something.",
+      },
+    ],
+  },
+  {
     version: "2.386.1",
     date: "2026-09-27",
     title: "The Time off screen opens",

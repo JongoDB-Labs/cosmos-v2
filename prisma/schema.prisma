@@ -320,6 +320,7 @@ model Organization {
 
   @@map("organizations")
   timeOffRequests TimeOffRequest[]
+  bills Bill[]
 }
 
 model User {
@@ -803,6 +804,7 @@ model Project {
   @@unique([orgId, externalRef])
   @@index([orgId, status])
   @@map("projects")
+  bills Bill[]
 }
 
 /// A team WITHIN a project. org -> projects -> teams -> members is the source of
@@ -1393,6 +1395,7 @@ model Partner {
 
   @@index([orgId, status])
   @@map("partners")
+  bills Bill[]
 }
 
 model Product {
@@ -3766,6 +3769,7 @@ model Invoice {
   @@unique([orgId, number])
   @@index([orgId, status])
   @@map("invoices")
+  bills Bill[]
 }
 
 model InvoiceLineItem {
@@ -4695,4 +4699,65 @@ enum TimeOffStatus {
   DENIED
   /// Taken back by the person who asked, before anyone decided.
   WITHDRAWN
+}
+
+/// What the practice OWES: a consultant's or supplier's invoice to us.
+///
+/// The mirror of `Invoice`, with two things a generic payables table does not
+/// have. A bill usually belongs to a PROJECT -- the structural engineer bills
+/// against a job -- so it reaches project margin. And it can name the client
+/// invoice it is recovered through, which is how a pass-through cost is
+/// tracked from the money going out to the money coming back.
+model Bill {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// The vendor's own number for it, as printed on the bill.
+  reference   String
+  /// Recorded as text as well as a link: a bill can arrive from somebody who
+  /// is not yet a Partner, and the name on the paper should not change when
+  /// the Partner record is later renamed or merged.
+  vendorName  String       @map("vendor_name")
+  partnerId   String?      @map("partner_id") @db.Uuid
+  partner     Partner?     @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+  projectId   String?      @map("project_id") @db.Uuid
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// The client invoice this cost is recovered through, when there is one.
+  invoiceId   String?      @map("invoice_id") @db.Uuid
+  invoice     Invoice?     @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  status      BillStatus   @default(DRAFT)
+  /// PAY_WHEN_PAID has no due date by design -- it is not owed until the
+  /// client settles the invoice it belongs to, so it can never be past due.
+  terms       BillTerms    @default(DUE_DATE)
+  issueDate   DateTime?    @map("issue_date") @db.Date
+  dueDate     DateTime?    @map("due_date") @db.Date
+  paidDate    DateTime?    @map("paid_date") @db.Date
+  currency    String       @default("USD")
+  amount      Decimal      @db.Decimal(19, 4)
+  amountPaid  Decimal      @default(0) @map("amount_paid") @db.Decimal(19, 4)
+  notes       String?
+  createdById String       @map("created_by_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  @@index([orgId, status])
+  @@index([orgId, dueDate])
+  @@index([orgId, projectId])
+  @@index([orgId, partnerId])
+  @@index([orgId, invoiceId])
+  @@map("bills")
+}
+
+enum BillStatus {
+  DRAFT
+  /// Entered and owed.
+  OPEN
+  PAID
+  VOID
+}
+
+enum BillTerms {
+  DUE_DATE
+  /// Owed only once the client invoice it belongs to is settled.
+  PAY_WHEN_PAID
 }
