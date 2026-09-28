@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.388.0",
+    date: "2026-09-28",
+    title: "The activity feed shows logged time, and the inbox got a page",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Activity only ever showed work items changing, which on a practice that tracks time and not tickets meant it showed nothing at all. It now carries hours logged alongside item changes, newest first, with each half gated on its own terms \u2014 somebody who may read time but not issues sees the time half rather than a refusal, and never the other way round.",
+      },
+      {
+        kind: "feature",
+        text: "Notifications had a bell that showed ten and nowhere to see the rest. There is now an Inbox: everything waiting on you, with a count of each kind before the list \u2014 because five hundred notices of which four hundred are the same thing is a different morning from five hundred spread evenly, and a list of any length cannot tell you which you are looking at. You can clear one kind without clearing the others, and the bell no longer fetches the whole inbox to show ten of it.",
+      },
+    ],
+  },
+  {
     version: "2.387.0",
     date: "2026-09-28",
     title: "Bills: what the practice owes",

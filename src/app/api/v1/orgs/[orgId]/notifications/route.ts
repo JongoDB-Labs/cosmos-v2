@@ -17,7 +17,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.NOTIFICATION_READ);
 
-    const unreadOnly = request.nextUrl.searchParams.get("unreadOnly") === "true";
+    const sp = request.nextUrl.searchParams;
+    const unreadOnly = sp.get("unreadOnly") === "true";
+    // Optional, and the response is still a bare array either way — the bell
+    // reads this endpoint and shows ten, so it asks for ten rather than
+    // fetching an entire inbox to discard it. The paged, counted view the
+    // inbox PAGE needs lives at ./inbox.
+    const raw = Number(sp.get("limit"));
+    const limit = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 200) : undefined;
 
     const notifications = await prisma.notification.findMany({
       where: {
@@ -26,6 +33,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         ...(unreadOnly ? { read: false } : {}),
       },
       orderBy: { createdAt: "desc" },
+      ...(limit ? { take: limit } : {}),
     });
 
     return success(notifications);

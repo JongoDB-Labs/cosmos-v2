@@ -27,6 +27,8 @@ import { formatDateLongStable } from "@/lib/format/stable-date";
 
 interface FeedItem {
   id: string;
+  /** Which source this row came from. Absent on older cached pages. */
+  kind?: "work-item" | "time";
   action: string;
   field: string | null;
   oldValue: string | null;
@@ -40,7 +42,20 @@ interface FeedItem {
     title: string;
     columnKey: string;
     project: { id: string; key: string; name: string };
-    type: { id: string; name: string; icon: string | null; color: string | null };
+    type: {
+      id: string;
+      name: string;
+      icon: string | null;
+      color: string | null;
+    };
+  } | null;
+  /** Present only on a `time` row. */
+  time?: {
+    hours: number;
+    date: string;
+    description: string;
+    billableType: string;
+    project: { id: string; key: string; name: string } | null;
   } | null;
 }
 
@@ -63,7 +78,10 @@ const ANY = "__any__";
 const ACTIONS = ["created", "updated", "commented", "deleted"];
 
 /** Human-readable phrasing for an activity row. */
-function phrase(a: FeedItem, resolvers: ActivityValueResolvers): React.ReactNode {
+function phrase(
+  a: FeedItem,
+  resolvers: ActivityValueResolvers,
+): React.ReactNode {
   if (a.action === "created") return "created this item";
   if (a.action === "commented") return "commented";
   if (a.action === "deleted") return "deleted this item";
@@ -74,15 +92,23 @@ function phrase(a: FeedItem, resolvers: ActivityValueResolvers): React.ReactNode
     return (
       <>
         changed{" "}
-        <span className="font-medium text-[var(--text)]">{activityFieldLabel(a.field)}</span>
+        <span className="font-medium text-[var(--text)]">
+          {activityFieldLabel(a.field)}
+        </span>
         {oldLabel && (
           <>
-            {" "}from <span className="text-[var(--text-muted)] line-through">{oldLabel}</span>
+            {" "}
+            from{" "}
+            <span className="text-[var(--text-muted)] line-through">
+              {oldLabel}
+            </span>
           </>
         )}
         {newLabel && (
           <>
-            {" "}to <span className="font-medium text-[var(--text)]">{newLabel}</span>
+            {" "}
+            to{" "}
+            <span className="font-medium text-[var(--text)]">{newLabel}</span>
           </>
         )}
       </>
@@ -111,7 +137,13 @@ function dayLabel(iso: string): string {
  * Filter options come from the shared work-items facets endpoint (already
  * project-scoped to what the actor can read).
  */
-export function UpdatesFeed({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
+export function UpdatesFeed({
+  orgId,
+  orgSlug,
+}: {
+  orgId: string;
+  orgSlug: string;
+}) {
   const [projectId, setProjectId] = useState(ANY);
   const [typeId, setTypeId] = useState(ANY);
   const [action, setAction] = useState(ANY);
@@ -135,17 +167,25 @@ export function UpdatesFeed({ orgId, orgSlug }: { orgId: string; orgSlug: string
   }, [projectId, typeId, action, userId]);
 
   const feedKey = useOrgQueryKey("updates", qs);
-  const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    useInfiniteQuery({
-      queryKey: feedKey,
-      initialPageParam: null as string | null,
-      queryFn: ({ pageParam }) => {
-        const p = new URLSearchParams(qs);
-        if (pageParam) p.set("cursor", pageParam);
-        return jsonFetch<FeedPage>(`/api/v1/orgs/${orgId}/activity?${p.toString()}`);
-      },
-      getNextPageParam: (last) => last.nextCursor,
-    });
+  const {
+    data,
+    isLoading,
+    isError,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: feedKey,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => {
+      const p = new URLSearchParams(qs);
+      if (pageParam) p.set("cursor", pageParam);
+      return jsonFetch<FeedPage>(
+        `/api/v1/orgs/${orgId}/activity?${p.toString()}`,
+      );
+    },
+    getNextPageParam: (last) => last.nextCursor,
+  });
 
   const items = useMemo(() => data?.pages.flatMap((p) => p.data) ?? [], [data]);
 
@@ -156,10 +196,13 @@ export function UpdatesFeed({ orgId, orgSlug }: { orgId: string; orgSlug: string
   // Unknown"; missing `column` printed the raw status slug.
   const activityResolvers = useMemo(
     () => ({
-      user: (id: string) => facets?.members.find((m) => m.id === id)?.displayName,
+      user: (id: string) =>
+        facets?.members.find((m) => m.id === id)?.displayName,
       type: (id: string) => facets?.types.find((t) => t.id === id)?.name,
-      interval: (id: string) => facets?.intervals?.find((i) => i.id === id)?.name,
-      column: (key: string) => facets?.statuses?.find((s) => s.key === key)?.name,
+      interval: (id: string) =>
+        facets?.intervals?.find((i) => i.id === id)?.name,
+      column: (key: string) =>
+        facets?.statuses?.find((s) => s.key === key)?.name,
     }),
     [facets],
   );
@@ -186,28 +229,40 @@ export function UpdatesFeed({ orgId, orgSlug }: { orgId: string; orgSlug: string
           label="All projects"
           value={projectId}
           onChange={setProjectId}
-          options={projects.map((p) => ({ value: p.id, label: `${p.key} · ${p.name}` }))}
+          options={projects.map((p) => ({
+            value: p.id,
+            label: `${p.key} · ${p.name}`,
+          }))}
           ariaLabel="Filter by project"
         />
         <FilterSelect
           label="All types"
           value={typeId}
           onChange={setTypeId}
-          options={(facets?.types ?? []).map((t) => ({ value: t.id, label: t.name }))}
+          options={(facets?.types ?? []).map((t) => ({
+            value: t.id,
+            label: t.name,
+          }))}
           ariaLabel="Filter by type"
         />
         <FilterSelect
           label="Any action"
           value={action}
           onChange={setAction}
-          options={ACTIONS.map((a) => ({ value: a, label: a.charAt(0).toUpperCase() + a.slice(1) }))}
+          options={ACTIONS.map((a) => ({
+            value: a,
+            label: a.charAt(0).toUpperCase() + a.slice(1),
+          }))}
           ariaLabel="Filter by action"
         />
         <FilterSelect
           label="Anyone"
           value={userId}
           onChange={setUserId}
-          options={(facets?.members ?? []).map((m) => ({ value: m.id, label: m.displayName }))}
+          options={(facets?.members ?? []).map((m) => ({
+            value: m.id,
+            label: m.displayName,
+          }))}
           ariaLabel="Filter by person"
         />
       </div>
@@ -253,21 +308,53 @@ export function UpdatesFeed({ orgId, orgSlug }: { orgId: string; orgSlug: string
                       <span className="font-medium text-[var(--text)]">
                         {a.actor.displayName}
                       </span>{" "}
-                      <span className="text-[var(--text-muted)]">{phrase(a, activityResolvers)}</span>
+                      {a.kind === "time" && a.time ? (
+                        <span className="text-[var(--text-muted)]">
+                          logged{" "}
+                          <span className="font-medium text-[var(--text)] tabular-nums">
+                            {a.time.hours}h
+                          </span>
+                          {a.time.project ? (
+                            <>
+                              {" "}
+                              on{" "}
+                              <span className="font-medium text-[var(--text)]">
+                                {a.time.project.key}
+                              </span>{" "}
+                              {a.time.project.name}
+                            </>
+                          ) : (
+                            " against overhead"
+                          )}
+                          {a.time.description
+                            ? ` \u2014 ${a.time.description.split("\n")[0]}`
+                            : ""}
+                        </span>
+                      ) : (
+                        <span className="text-[var(--text-muted)]">
+                          {phrase(a, activityResolvers)}
+                        </span>
+                      )}
                       {a.item && (
                         <>
-                          {" "}on{" "}
+                          {" "}
+                          on{" "}
                           <Link
                             href={`/${orgSlug}/issues?item=${a.item.id}`}
                             className="font-medium text-[var(--primary)] hover:underline"
                           >
                             {a.item.ticketKey}
                           </Link>{" "}
-                          <span className="text-[var(--text-muted)]">{a.item.title}</span>
+                          <span className="text-[var(--text-muted)]">
+                            {a.item.title}
+                          </span>
                         </>
                       )}
                     </div>
-                    <time className="shrink-0 text-xs text-[var(--text-muted)]" dateTime={a.createdAt}>
+                    <time
+                      className="shrink-0 text-xs text-[var(--text-muted)]"
+                      dateTime={a.createdAt}
+                    >
                       <LocalTime value={a.createdAt} />
                     </time>
                   </li>
@@ -309,7 +396,11 @@ function FilterSelect({
 }) {
   return (
     <Select value={value} onValueChange={(v) => v && onChange(v as string)}>
-      <SelectTrigger size="sm" aria-label={ariaLabel} className="h-8 w-auto min-w-36 text-xs">
+      <SelectTrigger
+        size="sm"
+        aria-label={ariaLabel}
+        className="h-8 w-auto min-w-36 text-xs"
+      >
         <SelectValue placeholder={label} />
       </SelectTrigger>
       <SelectContent>
