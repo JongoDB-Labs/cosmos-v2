@@ -319,6 +319,7 @@ model Organization {
   workItemWatchers    WorkItemWatcher[]
 
   @@map("organizations")
+  timeOffRequests TimeOffRequest[]
 }
 
 model User {
@@ -4643,4 +4644,55 @@ model UpdateSettings {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("update_settings")
+}
+
+/// Somebody being away: asked for, decided on, and reserved against their week.
+///
+/// Weekly totals are DERIVED from the range and `hoursPerDay` rather than
+/// stored, so moving a date can never leave a stale total behind it. A request
+/// that spans a weekend does not consume hours on it.
+model TimeOffRequest {
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String        @map("org_id") @db.Uuid
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// A bare id, like Timesheet.userId: a person outliving their account must
+  /// not take the record of their leave with them.
+  userId       String        @map("user_id") @db.Uuid
+  kind         TimeOffKind
+  status       TimeOffStatus @default(PENDING)
+  startDate    DateTime      @map("start_date") @db.Date
+  endDate      DateTime      @map("end_date") @db.Date
+  /// Hours away on each WORKING day in the range: 8 for a full day, 4 for a
+  /// half. Not a total -- a total would have to be recomputed on every edit.
+  hoursPerDay  Decimal       @default(8) @map("hours_per_day") @db.Decimal(5, 2)
+  note         String?
+  decidedById  String?       @map("decided_by_id") @db.Uuid
+  decidedAt    DateTime?     @map("decided_at")
+  decisionNote String?       @map("decision_note")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  @@index([orgId, userId, startDate])
+  @@index([orgId, status])
+  @@index([orgId, startDate, endDate])
+  @@map("time_off_requests")
+}
+
+enum TimeOffKind {
+  VACATION
+  SICK
+  /// A firm-wide closure. Nobody asked for it, so nobody has to approve it.
+  HOLIDAY
+  UNPAID
+  PARENTAL
+  BEREAVEMENT
+  OTHER
+}
+
+enum TimeOffStatus {
+  PENDING
+  APPROVED
+  DENIED
+  /// Taken back by the person who asked, before anyone decided.
+  WITHDRAWN
 }

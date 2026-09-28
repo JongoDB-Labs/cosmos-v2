@@ -18,12 +18,20 @@ export default async function TimeTrackingPage({ params }: PageParams) {
       description="Log and review time entries"
       maxWidth="7xl"
       actions={
-        <Link
-          href={`/${orgSlug}/time-tracking/past`}
-          className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm"
-        >
-          Past timesheets
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/${orgSlug}/time-tracking/time-off`}
+            className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm"
+          >
+            Time off
+          </Link>
+          <Link
+            href={`/${orgSlug}/time-tracking/past`}
+            className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm"
+          >
+            Past timesheets
+          </Link>
+        </div>
       }
     >
       <TimeTracker orgId={ctx.orgId} />

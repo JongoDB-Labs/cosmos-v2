@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.386.0",
+    date: "2026-09-27",
+    title: "Ask for time off, and answer the people who asked you",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Being away was the one thing the product had no way to say. Holiday, sickness and office closures were arranged in email or a chat message and then, at best, typed in as hours after the fact \u2014 so a week that was already half booked looked completely free to whoever was planning it. Time tracking now has a Time off screen. You pick a reason, a first and last day and how many hours a day you will be away, and it goes to whoever signs off your time; they answer it on the same screen, with a queue that only appears when something is actually waiting on them. Weekends are never counted, so a Friday-to-Monday break is two days and not four, and the hours a request consumes in any given week are worked out from its dates rather than stored \u2014 move a date and the totals simply follow. A request that nobody has answered yet still counts against the week, because a plan that showed only approved leave would show a team as free right up until it was too late to do anything about it.",
+      },
+    ],
+  },
+  {
     version: "2.385.0",
     date: "2026-09-27",
     title: "A file can belong to the practice, not just a project",
