@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.385.0",
+    date: "2026-09-27",
+    title: "A file can belong to the practice, not just a project",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Every document had to be filed against a project, which left nowhere at all for the things that outlive any one job \u2014 the contract template, the certificate of insurance, the standard details, the office handbook. People kept them in email or on a shared drive, outside the tool that was supposed to hold them. There is now a Files section in the sidebar: one list of everything the practice keeps, with the firm\u2019s own documents alongside the ones filed on jobs, filterable by project and searchable by name. Anyone who can read the organisation can browse it; adding something to the firm\u2019s own shelf is an administrator\u2019s act. Documents that belong to a job are shown only to the people who can already open that job, so the library is a way through to what you could always see and never a way around it.",
+      },
+    ],
+  },
+  {
     version: "2.384.0",
     date: "2026-09-27",
     title: "You can see your own past timesheets",

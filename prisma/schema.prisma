@@ -4015,7 +4015,10 @@ enum DocumentBlockKind {
 model Document {
   id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId               String              @map("org_id") @db.Uuid
-  projectId           String              @map("project_id") @db.Uuid
+  // Null means the document belongs to the FIRM, not to a project: the
+  // org-wide library (templates, certificates, standards) has nothing to
+  // hang on. Project documents are unchanged and still cascade with it.
+  projectId           String?             @map("project_id") @db.Uuid
   title               String
   classificationLevel ClassificationLevel @default(UNCLASSIFIED) @map("classification_level")
   storageKey          String              @map("storage_key")
@@ -4032,7 +4035,7 @@ model Document {
   updatedAt           DateTime            @updatedAt @map("updated_at")
 
   org     Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   blocks  DocumentBlock[]
 
   @@index([orgId, projectId])
