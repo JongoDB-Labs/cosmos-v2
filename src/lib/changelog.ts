@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.384.0",
+    date: "2026-09-27",
+    title: "You can see your own past timesheets",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Until now the only week you could look at was the one you were standing in. Your submitted weeks existed and your supervisor could see the ones waiting on them, but there was nowhere to look back over your own year \u2014 so the ordinary question, \u201cdid I ever submit that fortnight in March?\u201d, had no screen to answer it. Time tracking now has a Past timesheets view: every period of the year, the hours in it, whether it was submitted and when it was last touched, with a year to step back through. Periods you never opened a timesheet for are listed too, showing no hours, because a list of only the weeks you did submit cannot show you the one you forgot.",
+      },
+    ],
+  },
+  {
     version: "2.383.0",
     date: "2026-09-27",
     title: "An expense can belong to a project",
