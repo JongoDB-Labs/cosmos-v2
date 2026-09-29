@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.391.0",
+    date: "2026-09-29",
+    title: "A plugin that had no migrations now has them",
+    highlights: [
+      {
+        kind: "fix",
+        text: "One bundled plugin declared eleven tables and shipped no migrations for any of them, so a newly built instance simply never created them: the deploy applied what it had and reported success, and the failure surfaced later as enabling the plugin erroring out half-way, with the plugin recorded as on and its tables absent. Existing instances were unaffected and stayed that way \u2014 the migration is written so it does nothing where the tables already exist. A check now refuses any plugin whose declared tables are not created by its own migrations.",
+      },
+    ],
+  },
+  {
     version: "2.390.0",
     date: "2026-09-28",
     title: "Walkthrough steps point at what they are describing",
