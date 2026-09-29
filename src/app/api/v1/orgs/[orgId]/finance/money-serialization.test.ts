@@ -27,7 +27,7 @@ const { getAuthContext, prisma, logAudit } = vi.hoisted(() => ({
   prisma: {
     organization: { findUnique: vi.fn() },
     revenue: { findMany: vi.fn(), count: vi.fn() },
-    expense: { findMany: vi.fn() },
+    expense: { findMany: vi.fn(), count: vi.fn() },
     timeEntry: { findMany: vi.fn() },
   },
   logAudit: vi.fn(),
@@ -76,6 +76,11 @@ const params = Promise.resolve({ orgId: ORG_ID });
 beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
+  // The summary now asks whether the org has EVER posted before it will
+  // report a total: an untouched ledger withholds rather than claiming $0.
+  // Every scenario here has rows, so the books are in use.
+  prisma.revenue.count.mockResolvedValue(2);
+  prisma.expense.count.mockResolvedValue(1);
   getAuthContext.mockResolvedValue(ctxWith(bits("FINANCE_READ")));
   logAudit.mockResolvedValue(undefined);
 });

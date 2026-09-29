@@ -127,7 +127,10 @@ export async function getFinanceSummary(
 
   const revWhere: Record<string, unknown> = { orgId: ctx.orgId };
   const expWhere: Record<string, unknown> = { orgId: ctx.orgId };
-  const timeWhere: Record<string, unknown> = { orgId: ctx.orgId, status: "APPROVED" };
+  // No status here: RECORDED_TIME is spread over this clause at the query and
+  // owns the answer. Leaving the old APPROVED behind would read as a second,
+  // contradicting rule that happens to lose on spread order.
+  const timeWhere: Record<string, unknown> = { orgId: ctx.orgId };
   if (hasDateFilter) {
     revWhere.date = dateFilter;
     expWhere.date = dateFilter;
@@ -178,10 +181,19 @@ export async function getFinanceSummary(
   }
   const billableAmount = sumMoney(billableAmounts);
 
+  // Same rule as the finance summary this mirrors: an org that has never
+  // posted to the ledger has not earned zero, it has not said. Answering 0
+  // here puts the claim in the assistant's mouth instead of on a tile.
+  const [everRevenue, everExpense] = await Promise.all([
+    prisma.revenue.count({ where: { orgId: ctx.orgId } }),
+    prisma.expense.count({ where: { orgId: ctx.orgId } }),
+  ]);
+  const ledgerUsed = everRevenue > 0 || everExpense > 0;
+
   return {
-    totalRevenue: moneyToNumber(totalRevenue),
-    totalExpenses: moneyToNumber(totalExpenses),
-    netIncome: moneyToNumber(totalRevenue.minus(totalExpenses)),
+    totalRevenue: ledgerUsed ? moneyToNumber(totalRevenue) : null,
+    totalExpenses: ledgerUsed ? moneyToNumber(totalExpenses) : null,
+    netIncome: ledgerUsed ? moneyToNumber(totalRevenue.minus(totalExpenses)) : null,
     revenueByType,
     expensesByCategory,
     monthlyTrend,

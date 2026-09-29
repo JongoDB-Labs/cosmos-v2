@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.395.0",
+    date: "2026-09-29",
+    title: "Finance stops reporting nothing as zero",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Revenue, expenses and net income all read $0.00 for anyone who had not started using the accounting side \u2014 on the same page whose project table counted their work at over a million dollars. Zero is a claim about what the practice took, and an untouched ledger cannot support it. Those three now withhold until something has actually been posted. A firm that does keep its books and had a quiet month still sees $0.00, because that one is a real answer.",
+      },
+    ],
+  },
+  {
     version: "2.394.0",
     date: "2026-09-29",
     title: "One answer to \u201chow much time have we recorded\u201d",
