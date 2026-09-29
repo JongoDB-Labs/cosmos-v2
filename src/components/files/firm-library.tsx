@@ -106,7 +106,7 @@ export function FirmLibrary({ orgId, canUpload }: { orgId: string; canUpload: bo
       className={cn(
         "rounded-full border px-3 py-1 text-sm",
         scope === value
-          ? "border-transparent bg-[var(--accent)] text-white"
+          ? "border-transparent bg-[var(--primary)] text-[var(--primary-foreground)]"
           : "border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)]",
       )}
     >

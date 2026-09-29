@@ -139,7 +139,7 @@ export function TourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string })
 
         <div className="max-h-[60vh] overflow-y-auto px-4 py-3">
           <p className="mb-2 text-sm text-[var(--text-muted)]">{step.blurb}</p>
-          <p className="rounded border-l-2 border-[var(--text)] bg-[var(--surface-hover)] px-3 py-2 text-sm">
+          <p className="rounded border-l-2 border-[var(--text)] bg-[var(--primary-tint)] px-3 py-2 text-sm">
             {step.look}
           </p>
 

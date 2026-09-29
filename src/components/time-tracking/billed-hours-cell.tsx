@@ -128,7 +128,7 @@ export function BilledHoursCell({
     <button
       type="button"
       data-tour="billed-hours"
-      className="group inline-flex items-center gap-1 rounded px-1 hover:bg-[var(--surface-hover)]"
+      className="group inline-flex items-center gap-1 rounded px-1 hover:bg-[var(--primary-tint)]"
       onClick={() => {
         setValue(decided ? String(entry.billedHours) : String(entry.hours));
         setEditing(true);

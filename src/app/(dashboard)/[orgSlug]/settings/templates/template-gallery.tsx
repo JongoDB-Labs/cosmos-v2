@@ -259,7 +259,7 @@ function TemplateCard({
           </div>
         </div>
         {template.isBuiltIn && (
-          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] bg-[var(--bg-elevated)] rounded px-1.5 py-0.5">
+          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] bg-[var(--surface)] rounded px-1.5 py-0.5">
             Built-in
           </span>
         )}
@@ -393,7 +393,7 @@ export function TemplateGallery({ orgId, orgSlug }: TemplateGalleryProps) {
     <div className="space-y-6">
       {/* Tab bar + actions */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-1">
+        <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1">
           {(["built-in", "org"] as Tab[]).map((tab) => (
             <button
               key={tab}

@@ -368,7 +368,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
           <div>
             <div className="flex items-center gap-2 font-medium text-[var(--text)]">
               <Bot className="size-4 text-[var(--primary)]" /> Autonomous delivery
-              <span className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+              <span className="rounded bg-[var(--surface)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
                 Owner
               </span>
             </div>
@@ -469,7 +469,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
         </div>
       </div>
 
-      <div className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 p-4 text-xs text-[var(--text-muted)]">
+      <div className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)]/30 p-4 text-xs text-[var(--text-muted)]">
         <Info className="mt-0.5 size-4 shrink-0" />
         <div className="space-y-1">
           <p>
@@ -518,7 +518,7 @@ function ProjectChecklist({
       {projects.map((p) => (
         <label
           key={p.id}
-          className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-[var(--muted)]/30"
+          className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-[var(--surface)]/30"
         >
           <Checkbox checked={selectedIds.includes(p.id)} onChange={() => onToggle(p.id)} />
           <span>

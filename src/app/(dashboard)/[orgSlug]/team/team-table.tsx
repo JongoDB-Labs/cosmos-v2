@@ -384,7 +384,7 @@ export function TeamTable({
         return (
           <button
             type="button"
-            className="cursor-pointer rounded-sm text-left transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+            className="cursor-pointer rounded-sm text-left transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
             onClick={() => openRoleDialog(row.original)}
             aria-label={`Manage roles for ${row.original.name}`}
           >

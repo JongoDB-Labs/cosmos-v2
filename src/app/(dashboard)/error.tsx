@@ -20,8 +20,8 @@ export default function DashboardError({
 
   return (
     <div className="flex flex-1 items-center justify-center p-8">
-      <div className="max-w-md rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-elevated)] p-8 text-center">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--status-danger-bg)] text-[var(--status-danger)]">
+      <div className="max-w-md rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] p-8 text-center">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--status-critical)]/15 text-[var(--status-critical-text)]">
           <AlertTriangle className="h-6 w-6" />
         </div>
         <h2 className="mb-2 text-lg font-semibold text-[var(--text)]">

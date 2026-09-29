@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.399.0",
+    date: "2026-09-29",
+    title: "The parts of the interface that were painted in a colour that did not exist",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The SELECTED filter on Files, Inbox and Bills was the one you could not see: it was drawn in a colour the theme never defined, which leaves no background and white text on a pale page. The unselected filters beside it looked normal, so the row read as though nothing was selected at all.",
+      },
+      {
+        kind: "fix",
+        text: "Unread items in the Inbox are marked again. The dot that distinguishes them was painted in the same missing colour, so read and unread looked identical.",
+      },
+      {
+        kind: "fix",
+        text: "Error screens have their card and their icon back. Both were drawn in colours that were never defined, so the one screen whose entire job is to be legible when something has gone wrong was bare text on the page.",
+      },
+      {
+        kind: "improvement",
+        text: "Hover highlights, quiet background blocks and the guided tour's callouts had the same problem in smaller ways \u2014 twenty-four screens in all now use colours the theme actually defines, and a new check refuses to let a colour that does not exist reach a release again.",
+      },
+    ],
+  },
+  {
     version: "2.398.0",
     date: "2026-09-29",
     title: "The sign-in page knows which product it belongs to, cold",

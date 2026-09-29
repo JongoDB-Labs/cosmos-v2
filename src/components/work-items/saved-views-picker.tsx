@@ -212,7 +212,7 @@ function ViewRow({
             e.stopPropagation();
             onDelete();
           }}
-          className="mr-1 rounded p-1 text-[var(--text-muted)] hover:bg-[var(--muted)]/50 hover:text-[var(--status-critical)]"
+          className="mr-1 rounded p-1 text-[var(--text-muted)] hover:bg-[var(--surface)]/50 hover:text-[var(--status-critical)]"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>

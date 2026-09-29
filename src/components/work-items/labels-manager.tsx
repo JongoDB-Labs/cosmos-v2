@@ -288,7 +288,7 @@ export function LabelsManager({ orgId }: { orgId: string }) {
                           onClick={() => setConfirmDelete(label)}
                           aria-label={`Delete ${label.name}`}
                         >
-                          <Trash2 className="h-4 w-4 text-[var(--danger)]" />
+                          <Trash2 className="h-4 w-4 text-[var(--status-critical-text)]" />
                         </Button>
                       </div>
                     )}

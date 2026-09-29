@@ -121,7 +121,7 @@ function ReadOnlyBanner({
   });
 
   return (
-    <div className="mb-6 flex items-center justify-between gap-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+    <div className="mb-6 flex items-center justify-between gap-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4">
       <p className="text-sm text-[var(--text-muted)]">
         This is a <strong>built-in</strong> template and cannot be edited. Clone it to create an editable copy.
       </p>
@@ -233,7 +233,7 @@ function EditableForm({ template, orgId }: EditableFormProps) {
                   "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors select-none",
                   features[f.key]
                     ? "border-[var(--primary)] bg-[color-mix(in_oklab,var(--primary)_8%,transparent)] text-[var(--text)]"
-                    : "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:border-[var(--primary)]/50"
+                    : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:border-[var(--primary)]/50"
                 )}
               >
                 <input
