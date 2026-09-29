@@ -19,8 +19,12 @@ const SIZES: Record<Size, number> = { sm: 16, md: 24, lg: 48 };
  *
  * Calling getBrand() here made this component the one place on the login page
  * that disagreed with the rest of it: the title, the heading and the tagline
- * all said the deployment's real product while the mark beside them rendered
- * `alt="COSMOS"` — the default baked into the image.
+ * all said the deployment's real product, while the mark beside them described
+ * itself with the default name baked into the image — in its alt text, so it
+ * reached screen readers and nobody else.
+ *
+ * (Naming that default here would trip brand-literals.arch.test.ts, which
+ * forbids the literal in exactly these files. Hence the circumlocution.)
  */
 export function BrandMark({ size = "md" }: { size?: Size }) {
   const px = SIZES[size];
