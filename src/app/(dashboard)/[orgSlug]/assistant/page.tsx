@@ -11,7 +11,7 @@ export default async function AssistantPage({ params }: PageParams) {
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" data-tour="assistant">
       <h1 className="sr-only">Assistant</h1>
       <AssistantPanel orgId={ctx.orgId} />
     </div>

@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.390.0",
+    date: "2026-09-28",
+    title: "Walkthrough steps point at what they are describing",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A walkthrough step could say \u201clook at the aging columns\u201d and then leave you to find them: only a handful of screens had anything a step could point at, so most steps narrated from a card in the corner. Thirty-six screens now mark their content as a target, and the step draws a highlight round it. The mark sits on the body rather than the whole page \u2014 a box round everything, heading and all, is one you learn to ignore.",
+      },
+    ],
+  },
+  {
     version: "2.389.0",
     date: "2026-09-28",
     title: "Long walkthroughs keep their Next button",

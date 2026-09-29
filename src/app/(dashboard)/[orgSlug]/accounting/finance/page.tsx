@@ -19,6 +19,7 @@ export default async function FinancePage({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="finance"
       title="Finance"
       description="Revenue, expenses, and the accounting ledger"
       maxWidth="7xl"

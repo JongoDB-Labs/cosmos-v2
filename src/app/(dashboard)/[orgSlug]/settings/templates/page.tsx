@@ -25,6 +25,7 @@ async function TemplatesContent({ params }: PageParams) {
   if (!canViewSettings(ctx, "/settings/templates")) {
     return (
       <PageShell
+        tourAnchor="templates"
         title="Templates"
         description="Browse built-in project templates or manage your org's custom templates"
       >

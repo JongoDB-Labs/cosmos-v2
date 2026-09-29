@@ -19,6 +19,7 @@ export default async function RolesPage({ params }: PageParams) {
   if (!canViewSettings(ctx, "/settings/roles")) {
     return (
       <PageShell
+        tourAnchor="roles"
         title="Roles & Access"
         description="Work roles grant extra permissions on top of a member's org role"
       >

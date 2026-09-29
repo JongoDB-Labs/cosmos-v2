@@ -13,6 +13,7 @@ export default async function PastTimesheetsPage({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="timesheets-past"
       title="Past timesheets"
       description="Every period of the year, and what you submitted for it"
       maxWidth="7xl"

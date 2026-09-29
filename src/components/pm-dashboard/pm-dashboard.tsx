@@ -245,7 +245,7 @@ export function PmDashboard({ scope, data, audience: initialAudience }: PmDashbo
   const header = AUDIENCE_HEADER[audience];
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 p-6">
+    <div className="mx-auto flex max-w-6xl flex-col gap-6 p-6" data-tour="pm-dashboard">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-[var(--text)]">{header.title}</h2>

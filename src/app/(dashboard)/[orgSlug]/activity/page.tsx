@@ -42,6 +42,7 @@ async function ActivityPageContent({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="activity"
       title="Activity"
       description={`The latest work-item activity across every project in ${org.name}`}
     >

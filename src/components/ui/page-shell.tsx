@@ -7,6 +7,22 @@ export interface PageShellProps {
   children: React.ReactNode;
   maxWidth?: "5xl" | "7xl" | "full";
   className?: string;
+  /**
+   * Marks this page's CONTENT as the target of a walkthrough step, as
+   * [data-tour="<anchor>"].
+   *
+   * Set here rather than inside each page's own components because the useful
+   * target is the same on every page -- the body below the title -- and putting
+   * it on the shell means a page cannot acquire a stale one by being
+   * refactored: the anchor lives with the route, not with whichever component
+   * currently happens to render it.
+   *
+   * It wraps children rather than sitting on the outer container on purpose. A
+   * highlight drawn around the whole page, title and all, is a box the reader
+   * learns to ignore; one drawn around the thing the step is talking about is
+   * the point of having one.
+   */
+  tourAnchor?: string;
 }
 
 const MAX_W = {
@@ -22,6 +38,7 @@ export function PageShell({
   children,
   maxWidth = "7xl",
   className,
+  tourAnchor,
 }: PageShellProps) {
   return (
     <div className={cn("mx-auto px-4 py-5 md:p-8", MAX_W[maxWidth], className)}>
@@ -36,7 +53,7 @@ export function PageShell({
         </div>
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </div>
-      {children}
+      {tourAnchor ? <div data-tour={tourAnchor}>{children}</div> : children}
     </div>
   );
 }

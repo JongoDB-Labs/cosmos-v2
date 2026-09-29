@@ -33,6 +33,7 @@ export default async function OrgImportPage({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="import-wizard"
       title="Import"
       description="Bring records in from another system's export — a spreadsheet of projects, phases or people"
       maxWidth="5xl"

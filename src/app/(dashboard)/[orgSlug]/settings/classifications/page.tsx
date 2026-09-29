@@ -24,6 +24,7 @@ export default async function ClassificationsPage({ params }: PageParams) {
   if (!canViewSettings(ctx, "/settings/classifications")) {
     return (
       <PageShell
+        tourAnchor="classifications"
         title="Classifications"
         description="Data classification labels"
       >

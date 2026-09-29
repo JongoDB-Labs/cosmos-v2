@@ -41,6 +41,7 @@ async function IssuesPageContent({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="issues"
       title="Issues"
       description={`Search work items across every project in ${org.name}`}
       // Labels are managed from here because this is where they are used and

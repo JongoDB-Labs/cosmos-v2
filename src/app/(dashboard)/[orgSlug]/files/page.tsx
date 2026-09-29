@@ -20,6 +20,7 @@ export default async function FilesPage({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="files"
       title="Files"
       description="What the practice keeps, alongside the files on jobs you can see"
       maxWidth="7xl"

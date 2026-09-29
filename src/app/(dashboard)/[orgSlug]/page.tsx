@@ -57,6 +57,7 @@ async function HeaderAndContent({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="overview"
       title={org.name}
       description={<MembersAndProjectsLine orgSlug={orgSlug} orgId={ctx.orgId} plan={org.plan} />}
       actions={

@@ -12,7 +12,7 @@ export default async function ProductsPage({ params }: PageParams) {
   if (!ctx) redirect("/");
 
   return (
-    <PageShell title="Products" description="Catalog of products and services" maxWidth="7xl">
+    <PageShell tourAnchor="products" title="Products" description="Catalog of products and services" maxWidth="7xl">
       <ProductsList orgId={ctx.orgId} />
     </PageShell>
   );

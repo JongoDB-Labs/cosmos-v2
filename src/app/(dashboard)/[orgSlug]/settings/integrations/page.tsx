@@ -17,7 +17,7 @@ export default async function IntegrationsPage({ params }: PageParams) {
 
   if (!canViewSettings(ctx, "/settings/integrations")) {
     return (
-      <PageShell title="Integrations" description="Connect external tools">
+      <PageShell tourAnchor="integrations" title="Integrations" description="Connect external tools">
         <NoAccess what="integrations" />
       </PageShell>
     );

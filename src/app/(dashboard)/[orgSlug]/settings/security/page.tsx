@@ -63,6 +63,7 @@ export default async function SecurityPage({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="security"
       title="Security"
       description="Single sign-on, sessions, and IP allowlists"
     >
