@@ -97,7 +97,10 @@ export function TourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string })
       {box && (
         <div
           aria-hidden="true"
-          className="pointer-events-none fixed z-30 rounded-md ring-2 ring-[var(--text)] ring-offset-2 ring-offset-[var(--bg)] transition-all motion-reduce:transition-none"
+          // z-[85]: see the card below. The ring sits just under it so the card
+          // always wins if they overlap, and it is pointer-events-none, so
+          // being high in the stack costs nothing.
+          className="pointer-events-none fixed z-[85] rounded-md ring-2 ring-[var(--text)] ring-offset-2 ring-offset-[var(--bg)] transition-all motion-reduce:transition-none"
           style={{ top: box.top, left: box.left, width: box.width, height: box.height }}
         />
       )}
@@ -107,7 +110,18 @@ export function TourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string })
         aria-label={`${tour.name} walkthrough, step ${index + 1} of ${tour.steps.length}`}
         style={{ ...pos, width: `min(${CARD_W}px, calc(100vw - 2rem))` }}
         className={cn(
-          "fixed z-40 rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-lg",
+          // z-[90] puts the walkthrough ABOVE every overlay in the app. The
+          // ladder it has to clear: dialogs, sheets, dropdowns and tooltips at
+          // z-50, the notes mention picker at 60, and two plugin overlays at 70
+          // and 80. It stays under the skip link at 100, which must always win.
+          //
+          // It used to be z-40, i.e. under all of them. That is not a cosmetic
+          // ordering choice: the card is the only way to advance or leave the
+          // walkthrough, so anything that opened on top of it stranded the
+          // reader with no visible control. The changelog dialog does exactly
+          // that on first load after a release -- which is when a walkthrough
+          // is most likely to be running.
+          "fixed z-[90] rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-lg",
           "transition-all motion-reduce:transition-none",
         )}
       >
