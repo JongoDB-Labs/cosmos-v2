@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.389.0",
+    date: "2026-09-28",
+    title: "Long walkthroughs keep their Next button",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The walkthrough card drew one dash per step along its bottom edge. At five or six steps that read as progress; at sixty it was about 1,200px of dashes inside a 370px card, and it pushed the Next button clean off the edge \u2014 so a long walkthrough opened correctly, showed step one, and offered no visible way to reach step two. The dashes are now a single bar that stays the same size whatever the length, and the exact position is where it already was, in the \u201cN of M\u201d above it.",
+      },
+    ],
+  },
+  {
     version: "2.388.0",
     date: "2026-09-28",
     title: "The activity feed shows logged time, and the inbox got a page",

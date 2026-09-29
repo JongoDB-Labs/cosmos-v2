@@ -165,16 +165,25 @@ export function TourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string })
             <ArrowLeft className="mr-1 size-3.5" />
             Back
           </Button>
-          <div className="flex gap-1" aria-hidden="true">
-            {tour.steps.map((s, i) => (
-              <span
-                key={s.id}
-                className={cn(
-                  "h-1 w-4 rounded-full",
-                  i === index ? "bg-[var(--text)]" : "bg-[var(--border)]",
-                )}
-              />
-            ))}
+          {/*
+            One continuous bar rather than one dash per step. A dash each was
+            fine at five or six steps and silently broke the card at sixty: 60
+            dashes at w-4 plus gap-1 is about 1,200px of track inside a ~370px
+            card, and with nothing to stop it growing it pushed Next clean off
+            the edge. The tour still worked; there was simply no way to advance
+            it. flex-1 with min-w-0 is what keeps that from ever recurring --
+            the track now yields to Back and Next instead of crowding them out,
+            at any length. Exact position stays legible from the "N of M" in
+            the header, which is where a number belongs anyway.
+          */}
+          <div
+            className="mx-2 h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--border)]"
+            aria-hidden="true"
+          >
+            <div
+              className="h-full rounded-full bg-[var(--text)] transition-[width] duration-200"
+              style={{ width: `${((index + 1) / tour.steps.length) * 100}%` }}
+            />
           </div>
           {isLast ? (
             <Button size="sm" onClick={stop}>Done</Button>
