@@ -64,12 +64,28 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           where: { orgId, projectId: project.id },
         });
 
-        const completedItems =
-          doneKeys.length > 0
-            ? await prisma.workItem.count({
-                where: { orgId, projectId: project.id, columnKey: { in: doneKeys } },
-              })
-            : 0;
+        // A project with no board has no DONE column to name, and answering
+        // ZERO then is a claim rather than an absence: a practice whose work
+        // items were 80% finished read 0% complete across every project on the
+        // portfolio, because it tracks work without using boards at all.
+        //
+        // `completedAt` is the item's own record of being finished, and this
+        // route already trusts it — `overdueItems` below is defined as
+        // `completedAt: null`. So the two halves of one response disagreed
+        // about what "done" means. Fall back to it rather than to zero.
+        //
+        // Board columns still WIN where they exist: a team that has modelled
+        // its own done states has said something more specific than the
+        // timestamp, and this is a fallback, not a replacement.
+        const completedItems = await prisma.workItem.count({
+          where: {
+            orgId,
+            projectId: project.id,
+            ...(doneKeys.length > 0
+              ? { columnKey: { in: doneKeys } }
+              : { completedAt: { not: null } }),
+          },
+        });
 
         const inProgressItems =
           inProgressKeys.length > 0

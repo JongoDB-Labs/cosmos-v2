@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.393.0",
+    date: "2026-09-29",
+    title: "Analytics counts finished work even when you do not use boards",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The portfolio view reported every project 0% complete for anyone tracking work without boards \u2014 it worked out what \u201cdone\u201d meant from a board\u2019s own columns, and with no board to ask, it answered zero rather than saying it could not tell. One practice read 0% across the board with four out of five of its items finished. It now falls back to each item\u2019s own completion, which is what the same view already used to decide whether something was overdue. Teams who have set up their own done columns still get theirs.",
+      },
+    ],
+  },
+  {
     version: "2.392.0",
     date: "2026-09-29",
     title: "A walkthrough no longer disappears behind whatever opens on top of it",
