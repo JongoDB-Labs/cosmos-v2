@@ -19,6 +19,7 @@ export default async function InboxPage({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="inbox"
       title="Inbox"
       description="Everything waiting on you, grouped by what kind of thing it is"
       maxWidth="5xl"

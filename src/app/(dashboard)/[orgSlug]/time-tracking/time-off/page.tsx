@@ -13,6 +13,7 @@ export default async function TimeOffPage({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="time-off"
       title="Time off"
       description="Ask to be away, and answer the people who have asked you"
       maxWidth="7xl"

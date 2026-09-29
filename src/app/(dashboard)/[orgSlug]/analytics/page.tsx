@@ -12,7 +12,7 @@ export default async function AnalyticsPage({ params }: PageParams) {
   if (!ctx) redirect("/");
 
   return (
-    <PageShell title="Analytics" description="Portfolio insights" maxWidth="7xl">
+    <PageShell tourAnchor="analytics" title="Analytics" description="Portfolio insights" maxWidth="7xl">
       <AnalyticsDashboard orgId={ctx.orgId} />
     </PageShell>
   );

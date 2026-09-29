@@ -12,7 +12,7 @@ export default async function NotesPage({ params }: PageParams) {
   if (!ctx) redirect("/");
 
   return (
-    <PageShell title="Notes" description="Workspace knowledge base" maxWidth="7xl">
+    <PageShell tourAnchor="notes" title="Notes" description="Workspace knowledge base" maxWidth="7xl">
       <NotesList orgId={ctx.orgId} />
     </PageShell>
   );

@@ -12,7 +12,7 @@ export default async function CrmPage({ params }: PageParams) {
   if (!ctx) redirect("/");
 
   return (
-    <PageShell title="CRM" description="Pipeline and contacts" maxWidth="7xl">
+    <PageShell tourAnchor="crm" title="CRM" description="Pipeline and contacts" maxWidth="7xl">
       <PipelineBoard orgId={ctx.orgId} />
     </PageShell>
   );

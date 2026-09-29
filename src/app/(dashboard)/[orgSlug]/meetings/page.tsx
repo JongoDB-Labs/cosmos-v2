@@ -12,7 +12,7 @@ export default async function MeetingsPage({ params }: PageParams) {
   if (!ctx) redirect("/");
 
   return (
-    <PageShell title="Meetings" description="Schedule and notes" maxWidth="7xl">
+    <PageShell tourAnchor="meetings" title="Meetings" description="Schedule and notes" maxWidth="7xl">
       <MeetingsList orgId={ctx.orgId} />
     </PageShell>
   );

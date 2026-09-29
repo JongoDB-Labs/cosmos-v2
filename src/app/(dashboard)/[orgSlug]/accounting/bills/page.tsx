@@ -19,6 +19,7 @@ export default async function BillsPage({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="bills"
       title="Bills"
       description="What consultants and suppliers have invoiced the practice, and what is still owed"
       maxWidth="7xl"

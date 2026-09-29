@@ -10,7 +10,7 @@ type PageParams = { params: Promise<{ orgSlug: string }> };
 // Full-height chat surface — see [channelId]/page.tsx for the h-full rationale.
 export default function ChatPage({ params }: PageParams) {
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" data-tour="chat">
       <h1 className="sr-only">Chat</h1>
       <Suspense
         fallback={

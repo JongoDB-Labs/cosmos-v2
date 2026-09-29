@@ -42,6 +42,7 @@ async function Gate({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="plugins"
       title="Plugins"
       description="Optional capability bundles — enabled per organization, off until you opt in"
     >

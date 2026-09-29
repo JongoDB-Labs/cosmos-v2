@@ -18,6 +18,7 @@ export default async function CustomFieldsPage({ params }: PageParams) {
   if (!canViewSettings(ctx, "/settings/custom-fields")) {
     return (
       <PageShell
+        tourAnchor="custom-fields"
         title="Custom fields"
         description="Per-entity field schemas"
       >

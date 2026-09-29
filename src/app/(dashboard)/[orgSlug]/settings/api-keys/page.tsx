@@ -24,6 +24,7 @@ export default async function ApiKeysPage({ params }: PageParams) {
   if (!canViewSettings(ctx, "/settings/api-keys")) {
     return (
       <PageShell
+        tourAnchor="api-keys"
         title="API keys"
         description="Bearer tokens for the Cosmos API"
       >

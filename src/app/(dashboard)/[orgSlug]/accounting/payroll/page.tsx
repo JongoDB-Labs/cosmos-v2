@@ -19,6 +19,7 @@ export default async function PayrollPage({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="payroll"
       title="Payroll"
       description="Employee cost rates, pay runs, and labor cost distributed to the ledger by project"
       maxWidth="7xl"

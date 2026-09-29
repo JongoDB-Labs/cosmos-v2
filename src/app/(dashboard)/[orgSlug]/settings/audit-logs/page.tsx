@@ -18,6 +18,7 @@ export default async function AuditLogsPage({ params }: PageParams) {
   if (!canViewSettings(ctx, "/settings/audit-logs")) {
     return (
       <PageShell
+        tourAnchor="audit-log"
         title="Audit logs"
         description="Activity history for this organization"
       >

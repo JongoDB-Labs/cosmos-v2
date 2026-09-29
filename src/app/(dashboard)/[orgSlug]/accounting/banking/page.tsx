@@ -18,7 +18,7 @@ export default async function BankingPage({ params }: PageParams) {
   const allowed = canViewPage(ctx.permissions, "/accounting/banking");
 
   return (
-    <PageShell title="Banking" description="Review imported bank transactions, categorize, and post as expenses" maxWidth="7xl">
+    <PageShell tourAnchor="banking" title="Banking" description="Review imported bank transactions, categorize, and post as expenses" maxWidth="7xl">
       {allowed ? (
         <BankingInbox orgId={ctx.orgId} />
       ) : (

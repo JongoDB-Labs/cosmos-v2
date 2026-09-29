@@ -12,7 +12,7 @@ export default async function ContractsPage({ params }: PageParams) {
   if (!ctx) redirect("/");
 
   return (
-    <PageShell title="Contracts" description="Agreements, value, and signatures" maxWidth="7xl">
+    <PageShell tourAnchor="contracts" title="Contracts" description="Agreements, value, and signatures" maxWidth="7xl">
       <ContractsList orgId={ctx.orgId} />
     </PageShell>
   );

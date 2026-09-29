@@ -19,6 +19,7 @@ export default async function InvoicesPage({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="invoices"
       title="Invoices"
       description="Create and send invoices, record payments, and track AR aging"
       maxWidth="7xl"

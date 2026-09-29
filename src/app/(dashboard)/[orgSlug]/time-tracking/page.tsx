@@ -14,6 +14,7 @@ export default async function TimeTrackingPage({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="time-tracker"
       title="Time tracking"
       description="Log and review time entries"
       maxWidth="7xl"

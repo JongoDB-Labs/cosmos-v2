@@ -20,7 +20,7 @@ async function NewProjectContent({ params }: PageParams) {
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
   return (
-    <PageShell title="New project" maxWidth="5xl">
+    <PageShell tourAnchor="project-new" title="New project" maxWidth="5xl">
       <ProjectWizard orgId={ctx.orgId} orgSlug={orgSlug} />
     </PageShell>
   );

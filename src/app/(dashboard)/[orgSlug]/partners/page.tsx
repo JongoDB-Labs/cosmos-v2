@@ -29,6 +29,7 @@ async function PartnersContent({ params }: PageParams) {
 
   return (
     <PageShell
+      tourAnchor="partners"
       title="Partners"
       description="Vendors, clients, and contractors your organization works with."
       maxWidth="7xl"
