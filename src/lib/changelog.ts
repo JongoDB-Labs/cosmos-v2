@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.396.0",
+    date: "2026-09-29",
+    title: "The logo on the sign-in page belongs to your deployment again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On a deployment branded as anything other than the default, the mark beside the sign-in heading described itself as the default product \u2014 visible to anyone reading the page with a screen reader, and in the sidebar too. The heading, the tagline and the browser tab were all correct, so it was the one element disagreeing with everything around it. It now takes the brand from the same place the rest of the page does.",
+      },
+    ],
+  },
+  {
     version: "2.395.0",
     date: "2026-09-29",
     title: "Finance stops reporting nothing as zero",
