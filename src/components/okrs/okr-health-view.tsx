@@ -343,7 +343,7 @@ export function OkrHealthView({
             <tbody>
               {lanes.map((lane) => (
                 <Fragment key={lane.label}>
-                  <tr className="bg-[var(--muted)]/30">
+                  <tr className="bg-[var(--surface)]/30">
                     <td
                       colSpan={periods.length + 1}
                       className="sticky left-0 px-3 py-1.5 text-xs font-semibold text-[var(--text)]"

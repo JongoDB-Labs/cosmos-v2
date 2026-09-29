@@ -98,7 +98,7 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
       className={cn(
         "rounded-full border px-3 py-1 text-sm",
         type === value
-          ? "border-transparent bg-[var(--accent)] text-white"
+          ? "border-transparent bg-[var(--primary)] text-[var(--primary-foreground)]"
           : "border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)]",
       )}
     >
@@ -146,7 +146,7 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
                 <span
                   className={cn(
                     "mt-1.5 h-2 w-2 shrink-0 rounded-full",
-                    n.read ? "bg-transparent" : "bg-[var(--accent)]",
+                    n.read ? "bg-transparent" : "bg-[var(--primary)]",
                   )}
                   aria-hidden
                 />

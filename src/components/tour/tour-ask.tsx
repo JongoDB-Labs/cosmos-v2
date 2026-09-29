@@ -153,7 +153,7 @@ export function TourAsk({
           placeholder="Ask anything about this…"
           aria-label={`Ask about ${step.title}`}
           disabled={busy}
-          className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--surface-hover)] px-2 py-1 text-sm"
+          className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--primary-tint)] px-2 py-1 text-sm"
         />
         <Button size="icon-xs" onClick={() => void ask(question)} disabled={busy || !question.trim()} aria-label="Ask">
           <Send className="size-3.5" />
@@ -161,7 +161,7 @@ export function TourAsk({
       </div>
 
       {(answer !== null || error) && (
-        <div className="mt-2 max-h-56 overflow-y-auto rounded bg-[var(--surface-hover)] px-2.5 py-2 text-sm">
+        <div className="mt-2 max-h-56 overflow-y-auto rounded bg-[var(--primary-tint)] px-2.5 py-2 text-sm">
           {error ? (
             <span className="text-red-600">{error}</span>
           ) : answer ? (

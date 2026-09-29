@@ -160,14 +160,14 @@ function H({ children }: { children: React.ReactNode }) {
 }
 
 function Prose({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-2 text-[var(--text-muted)] [&_code]:rounded [&_code]:bg-[var(--muted)]/50 [&_code]:px-1 [&_code]:text-[var(--text)]">{children}</div>;
+  return <div className="space-y-2 text-[var(--text-muted)] [&_code]:rounded [&_code]:bg-[var(--surface)]/50 [&_code]:px-1 [&_code]:text-[var(--text)]">{children}</div>;
 }
 
 function ScopeRow({ scope, grants }: { scope: string; grants: string }) {
   return (
     <tr className="border-t border-[var(--border)]/60">
       <td className="py-1.5 pr-4">
-        <code className="rounded bg-[var(--muted)]/50 px-1 text-[var(--text)]">{scope}</code>
+        <code className="rounded bg-[var(--surface)]/50 px-1 text-[var(--text)]">{scope}</code>
       </td>
       <td className="py-1.5 text-[var(--text-muted)]">{grants}</td>
     </tr>
@@ -210,7 +210,7 @@ function Code({ text }: { text: string }) {
             /* clipboard unavailable */
           }
         }}
-        className="absolute right-2 top-2 rounded p-1 text-[var(--text-muted)] hover:bg-[var(--muted)]/60 hover:text-[var(--text)]"
+        className="absolute right-2 top-2 rounded p-1 text-[var(--text-muted)] hover:bg-[var(--surface)]/60 hover:text-[var(--text)]"
       >
         {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
       </button>

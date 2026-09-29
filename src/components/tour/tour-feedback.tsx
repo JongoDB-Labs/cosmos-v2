@@ -100,7 +100,7 @@ export function TourFeedback({
         }}
         placeholder="What is unclear, wrong, or missing?"
         aria-label={`Feedback about ${step.title}`}
-        className="w-full rounded border border-[var(--border)] bg-[var(--surface-hover)] px-2 py-1 text-sm"
+        className="w-full rounded border border-[var(--border)] bg-[var(--primary-tint)] px-2 py-1 text-sm"
       />
 
       <div className="mt-1.5 flex items-center gap-2">

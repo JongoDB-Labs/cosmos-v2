@@ -193,7 +193,7 @@ export function ReleaseTimelineView({ orgId, projectId, projectKey }: ReleaseTim
         <div className="flex items-center gap-2 font-medium text-[var(--text)]">
           <CalendarRange className="size-4 text-[var(--primary)]" /> Release Timeline
         </div>
-        <span className="flex items-center gap-1 rounded-full bg-[var(--muted)]/50 px-2 py-0.5 text-[11px] text-[var(--text-muted)]">
+        <span className="flex items-center gap-1 rounded-full bg-[var(--surface)]/50 px-2 py-0.5 text-[11px] text-[var(--text-muted)]">
           <Lock className="size-3" /> read-only snapshot
         </span>
         <div className="ml-auto flex items-center gap-3">
@@ -379,7 +379,7 @@ function TimelineChip({
           href={href}
           title={title}
           className={cn(
-            "block truncate rounded border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 pr-5 text-[10px] text-[var(--text)] transition-colors hover:border-[var(--primary)] hover:bg-[var(--muted)]/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]",
+            "block truncate rounded border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 pr-5 text-[10px] text-[var(--text)] transition-colors hover:border-[var(--primary)] hover:bg-[var(--surface)]/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]",
             done && "opacity-60 line-through",
           )}
         >

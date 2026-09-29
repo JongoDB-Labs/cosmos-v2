@@ -315,7 +315,7 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
                     >
                       {isCollapsed
                         ? feats.length > 0 && (
-                            <div className="rounded bg-[var(--muted)]/40 px-2 py-1 text-[11px] text-[var(--text-muted)]">
+                            <div className="rounded bg-[var(--surface)]/40 px-2 py-1 text-[11px] text-[var(--text-muted)]">
                               {feats.length} feature{feats.length === 1 ? "" : "s"}
                             </div>
                           )

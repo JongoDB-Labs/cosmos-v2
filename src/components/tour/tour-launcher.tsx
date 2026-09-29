@@ -46,7 +46,7 @@ export function TourLauncher({ onPick }: { onPick?: () => void }) {
           }}
           className={cn(
             "flex w-full items-start gap-2 rounded px-2 py-1.5 text-left",
-            "hover:bg-[var(--surface-hover)]",
+            "hover:bg-[var(--primary-tint)]",
           )}
         >
           <Compass className="mt-0.5 size-3.5 shrink-0 text-[var(--text-muted)]" />

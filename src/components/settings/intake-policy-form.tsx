@@ -190,7 +190,7 @@ export function IntakePolicyForm({ orgId }: { orgId: string }) {
           className="mt-1 divide-y divide-[var(--border)] rounded-md border border-[var(--border)]"
         >
           {ORG_ROLES.map((r) => (
-            <label key={r} className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-[var(--muted)]/30">
+            <label key={r} className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-[var(--surface)]/30">
               <Checkbox checked={roles.has(r)} onChange={() => setRoles((s) => toggle(s, r))} />
               <span>{ROLE_LABEL[r]}</span>
             </label>
@@ -210,7 +210,7 @@ export function IntakePolicyForm({ orgId }: { orgId: string }) {
           className="mt-1 divide-y divide-[var(--border)] rounded-md border border-[var(--border)]"
         >
           {HIGH_RISK_ZONES.map((z) => (
-            <label key={z.key} className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-[var(--muted)]/30">
+            <label key={z.key} className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-[var(--surface)]/30">
               <Checkbox checked={zones.has(z.key)} onChange={() => setZones((s) => toggle(s, z.key))} />
               <span>{z.label}</span>
             </label>
@@ -248,7 +248,7 @@ export function IntakePolicyForm({ orgId }: { orgId: string }) {
         </div>
       </div>
 
-      <div className="mt-5 flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 p-3 text-xs text-[var(--text-muted)]">
+      <div className="mt-5 flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)]/30 p-3 text-xs text-[var(--text-muted)]">
         <Info className="mt-0.5 size-4 shrink-0" />
         <p>Higher caps admit more items per run; a value of 0 blocks that path entirely.</p>
       </div>

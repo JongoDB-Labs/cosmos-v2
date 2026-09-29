@@ -113,10 +113,10 @@ function formatCurrency(amount: number | string): string {
 const PIE_COLORS = [
   "var(--status-progress)",
   "var(--status-discovery)",
-  "var(--status-warning)",
-  "var(--status-success)",
+  "var(--status-blocked)",
+  "var(--status-done)",
   "var(--status-critical)",
-  "var(--status-info)",
+  "var(--status-discovery)",
 ];
 
 /**

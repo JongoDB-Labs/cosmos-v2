@@ -134,7 +134,7 @@ export function BillsWorkspace({ orgId }: { orgId: string }) {
             className={cn(
               "rounded-full border px-3 py-1 text-sm",
               status === f.key
-                ? "border-transparent bg-[var(--accent)] text-white"
+                ? "border-transparent bg-[var(--primary)] text-[var(--primary-foreground)]"
                 : "border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)]",
             )}
           >

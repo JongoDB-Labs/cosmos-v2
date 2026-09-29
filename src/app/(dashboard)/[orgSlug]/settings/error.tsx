@@ -17,7 +17,7 @@ export default function SettingsError({
 
   return (
     <div className="p-6">
-      <div className="rounded-[var(--radius-md)] border border-[var(--status-danger)]/30 bg-[var(--status-danger-bg)]/40 p-4">
+      <div className="rounded-[var(--radius-md)] border border-[var(--status-critical-text)]/30 bg-[var(--status-critical)]/15 p-4">
         <p className="mb-1 text-sm font-medium text-[var(--text)]">
           Settings section failed to load
         </p>
