@@ -32,6 +32,25 @@ type OrgProject = { id: string; name: string };
 
 // Sentinel section id for channels with no project (or the org #general).
 const GENERAL = "__general__";
+
+/**
+ * The channel list is a PANEL, so it needs a panel's surface.
+ *
+ * It had neither a background nor a visible edge: `md:border-r` with no colour
+ * resolves to --border at 14% opacity, which on the atelier skin is the same
+ * hue and weight as the drafting-grid lines painted across the canvas behind
+ * it. So the grid ran straight through the channel list and the panel's right
+ * edge was indistinguishable from an ordinary grid line -- the search box was
+ * the only thing on screen with an outline, and "No channels yet." floated on
+ * the page. Every other panel in the app pairs bg-[var(--surface)] with
+ * border-[var(--border)]; this is that pair.
+ *
+ * Shared by all three render states so the panel cannot lose its surface while
+ * loading or erroring -- which is exactly when a bare, floating "Loading..."
+ * read as a broken page.
+ */
+const PANEL =
+  "w-full md:w-64 md:border-r md:border-[var(--border)] bg-[var(--surface)] flex flex-col";
 const COLLAPSE_STORAGE_KEY = "cosmos.chat.collapsedProjectSections";
 
 type ChannelGroup = {
@@ -142,7 +161,7 @@ export function ChatSidebar({
 
   if (isError) {
     return (
-      <aside className="w-full md:w-64 md:border-r flex flex-col">
+      <aside className={PANEL}>
         <SearchPanel orgId={orgId} />
         <LoadError onRetry={() => { refetch(); }} />
       </aside>
@@ -151,7 +170,7 @@ export function ChatSidebar({
 
   if (isLoading || !data) {
     return (
-      <aside className="w-full md:w-64 md:border-r flex flex-col">
+      <aside className={PANEL}>
         <SearchPanel orgId={orgId} />
         <div className="p-2 text-xs text-muted-foreground">Loading…</div>
       </aside>
@@ -159,7 +178,7 @@ export function ChatSidebar({
   }
 
   return (
-    <aside className="w-full md:w-64 md:border-r flex flex-col">
+    <aside className={PANEL}>
       <SearchPanel orgId={orgId} />
       <div className="px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">
         Channels

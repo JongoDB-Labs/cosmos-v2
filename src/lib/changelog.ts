@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.397.0",
+    date: "2026-09-29",
+    title: "Text fields and the chat list stop showing the page through themselves",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On a workspace using a skin that draws a texture behind the page \u2014 the drafting grid, for instance \u2014 that texture showed straight through the inside of every text box, dropdown and date field in the app, so the grid lines crossed whatever you had typed. Form controls now sit on their own ground.",
+      },
+      {
+        kind: "fix",
+        text: "The channel list in Chat had no surface and no visible edge, so its contents floated on the page and the only outlined thing in the panel was the search box. It now looks like the panel it is, in every state including while it loads.",
+      },
+    ],
+  },
+  {
     version: "2.396.0",
     date: "2026-09-29",
     title: "The logo on the sign-in page belongs to your deployment again",
