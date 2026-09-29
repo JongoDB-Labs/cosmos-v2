@@ -20,6 +20,7 @@ const { getAuthContext, prisma } = vi.hoisted(() => ({
     organization: { findUnique: vi.fn() },
     project: { findMany: vi.fn() },
     board: { findMany: vi.fn() },
+    boardColumn: { findMany: vi.fn() },
     workItem: { findMany: vi.fn(), count: vi.fn(), groupBy: vi.fn() },
     interval: { findFirst: vi.fn(), findMany: vi.fn() },
     orgMember: { findUnique: vi.fn() },
@@ -65,6 +66,7 @@ beforeEach(() => {
     { id: RESTRICTED, name: "Secret", key: "SEC", teamScopedAccess: true },
   ]);
   prisma.board.findMany.mockResolvedValue([]);
+  prisma.boardColumn.findMany.mockResolvedValue([]);
   prisma.workItem.findMany.mockResolvedValue([]);
   prisma.workItem.count.mockResolvedValue(0);
   prisma.workItem.groupBy.mockResolvedValue([]);
@@ -102,5 +104,60 @@ describe("portfolio analytics — team-scoped projects", () => {
     getAuthContext.mockResolvedValue(ctx());
     expect(await names(await GET(req(), { params }))).toEqual(["Open"]);
     expect(prisma.projectMember.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("portfolio analytics — completion when a project has no board", () => {
+  // The practice this was found on tracks work without boards at all: 207 of
+  // 259 items carried completedAt, and every project reported 0% complete.
+  // The count was hard-coded to zero whenever no DONE column could be named,
+  // which is a claim, not an absence — and the same response already defined
+  // `overdue` as `completedAt: null`, so its two halves disagreed about what
+  // finished means.
+  function countByWhere(total: number, completed: number) {
+    return ({ where }: { where: Record<string, unknown> }) => {
+      if (where.dueDate) return Promise.resolve(0); // overdue
+      if (where.columnKey) return Promise.resolve(0); // no columns in these cases
+      if (where.completedAt) return Promise.resolve(completed);
+      return Promise.resolve(total);
+    };
+  }
+
+  beforeEach(() => {
+    getAuthContext.mockResolvedValue(ctx({ orgRole: OrgRole.OWNER }));
+    prisma.project.findMany.mockResolvedValue([
+      { id: OPEN, name: "Open", key: "OPN", teamScopedAccess: false },
+    ]);
+  });
+
+  async function percentOf(res: Response): Promise<number> {
+    const body = await res.json();
+    const rows = Array.isArray(body) ? body : (body.data ?? []);
+    return rows[0].completionPercent;
+  }
+
+  it("falls back to each item's own completedAt", async () => {
+    prisma.workItem.count.mockImplementation(countByWhere(10, 8));
+    expect(await percentOf(await GET(req(), { params }))).toBe(80);
+  });
+
+  it("reports 0% only when nothing is actually finished", async () => {
+    prisma.workItem.count.mockImplementation(countByWhere(10, 0));
+    expect(await percentOf(await GET(req(), { params }))).toBe(0);
+  });
+
+  it("still prefers the board's own DONE columns where a team has modelled them", async () => {
+    prisma.board.findMany.mockResolvedValue([{ id: "b1" }]);
+    prisma.boardColumn.findMany.mockImplementation(({ where }: { where: { category: string } }) =>
+      Promise.resolve(where.category === "DONE" ? [{ key: "shipped" }] : []),
+    );
+    // completedAt would say 8; the board says 3, and the board wins.
+    prisma.workItem.count.mockImplementation(({ where }: { where: Record<string, unknown> }) => {
+      if (where.dueDate) return Promise.resolve(0);
+      if (where.columnKey) return Promise.resolve(3);
+      if (where.completedAt) return Promise.resolve(8);
+      return Promise.resolve(10);
+    });
+    expect(await percentOf(await GET(req(), { params }))).toBe(30);
   });
 });
