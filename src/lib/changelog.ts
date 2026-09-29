@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.392.0",
+    date: "2026-09-29",
+    title: "A walkthrough no longer disappears behind whatever opens on top of it",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The walkthrough card sat below every dialog, panel, dropdown and tooltip in the app. Since the card is the only way to step forward or close the walkthrough, anything that opened on top of it left you stranded with no visible control \u2014 including the What\u2019s New dialog, which appears on the first load after a release, exactly when a walkthrough is most likely to be running. It now sits above all of them, and still below the keyboard skip link.",
+      },
+    ],
+  },
+  {
     version: "2.391.0",
     date: "2026-09-29",
     title: "A plugin that had no migrations now has them",
