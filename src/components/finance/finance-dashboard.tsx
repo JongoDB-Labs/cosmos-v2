@@ -97,9 +97,9 @@ const EXPENSE_STATUS_LABEL: Record<string, string> = {
 // (it converts its Decimal aggregates via moneyToNumber for the charts) — UNLIKE the
 // list endpoints, where raw entity money (Revenue.amount etc.) arrives as a string.
 interface FinanceSummary {
-  totalRevenue: number;
-  totalExpenses: number;
-  netIncome: number;
+  totalRevenue: number | null;
+  totalExpenses: number | null;
+  netIncome: number | null;
   billableHours: number;
   monthlyTrend: { month: string; revenue: number; expenses: number }[];
   revenueByType: { type: string; amount: number }[];
@@ -537,6 +537,13 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
     );
   }
 
+  // An amount the ledger cannot answer is not zero. `|| 0` said the practice
+  // took nothing, on an org that had simply never opened the accounting module
+  // — and said it while the project table below counted the work at over a
+  // million dollars. It also turned the loading state into $0.00.
+  const ledgerMoney = (v: number | null | undefined) =>
+    v === null || v === undefined ? "—" : formatCurrency(v);
+
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end">
@@ -565,7 +572,7 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
             alarm. Only a positive amount earns its income/expense colour. */}
         <SummaryCard
           title="Total Revenue"
-          value={formatCurrency(summary?.totalRevenue || 0)}
+          value={ledgerMoney(summary?.totalRevenue)}
           icon={
             <DollarSign
               className={cn(
@@ -578,7 +585,7 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
         />
         <SummaryCard
           title="Total Expenses"
-          value={formatCurrency(summary?.totalExpenses || 0)}
+          value={ledgerMoney(summary?.totalExpenses)}
           icon={
             <TrendingDown
               className={cn(
@@ -591,7 +598,7 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
         />
         <SummaryCard
           title="Net Income"
-          value={formatCurrency(summary?.netIncome || 0)}
+          value={ledgerMoney(summary?.netIncome)}
           icon={<TrendingUp className="size-5 text-blue-500" />}
           accent={
             (summary?.netIncome || 0) > 0

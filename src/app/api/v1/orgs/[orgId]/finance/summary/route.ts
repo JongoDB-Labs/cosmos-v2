@@ -55,6 +55,22 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const totalExpenses = sumMoney(expenses.map((e) => e.amount));
     const netIncome = totalRevenue.minus(totalExpenses);
 
+    // HAS THIS ORG EVER POSTED ANYTHING? Unscoped by date, deliberately.
+    //
+    // Inside a window the two cases are indistinguishable: a firm that keeps
+    // its books and had a quiet month genuinely earned zero and should see
+    // $0.00, while one that has never opened the ledger has not earned zero —
+    // it has not said. Reporting the second as $0.00 tells a principal their
+    // practice took nothing, which is a claim the data cannot support.
+    //
+    // One row anywhere means the books are live, and a zero inside the window
+    // is then a real answer worth showing.
+    const [everRevenue, everExpense] = await Promise.all([
+      prisma.revenue.count({ where: { orgId } }),
+      prisma.expense.count({ where: { orgId } }),
+    ]);
+    const ledgerUsed = everRevenue > 0 || everExpense > 0;
+
     const revByType = new Map<string, Prisma.Decimal>();
     for (const r of revenues) revByType.set(r.type, (revByType.get(r.type) ?? new Prisma.Decimal(0)).plus(r.amount));
     const revenueByType = Object.fromEntries([...revByType].map(([k, v]) => [k, moneyToNumber(v)]));
@@ -89,9 +105,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const billableAmount = sumMoney(billableAmounts);
 
     return success({
-      totalRevenue: moneyToNumber(totalRevenue),
-      totalExpenses: moneyToNumber(totalExpenses),
-      netIncome: moneyToNumber(netIncome),
+      totalRevenue: ledgerUsed ? moneyToNumber(totalRevenue) : null,
+      totalExpenses: ledgerUsed ? moneyToNumber(totalExpenses) : null,
+      netIncome: ledgerUsed ? moneyToNumber(netIncome) : null,
       revenueByType,
       expensesByCategory,
       monthlyTrend,
