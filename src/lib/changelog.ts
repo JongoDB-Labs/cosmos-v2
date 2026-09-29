@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.398.0",
+    date: "2026-09-29",
+    title: "The sign-in page knows which product it belongs to, cold",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On a deployment branded as anything other than the default, the sign-in page showed the DEFAULT product \u2014 its name, its title in the browser tab, its tagline and its logo \u2014 for the first people to reach it after a restart, and then corrected itself as soon as anyone with a session opened a page inside the app. Nothing looked broken at either moment, which is why it lasted: whoever went looking had almost always loaded the app first, and by then it was right. Sign-in now reads the brand in an order that does not depend on what anyone else has opened.",
+      },
+    ],
+  },
+  {
     version: "2.397.0",
     date: "2026-09-29",
     title: "Text fields and the chat list stop showing the page through themselves",
