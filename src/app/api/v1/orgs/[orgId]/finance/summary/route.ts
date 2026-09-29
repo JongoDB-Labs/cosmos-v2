@@ -7,6 +7,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { sumMoney, multiplyMoney, moneyToNumber } from "@/lib/money";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
+import { RECORDED_TIME } from "@/lib/time/recorded";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -43,7 +44,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       prisma.revenue.findMany({ where: revenueWhere }),
       prisma.expense.findMany({ where: expenseWhere }),
       prisma.timeEntry.findMany({
-        where: { ...timeWhere, status: "APPROVED", ...NOT_VOIDED },
+        // Was APPROVED only, which reported 0.0h on an org whose ledger is
+        // entirely SUBMITTED — directly above this same response's project
+        // table counting that work at $1,039,168. See RECORDED_TIME.
+        where: { ...timeWhere, ...RECORDED_TIME, ...NOT_VOIDED },
       }),
     ]);
 

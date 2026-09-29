@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.394.0",
+    date: "2026-09-29",
+    title: "One answer to \u201chow much time have we recorded\u201d",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Finance reported \u201cBillable Hours 0.0h\u201d directly above its own table valuing that same work at over a million dollars. It counted only time a reviewer had approved, while the table counted time people had handed in \u2014 and on a practice that had not started approving yet, one of those is nothing. Handing a week in is now what counts, everywhere, so the two halves of a page can no longer disagree. Screens that genuinely need signed-off time only, like a pay run or contract burn, still ask for it deliberately.",
+      },
+      {
+        kind: "fix",
+        text: "Per-head figures read \u201cacross 0 active employees\u201d for firms that had not filled in the HR records, even with everyone on the team able to log in. It now falls back to the people in the organisation, leaving out guests, so the figure works before anybody sets up payroll.",
+      },
+    ],
+  },
+  {
     version: "2.393.0",
     date: "2026-09-29",
     title: "Analytics counts finished work even when you do not use boards",

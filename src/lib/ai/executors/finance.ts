@@ -6,6 +6,7 @@ import { assertPermission, type ToolContext } from "./_ctx";
 import { sumMoney, multiplyMoney, moneyToNumber } from "@/lib/money";
 import { safeAutoPost, postRevenueToLedger } from "@/lib/ledger/auto-post";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
+import { RECORDED_TIME } from "@/lib/time/recorded";
 
 const logRevenueSchema = z.object({
   amount: z.number().positive(),
@@ -136,7 +137,9 @@ export async function getFinanceSummary(
   const [revenues, expenses, timeEntries] = await Promise.all([
     prisma.revenue.findMany({ where: revWhere }),
     prisma.expense.findMany({ where: expWhere }),
-    prisma.timeEntry.findMany({ where: { ...timeWhere, ...NOT_VOIDED } }),
+    // No status filter at all here, so this counted private DRAFT weeks and
+    // answered a different number from the finance page it mirrors.
+    prisma.timeEntry.findMany({ where: { ...timeWhere, ...RECORDED_TIME, ...NOT_VOIDED } }),
   ]);
 
   const totalRevenue = sumMoney(revenues.map((r) => r.amount));
