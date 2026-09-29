@@ -8,6 +8,12 @@ import { ChunkReloadGuard } from "@/components/telemetry/chunk-reload-guard";
 import { getBrand } from "@/lib/brand";
 import { allSkinsCss, getSkinPreset } from "@/lib/theme/skins";
 import { RootBrandProvider } from "@/components/providers/root-brand-provider";
+
+// Registers a composed plugin's product profile before getBrand() reads it.
+// Without this the brand depends on whether some OTHER route happened to pull
+// the seam in first -- see root-brand-provider.tsx for the whole story, and
+// src/lib/brand/__tests__/brand-registration.arch.test.ts for the rule.
+import "@/lib/plugins/registry/server";
 import "./globals.css";
 
 // SELF-HOSTED, not next/font/google (changed 2026-08-10).
