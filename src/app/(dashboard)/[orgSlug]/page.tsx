@@ -149,7 +149,13 @@ async function StatCards({ orgSlug, orgId }: { orgSlug: string; orgId: string })
   const plan = org ? { plan: org.plan } : null;
   return (
     <div className="mb-10 grid grid-cols-1 gap-6 md:grid-cols-3">
-      <StatCard label="Active projects" trend={`+${activeProjects}`}>
+      {/* No trend chip: there is nothing to compare against. It used to
+          pass `+${activeProjects}` — the count again, with a plus in
+          front — and TrendChip reads a leading "+" as upward, so a
+          practice with twenty active projects was told it had gained
+          twenty, permanently. A real trend needs a prior period, which
+          this page does not read. */}
+      <StatCard label="Active projects">
         <StatCard.Number>{activeProjects}</StatCard.Number>
       </StatCard>
       <StatCard label="Team members">

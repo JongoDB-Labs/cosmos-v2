@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.400.0",
+    date: "2026-09-29",
+    title: "The overview stops congratulating you on growth it never measured",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Active projects tile carried a green, upward-pointing chip reading \u201c+20\u201d beside the number 20. It was not a comparison with anything \u2014 it was the count printed a second time with a plus in front, so a practice with five hundred active projects would have been told it had gained five hundred, for ever. A trend needs a previous period to compare against, and that tile has none, so the chip is gone rather than invented.",
+      },
+    ],
+  },
+  {
     version: "2.399.0",
     date: "2026-09-29",
     title: "The parts of the interface that were painted in a colour that did not exist",

@@ -3,7 +3,14 @@ import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 
 interface StatCardProps {
   label: string;
-  trend?: string; // e.g. "+12%", "-3", "flat"
+  /**
+   * A COMPARISON, never the displayed number again. TrendChip reads a
+   * leading "+"/"-" as a direction and paints a green or red chip, so
+   * passing the value itself claims growth that was never measured.
+   * e.g. "+12%", "-3", "flat", or a verdict against a benchmark.
+   * Enforced by trend-is-a-comparison.arch.test.ts.
+   */
+  trend?: string;
   children: React.ReactNode;
   className?: string;
 }
