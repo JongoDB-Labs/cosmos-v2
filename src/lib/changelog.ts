@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.403.0",
+    date: "2026-09-30",
+    title: "The assistant introduces itself by your deployment's name",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On a deployment branded as anything other than the default, the AI assistant still introduced itself under the default product's name \u2014 in its opening heading, its description, the panel header, the label a screen reader reads for its avatar, the dictation hint in Preferences, and the MCP servers copy. The name is a setting on the brand, and an organisation can override it; every one of those places now uses it.",
+      },
+    ],
+  },
+  {
     version: "2.402.0",
     date: "2026-09-30",
     title: "A project with no boards stops printing its name twice",

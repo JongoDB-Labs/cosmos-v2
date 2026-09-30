@@ -52,6 +52,8 @@ const BRAND_RENDERERS = [
   "src/components/providers/root-brand-provider.tsx",
   // name / short_name / icons in the web manifest.
   "src/app/manifest.ts",
+  // Names the assistant in its page description, twice.
+  "src/app/(dashboard)/[orgSlug]/settings/mcp-servers/page.tsx",
 ];
 
 function source(rel: string): string {

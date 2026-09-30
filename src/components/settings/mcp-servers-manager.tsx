@@ -19,6 +19,7 @@ import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { notifyError } from "@/lib/errors/notify";
 import { Button } from "@/components/ui/button";
+import { useBrand } from "@/components/providers/brand-provider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FormField } from "@/components/ui/form-field";
@@ -97,6 +98,10 @@ function parseArgsLine(text: string): string[] {
 }
 
 export function McpServersManager({ orgId }: McpServersManagerProps) {
+  // The assistant is named by the DEPLOYMENT, not hardcoded: agentName is on
+  // the brand profile and an org can override it, and every string here said
+  // the neutral product's agent instead.
+  const brand = useBrand();
   const apiBase = `/api/v1/orgs/${orgId}/mcp-servers`;
 
   const listKey = useOrgQueryKey("mcp-servers", "list");
@@ -589,7 +594,7 @@ export function McpServersManager({ orgId }: McpServersManagerProps) {
                 No MCP servers configured
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Add a server to expose its tools to Cosmo, the AI chat assistant.
+                Add a server to expose its tools to {brand.agentName}, the AI chat assistant.
               </p>
             </div>
           </div>

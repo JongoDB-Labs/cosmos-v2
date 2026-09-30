@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useBrand } from "@/components/providers/brand-provider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -140,6 +141,10 @@ function applyBgVar(mode: "dark" | "light", url: string | null) {
 }
 
 export function PreferencesForm({ orgId }: PreferencesFormProps) {
+  // The assistant is named by the DEPLOYMENT, not hardcoded: agentName is on
+  // the brand profile and an org can override it, and every string here said
+  // the neutral product's agent instead.
+  const brand = useBrand();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -664,7 +669,7 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
               maxLength={40}
             />
             <p className="text-xs text-muted-foreground">
-              Say this at the end of a dictated message to Cosmo to send it. Blank uses &quot;send it&quot;.
+              Say this at the end of a dictated message to {brand.agentName} to send it. Blank uses &quot;send it&quot;.
             </p>
           </div>
           <div className="flex flex-col gap-1.5">
