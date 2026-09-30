@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { getBrand } from "@/lib/brand";
 import { render, screen, cleanup } from "@testing-library/react";
 import { CosmoAvatar } from "./cosmo-avatar";
 
@@ -8,7 +9,9 @@ describe("CosmoAvatar", () => {
   it("renders a strict-circle avatar with theme-token-driven colors", () => {
     const { container } = render(<CosmoAvatar size={64} />);
     const svg = container.querySelector("svg")!;
-    expect(svg.getAttribute("aria-label")).toBe("Cosmo");
+    // The label is the DEPLOYMENT's agent, not a constant. With no brand
+    // provider mounted, useBrand() falls back to the neutral profile.
+    expect(svg.getAttribute("aria-label")).toBe(getBrand().agentName);
     expect(svg.getAttribute("width")).toBe("64");
     // theme adaptivity: the sky derives from the live tokens via color-mix
     expect(svg.getAttribute("style")).toContain("var(--primary)");

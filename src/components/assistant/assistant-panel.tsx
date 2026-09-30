@@ -11,6 +11,7 @@ import { useDictation } from "@/lib/hooks/use-dictation";
 import { DEFAULT_CLOSE_WORD } from "@/lib/voice/close-word";
 import { notifyError } from "@/lib/errors/notify";
 import { EntityMentionPicker } from "@/components/mentions/entity-mention-picker";
+import { useBrand } from "@/components/providers/brand-provider";
 import { detectMentionQuery, insertMentionToken } from "@/lib/mentions/input";
 import { useDrawers } from "@/components/drawers/drawer-provider";
 import type { ResolvedEntity } from "@/lib/mentions/refs";
@@ -209,6 +210,10 @@ function formatBytes(n: number): string {
 // =============================================================================
 
 export function AssistantPanel({ orgId }: AssistantPanelProps) {
+  // The assistant is named by the DEPLOYMENT, not hardcoded: agentName is on
+  // the brand profile and an org can override it, and every string here said
+  // the neutral product's agent instead.
+  const brand = useBrand();
   // What the opener wanted asked, when something opened this with a question.
   const { seed } = useDrawers();
   const pathname = usePathname();
@@ -1151,7 +1156,7 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
             {activeId
               ? conversations.find((c) => c.id === activeId)?.title ??
                 "Conversation"
-              : "Cosmo"}
+              : brand.agentName}
           </h2>
           <Select value={model} onValueChange={handleModelChange}>
             <SelectTrigger
@@ -1242,9 +1247,12 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
             <div className="flex flex-col items-center justify-center h-full gap-4">
               <CosmoAvatar size={64} />
               <div className="text-center">
-                <h3 className="text-lg font-semibold">Cosmo — your agentic AI chat assistant</h3>
+                <h3 className="text-lg font-semibold">
+                  {brand.agentName} — your agentic AI chat assistant
+                </h3>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Ask questions about your projects, get insights, or have Cosmo take actions for you.
+                  Ask questions about your projects, get insights, or have{" "}
+                  {brand.agentName} take actions for you.
                 </p>
               </div>
               <Button onClick={createConversation}>

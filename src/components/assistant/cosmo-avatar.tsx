@@ -2,6 +2,7 @@
 
 import { useId } from "react";
 import { cn } from "@/lib/utils";
+import { useBrand } from "@/components/providers/brand-provider";
 
 /**
  * Cosmo — the assistant's avatar: a sleek astronaut waving, clipped to a strict
@@ -18,6 +19,10 @@ import { cn } from "@/lib/utils";
  * Gradient/clip ids come from useId() so any number of instances can coexist.
  */
 export function CosmoAvatar({ size = 32, className }: { size?: number; className?: string }) {
+  // The alt text names THIS deployment's assistant, not the neutral
+  // product's. It was hardcoded, so a screen reader announced the wrong
+  // product's agent on every branded deployment.
+  const { agentName } = useBrand();
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
   const id = (k: string) => `cosmo-${uid}-${k}`;
   const url = (k: string) => `url(#${id(k)})`;
@@ -27,7 +32,7 @@ export function CosmoAvatar({ size = 32, className }: { size?: number; className
       height={size}
       viewBox="0 0 128 128"
       role="img"
-      aria-label="Cosmo"
+      aria-label={agentName}
       className={cn("shrink-0", className)}
       style={
         {
