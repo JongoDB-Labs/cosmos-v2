@@ -1,6 +1,6 @@
 {
   "name": "cosmos-v2",
-  "version": "2.410.0",
+  "version": "2.411.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -81,7 +81,7 @@
     "lexical": "^0.51.0",
     "lucide-react": "^1.47.0",
     "mammoth": "^1.12.3",
-    "next": "16.3.5",
+    "next": "16.3.6",
     "next-themes": "^0.4.6",
     "node-html-parser": "^9.0.4",
     "nuqs": "^2.10.1",
@@ -112,7 +112,7 @@
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.278",
     "@lexical/headless": "^0.51.0",
-    "@next/bundle-analyzer": "^16.3.5",
+    "@next/bundle-analyzer": "^16.3.6",
     "@playwright/test": "^1.63.0",
     "@prisma/internals": "^7.10.0",
     "@tailwindcss/postcss": "^4",
@@ -132,7 +132,7 @@
     "axe-core": "4.13.0",
     "dotenv": "^18.0.1",
     "eslint": "^10",
-    "eslint-config-next": "16.3.5",
+    "eslint-config-next": "16.3.6",
     "husky": "^9.1.7",
     "jsdom": "^30.1.0",
     "lint-staged": "^17.5.1",

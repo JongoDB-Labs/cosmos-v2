@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.411.0",
+    date: "2026-09-30",
+    title: "Security: framework patch",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Updated the web framework to take a security patch for a critical vulnerability published today. The affected feature is one this product does not use, so nothing here was exposed \u2014 but running an unpatched framework is not a position worth holding.",
+      },
+    ],
+  },
+  {
     version: "2.410.0",
     date: "2026-09-30",
     title: "Tidying up behind the groundwork",
