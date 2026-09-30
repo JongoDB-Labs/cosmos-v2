@@ -308,6 +308,7 @@ model Organization {
   supervisorRequests  SupervisorRequest[]
   syncMeetings        SyncMeeting[]
   taxRates            TaxRate[]
+  rateLevels          RateLevel[]
   themes              Theme[]
   timeEntries         TimeEntry[]
   timeEntryRevisions  TimeEntryRevision[]
@@ -317,10 +318,10 @@ model Organization {
   workItemLabels      WorkItemLabel[]
   workItemLinks       WorkItemLink[]
   workItemWatchers    WorkItemWatcher[]
+  timeOffRequests     TimeOffRequest[]
+  bills               Bill[]
 
   @@map("organizations")
-  timeOffRequests TimeOffRequest[]
-  bills Bill[]
 }
 
 model User {
@@ -797,14 +798,15 @@ model Project {
   feedbackItems       FeedbackItem[]
   // @plugin-backrel:Project
 
-  expenses          Expense[]
+  expenses Expense[]
+  bills    Bill[]
+
   @@unique([orgId, key])
   /// Unique per org, so a re-import can never fork one source record into two.
   /// NULLs are distinct in Postgres, so hand-created projects coexist freely.
   @@unique([orgId, externalRef])
   @@index([orgId, status])
   @@map("projects")
-  bills Bill[]
 }
 
 /// A team WITHIN a project. org -> projects -> teams -> members is the source of
@@ -1392,10 +1394,10 @@ model Partner {
   updatedAt     DateTime     @updatedAt @map("updated_at")
 
   contracts Contract[]
+  bills     Bill[]
 
   @@index([orgId, status])
   @@map("partners")
-  bills Bill[]
 }
 
 model Product {
@@ -3765,11 +3767,11 @@ model Invoice {
 
   lineItems InvoiceLineItem[]
   payments  Payment[]
+  bills     Bill[]
 
   @@unique([orgId, number])
   @@index([orgId, status])
   @@map("invoices")
-  bills Bill[]
 }
 
 model InvoiceLineItem {
@@ -4568,6 +4570,53 @@ model Reference {
   @@index([orgId, targetType, targetId])
   @@index([sourceType, sourceId])
   @@map("entity_references")
+}
+
+/// A firm's charge-out ladder: the levels people are billed at, and the
+/// utilisation each level is measured against.
+///
+/// Promoted from a vertical plugin. Nothing here is specific to one profession
+/// — a ladder of levels with an hourly rate is how every firm that bills time
+/// prices its work. What IS specific to a profession is the BENCHMARK each
+/// band is judged against, and that stays in the vertical's template pack:
+/// this model records which band a level belongs to, not what good looks like
+/// for it.
+model RateLevel {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId           String           @map("org_id") @db.Uuid
+  /// Short code the firm uses for the level, unique within the org.
+  key             String
+  name            String
+  hourlyRate      Decimal          @map("hourly_rate") @db.Decimal(19, 4)
+  band            Band             @default(OTHER)
+  /// Nullable on purpose: "nobody has classified this level" and "this level
+  /// has no chargeable target" are different answers, and only the second
+  /// should suppress a verdict. Unclassified shows no benchmark rather than
+  /// the wrong one.
+  utilizationBand UtilizationBand? @map("utilization_band")
+  sortOrder       Int              @default(0) @map("sort_order")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, key])
+  @@map("rate_levels")
+}
+
+enum Band {
+  ASSOCIATE
+  OTHER
+}
+
+/// What a level is measured against, NOT the measurement. The ranges
+/// themselves are survey data and belong to a vertical's template pack, so
+/// SUPPORT means "no chargeable target is expected" rather than any number.
+enum UtilizationBand {
+  /// Technical and professional staff.
+  TECHNICAL
+  /// Principals, who sell and run the firm as well as do the work.
+  PRINCIPAL
+  /// Admin and support. No chargeable target, so no verdict is offered.
+  SUPPORT
 }
 
 // @plugin-schema-fragments — composed plugin models/enums are appended below this line by scripts/plugins/sync.mjs
