@@ -54,6 +54,8 @@ const BRAND_RENDERERS = [
   "src/app/manifest.ts",
   // Names the assistant in its page description, twice.
   "src/app/(dashboard)/[orgSlug]/settings/mcp-servers/page.tsx",
+  // Tells the model which assistant it is.
+  "src/lib/ai/assistant-prompt.ts",
 ];
 
 function source(rel: string): string {
