@@ -19,8 +19,12 @@ export interface DirectedEdge {
  *   - BLOCKED_BY / SUCCESSOR: target → source   (source depends on target)
  *   - RELATES / DUPLICATES / CLONES: no direction (undirected, can't form a cycle)
  */
+/* `type` is widened to plain `string` alongside the enum — like `isBlockingLink`
+ * next door — so client code holding a link straight off the JSON endpoint (the
+ * Gantt's arrow layer) can normalize a direction without casting its way past
+ * the type system to do it. */
 export function directedDependencyEdge(
-  type: LinkType,
+  type: LinkType | string,
   sourceItemId: string,
   targetItemId: string,
 ): DirectedEdge | null {
