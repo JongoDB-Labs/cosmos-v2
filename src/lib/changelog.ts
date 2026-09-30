@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.407.0",
+    date: "2026-09-30",
+    title: "Groundwork: the weekly report becomes part of the platform",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Another piece of foundations, with nothing yet to see in your workspace. The weekly report \u2014 one per person per week, with an entry for each project they worked on, covering outcomes, barriers, wins and what next week is meant to look like \u2014 has until now belonged to one vertical's add-on. It is becoming part of the platform, so any firm that asks its people to account for a week can use it.",
+      },
+    ],
+  },
+  {
     version: "2.406.1",
     date: "2026-09-30",
     title: "Housekeeping: retired type definitions removed",
