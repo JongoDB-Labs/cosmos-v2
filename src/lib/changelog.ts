@@ -51,15 +51,11 @@ const RELEASES: Release[] = [
   {
     version: "2.402.0",
     date: "2026-09-30",
-    title: "A project page stops announcing itself twice",
+    title: "Each project page has one heading again",
     highlights: [
       {
-        kind: "fix",
-        text: "Opening a project that had no boards yet showed its name twice, once in the header bar and again as a large heading directly beneath \u2014 on the emptiest screen in the app, which made it read as something broken rather than as a project waiting for its first board. The bar keeps the name; the page below now says what it is.",
-      },
-      {
         kind: "improvement",
-        text: "Every project page was also marking two different pieces of text as its main heading, which is what a screen reader reads out first. The header bar is now treated as what it is \u2014 the furniture that stays put while you move between tabs \u2014 so each page has one heading again.",
+        text: "Every page inside a project was marking two different pieces of text as its main heading \u2014 the name in the header bar, and the page's own title \u2014 and a screen reader announces that first, so every project page read as having two titles. The header bar is now treated as what it is: the furniture that stays put while you move between tabs. Each page has one heading again.",
       },
     ],
   },
