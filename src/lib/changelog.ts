@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.412.0",
+    date: "2026-09-30",
+    title: "Files says \u201corg\u201d, like the rest of the product",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "In Files, the filter for documents that belong to no particular project now reads \u201cOrg-wide\u201d rather than \u201cFirm-wide\u201d, and the button beside it reads \u201cAdd to org files\u201d. Same documents, same permissions \u2014 but \u201cfirm\u201d is a word for one kind of business, and everywhere else the product calls this your organisation.",
+      },
+    ],
+  },
+  {
     version: "2.411.0",
     date: "2026-09-30",
     title: "Security: framework patch",

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { canViewPage } from "@/lib/nav/page-access";
 import { NoPageAccess } from "@/components/ui/no-page-access";
 import { PageShell } from "@/components/ui/page-shell";
-import { FirmLibrary } from "@/components/files/firm-library";
+import { OrgLibrary } from "@/components/files/org-library";
 import { hasAnyPermission, Permission } from "@/lib/rbac/permissions";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
@@ -26,7 +26,7 @@ export default async function FilesPage({ params }: PageParams) {
       maxWidth="7xl"
     >
       {allowed ? (
-        <FirmLibrary
+        <OrgLibrary
           orgId={ctx.orgId}
           canUpload={hasAnyPermission(ctx.permissions, Permission.ORG_UPDATE)}
         />

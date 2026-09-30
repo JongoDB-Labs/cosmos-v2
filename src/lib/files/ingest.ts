@@ -8,7 +8,7 @@ const MAX_BYTES = 25 * 1024 * 1024;
 
 export interface IngestInput {
   orgId: string;
-  /** Null for a firm-wide document — one that belongs to no project. */
+  /** Null for an org-wide document — one that belongs to no project. */
   projectId: string | null;
   uploadedById: string;
   filename: string;
@@ -33,7 +33,7 @@ export async function ingestDocument(input: IngestInput) {
   // — matches the guard in chat/feedback attachment routes. The human-readable
   // name is preserved separately in the DB `filename` column + storage meta.
   const safeName = input.filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "file";
-  // A firm-wide document has no project to key under, so it is keyed by org
+  // An org-wide document has no project to key under, so it is keyed by org
   // instead. A project id is a bare uuid and can never collide with `org/<uuid>`.
   const scope = input.projectId ?? `org/${input.orgId}`;
   const storageKey = `documents/${scope}/${crypto.randomUUID()}/${safeName}`;
