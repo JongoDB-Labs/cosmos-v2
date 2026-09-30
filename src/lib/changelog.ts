@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.410.0",
+    date: "2026-09-30",
+    title: "Tidying up behind the groundwork",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Nothing changes on screen. A weekly report's entry now refers to its project phase properly rather than by a loose id, which the last release made possible \u2014 so retiring a phase can no longer leave a reported week pointing at nothing. Two source files also stopped being treated as binary, which is invisible to you and makes them reviewable again for us.",
+      },
+    ],
+  },
+  {
     version: "2.409.0",
     date: "2026-09-30",
     title: "Groundwork: projects can run in configurable phases",
