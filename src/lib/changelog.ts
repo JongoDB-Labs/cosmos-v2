@@ -60,6 +60,17 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.404.0",
+    date: "2026-09-30",
+    title: "The assistant answers to the same name it is introduced by",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The panel around the assistant was corrected to use your deployment's name for it, but the instructions the model itself reads were not \u2014 so it would still answer \u201cI am\u201d the default product's assistant when you asked it who it was, and told you to wake it with the default wake phrase. The screen and the assistant's own words disagreed, which is worse than either being wrong on its own. Both now come from the same setting.",
+      },
+    ],
+  },
+  {
     version: "2.403.0",
     date: "2026-09-30",
     title: "The assistant introduces itself by your deployment's name",
