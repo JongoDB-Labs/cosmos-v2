@@ -315,6 +315,8 @@ model Organization {
   milestoneSlips      MilestoneSlip[]
   closeoutSnapshots   ProjectCloseoutSnapshot[]
   overheadAllocations OverheadAllocation[]
+  weeklyReports       WeeklyReport[]
+  weeklyReportEntries WeeklyReportEntry[]
   themes              Theme[]
   timeEntries         TimeEntry[]
   timeEntryRevisions  TimeEntryRevision[]
@@ -804,6 +806,8 @@ model Project {
   feedbackItems       FeedbackItem[]
   paceWeeks           PaceWeek[]
   closeoutSnapshots   ProjectCloseoutSnapshot[]
+
+  weeklyReportEntries WeeklyReportEntry[]
 
   // @plugin-backrel:Project
 
@@ -4769,6 +4773,95 @@ model OverheadAllocation {
   @@unique([orgId, userId, weekStart, category])
   @@index([orgId, weekStart, userId])
   @@map("overhead_allocations")
+}
+
+/// A weekly report is a draft until its author submits it, and submitting is
+/// one-way: the week is then a record, not a working document.
+enum WeeklyReportStatus {
+  DRAFT
+  SUBMITTED
+}
+
+/// One person's report for one week. The content lives in the entries, one per
+/// project; this row is the envelope, and carries who owes it and whether it
+/// has been handed in.
+///
+/// Promoted from a vertical plugin, where it was end-of-week paperwork. Any
+/// firm whose people account for a week at a time needs the same shape, so the
+/// model is core and the vocabulary around it is not.
+model WeeklyReport {
+  id          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String             @map("org_id") @db.Uuid
+  /// A bare id, not a relation: a report is a record of a week that happened,
+  /// and must outlive the account that wrote it.
+  userId      String             @map("user_id") @db.Uuid
+  weekStart   DateTime           @map("week_start") @db.Date
+  status      WeeklyReportStatus @default(DRAFT)
+  submittedAt DateTime?          @map("submitted_at")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  org     Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  entries WeeklyReportEntry[]
+
+  @@unique([orgId, userId, weekStart])
+  @@index([orgId, weekStart, status])
+  @@map("weekly_reports")
+}
+
+/// What one person had to say about one project for one week.
+///
+/// Everything here is written once and then read as history, which is why the
+/// phase is captured by NAME rather than by reference: renaming or retiring a
+/// phase must not rewrite a week that has already been reported.
+model WeeklyReportEntry {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reportId       String  @map("report_id") @db.Uuid
+  /// Denormalised from the report so an entry can be found by org and project
+  /// without a join, and constrained anyway: without the foreign key nothing
+  /// stops a write putting an entry under an org its report does not belong to,
+  /// and the org-scoped index would then serve it to the wrong tenant.
+  orgId          String  @map("org_id") @db.Uuid
+  projectId      String  @map("project_id") @db.Uuid
+  /// Soft reference. Whatever names the phases is free to delete one, and this
+  /// entry keeps the name and lifecycle it was written with either way.
+  projectPhaseId String? @map("project_phase_id") @db.Uuid
+  phaseName      String  @map("phase_name")
+  phaseLifecycle String  @map("phase_lifecycle")
+
+  /// 1 = on track, rising to 4 = critical. The labels for those four belong to
+  /// whoever is asking the question, so only the number is here.
+  budgetHealth     Int     @map("budget_health")
+  hoursReported    Float   @map("hours_reported")
+  /// The author was shown that their hours disagree with what was logged, and
+  /// said the number stands. Worth keeping: it is the difference between a
+  /// discrepancy nobody saw and one somebody signed off.
+  hoursMismatchAck Boolean @default(false) @map("hours_mismatch_ack")
+
+  outcomes             Json @default("[]")
+  lookaheads           Json @default("[]")
+  barriers             Json @default("[]")
+  milestoneResolutions Json @default("[]") @map("milestone_resolutions")
+  wins                 Json @default("[]")
+
+  /// What next week is meant to look like, as the author saw it at the time.
+  nextWeekLeverMilestoneId String? @map("next_week_lever_milestone_id") @db.Uuid
+  nextWeekFocus            String  @default("") @map("next_week_focus")
+
+  /// Retired, and kept only so old weeks still read correctly: pace is derived
+  /// from planned hours now and nothing writes these any more.
+  paceKey            String? @map("pace_key")
+  overlayKey         String? @map("overlay_key")
+  nextWeekPaceKey    String? @map("next_week_pace_key")
+  nextWeekOverlayKey String? @map("next_week_overlay_key")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  report  WeeklyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([reportId, projectId])
+  @@index([orgId, projectId])
+  @@map("weekly_report_entries")
 }
 
 // @plugin-schema-fragments — composed plugin models/enums are appended below this line by scripts/plugins/sync.mjs
