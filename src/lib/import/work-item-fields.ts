@@ -38,36 +38,30 @@ export const IGNORE = "__ignore__";
 export interface TargetField {
   id: TargetFieldId;
   label: string;
-  /** Short hint shown under the mapping row. */
-  hint: string;
-  /** Requires a value-mapping step keyed by this field. */
-  valueMapped?: "status" | "type" | "priority" | "assignee";
-  /** Only one column may map here (title, the provenance keys, …). */
-  unique?: boolean;
 }
 
 export const TARGET_FIELDS: TargetField[] = [
-  { id: "title", label: "Summary / Title", hint: "Required. The work item title.", unique: true },
-  { id: "description", label: "Description", hint: "Body text (plain/markdown).", unique: true },
-  { id: "type", label: "Issue Type", hint: "Maps to a work-item type.", valueMapped: "type", unique: true },
-  { id: "status", label: "Status", hint: "Maps to a board column.", valueMapped: "status", unique: true },
-  { id: "priority", label: "Priority", hint: "Maps to Critical/High/Medium/Low.", valueMapped: "priority", unique: true },
-  { id: "assignee", label: "Assignee", hint: "Matched to a member by email or name.", valueMapped: "assignee", unique: true },
-  { id: "assignees", label: "Assignees (multiple)", hint: "Emails or names split on comma/semicolon; the first becomes the primary.", unique: true },
-  { id: "interval", label: "Sprint / Interval", hint: "Matched to a project interval by name or number.", unique: true },
-  { id: "tags", label: "Labels / Tags", hint: "Split on comma or semicolon.", unique: true },
-  { id: "storyPoints", label: "Story Points", hint: "Whole number.", unique: true },
-  { id: "dueDate", label: "Due Date", hint: "Any parseable date.", unique: true },
-  { id: "startDate", label: "Start Date", hint: "Any parseable date.", unique: true },
-  { id: "completedAt", label: "Completed / Resolved Date", hint: "Any parseable date.", unique: true },
-  { id: "externalKey", label: "Issue Key", hint: "e.g. PROJ-123. Used to link sub-tasks.", unique: true },
-  { id: "externalId", label: "Issue ID", hint: "Stable source id — enables idempotent re-import.", unique: true },
-  { id: "parentKey", label: "Parent Link", hint: "Any parent (epic/feature/story/task): its source Issue Key, a Cosmos key like ACME-123, or an exact title.", unique: true },
-  { id: "originalEstimate", label: "Original Estimate", hint: 'Seconds or "2h 30m".', unique: true },
-  { id: "remainingEstimate", label: "Remaining Estimate", hint: 'Seconds or "2h 30m".', unique: true },
-  { id: "timeSpent", label: "Time Spent", hint: 'Seconds or "2h 30m".', unique: true },
-  { id: "resolution", label: "Resolution", hint: 'e.g. "Fixed", "Won\'t Do".', unique: true },
-  { id: "custom", label: "Custom field (keep)", hint: "Stored under the column name in custom fields.", unique: false },
+  { id: "title", label: "Summary / Title" },
+  { id: "description", label: "Description" },
+  { id: "type", label: "Issue Type" },
+  { id: "status", label: "Status" },
+  { id: "priority", label: "Priority" },
+  { id: "assignee", label: "Assignee" },
+  { id: "assignees", label: "Assignees (multiple)" },
+  { id: "interval", label: "Sprint / Interval" },
+  { id: "tags", label: "Labels / Tags" },
+  { id: "storyPoints", label: "Story Points" },
+  { id: "dueDate", label: "Due Date" },
+  { id: "startDate", label: "Start Date" },
+  { id: "completedAt", label: "Completed / Resolved Date" },
+  { id: "externalKey", label: "Issue Key" },
+  { id: "externalId", label: "Issue ID" },
+  { id: "parentKey", label: "Parent Link" },
+  { id: "originalEstimate", label: "Original Estimate" },
+  { id: "remainingEstimate", label: "Remaining Estimate" },
+  { id: "timeSpent", label: "Time Spent" },
+  { id: "resolution", label: "Resolution" },
+  { id: "custom", label: "Custom field (keep)" },
 ];
 
 /** Header synonyms → target, for auto-guessing the mapping on upload. */

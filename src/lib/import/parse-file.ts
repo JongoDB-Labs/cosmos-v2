@@ -163,7 +163,7 @@ export function matrixToObjects(
 /**
  * Read a file into one raw string matrix per sheet. XLSX yields every sheet;
  * CSV/TSV yields a single sheet named after the file. Cells are normalized
- * strings (formatted values, internal whitespace collapsed).
+ * strings (formatted values).
  */
 export async function parseWorkbook(file: File): Promise<Workbook> {
   const name = file.name.toLowerCase();

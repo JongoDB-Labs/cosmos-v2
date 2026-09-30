@@ -578,7 +578,7 @@ export async function runImport(
     }
 
     // Batch parentKey graph for cycle detection (childKey → parentKey). Only
-    // keyed rows can participate in an in-batch interval — a keyless row can't be
+    // keyed rows can participate in an in-batch cycle — a keyless row can't be
     // referenced as a parent within the file, so it can't close a loop.
     const parentOf = new Map<string, string>();
     for (const n of linkRows) if (n.externalKey) parentOf.set(n.externalKey, n.parentKey!);

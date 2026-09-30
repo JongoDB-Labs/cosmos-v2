@@ -33,8 +33,6 @@ export interface ImportField {
   kind: ImportFieldKind;
   /** Allowed enum values (Prisma enum labels) when `kind === "enum"`. */
   enum?: string[];
-  /** Short hint shown under the mapping row. */
-  hint?: string;
   /** Header synonyms (lowercased) for auto-mapping on upload. */
   synonyms?: string[];
 }
@@ -95,7 +93,6 @@ const CHANGE_REQUEST_STATUS = [
 // Reusable field fragments.
 const code = (label = "Code"): ImportField => ({
   key: "code", label, required: true, kind: "text",
-  hint: "Required, unique — anchors idempotent re-import.",
   synonyms: ["code", "id", "ref", "number", "no", "#"],
 });
 const title = (label = "Title"): ImportField => ({
