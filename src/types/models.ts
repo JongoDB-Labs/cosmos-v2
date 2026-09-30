@@ -1,17 +1,3 @@
-export interface Project {
-  id: string;
-  orgId: string;
-  name: string;
-  key: string;
-  description: string | null;
-  settings: Record<string, unknown>;
-  archived: boolean;
-  createdAt: string;
-  updatedAt: string;
-  boards?: Board[];
-  intervals?: Interval[];
-}
-
 export interface Board {
   id: string;
   orgId: string;
@@ -183,14 +169,6 @@ export interface OrgMember {
   };
 }
 
-export interface ProjectMember {
-  id: string;
-  projectId: string;
-  orgMemberId: string;
-  role: "MANAGER" | "LEAD" | "MEMBER" | "VIEWER";
-  orgMember?: OrgMember;
-}
-
 /** @deprecated OKRs are now managed as WorkItems with an objective/key-result work-item type. */
 export interface Objective {
   id: string;
@@ -267,19 +245,6 @@ export interface KeyResult {
   linkedItems?: KeyResultLinkedItem[];
 }
 
-/** A point-in-time key-result check-in (OKR health over time). */
-export interface KeyResultCheckin {
-  id: string;
-  keyResultId: string;
-  value: number;
-  confidence: number;
-  rag: "GREEN" | "YELLOW" | "RED";
-  note: string | null;
-  blockers: string | null;
-  checkedInById: string | null;
-  createdAt: string;
-}
-
 export interface CrmContact {
   id: string;
   orgId: string;
@@ -324,67 +289,6 @@ export interface Notification {
   read: boolean;
   url?: string | null;
   createdAt: string;
-}
-
-export interface Partner {
-  id: string;
-  orgId: string;
-  name: string;
-  type: "PRIME" | "SUB" | "TEAMING" | "VENDOR" | "OTHER";
-  contactName: string | null;
-  contactEmail: string | null;
-  phone: string | null;
-  website: string | null;
-  notes: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Product {
-  id: string;
-  orgId: string;
-  name: string;
-  description: string | null;
-  sku: string | null;
-  price: string | null;
-  currency: string;
-  status: "ACTIVE" | "DRAFT" | "ARCHIVED";
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Contract {
-  id: string;
-  orgId: string;
-  title: string;
-  contractNumber: string | null;
-  type: "FIXED_PRICE" | "TIME_MATERIALS" | "COST_PLUS" | "IDIQ" | "BPA" | "OTHER";
-  status: "DRAFT" | "ACTIVE" | "COMPLETED" | "TERMINATED";
-  value: string | null;
-  startDate: string | null;
-  endDate: string | null;
-  partnerId: string | null;
-  notes: string | null;
-  createdAt: string;
-  updatedAt: string;
-  partner?: Partner;
-}
-
-export interface BoardTemplate {
-  slug: string;
-  name: string;
-  category: "agile" | "planning" | "strategy" | "analytics" | "tracking" | "enterprise";
-  methodology?: string;
-  description: string;
-  icon: string;
-  boardType: string;
-}
-
-export interface DashboardWidget {
-  id: string;
-  type: string;
-  config: Record<string, unknown>;
-  layout: { x: number; y: number; w: number; h: number };
 }
 
 export interface BuilderWidget {
@@ -573,22 +477,6 @@ export interface WebhookDelivery {
   createdAt: string;
 }
 
-export interface Theme {
-  id: string;
-  orgId: string | null;
-  slug: string;
-  name: string;
-  mode: "LIGHT" | "DARK" | "HIGH_CONTRAST";
-  colors: Record<string, string>;
-  typography: Record<string, string>;
-  spacing: Record<string, string>;
-  branding: Record<string, string>;
-  isBuiltIn: boolean;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface UserPreferences {
   id: string;
   userId: string;
@@ -605,135 +493,4 @@ export interface UserPreferences {
   bgLightUrl: string | null;
   createdAt: string;
   updatedAt: string;
-}
-
-// Phase 6: Gov/Defense + Enterprise
-
-export type ComplianceFramework = "NIST_800_53" | "NIST_800_171" | "CMMC_L2" | "FEDRAMP_MOD" | "CUSTOM";
-export type ControlStatus = "NOT_ASSESSED" | "IN_PROGRESS" | "IMPLEMENTED" | "PARTIALLY_IMPLEMENTED" | "NOT_APPLICABLE" | "FAILED";
-export type ClassificationLevel = "PUBLIC" | "UNCLASSIFIED" | "FOUO" | "CUI" | "CONFIDENTIAL";
-
-export interface ComplianceControl {
-  id: string;
-  orgId: string;
-  framework: ComplianceFramework;
-  controlId: string;
-  title: string;
-  description: string;
-  status: ControlStatus;
-  evidence: Record<string, unknown>[];
-  notes: string;
-  assessedAt: string | null;
-  assessedById: string | null;
-  dueDate: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface DataClassification {
-  id: string;
-  orgId: string;
-  projectId: string | null;
-  level: ClassificationLevel;
-  markings: string[];
-  handlingInstructions: string;
-  appliedById: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface SessionRecord {
-  id: string;
-  orgId: string;
-  userId: string;
-  ipAddress: string | null;
-  userAgent: string | null;
-  status: "ACTIVE" | "EXPIRED" | "REVOKED";
-  lastActiveAt: string;
-  expiresAt: string;
-  revokedAt: string | null;
-  createdAt: string;
-}
-
-export interface IpAllowlistEntry {
-  id: string;
-  orgId: string;
-  cidr: string;
-  label: string;
-  createdAt: string;
-}
-
-export interface OrgSecuritySettings {
-  id: string;
-  orgId: string;
-  mfaRequired: boolean;
-  sessionTimeoutMins: number;
-  ipAllowlistEnabled: boolean;
-  scimEnabled: boolean;
-  ssoEnforced: boolean;
-  ssoConnectionId: string | null;
-  allowedDomains: string[];
-  auditRetentionDays: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// Phase 7: AI Chat + Advanced Analytics
-
-export interface AssistantConversation {
-  id: string;
-  orgId: string;
-  userId: string;
-  title: string;
-  archived: boolean;
-  createdAt: string;
-  updatedAt: string;
-  messages?: AssistantMessage[];
-}
-
-export interface AssistantMessage {
-  id: string;
-  conversationId: string;
-  role: "USER" | "ASSISTANT" | "SYSTEM" | "TOOL";
-  content: string;
-  toolCalls: Record<string, unknown>[];
-  toolCallId: string | null;
-  createdAt: string;
-}
-
-export interface SavedReport {
-  id: string;
-  orgId: string;
-  createdById: string;
-  name: string;
-  type: string;
-  config: Record<string, unknown>;
-  schedule: string | null;
-  lastRunAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface IntervalAnalytics {
-  intervalId: string;
-  intervalName: string;
-  velocity: number;
-  completedPoints: number;
-  totalPoints: number;
-  completedItems: number;
-  totalItems: number;
-  avgCycleTimeDays: number;
-  avgLeadTimeDays: number;
-}
-
-export interface PortfolioProject {
-  projectId: string;
-  projectName: string;
-  projectKey: string;
-  totalItems: number;
-  completedItems: number;
-  inProgressItems: number;
-  overdueItems: number;
-  completionPercent: number;
-  activeSprint: string | null;
 }

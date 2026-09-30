@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.406.1",
+    date: "2026-09-30",
+    title: "Housekeeping: retired type definitions removed",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Nothing changes on screen. We removed a set of shared data definitions that no part of the app used any more — several had quietly drifted away from the real thing, which is how small inconsistencies creep into new screens. A new automatic check keeps unused ones from building up again.",
+      },
+    ],
+  },
+  {
     version: "2.406.0",
     date: "2026-09-30",
     title: "Groundwork: six more practice-management records join the platform",
