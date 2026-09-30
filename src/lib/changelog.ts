@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.402.0",
+    date: "2026-09-30",
+    title: "A project with no boards stops printing its name twice",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Opening a project that has no boards yet showed its name twice \u2014 once in the header bar and again as a large heading directly beneath, on the emptiest screen in the app, which made it look like something had gone wrong rather than like a project waiting for its first board. The bar keeps the name; the page below now says what it is.",
+      },
+    ],
+  },
+  {
     version: "2.400.0",
     date: "2026-09-29",
     title: "The overview stops congratulating you on growth it never measured",

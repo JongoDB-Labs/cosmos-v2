@@ -121,7 +121,13 @@ export default async function ProjectPage({ params }: PageParams) {
 
   // No boards yet - show empty state
   return (
-    <PageShell title={project.name} description={project.description ?? undefined} maxWidth="7xl">
+    // "Boards", not the project name. This branch only renders when a project
+    // has NO boards, and the bar above already says the project's name — so
+    // titling it with the name too printed the same words twice, ~110px apart,
+    // on the emptiest screen in the app, which reads as a render bug rather
+    // than as a project waiting for its first board. Matches the sibling
+    // convention: import/page.tsx titles itself "Import".
+    <PageShell title="Boards" description={project.description ?? undefined} maxWidth="7xl">
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <h2 className="text-lg font-medium mb-1">No boards yet</h2>
