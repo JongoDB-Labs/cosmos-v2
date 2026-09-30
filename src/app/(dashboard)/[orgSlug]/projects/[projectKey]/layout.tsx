@@ -160,13 +160,18 @@ export default async function ProjectLayout({
           <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
             {project.key}
           </span>
-          {/* NOT an h1. This bar is persistent chrome — it sits above every
-              page in the project and names the project, the same job the
-              breadcrumb does. Marking it as the page heading gave every project
-              page two h1s, and on the boards empty state both of them said the
-              project's name, one above the other, which read as a render bug.
-              The page's own PageShell title is the heading now. */}
-          <p className="text-lg font-semibold">{project.name}</p>
+          {/* This STAYS a heading, and the reason is not obvious: the board
+              page — where a project actually lands — renders no title of its
+              own, so this bar is the ONLY heading on it. Demoting it to a <p>
+              left that page with no heading at all, which
+              journey-create-project.spec.ts caught by asking for a heading
+              named after the project after creating one.
+
+              It does mean pages that DO set a PageShell title carry two h1s.
+              Fixing that properly needs PageShell to take a heading level so a
+              project page can be an h2 under this h1; that is a change to a
+              component the whole app uses and wants its own pass. */}
+          <h1 className="text-lg font-semibold">{project.name}</h1>
         </div>
         <div className="flex items-center gap-1">
           {intervalEnabled && (

@@ -121,14 +121,13 @@ export default async function ProjectPage({ params }: PageParams) {
 
   // No boards yet - show empty state
   return (
-    // The project name stays the PAGE heading here, and deliberately so: the
-    // header bar above is a <p> now, so this is the only <h1> on the project's
-    // own landing page. Titling it "Boards" instead removed the project name
-    // from the heading hierarchy altogether — nothing on the page was a heading
-    // naming the project — which journey-create-project.spec.ts caught by
-    // asking for exactly that, and which would have left a screen-reader user
-    // landing on a new project with no announced idea of which one.
-    <PageShell title={project.name} description={project.description ?? undefined} maxWidth="7xl">
+    // "Boards", not the project name. This branch only renders when a project
+    // has NO boards, and the bar above already says the project's name — so
+    // titling it with the name too printed the same words twice, ~110px apart,
+    // on the emptiest screen in the app, which reads as a render bug rather
+    // than as a project waiting for its first board. Matches the sibling
+    // convention: import/page.tsx titles itself "Import".
+    <PageShell title="Boards" description={project.description ?? undefined} maxWidth="7xl">
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <h2 className="text-lg font-medium mb-1">No boards yet</h2>
