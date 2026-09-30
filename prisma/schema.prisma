@@ -4834,8 +4834,13 @@ model WeeklyReportEntry {
   /// and the org-scoped index would then serve it to the wrong tenant.
   orgId          String  @map("org_id") @db.Uuid
   projectId      String  @map("project_id") @db.Uuid
-  /// Soft reference. Whatever names the phases is free to delete one, and this
-  /// entry keeps the name and lifecycle it was written with either way.
+  /// SetNull, not Cascade, and that is the whole point: retiring a phase must
+  /// not delete a week that has already been reported. The name and lifecycle
+  /// below are captured at write, so the entry still reads correctly with the
+  /// reference gone.
+  ///
+  /// This was a bare uuid until ProjectPhase became part of core, because a
+  /// plugin may not constrain a core table. Now it can be said properly.
   projectPhaseId String? @map("project_phase_id") @db.Uuid
   phaseName      String  @map("phase_name")
   phaseLifecycle String  @map("phase_lifecycle")
@@ -4866,9 +4871,10 @@ model WeeklyReportEntry {
   nextWeekPaceKey    String? @map("next_week_pace_key")
   nextWeekOverlayKey String? @map("next_week_overlay_key")
 
-  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  report  WeeklyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  report       WeeklyReport  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectPhase ProjectPhase? @relation(fields: [projectPhaseId], references: [id], onDelete: SetNull)
 
   @@unique([reportId, projectId])
   @@index([orgId, projectId])
@@ -5017,12 +5023,13 @@ model ProjectPhase {
   endDate   DateTime? @map("end_date") @db.Date
   sortOrder Int       @default(0) @map("sort_order")
 
-  org             Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project         Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  templateItem    PhaseTemplateItem? @relation(fields: [templateItemId], references: [id], onDelete: SetNull)
-  plan            PhasePlan[]
-  timeEntries     TimeEntryPhase[]
-  milestonePhases MilestonePhase[]
+  org                 Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project             Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  templateItem        PhaseTemplateItem?  @relation(fields: [templateItemId], references: [id], onDelete: SetNull)
+  plan                PhasePlan[]
+  timeEntries         TimeEntryPhase[]
+  milestonePhases     MilestonePhase[]
+  weeklyReportEntries WeeklyReportEntry[]
 
   // @plugin-backrel:ProjectPhase
 
