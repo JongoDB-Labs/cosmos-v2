@@ -13,7 +13,7 @@ import { join } from "node:path";
  * loudly on any regression, so a stray literal can't slip back into the public
  * core.
  *
- * It covers file CONTENT only. Commit messages are guarded separately, at commit
+ * It covers file content AND path. Commit messages are guarded separately, at commit
  * time, by scripts/check-commit-msg-identity.mjs via the commit-msg hook — both
  * import the pattern below from scripts/client-identity.mjs so the two can never
  * disagree.
@@ -46,6 +46,15 @@ describe("public-repo client-identity gate", () => {
         continue; // unreadable (e.g. removed in-tree) — nothing to scan
       }
       if (FORBIDDEN.test(text)) offenders.push(rel);
+    }
+
+    // PATHS too, not just contents. A file can name a client without saying so
+    // inside it — a migration folder is the obvious way, since its name is
+    // chosen by whoever generated it and its SQL may be perfectly neutral.
+    // Promoting a vertical's tables into this repo creates exactly those
+    // folders, so the hole was about to be walked through.
+    for (const rel of tracked) {
+      if (FORBIDDEN.test(rel) && !offenders.includes(rel)) offenders.push(rel);
     }
 
     expect(

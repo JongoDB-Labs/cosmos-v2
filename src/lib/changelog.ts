@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.405.0",
+    date: "2026-09-30",
+    title: "Groundwork: charge-out levels become part of the platform",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Nothing changes in your workspace yet. A firm's charge-out ladder \u2014 the levels people are billed at and the utilisation each is measured against \u2014 has until now belonged to one vertical's add-on; it is becoming part of the platform itself, so any firm that bills time can use it. This release only puts the foundations in place.",
+      },
+    ],
+  },
+  {
     version: "2.404.0",
     date: "2026-09-30",
     title: "The assistant answers to the same name it is introduced by",
