@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.406.0",
+    date: "2026-09-30",
+    title: "Groundwork: six more practice-management records join the platform",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Still nothing to see in your workspace \u2014 this is the second of several releases moving capability out of one vertical's add-on and into the platform, so that any firm can use it. This one covers how hard a project is being pushed week by week, non-chargeable hours, a milestone's history of moving, imported names matched to people, and a project's numbers captured at close-out.",
+      },
+    ],
+  },
+  {
     version: "2.405.0",
     date: "2026-09-30",
     title: "Groundwork: charge-out levels become part of the platform",
