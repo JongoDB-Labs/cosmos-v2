@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.414.0",
+    date: "2026-09-30",
+    title: "Groundwork: who is booked on what, week by week",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The last of the foundations. Planning which people are booked to which projects, a week at a time, moves out of one vertical\u2019s add-on and into the platform \u2014 the chargeable counterpart to the non-chargeable hours that moved a few releases ago. Between them they account for a person\u2019s week. Still nothing new to see in your workspace.",
+      },
+    ],
+  },
+  {
     version: "2.413.0",
     date: "2026-09-30",
     title: "Housekeeping: the migration tooling knows who is who",
