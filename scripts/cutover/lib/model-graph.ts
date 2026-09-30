@@ -190,7 +190,8 @@ export interface ColumnPlan {
 // process (dump-dmmf.mjs) and memoize — keeping this accessor synchronous so every caller
 // and test that depends on it stays unchanged.
 let cachedModels: DMMFModel[] | null = null;
-function dmmfModels(): DMMFModel[] {
+/** Exported so a test can size itself against the schema rather than a literal. */
+export function dmmfModels(): DMMFModel[] {
   if (cachedModels) return cachedModels;
   const dumper = path.join(
     path.dirname(fileURLToPath(import.meta.url)),

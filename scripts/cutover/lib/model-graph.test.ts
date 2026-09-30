@@ -23,6 +23,7 @@ import {
   discoverOrphanProbeTargets,
   orphanProbeSql,
   migratedTableSet,
+  dmmfModels,
   BARE_USER_REF_COLUMNS,
   type ModelPlan,
 } from "./model-graph";
@@ -38,22 +39,23 @@ function plan(name: string): ModelPlan {
 
 describe("buildModelPlans — classification", () => {
   it("derives a non-trivial set of org-scoped models (the shared business graph)", () => {
-    // The shared ~84 org-scoped models minus the excluded globals; not hardcoded but
-    // sanity-bounded so a derivation regression (e.g. dropping all PARENT models) fails.
-    // Bumped from <75 when the prod-parity reconciliation added 17 org-scoped models
-    // (chat_bots, work_item_links, finance/bank/document tables — migration
-    // 20260607030000); ChatAlertKeyword is user-scoped so it's not a plan here.
-    // Bumped from <95 when the PM Dashboard added 4 org-scoped govcon models
-    // (risks, deliverables, blockers, change_requests — migration 20260627000000).
-    // Bumped from <105 when multi-assign added work_item_assignees (migration
-    // 20260706070000) — plans hit exactly 105.
-    // Bumped from <110 as later org-scoped additions (incl. foreman_ai_settings,
-    // the dedicated Foreman Claude connection — migration 20260713150000; DIRECT
-    // via org_id, surrogate `id` PK like org_ai_settings) took the count to 110.
-    // Bumped from <115 as the Foreman harness added foreman_skills / foreman_mcp_servers
-    // / foreman_harness_settings (all org-scoped) — migration 20260720* — reaching 115.
+    // The FLOOR is what catches a derivation regression: drop all PARENT models
+    // and this collapses to a handful.
     expect(plans.length).toBeGreaterThan(50);
-    expect(plans.length).toBeLessThan(130);
+
+    // The CEILING is derived rather than written down, and the history of the
+    // literal it replaced is the argument for that: <75, <95, <105, <110, <115,
+    // <130 — six edits, each one a legitimate feature adding org-scoped models,
+    // each one forcing a change to a test it had nothing to do with. A number the
+    // schema outgrows on schedule teaches people to raise it rather than read it.
+    //
+    // What the ceiling is actually for is the mirror of the floor: noticing that
+    // the classifier has begun sweeping in models it is supposed to leave out. So
+    // assert that directly, against the schema as it stands. The three tests below
+    // check the same property by name; this one keeps holding even if a future
+    // exclusion list forgets to name something.
+    const excluded = new Set([...V2_ONLY_MODELS, ...EXCLUDED_GLOBAL_MODELS]);
+    expect(plans.length).toBeLessThanOrEqual(dmmfModels().length - excluded.size);
   });
 
   it("excludes the 5 v2-only models (no v1 source)", () => {

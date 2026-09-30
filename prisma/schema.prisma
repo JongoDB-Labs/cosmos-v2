@@ -309,6 +309,12 @@ model Organization {
   syncMeetings        SyncMeeting[]
   taxRates            TaxRate[]
   rateLevels          RateLevel[]
+  paceLevels          PaceLevel[]
+  paceWeeks           PaceWeek[]
+  personAliases       PersonAlias[]
+  milestoneSlips      MilestoneSlip[]
+  closeoutSnapshots   ProjectCloseoutSnapshot[]
+  overheadAllocations OverheadAllocation[]
   themes              Theme[]
   timeEntries         TimeEntry[]
   timeEntryRevisions  TimeEntryRevision[]
@@ -773,10 +779,10 @@ model Project {
   createdAt           DateTime      @default(now()) @map("created_at")
   updatedAt           DateTime      @updatedAt @map("updated_at")
 
-  org                 Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org                 Organization              @relation(fields: [orgId], references: [id], onDelete: Cascade)
   /// SetNull, not Cascade: removing a client must never delete the work done for
   /// them.
-  client              Client?              @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  client              Client?                   @relation(fields: [clientId], references: [id], onDelete: SetNull)
   members             ProjectMember[]
   teams               Team[]
   boards              Board[]
@@ -786,7 +792,7 @@ model Project {
   milestones          Milestone[]
   kpis                Kpi[]
   roadmapNodes        RoadmapNode[]
-  projectTemplate     ProjectTemplate?     @relation(fields: [projectTemplateId], references: [id])
+  projectTemplate     ProjectTemplate?          @relation(fields: [projectTemplateId], references: [id])
   journalLines        JournalLine[]
   flags               Flag[]
   dataClassifications DataClassification[]
@@ -796,6 +802,9 @@ model Project {
   blockers            Blocker[]
   changeRequests      ChangeRequest[]
   feedbackItems       FeedbackItem[]
+  paceWeeks           PaceWeek[]
+  closeoutSnapshots   ProjectCloseoutSnapshot[]
+
   // @plugin-backrel:Project
 
   expenses Expense[]
@@ -4617,6 +4626,149 @@ enum UtilizationBand {
   PRINCIPAL
   /// Admin and support. No chargeable target, so no verdict is offered.
   SUPPORT
+}
+
+/// How hard a project is being pushed in a given week, as a named level rather
+/// than a number people have to interpret. Promoted from a vertical plugin:
+/// any firm that staffs work in weeks has a notion of pace, and the LEVELS are
+/// an org's own vocabulary, which is why they are rows rather than an enum.
+model PaceLevel {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String  @map("org_id") @db.Uuid
+  key            String
+  name           String
+  percentLabel   String  @default("") @map("percent_label")
+  hoursAssociate Float   @map("hours_associate")
+  hoursOther     Float   @map("hours_other")
+  /// Suggested resource mix, e.g. {"AP_SP":1,"SA":2,"A":2}.
+  ratio          Json    @default("{}")
+  /// Temporary paces are lever-locked: they must reference an open milestone
+  /// and cannot change while that lever is open.
+  isTemporary    Boolean @default(false) @map("is_temporary")
+  /// An overlay pace may stack on a base pace; hours are additive.
+  isOverlay      Boolean @default(false) @map("is_overlay")
+  color          String  @default("#94a3b8")
+  sortOrder      Int     @default(0) @map("sort_order")
+  active         Boolean @default(true)
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, key])
+  @@map("pace_levels")
+}
+
+/// The pace a project was actually set to for one week, and who set it.
+model PaceWeek {
+  id                      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId                   String   @map("org_id") @db.Uuid
+  projectId               String   @map("project_id") @db.Uuid
+  weekStart               DateTime @map("week_start") @db.Date
+  paceKey                 String   @map("pace_key")
+  leverMilestoneId        String?  @map("lever_milestone_id") @db.Uuid
+  overlayKey              String?  @map("overlay_key")
+  overlayLeverMilestoneId String?  @map("overlay_lever_milestone_id") @db.Uuid
+  source                  String   @default("MANUAL")
+  note                    String   @default("")
+  setById                 String?  @map("set_by_id") @db.Uuid
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, weekStart])
+  @@index([orgId, weekStart])
+  @@map("pace_weeks")
+}
+
+/// Maps a name as some outside system spells it to a person in this org, so an
+/// import can attribute rows without asking again every time.
+model PersonAlias {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
+  /// The name exactly as the source writes it. Lookup normalises both sides,
+  /// so this keeps the original spelling for a human reading the row later.
+  sourceName String   @map("source_name")
+  userId     String   @map("user_id") @db.Uuid
+  /// Who decided, for the same reason every money-adjacent write records an
+  /// actor: "a person said so" and "something inferred it" age very
+  /// differently when somebody queries a margin a year later.
+  setById    String?  @map("set_by_id") @db.Uuid
+  note       String   @default("")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, sourceName])
+  @@index([orgId, userId])
+  @@map("person_aliases")
+}
+
+/// A record that a milestone moved: from when, to when, and why. Kept as its
+/// own row rather than overwriting the date, because the history of slippage
+/// is the thing worth reading.
+model MilestoneSlip {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String   @map("org_id") @db.Uuid
+  projectId     String   @map("project_id") @db.Uuid
+  /// Soft reference: a slip outlives the milestone it describes.
+  milestoneId   String   @map("milestone_id") @db.Uuid
+  fromDate      DateTime @map("from_date") @db.Date
+  toDate        DateTime @map("to_date") @db.Date
+  reason        String   @default("")
+  sourceBlockId String?  @map("source_block_id") @db.Uuid
+  recordedById  String   @map("recorded_by_id") @db.Uuid
+  recordedAt    DateTime @default(now()) @map("recorded_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, projectId])
+  @@index([milestoneId])
+  @@map("milestone_slips")
+}
+
+/// A project's numbers captured at a moment, interim or final, for looking back
+/// at after the work is done.
+///
+/// NOT a ceremony retrospective — RetroNote and RetroActionItem are that, and
+/// they hang off a ceremony. This is a project close-out record, which is why
+/// it is not called a retro despite the vertical having named it one.
+model ProjectCloseoutSnapshot {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  projectId    String   @map("project_id") @db.Uuid
+  kind         String   @default("INTERIM")
+  data         Json
+  capturedById String   @map("captured_by_id") @db.Uuid
+  capturedAt   DateTime @default(now()) @map("captured_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, projectId])
+  @@map("project_closeout_snapshots")
+}
+
+/// Hours a person spent on something that is not chargeable to a project.
+model OverheadAllocation {
+  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String       @map("org_id") @db.Uuid
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// A bare id: a person outliving their account must not take the week's
+  /// history with them.
+  userId    String       @map("user_id") @db.Uuid
+  weekStart DateTime     @map("week_start") @db.Date
+  /// Free text, not an enum: what an organisation calls its overhead is its
+  /// own business, and a closed list here would be wrong for the second one.
+  category  String       @default("Overhead")
+  hours     Float
+  note      String       @default("")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  @@unique([orgId, userId, weekStart, category])
+  @@index([orgId, weekStart, userId])
+  @@map("overhead_allocations")
 }
 
 // @plugin-schema-fragments — composed plugin models/enums are appended below this line by scripts/plugins/sync.mjs
