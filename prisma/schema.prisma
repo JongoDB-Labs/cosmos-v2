@@ -317,6 +317,12 @@ model Organization {
   overheadAllocations OverheadAllocation[]
   weeklyReports       WeeklyReport[]
   memberProfiles      OrgMemberProfile[]
+  phaseTemplates      PhaseTemplate[]
+  phaseTemplateItems  PhaseTemplateItem[]
+  projectPhases       ProjectPhase[]
+  phasePlans          PhasePlan[]
+  timeEntryPhases     TimeEntryPhase[]
+  milestonePhases     MilestonePhase[]
   weeklyReportEntries WeeklyReportEntry[]
   themes              Theme[]
   timeEntries         TimeEntry[]
@@ -809,6 +815,8 @@ model Project {
   closeoutSnapshots   ProjectCloseoutSnapshot[]
 
   weeklyReportEntries WeeklyReportEntry[]
+
+  projectPhases ProjectPhase[]
 
   // @plugin-backrel:Project
 
@@ -1873,8 +1881,9 @@ model TimeEntry {
   createdAt    DateTime        @default(now()) @map("created_at")
   updatedAt    DateTime        @updatedAt @map("updated_at")
 
-  timesheet Timesheet?          @relation(fields: [timesheetId], references: [id], onDelete: SetNull)
-  revisions TimeEntryRevision[]
+  timesheet        Timesheet?          @relation(fields: [timesheetId], references: [id], onDelete: SetNull)
+  revisions        TimeEntryRevision[]
+  phaseAttribution TimeEntryPhase?
 
   @@index([orgId, userId, date])
   @@index([orgId, status])
@@ -3194,6 +3203,7 @@ model Milestone {
   notes            String?
   deliverables     Deliverable[]
   links            MilestoneLink[]
+  phaseBinding     MilestonePhase?
 
   @@index([orgId, projectId])
   @@index([intervalId])
@@ -4905,6 +4915,204 @@ model OrgMemberProfile {
 
   @@unique([orgId, userId])
   @@map("org_member_profiles")
+}
+
+/// A named set of phases an organization runs its projects through.
+///
+/// Rows, not an enum, and that is the whole design. An enum is fixed at deploy
+/// time, so every organization would be stuck with whichever set of phases
+/// happened to be compiled in, and none of them could add one. An org may hold
+/// several templates — one per kind of work — and exactly one carries isDefault.
+model PhaseTemplate {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  name      String
+  isDefault Boolean  @default(false) @map("is_default")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org   Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  items PhaseTemplateItem[]
+
+  @@unique([orgId, name])
+  @@index([orgId, isDefault])
+  @@map("phase_templates")
+}
+
+/// One phase within a template.
+///
+/// lifecycle, suggestedPaces and paceNote are data rather than code for the same
+/// reason the template is: an organization can add or retune a phase without
+/// waiting for a release. The cost is that nothing checks exhaustiveness any
+/// more — whatever reads `lifecycle` has to handle a value it has not seen.
+model PhaseTemplateItem {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId             String   @map("org_id") @db.Uuid
+  templateId        String   @map("template_id") @db.Uuid
+  key               String
+  name              String
+  sortOrder         Int      @map("sort_order")
+  lifecycle         String
+  defaultFeePercent Decimal  @default(0) @map("default_fee_percent") @db.Decimal(9, 4)
+  suggestedPaces    String[] @map("suggested_paces")
+  paceNote          String   @default("") @map("pace_note")
+
+  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  template      PhaseTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  projectPhases ProjectPhase[]
+
+  @@unique([templateId, key])
+  @@index([templateId, sortOrder])
+  @@map("phase_template_items")
+}
+
+/// A phase as it actually runs on one project.
+///
+/// Repeatable by design. Keying a project's phases by their TYPE would let a
+/// project hold at most one of each, and a second pass at the same kind of work
+/// after a scope change would have nowhere to go. Uniqueness is on `name`
+/// instead, while templateItemId records that two phases came from the same
+/// template entry.
+///
+/// `lifecycle` is copied from the template rather than read through it, so a
+/// phase created ad hoc (templateItemId null) still describes itself, and so
+/// retiring a template phase cannot silently drop live projects out of anything
+/// grouped by lifecycle.
+model ProjectPhase {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String  @map("org_id") @db.Uuid
+  projectId      String  @map("project_id") @db.Uuid
+  templateItemId String? @map("template_item_id") @db.Uuid
+  key            String
+  name           String
+  lifecycle      String
+
+  /// COMMITTED fee — what the organization stands behind. Anything reporting
+  /// money reads this one, so recomputing the split must never overwrite it.
+  fee          Decimal @db.Decimal(19, 4)
+  /// This phase's editable share of the project's fee. Weights, not strict
+  /// percentages: 10/10/20 means the same as 25/25/50. Zero everywhere means
+  /// "not configured yet" and splits evenly.
+  feePercent   Decimal @default(0) @map("fee_percent") @db.Decimal(9, 4)
+  /// DERIVED from the project fee and feePercent, recomputed on every plan.
+  /// Kept beside `fee` so a screen can show committed against suggested without
+  /// recomputing, and so the variance survives a page load.
+  suggestedFee Decimal @default(0) @map("suggested_fee") @db.Decimal(19, 4)
+
+  plannedHours    Float?   @map("planned_hours")
+  /// Nullable: "nobody has assessed it" is not 0%.
+  percentComplete Decimal? @map("percent_complete") @db.Decimal(5, 4)
+
+  /// What actually happened, against the plan above. The gap between the two is
+  /// the reason both are here.
+  ///
+  /// Defaulted to 0 rather than nullable, unlike the dates: "nothing logged yet"
+  /// is a real and meaningful zero, whereas an absent date means "not scheduled".
+  loggedFee     Decimal @default(0) @map("logged_fee") @db.Decimal(19, 4)
+  invoicedFee   Decimal @default(0) @map("invoiced_fee") @db.Decimal(19, 4)
+  paidFee       Decimal @default(0) @map("paid_fee") @db.Decimal(19, 4)
+  consumedHours Float?  @map("consumed_hours")
+
+  startDate DateTime? @map("start_date") @db.Date
+  endDate   DateTime? @map("end_date") @db.Date
+  sortOrder Int       @default(0) @map("sort_order")
+
+  org             Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project         Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  templateItem    PhaseTemplateItem? @relation(fields: [templateItemId], references: [id], onDelete: SetNull)
+  plan            PhasePlan[]
+  timeEntries     TimeEntryPhase[]
+  milestonePhases MilestonePhase[]
+
+  // @plugin-backrel:ProjectPhase
+
+  @@unique([projectId, name])
+  @@index([orgId, projectId, sortOrder])
+  @@map("project_phases")
+}
+
+/// How a phase's planned hours fall ACROSS TIME.
+///
+/// plannedHours on the phase is one figure and says nothing about when the
+/// effort lands. Two phases with four hundred hours over ten weeks behave very
+/// differently if one is flat and the other loads the last fortnight, and burn
+/// rate, staffing and any look back afterwards all turn on that difference.
+///
+/// HOURS ARE THE STORED FORM. A percentage is a way of typing one in, converted
+/// at the boundary — storing both would leave two representations that disagree
+/// the moment the phase total changes.
+model PhasePlan {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  phaseId   String   @map("phase_id") @db.Uuid
+  /// Monday of the planned week.
+  weekStart DateTime @map("week_start") @db.Date
+  hours     Float
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  phase ProjectPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+
+  @@unique([phaseId, weekStart])
+  @@index([orgId, weekStart])
+  @@map("phase_plans")
+}
+
+/// Which phase an hour belonged to.
+///
+/// A separate row rather than a column on TimeEntry: most organizations never
+/// divide work into fee phases, and would carry the column empty forever.
+///
+/// EXPLICIT attribution only. Where no row exists, a reader may still infer the
+/// phase from the phase's own date window — but that is a guess, and it is
+/// wrong in exactly the cases that matter, because overlapping windows resolve
+/// to whichever matched first. A row here always wins.
+model TimeEntryPhase {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Unique, not the primary key. One hour belongs to one phase, which a unique
+  /// constraint says exactly as well — and every other table here is keyed by a
+  /// surrogate `id`, which the migration tooling relies on. Splitting an entry
+  /// across phases would be a different feature and would need a quantity here.
+  timeEntryId String   @unique @map("time_entry_id") @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  phaseId     String   @map("phase_id") @db.Uuid
+  /// Who attributed it, for the same reason every money-adjacent write records
+  /// an actor: "something inferred this" and "a person decided this" age very
+  /// differently when somebody queries a margin a year later.
+  ///
+  /// NULL is how "not a person" is written. A zero uuid is not — it reads as an
+  /// actor to anything checking for absence, and resolves to nobody.
+  setById     String?  @map("set_by_id") @db.Uuid
+  setAt       DateTime @default(now()) @map("set_at")
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  timeEntry TimeEntry    @relation(fields: [timeEntryId], references: [id], onDelete: Cascade)
+  phase     ProjectPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, phaseId])
+  @@map("time_entry_phases")
+}
+
+/// Which phase a milestone sits under.
+///
+/// Its own table rather than a column on Milestone, for the same reason as
+/// TimeEntryPhase: phases are optional, and a column would sit empty for every
+/// organization that does not use them. One phase per milestone.
+model MilestonePhase {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String   @map("org_id") @db.Uuid
+  milestoneId    String   @unique @map("milestone_id") @db.Uuid
+  projectPhaseId String   @map("project_phase_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  milestone    Milestone    @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  projectPhase ProjectPhase @relation(fields: [projectPhaseId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([projectPhaseId])
+  @@map("milestone_phases")
 }
 
 // @plugin-schema-fragments — composed plugin models/enums are appended below this line by scripts/plugins/sync.mjs

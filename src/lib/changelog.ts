@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.409.0",
+    date: "2026-09-30",
+    title: "Groundwork: projects can run in configurable phases",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The last of the foundations, and still nothing to see in your workspace yet. Projects can be divided into phases an organization defines for itself \u2014 with a fee, a plan for how the hours fall week by week, and a record of which phase an hour or a milestone belongs to. Until now this lived in one vertical's add-on; it is part of the platform from this release.",
+      },
+    ],
+  },
+  {
     version: "2.408.0",
     date: "2026-09-30",
     title: "Groundwork: how people are staffed and charged out",
