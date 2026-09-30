@@ -323,6 +323,7 @@ model Organization {
   phasePlans          PhasePlan[]
   timeEntryPhases     TimeEntryPhase[]
   milestonePhases     MilestonePhase[]
+  staffingAllocations StaffingAllocation[]
   weeklyReportEntries WeeklyReportEntry[]
   themes              Theme[]
   timeEntries         TimeEntry[]
@@ -817,6 +818,8 @@ model Project {
   weeklyReportEntries WeeklyReportEntry[]
 
   projectPhases ProjectPhase[]
+
+  staffingAllocations StaffingAllocation[]
 
   // @plugin-backrel:Project
 
@@ -5120,6 +5123,49 @@ model MilestonePhase {
   @@index([orgId])
   @@index([projectPhaseId])
   @@map("milestone_phases")
+}
+
+/// Where an allocation's hours came from.
+enum AllocationSource {
+  /// Derived from the project's pace for that week.
+  PACE
+  /// Typed in by a person, overriding whatever the pace implied.
+  MANUAL
+}
+
+/// Hours of one person booked to one project for one week.
+///
+/// The chargeable counterpart to OverheadAllocation: that one records the hours
+/// a week absorbed, this one records the hours a week committed. Between them
+/// they account for a person's time.
+///
+/// Promoted from a vertical plugin. Any organization that plans who works on
+/// what, a week at a time, needs this shape.
+model StaffingAllocation {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  /// A bare id: the plan for a past week must outlive the account it named.
+  userId    String   @map("user_id") @db.Uuid
+  weekStart DateTime @map("week_start") @db.Date
+  hours     Float
+
+  source AllocationSource @default(PACE)
+
+  /// What the derivation used, kept so a MANUAL override can still be read
+  /// against what it overrode. Both are null once nothing derived the row.
+  paceKey String? @map("pace_key")
+  band    Band?
+
+  note      String   @default("")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId, weekStart])
+  @@index([orgId, weekStart, userId])
+  @@map("staffing_allocations")
 }
 
 // @plugin-schema-fragments — composed plugin models/enums are appended below this line by scripts/plugins/sync.mjs
