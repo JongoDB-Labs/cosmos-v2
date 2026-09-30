@@ -160,7 +160,13 @@ export default async function ProjectLayout({
           <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
             {project.key}
           </span>
-          <h1 className="text-lg font-semibold">{project.name}</h1>
+          {/* NOT an h1. This bar is persistent chrome — it sits above every
+              page in the project and names the project, the same job the
+              breadcrumb does. Marking it as the page heading gave every project
+              page two h1s, and on the boards empty state both of them said the
+              project's name, one above the other, which read as a render bug.
+              The page's own PageShell title is the heading now. */}
+          <p className="text-lg font-semibold">{project.name}</p>
         </div>
         <div className="flex items-center gap-1">
           {intervalEnabled && (

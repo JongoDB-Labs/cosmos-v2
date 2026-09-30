@@ -121,7 +121,12 @@ export default async function ProjectPage({ params }: PageParams) {
 
   // No boards yet - show empty state
   return (
-    <PageShell title={project.name} description={project.description ?? undefined} maxWidth="7xl">
+    // "Boards", not the project name: the header bar above already names the
+    // project, and this branch only renders when the project has no boards —
+    // so the name appeared twice, ~110px apart, on exactly the screen with the
+    // least else on it. Matches the sibling convention (import/page.tsx uses
+    // "Import").
+    <PageShell title="Boards" description={project.description ?? undefined} maxWidth="7xl">
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <h2 className="text-lg font-medium mb-1">No boards yet</h2>

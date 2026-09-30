@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.402.0",
+    date: "2026-09-30",
+    title: "A project page stops announcing itself twice",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Opening a project that had no boards yet showed its name twice, once in the header bar and again as a large heading directly beneath \u2014 on the emptiest screen in the app, which made it read as something broken rather than as a project waiting for its first board. The bar keeps the name; the page below now says what it is.",
+      },
+      {
+        kind: "improvement",
+        text: "Every project page was also marking two different pieces of text as its main heading, which is what a screen reader reads out first. The header bar is now treated as what it is \u2014 the furniture that stays put while you move between tabs \u2014 so each page has one heading again.",
+      },
+    ],
+  },
+  {
     version: "2.400.0",
     date: "2026-09-29",
     title: "The overview stops congratulating you on growth it never measured",
