@@ -316,6 +316,7 @@ model Organization {
   closeoutSnapshots   ProjectCloseoutSnapshot[]
   overheadAllocations OverheadAllocation[]
   weeklyReports       WeeklyReport[]
+  memberProfiles      OrgMemberProfile[]
   weeklyReportEntries WeeklyReportEntry[]
   themes              Theme[]
   timeEntries         TimeEntry[]
@@ -4862,6 +4863,48 @@ model WeeklyReportEntry {
   @@unique([reportId, projectId])
   @@index([orgId, projectId])
   @@map("weekly_report_entries")
+}
+
+/// How one member of an organization is staffed and charged out: the level they
+/// bill at, the hours they are expected to be available for, and whether they
+/// are still learning the work.
+///
+/// One row per person per org, the same key as OrgMember — but a separate table
+/// rather than more columns on it, because OrgMember is an access-control record
+/// that every organization has, and only a firm that bills time needs any of
+/// this.
+///
+/// Promoted from a vertical plugin.
+model OrgMemberProfile {
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId  String @map("org_id") @db.Uuid
+  /// A bare id rather than a relation to OrgMember, and deliberately: a profile
+  /// can exist for somebody who is not (or is no longer) a member — a name that
+  /// came in from an import, or someone whose membership ended while the firm
+  /// still wants their rate on record. Tying this to OrgMember would delete
+  /// those rows rather than describe them.
+  userId String @map("user_id") @db.Uuid
+
+  /// RateLevel.key, not its id: a level is identified by the key an org gives it
+  /// ("SA", "AP"), and a profile survives the level being renamed or rebuilt.
+  rateLevelKey String @map("rate_level_key")
+
+  /// Standing hours per week, the denominator for a utilisation figure.
+  ///
+  /// NOT the same thing as IntervalCapacity, which is what one person has for
+  /// one sprint. Same word, two concepts: this one is a property of the person,
+  /// that one is a property of a sprint they are in.
+  weeklyCapacity Float @default(40) @map("weekly_capacity")
+
+  /// Still learning the work, so their time reads differently in a utilisation
+  /// or realisation figure.
+  inTraining Boolean @default(false) @map("in_training")
+  notes      String  @default("")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@map("org_member_profiles")
 }
 
 // @plugin-schema-fragments — composed plugin models/enums are appended below this line by scripts/plugins/sync.mjs

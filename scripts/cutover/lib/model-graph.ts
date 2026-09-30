@@ -617,6 +617,16 @@ export interface FkEdge {
  * HARD FKs by fkEdgesOf() from the DMMF, so listing them again would be redundant.
  */
 export const BARE_USER_REF_COLUMNS: ReadonlyMap<string, readonly string[]> = new Map([
+  // Promoted out of a vertical plugin (2026-09-30). Every one of these is a
+  // person, recorded without a relation for the same reason as the rest of
+  // this map: the row outlives the account it names.
+  ["pace_weeks", ["set_by_id"]],
+  ["person_aliases", ["user_id", "set_by_id"]],
+  ["milestone_slips", ["recorded_by_id"]],
+  ["project_closeout_snapshots", ["captured_by_id"]],
+  ["overhead_allocations", ["user_id"]],
+  ["weekly_reports", ["user_id"]],
+  ["org_member_profiles", ["user_id"]],
   ["work_items", ["assignee_id", "created_by_id"]],
   ["activities", ["user_id"]],
   ["comments", ["author_id"]],

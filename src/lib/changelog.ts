@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.408.0",
+    date: "2026-09-30",
+    title: "Groundwork: how people are staffed and charged out",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Foundations again, with nothing yet visible in your workspace. The record of how each person is staffed and charged out \u2014 the level they bill at, the hours they are expected to be available for, and whether they are still learning the work \u2014 moves from one vertical's add-on into the platform, so any firm that bills time can use it.",
+      },
+    ],
+  },
+  {
     version: "2.407.0",
     date: "2026-09-30",
     title: "Groundwork: the weekly report becomes part of the platform",
