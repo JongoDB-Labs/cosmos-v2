@@ -16,7 +16,7 @@ import { FileText, Upload } from "lucide-react";
  * Everything the practice keeps, in one list.
  *
  * Two kinds of thing live here and the distinction is the point: documents that
- * belong to a job, and documents that belong to the firm — the contract
+ * belong to a job, and documents that belong to the organization — the contract
  * template, the certificate of insurance, the standard details — which had
  * nowhere to live at all while every document required a project.
  *
@@ -39,7 +39,9 @@ type LibraryDoc = {
   project: { key: string; name: string } | null;
 };
 
-const FIRM = "__firm__";
+// A sentinel that cannot collide with a project key. Component state only —
+// never persisted, never in a URL — so it is free to change.
+const ORG = "__org__";
 
 const fmtSize = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;
@@ -50,7 +52,7 @@ const fmtSize = (bytes: number) => {
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 
-export function FirmLibrary({ orgId, canUpload }: { orgId: string; canUpload: boolean }) {
+export function OrgLibrary({ orgId, canUpload }: { orgId: string; canUpload: boolean }) {
   const [scope, setScope] = useState<string>("all");
   const [term, setTerm] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
@@ -86,14 +88,14 @@ export function FirmLibrary({ orgId, canUpload }: { orgId: string; canUpload: bo
   const shown = useMemo(() => {
     const t = term.trim().toLowerCase();
     return docs.filter((d) => {
-      if (scope === FIRM && d.projectId) return false;
-      if (scope !== "all" && scope !== FIRM && d.project?.key !== scope) return false;
+      if (scope === ORG && d.projectId) return false;
+      if (scope !== "all" && scope !== ORG && d.project?.key !== scope) return false;
       if (!t) return true;
       return `${d.title} ${d.filename} ${d.project?.name ?? ""}`.toLowerCase().includes(t);
     });
   }, [docs, scope, term]);
 
-  const firmCount = docs.filter((d) => !d.projectId).length;
+  const orgCount = docs.filter((d) => !d.projectId).length;
 
   if (q.isLoading) return <Skeleton className="h-64 w-full" />;
   if (q.isError) return <LoadError onRetry={() => q.refetch()} />;
@@ -118,7 +120,7 @@ export function FirmLibrary({ orgId, canUpload }: { orgId: string; canUpload: bo
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         {chip("all", `All (${docs.length})`)}
-        {chip(FIRM, `Firm-wide (${firmCount})`)}
+        {chip(ORG, `Org-wide (${orgCount})`)}
         {projects.map(([k, name]) => chip(k, `${k} · ${name}`))}
         <div className="ml-auto flex items-center gap-2">
           <Input
@@ -145,7 +147,7 @@ export function FirmLibrary({ orgId, canUpload }: { orgId: string; canUpload: bo
                 disabled={upload.isPending}
               >
                 <Upload className="mr-2 h-4 w-4" />
-                {upload.isPending ? "Uploading…" : "Add to firm files"}
+                {upload.isPending ? "Uploading…" : "Add to org files"}
               </Button>
             </>
           )}
@@ -199,7 +201,7 @@ export function FirmLibrary({ orgId, canUpload }: { orgId: string; canUpload: bo
                     ) : null}
                   </td>
                   <td className="px-4 py-2 text-[var(--text-muted)]">
-                    {d.project ? `${d.project.key} · ${d.project.name}` : "The firm"}
+                    {d.project ? `${d.project.key} · ${d.project.name}` : "Org-wide"}
                   </td>
                   <td className="px-4 py-2 uppercase text-[var(--text-muted)]">
                     {d.format ?? "—"}

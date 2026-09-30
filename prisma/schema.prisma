@@ -4046,7 +4046,7 @@ enum DocumentBlockKind {
 model Document {
   id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId               String              @map("org_id") @db.Uuid
-  // Null means the document belongs to the FIRM, not to a project: the
+  // Null means the document belongs to the ORG, not to a project: the
   // org-wide library (templates, certificates, standards) has nothing to
   // hang on. Project documents are unchanged and still cascade with it.
   projectId           String?             @map("project_id") @db.Uuid
