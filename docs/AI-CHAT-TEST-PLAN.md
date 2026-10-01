@@ -202,7 +202,7 @@ This document is structured so a Claude Code session can execute it sequentially
 |---|--------|----------|
 | 5c.1 | Create a note titled "Q4 planning kickoff" with body "Goals and timeline for next quarter" | After POST, `SELECT embedding IS NOT NULL FROM notes WHERE title='...'` returns `t` — the 384-dim MiniLM vector `storeEmbedding()` wrote |
 | 5c.2 | Create a work item titled "Migrate Stripe webhooks" | After POST, `SELECT embedding IS NOT NULL FROM work_items WHERE title='...'` returns `t` |
-| 5c.3 | Update the note's title to "Q4 strategy" | `embedding` re-computes on update (PATCH re-embeds title + content) |
+| 5c.3 | Update the note's title to "Q4 strategy" | `embedding` re-computes on update (`PUT` re-embeds when title or content changed; a visibility-only PUT does not) |
 
 ### semantic_search tool
 | # | Prompt | Expected | Verify |

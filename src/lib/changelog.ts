@@ -49,17 +49,6 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
-    version: "2.418.1",
-    date: "2026-10-01",
-    title: "The manual test checklists stopped describing a product we no longer have",
-    highlights: [
-      {
-        kind: "fix",
-        text: "Nothing changes on screen. Four hand-testing checklists still asked testers to verify things that had either shipped long ago or been deliberately removed — an assistant that lives at a different address than the one written down, a search feature listed as unbuilt that has been working for months, a settings page called “coming soon” that is fully functional, and two version numbers no build can ever report. Anyone following them would have logged faults that were not there. The stale steps are gone, and a check now runs on every build to stop them coming back.",
-      },
-    ],
-  },
-  {
     version: "2.418.0",
     date: "2026-10-01",
     title: "Housekeeping: the migration tooling knows who is who, part two",
