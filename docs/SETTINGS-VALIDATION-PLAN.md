@@ -226,16 +226,6 @@ This page may have multiple sub-sections: SSO, IP Allowlist, SCIM tokens, Active
 
 ---
 
-## Section 10 — `/settings/integrations`
-
-**Currently a stub** (BUG-26 deferred). Verify:
-| # | Expected |
-|---|----------|
-| 10.1 | Page renders without errors |
-| 10.2 | No interactive buttons (or clearly marked "Coming soon") |
-
----
-
 ## Section 11 — `/settings/webhooks`
 
 | # | Control | Expected |
@@ -272,7 +262,7 @@ This page may have multiple sub-sections: SSO, IP Allowlist, SCIM tokens, Active
 | 13.3 | Keyboard nav | Tab through each form; every control reachable + has focus ring |
 | 13.4 | Required field validation | Empty submit on each form returns inline error (not 500) |
 | 13.5 | Permission gating | Sign in as MEMBER; destructive actions should be hidden or 403 |
-| 13.6 | URL deep-link to a settings sub-page | All 11 sub-pages load directly via URL (no redirect loop) |
+| 13.6 | URL deep-link to a settings sub-page | Every settings sub-page loads directly via URL (no redirect loop) |
 | 13.7 | Browser back/forward | History works across settings sub-pages |
 | 13.8 | Sidebar "Settings" link active state | Currently-viewed sub-page is highlighted |
 
@@ -319,11 +309,10 @@ Section                                Pass/Total
 7.  Security                             X/8
 8.  Compliance                           X/5
 9.  Classifications                      X/4
-10. Integrations                         X/2
 11. Webhooks                             X/6
 12. Audit logs                           X/7
 13. Cross-cutting                        X/8
 14. Negative paths                       X/7
 ─────────────────────────────────────────────────
-TOTAL                                    X/114
+TOTAL                                    X/112
 ```

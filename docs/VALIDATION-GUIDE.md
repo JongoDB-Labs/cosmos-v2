@@ -1,4 +1,4 @@
-# COSMOS v3.0.1 — UI/UX Validation Guide
+# COSMOS — UI/UX Validation Guide
 
 Manual verification checklist for the audit + tracking-templates work. Open your browser to the app's public URL (or `http://localhost:3001` for dev) and walk through each section.
 
@@ -7,7 +7,6 @@ Manual verification checklist for the audit + tracking-templates work. Open your
 ## Pre-flight
 
 - [ ] Log out and back in (picks up the `gmail.send` OAuth scope added in slice 1)
-- [ ] Check sidebar shows version `v3.0.1` next to your name
 - [ ] Health endpoint returns 200: `GET /api/health`
 
 ---
@@ -212,9 +211,6 @@ Walk through each settings sub-page and verify it renders:
 
 ## Known limitations (not bugs — intentional deferrals)
 
-1. **No DELETE/cancel invitation endpoint** — admins must clean up stale invites via DB
-2. **OKR components** (`/[orgSlug]/projects/[key]/okrs`) — compile but won't function at runtime (old endpoints removed; OKR data is now in WorkItems under Goals)
-3. **Sprint-complete UI** — API exists (`POST /cycles/[id]/complete`) but no UI flow yet
-4. **Template editor** — board templates and work item types lists are read-only in v1; full editing comes later
-5. **Sector-skin widgets** — palette entries exist but most don't have functional data sources yet (they're config presets for generic widget types)
-6. **Gmail invite send** — requires re-login to pick up `gmail.send` scope; fails gracefully with copy-link fallback
+1. **Template editor** — board templates and work item types lists are read-only in v1; full editing comes later
+2. **Sector-skin widgets** — palette entries exist but most don't have functional data sources yet (they're config presets for generic widget types)
+3. **Gmail invite send** — requires re-login to pick up `gmail.send` scope; fails gracefully with copy-link fallback
