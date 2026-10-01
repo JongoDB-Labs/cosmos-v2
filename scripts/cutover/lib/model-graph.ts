@@ -684,6 +684,15 @@ export const BARE_USER_REF_COLUMNS: ReadonlyMap<string, readonly string[]> = new
   ["assistant_conversations", ["user_id"]],
   ["session_records", ["user_id"]],
   ["connector_credentials", ["user_id"]],
+  // Adjudicated 2026-10-01, closing the ratchet's own backlog. Each is @db.Uuid
+  // with no DMMF relation, and each names a person rather than a team: the
+  // supervisor link's author, both ends of a flag, and the three on a timesheet
+  // (whose owner and two approvers are all accounts).
+  ["employee_supervisors", ["created_by_id"]],
+  ["flags", ["user_id", "resolved_by_id"]],
+  ["payments", ["created_by_id"]],
+  ["tax_rates", ["created_by_id"]],
+  ["timesheets", ["user_id", "labor_approved_by_id", "cost_approved_by_id"]],
 ]);
 
 /** Resolve a model's physical table + single PK column (helper for closure edge building). */

@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.421.0",
+    date: "2026-10-01",
+    title: "Housekeeping: the migration tooling knows who is who, part three",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Internal only, with no effect on any screen. The check that keeps the data-migration tooling\u2019s register of person references complete was blind to two shapes of column name, and so had been missing one. Both are now covered and the register is complete but for one entry that is waiting on a product decision.",
+      },
+    ],
+  },
+  {
     version: "2.420.0",
     date: "2026-10-01",
     title: "Files opens what it stores",

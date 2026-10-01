@@ -22,10 +22,27 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { BARE_USER_REF_COLUMNS, buildModelPlans, fkEdgesOf } from "./model-graph";
 
-const schema = readFileSync(join(process.cwd(), "prisma", "schema.prisma"), "utf8");
+// CORE's own portion only. sync.mjs appends composed plugin models BELOW the
+// marker and leaves it in place, so this truncation is correct whether the tree is
+// composed or not -- and it has to be. The register this gate checks lives in a
+// core file, and core may not name a vertical plugin's tables at all (the identity
+// gate rejects it), so a composed read would demand a registration that cannot be
+// written. Deterministic either way, rather than passing only in core CI.
+const CORE_SCHEMA_END = "// @plugin-schema-fragments";
+const rawSchema = readFileSync(join(process.cwd(), "prisma", "schema.prisma"), "utf8");
+const schema = rawSchema.split(CORE_SCHEMA_END)[0];
 
-/** A scalar uuid column whose name denotes a person. */
-const USERISH = /^(user|owner|author|actor|assignee|member)_id$|^\w+_by_id$/;
+/** A uuid column whose name denotes a person.
+ *
+ *  Two forms were missing until 2026-10-01, and they hid the same column from two
+ *  directions: the PLURAL `_ids`, and the role words for people who act on a thing
+ *  without owning it (approver, supervisor, reviewer, requester). Between them,
+ *  `timesheets.approver_ids` -- the approver set fixed at submit time, and a real
+ *  user reference -- was invisible to a gate whose entire job is finding those.
+ *  Widening both surfaces exactly that one column across core, so this cost nothing
+ *  and closed a hole wide enough to drive a cutover through. */
+const USERISH =
+  /^(user|owner|author|actor|assignee|member|approver|supervisor|requester|reviewer|employee|recipient)_ids?$|^\w+_by_ids?$/;
 
 /** Bare user references still unregistered. This list may SHRINK, never grow: a
  *  new entry means someone added a bare user reference without registering it,
@@ -58,16 +75,26 @@ const USERISH = /^(user|owner|author|actor|assignee|member)_id$|^\w+_by_id$/;
  *      and no caller was found; goals.owner_id is accepted from the request body
  *      as any uuid and nothing renders it, so neither the data nor the UI settles
  *      whether an "owner" is a person or a team. */
+/**
+ * What is deliberately NOT registered, and why. Both are reasoned, not pending.
+ *
+ * `goals.owner_id` is a PRODUCT question before it is a schema one: a goal's owner
+ * may be a person or a team, and the column holds whichever the caller passed.
+ * Registering it would make the exporter chase a team id into `users`, find nothing,
+ * and report a dangling reference on a row that is perfectly correct. It stays out
+ * until the product decides what an owner is.
+ *
+ * `timesheets.approver_ids[]` IS a user reference — the approver set fixed at submit
+ * time — and it cannot go in BARE_USER_REF_COLUMNS, because the closure walker reads
+ * `row[fkColumn]` as a single value (`export-core.ts`). Handed an array it would add
+ * the array OBJECT to the set of wanted ids, so the follow-up lookup matches nothing
+ * and the failure is silent rather than loud. Rewriting it needs an array-aware edge
+ * in the walker, which is a change to the walker and not to this list. Named here so
+ * a SECOND array column cannot arrive unnoticed the way this one did.
+ */
 const KNOWN_GAPS: readonly string[] = [
-  "employee_supervisors.created_by_id",
-  "flags.resolved_by_id",
-  "flags.user_id",
   "goals.owner_id",
-  "payments.created_by_id",
-  "tax_rates.created_by_id",
-  "timesheets.cost_approved_by_id",
-  "timesheets.labor_approved_by_id",
-  "timesheets.user_id",
+  "timesheets.approver_ids[]",
 ];
 
 function deriveBareUserColumns(): string[] {
@@ -82,11 +109,14 @@ function deriveBareUserColumns(): string[] {
     for (const r of body.matchAll(/@relation\([^)]*fields: \[([^\]]+)\]/g)) {
       for (const f of r[1].split(",")) related.add(f.trim());
     }
-    for (const f of body.matchAll(/^\s+(\w+)\s+String\??\s+([^\n]*)$/gm)) {
-      const [, field, rest] = f;
+    // String, String? AND String[] — the list form was invisible until 2026-10-01,
+    // which is how timesheets.approver_ids sat unexamined. [ \t] not \s: \s matches a
+    // newline, which paired a field name with the NEXT field's @map.
+    for (const f of body.matchAll(/^[ \t]+(\w+)[ \t]+String(\?|\[\])?[ \t]+([^\n]*)$/gm)) {
+      const [, field, listMod, rest] = f;
       if (!rest.includes("@db.Uuid") || related.has(field)) continue;
       const col = /@map\("([a-z_]+)"\)/.exec(rest)?.[1];
-      if (col && USERISH.test(col)) out.push(`${table}.${col}`);
+      if (col && USERISH.test(col)) out.push(`${table}.${col}${listMod === "[]" ? "[]" : ""}`);
     }
   }
   return out.sort();
