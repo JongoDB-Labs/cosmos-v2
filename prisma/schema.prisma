@@ -1044,6 +1044,10 @@ model WorkItem {
   outgoingLinks    WorkItemLink[]       @relation("WorkItemLinkSource")
   incomingLinks    WorkItemLink[]       @relation("WorkItemLinkTarget")
   attachments      WorkItemAttachment[]
+  /// Files attached to this item. Separate from `attachments`, which is a pointer
+  /// to a file living in whatever tracker an item was imported from and holds no
+  /// bytes of ours. These are real uploads in the library.
+  documents        Document[]
   assignees        WorkItemAssignee[]
   watchers         WorkItemWatcher[]
   labels           WorkItemLabel[]
@@ -4054,6 +4058,15 @@ model Document {
   // org-wide library (templates, certificates, standards) has nothing to
   // hang on. Project documents are unchanged and still cascade with it.
   projectId           String?             @map("project_id") @db.Uuid
+  /// Attached to a work item as well as filed on its project. An attachment is a
+  /// library file, not a second kind of thing: it is stored, served, searched and
+  /// attributed by exactly the code every other document goes through, and it
+  /// shows up in its project's Files because projectId is set too.
+  ///
+  /// SetNull, never Cascade: deleting a ticket must not destroy a file somebody
+  /// uploaded. The attachment detaches and the document stays in the project
+  /// library, which is the only answer that cannot lose work.
+  workItemId          String?             @map("work_item_id") @db.Uuid
   title               String
   classificationLevel ClassificationLevel @default(UNCLASSIFIED) @map("classification_level")
   storageKey          String              @map("storage_key")
@@ -4069,11 +4082,13 @@ model Document {
   createdAt           DateTime            @default(now()) @map("created_at")
   updatedAt           DateTime            @updatedAt @map("updated_at")
 
-  org     Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  blocks  DocumentBlock[]
+  org      Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project  Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workItem WorkItem?       @relation(fields: [workItemId], references: [id], onDelete: SetNull)
+  blocks   DocumentBlock[]
 
   @@index([orgId, projectId])
+  @@index([orgId, workItemId])
   @@map("documents")
 }
 

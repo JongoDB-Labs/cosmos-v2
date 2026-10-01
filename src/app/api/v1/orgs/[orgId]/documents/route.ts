@@ -8,6 +8,8 @@ import { visibleProjectIdsForActor } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { ingestDocument } from "@/lib/files/ingest";
+import { withUploaders } from "@/lib/files/uploader";
+import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -73,11 +75,17 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         contentType: true,
         createdAt: true,
         projectId: true,
+        workItemId: true,
+        uploadedById: true,
         project: { select: { key: true, name: true } },
+        workItem: { select: { ticketNumber: true, title: true } },
       },
       orderBy: { createdAt: "desc" },
     });
-    return success(docs);
+    // uploadedById is a bare uuid with no FK, so the name has to be resolved rather
+    // than joined — one batched lookup for the page, never per row. See uploader.ts
+    // for why the column stays bare.
+    return success(await withUploaders(docs));
   } catch (e) {
     return handleApiError(e);
   }
@@ -132,6 +140,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       contentType,
       buffer,
       title,
+    });
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "document.upload",
+      entity: "Document",
+      entityId: doc.id,
+      metadata: { filename: doc.filename, size: doc.size, contentType: doc.contentType, scope: "org" },
     });
     return success(doc, 201);
   } catch (e) {

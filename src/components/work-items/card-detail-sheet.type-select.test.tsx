@@ -48,6 +48,11 @@ vi.mock("@/components/roadmap/roadmap-description-field", () => ({
 vi.mock("@/components/files/work-item-document-source", () => ({
   WorkItemDocumentSource: () => null,
 }));
+// Stubbed for the same reason as the source chip above: it is a react-query
+// consumer, and this suite renders the sheet without a QueryClientProvider.
+vi.mock("@/components/files/work-item-attachments", () => ({
+  WorkItemAttachments: () => null,
+}));
 
 // base-ui's Select renders a button + portalled popup, which cannot be driven
 // in jsdom. Stubbed as a NATIVE select so the test exercises the component's

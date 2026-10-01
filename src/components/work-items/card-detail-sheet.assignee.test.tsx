@@ -42,6 +42,11 @@ vi.mock("@/components/roadmap/roadmap-description-field", () => ({
 vi.mock("@/components/files/work-item-document-source", () => ({
   WorkItemDocumentSource: () => null,
 }));
+// Stubbed for the same reason as the source chip above: it is a react-query
+// consumer, and this suite renders the sheet without a QueryClientProvider.
+vi.mock("@/components/files/work-item-attachments", () => ({
+  WorkItemAttachments: () => null,
+}));
 vi.mock("@/components/ui/searchable-multi-select", () => ({
   SearchableMultiSelect: ({
     value,

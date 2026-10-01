@@ -37,6 +37,11 @@ type LibraryDoc = {
   createdAt: string;
   projectId: string | null;
   project: { key: string; name: string } | null;
+  // Resolved server-side: uploadedById has no foreign key to join on, so the route
+  // hydrates it in one batched lookup and sends the person, not the uuid.
+  uploadedBy: { id: string; displayName: string | null; avatarUrl: string | null };
+  workItemId: string | null;
+  workItem: { ticketNumber: number | null; title: string } | null;
 };
 
 // A sentinel that cannot collide with a project key. Component state only —
@@ -179,6 +184,7 @@ export function OrgLibrary({ orgId, canUpload }: { orgId: string; canUpload: boo
                 <th className="px-4 py-2 font-medium">Belongs to</th>
                 <th className="px-4 py-2 font-medium">Kind</th>
                 <th className="px-4 py-2 text-right font-medium">Size</th>
+                <th className="px-4 py-2 font-medium">Added by</th>
                 <th className="px-4 py-2 font-medium">Added</th>
               </tr>
             </thead>
@@ -207,6 +213,14 @@ export function OrgLibrary({ orgId, canUpload }: { orgId: string; canUpload: boo
                   </td>
                   <td className="px-4 py-2 text-[var(--text-muted)]">
                     {d.project ? `${d.project.key} · ${d.project.name}` : "Org-wide"}
+                    {/* An attachment is filed on its project AND on the ticket it
+                        was attached to, so say both: finding the file is half the
+                        job, knowing what it was attached to is the other half. */}
+                    {d.workItem ? (
+                      <span className="ml-2 text-xs">
+                        {d.workItem.ticketNumber ? `#${d.workItem.ticketNumber}` : "attached"}
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-4 py-2 uppercase text-[var(--text-muted)]">
                     {/* `format` is only set for the few types we can read. Most
@@ -215,6 +229,11 @@ export function OrgLibrary({ orgId, canUpload }: { orgId: string; canUpload: boo
                     {d.format ?? d.filename.split(".").pop()?.toLowerCase() ?? "—"}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums">{fmtSize(d.size)}</td>
+                  <td className="px-4 py-2 text-[var(--text-muted)]">
+                    {/* `displayName` can be empty for an account that has one but
+                        has not set it, so `||` and not `??`. */}
+                    {d.uploadedBy?.displayName || "Former member"}
+                  </td>
                   <td className="px-4 py-2 tabular-nums text-[var(--text-muted)]">
                     {fmtDate(d.createdAt)}
                   </td>

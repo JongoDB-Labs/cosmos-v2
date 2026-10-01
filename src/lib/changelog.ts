@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.422.0",
+    date: "2026-10-01",
+    title: "Attach files to a ticket, and see who added what",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An issue or ticket can carry files now \u2014 a photograph, a mark-up, a supplier quote \u2014 attached straight from the item itself. An attachment is a real file in the library rather than a copy kept somewhere else, so it also appears under that project\u2019s files and can be searched for there. Taking a file off a ticket detaches it and leaves it in the project\u2019s files: removing the wrong attachment no longer risks losing the file.",
+      },
+      {
+        kind: "improvement",
+        text: "Files now say who added them. The library lists an \u201cAdded by\u201d column beside the date, each attachment names the person who attached it, and uploading, attaching, detaching or deleting a file is recorded in the audit log \u2014 deletions keep the filename and the original uploader, because a record saying only that something was removed cannot answer what it was.",
+      },
+    ],
+  },
+  {
     version: "2.421.0",
     date: "2026-10-01",
     title: "Housekeeping: the migration tooling knows who is who, part three",

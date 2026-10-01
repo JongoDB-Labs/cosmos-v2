@@ -10,6 +10,12 @@ export interface IngestInput {
   orgId: string;
   /** Null for an org-wide document — one that belongs to no project. */
   projectId: string | null;
+  /**
+   * Set when the upload is an attachment on a work item. It does NOT replace
+   * projectId: an attachment is filed on the item AND on the item's project, which
+   * is what makes it appear in that project's Files list and be searchable there.
+   */
+  workItemId?: string | null;
   uploadedById: string;
   filename: string;
   contentType: string;
@@ -49,6 +55,7 @@ export async function ingestDocument(input: IngestInput) {
     data: {
       orgId: input.orgId,
       projectId: input.projectId,
+      workItemId: input.workItemId ?? null,
       uploadedById: input.uploadedById,
       title: input.title ?? input.filename.replace(/\.[^.]+$/, ""),
       filename: input.filename,
