@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.423.0",
+    date: "2026-10-01",
+    title: "Housekeeping: a safety check that only worked in one place",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Internal only, with no effect on any screen. One of the checks that protects the open-source core now gives the same answer on a developer\u2019s machine as it does on the build server. It had been reading files that are rewritten during a build, so locally it reported three problems that do not exist and could not be fixed.",
+      },
+    ],
+  },
+  {
     version: "2.422.0",
     date: "2026-10-01",
     title: "Attach files to a ticket, and see who added what",

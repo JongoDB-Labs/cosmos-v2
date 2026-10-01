@@ -26,13 +26,39 @@ import { FORBIDDEN, PATTERN_FILES } from "../../../../scripts/client-identity.mj
 // Binary / non-text tracked files can't meaningfully be scanned as utf8.
 const BINARY = /\.(png|jpe?g|gif|ico|webp|avif|woff2?|ttf|otf|eot|pdf|mp4|webm|zip|gz)$/i;
 
+const git = (args: string[]) =>
+  execFileSync("git", args, { cwd: process.cwd(), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+
+/**
+ * Tracked files whose WORKTREE copy is composed output rather than the committed
+ * source: `prisma/schema.prisma` and the two plugin registries, which
+ * `scripts/plugins/sync.mjs` overwrites in place on any tree that has been built.
+ *
+ * Reading those from disk made this gate fail on every composed checkout, naming
+ * three files whose COMMITTED content is clean — and the fix it demanded (take the
+ * client names out of core) is unsatisfiable, because they are a private plugin's
+ * models injected at build time and they do not belong to this repo at all. The
+ * gate was therefore only honest in CI, where nothing is composed.
+ *
+ * The list is not hardcoded here. sync.mjs marks exactly these skip-worktree, so
+ * git holds the answer and this cannot drift when sync starts managing another
+ * file. It also means the gate keeps its teeth for the case that matters: a
+ * developer editing one of them follows the ritual and CLEARS the flag first, so
+ * the file reads from the worktree again and a freshly typed literal is caught.
+ */
+function composedPaths(): Set<string> {
+  return new Set(
+    git(["ls-files", "-v"])
+      .split("\n")
+      .filter((l) => l.startsWith("S "))
+      .map((l) => l.slice(2)),
+  );
+}
+
 describe("public-repo client-identity gate", () => {
   it("no tracked file names a client or private vertical", () => {
-    const tracked = execFileSync("git", ["ls-files"], {
-      cwd: process.cwd(),
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-    })
+    const composed = composedPaths();
+    const tracked = git(["ls-files"])
       .split("\n")
       .filter(Boolean)
       .filter((f) => !PATTERN_FILES.includes(f) && !BINARY.test(f));
@@ -41,7 +67,11 @@ describe("public-repo client-identity gate", () => {
     for (const rel of tracked) {
       let text: string;
       try {
-        text = readFileSync(join(process.cwd(), rel), "utf8");
+        // A composed file is read from the INDEX, which is what a commit would
+        // carry; everything else from disk, so an uncommitted literal still fails.
+        text = composed.has(rel)
+          ? git(["show", `:${rel}`])
+          : readFileSync(join(process.cwd(), rel), "utf8");
       } catch {
         continue; // unreadable (e.g. removed in-tree) — nothing to scan
       }
@@ -56,6 +86,10 @@ describe("public-repo client-identity gate", () => {
     for (const rel of tracked) {
       if (FORBIDDEN.test(rel) && !offenders.includes(rel)) offenders.push(rel);
     }
+
+    // A floor. Every assertion here is "found nothing", which is also what a
+    // broken file list produces, so the count is asserted rather than assumed.
+    expect(tracked.length).toBeGreaterThan(500);
 
     expect(
       offenders,
