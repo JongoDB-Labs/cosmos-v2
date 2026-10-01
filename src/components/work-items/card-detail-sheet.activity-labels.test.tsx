@@ -39,6 +39,11 @@ vi.mock("@/components/work-items/links-section", () => ({
 vi.mock("@/components/files/work-item-document-source", () => ({
   WorkItemDocumentSource: () => null,
 }));
+// Stubbed for the same reason as the source chip above: it is a react-query
+// consumer, and this suite renders the sheet without a QueryClientProvider.
+vi.mock("@/components/files/work-item-attachments", () => ({
+  WorkItemAttachments: () => null,
+}));
 vi.mock("@/hooks/use-work-item-types", () => ({
   // The picker hides shadow types; the activity lookup must see the FULL list,
   // which is why the sheet resolves against `types`, not the filtered options.

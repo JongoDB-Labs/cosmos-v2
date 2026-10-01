@@ -43,6 +43,7 @@ import { refKey, type ResolvedEntity } from "@/lib/mentions/refs";
 import { WorkItemLinksSection } from "@/components/work-items/links-section";
 import { RoadmapDescriptionField } from "@/components/roadmap/roadmap-description-field";
 import { WorkItemDocumentSource } from "@/components/files/work-item-document-source";
+import { WorkItemAttachments } from "@/components/files/work-item-attachments";
 import { PluginSlot } from "@/components/plugins/plugin-slot";
 import { useCustomFields, fieldAppliesToType } from "@/hooks/use-custom-fields";
 import { selectableTypes, useWorkItemTypes } from "@/hooks/use-work-item-types";
@@ -1252,6 +1253,19 @@ export function CardDetailSheet({
 
           {/* Source chip — if this item was created from a document (Files convert). */}
           <WorkItemDocumentSource itemId={item.id} orgId={orgId} projectId={projectId} />
+
+          <Separator />
+
+          {/* Attachments. Each one is a document in this project's library with this
+              item recorded on it, so attaching here also files it under Files — one
+              store, one upload path, one record of who added it. Gated on
+              ITEM_UPDATE: attaching a file to a ticket is editing the ticket. */}
+          <WorkItemAttachments
+            itemId={item.id}
+            orgId={orgId}
+            projectId={projectId}
+            canAttach={canEditItem}
+          />
 
           <Separator />
 

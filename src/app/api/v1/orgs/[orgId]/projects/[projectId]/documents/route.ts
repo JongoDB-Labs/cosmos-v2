@@ -9,6 +9,8 @@ import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { ingestDocument } from "@/lib/files/ingest";
+import { withUploaders } from "@/lib/files/uploader";
+import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -35,10 +37,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       select: {
         id: true, title: true, filename: true, format: true, status: true,
         pageCount: true, size: true, classificationLevel: true, contentType: true, createdAt: true,
+        workItemId: true, uploadedById: true,
+        workItem: { select: { ticketNumber: true, title: true } },
       },
       orderBy: { createdAt: "desc" },
     });
-    return success(docs);
+    // One batched uploader lookup for the page — see uploader.ts for why
+    // uploadedById has no foreign key to join on.
+    return success(await withUploaders(docs));
   } catch (e) {
     return handleApiError(e);
   }
@@ -96,6 +102,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       contentType,
       buffer,
       title,
+    });
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "document.upload",
+      entity: "Document",
+      entityId: doc.id,
+      metadata: { filename: doc.filename, size: doc.size, contentType: doc.contentType, projectId },
     });
     return success(doc, 201);
   } catch (e) {

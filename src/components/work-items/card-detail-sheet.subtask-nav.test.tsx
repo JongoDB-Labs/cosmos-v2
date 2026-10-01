@@ -32,6 +32,11 @@ vi.mock("@/components/roadmap/roadmap-description-field", () => ({
 vi.mock("@/components/files/work-item-document-source", () => ({
   WorkItemDocumentSource: () => null,
 }));
+// Stubbed for the same reason as the source chip above: it is a react-query
+// consumer, and this suite renders the sheet without a QueryClientProvider.
+vi.mock("@/components/files/work-item-attachments", () => ({
+  WorkItemAttachments: () => null,
+}));
 vi.mock("@/hooks/use-work-item-types", () => ({
   // Fixtures here contain no shadow types, so a passthrough matches the real
   // filter exactly; use-work-item-types.test.ts covers the filtering itself.

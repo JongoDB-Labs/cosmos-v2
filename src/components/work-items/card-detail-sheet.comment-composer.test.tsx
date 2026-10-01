@@ -53,6 +53,11 @@ vi.mock("@/components/work-items/links-section", () => ({
 vi.mock("@/components/files/work-item-document-source", () => ({
   WorkItemDocumentSource: () => null,
 }));
+// Stubbed for the same reason as the source chip above: it is a react-query
+// consumer, and this suite renders the sheet without a QueryClientProvider.
+vi.mock("@/components/files/work-item-attachments", () => ({
+  WorkItemAttachments: () => null,
+}));
 vi.mock("@/hooks/use-work-item-types", () => ({
   selectableTypes: <T,>(types: T[]) => types,
   useWorkItemTypes: () => ({ types: [{ id: "wt", key: "s.story", name: "Story" }] }),
