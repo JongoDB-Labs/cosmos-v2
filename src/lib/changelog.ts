@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.424.0",
+    date: "2026-10-01",
+    title: "Housekeeping: a goal\u2019s owner is a person, and one dead table removed",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal only, with no effect on any screen. A goal\u2019s owner is now defined as a person rather than possibly a team, which settles the last open question in the data-migration tooling\u2019s record of who is who. An unused table left over from an earlier import \u2014 a second, emptier idea of a file attachment that no part of the product ever used \u2014 has been removed now that attaching files to a ticket works properly.",
+      },
+    ],
+  },
+  {
     version: "2.423.0",
     date: "2026-10-01",
     title: "Housekeeping: a safety check that only worked in one place",

@@ -76,13 +76,11 @@ const USERISH =
  *      as any uuid and nothing renders it, so neither the data nor the UI settles
  *      whether an "owner" is a person or a team. */
 /**
- * What is deliberately NOT registered, and why. Both are reasoned, not pending.
+ * What is deliberately NOT registered, and why. Reasoned, not pending.
  *
- * `goals.owner_id` is a PRODUCT question before it is a schema one: a goal's owner
- * may be a person or a team, and the column holds whichever the caller passed.
- * Registering it would make the exporter chase a team id into `users`, find nothing,
- * and report a dangling reference on a row that is perfectly correct. It stays out
- * until the product decides what an owner is.
+ * `goals.owner_id` used to be here as a product question — person or team? It was
+ * answered on 2026-10-01: a goal's owner is a PERSON, so it is registered now and
+ * this list is down to one entry.
  *
  * `timesheets.approver_ids[]` IS a user reference — the approver set fixed at submit
  * time — and it cannot go in BARE_USER_REF_COLUMNS, because the closure walker reads
@@ -92,10 +90,7 @@ const USERISH =
  * in the walker, which is a change to the walker and not to this list. Named here so
  * a SECOND array column cannot arrive unnoticed the way this one did.
  */
-const KNOWN_GAPS: readonly string[] = [
-  "goals.owner_id",
-  "timesheets.approver_ids[]",
-];
+const KNOWN_GAPS: readonly string[] = ["timesheets.approver_ids[]"];
 
 function deriveBareUserColumns(): string[] {
   const out: string[] = [];
