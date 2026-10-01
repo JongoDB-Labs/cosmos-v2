@@ -119,6 +119,13 @@ RUN node scripts/docker/migrate-closure.mjs
 # belt-and-suspenders, not the only thing forcing non-root at deploy time.
 FROM node:24-bookworm-slim AS migrate
 WORKDIR /app
+# The Prisma CLI checks checkpoint.prisma.io for a newer version on every run and
+# prints a banner about it. This container runs once per deploy, so that is an
+# outbound call and ~12 lines of log noise each time, in an image that otherwise
+# insists on working offline (see HF_HUB_OFFLINE in the runtime stage). Same
+# intent as OMP_NUM_THREADS=1 there: silence something harmless that makes a
+# deploy log harder to read.
+ENV CHECKPOINT_DISABLE=1
 # NOTE: no `apt-get install openssl` here, for the same reason the runtime stage
 # documents below — installing openssl 3.0.x flips Prisma to require an engine the
 # client is not generated for (the v2.95.0 outage). The slim base omits it and
