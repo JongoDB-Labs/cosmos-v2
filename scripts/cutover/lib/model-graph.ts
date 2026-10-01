@@ -627,7 +627,7 @@ export const BARE_USER_REF_COLUMNS: ReadonlyMap<string, readonly string[]> = new
   ["overhead_allocations", ["user_id"]],
   ["weekly_reports", ["user_id"]],
   ["org_member_profiles", ["user_id"]],
-  ["time_entry_phases", ["set_by_id"]],
+  ["milestones", ["owner_id"]],
   ["staffing_allocations", ["user_id"]],
   // Adjudicated 2026-09-30 against the live data and each model's own write
   // site — see bare-user-refs.arch.test.ts for what counted as evidence.

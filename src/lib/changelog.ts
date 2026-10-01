@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.416.0",
+    date: "2026-10-01",
+    title: "The record of who attributed an hour now means something",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Nothing changes on screen. When an hour is attributed to a project phase, the platform records whether a person decided that or something inferred it \u2014 which matters a year later when somebody asks how a margin was arrived at. On one workspace every one of those records named a user that does not exist, so the distinction had quietly stopped existing. Those are now recorded as \u201cnot a person\u201d, which is what they always meant, and the database will no longer accept anything else.",
+      },
+    ],
+  },
+  {
     version: "2.415.0",
     date: "2026-10-01",
     title: "Housekeeping behind the Files rename",
