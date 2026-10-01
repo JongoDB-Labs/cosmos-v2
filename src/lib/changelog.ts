@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.420.0",
+    date: "2026-10-01",
+    title: "Files opens what it stores",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A file in the library now opens in the browser wherever a browser can show it. Video and audio play in the page rather than downloading. Notes, a spreadsheet exported as CSV, configuration, logs and source files read as text \u2014 including the many files a browser uploads without saying what they are, which until now all came back as downloads regardless of what they held. A saved web page or a drawing opens too, in a sandbox: it can be looked at without being allowed to run anything.",
+      },
+    ],
+  },
+  {
     version: "2.419.0",
     date: "2026-10-01",
     title: "Files accepts the things a practice actually keeps",
