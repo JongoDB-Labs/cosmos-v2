@@ -330,7 +330,6 @@ model Organization {
   timeEntryRevisions  TimeEntryRevision[]
   timesheets          Timesheet[]
   workItems           WorkItem[]
-  workItemAttachments WorkItemAttachment[]
   workItemLabels      WorkItemLabel[]
   workItemLinks       WorkItemLink[]
   workItemWatchers    WorkItemWatcher[]
@@ -1043,10 +1042,12 @@ model WorkItem {
   // Prod-parity back-relations (dependency links + attachments).
   outgoingLinks    WorkItemLink[]       @relation("WorkItemLinkSource")
   incomingLinks    WorkItemLink[]       @relation("WorkItemLinkTarget")
-  attachments      WorkItemAttachment[]
-  /// Files attached to this item. Separate from `attachments`, which is a pointer
-  /// to a file living in whatever tracker an item was imported from and holds no
-  /// bytes of ours. These are real uploads in the library.
+  /// Files attached to this item: documents in the project's library carrying this
+  /// item's id. There was a second, older `attachments` relation to a
+  /// WorkItemAttachment table — a url and an external ref, no bytes of ours and no
+  /// uploader — which no code ever read or wrote. It was dropped on 2026-10-01
+  /// rather than left beside this one, because two things called attachments is how
+  /// the next person writes to the wrong one.
   documents        Document[]
   assignees        WorkItemAssignee[]
   watchers         WorkItemWatcher[]
@@ -3140,6 +3141,10 @@ model Goal {
   progress     Int              @default(0) // 0-100; manual or rolled up from links
   progressMode GoalProgressMode @default(MANUAL) @map("progress_mode")
   targetDate   DateTime?        @map("target_date")
+  /// A user. Decided 2026-10-01: an owner is a person, not a team — which is what
+  /// lets the migration tooling treat this as a person reference like any other.
+  /// It is recorded without a foreign key for the usual reason: a goal outlives the
+  /// account that owned it, and the name is resolved for display rather than joined.
   ownerId      String?          @map("owner_id") @db.Uuid
   sortOrder    Int              @default(0) @map("sort_order")
   createdAt    DateTime         @default(now()) @map("created_at")
@@ -3665,7 +3670,10 @@ model AccountingPeriod {
 //    gate is clean — UI/routes deferred to roadmap): the finance tables
 //    (Invoice/InvoiceLineItem/Payment/Employee/PayRun/TaxRate, Bank*),
 //    Document, OrgAiSettings, the chat aux tables (ChatThreadFollower /
-//    ChatAlertKeyword / ChatBotChannel / ChatBotRun), WorkItemAttachment.
+//    ChatAlertKeyword / ChatBotChannel / ChatBotRun).
+//    WorkItemAttachment was on this list and is gone (2026-10-01): never read,
+//    never written, and superseded by Document.workItemId, which carries bytes
+//    and an uploader where that table carried neither.
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// Per-org AI provider credentials (one row per org). Secret values are stored
@@ -3753,24 +3761,6 @@ model WorkItemLink {
   @@map("work_item_links")
 }
 
-// Attachment metadata for a work item (SCHEMA-ONLY; no upload UI in v2 yet).
-model WorkItemAttachment {
-  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String       @map("org_id") @db.Uuid
-  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  workItemId  String       @map("work_item_id") @db.Uuid
-  fileName    String       @map("file_name")
-  url         String
-  mimeType    String?      @map("mime_type")
-  sizeBytes   Int?         @map("size_bytes")
-  externalRef String?      @map("external_ref")
-  createdAt   DateTime     @default(now()) @map("created_at")
-
-  workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
-
-  @@index([orgId, workItemId])
-  @@map("work_item_attachments")
-}
 
 // ─── Finance (SCHEMA-ONLY in v2; empty in prod — UI/routes deferred) ───────────
 

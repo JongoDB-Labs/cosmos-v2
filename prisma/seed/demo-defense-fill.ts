@@ -567,15 +567,17 @@ async function main() {
     await prisma.board.create({ data: { orgId, projectId, name: "Delivery Timeline", type: "TIMELINE", sortOrder: (maxSort._max.sortOrder ?? 0) + 1 } });
   }
 
-  // ── 19. Work-item attachments (evidence files) ────────────────────────────
-  if ((await prisma.workItemAttachment.count({ where: { orgId } })) === 0) {
-    const at = (ticket: number, fileName: string, mimeType: string, size: number) => {
-      const id = wiByTicket.get(ticket);
-      return id ? { orgId, workItemId: id, fileName, url: `demo/${orgId}/wi/${fileName}`, mimeType, sizeBytes: size } : null;
-    };
-    const atts = [at(1, "FIPS_140-3_validation_cert.pdf", "application/pdf", 410_000), at(2, "STIG_checklist_RHEL9.ckl", "application/xml", 88_000), at(4, "SSP_AC_AU_SC_families.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 1_200_000), at(6, "Nessus_Q2_scan.nessus", "application/xml", 2_600_000)].filter(Boolean) as Array<{ orgId: string; workItemId: string; fileName: string; url: string; mimeType: string; sizeBytes: number }>;
-    if (atts.length) await prisma.workItemAttachment.createMany({ data: atts });
-  }
+  // ── 19. Work-item attachments ─────────────────────────────────────────────
+  // Deliberately empty. This block used to write four WorkItemAttachment rows —
+  // file names and fake urls, no bytes and no uploader — into a table no screen
+  // has ever read, so the "evidence files" were invisible in the demo they were
+  // seeded for. The table is gone (2026-10-01).
+  //
+  // Attachments are documents in the project library carrying the item's id now.
+  // Seeding them properly means putting real bytes through the storage adapter so
+  // they open when clicked; a row pointing at nothing is a 404 in front of whoever
+  // the demo is for, which is worse than no attachment at all. Worth doing when
+  // this demo next gets attention.
 
   // ── 20. More products (services catalog) ──────────────────────────────────
   if ((await prisma.product.count({ where: { orgId } })) <= 1) {

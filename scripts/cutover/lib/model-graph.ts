@@ -693,6 +693,11 @@ export const BARE_USER_REF_COLUMNS: ReadonlyMap<string, readonly string[]> = new
   ["payments", ["created_by_id"]],
   ["tax_rates", ["created_by_id"]],
   ["timesheets", ["user_id", "labor_approved_by_id", "cost_approved_by_id"]],
+  // A goal's owner is a PERSON, decided 2026-10-01. It was the one entry held back
+  // as a product question: the column would take a team id just as happily, and
+  // registering it before that was settled would have had the closure walker chase
+  // a team into `users` and report a dangling reference on a correct row.
+  ["goals", ["owner_id"]],
 ]);
 
 /** Resolve a model's physical table + single PK column (helper for closure edge building). */
