@@ -21,7 +21,7 @@ const jsonUploadSchema = z.object({
 });
 
 /**
- * The firm's library: documents that belong to no project — templates, standard
+ * The org's library: documents that belong to no project — templates, standard
  * details, certificates — listed alongside the project documents the actor may
  * already see.
  *
@@ -30,8 +30,10 @@ const jsonUploadSchema = z.object({
  * otherwise become a side door onto a team-scoped job — every filename and title
  * on a restricted project, disclosed to anyone who can read the org. Project
  * documents are therefore filtered to the visible set IN the query, and
- * firm-wide ones (which belong to nobody in particular) are visible to any org
- * reader. `?scope=firm` asks for only the unattached ones.
+ * org-wide ones (which belong to nobody in particular) are visible to any org
+ * reader. `?scope=org` asks for only the unattached ones; `?scope=firm` is
+ * accepted as the former spelling, since this is a versioned public route and
+ * something outside this repository may still send it.
  */
 export async function GET(req: NextRequest, { params }: RouteParams) {
   try {
@@ -42,7 +44,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_READ);
 
-    const firmOnly = req.nextUrl.searchParams.get("scope") === "firm";
+    const scope = req.nextUrl.searchParams.get("scope");
+    const orgOnly = scope === "org" || scope === "firm";
 
     const all = await prisma.project.findMany({ where: { orgId }, select: { id: true } });
     const visible = await visibleProjectIdsForActor(
@@ -54,7 +57,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const docs = await prisma.document.findMany({
       where: {
         orgId,
-        ...(firmOnly
+        ...(orgOnly
           ? { projectId: null }
           : { OR: [{ projectId: null }, { projectId: { in: [...visible] } }] }),
       },
@@ -81,8 +84,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 }
 
 /**
- * Add a document to the firm library. Putting something here says it applies to
- * the practice rather than to a job, which is a firm-level act — hence
+ * Add a document to the org library. Putting something here says it applies to
+ * the practice rather than to a job, which is an org-level act — hence
  * ORG_UPDATE, not the project author's PROJECT_UPDATE.
  */
 export async function POST(req: NextRequest, { params }: RouteParams) {

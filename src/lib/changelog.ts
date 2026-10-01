@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.415.0",
+    date: "2026-10-01",
+    title: "Housekeeping behind the Files rename",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Nothing changes on screen. The documents API now spells its optional scope filter \u201corg\u201d to match what the Files page has said since the last release, still accepting the old spelling so nothing outside breaks. Deploys also stopped printing a dozen lines about an available tool update every time.",
+      },
+    ],
+  },
+  {
     version: "2.414.0",
     date: "2026-09-30",
     title: "Groundwork: who is booked on what, week by week",
