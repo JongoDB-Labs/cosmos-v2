@@ -200,9 +200,9 @@ This document is structured so a Claude Code session can execute it sequentially
 ### Embed-on-write
 | # | Action | Expected |
 |---|--------|----------|
-| 5c.1 | Create a note titled "Q4 planning kickoff" with body "Goals and timeline for next quarter" | After POST, `SELECT search_vector FROM notes WHERE title='...'` returns a non-null JSON object |
-| 5c.2 | Create a work item titled "Migrate Stripe webhooks" | After POST, `SELECT search_vector FROM work_items WHERE title='...'` returns non-null |
-| 5c.3 | Update the note's title to "Q4 strategy" | `search_vector` re-computes on update |
+| 5c.1 | Create a note titled "Q4 planning kickoff" with body "Goals and timeline for next quarter" | After POST, `SELECT embedding IS NOT NULL FROM notes WHERE title='...'` returns `t` — the 384-dim MiniLM vector `storeEmbedding()` wrote |
+| 5c.2 | Create a work item titled "Migrate Stripe webhooks" | After POST, `SELECT embedding IS NOT NULL FROM work_items WHERE title='...'` returns `t` |
+| 5c.3 | Update the note's title to "Q4 strategy" | `embedding` re-computes on update (PATCH re-embeds title + content) |
 
 ### semantic_search tool
 | # | Prompt | Expected | Verify |
@@ -213,14 +213,14 @@ This document is structured so a Claude Code session can execute it sequentially
 | 5c.7 | "Find notes about XYZ_NONEXISTENT" | Returns empty array (no false positives) |
 
 ### Direct API smoke (advanced)
-- [ ] `curl -X POST /api/v1/orgs/:org/chat/.../messages -H "Accept: text/event-stream" ...` with prompt that triggers `semantic_search` — verify the tool_call_result event includes `{type, id, title, snippet, similarity, url}`
+- [ ] `curl -X POST /api/v1/orgs/:org/assistant/conversations/:id/messages -H "Accept: text/event-stream" ...` with prompt that triggers `semantic_search` — verify the tool_call_result event includes `{type, id, title, snippet, similarity, url}`
 
 ---
 
 ## Cross-cutting checks
 
 ### Audit logs
-- [ ] `/settings/audit-logs` shows `chat.message.sent` with `pool: "persistent"` or `"one-shot"` in metadata
+- [ ] `/settings/audit-logs` shows `chat.message.sent` with `backend: "anthropic-sdk"` in metadata
 - [ ] MCP CRUD logged: `mcp_server.created`, `mcp_server.updated`, `mcp_server.deleted`
 
 ### Rate limit
