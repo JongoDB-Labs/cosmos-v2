@@ -1,8 +1,7 @@
 # AI Chat — End-to-end Validation Plan (Phases 1-5)
 
-**Target version:** v3.5.0
 **Spec:** `docs/AI-CHAT-MIGRATION-PLAN.md`
-**Scope:** every feature added in Phases 1, 2, 3a, 3b, 4, 5a, 5c.
+**Scope:** every feature added in Phases 1, 3a, 3b, 4, 5a, 5c.
 
 This document is structured so a Claude Code session can execute it sequentially. Each row: action → expected behavior → verification step. Mark ✅ / ❌ / ⏭.
 
@@ -10,9 +9,8 @@ This document is structured so a Claude Code session can execute it sequentially
 
 ## Pre-flight
 
-- [ ] App reports v3.5.0 at `GET /api/health`
 - [ ] Sign in as OWNER (you have all permissions including MCP_MANAGE)
-- [ ] Open Chat: `/[orgSlug]/chat`
+- [ ] Open the Assistant: `/[orgSlug]/assistant`
 - [ ] Open browser DevTools → Network tab → filter on `messages` and `mcp-servers`
 
 ---
@@ -23,25 +21,11 @@ This document is structured so a Claude Code session can execute it sequentially
 |---|--------|----------|
 | 1.1 | Click "New Conversation" | New conversation created, empty chat |
 | 1.2 | Type "Tell me a 50-word joke about databases" → Send | Assistant bubble appears **immediately**. Tokens stream in word-by-word, not all at once after a delay. |
-| 1.3 | Watch Network tab during 1.2 | Single fetch to `POST /api/v1/orgs/:org/chat/conversations/:id/messages` with `Accept: text/event-stream`. Response stays open ~5-15s with `Content-Type: text/event-stream`. |
+| 1.3 | Watch Network tab during 1.2 | Single fetch to `POST /api/v1/orgs/:org/assistant/conversations/:id/messages` with `Accept: text/event-stream`. Response stays open ~5-15s with `Content-Type: text/event-stream`. |
 | 1.4 | View the response payload | Lines of `data: {...}\n\n` — events of type `text`, `tool_call_start`, `tool_call_result`, `done` |
 | 1.5 | After done, the message persists | Reload page → message still there with full content + tool calls |
 
 **Verify TOOL_CALL markers are NOT visible:** if the model produces a tool call, you should see a tool chip in the bubble, NOT raw `TOOL_CALL: {...}` text.
-
----
-
-## Phase 2 — Persistent CLI pool
-
-| # | Action | Expected |
-|---|--------|----------|
-| 2.1 | Send first message in a fresh conversation. Time how long until first token appears | Cold start: 2-5s |
-| 2.2 | Send a second message immediately after | Warm: **first token < 800ms**. This proves the process was reused. |
-| 2.3 | Check DB: `SELECT cli_session_id FROM chat_conversations WHERE id = '<convo>';` | Non-null UUID, persists across messages |
-| 2.4 | Send a third message | Same fast latency. cli_session_id unchanged. |
-| 2.5 | Wait 31 minutes → send another message | Cold start again (process was reaped); cli_session_id may rotate but session resumes |
-| 2.6 | Force a process death: `pkill -f "claude -p"` on the server, then send a message | Next send: pool detects death, respawns, message completes successfully (verify in server logs) |
-| 2.7 | Trigger fallback: pass an invalid model and verify the SSE `debug` event fires | Server logs show "fallback" debug event; chat still works via legacy one-shot |
 
 ---
 
@@ -205,18 +189,9 @@ This document is structured so a Claude Code session can execute it sequentially
 | 5a.11 | Try to save stdio server with no command | Inline error |
 | 5a.12 | Try to save http server with no url | Inline error |
 
-### CLI integration
-| # | Action | Expected |
-|---|--------|----------|
-| 5a.13 | Add an enabled MCP server, send a chat message | Server logs show `--mcp-config /tmp/cosmos-mcp-*/mcp.json` arg passed to claude. The MCP server's tools are available to the model (test by asking "what tools do you have?") |
-| 5a.14 | Disable all MCP servers, send a message | No `--mcp-config` arg; only built-in cosmos tools available |
-| 5a.15 | Check that temp file is cleaned up | After message completes, `/tmp/cosmos-mcp-*/` directory removed (or cleaned on pool eviction) |
-
 ---
 
 ## Phase 5c — RAG / semantic search
-
-### Note: pgvector NOT installed → falls back to JSON token-overlap pseudo-embeddings (`TODO(rag)` markers in `src/lib/rag/embed.ts`)
 
 ### Setup
 - [ ] Run the backfill: `DATABASE_URL=... npx tsx scripts/backfill-embeddings.ts`
@@ -281,24 +256,22 @@ After the validation pass, remove:
 Phase                              Pass / Total
 ─────────────────────────────────────────────────
 1. Streaming                         _/5
-2. Persistent CLI pool               _/7
 3a. Google tools                     _/8
 3b. Internal tools                   _/23 (including 3 permission tests)
 4. Rich UI                           _/22
-5a. MCP                              _/15
+5a. MCP                              _/12
 5c. RAG                              _/7
 ─────────────────────────────────────────────────
-Total                                _/87
+Total                                _/77
 ```
 
 ---
 
 ## Known limitations (intentional, not bugs)
 
-1. **RAG uses keyword-overlap, not real embeddings** — `TODO(rag)` markers in code. To upgrade: install pgvector + `@xenova/transformers`, or switch to a hosted embedding API.
-2. **Phase 5b (prompt caching + cost tracking) NOT shipped** — the Claude CLI doesn't expose per-message token counts cleanly. Deferred until we move from CLI to direct Anthropic SDK.
-3. **Voice input deferred to Phase 4b** — Web Speech API + "send it" trigger.
-4. **Binary file attachments deferred to Phase 4b** — images, PDFs, .docx need a content-type-aware pipeline.
-5. **No model auto-fallback** — if Sonnet is rate-limited, the request fails. Add retry-with-Haiku in a follow-up.
-6. **Embed-on-write is synchronous** — adds ~50ms to note/work-item create. Move to background queue once we have one.
-7. **MCP hot-reload not supported** — if you change MCP servers while a conversation has an active CLI process, you must close + reopen the conversation. The CLI doesn't support live config swaps.
+1. **Phase 5b (prompt caching + cost tracking) NOT shipped** — the Claude CLI doesn't expose per-message token counts cleanly. Deferred until we move from CLI to direct Anthropic SDK.
+2. **Voice input deferred to Phase 4b** — Web Speech API + "send it" trigger.
+3. **Binary file attachments deferred to Phase 4b** — images, PDFs, .docx need a content-type-aware pipeline.
+4. **No model auto-fallback** — if Sonnet is rate-limited, the request fails. Add retry-with-Haiku in a follow-up.
+5. **Embed-on-write is synchronous** — adds ~50ms to note/work-item create. Move to background queue once we have one.
+6. **MCP hot-reload not supported** — if you change MCP servers while a conversation has an active CLI process, you must close + reopen the conversation. The CLI doesn't support live config swaps.
