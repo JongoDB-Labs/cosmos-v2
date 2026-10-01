@@ -71,3 +71,74 @@ describe("renderModeFor", () => {
     expect(renderModeFor(null)).toBe("download");
   });
 });
+
+/**
+ * The tier used to be chosen from the declared type alone. Browsers send no type at
+ * all for a great many ordinary files, so every .log, .yml and .py landed in the
+ * download tier — the wrong answer for a library people read out of. These are about
+ * the filename fallback staying a NARROWING: it may pick a tier, never widen one.
+ */
+describe("serveHeaders — the long tail", () => {
+  it("plays video and audio in the page rather than downloading them", () => {
+    for (const [ct, name] of [["video/mp4", "walkthrough.mp4"], ["video/webm", "a.webm"], ["audio/mpeg", "call.mp3"], ["audio/wav", "a.wav"]] as const) {
+      const h = serveHeaders(ct, name);
+      expect(h.get("Content-Type")).toBe(ct);
+      expect(h.get("Content-Disposition")).toMatch(/^inline/);
+      expect(h.get("Content-Security-Policy")).toBeNull();
+    }
+  });
+
+  it("reads the filename when the browser sent no type, which is the common case", () => {
+    for (const name of ["server.log", "values.yml", "migrate.sql", "report.py", "notes.txt"]) {
+      expect(serveHeaders("", name).get("Content-Type")).toBe("text/plain; charset=utf-8");
+    }
+    expect(serveHeaders("", "site.png").get("Content-Type")).toBe("image/png");
+    expect(serveHeaders(null, "clip.mp4").get("Content-Type")).toBe("video/mp4");
+  });
+
+  it("treats an unlisted text/* subtype as words, because the type is rewritten anyway", () => {
+    for (const ct of ["text/x-python", "text/yaml", "text/css", "text/javascript"]) {
+      expect(serveHeaders(ct, "f").get("Content-Type")).toBe("text/plain; charset=utf-8");
+    }
+  });
+
+  it("will not let the filename promote a scripting document out of the sandbox", () => {
+    for (const [ct, name] of [["", "saved.html"], ["application/octet-stream", "logo.svg"], [null, "feed.xml"]] as const) {
+      expect(serveHeaders(ct, name).get("Content-Security-Policy")).toBe("sandbox");
+    }
+  });
+
+  it("lets a recognised declared type beat the extension, in both directions", () => {
+    // claims to be a page, named like a picture: still sandboxed, never an image
+    expect(serveHeaders("text/html", "harmless.png").get("Content-Security-Policy")).toBe("sandbox");
+    // claims to be a picture, named like a page: served as the picture, with nosniff
+    const h = serveHeaders("image/png", "evil.html");
+    expect(h.get("Content-Type")).toBe("image/png");
+    expect(h.get("X-Content-Type-Options")).toBe("nosniff");
+  });
+
+  it("does not rescue an extension it has no entry for", () => {
+    for (const name of ["plan.dwg", "model.rvt", "setup.exe", "lib.so", "archive.zip"]) {
+      const h = serveHeaders("", name);
+      expect(h.get("Content-Type")).toBe("application/octet-stream");
+      expect(h.get("Content-Disposition")).toMatch(/^attachment/);
+    }
+  });
+
+  it("is not confused by case, a dotfile, or no extension at all", () => {
+    expect(serveHeaders("", "NOTES.MD").get("Content-Type")).toBe("text/plain; charset=utf-8");
+    expect(serveHeaders("", "README").get("Content-Disposition")).toMatch(/^attachment/);
+    // a leading dot is the whole name, not an extension
+    expect(serveHeaders("", ".gitignore").get("Content-Disposition")).toMatch(/^attachment/);
+  });
+});
+
+describe("renderModeFor — the long tail", () => {
+  it("tells the client to use a player, and reads the filename like the headers do", () => {
+    expect(renderModeFor("video/mp4", "a.mp4")).toBe("video");
+    expect(renderModeFor("audio/mpeg", "a.mp3")).toBe("audio");
+    expect(renderModeFor("", "server.log")).toBe("text");
+    expect(renderModeFor("", "saved.html")).toBe("sandboxed");
+    expect(renderModeFor("", "plan.dwg")).toBe("download");
+  });
+});
