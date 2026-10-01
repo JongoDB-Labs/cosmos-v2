@@ -14,13 +14,13 @@
 // so a cutover verify reports clean over rows pointing at users that did not
 // come across. That is the failure this test exists to prevent.
 //
-// It is a RATCHET, not a clean bill of health. 25 columns are still
+// It is a RATCHET, not a clean bill of health. 22 columns are still
 // listed below; the assertion is that the set does not grow. Fixing one means
 // deleting its line here, which is the point.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { BARE_USER_REF_COLUMNS } from "./model-graph";
+import { BARE_USER_REF_COLUMNS, buildModelPlans, fkEdgesOf } from "./model-graph";
 
 const schema = readFileSync(join(process.cwd(), "prisma", "schema.prisma"), "utf8");
 
@@ -48,9 +48,15 @@ const USERISH = /^(user|owner|author|actor|assignee|member)_id$|^\w+_by_id$/;
  *      documents.uploaded_by_id, employees.user_id, flags.user_id,
  *      entity_references.created_by_id, employee_cost_rates.created_by_id.
  *      Tracing the callers would settle each one.
- *    - GENUINELY AMBIGUOUS in the domain: goals.owner_id, milestones.owner_id,
- *      retro_action_items.owner_id — an "owner" may be a person or a team, and
- *      the column cannot say which.
+ *    - GENUINELY AMBIGUOUS in the domain: goals.owner_id — an "owner" may be a
+ *      person or a team, and the column cannot say which. Its API accepts any
+ *      uuid and nothing in the goals components renders it, so neither the data
+ *      nor the UI settles it. milestones.owner_id LOOKED identical and was not:
+ *      its component builds the owner map keyed by `m.userId` and looks it up by
+ *      `ownerId`, so it is registered. retro_action_items.owner_id and
+ *      retro_notes.author_id looked like gaps and were never bare at all — both
+ *      are real foreign keys, which is why the derivation now subtracts what
+ *      fkEdgesOf() reports rather than deciding for itself.
  *    - NO WRITE FOUND anywhere under src/, so something outside the app writes
  *      them (a job, a seed, raw SQL): the timesheets.* and payroll columns,
  *      time_entries.billed_by_id / voided_by_id, invoices/payments/pay_runs. */
@@ -67,11 +73,8 @@ const KNOWN_GAPS: readonly string[] = [
   "goals.owner_id",
   "invoices.created_by_id",
   "key_result_checkins.checked_in_by_id",
-  "milestones.owner_id",
   "pay_runs.created_by_id",
   "payments.created_by_id",
-  "retro_action_items.owner_id",
-  "retro_notes.author_id",
   "tax_rates.created_by_id",
   "time_entries.billed_by_id",
   "time_entries.voided_by_id",
@@ -104,8 +107,27 @@ function deriveBareUserColumns(): string[] {
   return out.sort();
 }
 
+/** Columns the DMMF already knows are real foreign keys.
+ *
+ *  The text scan above cannot be the authority on this. It reads the schema as
+ *  characters and got RetroActionItem.owner_id wrong — the relation is declared
+ *  plainly on one line and it still landed in the "bare" set, which put a hard FK
+ *  into the gap list where it sat until the neighbouring test caught it. Rather
+ *  than keep two disagreeing implementations, subtract what fkEdgesOf() reports:
+ *  it is the same source the rest of this module trusts. */
+function hardFkColumns(): Set<string> {
+  const out = new Set<string>();
+  for (const p of buildModelPlans()) {
+    for (const e of fkEdgesOf(p.model)) {
+      if (e.hardFk) out.add(`${p.table}.${e.fkColumn}`);
+    }
+  }
+  return out;
+}
+
 describe("BARE_USER_REF_COLUMNS completeness", () => {
-  const derived = deriveBareUserColumns();
+  const hard = hardFkColumns();
+  const derived = deriveBareUserColumns().filter((c) => !hard.has(c));
 
   it("still finds bare user references at all", () => {
     // floor: if the parser breaks, everything below passes vacuously.

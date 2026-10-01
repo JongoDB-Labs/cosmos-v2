@@ -415,6 +415,7 @@ model User {
   savedViews          SavedView[]
   retroNotes          RetroNote[]
   retroActionItems    RetroActionItem[]
+  timeEntryPhasesSet  TimeEntryPhase[]
 
   @@map("users")
 }
@@ -5090,14 +5091,19 @@ model TimeEntryPhase {
   /// an actor: "something inferred this" and "a person decided this" age very
   /// differently when somebody queries a margin a year later.
   ///
-  /// NULL is how "not a person" is written. A zero uuid is not — it reads as an
-  /// actor to anything checking for absence, and resolves to nobody.
+  /// NULL is how "not a person" is written, and the foreign key now enforces
+  /// that there is no third option. It was a bare uuid while this table belonged
+  /// to a plugin; one deployment then accumulated 3,098 rows holding a zero uuid,
+  /// which reads as an actor to anything checking for absence and resolves to
+  /// nobody. SetNull rather than Cascade: deleting an account must not delete the
+  /// hours it attributed.
   setById     String?  @map("set_by_id") @db.Uuid
   setAt       DateTime @default(now()) @map("set_at")
 
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   timeEntry TimeEntry    @relation(fields: [timeEntryId], references: [id], onDelete: Cascade)
   phase     ProjectPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  setBy     User?        @relation(fields: [setById], references: [id], onDelete: SetNull)
 
   @@index([orgId, phaseId])
   @@map("time_entry_phases")
