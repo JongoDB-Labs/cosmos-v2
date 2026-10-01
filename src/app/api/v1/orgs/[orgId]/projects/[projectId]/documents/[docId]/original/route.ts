@@ -1,3 +1,4 @@
+import { serveHeaders } from "@/lib/files/serve";
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
@@ -26,12 +27,5 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   const stream = await getStorage().stream(doc.storageKey);
   if (!stream) return new Response("File not found", { status: 404 });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": doc.contentType || "application/octet-stream",
-      // inline so PDFs render in an <iframe>; the filename guides downloads.
-      "Content-Disposition": `inline; filename="${doc.filename.replace(/"/g, "")}"`,
-      "Cache-Control": "private, max-age=300",
-    },
-  });
+  return new Response(stream, { headers: serveHeaders(doc.contentType, doc.filename) });
 }

@@ -25,8 +25,11 @@ export interface IngestInput {
  * parse failures are recorded, not thrown, so the document still lists.
  */
 export async function ingestDocument(input: IngestInput) {
+  // NULL is fine. A file library stores what a practice keeps; being able to
+  // extract text from it is a separate, optional capability. Gating the upload
+  // on a parser existing meant five extensions were accepted and a photograph,
+  // a CSV or a certificate scan were refused as an "Unsupported file type".
   const format = formatFromName(input.filename);
-  if (!format) throw new Error(`Unsupported file type: ${input.filename}`);
   if (input.buffer.byteLength > MAX_BYTES) throw new Error("File exceeds 25 MB limit");
 
   // Sanitize the filename for the storage KEY (strip path separators / traversal)
@@ -54,9 +57,14 @@ export async function ingestDocument(input: IngestInput) {
       classificationLevel: input.classificationLevel ?? "UNCLASSIFIED",
       storageKey,
       format,
-      status: "PARSING",
+      // UPLOADED is the terminal state for a file nothing can read: it is stored,
+      // listed and downloadable, it simply has no blocks. Only a file we will
+      // actually try to parse goes to PARSING.
+      status: format ? "PARSING" : "UPLOADED",
     },
   });
+
+  if (!format) return doc;
 
   try {
     const { blocks, pageCount } = await parserFor(format)!.parse(input.buffer);
