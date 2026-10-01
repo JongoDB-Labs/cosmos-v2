@@ -620,6 +620,9 @@ export const BARE_USER_REF_COLUMNS: ReadonlyMap<string, readonly string[]> = new
   // Promoted out of a vertical plugin (2026-09-30). Every one of these is a
   // person, recorded without a relation for the same reason as the rest of
   // this map: the row outlives the account it names.
+  // Traced to ctx.userId through each model's own write path, 2026-10-01.
+  // Adjudicated 2026-09-30 against the live data and each model's own write
+  // site — see bare-user-refs.arch.test.ts for what counted as evidence.
   ["pace_weeks", ["set_by_id"]],
   ["person_aliases", ["user_id", "set_by_id"]],
   ["milestone_slips", ["recorded_by_id"]],
@@ -627,10 +630,19 @@ export const BARE_USER_REF_COLUMNS: ReadonlyMap<string, readonly string[]> = new
   ["overhead_allocations", ["user_id"]],
   ["weekly_reports", ["user_id"]],
   ["org_member_profiles", ["user_id"]],
+  ["bills", ["created_by_id"]],
+  ["documents", ["uploaded_by_id"]],
+  ["employee_cost_rates", ["created_by_id"]],
+  ["employees", ["created_by_id", "user_id"]],
+  ["entity_references", ["created_by_id"]],
+  ["invoices", ["created_by_id"]],
+  ["key_result_checkins", ["checked_in_by_id"]],
+  ["pay_runs", ["created_by_id"]],
+  ["time_entries", ["billed_by_id", "voided_by_id", "user_id", "approved_by_id"]],
+  ["time_entry_revisions", ["actor_id"]],
+  ["time_off_requests", ["decided_by_id", "user_id"]],
   ["milestones", ["owner_id"]],
   ["staffing_allocations", ["user_id"]],
-  // Adjudicated 2026-09-30 against the live data and each model's own write
-  // site — see bare-user-refs.arch.test.ts for what counted as evidence.
   ["bank_accounts", ["created_by_id"]],
   ["bank_rules", ["created_by_id"]],
   ["chat_pinned_messages", ["pinned_by_id"]],
@@ -642,7 +654,6 @@ export const BARE_USER_REF_COLUMNS: ReadonlyMap<string, readonly string[]> = new
   ["org_plugin_state", ["enabled_by_id"]],
   ["pm_links", ["created_by_id"]],
   ["supervisor_requests", ["requested_by_id"]],
-  ["time_off_requests", ["user_id"]],
   ["update_settings", ["updated_by_id"]],
   ["work_items", ["assignee_id", "created_by_id"]],
   ["activities", ["user_id"]],
@@ -658,7 +669,6 @@ export const BARE_USER_REF_COLUMNS: ReadonlyMap<string, readonly string[]> = new
   ["expenses", ["created_by_id", "approved_by_id"]],
   ["journal_entries", ["created_by_id"]],
   ["accounting_periods", ["closed_by_id"]],
-  ["time_entries", ["user_id", "approved_by_id"]],
   ["saved_reports", ["created_by_id"]],
   ["data_classifications", ["applied_by_id"]],
   ["compliance_controls", ["assessed_by_id"]],
