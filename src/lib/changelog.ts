@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.417.0",
+    date: "2026-10-01",
+    title: "Builds stopped running out of memory",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Nothing changes in the product. Releases had started failing about half the time while checking their own types, because the platform has grown enough this week to exceed a memory limit set some time ago. The limit is higher now.",
+      },
+    ],
+  },
+  {
     version: "2.416.0",
     date: "2026-10-01",
     title: "The record of who attributed an hour now means something",
