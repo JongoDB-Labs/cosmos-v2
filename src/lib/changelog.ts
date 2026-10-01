@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.418.0",
+    date: "2026-10-01",
+    title: "Housekeeping: the migration tooling knows who is who, part two",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Nothing changes on screen. Thirteen more columns that record which person did something \u2014 who raised a bill, who approved an invoice, who voided an hour \u2014 were invisible to the checks that run when an organisation\u2019s data is moved between installations. They are registered now, leaving nine that nothing in the application writes.",
+      },
+    ],
+  },
+  {
     version: "2.417.0",
     date: "2026-10-01",
     title: "Builds stopped running out of memory",

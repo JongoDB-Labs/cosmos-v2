@@ -14,7 +14,7 @@
 // so a cutover verify reports clean over rows pointing at users that did not
 // come across. That is the failure this test exists to prevent.
 //
-// It is a RATCHET, not a clean bill of health. 22 columns are still
+// It is a RATCHET, not a clean bill of health. 9 columns are still
 // listed below; the assertion is that the set does not grow. Fixing one means
 // deleting its line here, which is the point.
 import { describe, it, expect } from "vitest";
@@ -40,46 +40,31 @@ const USERISH = /^(user|owner|author|actor|assignee|member)_id$|^\w+_by_id$/;
  *       (`ctx.userId`, `user.id`)
  *    3. the schema's own doc comment says outright that it holds a user id
  *
- *  What is left is left because the evidence stops one hop short, not because
- *  nobody looked. Three shapes, so the next pass can start from here:
+ *  What is left is left because the evidence stops, not because nobody looked.
+ *  Every one of the thirteen removed on 2026-10-01 was traced from the column to
+ *  a route that passes `ctx.userId`, through that model's OWN create/update — a
+ *  grep for the field name alone is not enough, because a dozen models share
+ *  names like `createdById` and it will cheerfully attribute the wrong one.
  *
- *    - TABLE IS EMPTY, and the write assigns from a function parameter rather
- *      than the auth context, so neither the data nor one grep settles it:
- *      documents.uploaded_by_id, employees.user_id, flags.user_id,
- *      entity_references.created_by_id, employee_cost_rates.created_by_id.
- *      Tracing the callers would settle each one.
- *    - GENUINELY AMBIGUOUS in the domain: goals.owner_id — an "owner" may be a
- *      person or a team, and the column cannot say which. Its API accepts any
- *      uuid and nothing in the goals components renders it, so neither the data
- *      nor the UI settles it. milestones.owner_id LOOKED identical and was not:
- *      its component builds the owner map keyed by `m.userId` and looks it up by
- *      `ownerId`, so it is registered. retro_action_items.owner_id and
- *      retro_notes.author_id looked like gaps and were never bare at all — both
- *      are real foreign keys, which is why the derivation now subtracts what
- *      fkEdgesOf() reports rather than deciding for itself.
- *    - NO WRITE FOUND anywhere under src/, so something outside the app writes
- *      them (a job, a seed, raw SQL): the timesheets.* and payroll columns,
- *      time_entries.billed_by_id / voided_by_id, invoices/payments/pay_runs. */
+ *  The nine that remain, and what stops each:
+ *
+ *    - NOTHING UNDER src/ WRITES THEM, so a seed, a job or raw SQL does, and the
+ *      app cannot say what they hold: employee_supervisors.created_by_id,
+ *      payments.created_by_id, tax_rates.created_by_id, timesheets.user_id,
+ *      timesheets.cost_approved_by_id, timesheets.labor_approved_by_id.
+ *    - WRITTEN, BUT NOTHING CALLS THE WRITER: flags.resolved_by_id — dismissFlag()
+ *      takes a `byId` and no route under src/app calls it.
+ *    - NO EVIDENCE EITHER WAY: flags.user_id comes from a caller-supplied subject
+ *      and no caller was found; goals.owner_id is accepted from the request body
+ *      as any uuid and nothing renders it, so neither the data nor the UI settles
+ *      whether an "owner" is a person or a team. */
 const KNOWN_GAPS: readonly string[] = [
-  "bills.created_by_id",
-  "documents.uploaded_by_id",
-  "employee_cost_rates.created_by_id",
   "employee_supervisors.created_by_id",
-  "employees.created_by_id",
-  "employees.user_id",
-  "entity_references.created_by_id",
   "flags.resolved_by_id",
   "flags.user_id",
   "goals.owner_id",
-  "invoices.created_by_id",
-  "key_result_checkins.checked_in_by_id",
-  "pay_runs.created_by_id",
   "payments.created_by_id",
   "tax_rates.created_by_id",
-  "time_entries.billed_by_id",
-  "time_entries.voided_by_id",
-  "time_entry_revisions.actor_id",
-  "time_off_requests.decided_by_id",
   "timesheets.cost_approved_by_id",
   "timesheets.labor_approved_by_id",
   "timesheets.user_id",
@@ -132,6 +117,25 @@ describe("BARE_USER_REF_COLUMNS completeness", () => {
   it("still finds bare user references at all", () => {
     // floor: if the parser breaks, everything below passes vacuously.
     expect(derived.length).toBeGreaterThan(40);
+  });
+
+  it("declares each table once — a duplicate key silently drops the earlier one", () => {
+    // `new Map([["t", ["a"]], ["t", ["b"]]])` keeps ONLY ["b"], with no error and
+    // no warning. Registering two columns on a table that already had an entry
+    // therefore un-registers whatever was there before. That happened on
+    // 2026-10-01 to time_entries and time_off_requests; the test below caught it
+    // only because the lost columns happened to be user-ish, so a table whose
+    // columns fall outside that pattern would have gone quietly.
+    const source = readFileSync(join(process.cwd(), "scripts/cutover/lib/model-graph.ts"), "utf8");
+    const region = source.slice(
+      source.indexOf("BARE_USER_REF_COLUMNS: ReadonlyMap"),
+      source.indexOf("]);", source.indexOf("BARE_USER_REF_COLUMNS: ReadonlyMap")),
+    );
+    const tables = [...region.matchAll(/\["([a-z_]+)",\s*\[/g)].map((m) => m[1]);
+    const seen = new Set<string>();
+    const dupes = tables.filter((t) => (seen.has(t) ? true : (seen.add(t), false)));
+    expect(dupes, `declared more than once in BARE_USER_REF_COLUMNS: ${dupes.join(", ")}`).toEqual([]);
+    expect(tables.length).toBeGreaterThan(30); // floor: the literal was found at all
   });
 
   it("registers every bare user reference, except the known gaps", () => {
