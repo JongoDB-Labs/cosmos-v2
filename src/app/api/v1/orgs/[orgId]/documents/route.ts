@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { isExecutableUpload } from "@/lib/files/parsers";
 import { prisma } from "@/lib/db/client";
 import { resolveAuth } from "@/lib/auth/api-key";
 import { requirePermission } from "@/lib/rbac/check";
@@ -7,7 +8,6 @@ import { visibleProjectIdsForActor } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { ingestDocument } from "@/lib/files/ingest";
-import { formatFromName } from "@/lib/files/parsers";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -121,8 +121,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       buffer = Buffer.from(await file.arrayBuffer());
     }
 
-    if (!formatFromName(filename)) return new Response("Unsupported file type", { status: 400 });
 
+    if (isExecutableUpload(filename))
+      return new Response("Executable files are not accepted", { status: 400 });
     const doc = await ingestDocument({
       orgId,
       projectId: null,

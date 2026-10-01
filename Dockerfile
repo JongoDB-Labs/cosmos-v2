@@ -236,6 +236,17 @@ RUN rm -f node_modules/onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime_pro
 # (CVE-2026-59873, CRITICAL, fixed in 7.5.19) — removing npm deletes that copy at
 # its source and clears the only FIXABLE image CRITICAL, keeping the scan gate green.
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+# The local storage adapter writes to <cwd>/uploads. /app is root-owned, the
+# runtime is uid 999, and nothing created this directory — so the FIRST upload a
+# deployment ever attempts fails with `EACCES: permission denied, mkdir
+# '/app/uploads'`, surfacing as a 500. The document library could not store
+# anything.
+#
+# This makes the image work on its own. A deployment that must KEEP uploads
+# across releases has to mount a volume here as well: the directory is inside the
+# container, so `docker compose up --force-recreate` discards whatever is in it.
+# Set STORAGE_ADAPTER=s3 instead and none of this applies.
+RUN mkdir -p /app/uploads && chown cosmos:cosmos /app/uploads
 USER cosmos
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \

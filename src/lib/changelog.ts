@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.419.0",
+    date: "2026-10-01",
+    title: "Files accepts the things a practice actually keeps",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Uploading anything to Files failed. Two faults sat on top of each other: the library only accepted five document formats, turning away a site photograph, a fee spreadsheet exported as CSV, a scanned certificate or a drawing as an \u201cunsupported file type\u201d \u2014 and underneath that, the place files are written to could not be created at all, so even an accepted format failed. Both are fixed. Files now takes anything that is not a program, reads the formats it knows how to read, and simply stores the rest.",
+      },
+    ],
+  },
+  {
     version: "2.418.0",
     date: "2026-10-01",
     title: "Housekeeping: the migration tooling knows who is who, part two",

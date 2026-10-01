@@ -126,10 +126,24 @@ describe("POST /orgs/[orgId]/documents — adding to the firm library", () => {
     expect(ingestDocument).not.toHaveBeenCalled();
   });
 
-  it("rejects a file type it cannot parse before storing anything", async () => {
+  it("refuses an executable before storing anything", async () => {
     resolveAuth.mockResolvedValue(ctx("ORG_READ", "ORG_UPDATE"));
     const res = await POST(upload("payload.exe"), { params });
     expect(res.status).toBe(400);
     expect(ingestDocument).not.toHaveBeenCalled();
+  });
+
+  it("stores a file nothing can parse — a library is not a parser", async () => {
+    // The inverse of the test above, and the bug it replaces: upload used to be
+    // gated on a parser existing, so five extensions were accepted and a
+    // photograph, a CSV or a scanned certificate came back "Unsupported file
+    // type". Those are exactly what a practice keeps.
+    resolveAuth.mockResolvedValue(ctx("ORG_READ", "ORG_UPDATE"));
+    for (const name of ["site-photo.png", "fees.csv", "insurance.pdf", "notes.txt", "details.dwg"]) {
+      ingestDocument.mockClear();
+      const res = await POST(upload(name), { params });
+      expect(res.status, `${name} should be accepted`).toBeLessThan(400);
+      expect(ingestDocument, `${name} should reach storage`).toHaveBeenCalled();
+    }
   });
 });

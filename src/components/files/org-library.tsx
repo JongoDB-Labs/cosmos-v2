@@ -199,12 +199,20 @@ export function OrgLibrary({ orgId, canUpload }: { orgId: string; canUpload: boo
                         {d.pageCount} pages
                       </span>
                     ) : null}
+                    {d.status === "FAILED" ? (
+                      <span className="ml-2 text-xs text-[var(--status-blocked-text,var(--text-muted))]">
+                        stored, could not be read
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-4 py-2 text-[var(--text-muted)]">
                     {d.project ? `${d.project.key} · ${d.project.name}` : "Org-wide"}
                   </td>
                   <td className="px-4 py-2 uppercase text-[var(--text-muted)]">
-                    {d.format ?? "—"}
+                    {/* `format` is only set for the few types we can read. Most
+                        files now have none, so fall back to the extension —
+                        otherwise this column reads "—" for nearly everything. */}
+                    {d.format ?? d.filename.split(".").pop()?.toLowerCase() ?? "—"}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums">{fmtSize(d.size)}</td>
                   <td className="px-4 py-2 tabular-nums text-[var(--text-muted)]">
