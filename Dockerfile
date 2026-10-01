@@ -35,7 +35,20 @@ RUN npm ci --no-audit --no-fund \
 # --- build ---
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
-ENV NODE_OPTIONS=--max-old-space-size=4096
+# `npm run build` type-checks the whole composed tree, and that is what sits
+# closest to this ceiling. Raised 4096 -> 6144 on 2026-10-01, after one of the
+# two product image builds died with "Ineffective mark-compacts near heap limit"
+# at ~4.2GB while the other passed the SAME commit — the signature of a process
+# just under the line, which reads as a flake and is not one. Sixteen models
+# moved into the schema that week and the generated client grew with them.
+#
+# The same raise went to the two compose-and-verify jobs first; this one was
+# missed because only those were failing at the time. The limit is per process
+# and the cause is shared, so the question is which processes typecheck this
+# tree, not which happened to be red. 6144 rather than more because the two
+# image builds run concurrently on an 11GB runner: a ceiling is not a
+# reservation, but two of them peaking together should still fit.
+ENV NODE_OPTIONS=--max-old-space-size=6144
 COPY --from=deps /app/node_modules ./node_modules
 # Bake the MiniLM embeddings model (~87MB ONNX) into node_modules so the runtime
 # loads it OFFLINE (gov can't fetch at runtime). It sits before `COPY . .` so a pure
