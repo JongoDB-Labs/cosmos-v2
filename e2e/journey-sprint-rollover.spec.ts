@@ -1,4 +1,6 @@
 import { test, expect } from "./fixtures/auth";
+import { gotoStable } from "./fixtures/navigation";
+import { planSprint } from "./fixtures/intervals";
 import type { Page } from "@playwright/test";
 
 /**
@@ -32,27 +34,6 @@ const PROJECT_KEY = `ROLL${STAMP}`;
 const SPRINT_A = "Sprint 1";
 const SPRINT_B = "Sprint 2";
 
-/**
- * `page.goto` that tolerates the transient `net::ERR_ABORTED` `next dev` throws
- * when a streaming navigation races a cacheComponents tag revalidation — e.g.
- * loading /projects right after a create hard-expires its cache tag.
- */
-async function gotoStable(
-  page: Page,
-  url: string,
-  opts?: Parameters<Page["goto"]>[1],
-): Promise<void> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      await page.goto(url, opts);
-      return;
-    } catch (e) {
-      if (attempt >= 4 || !String(e).includes("ERR_ABORTED")) throw e;
-      await page.waitForTimeout(500);
-    }
-  }
-}
-
 async function createProject(page: Page) {
   await gotoStable(page, `/${ORG}/projects`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("main", { timeout: 20_000 });
@@ -79,23 +60,15 @@ async function createProject(page: Page) {
   );
 }
 
-async function planSprint(page: Page, name: string, start: string, end: string) {
-  await gotoStable(page, `/${ORG}/projects/${PROJECT_KEY.toLowerCase()}/intervals`, {
-    waitUntil: "domcontentloaded",
+/** This spec's own project, so every call shares the same org + key. */
+const plan = (page: Page, name: string, start: string, end: string) =>
+  planSprint(page, {
+    orgSlug: ORG,
+    projectKey: PROJECT_KEY.toLowerCase(),
+    name,
+    start,
+    end,
   });
-  await page.waitForSelector("main", { timeout: 20_000 });
-
-  await page.getByRole("button", { name: /new interval/i }).first().click();
-  await expect(
-    page.getByRole("heading", { name: /plan an interval/i }),
-  ).toBeVisible({ timeout: 10_000 });
-
-  await page.getByLabel(/^Name$/).fill(name);
-  await page.getByLabel(/start date/i).fill(start);
-  await page.getByLabel(/end date/i).fill(end);
-  await page.getByRole("button", { name: /create interval/i }).click();
-  await expect(page.getByText(name).first()).toBeVisible({ timeout: 20_000 });
-}
 
 /**
  * The project's intervals straight from the API — the screen cannot tell two
@@ -137,9 +110,9 @@ test.describe("journey — completing a sprint rolls into the planned next one",
     await signInAs(EMAIL);
 
     await createProject(page);
-    await planSprint(page, SPRINT_A, "2026-07-01", "2026-07-14");
+    await plan(page, SPRINT_A, "2026-07-01", "2026-07-14");
     // Strictly later and PLANNED — this is what the roll-over must find.
-    await planSprint(page, SPRINT_B, "2026-07-15", "2026-07-28");
+    await plan(page, SPRINT_B, "2026-07-15", "2026-07-28");
 
     // Start Sprint 1. A SPRINT opens the planning dialog rather than activating
     // directly, so the sprint is started from inside it.

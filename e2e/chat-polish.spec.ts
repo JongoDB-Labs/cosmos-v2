@@ -1,19 +1,8 @@
 import { test, expect } from "@playwright/test";
+import { signIn } from "./fixtures/auth";
 
 const ORG_SLUG = "test-org";
 const BASE = process.env.E2E_BASE_URL ?? "http://localhost:3000";
-
-async function signIn(page: import("@playwright/test").Page, email: string) {
-  const r = await page.request.post(`${BASE}/api/testenv/sign-in`, {
-    data: { email },
-    headers: { Origin: BASE },
-  });
-  if (!r.ok()) {
-    throw new Error(
-      `sign-in failed for ${email}: ${r.status()} ${r.statusText()}`,
-    );
-  }
-}
 
 /**
  * Look up the test-org's orgId using Alice's authenticated session.

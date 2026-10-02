@@ -3,9 +3,9 @@ import { createIssueFromBoard } from "./fixtures/create-issue";
 
 /**
  * E2E journey — create a work item (kanban card). On the seeded project's
- * default board, open the shared "New issue" dialog, fill in a title, and
- * title, submit with Enter, and verify the card appears. Exercises auth + the
- * kanban board + the work-item create mutation + the optimistic board update.
+ * default board, open the shared "New issue" dialog, submit it, and verify the
+ * card appears once the board has refetched. Exercises auth + the kanban board
+ * + the work-item create mutation + the post-create refetch.
  *
  * Needs the seeded "TEST" project (its default KANBAN board has columns) AND
  * the seeded built-in WorkItemType "software.task" — both in

@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/auth";
+import { mondayOf, isoDate } from "./fixtures/weeks";
 
 /**
  * E2E journey — a submitted timesheet reaches a NAMED person.
@@ -31,21 +32,6 @@ import { test, expect } from "./fixtures/auth";
 const ORG = process.env.E2E_ORG_SLUG ?? "test-org";
 const ALICE = process.env.E2E_EMAIL ?? "alice@test.local";
 const BOB = "bob@test.local";
-
-/** Monday of the week containing `d` — mirrors getWeekDates() in the component. */
-function mondayOf(d: Date): Date {
-  const x = new Date(d);
-  const day = x.getDay();
-  x.setDate(x.getDate() + (day === 0 ? -6 : 1 - day));
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function isoDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate(),
-  ).padStart(2, "0")}`;
-}
 
 const WEEKS_BACK = 3;
 

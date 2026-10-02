@@ -7,8 +7,7 @@ import { test, expect } from "./fixtures/auth";
  *
  * Read-only — visits only already-deployed routes and never mutates anything,
  * so it is safe against the shared CI DB and the existing seed (test-org,
- * alice ADMIN). Routes not yet merged (e.g. /settings/roles) are intentionally
- * excluded.
+ * alice ADMIN).
  *
  * The asserted text is a stable heading rendered by each page's PageShell
  * (<h1>) or PageSection (<h2>) — chosen so it does not depend on seed data:
