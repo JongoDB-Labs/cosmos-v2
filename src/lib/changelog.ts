@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.425.0",
+    date: "2026-10-02",
+    title: "Rename, delete and talk about a file",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Whoever uploaded a file can now rename it or remove it without having to find a project manager first \u2014 and a project manager can still do either on any file in their project. The stored file name itself never changes, only the name you see, so renaming can never alter how a file opens.",
+      },
+      {
+        kind: "feature",
+        text: "Files can be discussed. Anyone who can see a file can leave a note on it, which is the point: being able to say what is wrong with a drawing should not require permission to change the drawing. You can delete your own notes, and whoever looks after the file can remove any of them.",
+      },
+      {
+        kind: "improvement",
+        text: "An attachment can be taken off a ticket from the Files screen as well as from the ticket, which is where you are when you notice it is on the wrong one. Either way the file stays in the project\u2019s files.",
+      },
+    ],
+  },
+  {
     version: "2.424.0",
     date: "2026-10-01",
     title: "Housekeeping: a goal\u2019s owner is a person, and one dead table removed",
