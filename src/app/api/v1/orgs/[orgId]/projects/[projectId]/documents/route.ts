@@ -10,6 +10,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { ingestDocument } from "@/lib/files/ingest";
 import { withUploaders } from "@/lib/files/uploader";
+import { withManageFlags } from "@/lib/files/access";
 import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -37,14 +38,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       select: {
         id: true, title: true, filename: true, format: true, status: true,
         pageCount: true, size: true, classificationLevel: true, contentType: true, createdAt: true,
-        workItemId: true, uploadedById: true,
+        workItemId: true, uploadedById: true, projectId: true,
         workItem: { select: { ticketNumber: true, title: true } },
       },
       orderBy: { createdAt: "desc" },
     });
     // One batched uploader lookup for the page — see uploader.ts for why
     // uploadedById has no foreign key to join on.
-    return success(await withUploaders(docs));
+    return success(await withUploaders(await withManageFlags(docs, ctx)));
   } catch (e) {
     return handleApiError(e);
   }

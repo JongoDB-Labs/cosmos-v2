@@ -11,6 +11,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import { FileText, Upload } from "lucide-react";
+import { notifyError } from "@/lib/errors/notify";
+import { FileComments } from "@/components/files/file-comments";
 
 /**
  * Everything the practice keeps, in one list.
@@ -42,6 +44,10 @@ type LibraryDoc = {
   uploadedBy: { id: string; displayName: string | null; avatarUrl: string | null };
   workItemId: string | null;
   workItem: { ticketNumber: number | null; title: string } | null;
+  // Resolved server-side, once per distinct project rather than per row. The
+  // route enforces regardless; this only stops the list offering a control that
+  // would 403.
+  canManage: boolean;
 };
 
 // A sentinel that cannot collide with a project key. Component state only —
@@ -60,6 +66,12 @@ const fmtDate = (iso: string) =>
 export function OrgLibrary({ orgId, canUpload }: { orgId: string; canUpload: boolean }) {
   const [scope, setScope] = useState<string>("all");
   const [term, setTerm] = useState("");
+  // One expansion at a time, and the three uses are mutually exclusive: a row is
+  // either showing its notes, being renamed, or being confirmed for deletion.
+  const [openComments, setOpenComments] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameTo, setRenameTo] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
   const key = useOrgQueryKey(["org-documents"]);
@@ -67,6 +79,34 @@ export function OrgLibrary({ orgId, canUpload }: { orgId: string; canUpload: boo
   const q = useQuery({
     queryKey: key,
     queryFn: () => jsonFetch<LibraryDoc[]>(`/api/v1/orgs/${orgId}/documents`),
+  });
+
+  const rename = useMutation({
+    mutationFn: async ({ id, title }: { id: string; title: string }) => {
+      const res = await fetch(`/api/v1/orgs/${orgId}/documents/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      if (!res.ok) throw new Error((await res.text()) || "Could not rename that");
+    },
+    onSuccess: () => {
+      setRenaming(null);
+      qc.invalidateQueries({ queryKey: key });
+    },
+    onError: (e) => notifyError(e),
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/v1/orgs/${orgId}/documents/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.text()) || "Could not delete that");
+    },
+    onSuccess: () => {
+      setConfirmDelete(null);
+      qc.invalidateQueries({ queryKey: key });
+    },
+    onError: (e) => notifyError(e),
   });
 
   const upload = useMutation({
@@ -186,6 +226,9 @@ export function OrgLibrary({ orgId, canUpload }: { orgId: string; canUpload: boo
                 <th className="px-4 py-2 text-right font-medium">Size</th>
                 <th className="px-4 py-2 font-medium">Added by</th>
                 <th className="px-4 py-2 font-medium">Added</th>
+                <th className="px-4 py-2 text-right font-medium">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -237,8 +280,102 @@ export function OrgLibrary({ orgId, canUpload }: { orgId: string; canUpload: boo
                   <td className="px-4 py-2 tabular-nums text-[var(--text-muted)]">
                     {fmtDate(d.createdAt)}
                   </td>
+                  <td className="px-4 py-2 text-right whitespace-nowrap">
+                    <button
+                      type="button"
+                      className="text-xs underline text-[var(--text-muted)] hover:text-[var(--text)]"
+                      onClick={() => setOpenComments(openComments === d.id ? null : d.id)}
+                    >
+                      {openComments === d.id ? "Hide notes" : "Notes"}
+                    </button>
+                    {d.canManage ? (
+                      <>
+                        <button
+                          type="button"
+                          className="ml-3 text-xs underline text-[var(--text-muted)] hover:text-[var(--text)]"
+                          onClick={() => {
+                            setRenaming(d.id);
+                            setRenameTo(d.title || d.filename);
+                          }}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          className="ml-3 text-xs underline text-[var(--text-muted)] hover:text-[var(--text)]"
+                          onClick={() => setConfirmDelete(d.id)}
+                        >
+                          Delete
+                        </button>
+                      </>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
+              {/* A second row per file rather than a drawer: the notes belong
+                  under the file they are about, and a list of ten files with one
+                  thread open should not hide the other nine. */}
+              {shown
+                .filter((d) => d.id === openComments || d.id === renaming || d.id === confirmDelete)
+                .map((d) => (
+                  <tr key={`${d.id}-panel`} className="border-b border-[var(--border)] last:border-0">
+                    <td colSpan={7} className="bg-[var(--surface-sunk,var(--surface))] px-4 py-3">
+                      {renaming === d.id ? (
+                        <form
+                          className="flex items-center gap-2"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            const next = renameTo.trim();
+                            if (next) rename.mutate({ id: d.id, title: next });
+                          }}
+                        >
+                          <label htmlFor={`rename-${d.id}`} className="text-xs text-[var(--text-muted)]">
+                            Rename
+                          </label>
+                          <input
+                            id={`rename-${d.id}`}
+                            value={renameTo}
+                            onChange={(e) => setRenameTo(e.target.value)}
+                            className="flex-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm"
+                          />
+                          {/* The stored filename never changes: it decides how the
+                              file is served, so a rename must not be able to move
+                              it between serving tiers. */}
+                          <span className="text-xs text-[var(--text-muted)]">
+                            file stays {d.filename}
+                          </span>
+                          <Button type="submit" size="sm" disabled={rename.isPending}>
+                            Save
+                          </Button>
+                          <Button type="button" size="sm" variant="ghost" onClick={() => setRenaming(null)}>
+                            Cancel
+                          </Button>
+                        </form>
+                      ) : confirmDelete === d.id ? (
+                        <div className="flex items-center gap-3 text-sm">
+                          <span>
+                            Delete <b>{d.title || d.filename}</b>? This removes the file itself,
+                            not just the listing.
+                          </span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="destructive"
+                            disabled={remove.isPending}
+                            onClick={() => remove.mutate(d.id)}
+                          >
+                            Delete
+                          </Button>
+                          <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>
+                            Keep it
+                          </Button>
+                        </div>
+                      ) : (
+                        <FileComments orgId={orgId} docId={d.id} />
+                      )}
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </div>

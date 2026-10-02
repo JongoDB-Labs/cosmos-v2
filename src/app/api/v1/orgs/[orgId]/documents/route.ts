@@ -9,6 +9,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { ingestDocument } from "@/lib/files/ingest";
 import { withUploaders } from "@/lib/files/uploader";
+import { withManageFlags } from "@/lib/files/access";
 import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -85,7 +86,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     // uploadedById is a bare uuid with no FK, so the name has to be resolved rather
     // than joined — one batched lookup for the page, never per row. See uploader.ts
     // for why the column stays bare.
-    return success(await withUploaders(docs));
+    // canManage per row, resolved once per distinct project rather than per row,
+    // so the client knows which files to offer a rename or a delete on.
+    return success(await withUploaders(await withManageFlags(docs, ctx)));
   } catch (e) {
     return handleApiError(e);
   }

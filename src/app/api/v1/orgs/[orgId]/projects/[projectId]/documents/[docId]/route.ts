@@ -8,6 +8,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { getStorage } from "@/lib/storage";
 import { logAudit } from "@/lib/audit";
+import { readableDocument, canManageDocument } from "@/lib/files/access";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; docId: string }>;
@@ -40,7 +41,16 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await resolveAuth(req, org);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
+    // Who may delete is one policy, in one module, shared with the org-level
+    // route and the attachment list — not PROJECT_UPDATE spelled out again here.
+    // The widening that matters: the person who UPLOADED a file may take it back
+    // out without finding a project manager, which is the point of recording who
+    // uploaded it.
+    const policyDoc = await readableDocument(orgId, docId, ctx);
+    if (!policyDoc || policyDoc.projectId !== projectId)
+      return new Response("Not found", { status: 404 });
+    if (!(await canManageDocument(policyDoc, ctx)))
+      return new Response("You did not upload this file and cannot delete it", { status: 403 });
 
     // Everything the audit entry needs is read BEFORE the delete, because
     // afterwards there is nothing left to read: a record saying only that an id was
@@ -62,6 +72,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     if (!doc) return new Response("Not found", { status: 404 });
     await getStorage().delete(doc.storageKey).catch(() => {});
     await prisma.document.delete({ where: { id: doc.id } });
+    // Comments hang off the document polymorphically, so nothing cascades them.
+    await prisma.comment.deleteMany({
+      where: { orgId, subjectType: "document", subjectId: docId },
+    });
 
     await logAudit({
       orgId,
@@ -79,6 +93,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
         uploadedById: doc.uploadedById,
         uploadedAt: doc.createdAt.toISOString(),
         wasAttachedToWorkItemId: doc.workItemId,
+        asOwner: doc.uploadedById === ctx.userId,
       },
     });
 
