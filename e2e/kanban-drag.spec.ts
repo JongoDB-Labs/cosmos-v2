@@ -107,7 +107,6 @@ test("moving a child to In Progress offers ALL of its dates, and nothing else", 
   // Nothing asks about the parent any more — a child is free to overtake it, and
   // the safeguard that replaced that prompt runs the other way (see below).
   await expect(page.getByRole("heading", { name: /move the parent too\?/i })).toBeHidden();
-  await page.screenshot({ path: "/tmp/kanban-date-dialog.png" });
 
   // Correcting a date must persist, not just close the dialog.
   await page.getByLabel(/actual start/i).fill("2026-07-31");

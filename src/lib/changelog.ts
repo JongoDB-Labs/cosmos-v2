@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.425.1",
+    date: "2026-10-02",
+    title: "Housekeeping: one copy of each browser-test helper",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal only, with no effect on any screen. The automated browser tests that drive the real app before a release had grown several identical copies of the same setup steps — signing in, opening a project, planning a sprint — so renaming a single button could quietly break a test nobody thought to update, and the breakage only surfaced a quarter of an hour later on the build server. There is now one copy of each, plus a check that keeps it that way. Several test descriptions that no longer matched what the test actually did have been corrected, and a duplicate test removed.",
+      },
+    ],
+  },
+  {
     version: "2.425.0",
     date: "2026-10-02",
     title: "Rename, delete and talk about a file",

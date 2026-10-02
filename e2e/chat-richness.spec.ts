@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/auth";
+import { test, expect, signIn } from "./fixtures/auth";
 import { getTestUserId } from "./fixtures/users";
 
 const ORG_SLUG = "test-org";
@@ -15,16 +15,6 @@ test.describe("chat richness — Phase 2", () => {
 
     try {
       // Sign in both users
-      const signIn = async (page: typeof alice, email: string) => {
-        const r = await page.request.post(`${BASE}/api/testenv/sign-in`, {
-          data: { email },
-          headers: { Origin: BASE },
-        });
-        if (!r.ok()) {
-          throw new Error(`sign-in failed for ${email}: ${r.status()} ${r.statusText()}`);
-        }
-      };
-
       await Promise.all([
         signIn(alice, "alice@test.local"),
         signIn(bob, "bob@test.local"),
@@ -96,16 +86,6 @@ test.describe("chat richness — Phase 2", () => {
 
     try {
       // Sign in both users
-      const signIn = async (page: typeof alice, email: string) => {
-        const r = await page.request.post(`${BASE}/api/testenv/sign-in`, {
-          data: { email },
-          headers: { Origin: BASE },
-        });
-        if (!r.ok()) {
-          throw new Error(`sign-in failed for ${email}: ${r.status()} ${r.statusText()}`);
-        }
-      };
-
       await Promise.all([
         signIn(alice, "alice@test.local"),
         signIn(bob, "bob@test.local"),

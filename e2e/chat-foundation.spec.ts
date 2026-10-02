@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { signIn } from "./fixtures/auth";
 import { getTestUserId } from "./fixtures/users";
 
 const ORG_SLUG = "test-org";
@@ -20,19 +21,6 @@ test.describe("chat foundation — Phase 1 golden path", () => {
       try {
         // Sign in: POST to the test sign-in route from each page's request
         // context so the session cookie is stored in that context's cookie jar.
-        // Include an Origin header to pass the same-origin CSRF check in proxy.ts.
-        const signIn = async (page: typeof alice, email: string) => {
-          const r = await page.request.post(`${BASE}/api/testenv/sign-in`, {
-            data: { email },
-            headers: { Origin: BASE },
-          });
-          if (!r.ok()) {
-            throw new Error(
-              `sign-in failed for ${email}: ${r.status()} ${r.statusText()}`,
-            );
-          }
-        };
-
         await Promise.all([
           signIn(alice, "alice@test.local"),
           signIn(bob, "bob@test.local"),

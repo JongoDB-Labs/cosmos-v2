@@ -1,7 +1,8 @@
 import { test, expect } from "./fixtures/auth";
-// The auth fixture re-exports only `test` and `expect`; the Page type comes from
-// Playwright itself. Playwright transpiles specs without typechecking, so this
-// only surfaces under `tsc`.
+import { planSprint } from "./fixtures/intervals";
+// The auth fixture re-exports `test`, `expect` and `signIn`; the Page type comes
+// from Playwright itself. Playwright transpiles specs without typechecking, so
+// this only surfaces under `tsc`.
 import type { Page } from "@playwright/test";
 
 /**
@@ -41,24 +42,9 @@ const NEXT_SPRINT = `E2E Ceremony Next ${STAMP}`;
 let reviewUrl = "";
 let planningUrl = "";
 
-async function planSprint(page: Page, name: string, start: string, end: string) {
-  await page.goto(`/${ORG}/projects/${KEY}/intervals`, {
-    waitUntil: "domcontentloaded",
-  });
-  await page.waitForSelector("main", { timeout: 20_000 });
-
-  await page.getByRole("button", { name: /new interval/i }).first().click();
-  await expect(
-    page.getByRole("heading", { name: /plan an interval/i }),
-  ).toBeVisible({ timeout: 10_000 });
-
-  await page.getByLabel(/^Name$/).fill(name);
-  await page.getByLabel(/start date/i).fill(start);
-  await page.getByLabel(/end date/i).fill(end);
-  await page.getByRole("button", { name: /create interval/i }).click();
-
-  await expect(page.getByText(name).first()).toBeVisible({ timeout: 20_000 });
-}
+/** This spec always plans against the seeded project. */
+const plan = (page: Page, name: string, start: string, end: string) =>
+  planSprint(page, { orgSlug: ORG, projectKey: KEY, name, start, end });
 
 /**
  * Create a board from its built-in template card.
@@ -112,9 +98,9 @@ test.describe("journey — sprint ceremony boards", () => {
     test.setTimeout(150_000);
     await signInAs(EMAIL);
 
-    await planSprint(page, SPRINT, "2026-07-01", "2026-07-14");
+    await plan(page, SPRINT, "2026-07-01", "2026-07-14");
     // Strictly later, and PLANNED — this is what "Next sprint" must find.
-    await planSprint(page, NEXT_SPRINT, "2026-07-15", "2026-07-28");
+    await plan(page, NEXT_SPRINT, "2026-07-15", "2026-07-28");
 
     await createBoardFromTemplate(
       page,

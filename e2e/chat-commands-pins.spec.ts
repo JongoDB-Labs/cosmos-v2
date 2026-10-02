@@ -1,19 +1,7 @@
-import { test, expect } from "./fixtures/auth";
+import { test, expect, signIn } from "./fixtures/auth";
 
 const BASE = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 const ORG_SLUG = "test-org";
-
-async function signIn(page: import("@playwright/test").Page, email: string) {
-  const r = await page.request.post(`${BASE}/api/testenv/sign-in`, {
-    data: { email },
-    headers: { Origin: BASE },
-  });
-  if (!r.ok()) {
-    throw new Error(
-      `sign-in failed for ${email}: ${r.status()} ${r.statusText()}`,
-    );
-  }
-}
 
 test.describe("chat phase 4 — slash commands + pins", () => {
   test("/me renders as an italic action line in the other client", async ({ browser }) => {

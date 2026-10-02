@@ -8,8 +8,8 @@ import { test, expect } from "./fixtures/auth";
  *
  * Needs the seeded "TEST" project (prisma/seed/test-fixtures.ts). Mutating →
  * verified in CI; non-mutating selector path validated locally. Re-runs create
- * additional same-named boards, so the assertion is the redirect URL (a unique
- * board UUID), never the tab name.
+ * additional same-named boards, so the assertion is the redirect URL, never the
+ * tab name.
  */
 
 const ORG = process.env.E2E_ORG_SLUG ?? "test-org";
