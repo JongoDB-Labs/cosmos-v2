@@ -38,9 +38,6 @@ export default async function ProjectLayout({
         orderBy: { sortOrder: "asc" },
         select: { id: true, name: true, type: true, slug: true, teamId: true },
       },
-      projectTemplate: {
-        select: { defaultConfig: true },
-      },
     },
   });
 
@@ -218,9 +215,6 @@ export default async function ProjectLayout({
         featureTabLabels={featureTabLabels}
         hiddenBoardIds={hiddenBoardIds}
         hiddenFeatureTabs={hiddenFeatureTabs}
-        templateDefaultConfig={
-          project.projectTemplate?.defaultConfig as Record<string, unknown> | null | undefined
-        }
       />
 
       {/* Project content. overflow-y-auto + min-h-0 so CONTENT sub-pages

@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.425.1",
+    date: "2026-10-03",
+    title: "Housekeeping: dead corners of the dashboard removed",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Opening Accounting from the breadcrumb now lands on Finance in one hop. The in-between page used to look up your session before forwarding you — to a page that looks it up again — so the check bought nothing and cost a round-trip.",
+      },
+      {
+        kind: "fix",
+        text: "An org-wide PM Dashboard page has been removed. Nothing in the app ever linked to it: no sidebar entry, no menu, no breadcrumb. The PM Dashboard you actually use lives on each project and is untouched. Which way to resolve that was assumed rather than confirmed — the alternative was adding the missing sidebar link — so if an org-wide roll-up was wanted, say so and it comes back.",
+      },
+      {
+        kind: "improvement",
+        text: "Smaller tidy-ups behind the project tab strip, the new-project template step and the project import screen: unused values that were computed and thrown away, and branches nothing could reach. No screen behaves differently; there is simply less of it left to go wrong.",
+      },
+    ],
+  },
+  {
     version: "2.425.0",
     date: "2026-10-02",
     title: "Rename, delete and talk about a file",
