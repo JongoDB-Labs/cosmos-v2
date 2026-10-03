@@ -74,9 +74,7 @@ export default async function ProjectPage({ params }: PageParams) {
       ? (settings.hiddenFeatureTabs as string[])
       : [];
 
-  // Try a `defaultTab` token (`board:<id>` | `feature:<key>`). Returns true when
-  // it resolved to a redirect (which throws), false when the token is invalid
-  // and we should keep falling through.
+  // Try a `defaultTab` token (`board:<id>` | `feature:<key>`).
   const tryDefaultTab = (defaultTab: string | null): void => {
     if (!defaultTab) return;
     if (defaultTab.startsWith("feature:")) {

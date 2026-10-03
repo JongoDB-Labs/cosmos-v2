@@ -56,9 +56,11 @@ export default async function ProjectImportPage({ params }: PageParams) {
     where: { orgId: ctx.orgId },
     select: { user: { select: { id: true, displayName: true, email: true } } },
   });
-  const members = memberRows
-    .filter((m) => m.user)
-    .map((m) => ({ id: m.user.id, name: m.user.displayName, email: m.user.email }));
+  const members = memberRows.map((m) => ({
+    id: m.user.id,
+    name: m.user.displayName,
+    email: m.user.email,
+  }));
 
   // Default work-item type for the Work Items flow (falls back to the first
   // available; "" when the workspace has none — only the Work Items card needs
