@@ -9,7 +9,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { ingestDocument } from "@/lib/files/ingest";
 import { withUploaders } from "@/lib/files/uploader";
-import { withManageFlags } from "@/lib/files/access";
+import { withManageFlags, documentVisibilityWhere } from "@/lib/files/access";
 import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -60,9 +60,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const docs = await prisma.document.findMany({
       where: {
         orgId,
-        ...(orgOnly
-          ? { projectId: null }
-          : { OR: [{ projectId: null }, { projectId: { in: [...visible] } }] }),
+        // Project narrowing AND per-file visibility, from the one fragment the
+        // by-id policy also uses. A restricted file has to be absent here, not
+        // merely refused on download: a filename is often the secret.
+        ...documentVisibilityWhere(ctx, orgOnly ? null : visible),
       },
       select: {
         id: true,
@@ -78,6 +79,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         projectId: true,
         workItemId: true,
         uploadedById: true,
+        visibility: true,
         project: { select: { key: true, name: true } },
         workItem: { select: { ticketNumber: true, title: true } },
       },

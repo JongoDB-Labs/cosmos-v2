@@ -332,6 +332,7 @@ model Organization {
   workItems           WorkItem[]
   workItemLabels      WorkItemLabel[]
   workItemLinks       WorkItemLink[]
+  documentShares      DocumentShare[]
   workItemWatchers    WorkItemWatcher[]
   timeOffRequests     TimeOffRequest[]
   bills               Bill[]
@@ -4057,6 +4058,9 @@ model Document {
   /// uploaded. The attachment detaches and the document stays in the project
   /// library, which is the only answer that cannot lose work.
   workItemId          String?             @map("work_item_id") @db.Uuid
+  /// Who may SEE this file. INHERIT by default, so nothing changes for the files
+  /// that already exist: they stay exactly as visible as the place they live.
+  visibility          DocumentVisibility  @default(INHERIT)
   title               String
   classificationLevel ClassificationLevel @default(UNCLASSIFIED) @map("classification_level")
   storageKey          String              @map("storage_key")
@@ -4076,10 +4080,54 @@ model Document {
   project  Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   workItem WorkItem?       @relation(fields: [workItemId], references: [id], onDelete: SetNull)
   blocks   DocumentBlock[]
+  shares   DocumentShare[]
 
   @@index([orgId, projectId])
   @@index([orgId, workItemId])
   @@map("documents")
+}
+
+/// How widely a stored file may be read.
+enum DocumentVisibility {
+  /// As visible as the place it lives: the members of its project, or any org
+  /// reader for a file filed against no project. The default, and what every
+  /// file uploaded before this existed is.
+  INHERIT
+
+  /// Visible to whoever uploaded it, the people they have named, and org
+  /// administrators. NOT to the rest of the project — that is the whole point of
+  /// choosing it.
+  RESTRICTED
+}
+
+/// One person a restricted file has been shared with.
+///
+/// A row here is a deliberate act by the uploader, so it records who granted it:
+/// "why can she see this" is the question asked afterwards, and the answer has to
+/// name somebody.
+model DocumentShare {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
+  documentId String   @map("document_id") @db.Uuid
+
+  /// The person it is shared WITH. Bare uuid, no foreign key, for the same reason
+  /// as uploadedById: a grant outlives the account it names, and a departing
+  /// member should not be undeletable because somebody shared a file with them.
+  userId String @map("user_id") @db.Uuid
+
+  /// Who granted it. Also bare, also deliberately: the audit answer must survive
+  /// the granter leaving.
+  grantedById String   @map("granted_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  document Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  /// One grant per person per file; re-sharing is idempotent rather than a second row.
+  @@unique([documentId, userId])
+  /// Drives "which restricted files may I see" in the library query.
+  @@index([orgId, userId])
+  @@map("document_shares")
 }
 
 model DocumentBlock {

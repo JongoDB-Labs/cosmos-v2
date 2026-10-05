@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { FileText, Upload } from "lucide-react";
 import { notifyError } from "@/lib/errors/notify";
 import { FileComments } from "@/components/files/file-comments";
+import { FileVisibility } from "@/components/files/file-visibility";
 
 /**
  * Everything the practice keeps, in one list.
@@ -48,6 +49,7 @@ type LibraryDoc = {
   // route enforces regardless; this only stops the list offering a control that
   // would 403.
   canManage: boolean;
+  visibility: "INHERIT" | "RESTRICTED";
 };
 
 // A sentinel that cannot collide with a project key. Component state only —
@@ -248,6 +250,14 @@ export function OrgLibrary({ orgId, canUpload }: { orgId: string; canUpload: boo
                         {d.pageCount} pages
                       </span>
                     ) : null}
+                    {d.visibility === "RESTRICTED" ? (
+                      <span
+                        className="ml-2 rounded border border-[var(--border)] px-1 text-[10px] uppercase tracking-wide text-[var(--text-muted)]"
+                        title="Only the people chosen by whoever uploaded it, and org administrators"
+                      >
+                        Restricted
+                      </span>
+                    ) : null}
                     {d.status === "FAILED" ? (
                       <span className="ml-2 text-xs text-[var(--status-blocked-text,var(--text-muted))]">
                         stored, could not be read
@@ -371,7 +381,16 @@ export function OrgLibrary({ orgId, canUpload }: { orgId: string; canUpload: boo
                           </Button>
                         </div>
                       ) : (
-                        <FileComments orgId={orgId} docId={d.id} />
+                        <div className="space-y-4">
+                          {d.canManage ? (
+                            <FileVisibility
+                              orgId={orgId}
+                              docId={d.id}
+                              visibility={d.visibility}
+                            />
+                          ) : null}
+                          <FileComments orgId={orgId} docId={d.id} />
+                        </div>
                       )}
                     </td>
                   </tr>
