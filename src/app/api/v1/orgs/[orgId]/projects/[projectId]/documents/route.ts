@@ -10,7 +10,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { ingestDocument } from "@/lib/files/ingest";
 import { withUploaders } from "@/lib/files/uploader";
-import { withManageFlags } from "@/lib/files/access";
+import { withManageFlags, documentVisibilityWhere } from "@/lib/files/access";
 import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -34,11 +34,18 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     await requireProjectRead(ctx, projectId, "PROJECT_READ");
 
     const docs = await prisma.document.findMany({
-      where: { orgId, projectId },
+      // requireProjectRead above has already settled that this project is
+      // readable, so the per-FILE rule is what is left to apply — a restricted
+      // file is hidden from the rest of its own project, which is the point.
+      where: {
+        orgId,
+        projectId,
+        ...documentVisibilityWhere(ctx, new Set([projectId])),
+      },
       select: {
         id: true, title: true, filename: true, format: true, status: true,
         pageCount: true, size: true, classificationLevel: true, contentType: true, createdAt: true,
-        workItemId: true, uploadedById: true, projectId: true,
+        workItemId: true, uploadedById: true, projectId: true, visibility: true,
         workItem: { select: { ticketNumber: true, title: true } },
       },
       orderBy: { createdAt: "desc" },

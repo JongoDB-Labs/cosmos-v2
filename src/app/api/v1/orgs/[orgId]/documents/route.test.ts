@@ -4,7 +4,10 @@ import { OrgRole } from "@prisma/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
 
-const { prisma, resolveAuth, visibleProjectIdsForActor, ingestDocument, logAudit } = vi.hoisted(() => ({
+const {
+  prisma, resolveAuth, visibleProjectIdsForActor, ingestDocument, logAudit,
+  isOrgAdministrator, canAdministerProject,
+} = vi.hoisted(() => ({
   prisma: {
     organization: { findUnique: vi.fn() },
     project: { findMany: vi.fn() },
@@ -15,15 +18,18 @@ const { prisma, resolveAuth, visibleProjectIdsForActor, ingestDocument, logAudit
   },
   resolveAuth: vi.fn(),
   visibleProjectIdsForActor: vi.fn(),
+  isOrgAdministrator: vi.fn(),
+  canAdministerProject: vi.fn(),
   ingestDocument: vi.fn(),
   logAudit: vi.fn(),
 }));
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/auth/api-key", () => ({ resolveAuth }));
-vi.mock("@/lib/rbac/project-access", () => ({ visibleProjectIdsForActor }));
+vi.mock("@/lib/rbac/project-access", () => ({ visibleProjectIdsForActor, isOrgAdministrator }));
 vi.mock("@/lib/files/ingest", () => ({ ingestDocument }));
 vi.mock("@/lib/audit", () => ({ logAudit }));
+vi.mock("@/lib/rbac/require-project-manage", () => ({ canAdministerProject }));
 
 import { GET, POST } from "./route";
 
@@ -56,6 +62,8 @@ beforeEach(() => {
   prisma.project.findMany.mockResolvedValue([{ id: OPEN_PROJECT }, { id: RESTRICTED_PROJECT }]);
   // The actor is on the open project only.
   visibleProjectIdsForActor.mockResolvedValue(new Set([OPEN_PROJECT]));
+  isOrgAdministrator.mockReturnValue(false);
+  canAdministerProject.mockResolvedValue(false);
   prisma.document.findMany.mockResolvedValue([]);
   prisma.user.findMany.mockResolvedValue([]);
   logAudit.mockResolvedValue(undefined);
@@ -69,7 +77,10 @@ describe("GET /orgs/[orgId]/documents — the firm library", () => {
     await GET(req(), { params });
     const where = whereSent();
     expect(where.orgId).toBe(ORG_ID);
-    expect(where.OR).toEqual([{ projectId: null }, { projectId: { in: [OPEN_PROJECT] } }]);
+    // The project narrowing now lives inside the INHERIT arm, because a file can
+    // also be restricted independently of the project it sits on.
+    const inherit = where.OR.find((c: Record<string, unknown>) => c.visibility === "INHERIT");
+    expect(inherit.OR).toEqual([{ projectId: null }, { projectId: { in: [OPEN_PROJECT] } }]);
   });
 
   it("never asks for a restricted project's documents", async () => {
@@ -81,7 +92,10 @@ describe("GET /orgs/[orgId]/documents — the firm library", () => {
 
   it("narrows to the firm's own documents when asked", async () => {
     await GET(req("?scope=firm"), { params });
-    expect(whereSent()).toEqual({ orgId: ORG_ID, projectId: null });
+    const inherit = whereSent().OR.find(
+      (c: Record<string, unknown>) => c.visibility === "INHERIT",
+    );
+    expect(inherit).toEqual({ visibility: "INHERIT", projectId: null });
   });
 
   it("carries the project through so a row can say what it belongs to", async () => {

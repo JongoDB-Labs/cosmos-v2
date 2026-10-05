@@ -29,8 +29,16 @@ const patchSchema = z
      * is where somebody is when they notice a file is on the wrong ticket.
      */
     workItemId: z.string().uuid().nullable().optional(),
+    /**
+     * Who may see it. RESTRICTED hides it from the rest of its project; INHERIT
+     * puts it back to being as visible as the place it lives. Existing grants are
+     * KEPT when switching to INHERIT rather than deleted, so turning restriction
+     * off and on again does not silently lose the list of people it was shared
+     * with — and they are dormant meanwhile, because INHERIT does not consult them.
+     */
+    visibility: z.enum(["INHERIT", "RESTRICTED"]).optional(),
   })
-  .refine((v) => v.title !== undefined || v.workItemId !== undefined, {
+  .refine((v) => v.title !== undefined || v.workItemId !== undefined || v.visibility !== undefined, {
     message: "Nothing to change",
   });
 
@@ -53,7 +61,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         id: true, orgId: true, title: true, filename: true, contentType: true,
         format: true, status: true, size: true, pageCount: true,
         classificationLevel: true, projectId: true, workItemId: true,
-        uploadedById: true, createdAt: true, updatedAt: true,
+        uploadedById: true, visibility: true, createdAt: true, updatedAt: true,
         project: { select: { key: true, name: true } },
         workItem: { select: { ticketNumber: true, title: true } },
       },
@@ -84,8 +92,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return new Response("You did not upload this file and cannot change it", { status: 403 });
 
     const body = patchSchema.parse(await req.json());
-    const data: { title?: string; workItemId?: string | null } = {};
+    const data: {
+      title?: string;
+      workItemId?: string | null;
+      visibility?: "INHERIT" | "RESTRICTED";
+    } = {};
     if (body.title !== undefined) data.title = body.title;
+    if (body.visibility !== undefined) data.visibility = body.visibility;
 
     if (body.workItemId !== undefined) {
       if (body.workItemId === null) {
@@ -109,20 +122,26 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       data,
       select: {
         id: true, title: true, filename: true, projectId: true, workItemId: true,
-        uploadedById: true, createdAt: true, updatedAt: true,
+        uploadedById: true, visibility: true, createdAt: true, updatedAt: true,
       },
     });
 
     await logAudit({
       orgId,
       userId: ctx.userId,
-      action: body.title !== undefined ? "document.rename" : "document.relink",
+      action:
+        body.visibility !== undefined
+          ? "document.visibility"
+          : body.title !== undefined
+            ? "document.rename"
+            : "document.relink",
       entity: "Document",
       entityId: docId,
       metadata: {
         filename: updated.filename,
         ...(body.title !== undefined ? { title: updated.title } : {}),
         ...(body.workItemId !== undefined ? { workItemId: updated.workItemId } : {}),
+        ...(body.visibility !== undefined ? { visibility: body.visibility } : {}),
         // Said plainly, because "who may change this" is the question an auditor
         // asks about a rename they did not expect.
         asOwner: doc.uploadedById === ctx.userId,

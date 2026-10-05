@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.426.0",
+    date: "2026-10-05",
+    title: "Choose who can see a file",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A file is visible to whoever can see the job it is filed on \u2014 that has not changed, and every file you already have stays exactly as it was. What is new is that whoever uploaded a file can narrow it: switch it to \u201conly people I choose\u201d and name them. A restricted file disappears from the library for everyone else rather than merely refusing to download, because a file name is often the part worth keeping quiet. Organisation administrators can still see it, and the screen says so plainly rather than implying otherwise.",
+      },
+    ],
+  },
+  {
     version: "2.425.0",
     date: "2026-10-02",
     title: "Rename, delete and talk about a file",

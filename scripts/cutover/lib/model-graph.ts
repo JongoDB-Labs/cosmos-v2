@@ -698,6 +698,10 @@ export const BARE_USER_REF_COLUMNS: ReadonlyMap<string, readonly string[]> = new
   // registering it before that was settled would have had the closure walker chase
   // a team into `users` and report a dangling reference on a correct row.
   ["goals", ["owner_id"]],
+  // A file share names two people and keeps neither as a foreign key: the grant
+  // has to outlive both the person it was granted to and the person who granted
+  // it, or a departure becomes un-processable.
+  ["document_shares", ["user_id", "granted_by_id"]],
 ]);
 
 /** Resolve a model's physical table + single PK column (helper for closure edge building). */
