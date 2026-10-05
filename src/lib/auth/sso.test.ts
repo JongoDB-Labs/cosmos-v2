@@ -26,7 +26,9 @@ const { prisma, logAudit, autoJoinGeneral } = vi.hoisted(() => ({
   autoJoinGeneral: vi.fn(),
 }));
 
-vi.mock("@/lib/db/client", () => ({ prisma }));
+// Both names resolve to the same mock: `prismaUnfiltered` is the same client
+// without the removed-member filter, and these tests assert sso.ts's own calls.
+vi.mock("@/lib/db/client", () => ({ prisma, prismaUnfiltered: prisma }));
 vi.mock("@/lib/audit", () => ({ logAudit }));
 vi.mock("@/lib/chat/seed-general", () => ({ autoJoinGeneral }));
 

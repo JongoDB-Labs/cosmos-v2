@@ -38,6 +38,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: { id: orgId },
       include: {
         members: {
+          // A nested relation load does not pass through the removed-member extension
+          // in src/lib/db/client.ts, so the filter is written out here.
+          where: { removedAt: null },
           select: {
             id: true,
             role: true,

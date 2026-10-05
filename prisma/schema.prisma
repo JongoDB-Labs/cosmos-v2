@@ -518,6 +518,12 @@ model OrgMember {
   permissions String   @default("0")
   abacRules   Json     @default("{}") @map("abac_rules")
   joinedAt    DateTime @default(now()) @map("joined_at")
+  // Set when the person is removed from the org; the row is RETAINED so their
+  // history stays attributable (and so ProjectMember / OrgMemberWorkRole, which
+  // cascade from this row, survive the removal). Reads go through a Prisma client
+  // extension that filters `removedAt: null` by default — see src/lib/db/client.ts.
+  // Membership-lifecycle code that must see removed rows uses `prismaUnfiltered`.
+  removedAt   DateTime? @map("removed_at")
 
   org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -526,6 +532,7 @@ model OrgMember {
   workRoles      OrgMemberWorkRole[]
 
   @@unique([orgId, userId])
+  @@index([orgId, removedAt])
   @@map("org_members")
 }
 

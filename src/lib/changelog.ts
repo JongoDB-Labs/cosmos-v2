@@ -60,6 +60,25 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.427.0",
+    date: "2026-10-05",
+    title: "Removing someone keeps their history",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Removing someone from the organisation no longer takes their history with them. Their comments, the tickets they were assigned, the work they filed and the mentions of them in older notes all stay exactly where they are, still showing their name rather than decaying into a bare identifier. Removing someone still ends their access immediately \u2014 that part is unchanged \u2014 and they are no longer offered when you assign work or @-mention somebody, because they belong to the record now rather than the roster.",
+      },
+      {
+        kind: "improvement",
+        text: "Re-adding someone you removed brings back the person you removed rather than starting a blank one, so their place on project teams and their work roles return with them. You still choose the role as you re-add them, so nothing is restored behind your back.",
+      },
+      {
+        kind: "improvement",
+        text: "A full organisation export now includes people who have since been removed, marked as such, so an export agrees with the history it is exported alongside.",
+      },
+    ],
+  },
+  {
     version: "2.426.0",
     date: "2026-10-05",
     title: "Choose who can see a file",

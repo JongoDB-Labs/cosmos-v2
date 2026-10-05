@@ -195,6 +195,9 @@ export async function getActiveProjectsForOrg(
         where: {
           projectId: { in: projectIds },
           role: "MANAGER",
+          // Who runs it NOW. The nested filter bypasses the removed-member extension,
+          // so without this a removed person keeps appearing as the project's manager.
+          orgMember: { removedAt: null },
         },
         select: {
           projectId: true,

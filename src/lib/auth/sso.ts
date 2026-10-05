@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import * as oidc from "openid-client";
 import { OrgRole, type IdpConnection } from "@prisma/client";
-import { prisma } from "@/lib/db/client";
+import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { logAudit } from "@/lib/audit";
 import { autoJoinGeneral } from "@/lib/chat/seed-general";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/auth/client";
@@ -326,15 +326,22 @@ export async function completeSsoLogin(
   // Never DOWNGRADE a human-assigned OWNER on SSO re-login: if the member is
   // already OWNER, the claim-derived (capped) role must not strip it. OWNER is
   // human-only in both directions — not mintable AND not removable by a claim.
-  const existingMember = await prisma.orgMember.findUnique({
+  // Unfiltered on purpose: a removed member still HAS a row, and this must see it for
+  // both lines below — so a removed OWNER is still recognised as OWNER, and so the
+  // upsert's update branch is the one that runs.
+  const existingMember = await prismaUnfiltered.orgMember.findUnique({
     where: { orgId_userId: { orgId: org.id, userId } },
     select: { role: true },
   });
   const updateRole =
     existingMember?.role === OrgRole.OWNER ? OrgRole.OWNER : role;
-  await prisma.orgMember.upsert({
+  // `removedAt: null` reinstates someone the IdP still vouches for. This keeps the
+  // behaviour that existed when removal was a hard delete — the upsert simply created
+  // the row again — rather than quietly becoming a lockout, where SSO accepts the
+  // login and then every membership read filters the person away.
+  await prismaUnfiltered.orgMember.upsert({
     where: { orgId_userId: { orgId: org.id, userId } },
-    update: { role: updateRole },
+    update: { role: updateRole, removedAt: null },
     create: { orgId: org.id, userId, role },
   });
 

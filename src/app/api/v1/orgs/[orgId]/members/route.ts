@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@/lib/db/client";
+import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
@@ -65,43 +65,61 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = addMemberSchema.parse(body);
 
-    const existing = await prisma.orgMember.findUnique({
+    // Unfiltered on purpose: a previously-removed person still HAS a row (soft
+    // delete), and `@@unique([orgId, userId])` means creating a second one fails. The
+    // default-filtered client would report them absent and send us straight into that
+    // constraint violation, so membership lifecycle reads the real state.
+    const existing = await prismaUnfiltered.orgMember.findUnique({
       where: { orgId_userId: { orgId, userId: data.userId } },
+      select: { id: true, removedAt: true },
     });
-    if (existing) {
+    if (existing && existing.removedAt === null) {
       return new Response(
         JSON.stringify({ error: "User is already a member" }),
         { status: 409, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    const member = await prisma.orgMember.create({
-      data: {
-        orgId,
-        userId: data.userId,
-        role: data.role,
-      },
-      select: {
-        id: true,
-        orgId: true,
-        userId: true,
-        role: true,
-        joinedAt: true,
-        user: {
-          select: {
-            id: true,
-            email: true,
-            displayName: true,
-            avatarUrl: true,
-          },
+    const memberSelect = {
+      id: true,
+      orgId: true,
+      userId: true,
+      role: true,
+      joinedAt: true,
+      user: {
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          avatarUrl: true,
         },
       },
-    });
+    } as const;
+
+    // Re-adding someone who was removed REINSTATES their original row rather than
+    // starting a new one. Their retained project memberships and work roles therefore
+    // come back with them, which is what the common case — a removal being undone —
+    // calls for, and what keeps their history on one membership id. The role is taken
+    // from this request, so reinstating is never a silent re-grant of the old one.
+    const member = existing
+      ? await prismaUnfiltered.orgMember.update({
+          where: { id: existing.id },
+          data: { removedAt: null, role: data.role },
+          select: memberSelect,
+        })
+      : await prisma.orgMember.create({
+          data: {
+            orgId,
+            userId: data.userId,
+            role: data.role,
+          },
+          select: memberSelect,
+        });
 
     await logAudit({
       orgId,
       userId: ctx.userId,
-      action: "member.added",
+      action: existing ? "member.reinstated" : "member.added",
       entity: "org_member",
       entityId: member.id,
       metadata: { targetUserId: data.userId, role: data.role } as Record<string, string>,

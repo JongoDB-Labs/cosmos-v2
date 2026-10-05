@@ -23,8 +23,12 @@ export async function financeScope(ctx: AuthContext): Promise<MoneyScope> {
   if (hasPermission(ctx.permissions, Permission.FINANCE_READ)) return { kind: "org" };
   if (!hasPermission(ctx.permissions, Permission.FINANCE_READ_PROJECT)) return { kind: "none" };
 
+  // A NESTED `orgMember` filter does not pass through the removed-member extension
+  // in src/lib/db/client.ts, so it is spelled out. Belt-and-braces: a removed member
+  // gets no AuthContext at all (loadEffectivePermissions returns null), so they should
+  // never reach this — but a money scope is the wrong place to rely on that.
   const rows = await prisma.projectMember.findMany({
-    where: { orgMember: { orgId: ctx.orgId, userId: ctx.userId } },
+    where: { orgMember: { orgId: ctx.orgId, userId: ctx.userId, removedAt: null } },
     select: { projectId: true },
   });
   return { kind: "projects", ids: new Set(rows.map((r) => r.projectId)) };
