@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.426.1",
+    date: "2026-10-06",
+    title: "Housekeeping: unused parts removed from the shared interface kit",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal only, with no change to any screen. Eleven pieces of the shared interface kit — avatar badges and stacked avatar groups, the keyboard-shortcut labels in menus and in the command palette, and several unused input and dropdown parts — came with the kit but were never placed anywhere in the product. They have been removed, along with the supporting code that existed only to serve them, so there is less to load and less to read. A wrapper that claimed to cross-fade between screens has also been reduced to what it genuinely did: the browser feature it reached for is absent from the version of React we run, so it has only ever handed pages straight through.",
+      },
+      {
+        kind: "improvement",
+        text: "Where this cleanup offered a choice, the narrower option was taken on the assumption that nothing outside the kit itself should move: the page wrapper keeps the shape its callers already use rather than being deleted outright, the screen-fade styles are left in place so the effect can be switched back on in one file when React ships it, and a duplicated test that could not fail on its own was removed rather than rewritten.",
+      },
+    ],
+  },
+  {
     version: "2.426.0",
     date: "2026-10-05",
     title: "Choose who can see a file",
