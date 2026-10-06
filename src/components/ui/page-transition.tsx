@@ -1,40 +1,27 @@
 "use client";
 
 import { type ReactNode } from "react";
-// React 19.2 exposes the View Transitions API as `unstable_ViewTransition`,
-// but the official `@types/react` may not declare it yet — pull via a typed
-// indirection so we don't fight the type system. Falls back to a passthrough
-// if the runtime export is missing.
-import * as React from "react";
-
-type ViewTransitionLike = React.ComponentType<{
-  children: ReactNode;
-  name?: string;
-}>;
-
-const ViewTransition: ViewTransitionLike =
-  (
-    React as unknown as {
-      unstable_ViewTransition?: ViewTransitionLike;
-    }
-  ).unstable_ViewTransition ??
-  ((props: { children: ReactNode }) => <>{props.children}</>);
 
 /**
- * Page-level View Transition wrapper. In browsers + React runtimes that
- * support it, this tags a content region with a transition name so route
- * navigations produce a smooth cross-fade. Browsers without support
- * degrade to a normal swap.
+ * Page-level content wrapper for route navigations.
  *
- * Enabled globally by `experimental.viewTransition: true` in next.config.ts;
- * the CSS keyframes in globals.css drive the fade itself.
+ * This used to reach for `React.unstable_ViewTransition` through a typed
+ * indirection, falling back to a passthrough when the runtime export was
+ * missing. The export is missing in every React build in this tree (React
+ * 19.2.8 exposes no `ViewTransition` at all), so the fallback was the only
+ * branch that ever ran and the indirection bought nothing but the appearance
+ * of a feature. It renders its children, and that is all it has ever done.
+ *
+ * The `::view-transition-*(page)` keyframes in globals.css are likewise inert
+ * today; they are left in place so re-enabling this is a one-component change
+ * once React ships a stable `<ViewTransition>`. `name` is still accepted for
+ * the same reason — call sites don't have to change either way.
  */
 export function PageTransition({
   children,
-  name = "page",
 }: {
   children: ReactNode;
   name?: string;
 }) {
-  return <ViewTransition name={name}>{children}</ViewTransition>;
+  return <>{children}</>;
 }

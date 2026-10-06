@@ -16,8 +16,11 @@ const NO_SUBSCRIBE = () => () => {};
  * client snapshot (true). Written this way rather than `useState` +
  * `useEffect(() => setMounted(true))` because that pattern schedules a cascading
  * render and the `react-hooks/set-state-in-effect` rule rejects it.
+ *
+ * Module-private: the only call sites are `LocalTimestamp` and `LocalTime`
+ * below. Export it only when something outside this file actually needs it.
  */
-export function useMounted(): boolean {
+function useMounted(): boolean {
   return useSyncExternalStore(
     NO_SUBSCRIBE,
     () => true,  // client

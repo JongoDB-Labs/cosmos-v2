@@ -16,12 +16,6 @@ describe("LocalTimestamp", () => {
     expect(html).toContain("Jul 30, 2026");
   });
 
-  it("the client's FIRST render matches the server exactly", () => {
-    // This is the property that prevents React #418: both sides see mounted=false.
-    const server = renderToString(<LocalTimestamp value={INSTANT} />);
-    expect(server).toContain("Jul 30, 2026");
-  });
-
   it("shows the reader's zone after mount", () => {
     // Testing Library flushes effects, so this is the post-mount render.
     render(<LocalTimestamp value={INSTANT} />);
