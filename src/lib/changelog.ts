@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.426.1",
+    date: "2026-10-07",
+    title: "Housekeeping in the integrations layer",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal only, with no effect on any screen. Microsoft Teams and the Microsoft 365 connector each held their own private copy of which Microsoft addresses to talk to, including the separate set used by government tenants — so a change to one would have quietly missed the other. They now share a single copy. Four unused pieces of connector code were removed at the same time, including an unreachable second webhook sender that could have drifted away from the one webhooks actually use.",
+      },
+    ],
+  },
+  {
     version: "2.426.0",
     date: "2026-10-05",
     title: "Choose who can see a file",
