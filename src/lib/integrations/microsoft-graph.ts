@@ -59,7 +59,7 @@ export type FetchLike = (
 export type GraphCloud = "commercial" | "gov";
 
 /** The per-cloud Entra/Graph endpoints. Centralized so the toggle is one source of truth. */
-interface CloudEndpoints {
+export interface CloudEndpoints {
   /** Entra authority host (token endpoint host). */
   authorityHost: string;
   /** The client-credentials scope (`<resource>/.default`). */
@@ -68,7 +68,13 @@ interface CloudEndpoints {
   graphBaseUrl: string;
 }
 
-function endpointsFor(cloud: GraphCloud): CloudEndpoints {
+/**
+ * The authority/scope/base triple for a cloud. Exported because EVERY Graph caller
+ * must resolve the cloud the same way — teams.ts mints its own token against its own
+ * provider credential, but it routes through this one table, so a cloud-endpoint
+ * change is made here and nowhere else.
+ */
+export function endpointsFor(cloud: GraphCloud): CloudEndpoints {
   if (cloud === "gov") {
     // GCC-High / Azure Government.
     return {
@@ -328,46 +334,4 @@ export async function graphUploadFile(
   }
 
   return { ok: true, data: await res.json() };
-}
-
-/** The bytes of a downloaded file, or a graceful error. */
-export type GraphDownloadResult =
-  | { ok: true; content: ArrayBuffer; contentType: string | null }
-  | { ok: false; error: string };
-
-/**
- * Download a file's raw bytes from Microsoft Graph for the org — the read half
- * of the SharePoint round-trip (e.g. pull an existing tracker workbook to ingest
- * it). `downloadPath` resolves against the Graph base URL, e.g.
- *   /sites/{siteId}/drives/{driveId}/root:/{folder}/{name}.xlsx:/content
- * The full import / in-place-update flows (parse + upsert, or the workbook range
- * PATCH API) build on this primitive and are validated once an Entra app exists.
- */
-export async function graphDownloadFile(
-  orgId: string,
-  downloadPath: string,
-): Promise<GraphDownloadResult> {
-  const tok = await getGraphToken(orgId);
-  if ("error" in tok) return { ok: false, error: tok.error };
-
-  const url = `${tok.graphBaseUrl}${downloadPath.startsWith("/") ? downloadPath : `/${downloadPath}`}`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${tok.accessToken}`, "User-Agent": "cosmos-connector" },
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `Microsoft Graph download failed: ${msg}` };
-  }
-
-  if (!res.ok) {
-    return { ok: false, error: `Microsoft Graph download error (HTTP ${res.status})` };
-  }
-  return {
-    ok: true,
-    content: await res.arrayBuffer(),
-    contentType: res.headers.get("content-type"),
-  };
 }
