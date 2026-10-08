@@ -66,10 +66,6 @@ const intervalSelect = {
   select: { id: true, number: true, name: true, startDate: true, endDate: true },
 } as const;
 
-export type DerivedMilestone = Awaited<
-  ReturnType<typeof loadMilestonesWithDerived>
->[number];
-
 /**
  * Load a project's milestones with work-item-derived status + completion. One
  * query for milestones (+ links + Program Increment), one for the linked items'

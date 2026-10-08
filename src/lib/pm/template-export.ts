@@ -385,9 +385,6 @@ function resolveColumn(
   return hit ? hit.col : null;
 }
 
-const usedRange = (sheet: { usedRange: () => { endCell: () => { columnNumber: () => number; rowNumber: () => number } } | null }) =>
-  sheet.usedRange();
-
 /**
  * Populate one register tracker template with live rows. Clears the template's
  * example/placeholder rows (from firstDataRow down to the end of used data) and
@@ -404,7 +401,7 @@ async function populateRegister(
   const sheet = wb.sheet(spec.sheet);
   if (!sheet) throw new Error(`sheet "${spec.sheet}" not found`);
 
-  const used = usedRange(sheet);
+  const used = sheet.usedRange();
   const maxCol = used ? used.endCell().columnNumber() : 30;
   const lastUsedRow = used ? used.endCell().rowNumber() : spec.firstDataRow;
 
@@ -628,12 +625,6 @@ const MONTH_TAB_BY_NAME: Record<number, string> = {
   6: "Jul", 7: "Aug", 8: "Sep", 9: "Oct", 10: "Nov", 11: "Dec",
 };
 
-interface BurnPopulationReport {
-  setupClins: number;
-  monthsPopulated: string[];
-  monthsDropped: string[];
-}
-
 /**
  * Populate burn.xlsx so its cascade + 11 charts recompute from Cosmos data.
  * Populates:
@@ -652,7 +643,7 @@ async function populateBurn(
   wb: any,
   orgId: string,
   projectId: string,
-): Promise<BurnPopulationReport> {
+): Promise<void> {
   const clins = await loadClinsWithBurn(orgId, projectId);
 
   // Per-CLIN monthly actuals (approved time labor + expenses), keyed clinId|YYYY-MM.
@@ -718,8 +709,6 @@ async function populateBurn(
   // Each monthly tab has CLIN rows 7..15 mirroring Setup rows 15..23 (B7='Setup'!B15).
   // We write Cosmos actuals into the rows matching our populated CLINs (first N).
   const MONTH_FIRST_ROW = 7;
-  const monthsPopulated = new Set<string>();
-  const monthsDropped = new Set<string>();
   // Collect the union of months across all CLINs.
   const allMonths = new Set<string>();
   for (const m of actual.values()) for (const k of m.keys()) allMonths.add(k);
@@ -749,11 +738,7 @@ async function populateBurn(
     const monthIdx = mm - 1;
     const tabName = MONTH_TAB_BY_NAME[monthIdx];
     const sheet = wb.sheet(`📅 ${tabName}`);
-    if (!sheet) {
-      monthsDropped.add(key);
-      continue;
-    }
-    let wroteAny = false;
+    if (!sheet) continue;
     clins.slice(0, 9).forEach((c, i) => {
       const amt = actual.get(c.id)?.get(key);
       if (amt == null) return;
@@ -761,16 +746,8 @@ async function populateBurn(
       const rounded = Math.round(amt * 100) / 100;
       sheet.cell(row, 5).value(rounded); // E Prime Actuals
       sheet.cell(row, 8).value(rounded); // H Forecast = actual (variance → 0)
-      wroteAny = true;
     });
-    if (wroteAny) monthsPopulated.add(`${key}→${tabName}`);
   }
-
-  return {
-    setupClins: Math.min(clins.length, SETUP_LAST - SETUP_FIRST + 1),
-    monthsPopulated: [...monthsPopulated].sort(),
-    monthsDropped: [...monthsDropped].sort(),
-  };
 }
 
 // ── public API ────────────────────────────────────────────────────────────────
@@ -778,8 +755,6 @@ async function populateBurn(
 export interface PopulateResult {
   buffer: Buffer;
   filename: string;
-  /** Burn-only detail; undefined for register trackers. */
-  burnReport?: BurnPopulationReport;
 }
 
 /**
@@ -796,9 +771,8 @@ export async function buildPopulatedTemplate(
   const templateName = tracker === "burn" ? "burn.xlsx" : REGISTERS[tracker].template;
   const wb = await XlsxPopulate.fromFileAsync(path.join(TEMPLATE_DIR, templateName));
 
-  let burnReport: BurnPopulationReport | undefined;
   if (tracker === "burn") {
-    burnReport = await populateBurn(wb, orgId, projectId);
+    await populateBurn(wb, orgId, projectId);
   } else {
     const spec = REGISTERS[tracker];
     const rows = await loadRegisterRows(tracker, orgId, projectId);
@@ -810,7 +784,6 @@ export async function buildPopulatedTemplate(
   return {
     buffer: recalced,
     filename: `${projectKey}-${tracker}.xlsx`,
-    burnReport,
   };
 }
 
