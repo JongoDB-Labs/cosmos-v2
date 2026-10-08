@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.426.1",
+    date: "2026-10-08",
+    title: "Housekeeping: tidying up the project exports",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal only, with no effect on any screen. The code behind the project spreadsheet exports has been cleared of unused options and bookkeeping that nothing read, including a comment that had drifted onto the wrong function and described something it did not do. Every tracker export produces exactly the same spreadsheet as before.",
+      },
+    ],
+  },
+  {
     version: "2.426.0",
     date: "2026-10-05",
     title: "Choose who can see a file",

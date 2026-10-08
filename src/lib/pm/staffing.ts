@@ -32,10 +32,10 @@ export interface StaffRow {
 
 // A dimension is "green" only when explicitly at its compliant value — missing
 // data reads as not-yet-compliant (matches govcon onboarding tracking).
-export const cacOk = (s: string | null) => s === "active";
-export const trainingOk = (s: string | null) => s === "complete";
-export const accessOk = (s: string | null) => s === "granted";
-export const ndaOk = (s: string | null) => s === "executed";
+const cacOk = (s: string | null) => s === "active";
+const trainingOk = (s: string | null) => s === "complete";
+const accessOk = (s: string | null) => s === "granted";
+const ndaOk = (s: string | null) => s === "executed";
 
 export interface ComplianceSummary {
   total: number;

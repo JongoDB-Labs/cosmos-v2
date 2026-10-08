@@ -4,11 +4,6 @@ import { loadMilestonesWithDerived } from "./schedule";
 import { loadStaffing } from "./staffing";
 import { loadClinsWithBurn } from "./burn";
 
-/**
- * Build a project workbook — one sheet per PM register, mirroring the original
- * tracker spreadsheets. Reuses the same derivation loaders the UI uses so the
- * exported numbers match the dashboard exactly.
- */
 function fmtDate(d: Date | string | null | undefined): string {
   if (!d) return "";
   const date = typeof d === "string" ? new Date(d) : d;
@@ -17,17 +12,8 @@ function fmtDate(d: Date | string | null | undefined): string {
 const num = (d: { toString(): string } | number | null | undefined): number | "" =>
   d == null ? "" : Number(d);
 
-
-/** The 8 PM register trackers, in the order their sheets appear in the workbook. */
-export type ExportTracker =
-  | "risks" | "changes" | "blockers" | "schedule"
-  | "deliverables" | "staffing" | "vendors" | "burn";
-
 /**
- * Build a flat project workbook — one data sheet per selected register. When
- * `trackers` is omitted, every register is included (original behavior). Used
- * for the "combined" export mode; the full-fidelity path is the template
- * populator in template-export.ts.
+ * Build a flat project workbook — one data sheet per PM register.
  *
  * `includeCost` is REQUIRED rather than defaulted, and it is the whole reason
  * this signature changed. The Staffing sheet carries a "Cost Rate" column and
@@ -44,9 +30,7 @@ export async function buildProjectWorkbook(
   orgId: string,
   projectId: string,
   opts: { includeCost: boolean },
-  trackers?: ExportTracker[],
 ): Promise<Buffer> {
-  const want = (t: ExportTracker) => !trackers || trackers.includes(t);
   const where = { orgId, projectId };
   const [risks, changes, blockers, deliverables, milestones, vendors, staffing, clins] =
     await Promise.all([
@@ -77,34 +61,34 @@ export async function buildProjectWorkbook(
     XLSX.utils.book_append_sheet(wb, ws, name);
   };
 
-  if (want("risks")) addSheet("Risks", risks.map((r) => ({
+  addSheet("Risks", risks.map((r) => ({
     ID: r.code, Title: r.title, Category: r.category ?? "",
     Likelihood: r.likelihood, Impact: r.impact, Score: r.score, Level: r.level,
     Owner: r.owner ?? "", Status: r.status, Mitigation: r.mitigation ?? "",
   })));
-  if (want("changes")) addSheet("Change Log", changes.map((c) => ({
+  addSheet("Change Log", changes.map((c) => ({
     ID: c.code, Title: c.title, Type: c.type,
     Submitted: fmtDate(c.submittedDate), "Cost Impact": num(c.costImpact), "Schedule Days": c.scheduleDaysImpact ?? "",
     "Scope Impact": c.scopeImpact ?? "", "Initiated By": c.initiatedBy ?? "",
     "Decision Authority": c.decisionAuthority ?? "", Status: c.status, Notes: c.notes ?? "",
   })));
-  if (want("blockers")) addSheet("Blocked Items", blockers.map((b) => ({
+  addSheet("Blocked Items", blockers.map((b) => ({
     ID: b.code, Title: b.title, Type: b.type,
     Owner: b.owner ?? "", "What Unblocks": b.whatUnblocks ?? "", "Related Ref": b.relatedRef ?? "",
     Escalated: b.escalate ? "Yes" : "", Status: b.status, Notes: b.notes ?? "",
   })));
-  if (want("schedule")) addSheet("Schedule", milestones.map((m) => ({
+  addSheet("Schedule", milestones.map((m) => ({
     Title: m.title, "Program Increment": m.interval?.name ?? "",
     "Projected End": fmtDate(m.dueDate), Actual: fmtDate(m.actualDate), Status: m.status, "Progress %": m.completionPercent ?? "",
     "Root Cause": m.rootCause ?? "", "Downstream Impact": m.downstreamImpact ?? "",
     Escalate: m.scheduleEscalate ? "Yes" : "", Notes: m.notes ?? "",
   })));
-  if (want("deliverables")) addSheet("Deliverables", deliverables.map((d) => ({
+  addSheet("Deliverables", deliverables.map((d) => ({
     ID: d.code, Title: d.title, CLIN: d.clin ?? "", "Baseline Due": fmtDate(d.baselineDue),
     "Actual Submission": fmtDate(d.actualSubmission), Status: d.status, Owner: d.owner ?? "",
     "Work Item Ref": d.workItemRef ?? "", Notes: d.notes ?? "",
   })));
-  if (want("vendors")) addSheet("Vendors", vendors.map((v) => {
+  addSheet("Vendors", vendors.map((v) => {
     const funded = num(v.fundedValue);
     const invoiced = num(v.invoicedValue);
     const pctBurned =
@@ -121,14 +105,14 @@ export async function buildProjectWorkbook(
       "PoP Start": fmtDate(v.startDate), "PoP End": fmtDate(v.endDate),
     };
   }));
-  if (want("staffing")) addSheet("Staffing", staffing.map((s) => ({
+  addSheet("Staffing", staffing.map((s) => ({
     Person: s.name, Role: s.role, "Labor Category": s.laborCategory ?? "",
     Clearance: s.clearance ?? "", "Allocation %": s.allocationPercent ?? "", "Cost Rate": s.costRate ?? "",
     "On Contract": s.onContract ? "Yes" : "No", CAC: s.cacStatus ?? "", "CAC Expiry": fmtDate(s.cacExpiry),
     Training: s.trainingStatus ?? "", "System Access": s.accessStatus ?? "", NDA: s.ndaStatus ?? "",
     Compliant: s.compliant ? "Yes" : "No",
   })));
-  if (want("burn")) addSheet("CLIN Burn", clins.map((c) => ({
+  addSheet("CLIN Burn", clins.map((c) => ({
     CLIN: c.code, Title: c.title, Funded: c.fundedValue, Ceiling: c.value, Burned: c.burned,
     Remaining: c.remaining, "% Consumed": c.percentConsumed ?? "",
   })));
