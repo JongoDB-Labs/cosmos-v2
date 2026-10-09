@@ -4,27 +4,12 @@ Driven by the survey of `/home/deploy/okr-dashboard` in 2026-05-28. Cosmos alrea
 
 ---
 
-## Phase 1 — Streaming + UX baseline ✅ SHIPPED (v3.5.0)
+## Phase 1 — Streaming + UX baseline ✅ SHIPPED
 
-- [x] `callClaudeCliStreaming()` using `--output-format stream-json --include-partial-messages`
 - [x] POST `/messages` route forks on `Accept: text/event-stream` — returns SSE
 - [x] Chat panel reads SSE, updates a placeholder assistant message token-by-token
-- [x] Tool calls surface as separate `tool_call_start` + `tool_call_result` events; UI strips raw `TOOL_CALL: {...}` markers from streamed text
+- [x] Tool calls surface as separate `tool_call_start` + `tool_call_result` events
 - [x] Backwards-compatible: clients that omit the Accept header still get the JSON behavior
-
----
-
-## Phase 2 — Persistent CLI process pool
-
-**Why:** spawning a fresh `claude` process per message costs ~2–3 s of cold-start. okr-dashboard keeps one process per conversation alive and pipes new messages in via `--input-format stream-json`.
-
-- [ ] `src/lib/ai/cli-pool.ts` — Map<conversationId, PoolEntry> with idle TTL reaper (kill processes idle > 30 min)
-- [ ] Switch to `--input-format stream-json --output-format stream-json` so the process accepts multiple turns
-- [ ] Per-conversation message queue (drain serially so we don't interleave NDJSON)
-- [ ] Process death detection → respawn on next message
-- [ ] Add `chat_conversations.cli_session_id` column to persist session IDs for cross-deploy resumption
-
-**Acceptance:** second message in a conversation arrives in < 500 ms (vs current ~3 s).
 
 ---
 
@@ -80,12 +65,6 @@ Cosmos currently exposes far fewer tools. Port these, gated on existing permissi
 - [ ] Per-conversation footer: "342 in / 1,205 out · $0.018"
 - [ ] Org dashboard widget: monthly AI spend
 
-### RAG over notes / docs / work-items
-- [ ] New `embedding` column on `Note`, `WorkItem`, `Contract`, `Meeting`
-- [ ] Background job: on create/update, embed text via a local model (or Anthropic embedding API if/when available) and store the vector
-- [ ] pgvector extension on Postgres for similarity search
-- [ ] New tool `semantic_search(query, types?)` so the model can answer "find me notes about Q4 planning" without navigating data
-
 ### Keep existing cosmos hardening
 - [x] Rate limit (20 req / 40 s per user) — already shipped
 - [x] RBAC permission gates (CHAT_USE) — already shipped
@@ -104,6 +83,7 @@ Cosmos currently exposes far fewer tools. Port these, gated on existing permissi
 | Hardcoded `effort_level: "high"` for CLI | Add as user preference if requested |
 | `cli_session_id` *in lieu of* MCP | We're adding MCP as the longer-term standard |
 | SSE done event with full content blob | Use `messageId` and let the client re-GET if it wants the canonical persisted form |
+| Persistent `claude` CLI process pool (`src/lib/ai/cli-pool.ts`) | Forbidden, not merely unstarted: `src/lib/ai/egress/__tests__/single-path.arch.test.ts` fails the build on a `cli-pool.ts` file or any `spawn("claude"`. The loop runs native `tool_use` through the egress seam. |
 
 ---
 
@@ -112,9 +92,7 @@ Cosmos currently exposes far fewer tools. Port these, gated on existing permissi
 | Phase | Effort | Risk |
 |---|---|---|
 | 1. Streaming + UX baseline | ✅ done | low |
-| 2. Persistent CLI pool | 1 day | medium (process death edge cases) |
 | 3. Tool catalog expansion | 3-5 days | medium (each integration is its own auth flow) |
 | 4. Rich UI features | 2 days | low |
 | 5a. MCP support | 2 days | medium (transport variability) |
 | 5b. Prompt caching + cost | 1 day (after moving to SDK) | low |
-| 5c. RAG | 3-5 days | medium (embedding storage + pgvector setup) |
