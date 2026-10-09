@@ -5,8 +5,7 @@ import { canReadAllTime } from "./visibility";
 /**
  * Which users' time entries may this actor read?
  *
- * `null` means "no restriction" (TIME_READ_ALL). Otherwise it is the actor
- * plus their DIRECT REPORTS — the supervisor read path.
+ * `null` means "no restriction" (TIME_READ_ALL).
  *
  * ── Why this is not an ABAC rule ────────────────────────────────────────────
  * `abac/engine.ts:8` is explicit: rules can only NARROW, and v1 supports DENY
@@ -128,7 +127,7 @@ export async function readableTimePeople(
   const allowed = await readableTimeUserIds(ctx);
 
   // null (TIME_READ_ALL) → everyone in the org, which is the same set the
-  // members page already lists. Otherwise → self + direct reports.
+  // members page already lists.
   const members = await prisma.orgMember.findMany({
     where: {
       orgId: ctx.orgId,
