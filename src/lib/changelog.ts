@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.426.2",
+    date: "2026-10-09",
+    title: "Housekeeping: tidying up the time-tracking internals",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal only, with no effect on any screen. The code behind timesheets, pay periods and approval routing has been cleared of helpers nothing called and of comments that had drifted away from what the code actually does. Time entry, submission, approval routing and billed-hours figures all behave exactly as before. One cleanup item offered two ways forward and was decided automatically rather than left waiting: the unused billed-hours helper module was removed instead of being wired into the billed-hours column, which keeps its existing behaviour untouched.",
+      },
+    ],
+  },
+  {
     version: "2.426.1",
     date: "2026-10-08",
     title: "Housekeeping: tidying up the project exports",

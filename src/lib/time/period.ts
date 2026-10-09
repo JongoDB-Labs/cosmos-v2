@@ -74,13 +74,3 @@ export function periodFor(dateOnly: string, length: PeriodLength): Period {
     end: fromUtc(Date.UTC(y, m + 1, 0)),
   };
 }
-
-/** Do two dates fall in the same period? Used to decide whether changing an
- *  entry's date REPARENTS it to a different timesheet. */
-export function samePeriod(
-  a: string,
-  b: string,
-  length: PeriodLength,
-): boolean {
-  return periodFor(a, length).start === periodFor(b, length).start;
-}
