@@ -9,7 +9,7 @@
  * deep-links + the `KEY-<n>` work-item label. Auth/permission gating happens at
  * the route layer (ORG_READ), matching the existing /search route.
  */
-import { prisma } from "@/lib/db/client";
+import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { visibleProjectIdsForActor } from "@/lib/rbac/project-access";
 import {
   ENTITY_ORDER,
@@ -131,9 +131,17 @@ const HANDLERS: Record<EntityType, Handler> = {
         sublabel: r.user.email,
       }));
     },
+    // `search` above feeds the @-mention PICKER, so it stays on the default-filtered
+    // client: a removed person must not be mentionable in new content.
+    //
+    // `resolve` is the opposite job — it turns the `<@uuid>` tokens already stored in
+    // comments and notes back into names, so it must still answer for people who have
+    // since been removed, or their past mentions decay into raw ids. Reading the
+    // retained membership row keeps this scoped to `orgId`, so resolution cannot be
+    // used to put a name to a user id from another org.
     async resolve(ids, { orgId }) {
       if (ids.length === 0) return [];
-      const rows = await prisma.orgMember.findMany({
+      const rows = await prismaUnfiltered.orgMember.findMany({
         where: { orgId, userId: { in: ids } },
         select: { user: { select: { id: true, displayName: true, email: true } } },
       });

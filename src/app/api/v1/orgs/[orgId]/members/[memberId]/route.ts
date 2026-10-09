@@ -133,7 +133,15 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    await prisma.orgMember.delete({ where: { id: memberId } });
+    // Soft delete: the row is RETAINED so this person's comments, assignments and
+    // audit trail stay attributable to a name instead of decaying to a bare id, and
+    // so their project_members / org_member_work_roles rows (which cascade from this
+    // one) are not destroyed. Reads filter `removedAt: null` by default in
+    // src/lib/db/client.ts, so they stop counting as a member everywhere at once.
+    await prisma.orgMember.update({
+      where: { id: memberId },
+      data: { removedAt: new Date() },
+    });
 
     await logAudit({
       orgId,
@@ -141,7 +149,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       action: "member.removed",
       entity: "org_member",
       entityId: memberId,
-      metadata: { targetUserId: member.userId } as Record<string, string>,
+      // The membership row survives, so nothing about it needs snapshotting here to
+      // keep the removal reversible. `role` is recorded only so the event reads on its
+      // own. The permission mask is deliberately NOT copied in — see the note on
+      // OrgMember.permissions in prisma/schema.prisma.
+      metadata: { targetUserId: member.userId, role: member.role } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });
 

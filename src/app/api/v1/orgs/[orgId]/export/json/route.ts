@@ -6,7 +6,7 @@
 // docs/design/access-control-audit.md; revisit if teamScopedAccess is ever
 // promoted from a visibility default to a hard boundary.
 import { NextResponse, type NextRequest } from "next/server";
-import { prisma } from "@/lib/db/client";
+import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
@@ -42,7 +42,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       version: 1,
       exportedAt: new Date().toISOString(),
       organization: await prisma.organization.findUnique({ where: { id: ctx.orgId } }),
-      members: await prisma.orgMember.findMany({ where: { orgId: ctx.orgId }, include: { user: true } }),
+      // Unfiltered on purpose: this is a whole-org archive, so it carries people who
+      // have since been removed as well as current members. `removedAt` tells them
+      // apart — dropping them would make the export disagree with the history it is
+      // exported alongside.
+      members: await prismaUnfiltered.orgMember.findMany({ where: { orgId: ctx.orgId }, include: { user: true } }),
       // SCOPING NOTE — org-wide on purpose; see the top of this file. Gated on
       // ORG_EXPORT, a whole-org capability.
       projects: await prisma.project.findMany({ where: { orgId: ctx.orgId } }),

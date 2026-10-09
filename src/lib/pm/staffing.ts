@@ -68,8 +68,11 @@ export async function loadStaffing(
   projectId: string,
   opts: { includeCost: boolean },
 ): Promise<StaffRow[]> {
+  // Currently-staffed people only. The retained membership row of someone who was
+  // removed still has its project_members rows, and this nested filter does not pass
+  // through the removed-member extension, so it is spelled out.
   const members = await prisma.projectMember.findMany({
-    where: { projectId, orgMember: { orgId } },
+    where: { projectId, orgMember: { orgId, removedAt: null } },
     include: {
       orgMember: { include: { user: { select: { id: true, displayName: true } } } },
     },

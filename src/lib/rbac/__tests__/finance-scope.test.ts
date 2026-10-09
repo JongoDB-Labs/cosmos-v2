@@ -49,7 +49,18 @@ describe("what a reader may see money for", () => {
   it("does not let a project member of another org borrow the grant", async () => {
     await financeScope(ctx(Permission.FINANCE_READ_PROJECT));
     expect(findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { orgMember: { orgId: "o1", userId: "u1" } } }),
+      expect.objectContaining({
+        where: { orgMember: { orgId: "o1", userId: "u1", removedAt: null } },
+      }),
     );
+  });
+
+  it("does not let a REMOVED member keep the project grant", async () => {
+    // A nested `orgMember` filter does not pass through the removed-member extension
+    // in src/lib/db/client.ts, so this narrowing is the only thing standing between a
+    // removed person and their old project-scoped view of the money.
+    await financeScope(ctx(Permission.FINANCE_READ_PROJECT));
+    const where = findMany.mock.calls.at(-1)?.[0]?.where;
+    expect(where.orgMember.removedAt).toBeNull();
   });
 });
