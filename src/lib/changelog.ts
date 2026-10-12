@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.427.1",
+    date: "2026-10-12",
+    title: "Housekeeping: tidying up the dashboard",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The new-project form no longer shows a “Slug” underneath the name you type. Nothing was ever stored under that name and nothing linked to it — the project key, right below it, is the identifier the app actually uses — so it was quietly promising an address that did not exist.",
+      },
+      {
+        kind: "improvement",
+        text: "An organisation-wide PM Dashboard page that nothing ever linked to has been removed. It was reachable only by typing the address by hand, and the PM Dashboard you use day to day — the one inside a project — is untouched. (The alternative was to add the missing menu entry instead; removing it was the assumption this change was built on, so say the word if the portfolio roll-up is wanted back with a proper home in the sidebar.)",
+      },
+      {
+        kind: "improvement",
+        text: "The organisation overview loads with one less database lookup, and several stale code comments that described behaviour the app no longer has are gone. No screen changes.",
+      },
+    ],
+  },
+  {
     version: "2.426.1",
     date: "2026-10-08",
     title: "Housekeeping: tidying up the project exports",

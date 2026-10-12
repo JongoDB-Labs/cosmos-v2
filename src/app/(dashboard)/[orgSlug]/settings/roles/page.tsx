@@ -7,9 +7,6 @@ import { NoAccess } from "@/components/settings/no-access";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
-// No server prefetch here: WorkRole.grants is a BigInt and would throw on
-// dehydrate/JSON.stringify. The client fetches the DTO (grants as permission
-// keys) from /work-roles on mount.
 export default async function RolesPage({ params }: PageParams) {
   const { orgSlug } = await params;
 
