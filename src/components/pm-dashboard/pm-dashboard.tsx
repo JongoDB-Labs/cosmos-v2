@@ -23,20 +23,19 @@ import { ExportDialog } from "./export-dialog";
 import { slipDays } from "@/lib/schedule/health";
 
 // ---------------------------------------------------------------------------
-// Public shape — scope-aware (project now; org / sub-element reuse the surface)
-// and audience-aware (PM / Government / Executive, RBAC-gated). Presentational:
-// data is fetched in the server component and passed in.
+// Public shape — scope-aware (project only today; `kind` keeps the door open
+// for a sub-element roll-up) and audience-aware (PM / Government / Executive,
+// RBAC-gated). Presentational: data is fetched in the server component and
+// passed in.
 // ---------------------------------------------------------------------------
 
-export type DashboardScope =
-  | { kind: "org"; orgId: string; orgName: string }
-  | {
-      kind: "project";
-      orgId: string;
-      projectId: string;
-      projectKey: string;
-      projectName: string;
-    };
+export type DashboardScope = {
+  kind: "project";
+  orgId: string;
+  projectId: string;
+  projectKey: string;
+  projectName: string;
+};
 
 export type AudienceView = "pm" | "government" | "executive";
 
@@ -241,7 +240,7 @@ export function PmDashboard({ scope, data, audience: initialAudience }: PmDashbo
 
   const stats = useMemo(() => computeStats(data), [data]);
   const [exportOpen, setExportOpen] = useState(false);
-  const scopeLabel = scope.kind === "project" ? scope.projectName : scope.orgName;
+  const scopeLabel = scope.projectName;
   const header = AUDIENCE_HEADER[audience];
 
   return (
@@ -254,25 +253,21 @@ export function PmDashboard({ scope, data, audience: initialAudience }: PmDashbo
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {scope.kind === "project" && (
-            <>
-              <button
-                type="button"
-                onClick={() => setExportOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--text)] transition-colors hover:text-[var(--primary)]"
-                title="Export registers as Excel (pick trackers + format)"
-              >
-                <Download className="size-3.5" /> Export Excel
-              </button>
-              <MirrorToSharePointButton orgId={scope.orgId} projectId={scope.projectId} />
-              <ExportDialog
-                orgId={scope.orgId}
-                projectId={scope.projectId}
-                open={exportOpen}
-                onOpenChange={setExportOpen}
-              />
-            </>
-          )}
+          <button
+            type="button"
+            onClick={() => setExportOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--text)] transition-colors hover:text-[var(--primary)]"
+            title="Export registers as Excel (pick trackers + format)"
+          >
+            <Download className="size-3.5" /> Export Excel
+          </button>
+          <MirrorToSharePointButton orgId={scope.orgId} projectId={scope.projectId} />
+          <ExportDialog
+            orgId={scope.orgId}
+            projectId={scope.projectId}
+            open={exportOpen}
+            onOpenChange={setExportOpen}
+          />
           {audiences.length > 1 && (
             <div
               role="tablist"

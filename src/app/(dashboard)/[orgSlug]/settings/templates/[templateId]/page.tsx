@@ -39,8 +39,7 @@ async function TemplateEditorContent({ params }: PageParams) {
   // Only show if built-in or owned by this org
   if (!template.isBuiltIn && template.orgId !== ctx.orgId) notFound();
 
-  // Serialize: remove BigInt-unsafe fields. boardTemplates and workItemTypes
-  // don't carry permissions BigInt so they're safe to pass directly.
+  // Narrow to the client-facing shape (and stringify the Date).
   const serializable = {
     id: template.id,
     orgId: template.orgId,
