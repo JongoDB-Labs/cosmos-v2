@@ -346,13 +346,13 @@ export function BacklogView({
     [],
   );
 
-  const visibleItems = useMemo(() => {
-    let list = hideDone ? barFiltered.filter((i) => !isDone(i)) : barFiltered;
-    if (assignedToMe && currentUserId) {
-      list = list.filter((i) => isAssignedTo(i, currentUserId));
-    }
-    return list;
-  }, [barFiltered, hideDone, isDone, assignedToMe, currentUserId]);
+  // `barFiltered` has already applied the shared predicate, whose assignee
+  // clause is the same primary-OR-co-assignee rule as `isAssignedTo` — so
+  // "Assigned to me" needs no second pass here, only the empty-state copy.
+  const visibleItems = useMemo(
+    () => (hideDone ? barFiltered.filter((i) => !isDone(i)) : barFiltered),
+    [barFiltered, hideDone, isDone],
+  );
 
   // Top "Backlog" section = items with no interval, ranked.
   const backlogItems = useMemo(
