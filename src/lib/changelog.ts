@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.427.1",
+    date: "2026-10-13",
+    title: "Group a table board by Type",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On a table board, picking “Group by: Type” now actually groups the rows, with a heading per work-item type showing its name and how many items it holds. Before, the choice was accepted and then quietly ignored, leaving the same flat list. “Interval” is still not offered as a grouping — it never was, despite some leftover code suggesting otherwise — so if you want it, ask and we will add it.",
+      },
+      {
+        kind: "improvement",
+        text: "Tidying behind the scenes across the board screens: dead code and comments that had drifted onto the wrong thing are gone, and the sprint-history charts read their own figures directly instead of looking each one back up. No screen looks or behaves differently.",
+      },
+    ],
+  },
+  {
     version: "2.426.1",
     date: "2026-10-08",
     title: "Housekeeping: tidying up the project exports",
