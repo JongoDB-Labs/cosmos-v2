@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.427.1",
+    date: "2026-10-17",
+    title: "Housekeeping: tidying up the project-management library",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal only, with no change to any screen. The staffing list now asks the database for just the two details it displays about each person rather than their whole membership record, so someone's permission settings are no longer loaded into memory to draw a roster. Alongside that, a handful of exports nothing imported were made private, a check that could never be false was removed, and the combined tracker export now copies a sheet's frozen panes in one place instead of two. Every export produces exactly the same spreadsheet as before.",
+      },
+      {
+        kind: "improvement",
+        text: "Also internal, recorded here because it was a judgement call rather than an instruction: the checklist that tracks which exports in this library nothing imports was pruned to match the two removals above. That file sat outside the list of files this change was scoped to, and it was edited anyway, because leaving stale entries in it would have failed the very check it exists to run.",
+      },
+    ],
+  },
+  {
     version: "2.426.1",
     date: "2026-10-08",
     title: "Housekeeping: tidying up the project exports",
