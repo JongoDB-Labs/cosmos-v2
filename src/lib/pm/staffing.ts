@@ -74,7 +74,11 @@ export async function loadStaffing(
   const members = await prisma.projectMember.findMany({
     where: { projectId, orgMember: { orgId, removedAt: null } },
     include: {
-      orgMember: { include: { user: { select: { id: true, displayName: true } } } },
+      // Explicit select, never `include`: an OrgMember row carries the
+      // permission bitmask, and it has no business being read into memory here.
+      orgMember: {
+        select: { userId: true, user: { select: { id: true, displayName: true } } },
+      },
     },
   });
 
