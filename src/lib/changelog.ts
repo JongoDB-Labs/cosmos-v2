@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.427.1",
+    date: "2026-10-18",
+    title: "Housekeeping: tidying up the update checker",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal only, with no change to what the Updates page shows or does. The code behind the update check has been cleared of a line that could never take effect, an unused constant, and two comments that described behaviour the code had stopped having — one of them claiming an in-app check can never offer an update, which has not been true since disk space became the host runner's job to confirm. The “image comes from the configured registry” check now reads that registry once instead of twice; deliberately left as-is, rather than widened, is the fact that this particular check cannot tell you anything new when it runs inside the app — it earns its keep on the host, immediately before the image is pulled. Every update check reaches exactly the same verdict as before.",
+      },
+    ],
+  },
+  {
     version: "2.426.1",
     date: "2026-10-08",
     title: "Housekeeping: tidying up the project exports",
