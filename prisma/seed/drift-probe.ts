@@ -109,7 +109,7 @@ async function main() {
   }
 
   // Idempotent: wipe the probe board and its items so re-running never stacks
-  // a second set of ten rows on top of the first.
+  // a second set on top of the first.
   const existing = await prisma.board.findFirst({
     where: { projectId: project.id, name: "Drift Probe" },
     select: { id: true },

@@ -122,8 +122,8 @@ async function ensureProjectFixture(
 
 /**
  * Seed a SECOND board on the TEST project so the board-switching E2E journey has
- * two tabs to toggle between. Distinct name ("Roadmap") + type (TABLE) so the
- * two tabs are unambiguous, and sortOrder 1 so it stays AFTER the default KANBAN
+ * two tabs to toggle between. Distinct name ("Roadmap") so the two tabs are
+ * unambiguous, and sortOrder 1 so it stays AFTER the default KANBAN
  * board (sortOrder 0) — the default must remain the /projects/{key} redirect
  * target. Idempotent on (projectId, name). Separate from ensureProjectFixture
  * (which early-returns when the project exists, so re-runs would skip a folded-in

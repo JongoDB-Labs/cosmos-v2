@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.427.1",
+    date: "2026-10-20",
+    title: "Housekeeping: tidying up the demo and test data scripts",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal only, with no effect on any screen. The scripts that stand up demo and test data have been cleared of duplicated setup code, fields nothing stored and notes that described work the scripts had stopped doing. Every one of them produces exactly the same data as before, and the permission settings they create are now read from the same single source the rest of the product uses, so a demo tenant can no longer drift out of step with it.",
+      },
+    ],
+  },
+  {
     version: "2.426.1",
     date: "2026-10-08",
     title: "Housekeeping: tidying up the project exports",

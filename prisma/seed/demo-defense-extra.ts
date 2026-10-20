@@ -13,26 +13,11 @@
  *   cd /home/deploy/cosmos-saas && npx tsx prisma/seed/demo-defense-extra.ts
  */
 import { makePrismaClient } from "./shared/prisma-client";
-import { readFileSync } from "node:fs";
+import { loadEnvLocal } from "./shared/env-local";
 
-function loadEnv(): string | undefined {
-  let dbUrl: string | undefined;
-  try {
-    const txt = readFileSync(process.cwd() + "/.env.local", "utf8");
-    for (const line of txt.split("\n")) {
-      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
-      if (!m) continue;
-      let v = m[2];
-      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-      if (!process.env[m[1]]) process.env[m[1]] = v;
-      if (m[1] === "DATABASE_URL") dbUrl = v;
-    }
-  } catch {}
-  return dbUrl;
-}
 // Prefer .env.local's DATABASE_URL explicitly so host runs don't fall back to
 // .env's in-container `cosmos-postgres` hostname (importing @prisma/client auto-loads .env).
-const DB_URL = loadEnv();
+const DB_URL = loadEnvLocal();
 const prisma = makePrismaClient(DB_URL);
 const SLUG = "apex-defense", PKEY = "SENTINEL";
 const NOW = Date.now(), DAY = 86400000;
@@ -61,7 +46,6 @@ async function main() {
   const dana = await findUser("dana.reyes@apex-defense.local", "Dana Reyes");
   const marcus = await findUser("marcus.hale@apex-defense.local", "Marcus Hale");
   const priya = await findUser("priya.nair@apex-defense.local", "Priya Nair");
-  const tom = await findUser("tom.becker@apex-defense.local", "Tom Becker");
   const alicia = await findUser("alicia.chen@apex-defense.local", "Alicia Chen");
   const ben = await findUser("ben.okoro@apex-defense.local", "Ben Okoro");
   const sara = await findUser("sara.kim@apex-defense.local", "Sara Kim");
