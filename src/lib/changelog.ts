@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.430.2",
+    date: "2026-10-22",
+    title: "The assistant bubble moves out of the way",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The floating assistant button now steps aside when it would cover a button or link at the bottom of the page, so you can always reach what's underneath it.",
+      },
+    ],
+  },
+  {
     version: "2.430.1",
     date: "2026-10-22",
     title: "Developer tooling matches the framework version",
