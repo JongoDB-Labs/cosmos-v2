@@ -366,8 +366,8 @@ function needsRefresh(expiresAt: Date | null | undefined, now = Date.now()): boo
 
 /**
  * Return a usable Claude OAuth bearer token from the store, auto-refreshing
- * when within 5 minutes of expiry. Returns null when there's no connection or
- * the token can't be unsealed/refreshed. THIS is what the egress layer calls
+ * when within 5 minutes of expiry. Returns null when there's no connection, the
+ * token can't be unsealed, or it has expired and the refresh failed. THIS is what the egress layer calls
  * (indirectly, via each caller's own get-token wrapper).
  */
 export async function getClaudeTokenCore(
@@ -382,6 +382,11 @@ export async function getClaudeTokenCore(
   if (needsRefresh(row.expiresAt)) {
     const refreshed = await refreshClaudeTokenCore(store);
     if (refreshed) return refreshed;
+    // Inside the skew window the stored token still works, so a failed refresh
+    // can fall back to it. Past its expiry it can only 401 — and a non-null
+    // token wins credential resolution, so returning it hid every fallback
+    // (a personal token never gave way to the org's) until someone reconnected.
+    if (row.expiresAt != null && Date.now() >= row.expiresAt.getTime()) return null;
   }
 
   return fromSealedJson(row.access);
