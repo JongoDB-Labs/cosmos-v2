@@ -12,7 +12,7 @@
 // different `boardId` — exactly what the App Router does navigating between two
 // boards of the same type, where React updates in place instead of remounting.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, waitFor, cleanup, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // --- base-ui needs these in jsdom ---
@@ -46,7 +46,8 @@ vi.mock("@/lib/query/keys", () => ({
 }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: () => ({ data: undefined }) }));
 
-import { NewIssueButton } from "./new-issue-button";
+import { createRef } from "react";
+import { NewIssueButton, type NewIssueHandle } from "./new-issue-button";
 import { useWorkItemTypes } from "@/hooks/use-work-item-types";
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -110,6 +111,68 @@ describe("board New issue dialog", () => {
     );
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+});
+
+// COSMOS-88 — the board's right-click menu opens this same dialog through the
+// handle, pre-scoped to where the user clicked.
+describe("board New issue dialog, opened from a board right-click", () => {
+  const BOARDS = [
+    {
+      id: "b1",
+      columns: [
+        { key: "todo", name: "To Do", sortOrder: 0 },
+        { key: "review", name: "Review", sortOrder: 1 },
+      ],
+    },
+  ];
+
+  beforeEach(() => {
+    vi.mocked(jsonFetch).mockImplementation(((url: string) =>
+      Promise.resolve(url.endsWith("/boards") ? BOARDS : [])) as never);
+  });
+
+  it("starts on the right-clicked column's Status", async () => {
+    const ref = createRef<NewIssueHandle>();
+    render(<NewIssueButton {...BASE} boardId="b1" ref={ref} />);
+
+    act(() => ref.current!.open({ columnKey: "review" }));
+    await screen.findByRole("dialog");
+
+    await waitFor(() =>
+      expect(screen.getByLabelText<HTMLSelectElement>("Status").value).toBe("review"),
+    );
+  });
+
+  it("seeds both planned dates from a right-clicked calendar day", async () => {
+    const ref = createRef<NewIssueHandle>();
+    render(<NewIssueButton {...BASE} boardId="b1" ref={ref} />);
+
+    act(() => ref.current!.open({ date: "2026-10-24" }));
+    await screen.findByRole("dialog");
+
+    expect(screen.getByLabelText<HTMLInputElement>(/Planned start/).value).toBe("2026-10-24");
+    expect(screen.getByLabelText<HTMLInputElement>(/Planned end/).value).toBe("2026-10-24");
+  });
+
+  it("does not carry a right-click's column into the next toolbar open", async () => {
+    const user = userEvent.setup();
+    const ref = createRef<NewIssueHandle>();
+    render(<NewIssueButton {...BASE} boardId="b1" ref={ref} />);
+
+    act(() => ref.current!.open({ columnKey: "review" }));
+    await screen.findByRole("dialog");
+    await waitFor(() =>
+      expect(screen.getByLabelText<HTMLSelectElement>("Status").value).toBe("review"),
+    );
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    await open(user);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText<HTMLSelectElement>("Status").value).toBe("todo"),
+    );
   });
 });
 

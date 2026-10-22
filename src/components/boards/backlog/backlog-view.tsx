@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -57,7 +57,11 @@ import { DeleteWorkItemDialog } from "@/components/work-items/delete-work-item-d
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
-import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
+import {
+  NewIssueButton,
+  type NewIssueHandle,
+} from "@/components/boards/shared/new-issue-button";
+import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import { useCurrentUserId } from "@/lib/hooks/use-current-user";
 import { formatDateShortStable } from "@/lib/format/stable-date";
@@ -136,6 +140,7 @@ export function BacklogView({
   projectKey,
   boardId,
 }: BacklogViewProps) {
+  const newIssueRef = useRef<NewIssueHandle>(null);
   const qc = useQueryClient();
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
   const currentUserId = useCurrentUserId();
@@ -579,6 +584,7 @@ export function BacklogView({
             included. */}
         <div className="ml-auto flex items-center gap-3">
           <NewIssueButton
+            ref={newIssueRef}
             orgId={orgId}
             projectId={projectId}
             projectKey={projectKey}
@@ -597,6 +603,7 @@ export function BacklogView({
         </div>
       </div>
 
+      <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       {items.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
           <EmptyState
@@ -709,6 +716,7 @@ export function BacklogView({
           </DndContext>
         </div>
       )}
+      </BoardCreateMenu>
 
       <CardDetailSheet
         statusColumns={projectStatuses}
