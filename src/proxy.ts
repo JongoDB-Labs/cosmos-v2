@@ -82,6 +82,10 @@ const PUBLIC_PATH_PREFIXES = [
   "/api/health",
   "/api/theme",
   "/api/v1/metrics", // client telemetry sinks (errors, vitals)
+  // Calendar subscription feeds (COSMOS-202): fetched by Outlook / Google /
+  // Apple Calendar servers, which have no session. The path token is the
+  // credential; the route checks it, the org switch and the person's access.
+  "/api/v1/calendar/feeds",
   // Watchdog down-alert — no browser session by definition (the daemon is
   // down); the route enforces its own bearer token.
   "/api/foreman/alert",

@@ -1314,6 +1314,7 @@ function KanbanBoardInner({
         teams={teams}
         columns={columns}
         onUpdate={handleItemUpdate}
+        onStatusesChanged={() => void fetchData({ silent: true, fresh: true })}
         onDelete={handleItemDeleted}
         onDuplicate={handleItemDuplicated}
         projectItems={items}
