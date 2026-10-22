@@ -369,7 +369,7 @@ async function runStreamingAssistant(args: {
     return ph.id;
   };
 
-  let result: { text: string };
+  let result: { text: string; transcript: string };
   try {
     result = await runAgentLoop({
       orgId: args.orgId,
@@ -431,7 +431,10 @@ async function runStreamingAssistant(args: {
     channel,
     messageId: finalId,
     authorId: args.botUserId,
-    content: result.text || "(no response)",
+    // The transcript, not the final turn alone: the bubble streamed every
+    // turn's text, so saving only the last one dropped the preamble the
+    // channel had just watched arrive.
+    content: result.transcript || "(no response)",
     notify: true,
   });
 }
