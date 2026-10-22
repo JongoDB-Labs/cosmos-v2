@@ -1,33 +1,19 @@
 "use client";
 
-import { type ReactNode } from "react";
-// React 19.2 exposes the View Transitions API as `unstable_ViewTransition`,
-// but the official `@types/react` may not declare it yet — pull via a typed
-// indirection so we don't fight the type system. Falls back to a passthrough
-// if the runtime export is missing.
-import * as React from "react";
-
-type ViewTransitionLike = React.ComponentType<{
-  children: ReactNode;
-  name?: string;
-}>;
-
-const ViewTransition: ViewTransitionLike =
-  (
-    React as unknown as {
-      unstable_ViewTransition?: ViewTransitionLike;
-    }
-  ).unstable_ViewTransition ??
-  ((props: { children: ReactNode }) => <>{props.children}</>);
+import { ViewTransition, type ReactNode } from "react";
 
 /**
- * Page-level View Transition wrapper. In browsers + React runtimes that
- * support it, this tags a content region with a transition name so route
- * navigations produce a smooth cross-fade. Browsers without support
- * degrade to a normal swap.
+ * Page-level View Transition wrapper. Tags a content region with a transition
+ * name so route navigations produce a smooth cross-fade; browsers without the
+ * View Transitions API degrade to a normal swap.
  *
- * Enabled globally by `experimental.viewTransition: true` in next.config.ts;
- * the CSS keyframes in globals.css drive the fade itself.
+ * React 19.3 exports the component as `ViewTransition`. It used to be looked
+ * up as `unstable_ViewTransition` behind a passthrough fallback, and once that
+ * name went away the fallback silently won and no page ever transitioned
+ * (COSMOS-196). Importing it by name makes a future rename a type error.
+ *
+ * No Next config flag is needed (`experimental.viewTransition` was removed in
+ * Next 16.3); the CSS keyframes in globals.css drive the fade itself.
  */
 export function PageTransition({
   children,
