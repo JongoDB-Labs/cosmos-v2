@@ -601,6 +601,10 @@ function RegistryCard() {
           cannot. These settings change where new versions are looked for &mdash; on this page and by the
           automatic installer. They do not change where the host pulls images from: that stays pinned in
           the host&rsquo;s docker-compose.override.yml, so moving registries needs that file updated too.
+          A repository on a different registry host than the environment&rsquo;s stops the environment&rsquo;s
+          username, password, and migration, release-notes and plugin-service repositories on the old host
+          from being used; on the same host they still apply. A tag suffix set in the environment always applies
+          unless one is set here.
         </p>
       </div>
     </SectionCard>

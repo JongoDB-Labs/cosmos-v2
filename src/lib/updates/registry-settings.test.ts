@@ -224,3 +224,72 @@ describe("tagSuffixProblem", () => {
     expect(tagSuffixProblem("al pha")).not.toBeNull();
   });
 });
+
+// A registry MOVE made from the page while the environment still names the old
+// host for everything. Honouring the env's explicit migrate/notes/sidecar repos
+// would look for the paired migration image on a dead host, and every update
+// would read as not applyable.
+describe("layerRegistryEnv — companion repositories follow a registry move", () => {
+  const none = { imageRepo: null, tagSuffix: null, username: null, password: null };
+  const OLD_ENV = {
+    COSMOS_UPDATE_IMAGE_REPO: "registry.old.example.com/cosmos/assembly/alpha",
+    COSMOS_UPDATE_MIGRATE_REPO: "registry.old.example.com/cosmos/assembly/alpha-migrate",
+    COSMOS_UPDATE_NOTES_REPO: "registry.old.example.com/cosmos/core",
+    COSMOS_UPDATE_SIDECAR_REPOS: "registry.old.example.com/cosmos/realtime, ghcr.io/public/thing",
+    COSMOS_UPDATE_TAG_SUFFIX: "alpha",
+  };
+
+  it("host differs: migrate and notes are DERIVED from the saved repository, not the old host", () => {
+    const c = updateConfigFromEnv(
+      layerRegistryEnv(OLD_ENV, { ...none, imageRepo: "registry.new.example.com/cosmos/assembly/alpha" }).env,
+    );
+    expect(c?.migrateRepo).toBe("registry.new.example.com/cosmos/assembly/alpha-migrate");
+    expect(c?.notesRepo).toBe("registry.new.example.com/cosmos/assembly/alpha");
+  });
+
+  it("host differs: old-host sidecars are RE-HOSTED (not dropped); a third-host sidecar is kept", () => {
+    const c = updateConfigFromEnv(
+      layerRegistryEnv(OLD_ENV, { ...none, imageRepo: "registry.new.example.com/cosmos/assembly/alpha" }).env,
+    );
+    // Same count as before: dropping one would silently skip its preflight.
+    expect(c?.sidecarRepos).toEqual(["registry.new.example.com/cosmos/realtime", "ghcr.io/public/thing"]);
+  });
+
+  it("host differs: a notes repository on a THIRD host was chosen deliberately and is kept", () => {
+    const c = updateConfigFromEnv(
+      layerRegistryEnv(
+        { ...OLD_ENV, COSMOS_UPDATE_NOTES_REPO: "ghcr.io/jongodb-labs/cosmos-v2" },
+        { ...none, imageRepo: "registry.new.example.com/cosmos/assembly/alpha" },
+      ).env,
+    );
+    expect(c?.notesRepo).toBe("ghcr.io/jongodb-labs/cosmos-v2");
+  });
+
+  it("host differs: the env tag suffix still applies (it is host-independent)", () => {
+    const c = updateConfigFromEnv(
+      layerRegistryEnv(OLD_ENV, { ...none, imageRepo: "registry.new.example.com/cosmos/assembly/beta" }).env,
+    );
+    expect(c?.suffix).toBe("alpha");
+  });
+
+  it("SAME host: the environment's explicit companion repositories are left exactly as they are", () => {
+    const c = updateConfigFromEnv(
+      layerRegistryEnv(OLD_ENV, { ...none, imageRepo: "registry.old.example.com/cosmos/assembly/beta" }).env,
+    );
+    expect(c?.migrateRepo).toBe(OLD_ENV.COSMOS_UPDATE_MIGRATE_REPO);
+    expect(c?.notesRepo).toBe(OLD_ENV.COSMOS_UPDATE_NOTES_REPO);
+    expect(c?.sidecarRepos).toEqual(["registry.old.example.com/cosmos/realtime", "ghcr.io/public/thing"]);
+  });
+
+  it("no saved repository: nothing is rewritten", () => {
+    expect(layerRegistryEnv(OLD_ENV, none).env).toEqual(OLD_ENV);
+  });
+
+  it("resolveUpdateConfig applies the same rule end to end", async () => {
+    prisma.updateSettings.findUnique.mockResolvedValue(
+      row({ imageRepo: "registry.new.example.com/cosmos/assembly/alpha" }),
+    );
+    const c = await resolveUpdateConfig(OLD_ENV);
+    expect(c?.migrateRepo).toBe("registry.new.example.com/cosmos/assembly/alpha-migrate");
+  });
+});

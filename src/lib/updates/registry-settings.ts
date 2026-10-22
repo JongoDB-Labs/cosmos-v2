@@ -114,6 +114,10 @@ export type ValueSource = "settings" | "env" | "default" | "unset";
  * registry's deploy token to whatever host was typed in. Settings credentials,
  * when present, are used as-is (the settings route refuses a host change that
  * would silently keep them; see its PUT).
+ *
+ * The same host rule covers the COMPANION repositories (migrate, notes,
+ * sidecars) — see moveCompanionRepos. On the same host nothing is rewritten;
+ * the tag suffix is host-independent and keeps env precedence either way.
  */
 export function layerRegistryEnv(
   env: Record<string, string | undefined>,
@@ -138,11 +142,14 @@ export function layerRegistryEnv(
   if (o.imageRepo) {
     out[REGISTRY_ENV.imageRepo] = o.imageRepo;
     sources.imageRepo = "settings";
-    if (envRepo && registryHost(envRepo) !== registryHost(o.imageRepo)) {
+    const oldHost = envRepo ? registryHost(envRepo) : null;
+    const newHost = registryHost(o.imageRepo);
+    if (envRepo && oldHost !== newHost) {
       delete out[REGISTRY_ENV.username];
       delete out[REGISTRY_ENV.password];
       sources.username = "unset";
       sources.password = "unset";
+      if (oldHost && newHost) moveCompanionRepos(out, oldHost, newHost);
     }
   }
   if (o.tagSuffix) {
@@ -160,6 +167,49 @@ export function layerRegistryEnv(
   // No explicit suffix anywhere but a repository to derive one from.
   if (sources.tagSuffix === "unset" && out[REGISTRY_ENV.imageRepo]?.trim()) sources.tagSuffix = "default";
   return { env: out, sources };
+}
+
+/** Env keys naming repositories that travel WITH the image repository. */
+export const COMPANION_REPO_ENV = {
+  migrateRepo: "COSMOS_UPDATE_MIGRATE_REPO",
+  notesRepo: "COSMOS_UPDATE_NOTES_REPO",
+  sidecarRepos: "COSMOS_UPDATE_SIDECAR_REPOS",
+} as const;
+
+/**
+ * A registry MOVE made from the page: the saved image repository is on a
+ * different host than the environment's. The environment typically still
+ * names the old host for everything, so an explicit env migrate/notes/sidecar
+ * repository on that old host is stale — honouring it would look for the
+ * paired migration image on a dead registry and every update would read as
+ * not applyable.
+ *
+ * Only entries on the OLD host are touched; one on a third host (e.g. a public
+ * notes repository) was chosen deliberately and is kept. Mutates `out`.
+ *
+ *  - migrate / notes: the env value is DROPPED, so updateConfigFromEnv derives
+ *    them from the saved repository (`<repo>-migrate`, `<repo>`).
+ *  - sidecars: RE-HOSTED onto the new host with the same path, not dropped.
+ *    Dropping would shrink the sidecar list and silently skip the "sidecar
+ *    images present" preflight — an app could be offered without the service
+ *    it ships with. A re-hosted repository that does not exist on the new
+ *    host fails that preflight instead, which blocks the install: fail
+ *    closed, and the operator sees which sidecar is missing.
+ */
+function moveCompanionRepos(out: Record<string, string | undefined>, oldHost: string, newHost: string) {
+  for (const key of [COMPANION_REPO_ENV.migrateRepo, COMPANION_REPO_ENV.notesRepo]) {
+    const v = out[key]?.trim();
+    if (v && registryHost(v) === oldHost) delete out[key];
+  }
+  const sidecars = out[COMPANION_REPO_ENV.sidecarRepos];
+  if (sidecars) {
+    out[COMPANION_REPO_ENV.sidecarRepos] = sidecars
+      .split(",")
+      .map((r) => r.trim())
+      .filter(Boolean)
+      .map((r) => (registryHost(r) === oldHost ? `${newHost}/${parseImageRef(r).name}` : r))
+      .join(",");
+  }
 }
 
 /** Registry host of a repository reference, or null if it does not parse. */
