@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.429.0",
+    date: "2026-10-22",
+    title: "Open and delete from a backlog row",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A backlog row's menu now has Open and Delete, with a confirmation before anything is deleted. The menu also only offers what you're allowed to do: changing an item needs edit rights, and deleting it needs delete rights.",
+      },
+    ],
+  },
+  {
     version: "2.428.0",
     date: "2026-10-22",
     title: "Export your time entries",
