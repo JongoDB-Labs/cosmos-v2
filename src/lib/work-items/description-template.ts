@@ -60,9 +60,10 @@ export function composeDescription(sections: DescriptionSections): string {
 
 /**
  * Markdown → sections, so switching from plain text back to the template
- * keeps what was typed. Text under our three headings goes to its section.
- * Anything else (text before the first heading, or under another heading)
- * stays in Description, so nothing is dropped.
+ * keeps what was typed. Text under our three headings goes to its section, and
+ * text before the first heading goes to Description. Any other heading (say
+ * "## Notes") is kept, with its text, in whichever section it appears in, so
+ * nothing is dropped and the write-up keeps its reading order.
  */
 export function parseDescription(markdown: string): DescriptionSections {
   const out: Record<keyof DescriptionSections, string[]> = {
