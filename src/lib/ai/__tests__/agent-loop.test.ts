@@ -62,6 +62,70 @@ describe("runAgentLoop (native tool_use)", () => {
   });
 });
 
+// ── Streaming across turns ──────────────────────────────────────────────────
+// The assistant route forwards `textSoFar.slice(lastSent.length)` and drops any
+// update no longer than the last one, so it relies on every onDelta value
+// EXTENDING the previous one. When the text restarted on each model turn, a
+// tool turn's preamble ("Let me check…") swallowed the start of the final
+// answer, which then surfaced mid-sentence and snapped into place at `done`.
+describe("runAgentLoop — onDelta across model turns", () => {
+  beforeEach(() => {
+    runModelTurn.mockReset(); executeTool.mockReset();
+    effectiveCeiling.mockReset().mockResolvedValue("UNCLASSIFIED");
+    getRuntimeConfig.mockReset().mockResolvedValue({ enabledConnectors: null, breadthEnabled: true, mcpEnabled: false });
+    getAgentPolicy.mockReset().mockResolvedValue(PERMISSIVE);
+  });
+
+  /** A model turn that streams `chunks` through onTextDelta, then replies. */
+  function streamingTurn(chunks: string[], toolUses: unknown[] = []) {
+    return async ({ onTextDelta }: { onTextDelta?: (d: string) => void }) => {
+      for (const c of chunks) onTextDelta?.(c);
+      return { text: chunks.join(""), toolUses, stopReason: toolUses.length ? "tool_use" : "end_turn" };
+    };
+  }
+
+  it("every update extends the previous one, through a tool turn", async () => {
+    runModelTurn
+      .mockImplementationOnce(streamingTurn(["Let me look ", "that up."], [{ id: "tu1", name: "list_projects", input: {} }]))
+      .mockImplementationOnce(streamingTurn(["You have ", "2 projects."]));
+    executeTool.mockResolvedValue({ projects: [] });
+
+    const seen: string[] = [];
+    const { runAgentLoop } = await import("../agent-loop");
+    const res = await runAgentLoop({
+      orgId: "o1", userId: "u1", tenantClass: "commercial",
+      systemPrompt: "sys", initialPrompt: "list projects", conversationId: "c1",
+      onDelta: (t) => seen.push(t),
+    });
+
+    for (let i = 1; i < seen.length; i++) {
+      expect(seen[i].startsWith(seen[i - 1])).toBe(true);
+      expect(seen[i].length).toBeGreaterThan(seen[i - 1].length);
+    }
+    expect(seen.at(-1)).toBe("Let me look that up.\n\nYou have 2 projects.");
+    // `text` is still the final turn alone; `transcript` is what streamed.
+    expect(res.text).toBe("You have 2 projects.");
+    expect(res.transcript).toBe(seen.at(-1));
+  });
+
+  it("adds no separator when the tool turn streamed nothing", async () => {
+    runModelTurn
+      .mockImplementationOnce(streamingTurn([], [{ id: "tu1", name: "list_projects", input: {} }]))
+      .mockImplementationOnce(streamingTurn(["You have ", "2 projects."]));
+    executeTool.mockResolvedValue({ projects: [] });
+
+    const seen: string[] = [];
+    const { runAgentLoop } = await import("../agent-loop");
+    await runAgentLoop({
+      orgId: "o1", userId: "u1", tenantClass: "commercial",
+      systemPrompt: "sys", initialPrompt: "list projects", conversationId: "c1",
+      onDelta: (t) => seen.push(t),
+    });
+
+    expect(seen).toEqual(["You have ", "You have 2 projects."]);
+  });
+});
+
 // ── D5 gov-block, LAYER 1 at the AGENT LOOP (the model never SEES a commercial-only
 // tool) ─────────────────────────────────────────────────────────────────────────
 describe("runAgentLoop — D5 commercial-only tool-list filter", () => {
