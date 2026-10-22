@@ -338,6 +338,10 @@ export const RolePermissions = {
     Permission.TIME_CREATE,
     Permission.TIME_READ,
     Permission.TIME_UPDATE,
+    // Removing an entry is a VOID with a reason, and the route confines a
+    // non-admin to their own DRAFT entries. Without this bit a member's
+    // "Remove" ended in a 403 every time.
+    Permission.TIME_DELETE,
     Permission.MEETING_CREATE,
     Permission.MEETING_READ,
     Permission.MEETING_UPDATE,
