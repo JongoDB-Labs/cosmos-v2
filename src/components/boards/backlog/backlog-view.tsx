@@ -72,6 +72,7 @@ import type {
   OrgMember,
   Interval,
 } from "@/types/models";
+import { useProjectTeams } from "@/hooks/use-project-teams";
 
 interface BacklogViewProps {
   orgId: string;
@@ -194,6 +195,8 @@ export function BacklogView({
   // board. Layered on top of whatever the board itself already narrows.
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
   const projectStatuses = useProjectStatuses(orgId, projectId);
+  // The Team picker on the detail sheet (COSMOS-204).
+  const { data: detailTeams } = useProjectTeams(orgId, projectId);
   // Derived from the shared bar rather than a second piece of state that could
   // disagree with it. Only drives empty-state copy now.
   const assignedToMe = Boolean(
@@ -727,6 +730,7 @@ export function BacklogView({
         projectId={projectId}
         members={members}
         intervals={intervals}
+        teams={detailTeams}
         columns={columns}
         onUpdate={handleItemUpdate}
         onDelete={removeFromList}

@@ -55,6 +55,7 @@ import {
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import { entityUrl } from "@/lib/mentions/urls";
+import { useProjectTeams } from "@/hooks/use-project-teams";
 
 /** Best-effort human reason from a rejected bulk request — the server message
  *  carried by a jsonFetch FetchError, or a network error's own message. */
@@ -461,6 +462,8 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
       ),
     [detailRow, facets],
   );
+  // The Team picker on the detail sheet (COSMOS-204).
+  const { data: detailTeams } = useProjectTeams(orgId, detailRow?.project.id ?? "");
   const detailIntervals: Interval[] = useMemo(
     () =>
       (facets?.intervals ?? [])
@@ -1279,6 +1282,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         projectId={detailRow?.project.id ?? ""}
         members={detailMembers}
         intervals={detailIntervals}
+        teams={detailTeams}
         columns={detailColumns}
         onUpdate={(updated) => {
           setDetailItem(updated);

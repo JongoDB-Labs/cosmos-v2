@@ -27,6 +27,7 @@ const FIELD_LABELS: Record<string, string> = {
   assigneeId: "assignee",
   columnKey: "status",
   intervalId: "interval",
+  teamId: "team",
   workItemTypeId: "type",
   parentId: "parent",
   storyPoints: "story points",
@@ -44,6 +45,7 @@ export function activityFieldLabel(field: string): string {
 export interface ActivityValueResolvers {
   user?: (id: string) => string | undefined;
   interval?: (id: string) => string | undefined;
+  team?: (id: string) => string | undefined;
   type?: (id: string) => string | undefined;
   column?: (key: string) => string | undefined;
 }
@@ -68,6 +70,9 @@ export function activityValueLabel(
       break;
     case "intervalId":
       resolved = resolvers.interval?.(value);
+      break;
+    case "teamId":
+      resolved = resolvers.team?.(value);
       break;
     case "workItemTypeId":
       resolved = resolvers.type?.(value);

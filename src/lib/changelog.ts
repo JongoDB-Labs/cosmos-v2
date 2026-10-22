@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.435.0",
+    date: "2026-10-22",
+    title: "Give work to a team before anyone picks it up",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A work item can now belong to a team, separately from who it's assigned to, so a story can sit with a team before anyone on it picks it up. Set the team when you create an item or from its details; the board's team filter and lanes use it, falling back to the assignee's team when none is set. Deleting a team leaves its work in place.",
+      },
+    ],
+  },
+  {
     version: "2.434.0",
     date: "2026-10-22",
     title: "Stories and Features join a sprint or PI",

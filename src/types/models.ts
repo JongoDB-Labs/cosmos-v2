@@ -54,6 +54,8 @@ export interface WorkItem {
   assigneeId: string | null;
   priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   intervalId: string | null;
+  /** The team that owns this item, set apart from who it's assigned to. */
+  teamId?: string | null;
   parentId: string | null;
   ticketNumber: number;
   storyPoints: number | null;
