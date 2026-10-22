@@ -10,6 +10,12 @@ import { CANCELLED_COLUMN } from "@/lib/boards/default-columns";
  * each board that has a workflow (boards with no columns are left alone). Its
  * key never collides with an existing column's. `preferredKey` wins when it
  * already names one of the project's CANCELLED columns.
+ *
+ * This adds a status as a side effect of cancelling, so anyone who may edit an
+ * item can cause it, without board-manage rights. That is the intended lazy
+ * creation: the column is the representation of "cancelled", not a design
+ * choice about the board. Two first cancels racing in the same project pick the
+ * same key, so the second insert is skipped rather than failing.
  */
 export async function ensureCancelledColumn(
   tx: Prisma.TransactionClient,
@@ -42,6 +48,8 @@ export async function ensureCancelledColumn(
         category: CANCELLED_COLUMN.category,
         sortOrder: Math.max(-1, ...b.columns.map((c) => c.sortOrder)) + 1,
       })),
+      // A concurrent first cancel may have just added the same (boardId, key).
+      skipDuplicates: true,
     });
   }
   return key;

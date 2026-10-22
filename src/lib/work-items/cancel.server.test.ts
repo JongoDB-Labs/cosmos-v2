@@ -39,6 +39,8 @@ describe("ensureCancelledColumn", () => {
       expect.objectContaining({ where: { projectId: "p1", columns: { some: {} } } }),
     );
     expect(tx.boardColumn.createMany).toHaveBeenCalledWith({
+      // Two first cancels racing in one project insert the same key; the loser skips.
+      skipDuplicates: true,
       data: [
         expect.objectContaining({ boardId: "b1", key: "cancelled", name: "Cancelled", category: "CANCELLED", sortOrder: 5 }),
         expect.objectContaining({ boardId: "b2", key: "cancelled", name: "Cancelled", category: "CANCELLED", sortOrder: 3 }),
