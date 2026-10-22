@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.431.1",
+    date: "2026-10-22",
+    title: "One delete confirmation everywhere",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal tidy-up: deleting a work item from a card, its detail panel or a backlog row now uses one shared confirmation, so the wording and behaviour stay the same everywhere.",
+      },
+    ],
+  },
+  {
     version: "2.431.0",
     date: "2026-10-22",
     title: "Right-click a board to add an issue",
