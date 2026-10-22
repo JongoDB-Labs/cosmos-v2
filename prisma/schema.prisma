@@ -94,6 +94,15 @@ enum ColumnCategory {
   CANCELLED
 }
 
+/// Why a work item was cancelled (COSMOS-206). Duplicates are not cancelled:
+/// they are merged, so no tracked work is hidden.
+enum CancelReason {
+  /// Overcome by events: the need went away.
+  OBE
+  /// Anything else; the item's cancelNote says what.
+  OTHER
+}
+
 // SAFe work classification (FR gantt-enh). BUSINESS = main-effort work that
 // delivers user/customer value; ENABLER = work that clears the way for it
 // (architecture, infrastructure, compliance, exploration).
@@ -996,6 +1005,11 @@ model WorkItem {
   /// question asked when something turns out to have been archived wrongly, and
   /// null/non-null filters identically to a flag.
   archivedAt      DateTime?                   @map("archived_at")
+  /// Set when the item is cancelled with a reason (COSMOS-206), and cleared
+  /// when it moves out of a CANCELLED column. Null on a cancelled item means it
+  /// was dragged there without one.
+  cancelReason    CancelReason?               @map("cancel_reason")
+  cancelNote      String?                     @map("cancel_note")
   tags            String[]                    @default([])
   /// Hand-set callout colour for meetings ("on track" / "at risk" / "blocked"),
   /// painted as a coloured border on the item's card. See

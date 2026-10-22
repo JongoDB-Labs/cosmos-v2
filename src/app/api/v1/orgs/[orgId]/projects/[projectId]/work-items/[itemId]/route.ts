@@ -14,8 +14,10 @@ import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
 import { cascadeSchedule, type CascadedItem } from "@/lib/work-items/schedule-cascade-io";
 import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
+import { CANCEL_NOTE_MAX, cancelFieldsForUpdate, cancelInputError } from "@/lib/work-items/cancel";
+import { ensureCancelledColumn } from "@/lib/work-items/cancel.server";
 import { z } from "zod";
-import { Priority, Prisma, WorkCategory } from "@prisma/client";
+import { CancelReason, ColumnCategory, Priority, Prisma, WorkCategory } from "@prisma/client";
 
 const updateItemSchema = z.object({
   title: z.string().min(1).max(500).optional(),
@@ -58,6 +60,14 @@ const updateItemSchema = z.object({
   highlight: z.enum(WORK_ITEM_HIGHLIGHT_ORDER).nullable().optional(),
   tags: z.array(z.string()).optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),
+  // Cancel with a reason (COSMOS-206). Sending a reason IS the cancel: the item
+  // moves to the project's Cancelled status, which is created on first use.
+  // Moving the item to any other status clears both.
+  cancelReason: z.nativeEnum(CancelReason).optional(),
+  cancelNote: z.string().max(CANCEL_NOTE_MAX).nullish(),
+}).superRefine((d, ctx) => {
+  const err = d.cancelReason ? cancelInputError(d.cancelReason, d.cancelNote) : null;
+  if (err) ctx.addIssue({ code: "custom", path: ["cancelNote"], message: err });
 });
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; itemId: string }> };
@@ -124,6 +134,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const data = updateItemSchema.parse(body);
 
     const item = await prisma.$transaction(async (tx) => {
+      // A cancel names no column of its own: resolve (or create) the project's
+      // Cancelled status first, so everything below treats it as a column move.
+      if (data.cancelReason) {
+        data.columnKey = await ensureCancelledColumn(tx, projectId, data.columnKey);
+      }
       const trackFields: Array<{ field: string; oldVal: string | null; newVal: string | null }> = [];
 
       if (data.title !== undefined && data.title !== existing.title) {
@@ -212,6 +227,25 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           })
         : null;
       const doneColumn = destColumn ? isDonePhase(destColumn.category) : false;
+
+      // The reason belongs to the cancellation: recorded with it, and gone once
+      // the item is moved anywhere that isn't Cancelled.
+      const cancelFields = cancelFieldsForUpdate({
+        requested: { reason: data.cancelReason, note: data.cancelNote },
+        columnChanged,
+        destIsCancelled: destColumn?.category === ColumnCategory.CANCELLED,
+        existing: { reason: existing.cancelReason, note: existing.cancelNote },
+      });
+      if (cancelFields) {
+        Object.assign(updateData, cancelFields);
+        if (cancelFields.cancelReason !== existing.cancelReason) {
+          trackFields.push({
+            field: "cancelReason",
+            oldVal: existing.cancelReason,
+            newVal: cancelFields.cancelReason,
+          });
+        }
+      }
       // Actual End auto-capture (skipped when the request sets completedAt manually).
       if (data.completedAt === undefined) {
         if (doneColumn && !existing.completedAt) {

@@ -2,10 +2,11 @@ import { prisma } from "@/lib/db/client";
 import { firePluginProjectCreate } from "@/lib/plugins/enablement";
 import { visibleProjectIdsForActor } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
-import { IntervalKind, SprintStatus, type ColumnCategory, type Prisma } from "@prisma/client";
+import { IntervalKind, SprintStatus, type Prisma } from "@prisma/client";
 import { z } from "zod";
 import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
+import { DEFAULT_COLUMNS } from "@/lib/boards/default-columns";
 
 const listProjectsSchema = z.object({
   includeArchived: z.boolean().optional(),
@@ -194,15 +195,6 @@ export async function createInterval(
 }
 
 // ── create_project ────────────────────────────────────────────────────────
-// Default board columns for a project with no template (mirrors the POST route).
-const DEFAULT_COLUMNS: { name: string; key: string; color: string; sortOrder: number; category: ColumnCategory }[] = [
-  { name: "Backlog", key: "backlog", color: "#94a3b8", sortOrder: 0, category: "TODO" },
-  { name: "To Do", key: "todo", color: "#60a5fa", sortOrder: 1, category: "TODO" },
-  { name: "In Progress", key: "in-progress", color: "#fbbf24", sortOrder: 2, category: "IN_PROGRESS" },
-  { name: "Review", key: "review", color: "#a78bfa", sortOrder: 3, category: "IN_PROGRESS" },
-  { name: "Done", key: "done", color: "#34d399", sortOrder: 4, category: "DONE" },
-];
-
 const createProjectSchema = z.object({
   name: z.string().min(1).max(100),
   key: z
