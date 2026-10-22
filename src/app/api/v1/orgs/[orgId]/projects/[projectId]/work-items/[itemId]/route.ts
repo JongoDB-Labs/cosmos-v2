@@ -12,10 +12,18 @@ import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
+import { teamProjectError } from "@/lib/teams/item-team.server";
 import { cascadeSchedule, type CascadedItem } from "@/lib/work-items/schedule-cascade-io";
 import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
+import {
+  CANCEL_NOTE_MAX,
+  PICKABLE_CANCEL_REASONS,
+  cancelFieldsForUpdate,
+  cancelInputError,
+} from "@/lib/work-items/cancel";
+import { ensureCancelledColumn } from "@/lib/work-items/cancel.server";
 import { z } from "zod";
-import { Priority, Prisma, WorkCategory } from "@prisma/client";
+import { ColumnCategory, Priority, Prisma, WorkCategory } from "@prisma/client";
 
 const updateItemSchema = z.object({
   title: z.string().min(1).max(500).optional(),
@@ -28,6 +36,8 @@ const updateItemSchema = z.object({
   assigneeIds: z.array(z.string().uuid()).max(50).optional(),
   priority: z.nativeEnum(Priority).optional(),
   intervalId: z.string().uuid().nullable().optional(),
+  // COSMOS-204: the owning team, independent of the assignee. null clears it.
+  teamId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
   storyPoints: z.number().int().min(0).nullable().optional(),
   sortOrder: z.number().int().optional(),
@@ -58,6 +68,15 @@ const updateItemSchema = z.object({
   highlight: z.enum(WORK_ITEM_HIGHLIGHT_ORDER).nullable().optional(),
   tags: z.array(z.string()).optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),
+  // Cancel with a reason (COSMOS-206). Sending a reason IS the cancel: the item
+  // moves to the project's Cancelled status, which is created on first use.
+  // Moving the item to any other status clears both.
+  // MERGED is not accepted here: only a merge (COSMOS-207) sets it.
+  cancelReason: z.enum(PICKABLE_CANCEL_REASONS).optional(),
+  cancelNote: z.string().max(CANCEL_NOTE_MAX).nullish(),
+}).superRefine((d, ctx) => {
+  const err = d.cancelReason ? cancelInputError(d.cancelReason, d.cancelNote) : null;
+  if (err) ctx.addIssue({ code: "custom", path: ["cancelNote"], message: err });
 });
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; itemId: string }> };
@@ -123,7 +142,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = updateItemSchema.parse(body);
 
+    const teamError = await teamProjectError({ projectId, teamId: data.teamId });
+    if (teamError) return Response.json({ error: teamError }, { status: 400 });
+
     const item = await prisma.$transaction(async (tx) => {
+      // A cancel names no column of its own: resolve (or create) the project's
+      // Cancelled status first, so everything below treats it as a column move.
+      if (data.cancelReason) {
+        data.columnKey = await ensureCancelledColumn(tx, projectId, data.columnKey);
+      }
       const trackFields: Array<{ field: string; oldVal: string | null; newVal: string | null }> = [];
 
       if (data.title !== undefined && data.title !== existing.title) {
@@ -148,6 +175,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (data.intervalId !== undefined && data.intervalId !== existing.intervalId) {
         trackFields.push({ field: "intervalId", oldVal: existing.intervalId, newVal: data.intervalId });
       }
+      if (data.teamId !== undefined && data.teamId !== existing.teamId) {
+        trackFields.push({ field: "teamId", oldVal: existing.teamId, newVal: data.teamId });
+      }
       if (data.workItemTypeId !== undefined && data.workItemTypeId !== existing.workItemTypeId) {
         trackFields.push({ field: "workItemTypeId", oldVal: existing.workItemTypeId, newVal: data.workItemTypeId });
       }
@@ -166,6 +196,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (data.assigneeIds !== undefined) updateData.assigneeId = data.assigneeIds[0] ?? null;
       if (data.priority !== undefined) updateData.priority = data.priority;
       if (data.intervalId !== undefined) updateData.intervalId = data.intervalId;
+      if (data.teamId !== undefined) updateData.teamId = data.teamId;
       if (data.parentId !== undefined) updateData.parentId = data.parentId;
       if (data.storyPoints !== undefined) updateData.storyPoints = data.storyPoints;
       if (data.sortOrder !== undefined) updateData.sortOrder = data.sortOrder;
@@ -212,6 +243,27 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           })
         : null;
       const doneColumn = destColumn ? isDonePhase(destColumn.category) : false;
+
+      // The reason belongs to the cancellation: recorded with it, and gone once
+      // the item is moved anywhere that isn't Cancelled.
+      const cancelFields = cancelFieldsForUpdate({
+        requested: { reason: data.cancelReason, note: data.cancelNote },
+        columnChanged,
+        destIsCancelled: destColumn?.category === ColumnCategory.CANCELLED,
+        existing: { reason: existing.cancelReason, note: existing.cancelNote },
+      });
+      if (cancelFields) {
+        Object.assign(updateData, cancelFields);
+        // Reopening a merged item un-merges it; its moved work stays moved.
+        if (cancelFields.cancelReason === null && existing.mergedIntoId) updateData.mergedIntoId = null;
+        if (cancelFields.cancelReason !== existing.cancelReason) {
+          trackFields.push({
+            field: "cancelReason",
+            oldVal: existing.cancelReason,
+            newVal: cancelFields.cancelReason,
+          });
+        }
+      }
       // Actual End auto-capture (skipped when the request sets completedAt manually).
       if (data.completedAt === undefined) {
         if (doneColumn && !existing.completedAt) {

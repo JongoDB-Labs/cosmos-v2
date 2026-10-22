@@ -19,6 +19,7 @@ import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import { selectableTypes, typesForSector, useWorkItemTypes } from "@/hooks/use-work-item-types";
+import { INTERVAL_REQUIRED_MESSAGE, requiresInterval } from "@/lib/work-items/interval-required";
 import {
   CustomFieldInput,
   isCustomFieldEmpty,
@@ -84,6 +85,7 @@ interface DuplicateSourceItem {
   assigneeId: string | null;
   assignees?: { userId: string }[];
   intervalId: string | null;
+  teamId?: string | null;
   storyPoints: number | null;
   startDate: string | null;
   dueDate: string | null;
@@ -172,6 +174,10 @@ export function CreateWorkItemDialog({
   // the field editable on the detail sheet after creation (COSMOS-64).
   const [intervalId, setIntervalId] = useState<string | null>(null);
   const [intervals, setIntervals] = useState<Interval[]>([]);
+  // The owning team (COSMOS-204): a story can be handed to a team before anyone
+  // on it is assigned. Project-scoped, like the interval.
+  const [teamId, setTeamId] = useState<string | null>(null);
+  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
   const [description, setDescription] = useState("");
   // COSMOS-208: the description is written in three prompted sections by
   // default, or as plain text. Either way it's stored as one markdown string.
@@ -216,6 +222,12 @@ export function CreateWorkItemDialog({
     [allTypes, selectedSector],
   );
 
+  // COSMOS-205: a Story or Feature must join an interval when the project
+  // plans in them. The server enforces the same rule.
+  const selectedTypeKey = workItemTypes.find((t) => t.id === workItemTypeId)?.key;
+  const intervalRequired = intervals.length > 0 && requiresInterval(selectedTypeKey);
+  const intervalMissing = intervalRequired && !intervalId;
+
   // Assignee rows: alphabetical by displayed name, narrowed by the search box
   // (matches name OR email) — COSMOS-171.
   const memberOptions = useMemo(() => memberPickerOptions(members), [members]);
@@ -242,6 +254,7 @@ export function CreateWorkItemDialog({
       setStartDate(initialStartDate ?? "");
       setDueDate(initialDueDate ?? "");
       setIntervalId(null);
+      setTeamId(null);
       setDescription("");
       setSections(EMPTY_SECTIONS);
       setLabels(initialLabelsText);
@@ -353,6 +366,26 @@ export function CreateWorkItemDialog({
     };
   }, [open, orgId, projectId]);
 
+  // And its teams (COSMOS-204), the same way: a project with none, or a failed
+  // read, just leaves the Team picker hidden.
+  useEffect(() => {
+    if (!open || !projectId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await jsonFetch<{ id: string; name: string }[]>(
+          `/api/v1/orgs/${orgId}/projects/${projectId}/teams`,
+        );
+        if (!cancelled) setTeams(Array.isArray(data) ? data : []);
+      } catch {
+        if (!cancelled) setTeams([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, orgId, projectId]);
+
   // Duplicate mode (COSMOS-13): when opened to duplicate an existing issue, fetch
   // the source and pre-fill every core field so the user edits a DRAFT and then
   // creates a brand-new issue. This runs after the reset effect above (which
@@ -386,6 +419,7 @@ export function CreateWorkItemDialog({
         setDueDate(src.dueDate ? src.dueDate.slice(0, 10) : "");
         setStartDate(src.startDate ? src.startDate.slice(0, 10) : "");
         setIntervalId(src.intervalId ?? null);
+        setTeamId(src.teamId ?? null);
         setDescription(src.description ?? "");
         setSections(parseDescription(src.description ?? ""));
         setLabels((src.tags ?? []).join(", "));
@@ -486,6 +520,7 @@ export function CreateWorkItemDialog({
           priority,
           ...(assigneeIds.length ? { assigneeIds } : {}),
           ...(intervalId ? { intervalId } : {}),
+          ...(teamId ? { teamId } : {}),
           description:
             (descMode === "template" ? composeDescription(sections) : description).trim() || null,
           startDate: startDate ? new Date(startDate).toISOString() : null,
@@ -549,6 +584,7 @@ export function CreateWorkItemDialog({
                   // never submit an interval from a different project (COSMOS-64).
                   setProjectId(e.target.value);
                   setIntervalId(null);
+                  setTeamId(null);
                 }}
                 className={fieldClass}
                 disabled={submitting || !!prefilledProjectId}
@@ -563,6 +599,7 @@ export function CreateWorkItemDialog({
             <div className="space-y-1">
               <Label className="text-xs">Type</Label>
               <select
+                aria-label="Type"
                 value={workItemTypeId}
                 onChange={(e) => setWorkItemTypeId(e.target.value)}
                 className={fieldClass}
@@ -701,18 +738,49 @@ export function CreateWorkItemDialog({
                 the picker on the detail sheet post-creation (COSMOS-64). */}
             {intervals.length > 0 && (
               <div className="space-y-1">
-                <Label className="text-xs">Interval</Label>
+                <Label className="text-xs" htmlFor="create-interval">
+                  Interval{intervalRequired && " *"}
+                </Label>
                 <select
+                  id="create-interval"
                   aria-label="Interval"
+                  aria-required={intervalRequired || undefined}
+                  aria-invalid={intervalMissing || undefined}
+                  aria-describedby={intervalMissing ? "create-interval-hint" : undefined}
                   value={intervalId ?? ""}
                   onChange={(e) => setIntervalId(e.target.value || null)}
                   className={fieldClass}
                   disabled={submitting}
                 >
-                  <option value="">No interval</option>
+                  <option value="">{intervalRequired ? "Choose an interval…" : "No interval"}</option>
                   {intervals.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
+                    </option>
+                  ))}
+                </select>
+                {intervalMissing && (
+                  <p id="create-interval-hint" className="text-[11px] text-[var(--text-muted)]">
+                    {INTERVAL_REQUIRED_MESSAGE}
+                  </p>
+                )}
+              </div>
+            )}
+            {/* Team — who owns the work, separate from who is assigned to it. */}
+            {teams.length > 0 && (
+              <div className="space-y-1">
+                <Label className="text-xs">Team</Label>
+                <select
+                  aria-label="Team"
+                  value={teamId ?? ""}
+                  onChange={(e) => setTeamId(e.target.value || null)}
+                  className={fieldClass}
+                  disabled={submitting}
+                >
+                  <option value="">No team</option>
+                  {teams.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
                     </option>
                   ))}
                 </select>
@@ -845,7 +913,7 @@ export function CreateWorkItemDialog({
               // work-item type: the board quick-create paths must not block on
               // the async types fetch, and handleSubmit falls back to a bare
               // "TASK" when none is chosen (COSMOS-86).
-              disabled={!title.trim() || !projectId || !startDate || !dueDate || submitting}
+              disabled={!title.trim() || !projectId || !startDate || !dueDate || intervalMissing || submitting}
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create issue"}
             </Button>

@@ -49,6 +49,61 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.438.0",
+    date: "2026-10-22",
+    title: "Merge duplicate tickets",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When two tickets turn out to be the same work, merge the duplicate into the one you keep. The kept ticket keeps everything it already has and fills its empty fields from the duplicate; comments, time entries, sub-items, attachments, links and watchers all move across, so nothing is lost. The duplicate stays as Cancelled (Merged) with a link to where the work went, so old links still make sense.",
+      },
+    ],
+  },
+  {
+    version: "2.437.0",
+    date: "2026-10-22",
+    title: "Cancel work with a reason",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Work that's no longer needed can now be cancelled instead of deleted or marked done: pick Overcome by events, or Other with a short note. Cancelled is its own status, so abandoned work is never counted as delivered, and the reason is shown on the item and in its history. Projects that don't have a Cancelled status get one the first time something is cancelled; new projects include it.",
+      },
+    ],
+  },
+  {
+    version: "2.436.0",
+    date: "2026-10-22",
+    title: "See whether automatic updates are working",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Admin > Updates now shows whether automatic installs are actually happening: up to date, installed, waiting for you, a new version on its way, or failing and why, with when the installer last checked in. If the installer goes quiet, the page says so. The registry Cosmos checks for new versions can also be set on the page: repository, tag suffix and login, with the password stored encrypted and never shown again. Settings are tested before they're saved, and anything left blank falls back to the server's configuration.",
+      },
+    ],
+  },
+  {
+    version: "2.435.0",
+    date: "2026-10-22",
+    title: "Give work to a team before anyone picks it up",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A work item can now belong to a team, separately from who it's assigned to, so a story can sit with a team before anyone on it picks it up. Set the team when you create an item or from its details; the board's team filter and lanes use it, falling back to the assignee's team when none is set. Deleting a team leaves its work in place.",
+      },
+    ],
+  },
+  {
+    version: "2.434.0",
+    date: "2026-10-22",
+    title: "Stories and Features join a sprint or PI",
+    highlights: [
+      {
+        kind: "feature",
+        text: "In a project that plans in sprints or Program Increments, a Story or Feature now needs an interval before it can be created, so none fall out of the sprint and PI views unnoticed. The create form marks the Interval as required and explains why; the assistant follows the same rule. Other types, and projects without intervals, are unchanged.",
+      },
+    ],
+  },
+  {
     version: "2.433.0",
     date: "2026-10-22",
     title: "Write a ticket in three prompted sections",

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { handleApiError } from "@/lib/api-helpers";
 import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
-import { checkForUpdates, updateConfigFromEnv } from "@/lib/updates/check";
+import { checkForUpdates, resolveUpdateConfig } from "@/lib/updates/check";
 import { listTags, resolveDigest } from "@/lib/updates/registry";
 import { fetchReleaseNotes } from "@/lib/updates/notes";
 import { decideDeploy, refusalStatus, UNIQUE_VIOLATION } from "@/lib/updates/deploy-request";
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     // screen can be minutes old; images can be deleted and registries can go
     // down while a tab sits open. Deciding from what the browser happened to be
     // holding is how you deploy a version whose images no longer exist.
-    const check = await checkForUpdates(CURRENT_VERSION, updateConfigFromEnv(), checkDeps());
+    const check = await checkForUpdates(CURRENT_VERSION, await resolveUpdateConfig(), checkDeps());
     const decision = decideDeploy(parsed.data.version, check);
     if (!decision.ok) {
       return NextResponse.json({ error: decision.detail, reason: decision.reason }, { status: refusalStatus(decision.reason) });

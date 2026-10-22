@@ -544,10 +544,10 @@ function KanbanBoardInner({
           label: memberName(item.assigneeId) ?? "Unassigned",
         };
       case "team":
-        // One lane per card: the assignee's alphabetically-first team. See
-        // lib/teams/item-teams for why filtering may match several but a lane
-        // cannot.
-        return teamLaneFor(item.assigneeId, teamsByUserId);
+        // One lane per card: the item's own team, else the assignee's
+        // alphabetically-first one. See lib/teams/item-teams for why filtering
+        // may match several but a lane cannot.
+        return teamLaneFor(item, teamsByUserId, teams);
       case "priority":
         return { id: item.priority, label: titleCase(item.priority) };
       case "type": {
@@ -1311,8 +1311,10 @@ function KanbanBoardInner({
         projectId={projectId}
         members={members}
         intervals={intervals}
+        teams={teams}
         columns={columns}
         onUpdate={handleItemUpdate}
+        onStatusesChanged={() => void fetchData({ silent: true, fresh: true })}
         onDelete={handleItemDeleted}
         onDuplicate={handleItemDuplicated}
         projectItems={items}

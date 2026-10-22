@@ -15,6 +15,7 @@ import type {
   OrgMember,
   WorkItem,
 } from "@/types/models";
+import { useProjectTeams } from "@/hooks/use-project-teams";
 
 interface BoardItemDetailSheetProps {
   /** The clicked item. `null` closes the sheet. */
@@ -55,6 +56,8 @@ export function BoardItemDetailSheet({
   const qc = useQueryClient();
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
   const staleTime = 30_000;
+  // The Team picker on the detail sheet (COSMOS-204).
+  const { data: detailTeams } = useProjectTeams(orgId, projectId);
 
   const itemKey = useOrgQueryKey("work-item", itemId);
   const itemsKey = useOrgQueryKey("work-items", projectId);
@@ -150,6 +153,7 @@ export function BoardItemDetailSheet({
       projectId={projectId}
       members={(membersQ.data as OrgMember[] | undefined) ?? []}
       intervals={(intervalsQ.data as Interval[] | undefined) ?? []}
+      teams={detailTeams}
       columns={columns}
       // `undefined`, not `[]`, whenever the host board's own columns should be
       // used — the sheet reads `statusColumns ?? columns`, so an empty array

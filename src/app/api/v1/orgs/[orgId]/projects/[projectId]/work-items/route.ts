@@ -9,6 +9,8 @@ import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
+import { teamProjectError } from "@/lib/teams/item-team.server";
+import { intervalRequirementError } from "@/lib/work-items/interval-required.server";
 import {
   allocateTicketNumber,
   allocateSortOrder,
@@ -28,6 +30,8 @@ const createItemSchema = z.object({
   assigneeIds: z.array(z.string().uuid()).max(50).optional(),
   priority: z.nativeEnum(Priority).default(Priority.MEDIUM),
   intervalId: z.string().uuid().nullable().optional(),
+  // COSMOS-204: the owning team, independent of the assignee.
+  teamId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
   storyPoints: z.number().int().min(0).nullable().optional(),
   dueDate: z.string().datetime().nullable().optional(),
@@ -184,6 +188,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    const teamError = await teamProjectError({ projectId, teamId: data.teamId });
+    if (teamError) return NextResponse.json({ error: teamError }, { status: 400 });
+
+    // A Story or Feature needs an interval in a project that has any (COSMOS-205).
+    const needsInterval = await intervalRequirementError({
+      projectId,
+      workItemTypeId: resolvedTypeId!,
+      intervalId: data.intervalId,
+    });
+    if (needsInterval) {
+      return NextResponse.json({ error: needsInterval }, { status: 400 });
+    }
+
     const item = await prisma.$transaction(async (tx) => {
       const ticketNumber = await allocateTicketNumber(tx, { orgId, projectId });
       const sortOrder = await allocateSortOrder(tx, {
@@ -211,6 +228,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           },
           priority: data.priority,
           intervalId: data.intervalId ?? null,
+          teamId: data.teamId ?? null,
           parentId: data.parentId ?? null,
           ticketNumber,
           storyPoints: data.storyPoints ?? null,

@@ -10,6 +10,7 @@ import { revalidateOrgProjects } from "@/lib/cache/queries";
 import { getEntitlements, isSectorEnabled } from "@/lib/entitlements";
 import { seedSectorFields } from "@/lib/custom-fields/seed-sector-fields";
 import { z } from "zod";
+import { DEFAULT_COLUMNS } from "@/lib/boards/default-columns";
 
 const createProjectSchema = z.object({
   name: z.string().min(1).max(100),
@@ -20,14 +21,6 @@ const createProjectSchema = z.object({
 });
 
 type RouteParams = { params: Promise<{ orgId: string }> };
-
-const DEFAULT_COLUMNS = [
-  { name: "Backlog", key: "backlog", color: "#94a3b8", sortOrder: 0, category: "TODO" as const },
-  { name: "To Do", key: "todo", color: "#60a5fa", sortOrder: 1, category: "TODO" as const },
-  { name: "In Progress", key: "in-progress", color: "#fbbf24", sortOrder: 2, category: "IN_PROGRESS" as const },
-  { name: "Review", key: "review", color: "#a78bfa", sortOrder: 3, category: "IN_PROGRESS" as const },
-  { name: "Done", key: "done", color: "#34d399", sortOrder: 4, category: "DONE" as const },
-];
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
