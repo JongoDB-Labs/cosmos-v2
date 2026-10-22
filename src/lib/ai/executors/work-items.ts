@@ -12,6 +12,7 @@ import { z } from "zod";
 import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 import { allocateTicketNumber, allocateSortOrder } from "@/lib/work-items/allocate";
+import { intervalRequirementError } from "@/lib/work-items/interval-required.server";
 
 // ─── Schemas ─────────────────────────────────────────────────────────────
 
@@ -245,6 +246,15 @@ export async function createWorkItem(
       return { error: `No work item type found for "${data.type ?? "task"}"` };
     }
   }
+
+  // Same rule as the create API (COSMOS-205): the model gets the reason back
+  // and can ask which sprint or PI the story belongs in.
+  const needsInterval = await intervalRequirementError({
+    projectId: data.projectId,
+    workItemTypeId: resolvedTypeId,
+    intervalId: data.intervalId,
+  });
+  if (needsInterval) return { error: needsInterval };
 
   const columnKey = data.columnKey ?? "todo";
 
