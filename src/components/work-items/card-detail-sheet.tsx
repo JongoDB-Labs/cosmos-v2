@@ -28,7 +28,8 @@ import {
 } from "@/components/ui/dialog";
 import { DeleteWorkItemDialog } from "./delete-work-item-dialog";
 import { CancelWorkItemDialog } from "./cancel-work-item-dialog";
-import { cancelReasonLabel, type CancelReason } from "@/lib/work-items/cancel";
+import { MergeWorkItemDialog } from "./merge-work-item-dialog";
+import { cancelReasonLabel, type PickableCancelReason } from "@/lib/work-items/cancel";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -80,6 +81,7 @@ import {
   Link2,
   Archive,
   Ban,
+  Merge,
   ArchiveRestore,
   X,
 } from "lucide-react";
@@ -134,7 +136,8 @@ interface CardDetailSheetProps {
   /**
    * A cancel can ADD a status: the project's first one creates the Cancelled
    * column (COSMOS-206). Views that hold their own copy of the columns reload
-   * them here so the card has somewhere to show.
+   * them here so the card has somewhere to show. A merge (COSMOS-207) calls it
+   * too, since it moves sub-items and links between other cards.
    */
   onStatusesChanged?: () => void;
   /** Remove the item from the parent's local state after a successful delete. */
@@ -240,6 +243,9 @@ export function CardDetailSheet({
   // COSMOS-206: the cancel-with-a-reason dialog, and its save in flight.
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelPending, setCancelPending] = useState(false);
+  // COSMOS-207: merge this item into the one that survives.
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergePending, setMergePending] = useState(false);
   const orgSlug = useOrgSlug();
 
   const [tab, setTab] = useState<"comments" | "activity">("comments");
@@ -1055,7 +1061,34 @@ export function CardDetailSheet({
       (c) => c.key === columnKey && c.category === "CANCELLED",
     );
 
-  async function submitCancel(reason: CancelReason, note: string) {
+  async function submitMerge(intoId: string) {
+    if (!item) return;
+    setMergePending(true);
+    try {
+      const res = await fetch(`${basePath}/${item.id}/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ intoId }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Failed to merge");
+      }
+      const { merged, into } = (await res.json()) as { merged: WorkItem; into: WorkItem };
+      setColumnKey(merged.columnKey);
+      onUpdate(into);
+      onUpdate(merged);
+      setMergeOpen(false);
+      toast.success(`Merged into #${into.ticketNumber}`);
+      onStatusesChanged?.();
+    } catch (err) {
+      notifyError(err, "Couldn't merge it.");
+    } finally {
+      setMergePending(false);
+    }
+  }
+
+  async function submitCancel(reason: PickableCancelReason, note: string) {
     if (!item) return;
     setCancelPending(true);
     try {
@@ -1081,6 +1114,10 @@ export function CardDetailSheet({
   // direct children (a shallow guard against the most obvious parent/child
   // interval; the server still owns deeper integrity).
   const childIds = new Set(children.map((c) => c.id));
+  // Merge targets: open items in the project other than this one.
+  const mergeCandidates = (projectItems ?? []).filter(
+    (p) => p.id !== item.id && !p.cancelReason && !p.mergedIntoId,
+  );
   const parentCandidates = (projectItems ?? []).filter(
     (p) => p.id !== item.id && !childIds.has(p.id),
   );
@@ -1201,6 +1238,18 @@ export function CardDetailSheet({
                     Mark cancelled
                   </Button>
                 )}
+                {canEditItem && !isCancelled && mergeCandidates.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 text-muted-foreground"
+                    onClick={() => setMergeOpen(true)}
+                    disabled={actionPending !== null}
+                  >
+                    <Merge className="h-3.5 w-3.5" />
+                    Merge into…
+                  </Button>
+                )}
                 {canDuplicate && (
                   <Button
                     variant="ghost"
@@ -1251,7 +1300,14 @@ export function CardDetailSheet({
                   <p className="whitespace-pre-wrap text-muted-foreground">{item.cancelNote}</p>
                 )}
               </div>
-              {canEditItem && (
+              {item?.cancelReason === "MERGED" ? (
+                item.mergedIntoId &&
+                onOpenItem && (
+                  <Button variant="ghost" size="sm" onClick={() => onOpenItem(item.mergedIntoId!)}>
+                    Open it
+                  </Button>
+                )
+              ) : canEditItem && (
                 <Button variant="ghost" size="sm" onClick={() => setCancelOpen(true)}>
                   {item?.cancelReason ? "Edit reason" : "Add reason"}
                 </Button>
@@ -2106,7 +2162,21 @@ export function CardDetailSheet({
                     <span className="font-medium text-foreground">
                       {a.action}
                     </span>
-                    {a.field && (
+                    {/* COSMOS-207: a merge reads as a sentence, not a field change. */}
+                    {a.action === "merged" ? (
+                      <>
+                        {" "}
+                        {a.field === "mergedFrom" ? (
+                          <>
+                            <span className="font-medium">{a.newValue}</span> into this
+                          </>
+                        ) : (
+                          <>
+                            this into <span className="font-medium">{a.newValue}</span>
+                          </>
+                        )}
+                      </>
+                    ) : a.field && (
                       <>
                         {" "}
                         changed{" "}
@@ -2144,12 +2214,21 @@ export function CardDetailSheet({
         </div>
       </SheetContent>
 
+      <MergeWorkItemDialog
+        open={mergeOpen}
+        onClose={() => setMergeOpen(false)}
+        onConfirm={(intoId) => void submitMerge(intoId)}
+        pending={mergePending}
+        sourceLabel={`#${item.ticketNumber}`}
+        candidates={mergeCandidates}
+      />
+
       <CancelWorkItemDialog
         open={cancelOpen}
         onClose={() => setCancelOpen(false)}
         onConfirm={(reason, note) => void submitCancel(reason, note)}
         pending={cancelPending}
-        initialReason={item?.cancelReason ?? null}
+        initialReason={item?.cancelReason === "MERGED" ? null : (item?.cancelReason ?? null)}
         initialNote={item?.cancelNote ?? null}
       />
 

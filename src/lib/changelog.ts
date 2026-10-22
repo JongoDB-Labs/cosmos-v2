@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.438.0",
+    date: "2026-10-22",
+    title: "Merge duplicate tickets",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When two tickets turn out to be the same work, merge the duplicate into the one you keep. The kept ticket keeps everything it already has and fills its empty fields from the duplicate; comments, time entries, sub-items, attachments, links and watchers all move across, so nothing is lost. The duplicate stays as Cancelled (Merged) with a link to where the work went, so old links still make sense.",
+      },
+    ],
+  },
+  {
     version: "2.437.0",
     date: "2026-10-22",
     title: "Cancel work with a reason",

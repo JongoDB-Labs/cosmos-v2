@@ -33,6 +33,10 @@ const EXEMPT: Record<string, string> = {
   "src/app/api/v1/orgs/[orgId]/time-entries/[entryId]/revisions/route.ts":
     "The audit trail must remain readable for a VOIDED entry — the void is the " +
     "most important event in it. Hiding it would defeat the purpose.",
+  "src/lib/work-items/merge.server.ts":
+    "Merging a duplicate (COSMOS-207) MOVES its time entries to the surviving " +
+    "item, voided ones included: it re-points history rather than counting hours, " +
+    "and leaving the voids behind would split an entry's trail across two tickets.",
 };
 
 function walk(dir: string): string[] {

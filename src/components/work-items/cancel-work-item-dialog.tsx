@@ -16,7 +16,7 @@ import {
   CANCEL_NOTE_MAX,
   CANCEL_REASONS,
   cancelInputError,
-  type CancelReason,
+  type PickableCancelReason,
 } from "@/lib/work-items/cancel";
 
 /**
@@ -34,9 +34,9 @@ export function CancelWorkItemDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  onConfirm: (reason: CancelReason, note: string) => void;
+  onConfirm: (reason: PickableCancelReason, note: string) => void;
   pending: boolean;
-  initialReason?: CancelReason | null;
+  initialReason?: PickableCancelReason | null;
   initialNote?: string | null;
 }) {
   return (
@@ -70,13 +70,13 @@ function CancelForm({
   editing,
 }: {
   onClose: () => void;
-  onConfirm: (reason: CancelReason, note: string) => void;
+  onConfirm: (reason: PickableCancelReason, note: string) => void;
   pending: boolean;
-  initialReason: CancelReason;
+  initialReason: PickableCancelReason;
   initialNote: string;
   editing: boolean;
 }) {
-  const [reason, setReason] = useState<CancelReason>(initialReason);
+  const [reason, setReason] = useState<PickableCancelReason>(initialReason);
   const [note, setNote] = useState(initialNote);
   const error = cancelInputError(reason, note);
 

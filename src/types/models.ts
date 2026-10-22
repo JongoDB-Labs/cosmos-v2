@@ -80,8 +80,10 @@ export interface WorkItem {
   /** Archived (out of the way, not deleted); null when active. */
   archivedAt?: string | null;
   /** Why it was cancelled (COSMOS-206); null when not cancelled with a reason. */
-  cancelReason?: "OBE" | "OTHER" | null;
+  cancelReason?: "OBE" | "OTHER" | "MERGED" | null;
   cancelNote?: string | null;
+  /** Set when this item was merged into another (COSMOS-207). */
+  mergedIntoId?: string | null;
   customFields: Record<string, unknown>;
   createdById: string;
   createdAt: string;
