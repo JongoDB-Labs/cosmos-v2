@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.428.0",
+    date: "2026-10-22",
+    title: "Export your time entries",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Time Tracking can now export the entries you're viewing to a spreadsheet: date, hours, project, CLIN, description, billable and status, with names rather than internal ids.",
+      },
+    ],
+  },
+  {
     version: "2.427.10",
     date: "2026-10-22",
     title: "The assistant can find an epic's child tickets",
