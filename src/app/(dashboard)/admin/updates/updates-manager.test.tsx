@@ -11,7 +11,7 @@
 // while loading and NOTHING forever if the query rejects. A panel that is blank
 // on error is indistinguishable from one that is blank because it never ran.
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { UpdatesManager } from "./updates-manager";
 
@@ -360,5 +360,192 @@ describe("UpdatesManager — the update-mode switch survives the check's own sta
     renderPanel();
     const manual = await screen.findByRole("button", { name: "Manual" });
     await waitFor(() => expect(manual.getAttribute("aria-pressed")).toBe("true"));
+  });
+});
+
+// The switch says what SHOULD happen; this pins that the page also says what
+// the installer last reported DID happen. Prod sat on 2.427.0 under a switch
+// reading "Automatic" with 2.431.1 available, and the only explanation was a log
+// file on the host.
+describe("UpdatesManager — what the automatic installer last reported", () => {
+  const REGISTRY = {
+    imageRepo: { value: "registry.example.com/cosmos/assembly/alpha", source: "env", envValue: "registry.example.com/cosmos/assembly/alpha" },
+    tagSuffix: { value: "alpha", source: "default", envValue: null },
+    username: { value: "deploy", source: "settings", envValue: "env-user" },
+    password: { set: true, source: "settings", envSet: true },
+  };
+
+  function stubSettings(settings: Record<string, unknown>, onPut?: (body: unknown) => Response) {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        const u = String(url);
+        calls.push({ url: u, init });
+        if (u.includes("/settings")) {
+          if (init?.method === "PUT") {
+            return onPut ? onPut(JSON.parse(String(init.body))) : new Response(JSON.stringify(settings), { status: 200 });
+          }
+          return new Response(JSON.stringify({ autoUpdate: true, updatedAt: null, ...settings }), { status: 200 });
+        }
+        if (u.includes("/deploy")) return new Response(JSON.stringify({ latest: null }), { status: 200 });
+        return new Promise<Response>(() => {}); // the version check is irrelevant here
+      }),
+    );
+    return calls;
+  }
+
+  it("shows a FAILING installer as an error, with its message, under the switch", async () => {
+    stubSettings({
+      reconcile: {
+        outcome: "failing",
+        message: "pull access denied",
+        latestReleased: "2.431.1",
+        runningVersion: "2.427.0",
+        source: "registry.example.com/cosmos/assembly/alpha",
+        checkedAt: "2026-10-22T11:59:00.000Z",
+        failingSince: "2026-10-22T09:00:00.000Z",
+      },
+      reconcileHealth: {
+        tone: "error",
+        headline: "Installing 2.431.1 is failing",
+        detail: "pull access denied — failing since Oct 22, 2026, 9:00 AM UTC (3 hours ago).",
+      },
+      registry: REGISTRY,
+    });
+    renderPanel();
+    const headline = await screen.findByText("Installing 2.431.1 is failing");
+    const line = headline.closest("[data-testid='installer-health']") as HTMLElement;
+    expect(line.getAttribute("data-tone")).toBe("error");
+    expect(headline.className).toMatch(/text-red-600/);
+    expect(line.textContent).toMatch(/failing since Oct 22, 2026/);
+    expect(line.textContent).toMatch(/Last checked/);
+    expect(line.textContent).toMatch(/looking in registry\.example\.com\/cosmos\/assembly\/alpha/);
+    // It lives in the "How updates are installed" card, next to the switch.
+    expect(screen.getByRole("button", { name: "Automatic" }).closest(".rounded-lg")?.contains(line)).toBe(true);
+  });
+
+  it("says the installer has not reported yet — muted, not 'Last checked'", async () => {
+    stubSettings({
+      reconcile: null,
+      reconcileHealth: {
+        tone: "muted",
+        headline: "The automatic installer hasn't reported in yet",
+        detail: "If this instance relies on Foreman to install updates, Foreman may not be running on the host.",
+      },
+      registry: REGISTRY,
+    });
+    renderPanel();
+    const headline = await screen.findByText("The automatic installer hasn't reported in yet");
+    const line = headline.closest("[data-testid='installer-health']") as HTMLElement;
+    expect(line.getAttribute("data-tone")).toBe("muted");
+    expect(line.textContent).not.toMatch(/Last checked/);
+  });
+});
+
+describe("UpdatesManager — registry settings", () => {
+  const REGISTRY = {
+    imageRepo: { value: "registry.example.com/cosmos/assembly/alpha", source: "env", envValue: "registry.example.com/cosmos/assembly/alpha" },
+    tagSuffix: { value: "alpha", source: "default", envValue: null },
+    username: { value: "deploy", source: "settings", envValue: "env-user" },
+    password: { set: true, source: "settings", envSet: true },
+  };
+
+  function stub(onPut?: (body: unknown) => Response) {
+    const puts: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        const u = String(url);
+        if (u.includes("/settings")) {
+          if (init?.method === "PUT") {
+            const body = JSON.parse(String(init.body));
+            puts.push(body);
+            if (onPut) return onPut(body);
+          }
+          return new Response(JSON.stringify({ autoUpdate: true, updatedAt: null, reconcile: null, registry: REGISTRY }), { status: 200 });
+        }
+        if (u.includes("/deploy")) return new Response(JSON.stringify({ latest: null }), { status: 200 });
+        return new Promise<Response>(() => {});
+      }),
+    );
+    return puts;
+  }
+
+  function fieldBlock(label: string) {
+    return screen.getByLabelText(label).closest(".space-y-1") as HTMLElement;
+  }
+
+  it("shows where each value comes from", async () => {
+    stub();
+    renderPanel();
+    await screen.findByLabelText("Image repository");
+    expect(fieldBlock("Image repository").textContent).toMatch(/From environment/);
+    expect(fieldBlock("Tag suffix").textContent).toMatch(/Derived from the repository/);
+    expect(fieldBlock("Username").textContent).toMatch(/Set here/);
+    expect(fieldBlock("Username").textContent).toMatch(/Environment: env-user/);
+    expect(fieldBlock("Password").textContent).toMatch(/Saved/);
+  });
+
+  it("shows an environment value as a placeholder, not as a saved value", async () => {
+    stub();
+    renderPanel();
+    const repo = (await screen.findByLabelText("Image repository")) as HTMLInputElement;
+    expect(repo.value).toBe("");
+    expect(repo.placeholder).toBe("registry.example.com/cosmos/assembly/alpha");
+    expect((screen.getByLabelText("Username") as HTMLInputElement).value).toBe("deploy");
+  });
+
+  it("never pre-fills the password", async () => {
+    stub();
+    renderPanel();
+    const pw = (await screen.findByLabelText("Password")) as HTMLInputElement;
+    expect(pw.type).toBe("password");
+    expect(pw.value).toBe("");
+  });
+
+  it("offers 'Use environment value' only for values set here", async () => {
+    stub();
+    renderPanel();
+    await screen.findByLabelText("Image repository");
+    expect(within(fieldBlock("Image repository")).queryByRole("button", { name: "Use environment value" })).toBeNull();
+    expect(within(fieldBlock("Username")).getByRole("button", { name: "Use environment value" })).toBeTruthy();
+  });
+
+  it("'Use environment value' on the password sends clearPassword", async () => {
+    const puts = stub();
+    renderPanel();
+    await screen.findByLabelText("Password");
+    fireEvent.click(within(fieldBlock("Password")).getByRole("button", { name: "Use environment value" }));
+    await waitFor(() => expect(puts).toEqual([{ registry: { clearPassword: true } }]));
+  });
+
+  it("Save sends only the fields that were edited", async () => {
+    const puts = stub();
+    renderPanel();
+    const repo = await screen.findByLabelText("Image repository");
+    fireEvent.change(repo, { target: { value: "registry.new.example.com/cosmos/app" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(puts).toEqual([{ registry: { imageRepo: "registry.new.example.com/cosmos/app" } }]),
+    );
+  });
+
+  it("shows the server's refusal when the registry probe fails", async () => {
+    stub(() =>
+      new Response(JSON.stringify({ error: "Could not list versions in registry.new.example.com/cosmos/app with these settings (registry listing failed: HTTP 401). Nothing was saved." }), { status: 400 }),
+    );
+    renderPanel();
+    fireEvent.change(await screen.findByLabelText("Image repository"), {
+      target: { value: "registry.new.example.com/cosmos/app" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/Nothing was saved/)).toBeTruthy();
+  });
+
+  it("says a UI change does not change where the host pulls images from", async () => {
+    stub();
+    renderPanel();
+    expect(await screen.findByText(/docker-compose\.override\.yml/)).toBeTruthy();
   });
 });

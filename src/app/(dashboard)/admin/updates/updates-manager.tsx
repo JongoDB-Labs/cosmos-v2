@@ -2,11 +2,17 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, FileText, HelpCircle, History, Package, Puzzle, RefreshCw, Rocket, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileText, HelpCircle, History, Package, Puzzle, RefreshCw, Rocket, Server, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FormField } from "@/components/ui/form-field";
+import { Input } from "@/components/ui/input";
+import { LocalTimestamp } from "@/components/ui/local-timestamp";
 import { SectionCard } from "@/components/ui/section-card";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { cn } from "@/lib/utils";
+// Type-only: the module talks to the database, and a value import would pull it
+// into the client bundle.
+import type { ReconcileStatusDto } from "@/lib/updates/reconcile-status";
 
 type PreflightStatus = "pass" | "warn" | "fail" | "unknown";
 
@@ -298,6 +304,81 @@ function LastDeployCard() {
 
 const SETTINGS_KEY = ["admin", "update-settings"] as const;
 
+type HealthTone = "ok" | "warn" | "error" | "muted";
+
+type ValueSource = "settings" | "env" | "default" | "unset";
+
+type RegistryField = { value: string | null; source: ValueSource; envValue: string | null };
+
+/** Mirrors GET /api/v1/admin/updates/settings. The password itself never
+ *  arrives — only whether one is set, and from where. */
+type UpdateSettingsPayload = {
+  autoUpdate: boolean;
+  updatedAt: string | null;
+  reconcile?: ReconcileStatusDto | null;
+  reconcileHealth?: { tone: HealthTone; headline: string; detail: string | null };
+  registry?: {
+    imageRepo: RegistryField;
+    tagSuffix: RegistryField;
+    username: RegistryField;
+    password: { set: boolean; source: ValueSource; envSet: boolean };
+  };
+};
+
+/** One query for the switch, the installer's report and the registry, shared by
+ *  the cards below so they can never show two different reads of the row. */
+function useUpdateSettings() {
+  return useQuery({
+    queryKey: SETTINGS_KEY,
+    queryFn: () => jsonFetch<UpdateSettingsPayload>("/api/v1/admin/updates/settings"),
+    refetchOnWindowFocus: false,
+    // The installer reports every few minutes; re-read so "gone quiet" shows up
+    // on a page left open, without anyone pressing anything.
+    refetchInterval: 60_000,
+  });
+}
+
+const HEALTH_ICON: Record<HealthTone, typeof CheckCircle2> = {
+  ok: CheckCircle2,
+  warn: AlertTriangle,
+  error: XCircle,
+  muted: HelpCircle,
+};
+
+const HEALTH_CLASS: Record<HealthTone, string> = {
+  ok: "text-green-600 dark:text-green-500",
+  warn: "text-amber-600 dark:text-amber-500",
+  error: "text-red-600 dark:text-red-500",
+  muted: "text-muted-foreground",
+};
+
+/**
+ * What the automatic installer last said it did. The switch above it is only a
+ * request; this line is whether anything is acting on it. Without it, the page
+ * said "Automatic" over an installer that had stopped, and the only record was
+ * a log file on the host.
+ */
+function InstallerHealth({ data }: { data: UpdateSettingsPayload }) {
+  const health = data.reconcileHealth;
+  if (!health) return null;
+  const Icon = HEALTH_ICON[health.tone];
+  return (
+    <div className="mt-4 flex gap-3 border-t pt-3" data-testid="installer-health" data-tone={health.tone}>
+      <Icon className={cn("mt-0.5 size-4 shrink-0", HEALTH_CLASS[health.tone])} aria-hidden />
+      <div className="min-w-0 space-y-0.5">
+        <p className={cn("text-sm font-medium", HEALTH_CLASS[health.tone])}>{health.headline}</p>
+        {health.detail && <p className="text-xs text-muted-foreground">{health.detail}</p>}
+        {data.reconcile && (
+          <p className="text-xs text-muted-foreground">
+            Last checked <LocalTimestamp value={data.reconcile.checkedAt} />
+            {data.reconcile.source && <> · looking in {data.reconcile.source}</>}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Does this instance install a newer version by itself?
  *
@@ -312,13 +393,7 @@ const SETTINGS_KEY = ["admin", "update-settings"] as const;
  */
 function UpdateModeCard() {
   const qc = useQueryClient();
-  const { data, isPending, isError } = useQuery({
-    queryKey: SETTINGS_KEY,
-    queryFn: () => jsonFetch<{ autoUpdate: boolean; updatedAt: string | null }>(
-      "/api/v1/admin/updates/settings",
-    ),
-    refetchOnWindowFocus: false,
-  });
+  const { data, isPending, isError } = useUpdateSettings();
   const save = useMutation({
     mutationFn: (autoUpdate: boolean) =>
       jsonFetch("/api/v1/admin/updates/settings", {
@@ -369,9 +444,207 @@ function UpdateModeCard() {
               Could not save that. The setting is unchanged.
             </p>
           )}
+          <InstallerHealth data={data} />
         </>
       )}
     </SectionCard>
+  );
+}
+
+const SOURCE_LABEL: Record<ValueSource, string> = {
+  settings: "Set here",
+  env: "From environment",
+  default: "Derived from the repository",
+  unset: "Not set",
+};
+
+type RegistryDraft = { imageRepo?: string; tagSuffix?: string; username?: string; password?: string };
+type RegistryPut = RegistryDraft & { clearPassword?: boolean };
+
+/**
+ * Where this page and the automatic installer look for new versions.
+ *
+ * Every field says where its value came from, because the failure this exists
+ * for is the app and the installer reading DIFFERENT registries after a move,
+ * with nothing on screen saying which either was using. A saved value overrides
+ * the environment; "Use environment value" drops the override.
+ *
+ * The password is write-only: the server never sends it, so the field is always
+ * empty and only says whether one is saved.
+ */
+function RegistryCard() {
+  const qc = useQueryClient();
+  const { data } = useUpdateSettings();
+  const [draft, setDraft] = useState<RegistryDraft>({});
+  const [error, setError] = useState<string | null>(null);
+
+  const save = useMutation({
+    mutationFn: (body: RegistryPut) =>
+      jsonFetch("/api/v1/admin/updates/settings", {
+        method: "PUT",
+        body: JSON.stringify({ registry: body }),
+      }),
+    onSuccess: () => {
+      setError(null);
+      setDraft({});
+      void qc.invalidateQueries({ queryKey: SETTINGS_KEY });
+      // The version check reads the registry these settings choose.
+      void qc.invalidateQueries({ queryKey: QUERY_KEY, exact: true });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : "Could not save the registry settings."),
+  });
+
+  const reg = data?.registry;
+  if (!reg) return null;
+
+  const dirty = Object.values(draft).some((v) => v !== undefined);
+
+  const fields: { key: "imageRepo" | "tagSuffix" | "username"; label: string; hint: string }[] = [
+    {
+      key: "imageRepo",
+      label: "Image repository",
+      hint: "The registry host and path, without https:// or a tag — for example registry.example.com/cosmos/app.",
+    },
+    {
+      key: "tagSuffix",
+      label: "Tag suffix",
+      hint: "For a composed instance whose tags end in -<suffix>. Usually the last part of the repository.",
+    },
+    { key: "username", label: "Username", hint: "Leave empty for a public registry." },
+  ];
+
+  return (
+    <SectionCard
+      icon={Server}
+      title="Registry"
+      description="Where this page and the automatic installer look for new versions."
+    >
+      <div className="space-y-4">
+        {fields.map(({ key, label, hint }) => {
+          const f = reg[key];
+          const shown = draft[key] ?? (f.source === "settings" ? (f.value ?? "") : "");
+          return (
+            <div key={key} className="space-y-1">
+              <FormField label={label} hint={hint}>
+                {(p) => (
+                  <Input
+                    {...p}
+                    value={shown}
+                    placeholder={f.source === "settings" ? "" : (f.value ?? "")}
+                    autoComplete="off"
+                    spellCheck={false}
+                    onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
+                  />
+                )}
+              </FormField>
+              <ProvenanceLine
+                source={f.source}
+                envDescription={f.envValue !== null ? `Environment: ${f.envValue === "" ? "(empty)" : f.envValue}` : "Environment: not set"}
+                onUseEnv={() => save.mutate({ [key]: "" })}
+                busy={save.isPending}
+              />
+            </div>
+          );
+        })}
+
+        <div className="space-y-1">
+          <FormField label="Password" hint="Write-only — a saved password is never shown again.">
+            {(p) => (
+              <Input
+                {...p}
+                type="password"
+                value={draft.password ?? ""}
+                placeholder={reg.password.set ? "••••••••" : ""}
+                autoComplete="new-password"
+                onChange={(e) => setDraft((d) => ({ ...d, password: e.target.value }))}
+              />
+            )}
+          </FormField>
+          <ProvenanceLine
+            source={reg.password.source}
+            label={reg.password.source === "settings" ? "Saved" : undefined}
+            envDescription={reg.password.envSet ? "Environment: set" : "Environment: not set"}
+            onUseEnv={() => save.mutate({ clearPassword: true })}
+            busy={save.isPending}
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button
+            size="sm"
+            disabled={!dirty || save.isPending}
+            onClick={() => {
+              // Untouched fields are left out, so Save never rewrites a value
+              // the operator did not change. An emptied text field is sent as ""
+              // (use the environment); an empty password means "keep it".
+              const body: RegistryPut = {};
+              for (const k of ["imageRepo", "tagSuffix", "username"] as const) {
+                if (draft[k] !== undefined) body[k] = draft[k];
+              }
+              if (draft.password) body.password = draft.password;
+              save.mutate(body);
+            }}
+          >
+            {save.isPending ? "Checking the registry…" : "Save"}
+          </Button>
+          {dirty && !save.isPending && (
+            <Button size="sm" variant="ghost" onClick={() => { setDraft({}); setError(null); }}>
+              Discard changes
+            </Button>
+          )}
+        </div>
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        <p className="border-t pt-3 text-xs text-muted-foreground">
+          Saving first lists the versions in the registry with these settings, and refuses anything that
+          cannot. These settings change where new versions are looked for &mdash; on this page and by the
+          automatic installer. They do not change where the host pulls images from: that stays pinned in
+          the host&rsquo;s docker-compose.override.yml, so moving registries needs that file updated too.
+        </p>
+      </div>
+    </SectionCard>
+  );
+}
+
+function ProvenanceLine({
+  source,
+  label,
+  envDescription,
+  onUseEnv,
+  busy,
+}: {
+  source: ValueSource;
+  label?: string;
+  envDescription: string;
+  onUseEnv: () => void;
+  busy: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+      <span className="rounded bg-muted px-1.5 py-0.5 font-medium" data-testid="provenance">
+        {label ?? SOURCE_LABEL[source]}
+      </span>
+      {source === "settings" && (
+        <>
+          <span>{envDescription}</span>
+          <Button size="xs" variant="link" className="h-auto p-0 text-xs" disabled={busy} onClick={onUseEnv}>
+            Use environment value
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** The cards that do not depend on the version check, rendered in every state
+ *  of it — see the NOTE ON THE FRAGMENT in UpdatesManager. */
+function SettingsCards() {
+  return (
+    <>
+      <UpdateModeCard />
+      <RegistryCard />
+    </>
   );
 }
 
@@ -403,7 +676,7 @@ export function UpdatesManager() {
   if (isPending) {
     return (
       <div className="space-y-4">
-        <UpdateModeCard />
+        <SettingsCards />
         <SectionCard
           icon={Package}
           title="Application version"
@@ -418,7 +691,7 @@ export function UpdatesManager() {
   if (isError) {
     return (
       <div className="space-y-4">
-        <UpdateModeCard />
+        <SettingsCards />
         <SectionCard
         icon={AlertTriangle}
         title="Application version"
@@ -450,7 +723,7 @@ export function UpdatesManager() {
         {!data.configured ? (
           <p className="text-sm text-muted-foreground">
             Update checking is not configured. Set <code className="rounded bg-muted px-1">COSMOS_UPDATE_IMAGE_REPO</code>{" "}
-            to the repository this deployment pulls from to enable it.
+            to the repository this deployment pulls from, or enter it under Registry, to enable it.
           </p>
         ) : data.error ? (
           // An unreadable registry is explicitly NOT "you are up to date". Saying
@@ -546,7 +819,7 @@ export function UpdatesManager() {
       )}
 
       {/* Deliberately NOT gated on `updateAvailable` — see LastDeployCard. */}
-      <UpdateModeCard />
+      <SettingsCards />
 
       {/* Deliberately NOT gated on `updateAvailable` — see LastDeployCard. */}
       <LastDeployCard />
