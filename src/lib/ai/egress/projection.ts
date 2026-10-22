@@ -29,13 +29,15 @@ const _connectorEgress = connectorEgressMaps();
  */
 const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // listWorkItems/queryWorkItems return `id, ticketNumber, columnKey?, priority,
-  // assigneeId, intervalId, storyPoints, dueDate, workItemTypeId, completedAt?, tags`.
+  // assigneeId, intervalId, parentId, storyPoints, dueDate, workItemTypeId,
+  // completedAt?, tags`. `parentId` is a uuid like `intervalId`: structural, and
+  // what lets the agent walk an epic's children (COSMOS-177).
   // `columnKey` (FIX A) is unconstrained free text → dropped (orchestrate via id/status).
   // `title`/`description`/`tags` are content/arrays → never allowlisted/kept.
   work_item: [
     "id", "ticketNumber", "status", "priority", "storyPoints",
     "dueDate", "startDate", "completedAt", "assigneeId", "projectId",
-    "workItemTypeId", "intervalId", "createdAt", "updatedAt",
+    "workItemTypeId", "intervalId", "parentId", "createdAt", "updatedAt",
   ],
   // createNote/updateNote/deleteNote return `id, title, visibility`. The Note model
   // has NO projectId column (executor ignores the arg) → projectId removed (FIX C).
