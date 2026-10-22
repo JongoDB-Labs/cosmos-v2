@@ -275,8 +275,8 @@ function runStreaming(ctx: IterationCtx): Response {
       }
 
       try {
-        // The unified loop streams the final answer's text via `onDelta`
-        // (cumulative text-so-far); forward each update as a `text` SSE event.
+        // The unified loop streams the run's text via `onDelta` (cumulative
+        // across every turn); forward each update as a `text` SSE event.
         // Tool calls are surfaced after the run as `tool_call_*` events so the
         // existing client event contract (text / tool_call_start /
         // tool_call_result / done / error) is preserved.
@@ -290,9 +290,9 @@ function runStreaming(ctx: IterationCtx): Response {
           initialPrompt: ctx.initialPrompt,
           model: ctx.model,
           onDelta: (textSoFar) => {
-            // onDelta carries the cumulative text for the current (final) turn.
-            // Emit only the newly-appended slice so the client appends, not
-            // re-renders, matching the previous per-delta `text` events.
+            // onDelta carries the cumulative text of the whole run. Emit only
+            // the newly-appended slice so the client appends, not re-renders,
+            // matching the previous per-delta `text` events.
             if (textSoFar.length <= lastSent.length) return;
             const delta = textSoFar.slice(lastSent.length);
             lastSent = textSoFar;
@@ -313,8 +313,8 @@ function runStreaming(ctx: IterationCtx): Response {
 
         // If the final answer never streamed any text (e.g. a tool-only run),
         // emit it once so the client has the full content before `done`.
-        if (result.text && result.text !== lastSent) {
-          send({ type: "text", text: result.text.slice(lastSent.length) || result.text });
+        if (result.text && !lastSent.endsWith(result.text)) {
+          send({ type: "text", text: (lastSent ? "\n\n" : "") + result.text });
         }
 
         const assistantMsg = await persistAssistantMessage(

@@ -65,7 +65,12 @@ export interface RunAgentLoopOptions {
   model?: string;
   tools?: ToolDefinition[];
   maxIterations?: number;
-  /** Stream the final answer's text deltas (final turn only). */
+  /**
+   * Stream the run's text as it arrives. `textSoFar` is cumulative across EVERY
+   * model turn (a blank line between turns), so each call extends the last —
+   * the assistant route forwards only the newly-appended slice and relies on
+   * that. The returned `text` is still the final turn alone.
+   */
   onDelta?: (textSoFar: string) => void;
 }
 
@@ -108,10 +113,13 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   const messages: ModelMessage[] = [{ role: "user", content: opts.initialPrompt }];
   const toolCalls: AgentToolCall[] = [];
   let finalText = "";
+  let streamed = "";
 
   for (let turn = 0; turn < max; turn++) {
     const ctx = { orgId: opts.orgId, userId: opts.userId, conversationId: opts.conversationId, turn, tenantClass: opts.tenantClass, mode: "enforced" as const };
-    let streamed = "";
+    // Restarting the text each turn made a tool turn's preamble swallow the
+    // start of the final answer downstream; separate the turns instead.
+    let separator = streamed ? "\n\n" : "";
     const reply = await runModelTurn({
       ctx,
       system: opts.systemPrompt,
@@ -119,7 +127,12 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       tools,
       model,
       onTextDelta: opts.onDelta
-        ? (delta) => { streamed += delta; opts.onDelta?.(streamed); }
+        ? (delta) => {
+            if (!delta) return;
+            streamed += separator + delta;
+            separator = "";
+            opts.onDelta?.(streamed);
+          }
         : undefined,
     });
 
