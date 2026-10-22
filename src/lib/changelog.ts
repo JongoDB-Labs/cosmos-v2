@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.431.0",
+    date: "2026-10-22",
+    title: "Right-click a board to add an issue",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Right-click a board to add an issue right where you are: on a column it starts in that column, on a calendar day it's planned for that day, and anywhere else on the board it opens the usual new-issue form.",
+      },
+    ],
+  },
+  {
     version: "2.430.2",
     date: "2026-10-22",
     title: "The assistant bubble moves out of the way",
