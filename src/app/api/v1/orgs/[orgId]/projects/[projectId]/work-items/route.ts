@@ -9,6 +9,7 @@ import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
+import { intervalRequirementError } from "@/lib/work-items/interval-required.server";
 import {
   allocateTicketNumber,
   allocateSortOrder,
@@ -182,6 +183,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       } else {
         resolvedTypeId = wit.id;
       }
+    }
+
+    // A Story or Feature needs an interval in a project that has any (COSMOS-205).
+    const needsInterval = await intervalRequirementError({
+      projectId,
+      workItemTypeId: resolvedTypeId!,
+      intervalId: data.intervalId,
+    });
+    if (needsInterval) {
+      return NextResponse.json({ error: needsInterval }, { status: 400 });
     }
 
     const item = await prisma.$transaction(async (tx) => {

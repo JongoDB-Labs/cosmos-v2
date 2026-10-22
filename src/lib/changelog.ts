@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.434.0",
+    date: "2026-10-22",
+    title: "Stories and Features join a sprint or PI",
+    highlights: [
+      {
+        kind: "feature",
+        text: "In a project that plans in sprints or Program Increments, a Story or Feature now needs an interval before it can be created, so none fall out of the sprint and PI views unnoticed. The create form marks the Interval as required and explains why; the assistant follows the same rule. Other types, and projects without intervals, are unchanged.",
+      },
+    ],
+  },
+  {
     version: "2.433.0",
     date: "2026-10-22",
     title: "Write a ticket in three prompted sections",
