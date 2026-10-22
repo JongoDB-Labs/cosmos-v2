@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.432.0",
+    date: "2026-10-22",
+    title: "Sprints grouped by Program Increment",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The sprint row on a sprint board now groups sprints under their Program Increment. Past PIs start collapsed and open with one click, and a sprint from a past PI is marked as such, so you don't edit old work by mistake.",
+      },
+    ],
+  },
+  {
     version: "2.431.1",
     date: "2026-10-22",
     title: "One delete confirmation everywhere",
