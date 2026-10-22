@@ -49,6 +49,61 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.431.1",
+    date: "2026-10-22",
+    title: "One delete confirmation everywhere",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal tidy-up: deleting a work item from a card, its detail panel or a backlog row now uses one shared confirmation, so the wording and behaviour stay the same everywhere.",
+      },
+    ],
+  },
+  {
+    version: "2.431.0",
+    date: "2026-10-22",
+    title: "Right-click a board to add an issue",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Right-click a board to add an issue right where you are: on a column it starts in that column, on a calendar day it's planned for that day, and anywhere else on the board it opens the usual new-issue form.",
+      },
+    ],
+  },
+  {
+    version: "2.430.2",
+    date: "2026-10-22",
+    title: "The assistant bubble moves out of the way",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The floating assistant button now steps aside when it would cover a button or link at the bottom of the page, so you can always reach what's underneath it.",
+      },
+    ],
+  },
+  {
+    version: "2.430.1",
+    date: "2026-10-22",
+    title: "Developer tooling matches the framework version",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal only, with no effect on any screen: the code checker and bundle analyzer now match the framework version Cosmos runs on.",
+      },
+    ],
+  },
+  {
+    version: "2.430.0",
+    date: "2026-10-22",
+    title: "Handle one notification at a time",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each notification in your inbox now has its own buttons to mark it read or unread, or to clear it, so you no longer have to mark everything read at once.",
+      },
+    ],
+  },
+  {
     version: "2.429.0",
     date: "2026-10-22",
     title: "Open and delete from a backlog row",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -53,19 +53,15 @@ import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DeleteWorkItemDialog } from "@/components/work-items/delete-work-item-dialog";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
-import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
+import {
+  NewIssueButton,
+  type NewIssueHandle,
+} from "@/components/boards/shared/new-issue-button";
+import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import { useCurrentUserId } from "@/lib/hooks/use-current-user";
 import { formatDateShortStable } from "@/lib/format/stable-date";
@@ -144,6 +140,7 @@ export function BacklogView({
   projectKey,
   boardId,
 }: BacklogViewProps) {
+  const newIssueRef = useRef<NewIssueHandle>(null);
   const qc = useQueryClient();
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
   const currentUserId = useCurrentUserId();
@@ -587,6 +584,7 @@ export function BacklogView({
             included. */}
         <div className="ml-auto flex items-center gap-3">
           <NewIssueButton
+            ref={newIssueRef}
             orgId={orgId}
             projectId={projectId}
             projectKey={projectKey}
@@ -605,6 +603,7 @@ export function BacklogView({
         </div>
       </div>
 
+      <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       {items.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
           <EmptyState
@@ -717,6 +716,7 @@ export function BacklogView({
           </DndContext>
         </div>
       )}
+      </BoardCreateMenu>
 
       <CardDetailSheet
         statusColumns={projectStatuses}
@@ -742,42 +742,18 @@ export function BacklogView({
         onOpenItem={openItemById}
       />
 
-      <Dialog
+      <DeleteWorkItemDialog
         open={pendingDelete !== null}
-        onOpenChange={(open) => {
-          if (!open) setPendingDelete(null);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete work item?</DialogTitle>
-            <DialogDescription>
-              This will permanently delete{" "}
-              {pendingDelete
-                ? `${projectKey ? `${projectKey}-` : "#"}${pendingDelete.ticketNumber}`
-                : "this item"}
-              {pendingDelete?.title ? ` "${pendingDelete.title}"` : ""}. This action cannot be
-              undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setPendingDelete(null)}
-              disabled={deleteMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => pendingDelete && deleteMutation.mutate(pendingDelete.id)}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? "Deleting…" : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => pendingDelete && deleteMutation.mutate(pendingDelete.id)}
+        pending={deleteMutation.isPending}
+        ticketLabel={
+          pendingDelete
+            ? `${projectKey ? `${projectKey}-` : "#"}${pendingDelete.ticketNumber}`
+            : "this item"
+        }
+        title={pendingDelete?.title}
+      />
     </div>
   );
 }
