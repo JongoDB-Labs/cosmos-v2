@@ -47,6 +47,14 @@ export function DashboardShell({ user, orgs, isSystemAdmin = false, children }: 
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
+  // A tap on a drawer link navigates but used to leave the drawer covering the
+  // page it opened. Close it whenever the route changes — adjusted during
+  // render (React's "reset state on change" pattern), not in an effect.
+  const [drawerPath, setDrawerPath] = useState(pathname);
+  if (drawerPath !== pathname) {
+    setDrawerPath(pathname);
+    setMobileOpen(false);
+  }
   const orgSlug = pathname.split("/")[1];
   const currentOrg = orgs.find((o) => o.slug === orgSlug);
   const currentOrgId = currentOrg?.id;

@@ -161,6 +161,8 @@ export async function getOrgClaudeToken(orgId: string): Promise<string | null> {
  */
 export async function getClaudeSubscriptionStatus(orgId: string): Promise<{
   connected: boolean;
+  /** Connected, but the token is past its expiry and could not be refreshed. */
+  expired?: boolean;
   email?: string | null;
   expiresAt?: string | null;
 }> {
@@ -181,6 +183,10 @@ export async function getClaudeSubscriptionStatus(orgId: string): Promise<{
 
   return {
     connected: true,
+    // getClaudeTokenCore yields null for a token it cannot use (expired with a
+    // failed refresh). Without this the panel showed a green "Connected" over
+    // a date in the past while every agent request 401'd.
+    expired: accessToken == null,
     email,
     expiresAt: settings.oauthExpiresAt
       ? settings.oauthExpiresAt.toISOString()
