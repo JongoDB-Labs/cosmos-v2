@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.427.6",
+    date: "2026-10-22",
+    title: "The assistant's answers stream smoothly after it looks something up",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When the assistant looks something up before answering, its reply now streams in smoothly. Before, it could stall, then appear mid-sentence. What it said while looking (\"Let me look that up.\") also stays in the reply instead of disappearing when the answer arrives, in the assistant panel and in chat channels alike.",
+      },
+    ],
+  },
+  {
     version: "2.427.5",
     date: "2026-10-22",
     title: "An expired Claude connection says so",
