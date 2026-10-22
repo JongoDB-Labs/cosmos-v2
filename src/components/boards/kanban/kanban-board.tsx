@@ -23,7 +23,11 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { KanbanColumn } from "./kanban-column";
-import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
+import {
+  NewIssueButton,
+  type NewIssueHandle,
+} from "@/components/boards/shared/new-issue-button";
+import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { KanbanCard } from "./kanban-card";
 import {
   FilterBar,
@@ -212,6 +216,7 @@ function KanbanBoardInner({
   // Bulk-select mode: toggling it disables drag (the DndContext gets no sensors)
   // and turns cards into checkbox toggles, so selection never fights dnd-kit.
   const { can } = usePermissions();
+  const newIssueRef = useRef<NewIssueHandle>(null);
   const canBulkEdit = can(Permission.ITEM_BULK_EDIT);
   const canBulkDelete = can(Permission.ITEM_DELETE);
   const [selectMode, setSelectMode] = useState(false);
@@ -1021,6 +1026,7 @@ function KanbanBoardInner({
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-1.5">
         {!selectMode && (
           <NewIssueButton
+            ref={newIssueRef}
             orgId={orgId}
             projectId={projectId}
             projectKey={projectKey}
@@ -1181,6 +1187,13 @@ function KanbanBoardInner({
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
+        {/* Right-click a column (or the space between) to create into it
+            (COSMOS-88). Off in select mode, which hides "New issue". */}
+        <BoardCreateMenu
+          columns={columns}
+          disabled={selectMode}
+          onCreate={(seed) => newIssueRef.current?.open(seed)}
+        >
         {columns.length === 0 ? (
           <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm p-4">
             This board has no columns configured.
@@ -1251,6 +1264,7 @@ function KanbanBoardInner({
             ))}
           </div>
         )}
+        </BoardCreateMenu>
 
         <DragOverlay>
           {activeItem && (

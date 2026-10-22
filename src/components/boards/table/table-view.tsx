@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, type ReactNode } from "react";
+import { useState, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -22,7 +22,11 @@ import {
 } from "@tanstack/react-table";
 import { DataTable } from "@/components/ui/data-table";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
-import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
+import {
+  NewIssueButton,
+  type NewIssueHandle,
+} from "@/components/boards/shared/new-issue-button";
+import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -114,6 +118,7 @@ type EditingCell = {
 } | null;
 
 export function TableView({ orgId, projectId, projectKey, boardId }: TableViewProps) {
+  const newIssueRef = useRef<NewIssueHandle>(null);
   const qc = useQueryClient();
   const { can } = usePermissions();
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -1004,6 +1009,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         {/* New issue + density toggle — pushed to the right edge of the toolbar */}
         <div className="ml-auto flex items-center gap-2">
           <NewIssueButton
+            ref={newIssueRef}
             orgId={orgId}
             projectId={projectId}
             projectKey={projectKey}
@@ -1037,6 +1043,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         />
       </div>
 
+      <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       {/* Table */}
       <div
         className={cn(
@@ -1061,6 +1068,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           stickyHeader
         />
       </div>
+      </BoardCreateMenu>
 
       <BoardItemDetailSheet
         itemId={detailId}

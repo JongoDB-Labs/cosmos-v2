@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -31,7 +31,11 @@ import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
 import { highlightLabel, highlightStyle } from "@/lib/work-items/highlights";
-import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
+import {
+  NewIssueButton,
+  type NewIssueHandle,
+} from "@/components/boards/shared/new-issue-button";
+import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -160,6 +164,7 @@ export function RaidView({
   projectKey,
   boardId,
 }: RaidViewProps) {
+  const newIssueRef = useRef<NewIssueHandle>(null);
   const [hideDone, setHideDone] = useState(false);
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
@@ -338,6 +343,7 @@ export function RaidView({
 
         <div className="ml-auto flex items-center gap-3">
           <NewIssueButton
+            ref={newIssueRef}
             orgId={orgId}
             projectId={projectId}
             projectKey={projectKey}
@@ -361,6 +367,7 @@ export function RaidView({
         </div>
       </div>
 
+      <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       {/* Columns — drag a card between them to (re)classify it. */}
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
       <div className="flex gap-3 overflow-x-auto scrollbar-x flex-1 p-4">
@@ -401,6 +408,7 @@ export function RaidView({
         />
       </div>
       </DndContext>
+      </BoardCreateMenu>
 
       <BoardItemDetailSheet
         itemId={detailId}
