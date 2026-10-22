@@ -35,6 +35,9 @@ const FIELD_LABELS: Record<string, string> = {
   startDate: "start date",
   columnEnteredAt: "column entered",
   cancelReason: "cancellation reason",
+  // COSMOS-207: recorded with the other item's ticket ref as the value.
+  mergedIntoId: "merged into",
+  mergedFrom: "merged in",
 };
 
 /** Friendly name for an activity's changed field (e.g. "assigneeId" → "assignee"). */
