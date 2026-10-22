@@ -56,6 +56,7 @@ const listWorkItemsSchema = z.object({
   assigneeId: z.string().uuid().optional(),
   type: z.string().optional(),
   search: z.string().optional(),
+  parentId: z.string().uuid().optional(),
   limit: z.number().int().positive().optional(),
 });
 
@@ -470,6 +471,7 @@ export async function listWorkItems(
   if (data.columnKey) where.columnKey = data.columnKey;
   if (data.assigneeId) where.assigneeId = data.assigneeId;
   if (data.search) where.title = { contains: data.search, mode: "insensitive" };
+  if (data.parentId) where.parentId = data.parentId;
 
   if (data.type) {
     const typeId = await resolveWorkItemTypeId(data.projectId, data.type);
@@ -492,6 +494,7 @@ export async function listWorkItems(
       priority: true,
       assigneeId: true,
       intervalId: true,
+      parentId: true,
       storyPoints: true,
       dueDate: true,
       workItemTypeId: true,

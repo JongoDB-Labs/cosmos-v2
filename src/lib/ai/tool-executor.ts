@@ -651,13 +651,14 @@ async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) 
   // These land in `uuid` columns unvalidated, so a model-invented id raises
   // P2007 rather than returning nothing. `projectId` above is compared against
   // `readable` first, which is a string match and so already safe.
-  for (const field of ["assigneeId", "intervalId", "workItemTypeId"] as const) {
+  for (const field of ["assigneeId", "intervalId", "workItemTypeId", "parentId"] as const) {
     if (!isOptionalUuid(input[field])) return invalidIdError(field);
   }
   if (input.assigneeId) where.assigneeId = input.assigneeId as string;
   if (input.priority) where.priority = input.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   if (input.intervalId) where.intervalId = input.intervalId as string;
   if (input.workItemTypeId) where.workItemTypeId = input.workItemTypeId as string;
+  if (input.parentId) where.parentId = input.parentId as string;
   if (input.query) where.title = { contains: input.query as string, mode: "insensitive" };
 
   const items = await prisma.workItem.findMany({
@@ -666,7 +667,7 @@ async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) 
     orderBy: { updatedAt: "desc" },
     select: {
       id: true, title: true, workItemTypeId: true, columnKey: true,
-      priority: true, assigneeId: true, intervalId: true,
+      priority: true, assigneeId: true, intervalId: true, parentId: true,
       storyPoints: true, dueDate: true, completedAt: true,
       ticketNumber: true, tags: true,
     },
