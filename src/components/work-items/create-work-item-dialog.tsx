@@ -19,6 +19,7 @@ import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import { selectableTypes, typesForSector, useWorkItemTypes } from "@/hooks/use-work-item-types";
+import { INTERVAL_REQUIRED_MESSAGE, requiresInterval } from "@/lib/work-items/interval-required";
 import {
   CustomFieldInput,
   isCustomFieldEmpty,
@@ -197,6 +198,12 @@ export function CreateWorkItemDialog({
     () => typesForSector(selectableTypes(allTypes), selectedSector),
     [allTypes, selectedSector],
   );
+
+  // COSMOS-205: a Story or Feature must join an interval when the project
+  // plans in them. The server enforces the same rule.
+  const selectedTypeKey = workItemTypes.find((t) => t.id === workItemTypeId)?.key;
+  const intervalRequired = intervals.length > 0 && requiresInterval(selectedTypeKey);
+  const intervalMissing = intervalRequired && !intervalId;
 
   // Assignee rows: alphabetical by displayed name, narrowed by the search box
   // (matches name OR email) — COSMOS-171.
@@ -523,6 +530,7 @@ export function CreateWorkItemDialog({
             <div className="space-y-1">
               <Label className="text-xs">Type</Label>
               <select
+                aria-label="Type"
                 value={workItemTypeId}
                 onChange={(e) => setWorkItemTypeId(e.target.value)}
                 className={fieldClass}
@@ -661,21 +669,32 @@ export function CreateWorkItemDialog({
                 the picker on the detail sheet post-creation (COSMOS-64). */}
             {intervals.length > 0 && (
               <div className="space-y-1">
-                <Label className="text-xs">Interval</Label>
+                <Label className="text-xs" htmlFor="create-interval">
+                  Interval{intervalRequired && " *"}
+                </Label>
                 <select
+                  id="create-interval"
                   aria-label="Interval"
+                  aria-required={intervalRequired || undefined}
+                  aria-invalid={intervalMissing || undefined}
+                  aria-describedby={intervalMissing ? "create-interval-hint" : undefined}
                   value={intervalId ?? ""}
                   onChange={(e) => setIntervalId(e.target.value || null)}
                   className={fieldClass}
                   disabled={submitting}
                 >
-                  <option value="">No interval</option>
+                  <option value="">{intervalRequired ? "Choose an interval…" : "No interval"}</option>
                   {intervals.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
                     </option>
                   ))}
                 </select>
+                {intervalMissing && (
+                  <p id="create-interval-hint" className="text-[11px] text-[var(--text-muted)]">
+                    {INTERVAL_REQUIRED_MESSAGE}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -759,7 +778,7 @@ export function CreateWorkItemDialog({
               // work-item type: the board quick-create paths must not block on
               // the async types fetch, and handleSubmit falls back to a bare
               // "TASK" when none is chosen (COSMOS-86).
-              disabled={!title.trim() || !projectId || !startDate || !dueDate || submitting}
+              disabled={!title.trim() || !projectId || !startDate || !dueDate || intervalMissing || submitting}
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create issue"}
             </Button>
