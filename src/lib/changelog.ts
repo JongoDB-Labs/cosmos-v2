@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.427.8",
+    date: "2026-10-22",
+    title: "Exported spreadsheets can't run hidden formulas",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: when exported data is opened in Excel, Sheets or LibreOffice, text that someone typed starting with =, +, - or @ now shows as plain text instead of running as a formula. This covers every CSV export, including audit logs. Numbers, including negative ones, are unaffected.",
+      },
+    ],
+  },
+  {
     version: "2.427.7",
     date: "2026-10-22",
     title: "Browser extensions no longer trigger crash reports",
