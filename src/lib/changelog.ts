@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.436.0",
+    date: "2026-10-22",
+    title: "See whether automatic updates are working",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Admin > Updates now shows whether automatic installs are actually happening: up to date, installed, waiting for you, a new version on its way, or failing and why, with when the installer last checked in. If the installer goes quiet, the page says so. The registry Cosmos checks for new versions can also be set on the page: repository, tag suffix and login, with the password stored encrypted and never shown again. Settings are tested before they're saved, and anything left blank falls back to the server's configuration.",
+      },
+    ],
+  },
+  {
     version: "2.435.0",
     date: "2026-10-22",
     title: "Give work to a team before anyone picks it up",
