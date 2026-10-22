@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.437.0",
+    date: "2026-10-22",
+    title: "Cancel work with a reason",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Work that's no longer needed can now be cancelled instead of deleted or marked done: pick Overcome by events, or Other with a short note. Cancelled is its own status, so abandoned work is never counted as delivered, and the reason is shown on the item and in its history. Projects that don't have a Cancelled status get one the first time something is cancelled; new projects include it.",
+      },
+    ],
+  },
+  {
     version: "2.436.0",
     date: "2026-10-22",
     title: "See whether automatic updates are working",

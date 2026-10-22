@@ -79,6 +79,9 @@ export interface WorkItem {
   highlight?: string | null;
   /** Archived (out of the way, not deleted); null when active. */
   archivedAt?: string | null;
+  /** Why it was cancelled (COSMOS-206); null when not cancelled with a reason. */
+  cancelReason?: "OBE" | "OTHER" | null;
+  cancelNote?: string | null;
   customFields: Record<string, unknown>;
   createdById: string;
   createdAt: string;
