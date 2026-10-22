@@ -60,6 +60,17 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.427.1",
+    date: "2026-10-19",
+    title: "Every assignee shows on the workload chart",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Assignee Workload chart on the Sprint Health board now labels every person, not just every other one. Previously, when the chart had many assignees, the names were hidden on alternate bars, so you could not tell whose bar was whose.",
+      },
+    ],
+  },
+  {
     version: "2.427.0",
     date: "2026-10-05",
     title: "Removing someone keeps their history",
