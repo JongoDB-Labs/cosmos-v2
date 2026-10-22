@@ -77,6 +77,7 @@ interface DuplicateSourceItem {
   assigneeId: string | null;
   assignees?: { userId: string }[];
   intervalId: string | null;
+  teamId?: string | null;
   storyPoints: number | null;
   startDate: string | null;
   dueDate: string | null;
@@ -165,6 +166,10 @@ export function CreateWorkItemDialog({
   // the field editable on the detail sheet after creation (COSMOS-64).
   const [intervalId, setIntervalId] = useState<string | null>(null);
   const [intervals, setIntervals] = useState<Interval[]>([]);
+  // The owning team (COSMOS-204): a story can be handed to a team before anyone
+  // on it is assigned. Project-scoped, like the interval.
+  const [teamId, setTeamId] = useState<string | null>(null);
+  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
   const [description, setDescription] = useState("");
   const [labels, setLabels] = useState("");
   const [members, setMembers] = useState<OrgMember[]>([]);
@@ -231,6 +236,7 @@ export function CreateWorkItemDialog({
       setStartDate(initialStartDate ?? "");
       setDueDate(initialDueDate ?? "");
       setIntervalId(null);
+      setTeamId(null);
       setDescription("");
       setLabels(initialLabelsText);
       // Seeded or blank. The Status effect below then validates it against the
@@ -341,6 +347,26 @@ export function CreateWorkItemDialog({
     };
   }, [open, orgId, projectId]);
 
+  // And its teams (COSMOS-204), the same way: a project with none, or a failed
+  // read, just leaves the Team picker hidden.
+  useEffect(() => {
+    if (!open || !projectId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await jsonFetch<{ id: string; name: string }[]>(
+          `/api/v1/orgs/${orgId}/projects/${projectId}/teams`,
+        );
+        if (!cancelled) setTeams(Array.isArray(data) ? data : []);
+      } catch {
+        if (!cancelled) setTeams([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, orgId, projectId]);
+
   // Duplicate mode (COSMOS-13): when opened to duplicate an existing issue, fetch
   // the source and pre-fill every core field so the user edits a DRAFT and then
   // creates a brand-new issue. This runs after the reset effect above (which
@@ -374,6 +400,7 @@ export function CreateWorkItemDialog({
         setDueDate(src.dueDate ? src.dueDate.slice(0, 10) : "");
         setStartDate(src.startDate ? src.startDate.slice(0, 10) : "");
         setIntervalId(src.intervalId ?? null);
+        setTeamId(src.teamId ?? null);
         setDescription(src.description ?? "");
         setLabels((src.tags ?? []).join(", "));
         setCustomValues(
@@ -459,6 +486,7 @@ export function CreateWorkItemDialog({
           priority,
           ...(assigneeIds.length ? { assigneeIds } : {}),
           ...(intervalId ? { intervalId } : {}),
+          ...(teamId ? { teamId } : {}),
           description: description.trim() || null,
           startDate: startDate ? new Date(startDate).toISOString() : null,
           dueDate: dueDate ? new Date(dueDate).toISOString() : null,
@@ -521,6 +549,7 @@ export function CreateWorkItemDialog({
                   // never submit an interval from a different project (COSMOS-64).
                   setProjectId(e.target.value);
                   setIntervalId(null);
+                  setTeamId(null);
                 }}
                 className={fieldClass}
                 disabled={submitting || !!prefilledProjectId}
@@ -685,6 +714,26 @@ export function CreateWorkItemDialog({
                   {intervals.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {/* Team — who owns the work, separate from who is assigned to it. */}
+            {teams.length > 0 && (
+              <div className="space-y-1">
+                <Label className="text-xs">Team</Label>
+                <select
+                  aria-label="Team"
+                  value={teamId ?? ""}
+                  onChange={(e) => setTeamId(e.target.value || null)}
+                  className={fieldClass}
+                  disabled={submitting}
+                >
+                  <option value="">No team</option>
+                  {teams.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
                     </option>
                   ))}
                 </select>
