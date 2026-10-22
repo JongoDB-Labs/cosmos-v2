@@ -29,6 +29,19 @@ export interface MergeResult {
 
 const isEmpty = (v: unknown) => v === null || v === undefined || v === "";
 
+/** Deeper than any real hierarchy; stops a walk over pre-existing bad data. */
+const MAX_DEPTH = 50;
+
+/** `id` and its ancestors, nearest first, up to MAX_DEPTH. */
+async function lineage(tx: Tx, id: string | null): Promise<string[]> {
+  const out: string[] = [];
+  for (let cur = id; cur && out.length < MAX_DEPTH && !out.includes(cur); ) {
+    out.push(cur);
+    cur = (await tx.workItem.findUnique({ where: { id: cur }, select: { parentId: true } }))?.parentId ?? null;
+  }
+  return out;
+}
+
 export async function mergeWorkItems(
   tx: Tx,
   args: { orgId: string; projectId: string; duplicateId: string; survivorId: string; userId: string },
@@ -52,13 +65,21 @@ export async function mergeWorkItems(
   const fill: Prisma.WorkItemUncheckedUpdateInput = {};
   const scalarKeys = [
     "description", "startDate", "dueDate", "storyPoints", "intervalId",
+    // timeSpent is entered by hand (or imported); nothing derives it from time
+    // entries or adds the two, so filling it while the entries also move does
+    // not double-count.
     "originalEstimate", "remainingEstimate", "timeSpent",
   ] as const;
   for (const k of scalarKeys) {
     if (isEmpty(b[k]) && !isEmpty(a[k])) (fill as Record<string, unknown>)[k] = a[k];
   }
-  // A parent, unless it would make the survivor its own ancestor's child loop.
-  if (!b.parentId && a.parentId && a.parentId !== bId) fill.parentId = a.parentId;
+  // The hierarchy must stay a tree. `aLine` is the duplicate's parent and its
+  // ancestors; `bAbove` is everything above the survivor.
+  const aLine = await lineage(tx, a.parentId);
+  const bAbove = new Set(await lineage(tx, b.parentId));
+  // Take the duplicate's parent only if the survivor isn't above it (it would
+  // become a child of its own descendant).
+  if (!b.parentId && a.parentId && !aLine.includes(bId)) fill.parentId = a.parentId;
   const aCustom = (a.customFields ?? {}) as Record<string, unknown>;
   const bCustom = (b.customFields ?? {}) as Record<string, unknown>;
   const missing = Object.entries(aCustom).filter(([k, v]) => isEmpty(bCustom[k]) && !isEmpty(v));
@@ -81,12 +102,21 @@ export async function mergeWorkItems(
   // ── Tracked work moves to the survivor ─────────────────────────────────────
   const comments = await tx.comment.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
   const timeEntries = await tx.timeEntry.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
-  // Sub-items, except the survivor itself if it was one of them.
+  // Sub-items move under the survivor, except the one on the survivor's own
+  // path up (the survivor itself, or the ancestor of it that hangs off the
+  // duplicate): moving that under the survivor would make a loop. It takes the
+  // duplicate's place instead, under the duplicate's parent, unless even that
+  // would loop, when it becomes top-level.
+  const onPath = [bId, ...bAbove];
   const children = await tx.workItem.updateMany({
-    where: { parentId: aId, id: { not: bId } },
+    where: { parentId: aId, id: { notIn: onPath } },
     data: { parentId: bId },
   });
-  if (b.parentId === aId) await tx.workItem.update({ where: { id: bId }, data: { parentId: a.parentId } });
+  const lifted = await tx.workItem.findFirst({ where: { parentId: aId, id: { in: onPath } }, select: { id: true } });
+  if (lifted) {
+    const safeParent = a.parentId && !aLine.includes(lifted.id) && !aLine.includes(bId) ? a.parentId : null;
+    await tx.workItem.update({ where: { id: lifted.id }, data: { parentId: safeParent } });
+  }
   const attachments = await tx.document.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
   await tx.retroActionItem.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
   await tx.feedbackItem.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });

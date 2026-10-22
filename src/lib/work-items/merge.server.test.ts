@@ -112,6 +112,48 @@ describe("mergeWorkItems (e2e DB)", () => {
     await expect(run(a.id, b.id)).rejects.toThrow(/already merged/);
   });
 
+  /** Every item's parent chain ends without revisiting anything: still a tree. */
+  async function expectTree(projectId: string) {
+    const rows = await prisma.workItem.findMany({ where: { projectId }, select: { id: true, parentId: true } });
+    const parent = new Map(rows.map((r) => [r.id, r.parentId]));
+    for (const r of rows) {
+      const seen = new Set<string>();
+      for (let cur: string | null | undefined = r.id; cur; cur = parent.get(cur)) {
+        expect(seen.has(cur), `cycle through ${cur}`).toBe(false);
+        seen.add(cur);
+      }
+    }
+  }
+
+  it("won't give the survivor a parent that sits below it (ops' case)", async () => {
+    const { org, project, owner, mk } = await setup();
+    const survivor = await mk({ title: "b" });
+    const c = await mk({ title: "c", parentId: survivor.id });
+    const dup = await mk({ title: "a", parentId: c.id });
+    await prisma.$transaction((tx) =>
+      mergeWorkItems(tx, { orgId: org.id, projectId: project.id, duplicateId: dup.id, survivorId: survivor.id, userId: owner.id }),
+    );
+    expect((await prisma.workItem.findUniqueOrThrow({ where: { id: survivor.id } })).parentId).toBeNull();
+    await expectTree(project.id);
+  });
+
+  it("lifts the duplicate's child that the survivor hangs under, instead of looping", async () => {
+    const { org, project, owner, mk } = await setup();
+    const epic = await mk({ title: "epic" });
+    const dup = await mk({ title: "a", parentId: epic.id });
+    const c = await mk({ title: "c", parentId: dup.id });
+    const survivor = await mk({ title: "b", parentId: c.id });
+    const sibling = await mk({ title: "d", parentId: dup.id });
+    await prisma.$transaction((tx) =>
+      mergeWorkItems(tx, { orgId: org.id, projectId: project.id, duplicateId: dup.id, survivorId: survivor.id, userId: owner.id }),
+    );
+    const parentOf = async (id: string) => (await prisma.workItem.findUniqueOrThrow({ where: { id } })).parentId;
+    expect(await parentOf(c.id)).toBe(epic.id); // takes the duplicate's place
+    expect(await parentOf(survivor.id)).toBe(c.id); // unchanged
+    expect(await parentOf(sibling.id)).toBe(survivor.id); // an ordinary sub-item moves over
+    await expectTree(project.id);
+  });
+
   it("keeps the survivor out of a loop when it was the duplicate's own sub-item", async () => {
     const { org, project, owner, mk } = await setup();
     const parent = await mk({ title: "epic" });
@@ -121,5 +163,6 @@ describe("mergeWorkItems (e2e DB)", () => {
       mergeWorkItems(tx, { orgId: org.id, projectId: project.id, duplicateId: dup.id, survivorId: survivor.id, userId: owner.id }),
     );
     expect((await prisma.workItem.findUniqueOrThrow({ where: { id: survivor.id } })).parentId).toBe(parent.id);
+    await expectTree(project.id);
   });
 });
