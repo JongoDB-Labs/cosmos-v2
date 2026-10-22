@@ -168,8 +168,8 @@ describe("labels", () => {
 });
 
 describe("team", () => {
-  // A team's work is what its members are assigned; items carry no team.
-  // Built through `teamsByUser`, the same call the boards make, rather than a
+  // A team's work is the items that name it, plus what its members are
+  // assigned when an item names no team (COSMOS-204). Built through `teamsByUser`, the same call the boards make, rather than a
   // hand-rolled Map — the first draft hand-rolled one without `members`, which
   // typechecked only because the test cast it away and passed only because
   // `itemMatchesTeam` happens to read `id` alone today.
@@ -186,6 +186,28 @@ describe("team", () => {
   it("drops work assigned to someone outside it", () => {
     expect(
       matchesFilters(item({ assigneeId: "u-9" }), filters({ teamId: "team-a" }), [], roster),
+    ).toBe(false);
+  });
+
+  it("keeps unassigned work that names the chosen team", () => {
+    expect(
+      matchesFilters(
+        item({ assigneeId: null, teamId: "team-a" }),
+        filters({ teamId: "team-a" }),
+        [],
+        roster,
+      ),
+    ).toBe(true);
+  });
+
+  it("drops a member's work once it is handed to another team", () => {
+    expect(
+      matchesFilters(
+        item({ assigneeId: "u-1", teamId: "team-b" }),
+        filters({ teamId: "team-a" }),
+        [],
+        roster,
+      ),
     ).toBe(false);
   });
 

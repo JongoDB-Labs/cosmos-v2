@@ -65,6 +65,7 @@ import {
   Layers,
   Shapes,
   Target,
+  Users,
   Hash,
   Wrench,
   Check,
@@ -119,6 +120,12 @@ interface CardDetailSheetProps {
   projectId: string;
   members: OrgMember[];
   intervals: Interval[];
+  /**
+   * The project's teams, for the Team picker (COSMOS-204). Optional, and the
+   * picker hides without it, like Interval: a PROP for the same reason as
+   * `statusColumns` below, so the sheet needs no QueryClient of its own.
+   */
+  teams?: { id: string; name: string }[];
   columns: BoardColumn[];
   /**
    * The project's workflow statuses, unioned across its boards. Optional: a board
@@ -167,6 +174,7 @@ export function CardDetailSheet({
   projectId,
   members,
   intervals,
+  teams: projectTeams = [],
   columns,
   statusColumns,
   onUpdate,
@@ -220,6 +228,8 @@ export function CardDetailSheet({
   // mirrors the set's head so single-assignee displays stay consistent.
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [intervalId, setIntervalId] = useState<string | null>(null);
+  // COSMOS-204: the owning team, set apart from who the item is assigned to.
+  const [teamId, setTeamId] = useState<string | null>(null);
   const [columnKey, setColumnKey] = useState("");
   const [storyPoints, setStoryPoints] = useState<number | null>(null);
   const [startDate, setStartDate] = useState<string>("");
@@ -305,10 +315,11 @@ export function CardDetailSheet({
     () => ({
       user: (id: string) => members.find((m) => m.userId === id)?.user?.displayName,
       interval: (id: string) => intervals.find((c) => c.id === id)?.name,
+      team: (id: string) => projectTeams.find((t) => t.id === id)?.name,
       type: (id: string) => allTypes.find((t) => t.id === id)?.name,
       column: (key: string) => statusOptions.find((c) => c.key === key)?.name,
     }),
-    [members, intervals, allTypes, statusOptions],
+    [members, intervals, projectTeams, allTypes, statusOptions],
   );
   // Assignee options: alphabetical, with the email carried as hidden search
   // text so the picker's filter matches it too (COSMOS-171).
@@ -414,6 +425,7 @@ export function CardDetailSheet({
             : [],
       );
       setIntervalId(item.intervalId);
+      setTeamId(item.teamId ?? null);
       setColumnKey(item.columnKey);
       setStoryPoints(item.storyPoints);
       setStartDate(item.startDate ? item.startDate.split("T")[0] : "");
@@ -642,6 +654,9 @@ export function CardDetailSheet({
           case "intervalId":
             setIntervalId(item.intervalId);
             break;
+          case "teamId":
+            setTeamId(item.teamId ?? null);
+            break;
           case "columnKey":
             setColumnKey(item.columnKey);
             break;
@@ -756,6 +771,9 @@ export function CardDetailSheet({
         break;
       case "intervalId":
         setIntervalId(value as string | null);
+        break;
+      case "teamId":
+        setTeamId(value as string | null);
         break;
       case "columnKey":
         setColumnKey(value as string);
@@ -1678,6 +1696,33 @@ export function CardDetailSheet({
                     {intervals.map((s) => (
                       <SelectItem key={s.id} value={s.id}>
                         {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </MetadataField>
+            )}
+
+            {projectTeams.length > 0 && (
+              <MetadataField icon={Users} label="Team">
+                <Select
+                  items={{
+                    __none__: "None",
+                    ...Object.fromEntries(projectTeams.map((t) => [t.id, t.name])),
+                  }}
+                  value={teamId ?? "__none__"}
+                  onValueChange={(v) =>
+                    handleFieldChange("teamId", (v === "__none__" ? null : v) as string | null)
+                  }
+                >
+                  <SelectTrigger size="sm" aria-label="Team" className="w-full text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {projectTeams.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

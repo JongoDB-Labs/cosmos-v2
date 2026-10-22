@@ -12,6 +12,7 @@ import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
+import { teamProjectError } from "@/lib/teams/item-team.server";
 import { cascadeSchedule, type CascadedItem } from "@/lib/work-items/schedule-cascade-io";
 import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
 import {
@@ -35,6 +36,8 @@ const updateItemSchema = z.object({
   assigneeIds: z.array(z.string().uuid()).max(50).optional(),
   priority: z.nativeEnum(Priority).optional(),
   intervalId: z.string().uuid().nullable().optional(),
+  // COSMOS-204: the owning team, independent of the assignee. null clears it.
+  teamId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
   storyPoints: z.number().int().min(0).nullable().optional(),
   sortOrder: z.number().int().optional(),
@@ -139,6 +142,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = updateItemSchema.parse(body);
 
+    const teamError = await teamProjectError({ projectId, teamId: data.teamId });
+    if (teamError) return Response.json({ error: teamError }, { status: 400 });
+
     const item = await prisma.$transaction(async (tx) => {
       // A cancel names no column of its own: resolve (or create) the project's
       // Cancelled status first, so everything below treats it as a column move.
@@ -169,6 +175,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (data.intervalId !== undefined && data.intervalId !== existing.intervalId) {
         trackFields.push({ field: "intervalId", oldVal: existing.intervalId, newVal: data.intervalId });
       }
+      if (data.teamId !== undefined && data.teamId !== existing.teamId) {
+        trackFields.push({ field: "teamId", oldVal: existing.teamId, newVal: data.teamId });
+      }
       if (data.workItemTypeId !== undefined && data.workItemTypeId !== existing.workItemTypeId) {
         trackFields.push({ field: "workItemTypeId", oldVal: existing.workItemTypeId, newVal: data.workItemTypeId });
       }
@@ -187,6 +196,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (data.assigneeIds !== undefined) updateData.assigneeId = data.assigneeIds[0] ?? null;
       if (data.priority !== undefined) updateData.priority = data.priority;
       if (data.intervalId !== undefined) updateData.intervalId = data.intervalId;
+      if (data.teamId !== undefined) updateData.teamId = data.teamId;
       if (data.parentId !== undefined) updateData.parentId = data.parentId;
       if (data.storyPoints !== undefined) updateData.storyPoints = data.storyPoints;
       if (data.sortOrder !== undefined) updateData.sortOrder = data.sortOrder;

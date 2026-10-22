@@ -19,6 +19,14 @@ import { listTags, resolveDigest, parseImageRef } from "./registry";
 import { versionsFromTags, updateStatus, type UpdateStatus } from "./versions";
 import { evaluatePreflights, canApply, type PreflightFacts, type PreflightResult } from "./preflight";
 import { fetchReleaseNotes, type ReleaseNote } from "./notes";
+import { openField } from "@/lib/crypto/field-seal";
+import {
+  readRegistryOverrides,
+  layerRegistryEnv,
+  REGISTRY_ENV,
+  type RegistryOverrides,
+  type ValueSource,
+} from "./registry-settings";
 
 export interface UpdateConfig {
   /** Repository of the app image, e.g. `registry.example.com/cosmos/assembly/alpha`. */
@@ -91,6 +99,84 @@ export function updateConfigFromEnv(
       .filter(Boolean),
     username: env.COSMOS_UPDATE_REGISTRY_USERNAME?.trim() || undefined,
     password: env.COSMOS_UPDATE_REGISTRY_PASSWORD?.trim() || undefined,
+  };
+}
+
+/**
+ * The update configuration actually in force: registry settings saved on
+ * /admin/updates laid over the environment, then the SAME derivation
+ * {@link updateConfigFromEnv} does (suffix from the repository, migrate/notes
+ * defaults). One function so the page, the deploy route and the host-side
+ * Foreman daemon (which calls `resolveUpdateConfig(process.env)`) cannot
+ * disagree about which registry they are reading.
+ *
+ * No request context: it reads no cookies or headers, so the daemon can call it
+ * outside a request. The registry still comes from CONFIGURATION — settings a
+ * SYSTEM admin saved, or the environment — never from the request being served.
+ *
+ * FAILS OPEN TO THE ENVIRONMENT. If the settings row cannot be read (DB down,
+ * schema not yet migrated) or its password cannot be unsealed (vault key
+ * missing), this returns the env-only config. An unreadable setting must not be
+ * able to stop updates; the environment is what every instance ran on before
+ * these settings existed.
+ */
+export async function resolveUpdateConfig(
+  env: Record<string, string | undefined> = process.env,
+): Promise<UpdateConfig | null> {
+  try {
+    const o = await readRegistryOverrides();
+    const password = o.passwordEnc ? openField(o.passwordEnc) : null;
+    return updateConfigFromEnv(layerRegistryEnv(env, { ...o, password }).env);
+  } catch (e) {
+    // The error's NAME only: a seal/DB error message is not supposed to carry a
+    // secret, but this path is about credentials and the log is not the place
+    // to find out it did.
+    console.warn(
+      `[updates] registry settings unreadable (${e instanceof Error ? e.name : "error"}); using the environment only`,
+    );
+    return updateConfigFromEnv(env);
+  }
+}
+
+export interface RegistryFieldView {
+  /** The value in force, after settings are laid over the environment. */
+  value: string | null;
+  source: ValueSource;
+  /** What the environment alone says, so the page can show what "Use
+   *  environment value" would fall back to. */
+  envValue: string | null;
+}
+
+/** Registry settings as the page shows them. Never carries the password. */
+export interface RegistrySettingsView {
+  imageRepo: RegistryFieldView;
+  tagSuffix: RegistryFieldView;
+  username: RegistryFieldView;
+  password: { set: boolean; source: ValueSource; envSet: boolean };
+}
+
+/**
+ * Which value is in force for each registry field, and where it came from.
+ * Pure, and built from the same layering resolveUpdateConfig uses, so the page
+ * cannot describe a configuration the check is not actually running with.
+ */
+export function registrySettingsView(
+  env: Record<string, string | undefined>,
+  o: RegistryOverrides,
+): RegistrySettingsView {
+  // Only the PRESENCE of a password matters here, so it is never unsealed.
+  const { env: layered, sources } = layerRegistryEnv(env, { ...o, password: o.passwordEnc ? "set" : null });
+  const config = updateConfigFromEnv(layered);
+  const envOf = (k: keyof typeof REGISTRY_ENV) => env[REGISTRY_ENV[k]]?.trim() || null;
+  return {
+    imageRepo: { value: config?.repo ?? null, source: sources.imageRepo, envValue: envOf("imageRepo") },
+    tagSuffix: {
+      value: config ? config.suffix : null,
+      source: sources.tagSuffix,
+      envValue: env[REGISTRY_ENV.tagSuffix]?.trim() ?? null,
+    },
+    username: { value: config?.username ?? null, source: sources.username, envValue: envOf("username") },
+    password: { set: sources.password !== "unset", source: sources.password, envSet: envOf("password") !== null },
   };
 }
 
