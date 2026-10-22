@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.1",
+    date: "2026-10-22",
+    title: "Sign-in pages render their title reliably",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Internal fix: the sign-in and password-reset pages no longer trigger a page-metadata error during development, which could leave a page briefly without its title.",
+      },
+    ],
+  },
+  {
     version: "2.439.0",
     date: "2026-10-22",
     title: "Subscribe to your work in Outlook, Google or Apple Calendar",
