@@ -45,7 +45,15 @@ export interface AgentToolCall {
 }
 
 export interface AgentLoopResult {
+  /** The final turn's text alone (titles, summaries, bot replies). */
   text: string;
+  /**
+   * Every turn's text, a blank line between turns: what `onDelta` streamed.
+   * The assistant persists this, so a preamble the reader watched arrive
+   * ("Let me look that up.") is still there when the answer lands and after
+   * a reload.
+   */
+  transcript: string;
   toolCalls: AgentToolCall[];
 }
 
@@ -114,6 +122,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   const toolCalls: AgentToolCall[] = [];
   let finalText = "";
   let streamed = "";
+  const turnTexts: string[] = [];
 
   for (let turn = 0; turn < max; turn++) {
     const ctx = { orgId: opts.orgId, userId: opts.userId, conversationId: opts.conversationId, turn, tenantClass: opts.tenantClass, mode: "enforced" as const };
@@ -136,6 +145,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
         : undefined,
     });
 
+    if (reply.text) turnTexts.push(reply.text);
     if (reply.toolUses.length === 0) {
       finalText = reply.text;
       break;
@@ -345,6 +355,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       toolCalls.length > 0
         ? `I applied ${toolCalls.length} action${toolCalls.length === 1 ? "" : "s"} (shown above) but reached the tool-call limit before I could wrap up. They were applied — tell me to continue and I'll pick up where I left off, or narrow the request.`
         : "I couldn't complete that within the tool-call budget — please narrow the request.";
+    turnTexts.push(finalText);
   }
-  return { text: finalText, toolCalls };
+  return { text: finalText, transcript: turnTexts.join("\n\n"), toolCalls };
 }

@@ -250,9 +250,11 @@ async function runBlocking(ctx: IterationCtx): Promise<Response> {
     model: ctx.model,
   });
 
+  // The transcript, not the final turn alone, so a blocking client stores the
+  // same message a streaming one shows.
   const assistantMsg = await persistAssistantMessage(
     ctx,
-    result.text,
+    result.transcript,
     result.toolCalls,
   );
   // Auto-title after the first exchange (persists on the conversation). Non-
@@ -311,21 +313,25 @@ function runStreaming(ctx: IterationCtx): Response {
           send({ type: "tool_call_result", id: tc.id, result: tc.result });
         }
 
-        // If the final answer never streamed any text (e.g. a tool-only run),
-        // emit it once so the client has the full content before `done`.
-        if (result.text && !lastSent.endsWith(result.text)) {
-          send({ type: "text", text: (lastSent ? "\n\n" : "") + result.text });
+        // The transcript is what onDelta built up, so normally it is exactly
+        // `lastSent`. Anything that never streamed (e.g. the tool-budget
+        // fallback) is sent once here, before `done`.
+        if (result.transcript.startsWith(lastSent) && result.transcript !== lastSent) {
+          send({ type: "text", text: result.transcript.slice(lastSent.length) });
         }
 
+        // Persist and finish with the transcript too. `done` REPLACES the
+        // bubble's content, so sending the final turn alone made the preamble
+        // the reader had just watched stream in vanish at the end.
         const assistantMsg = await persistAssistantMessage(
           ctx,
-          result.text,
+          result.transcript,
           result.toolCalls,
         );
         send({
           type: "done",
           messageId: assistantMsg.id,
-          content: result.text,
+          content: result.transcript,
           toolCalls: result.toolCalls,
         });
 

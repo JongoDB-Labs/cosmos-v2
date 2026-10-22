@@ -103,8 +103,9 @@ describe("runAgentLoop — onDelta across model turns", () => {
       expect(seen[i].length).toBeGreaterThan(seen[i - 1].length);
     }
     expect(seen.at(-1)).toBe("Let me look that up.\n\nYou have 2 projects.");
-    // The persisted answer is still the final turn alone.
+    // `text` is still the final turn alone; `transcript` is what streamed.
     expect(res.text).toBe("You have 2 projects.");
+    expect(res.transcript).toBe(seen.at(-1));
   });
 
   it("adds no separator when the tool turn streamed nothing", async () => {
