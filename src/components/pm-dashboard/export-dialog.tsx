@@ -14,6 +14,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Loader2, Download, FileSpreadsheet } from "lucide-react";
+import { downloadBlob } from "@/lib/export/download";
 
 /**
  * Export dialog for the PM dashboard. Lets the user pick which of the eight
@@ -87,14 +88,7 @@ export function ExportDialog({ orgId, projectId, open, onOpenChange }: ExportDia
       const filename = filenameFromDisposition(res.headers.get("Content-Disposition"))
         ?? defaultName(mode, trackers.length);
 
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, filename);
       onOpenChange(false);
     } catch (err) {
       notifyError(err, "Couldn't export the trackers.");
