@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.427.5",
+    date: "2026-10-22",
+    title: "An expired Claude connection says so",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When a Claude connection expires and can't be renewed, the assistant stops trying to use it and falls back to your organization's connection. Settings now marks it Expired with a button to connect again, instead of showing it as Connected.",
+      },
+    ],
+  },
+  {
     version: "2.427.4",
     date: "2026-10-22",
     title: "Pages fade between each other again",
