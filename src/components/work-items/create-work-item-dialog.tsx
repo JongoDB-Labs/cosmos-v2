@@ -101,6 +101,7 @@ export function CreateWorkItemDialog({
   initialLabels,
   initialStartDate,
   initialDueDate,
+  initialColumnKey,
   duplicateSource,
   onCreated,
 }: {
@@ -128,6 +129,12 @@ export function CreateWorkItemDialog({
    */
   initialStartDate?: string | null;
   initialDueDate?: string | null;
+  /**
+   * The Status (column key) to start on: the column a board was right-clicked
+   * in (COSMOS-88). A SEED like the dates. If the board's workflow has no such
+   * column, the picker falls back to its first status.
+   */
+  initialColumnKey?: string | null;
   /** When set, the dialog opens as a "Duplicate issue" draft pre-filled from
    *  this source item (COSMOS-13). The user edits before creating; comments,
    *  activity, and status are never carried over (they aren't part of create). */
@@ -226,6 +233,10 @@ export function CreateWorkItemDialog({
       setIntervalId(null);
       setDescription("");
       setLabels(initialLabelsText);
+      // Seeded or blank. The Status effect below then validates it against the
+      // workflow and falls back to the first column, so a status picked in an
+      // earlier open no longer carries over into the next one.
+      setColumnKey(initialColumnKey ?? "");
       setCustomValues({});
       setShowCustomErrors(false);
       setProjectId(prefilledProjectId ?? firstProjectId);
@@ -247,6 +258,7 @@ export function CreateWorkItemDialog({
     initialLabelsText,
     initialStartDate,
     initialDueDate,
+    initialColumnKey,
   ]);
 
   // The statuses this dialog can file into: the board's own workflow when it was
