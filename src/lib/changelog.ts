@@ -49,7 +49,7 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
-    version: "2.427.11",
+    version: "2.428.0",
     date: "2026-10-22",
     title: "Export your time entries",
     highlights: [
