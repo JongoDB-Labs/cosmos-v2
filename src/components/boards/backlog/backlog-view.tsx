@@ -53,15 +53,7 @@ import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DeleteWorkItemDialog } from "@/components/work-items/delete-work-item-dialog";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
@@ -750,42 +742,18 @@ export function BacklogView({
         onOpenItem={openItemById}
       />
 
-      <Dialog
+      <DeleteWorkItemDialog
         open={pendingDelete !== null}
-        onOpenChange={(open) => {
-          if (!open) setPendingDelete(null);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete work item?</DialogTitle>
-            <DialogDescription>
-              This will permanently delete{" "}
-              {pendingDelete
-                ? `${projectKey ? `${projectKey}-` : "#"}${pendingDelete.ticketNumber}`
-                : "this item"}
-              {pendingDelete?.title ? ` "${pendingDelete.title}"` : ""}. This action cannot be
-              undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setPendingDelete(null)}
-              disabled={deleteMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => pendingDelete && deleteMutation.mutate(pendingDelete.id)}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? "Deleting…" : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => pendingDelete && deleteMutation.mutate(pendingDelete.id)}
+        pending={deleteMutation.isPending}
+        ticketLabel={
+          pendingDelete
+            ? `${projectKey ? `${projectKey}-` : "#"}${pendingDelete.ticketNumber}`
+            : "this item"
+        }
+        title={pendingDelete?.title}
+      />
     </div>
   );
 }
