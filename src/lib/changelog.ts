@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.430.0",
+    date: "2026-10-22",
+    title: "Handle one notification at a time",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each notification in your inbox now has its own buttons to mark it read or unread, or to clear it, so you no longer have to mark everything read at once.",
+      },
+    ],
+  },
+  {
     version: "2.429.0",
     date: "2026-10-22",
     title: "Open and delete from a backlog row",
