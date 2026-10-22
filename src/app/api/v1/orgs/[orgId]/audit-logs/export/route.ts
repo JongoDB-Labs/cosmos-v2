@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client";
 import { generateAuditLogPdf } from "@/lib/pdf/audit-log";
 import { loadPdfLogo } from "@/lib/pdf/org-logo";
 import { pickOrgBrand } from "@/lib/brand/resolve";
+import { toCSV } from "@/lib/export/csv";
 
 // Cap the rows RENDERED into the PDF — it's the presentable, signed report, not
 // the bulk dump (CSV/JSON carry the complete set). The digest/signature cover
@@ -59,21 +60,24 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
 
     if (format === "csv") {
+      // Through the shared serializer, not a hand-joined row: that had no
+      // quoting (a comma in any field shifted the columns) and no formula
+      // guard, and `ipAddress` can come from a request header, so a crafted
+      // "=HYPERLINK(...)" ran in whoever opened the export (COSMOS-200).
       const header = "timestamp,userId,action,entity,entityId,ipAddress,metadata";
-      const rows = logs.map((log) => {
-        const meta = JSON.stringify(log.metadata).replace(/"/g, '""');
-        return [
-          log.createdAt.toISOString(),
-          log.userId ?? "",
-          log.action,
-          log.entity,
-          log.entityId ?? "",
-          log.ipAddress ?? "",
-          `"${meta}"`,
-        ].join(",");
-      });
-
-      const csv = [header, ...rows].join("\n");
+      const csv = logs.length
+        ? toCSV(
+            logs.map((log) => ({
+              timestamp: log.createdAt.toISOString(),
+              userId: log.userId ?? "",
+              action: log.action,
+              entity: log.entity,
+              entityId: log.entityId ?? "",
+              ipAddress: log.ipAddress ?? "",
+              metadata: JSON.stringify(log.metadata),
+            })),
+          )
+        : header;
 
       return new Response(csv, {
         status: 200,
