@@ -2,7 +2,7 @@
 //
 // COSMOS-177: the assistant could not walk an epic's children. Neither work
 // item tool filtered on `parentId` or returned it, and the egress projection
-// dropped it, so "what's under USMC-7?" ended in the model paging through every
+// dropped it, so "what is under this epic?" ended in the model paging through every
 // item looking for a field that was never there.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Permission } from "@/lib/rbac/permissions";
@@ -66,7 +66,7 @@ describe.each(["query_work_items", "list_work_items"])("%s — parentId", (tool)
   });
 
   it("refuses a parentId that is not an id instead of querying with it", async () => {
-    const res = (await executeTool(tool, { projectId: PROJECT, parentId: "USMC-7" }, ctx)) as {
+    const res = (await executeTool(tool, { projectId: PROJECT, parentId: "EPIC-7" }, ctx)) as {
       error?: string;
     };
 
