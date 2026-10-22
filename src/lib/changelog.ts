@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.427.10",
+    date: "2026-10-22",
+    title: "The assistant can find an epic's child tickets",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Ask the assistant about an epic and it can now list the tickets underneath it, and tell you which epic a ticket belongs to.",
+      },
+    ],
+  },
+  {
     version: "2.427.9",
     date: "2026-10-22",
     title: "On a phone, the menu closes when you pick a page",
