@@ -14,10 +14,15 @@ import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
 import { cascadeSchedule, type CascadedItem } from "@/lib/work-items/schedule-cascade-io";
 import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
-import { CANCEL_NOTE_MAX, cancelFieldsForUpdate, cancelInputError } from "@/lib/work-items/cancel";
+import {
+  CANCEL_NOTE_MAX,
+  PICKABLE_CANCEL_REASONS,
+  cancelFieldsForUpdate,
+  cancelInputError,
+} from "@/lib/work-items/cancel";
 import { ensureCancelledColumn } from "@/lib/work-items/cancel.server";
 import { z } from "zod";
-import { CancelReason, ColumnCategory, Priority, Prisma, WorkCategory } from "@prisma/client";
+import { ColumnCategory, Priority, Prisma, WorkCategory } from "@prisma/client";
 
 const updateItemSchema = z.object({
   title: z.string().min(1).max(500).optional(),
@@ -63,7 +68,8 @@ const updateItemSchema = z.object({
   // Cancel with a reason (COSMOS-206). Sending a reason IS the cancel: the item
   // moves to the project's Cancelled status, which is created on first use.
   // Moving the item to any other status clears both.
-  cancelReason: z.nativeEnum(CancelReason).optional(),
+  // MERGED is not accepted here: only a merge (COSMOS-207) sets it.
+  cancelReason: z.enum(PICKABLE_CANCEL_REASONS).optional(),
   cancelNote: z.string().max(CANCEL_NOTE_MAX).nullish(),
 }).superRefine((d, ctx) => {
   const err = d.cancelReason ? cancelInputError(d.cancelReason, d.cancelNote) : null;
@@ -238,6 +244,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       });
       if (cancelFields) {
         Object.assign(updateData, cancelFields);
+        // Reopening a merged item un-merges it; its moved work stays moved.
+        if (cancelFields.cancelReason === null && existing.mergedIntoId) updateData.mergedIntoId = null;
         if (cancelFields.cancelReason !== existing.cancelReason) {
           trackFields.push({
             field: "cancelReason",

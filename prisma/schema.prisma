@@ -101,6 +101,9 @@ enum CancelReason {
   OBE
   /// Anything else; the item's cancelNote says what.
   OTHER
+  /// Merged into another item (COSMOS-207); mergedIntoId says which. Set by
+  /// the merge only, never picked by hand.
+  MERGED
 }
 
 // SAFe work classification (FR gantt-enh). BUSINESS = main-effort work that
@@ -1010,6 +1013,9 @@ model WorkItem {
   /// was dragged there without one.
   cancelReason    CancelReason?               @map("cancel_reason")
   cancelNote      String?                     @map("cancel_note")
+  /// The item this one was merged into (COSMOS-207). Its tracked work moved
+  /// there; this row stays, Cancelled, so links and searches still find it.
+  mergedIntoId    String?                     @map("merged_into_id") @db.Uuid
   tags            String[]                    @default([])
   /// Hand-set callout colour for meetings ("on track" / "at risk" / "blocked"),
   /// painted as a coloured border on the item's card. See
@@ -1057,6 +1063,8 @@ model WorkItem {
 
   parent           WorkItem?            @relation("WorkItemHierarchy", fields: [parentId], references: [id])
   children         WorkItem[]           @relation("WorkItemHierarchy")
+  mergedInto       WorkItem?            @relation("WorkItemMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom       WorkItem[]           @relation("WorkItemMerge")
   workItemType     WorkItemType         @relation(fields: [workItemTypeId], references: [id])
   interval         Interval?            @relation(fields: [intervalId], references: [id])
   activities       Activity[]

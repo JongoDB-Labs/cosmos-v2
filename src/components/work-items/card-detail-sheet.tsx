@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { DeleteWorkItemDialog } from "./delete-work-item-dialog";
 import { CancelWorkItemDialog } from "./cancel-work-item-dialog";
-import { cancelReasonLabel, type CancelReason } from "@/lib/work-items/cancel";
+import { cancelReasonLabel, type PickableCancelReason } from "@/lib/work-items/cancel";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -1037,7 +1037,7 @@ export function CardDetailSheet({
       (c) => c.key === columnKey && c.category === "CANCELLED",
     );
 
-  async function submitCancel(reason: CancelReason, note: string) {
+  async function submitCancel(reason: PickableCancelReason, note: string) {
     if (!item) return;
     setCancelPending(true);
     try {
@@ -2104,7 +2104,7 @@ export function CardDetailSheet({
         onClose={() => setCancelOpen(false)}
         onConfirm={(reason, note) => void submitCancel(reason, note)}
         pending={cancelPending}
-        initialReason={item?.cancelReason ?? null}
+        initialReason={item?.cancelReason === "MERGED" ? null : (item?.cancelReason ?? null)}
         initialNote={item?.cancelNote ?? null}
       />
 

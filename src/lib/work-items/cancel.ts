@@ -6,9 +6,12 @@
  * Duplicates are deliberately NOT a reason here: cancelling one copy could hide
  * work tracked on it, so duplicates are merged instead.
  */
-export type CancelReason = "OBE" | "OTHER";
+export type CancelReason = "OBE" | "OTHER" | "MERGED";
+/** What a person can pick. MERGED is set by merging a duplicate (COSMOS-207), never by hand. */
+export type PickableCancelReason = Exclude<CancelReason, "MERGED">;
+export const PICKABLE_CANCEL_REASONS = ["OBE", "OTHER"] as const satisfies readonly PickableCancelReason[];
 
-export const CANCEL_REASONS: { value: CancelReason; label: string; hint: string }[] = [
+export const CANCEL_REASONS: { value: PickableCancelReason; label: string; hint: string }[] = [
   {
     value: "OBE",
     label: "Overcome by events (OBE)",
@@ -22,11 +25,12 @@ export const CANCEL_NOTE_MAX = 500;
 export const CANCEL_NOTE_REQUIRED_MESSAGE = "Add a note saying why it was cancelled.";
 
 export function cancelReasonLabel(reason: string | null | undefined): string | null {
+  if (reason === "MERGED") return "Merged";
   return CANCEL_REASONS.find((r) => r.value === reason)?.label ?? null;
 }
 
 /** "Other" means nothing without a note; OBE is self-explanatory. */
-export function cancelInputError(reason: CancelReason, note: string | null | undefined): string | null {
+export function cancelInputError(reason: PickableCancelReason, note: string | null | undefined): string | null {
   if (reason === "OTHER" && !note?.trim()) return CANCEL_NOTE_REQUIRED_MESSAGE;
   return null;
 }
@@ -38,7 +42,7 @@ export function cancelInputError(reason: CancelReason, note: string | null | und
  * leaves it alone: `undefined` means "don't write these fields".
  */
 export function cancelFieldsForUpdate(args: {
-  requested: { reason?: CancelReason; note?: string | null };
+  requested: { reason?: PickableCancelReason; note?: string | null };
   columnChanged: boolean;
   destIsCancelled: boolean;
   existing: { reason: CancelReason | null; note: string | null };
