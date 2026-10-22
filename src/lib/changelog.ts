@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.427.9",
+    date: "2026-10-22",
+    title: "On a phone, the menu closes when you pick a page",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On a phone, the menu now closes when you tap a link, so you land on the page you picked instead of behind the menu.",
+      },
+    ],
+  },
+  {
     version: "2.427.8",
     date: "2026-10-22",
     title: "Exported spreadsheets can't run hidden formulas",
