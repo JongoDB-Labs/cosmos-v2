@@ -38,7 +38,6 @@ import {
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import {
   teamsByUser,
-  itemMatchesTeam,
   type TeamLike,
 } from "@/lib/teams/item-teams";
 import { matchesLabelFilter, presentLabels } from "@/lib/work-items/label-filter";
@@ -3207,6 +3206,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         projectId={projectId}
         members={members}
         intervals={intervals}
+        teams={teams}
         columns={columns}
         projectItems={items}
         onUpdate={(updated) =>
