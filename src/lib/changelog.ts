@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.427.7",
+    date: "2026-10-22",
+    title: "Browser extensions no longer trigger crash reports",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A browser extension such as a crypto wallet failing in the background no longer brings up Cosmos's \"Something went wrong\" prompt or files a bug report. Problems in Cosmos itself are still reported as before.",
+      },
+    ],
+  },
+  {
     version: "2.427.6",
     date: "2026-10-22",
     title: "The assistant's answers stream smoothly after it looks something up",
