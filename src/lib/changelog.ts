@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.427.2",
+    date: "2026-10-22",
+    title: "Security updates to the web framework",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Cosmos now runs on updated versions of the framework that serves its pages and of its database layer. The framework update closes two critical security holes in the version we were on, and the database update fixes a rare case where one request's work could be saved as part of another's. Nothing changes on any screen.",
+      },
+    ],
+  },
+  {
     version: "2.426.1",
     date: "2026-10-08",
     title: "Housekeeping: tidying up the project exports",
