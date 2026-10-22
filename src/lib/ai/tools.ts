@@ -49,7 +49,7 @@ export function formatToolsForSystemPrompt(tools: ToolDefinition[]): string {
 export const cosmosTools: ToolDefinition[] = [
   {
     name: "query_work_items",
-    description: "Search and filter work items in the project. Returns matching items with their status, assignee, priority, and interval.",
+    description: "Search and filter work items in the project. Returns matching items with their status, assignee, priority, interval and parentId (the item they sit under, or null).",
     input_schema: {
       type: "object",
       properties: {
@@ -60,6 +60,7 @@ export const cosmosTools: ToolDefinition[] = [
         priority: { type: "string", description: "Filter by priority: CRITICAL, HIGH, MEDIUM, LOW" },
         intervalId: { type: "string", description: "Filter by interval ID" },
         workItemTypeId: { type: "string", description: "Filter by work item type ID" },
+        parentId: { type: "string", description: "Only the direct children of this work item (e.g. an epic's id)" },
         limit: { type: "number", description: "Max results (default 20)" },
       },
       required: [],

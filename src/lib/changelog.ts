@@ -49,6 +49,116 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.430.2",
+    date: "2026-10-22",
+    title: "The assistant bubble moves out of the way",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The floating assistant button now steps aside when it would cover a button or link at the bottom of the page, so you can always reach what's underneath it.",
+      },
+    ],
+  },
+  {
+    version: "2.430.1",
+    date: "2026-10-22",
+    title: "Developer tooling matches the framework version",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal only, with no effect on any screen: the code checker and bundle analyzer now match the framework version Cosmos runs on.",
+      },
+    ],
+  },
+  {
+    version: "2.430.0",
+    date: "2026-10-22",
+    title: "Handle one notification at a time",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each notification in your inbox now has its own buttons to mark it read or unread, or to clear it, so you no longer have to mark everything read at once.",
+      },
+    ],
+  },
+  {
+    version: "2.429.0",
+    date: "2026-10-22",
+    title: "Open and delete from a backlog row",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A backlog row's menu now has Open and Delete, with a confirmation before anything is deleted. The menu also only offers what you're allowed to do: changing an item needs edit rights, and deleting it needs delete rights.",
+      },
+    ],
+  },
+  {
+    version: "2.428.0",
+    date: "2026-10-22",
+    title: "Export your time entries",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Time Tracking can now export the entries you're viewing to a spreadsheet: date, hours, project, CLIN, description, billable and status, with names rather than internal ids.",
+      },
+    ],
+  },
+  {
+    version: "2.427.10",
+    date: "2026-10-22",
+    title: "The assistant can find an epic's child tickets",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Ask the assistant about an epic and it can now list the tickets underneath it, and tell you which epic a ticket belongs to.",
+      },
+    ],
+  },
+  {
+    version: "2.427.9",
+    date: "2026-10-22",
+    title: "On a phone, the menu closes when you pick a page",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On a phone, the menu now closes when you tap a link, so you land on the page you picked instead of behind the menu.",
+      },
+    ],
+  },
+  {
+    version: "2.427.8",
+    date: "2026-10-22",
+    title: "Exported spreadsheets can't run hidden formulas",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: when exported data is opened in Excel, Sheets or LibreOffice, text that someone typed starting with =, +, - or @ now shows as plain text instead of running as a formula. This covers every CSV export, including audit logs. Numbers, including negative ones, are unaffected.",
+      },
+    ],
+  },
+  {
+    version: "2.427.7",
+    date: "2026-10-22",
+    title: "Browser extensions no longer trigger crash reports",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A browser extension such as a crypto wallet failing in the background no longer brings up Cosmos's \"Something went wrong\" prompt or files a bug report. Problems in Cosmos itself are still reported as before.",
+      },
+    ],
+  },
+  {
+    version: "2.427.6",
+    date: "2026-10-22",
+    title: "The assistant's answers stream smoothly after it looks something up",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When the assistant looks something up before answering, its reply now streams in smoothly. Before, it could stall, then appear mid-sentence. What it said while looking (\"Let me look that up.\") also stays in the reply instead of disappearing when the answer arrives, in the assistant panel and in chat channels alike.",
+      },
+    ],
+  },
+  {
     version: "2.427.5",
     date: "2026-10-22",
     title: "An expired Claude connection says so",

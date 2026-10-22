@@ -27,6 +27,8 @@ import {
   ListChecks,
   MoveRight,
   Inbox,
+  PanelRightOpen,
+  Trash2,
 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -51,6 +53,16 @@ import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import {
@@ -287,6 +299,27 @@ export function BacklogView({
   });
 
   const orgSlug = useOrgSlug();
+  const { can } = usePermissions();
+  const canUpdate = can(Permission.ITEM_UPDATE);
+  const canDelete = can(Permission.ITEM_DELETE);
+
+  // The row menu's Delete asks first, exactly as the Kanban card's does.
+  const [pendingDelete, setPendingDelete] = useState<WorkItem | null>(null);
+  const removeFromList = useCallback(
+    (id: string) =>
+      qc.setQueryData<WorkItem[]>(itemsKey, (prev) => (prev ?? []).filter((i) => i.id !== id)),
+    [qc, itemsKey],
+  );
+  const deleteMutation = useOrgMutation<unknown, Error, string>({
+    mutationFn: (id) => jsonFetch(`${basePath}/work-items/${id}`, { method: "DELETE" }),
+    invalidate: [["work-items", projectId]],
+    onSuccess: (_res, id) => {
+      removeFromList(id);
+      setPendingDelete(null);
+      setDetailItem((cur) => (cur?.id === id ? null : cur));
+    },
+    onError: (err) => notifyError(err, "Couldn't delete that item."),
+  });
 
   const archiveMutation = useOrgMutation<
     unknown,
@@ -472,8 +505,12 @@ export function BacklogView({
           : []),
         ...targets,
       ];
+      // Gated like the Kanban card: viewing and copying a link are open to
+      // anyone who can see the row, every change takes ITEM_UPDATE, and Delete
+      // takes ITEM_DELETE. The menu used to offer all of them to everyone.
       return [
-        { label: "Move to sprint", items },
+        { items: [{ label: "Open", icon: PanelRightOpen, onClick: () => openDetail(item) }] },
+        { label: "Move to sprint", items: canUpdate ? items : [] },
         {
           items: [
             ...copyLinkAction(
@@ -482,7 +519,7 @@ export function BacklogView({
             ),
             ...archiveAction({
               item,
-              canEdit: true,
+              canEdit: canUpdate,
               pending: archiveMutation.isPending,
               onToggle: (next) =>
                 archiveMutation.mutate({ id: item.id, archivedAt: next }),
@@ -491,13 +528,29 @@ export function BacklogView({
         },
         highlightMenuGroup({
           current: item.highlight,
+          canEdit: canUpdate,
           disabled: highlightMutation.isPending,
           onPick: (next) =>
             highlightMutation.mutate({ id: item.id, highlight: next }),
         }),
+        {
+          items: canDelete
+            ? [
+                {
+                  label: "Delete",
+                  icon: Trash2,
+                  variant: "destructive" as const,
+                  onClick: () => setPendingDelete(item),
+                },
+              ]
+            : [],
+        },
       ];
     },
-    [intervals, assignMutation, highlightMutation, archiveMutation, orgSlug],
+    [
+      intervals, assignMutation, highlightMutation, archiveMutation, orgSlug,
+      openDetail, canUpdate, canDelete, projectKey,
+    ],
   );
 
   if (loading) return <BacklogSkeleton />;
@@ -684,11 +737,7 @@ export function BacklogView({
         intervals={intervals}
         columns={columns}
         onUpdate={handleItemUpdate}
-        onDelete={(id) =>
-          qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
-            (prev ?? []).filter((i) => i.id !== id),
-          )
-        }
+        onDelete={removeFromList}
         onDuplicate={(dupe) => {
           qc.setQueryData<WorkItem[]>(itemsKey, (prev) => [...(prev ?? []), dupe]);
           setDetailItem(dupe);
@@ -700,6 +749,43 @@ export function BacklogView({
         }
         onOpenItem={openItemById}
       />
+
+      <Dialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete work item?</DialogTitle>
+            <DialogDescription>
+              This will permanently delete{" "}
+              {pendingDelete
+                ? `${projectKey ? `${projectKey}-` : "#"}${pendingDelete.ticketNumber}`
+                : "this item"}
+              {pendingDelete?.title ? ` "${pendingDelete.title}"` : ""}. This action cannot be
+              undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPendingDelete(null)}
+              disabled={deleteMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => pendingDelete && deleteMutation.mutate(pendingDelete.id)}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
