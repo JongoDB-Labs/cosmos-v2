@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.430.1",
+    date: "2026-10-22",
+    title: "Developer tooling matches the framework version",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal only, with no effect on any screen: the code checker and bundle analyzer now match the framework version Cosmos runs on.",
+      },
+    ],
+  },
+  {
     version: "2.430.0",
     date: "2026-10-22",
     title: "Handle one notification at a time",
