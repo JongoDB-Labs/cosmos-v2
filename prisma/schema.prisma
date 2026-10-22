@@ -336,6 +336,7 @@ model Organization {
   workItemWatchers    WorkItemWatcher[]
   timeOffRequests     TimeOffRequest[]
   bills               Bill[]
+  calendarFeeds       CalendarFeed[]
 
   @@map("organizations")
 }
@@ -416,6 +417,7 @@ model User {
   retroNotes          RetroNote[]
   retroActionItems    RetroActionItem[]
   timeEntryPhasesSet  TimeEntryPhase[]
+  calendarFeeds       CalendarFeed[]
 
   @@map("users")
 }
@@ -5424,4 +5426,27 @@ enum BillTerms {
   DUE_DATE
   /// Owed only once the client invoice it belongs to is settled.
   PAY_WHEN_PAID
+}
+
+/// A person's calendar subscription link (COSMOS-202): Outlook, Google or Apple
+/// Calendar fetch /api/v1/calendar/feeds/<token>.ics without a session. Only the
+/// SHA-256 of the token is stored, unique, so the lookup is an index hit and no
+/// secret is ever at rest. Every fetch re-checks the org switch, the person's
+/// membership and their read access to each item, so a stale link shows nothing.
+model CalendarFeed {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String    @map("org_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  tokenHash     String    @unique @map("token_hash")
+  /// FeedOptions (lib/calendar/feed-events): which sources, and busy-only.
+  options       Json      @default("{}")
+  lastFetchedAt DateTime? @map("last_fetched_at")
+  revokedAt     DateTime? @map("revoked_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, userId])
+  @@map("calendar_feeds")
 }

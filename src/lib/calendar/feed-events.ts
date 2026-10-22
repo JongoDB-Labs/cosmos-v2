@@ -22,7 +22,18 @@ export const DEFAULT_FEED_OPTIONS: FeedOptions = {
   busyOnly: false,
 };
 
-export interface FeedWorkItem {
+/**
+ * Every source row says whether it is RESTRICTED: in a project whose
+ * classification ceiling carries a marking, or with a marking in its own text.
+ * A restricted row is always written busy-only, whatever the person chose,
+ * because a subscribed feed is fetched by the calendar provider's servers and
+ * everything in it leaves this system.
+ */
+interface Restrictable {
+  restricted: boolean;
+}
+
+export interface FeedWorkItem extends Restrictable {
   id: string;
   ticketNumber: number;
   projectKey: string;
@@ -32,14 +43,14 @@ export interface FeedWorkItem {
   updatedAt: Date;
 }
 
-export interface FeedMeeting {
+export interface FeedMeeting extends Restrictable {
   id: string;
   title: string;
   meetingDate: Date;
   updatedAt: Date;
 }
 
-export interface FeedInterval {
+export interface FeedInterval extends Restrictable {
   id: string;
   name: string;
   projectKey: string;
@@ -50,6 +61,9 @@ export interface FeedInterval {
 
 /** Meetings carry a start time only; a calendar needs an end. */
 export const MEETING_MINUTES = 30;
+
+/** All a busy-only event says. */
+export const BUSY = "Busy";
 
 const DAY = 86_400_000;
 /** Midnight UTC of the date's calendar day: the app stores date-only values in UTC. */
@@ -67,8 +81,9 @@ export function feedEvents(args: {
   uidHost: string;
 }): IcsEvent[] {
   const { options: o, origin, orgSlug, uidHost } = args;
-  const link = (path: string | null) => (path && !o.busyOnly ? `${origin}${path}` : null);
-  const label = (text: string) => (o.busyOnly ? "Busy" : text);
+  const hide = (r: Restrictable) => o.busyOnly || r.restricted;
+  const link = (r: Restrictable, path: string | null) => (path && !hide(r) ? `${origin}${path}` : null);
+  const label = (r: Restrictable, text: string) => (hide(r) ? BUSY : text);
   const out: IcsEvent[] = [];
 
   if (o.workItems) {
@@ -82,8 +97,8 @@ export function feedEvents(args: {
       const end = new Date(Math.max(dayOf(last).getTime(), start.getTime()) + DAY);
       out.push({
         uid: `workitem-${w.id}@${uidHost}`,
-        summary: label(`${ref} ${w.title}`),
-        url: link(entityUrl("workItem", { orgSlug, id: ref })),
+        summary: label(w, `${ref} ${w.title}`),
+        url: link(w, entityUrl("workItem", { orgSlug, id: ref })),
         start,
         end,
         allDay: true,
@@ -96,8 +111,8 @@ export function feedEvents(args: {
     for (const m of args.meetings) {
       out.push({
         uid: `meeting-${m.id}@${uidHost}`,
-        summary: label(m.title),
-        url: link(entityUrl("meeting", { orgSlug, id: m.id })),
+        summary: label(m, m.title),
+        url: link(m, entityUrl("meeting", { orgSlug, id: m.id })),
         start: m.meetingDate,
         end: new Date(m.meetingDate.getTime() + MEETING_MINUTES * 60_000),
         allDay: false,
@@ -111,7 +126,7 @@ export function feedEvents(args: {
       const start = dayOf(i.startDate);
       out.push({
         uid: `interval-${i.id}@${uidHost}`,
-        summary: label(`${i.projectKey}: ${i.name}`),
+        summary: label(i, `${i.projectKey}: ${i.name}`),
         start,
         end: new Date(Math.max(dayOf(i.endDate).getTime(), start.getTime()) + DAY),
         allDay: true,

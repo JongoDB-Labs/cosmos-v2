@@ -9,12 +9,12 @@ const base = {
   orgSlug: "alpha",
   uidHost: "example.com",
   workItems: [
-    { id: "w1", ticketNumber: 7, projectKey: "ALPHA", title: "Ship it", startDate: D("2026-10-20T00:00:00Z"), dueDate: D("2026-10-24T00:00:00Z"), updatedAt: D("2026-10-01T00:00:00Z") },
-    { id: "w2", ticketNumber: 8, projectKey: "ALPHA", title: "Due only", startDate: null, dueDate: D("2026-10-30T00:00:00Z"), updatedAt: D("2026-10-01T00:00:00Z") },
-    { id: "w3", ticketNumber: 9, projectKey: "ALPHA", title: "Undated", startDate: null, dueDate: null, updatedAt: D("2026-10-01T00:00:00Z") },
+    { id: "w1", ticketNumber: 7, projectKey: "ALPHA", title: "Ship it", startDate: D("2026-10-20T00:00:00Z"), dueDate: D("2026-10-24T00:00:00Z"), updatedAt: D("2026-10-01T00:00:00Z"), restricted: false },
+    { id: "w2", ticketNumber: 8, projectKey: "ALPHA", title: "Due only", startDate: null, dueDate: D("2026-10-30T00:00:00Z"), updatedAt: D("2026-10-01T00:00:00Z"), restricted: false },
+    { id: "w3", ticketNumber: 9, projectKey: "ALPHA", title: "Undated", startDate: null, dueDate: null, updatedAt: D("2026-10-01T00:00:00Z"), restricted: false },
   ],
-  meetings: [{ id: "m1", title: "Standup", meetingDate: D("2026-10-23T14:30:00Z"), updatedAt: D("2026-10-01T00:00:00Z") }],
-  intervals: [{ id: "i1", name: "Sprint 4", projectKey: "ALPHA", startDate: D("2026-10-19T00:00:00Z"), endDate: D("2026-11-01T00:00:00Z"), updatedAt: D("2026-10-01T00:00:00Z") }],
+  meetings: [{ id: "m1", title: "Standup", meetingDate: D("2026-10-23T14:30:00Z"), updatedAt: D("2026-10-01T00:00:00Z"), restricted: false }],
+  intervals: [{ id: "i1", name: "Sprint 4", projectKey: "ALPHA", startDate: D("2026-10-19T00:00:00Z"), endDate: D("2026-11-01T00:00:00Z"), updatedAt: D("2026-10-01T00:00:00Z"), restricted: false }],
 };
 const run = (o: Partial<FeedOptions> = {}) => feedEvents({ ...base, options: { ...DEFAULT_FEED_OPTIONS, ...o } });
 
@@ -51,6 +51,25 @@ describe("feedEvents", () => {
   it("honours each source switch", () => {
     expect(run({ workItems: false }).some((x) => x.uid.startsWith("workitem-"))).toBe(false);
     expect(run({ meetings: false }).some((x) => x.uid.startsWith("meeting-"))).toBe(false);
+  });
+
+  it("always hides a restricted row, even when the person chose full detail", () => {
+    const evs = feedEvents({
+      ...base,
+      options: { ...DEFAULT_FEED_OPTIONS, intervals: true, busyOnly: false },
+      workItems: [{ ...base.workItems[0], title: "CUI//SP-PRVCY payroll export", restricted: true }, base.workItems[1]],
+      meetings: [{ ...base.meetings[0], restricted: true }],
+      intervals: [{ ...base.intervals[0], restricted: true }],
+    });
+    const hidden = evs.filter((e) => !e.uid.startsWith("workitem-w2"));
+    expect(hidden).toHaveLength(3);
+    for (const e of hidden) {
+      expect(e.summary).toBe("Busy");
+      expect(e.url ?? null).toBeNull();
+    }
+    expect(JSON.stringify(evs)).not.toMatch(/payroll|Standup|Sprint 4/);
+    // ...while an unrestricted row in the same feed keeps its detail.
+    expect(evs.find((e) => e.uid.startsWith("workitem-w2"))!.summary).toBe("ALPHA-8 Due only");
   });
 
   it("busy-only shows the time and nothing else", () => {
