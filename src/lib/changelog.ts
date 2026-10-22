@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.0",
+    date: "2026-10-22",
+    title: "Subscribe to your work in Outlook, Google or Apple Calendar",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Once an org admin turns on calendar feeds, you can create a private calendar link under Settings and subscribe to it from Outlook, Google Calendar or Apple Calendar. It shows your dated work items, the meetings you attend and your sprints and PIs, and you choose which. Treat the link like a password: it can be revoked at any time, it always reflects your current access, and anything classified appears only as busy.",
+      },
+    ],
+  },
+  {
     version: "2.438.0",
     date: "2026-10-22",
     title: "Merge duplicate tickets",
