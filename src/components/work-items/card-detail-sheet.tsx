@@ -26,6 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DeleteWorkItemDialog } from "./delete-work-item-dialog";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -2052,39 +2053,14 @@ export function CardDetailSheet({
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <DeleteWorkItemDialog
         open={confirmDelete}
-        onOpenChange={(o) => {
-          if (!o) setConfirmDelete(false);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete work item?</DialogTitle>
-            <DialogDescription>
-              This will permanently delete #{item.ticketNumber}
-              {item.title ? ` "${item.title}"` : ""}. This action cannot be
-              undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setConfirmDelete(false)}
-              disabled={actionPending === "delete"}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={actionPending === "delete"}
-            >
-              {actionPending === "delete" ? "Deleting…" : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={handleDelete}
+        pending={actionPending === "delete"}
+        ticketLabel={`#${item.ticketNumber}`}
+        title={item.title}
+      />
     </Sheet>
   );
 }

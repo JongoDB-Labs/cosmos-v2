@@ -53,6 +53,8 @@ export function KanbanColumn({
 
   return (
     <div
+      // A right-click anywhere in the column creates into it (COSMOS-88).
+      data-board-column={column.key}
       className={cn(
         // Near-full-width columns on phones (with a peek of the next), w-72 at
         // sm+. Avoids the 288px-on-375px unusable horizontal scroll.

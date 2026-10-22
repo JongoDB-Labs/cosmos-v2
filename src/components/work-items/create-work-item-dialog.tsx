@@ -28,6 +28,13 @@ import {
 import { createStatusOptions } from "@/lib/boards/status-columns";
 import { filterMemberOptions, memberPickerOptions } from "@/lib/org/member-picker";
 import type { Board, BoardColumn, OrgMember, Interval } from "@/types/models";
+import {
+  EMPTY_SECTIONS,
+  SECTION_FIELDS,
+  composeDescription,
+  parseDescription,
+  type DescriptionSections,
+} from "@/lib/work-items/description-template";
 
 const PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 
@@ -102,6 +109,7 @@ export function CreateWorkItemDialog({
   initialLabels,
   initialStartDate,
   initialDueDate,
+  initialColumnKey,
   duplicateSource,
   onCreated,
 }: {
@@ -129,6 +137,12 @@ export function CreateWorkItemDialog({
    */
   initialStartDate?: string | null;
   initialDueDate?: string | null;
+  /**
+   * The Status (column key) to start on: the column a board was right-clicked
+   * in (COSMOS-88). A SEED like the dates. If the board's workflow has no such
+   * column, the picker falls back to its first status.
+   */
+  initialColumnKey?: string | null;
   /** When set, the dialog opens as a "Duplicate issue" draft pre-filled from
    *  this source item (COSMOS-13). The user edits before creating; comments,
    *  activity, and status are never carried over (they aren't part of create). */
@@ -160,6 +174,10 @@ export function CreateWorkItemDialog({
   const [intervalId, setIntervalId] = useState<string | null>(null);
   const [intervals, setIntervals] = useState<Interval[]>([]);
   const [description, setDescription] = useState("");
+  // COSMOS-208: the description is written in three prompted sections by
+  // default, or as plain text. Either way it's stored as one markdown string.
+  const [descMode, setDescMode] = useState<"template" | "plain">(readDescMode);
+  const [sections, setSections] = useState<DescriptionSections>(EMPTY_SECTIONS);
   const [labels, setLabels] = useState("");
   const [members, setMembers] = useState<OrgMember[]>([]);
   // Assignee search box (COSMOS-171) — client-side only; the member list is
@@ -232,7 +250,12 @@ export function CreateWorkItemDialog({
       setDueDate(initialDueDate ?? "");
       setIntervalId(null);
       setDescription("");
+      setSections(EMPTY_SECTIONS);
       setLabels(initialLabelsText);
+      // Seeded or blank. The Status effect below then validates it against the
+      // workflow and falls back to the first column, so a status picked in an
+      // earlier open no longer carries over into the next one.
+      setColumnKey(initialColumnKey ?? "");
       setCustomValues({});
       setShowCustomErrors(false);
       setProjectId(prefilledProjectId ?? firstProjectId);
@@ -254,6 +277,7 @@ export function CreateWorkItemDialog({
     initialLabelsText,
     initialStartDate,
     initialDueDate,
+    initialColumnKey,
   ]);
 
   // The statuses this dialog can file into: the board's own workflow when it was
@@ -370,6 +394,7 @@ export function CreateWorkItemDialog({
         setStartDate(src.startDate ? src.startDate.slice(0, 10) : "");
         setIntervalId(src.intervalId ?? null);
         setDescription(src.description ?? "");
+        setSections(parseDescription(src.description ?? ""));
         setLabels((src.tags ?? []).join(", "));
         setCustomValues(
           src.customFields && typeof src.customFields === "object"
@@ -384,6 +409,20 @@ export function CreateWorkItemDialog({
       cancelled = true;
     };
   }, [open, duplicateSource, orgId]);
+
+  // Switching keeps what was typed: sections compose into markdown, and
+  // markdown under our three headings parses back into them.
+  function switchDescMode(next: "template" | "plain") {
+    if (next === descMode) return;
+    if (next === "plain") setDescription(composeDescription(sections));
+    else setSections(parseDescription(description));
+    setDescMode(next);
+    try {
+      localStorage.setItem(DESC_MODE_KEY, next);
+    } catch {
+      // Storage can be unavailable (private mode); the choice just isn't remembered.
+    }
+  }
 
   async function handleSubmit() {
     const trimmed = title.trim();
@@ -454,7 +493,8 @@ export function CreateWorkItemDialog({
           priority,
           ...(assigneeIds.length ? { assigneeIds } : {}),
           ...(intervalId ? { intervalId } : {}),
-          description: description.trim() || null,
+          description:
+            (descMode === "template" ? composeDescription(sections) : description).trim() || null,
           startDate: startDate ? new Date(startDate).toISOString() : null,
           dueDate: dueDate ? new Date(dueDate).toISOString() : null,
           tags: tags.length ? tags : undefined,
@@ -699,18 +739,64 @@ export function CreateWorkItemDialog({
             )}
           </div>
 
-          <div className="space-y-1">
-            <Label htmlFor="ci-desc" className="text-xs">
-              Description
-            </Label>
-            <Textarea
-              id="ci-desc"
-              rows={3}
-              placeholder="Details, acceptance criteria…"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              disabled={submitting}
-            />
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium">Write-up</span>
+              <div
+                role="radiogroup"
+                aria-label="Description format"
+                className="inline-flex rounded-md border border-[var(--border)] p-0.5 text-[11px]"
+              >
+                {(["template", "plain"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="radio"
+                    aria-checked={descMode === m}
+                    disabled={submitting}
+                    onClick={() => switchDescMode(m)}
+                    className={
+                      descMode === m
+                        ? "rounded px-2 py-0.5 font-medium bg-[var(--primary-tint)] text-[var(--primary)]"
+                        : "rounded px-2 py-0.5 text-[var(--text-muted)] hover:text-[var(--text)]"
+                    }
+                  >
+                    {m === "template" ? "Template" : "Plain text"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {descMode === "template" ? (
+              SECTION_FIELDS.map((f) => (
+                <div key={f.key} className="space-y-1">
+                  <Label htmlFor={`ci-desc-${f.key}`} className="text-xs text-[var(--text-muted)]">
+                    {f.heading}
+                  </Label>
+                  <Textarea
+                    id={`ci-desc-${f.key}`}
+                    rows={f.key === "description" ? 3 : 2}
+                    placeholder={f.placeholder}
+                    value={sections[f.key]}
+                    onChange={(e) => setSections((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                    disabled={submitting}
+                  />
+                </div>
+              ))
+            ) : (
+              <div className="space-y-1">
+                <Label htmlFor="ci-desc" className="text-xs text-[var(--text-muted)]">
+                  Description
+                </Label>
+                <Textarea
+                  id="ci-desc"
+                  rows={5}
+                  placeholder="Details, acceptance criteria…"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  disabled={submitting}
+                />
+              </div>
+            )}
           </div>
 
           <div className="space-y-1">
@@ -787,4 +873,17 @@ export function CreateWorkItemDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/** The last description format this browser used, so people who prefer plain
+ *  text aren't pushed back to the template every time. */
+const DESC_MODE_KEY = "cosmos.createDialog.descriptionFormat";
+function readDescMode(): "template" | "plain" {
+  try {
+    return typeof window !== "undefined" && localStorage.getItem(DESC_MODE_KEY) === "plain"
+      ? "plain"
+      : "template";
+  } catch {
+    return "template";
+  }
 }

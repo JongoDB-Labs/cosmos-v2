@@ -77,7 +77,11 @@ import {
   type BoardFilters,
 } from "@/components/boards/shared/filter-bar";
 import { useCustomFields } from "@/hooks/use-custom-fields";
-import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
+import {
+  NewIssueButton,
+  type NewIssueHandle,
+} from "@/components/boards/shared/new-issue-button";
+import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { planDriftPhantoms, type DriftColor } from "@/lib/boards/plan-drift";
 import { paintedSpan, solidSpan } from "@/lib/boards/timeline-span";
@@ -385,6 +389,7 @@ function LensToggle({
 }
 
 export function TimelineView({ orgId, projectId, projectKey, boardId }: TimelineViewProps) {
+  const newIssueRef = useRef<NewIssueHandle>(null);
   const [hoveredItem, setHoveredItem] = useState<WorkItem | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
 
@@ -1908,6 +1913,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               </p>
             )}
             <NewIssueButton
+              ref={newIssueRef}
               orgId={orgId}
               projectId={projectId}
               projectKey={projectKey}
@@ -1951,6 +1957,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           )}
         </div>
       )}
+      <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       {/* ONE scroll container holds both the item labels and the chart, so
           vertical scroll is structurally locked: every label shares the same
           scroll flow as its bar. (The old design gave each pane its own scroller
@@ -3187,6 +3194,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             </div>
           )}
       </div>
+      </BoardCreateMenu>
 
       {/* Shared work-item detail — same sheet the Kanban/Table views use, so a
           ticket opened from the Timeline shows + edits identical data (FR). */}

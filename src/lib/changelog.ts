@@ -49,6 +49,50 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.433.0",
+    date: "2026-10-22",
+    title: "Write a ticket in three prompted sections",
+    highlights: [
+      {
+        kind: "feature",
+        text: "New tickets now prompt for a Description, Acceptance criteria and a Definition of done, each with an example to follow. It's still saved as one description, so everything that shows it keeps working. Prefer to write freely? Switch to Plain text and Cosmos remembers that next time; anything you've typed carries across when you switch.",
+      },
+    ],
+  },
+  {
+    version: "2.432.0",
+    date: "2026-10-22",
+    title: "Sprints grouped by Program Increment",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The sprint row on a sprint board now groups sprints under their Program Increment. Past PIs start collapsed and open with one click, and a sprint from a past PI is marked as such, so you don't edit old work by mistake.",
+      },
+    ],
+  },
+  {
+    version: "2.431.1",
+    date: "2026-10-22",
+    title: "One delete confirmation everywhere",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal tidy-up: deleting a work item from a card, its detail panel or a backlog row now uses one shared confirmation, so the wording and behaviour stay the same everywhere.",
+      },
+    ],
+  },
+  {
+    version: "2.431.0",
+    date: "2026-10-22",
+    title: "Right-click a board to add an issue",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Right-click a board to add an issue right where you are: on a column it starts in that column, on a calendar day it's planned for that day, and anywhere else on the board it opens the usual new-issue form.",
+      },
+    ],
+  },
+  {
     version: "2.430.2",
     date: "2026-10-22",
     title: "The assistant bubble moves out of the way",
