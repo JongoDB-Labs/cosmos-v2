@@ -25,6 +25,7 @@ import { useBrand } from "@/components/providers/brand-provider";
 
 interface StatusResponse {
   connected: boolean;
+  expired?: boolean;
   email?: string;
   expiresAt?: string;
 }
@@ -140,7 +141,7 @@ function ClaudeAccountConnect() {
 
   const expiry = formatExpiry(data.expiresAt);
 
-  if (data.connected) {
+  if (data.connected && !data.expired) {
     return (
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-1.5">
@@ -172,6 +173,17 @@ function ClaudeAccountConnect() {
 
   return (
     <div className="space-y-4">
+      {data.expired ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="blocked">Expired</Badge>
+          <span className="text-sm text-[var(--text)]">
+            {expiry
+              ? `This authorization expired on ${expiry} and couldn't be renewed.`
+              : "This authorization expired and couldn't be renewed."}{" "}
+            Connect again to keep using it.
+          </span>
+        </div>
+      ) : null}
       <p className="text-sm text-[var(--text-muted)]">
         Click <span className="font-medium text-[var(--text)]">Connect</span> to
         open Claude in a new tab. Log into your Claude (Pro or Max) subscription,
