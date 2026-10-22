@@ -63,8 +63,12 @@ describe("buildIcs", () => {
 });
 
 describe("escapeText", () => {
+  it("puts a real backslash before a semicolon (a bare one splits the value)", () => {
+    expect(escapeText("a;b")).toBe(["a", "b"].join(String.fromCharCode(92, 59)));
+  });
+
   it("escapes the characters RFC 5545 reserves in TEXT", () => {
-    expect(escapeText("a,b;c\\d\ne")).toBe("a\\,b\;c\\\\d\\ne");
+    expect(escapeText("a,b;c\\d\ne")).toBe("a\\,b\\;c\\\\d\\ne");
   });
 });
 
