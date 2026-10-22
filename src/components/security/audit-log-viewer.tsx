@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { downloadBlob } from "@/lib/export/download";
 import {
   Select,
   SelectContent,
@@ -168,14 +169,7 @@ export function AuditLogViewer({ orgId }: { orgId: string }) {
       );
       if (!res.ok) throw new Error("Couldn't export the audit logs.");
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `audit-logs.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, `audit-logs.${format}`);
     } catch (err) {
       console.error(err);
       notifyError(err, "Couldn't export the audit logs.");
