@@ -5305,22 +5305,75 @@ model DeployRequest {
 /// expects the page with the Install button to own whether installs happen by
 /// themselves — the daemon is an implementation detail of HOW, not of WHETHER.
 model UpdateSettings {
-  id          String   @id @default(cuid())
+  id                  String   @id @default(cuid())
   /// Singleton discriminator. Unique so an upsert can never quietly create a
   /// second row that nothing reads.
-  scope       String   @unique @default("instance")
+  scope               String   @unique @default("instance")
   /// Poll for a newer released version and install it unattended. False = report
   /// it and wait for someone to click Install.
   ///
   /// Defaults TRUE because that is what every deployment does today, and because
   /// the dangerous failure here is an instance that silently stops updating —
   /// which is the outage this control was built after, not one it should cause.
-  autoUpdate  Boolean  @default(true) @map("auto_update")
-  updatedById String?  @map("updated_by_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  autoUpdate          Boolean  @default(true) @map("auto_update")
+  /// Registry overrides, set by a SYSTEM admin on /admin/updates. Each is NULL
+  /// unless an admin set it, and NULL means "use the environment"
+  /// (COSMOS_UPDATE_IMAGE_REPO, COSMOS_UPDATE_TAG_SUFFIX,
+  /// COSMOS_UPDATE_REGISTRY_USERNAME / _PASSWORD) — see resolveUpdateConfig in
+  /// src/lib/updates/check.ts. They exist so a registry move can be seen and
+  /// fixed from the page instead of by editing env on the host and the app
+  /// disagreeing with the daemon in the meantime.
+  ///
+  /// They steer version DISCOVERY (this page and Foreman's poll), not which
+  /// image source the host pulls from: the deploy script still derives its
+  /// repositories from the host's docker-compose.override.yml.
+  imageRepo           String?  @map("image_repo")
+  tagSuffix           String?  @map("tag_suffix")
+  registryUsername    String?  @map("registry_username")
+  /// Registry password, SEALED with the vault keyring (src/lib/crypto/field-seal.ts)
+  /// and listed in scripts/dsop/rotate-vault-key.mjs SEALED_COLUMNS. Never
+  /// stored, returned or logged in plaintext.
+  registryPasswordEnc String?  @map("registry_password_enc")
+  updatedById         String?  @map("updated_by_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
   @@map("update_settings")
+}
+
+/// What the host-side installer (the Foreman daemon) found on its last pass,
+/// surfaced on /admin/updates under "How updates are installed".
+///
+/// Lives in CORE for the same reason as UpdateSettings: CI builds core with no
+/// `plugins/` composed, and the page that owns the switch must be able to say
+/// whether the switch is being acted on. Without this the only record of an
+/// installer that had stopped installing was a log file on the host — the page
+/// said "Automatic" and showed a newer version while production sat still.
+///
+/// One row, overwritten every pass. A daemon that stops writing is itself the
+/// signal: the page treats an old `checkedAt` as "gone quiet".
+model UpdateReconcileStatus {
+  id             String    @id @default(cuid())
+  /// Singleton discriminator, unique for the same upsert reason as UpdateSettings.
+  scope          String    @unique @default("instance")
+  /// "up-to-date" | "deployed" | "waiting-manual" | "pending" | "failing". A String, not an
+  /// enum, so the daemon (a plugin, released separately) can report a new
+  /// outcome without a core migration; the page treats an unknown one as a warning.
+  outcome        String
+  /// One plain-language line from the daemon. Never carries credentials.
+  message        String
+  latestReleased String?   @map("latest_released")
+  runningVersion String?   @map("running_version")
+  /// Where the daemon looked: a registry repository, or e.g. "git tags".
+  source         String?
+  checkedAt      DateTime  @map("checked_at")
+  /// When the current run of "failing" began. Kept across consecutive failing
+  /// passes and cleared by any other outcome, so the page can say how long.
+  failingSince   DateTime? @map("failing_since")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@map("update_reconcile_status")
 }
 
 /// Somebody being away: asked for, decided on, and reserved against their week.
