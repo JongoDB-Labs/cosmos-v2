@@ -40,11 +40,14 @@ import {
   Pencil,
   Trash2,
   Filter,
+  Download,
 } from "lucide-react";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import type { TimeEntry } from "@/types/models";
 import { BilledHoursCell } from "./billed-hours-cell";
 import { notifyError } from "@/lib/errors/notify";
+import { downloadBlob } from "@/lib/export/download";
+import { timeEntriesToCsv, timeCsvFilename } from "@/lib/time/entries-csv";
 import { localDateString } from "@/lib/time/local-date";
 import { ApprovalsQueue } from "./approvals-queue";
 import { toast } from "sonner";
@@ -626,6 +629,43 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
     }
   };
 
+  // Exports exactly what the view loaded — this week, or everything in List
+  // view, with the filters applied, for whoever the picker shows. The picker
+  // only offers people the viewer may read, so this adds no new access path.
+  // CLIN names are fetched here because the page only holds the form's CLINs.
+  const [exporting, setExporting] = useState(false);
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const clinProjects = [
+        ...new Set(entries.filter((e) => e.clinId && e.projectId).map((e) => e.projectId as string)),
+      ];
+      const clinNames = new Map<string, string>();
+      await Promise.all(
+        clinProjects.map(async (pid) => {
+          const res = await fetch(`/api/v1/orgs/${orgId}/projects/${pid}/clins`);
+          if (!res.ok) return;
+          const data = await res.json();
+          const rows: Clin[] = Array.isArray(data) ? data : (data?.data ?? []);
+          for (const c of rows) clinNames.set(c.id, `${c.code} — ${c.title}`);
+        }),
+      );
+      const csv = timeEntriesToCsv(entries, {
+        project: (id) => projects.find((p) => p.id === id)?.name,
+        clin: (id) => clinNames.get(id),
+      });
+      const who = viewingSomeoneElse
+        ? (people.find((p) => p.userId === personId)?.displayName ?? "teammate")
+        : "mine";
+      const range = view === "week" ? `${weekStart} to ${weekEnd}` : "all";
+      downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), timeCsvFilename(who, range));
+    } catch (err) {
+      notifyError(err, "Couldn't export the time entries.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   // Opening the confirm-and-say-why dialog. Shared by BOTH views so the week
   // grid and the list cannot diverge on what removing an entry means.
   const requestVoid = (id: string) => {
@@ -765,6 +805,15 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
           <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
             <Filter className="size-4" />
             Filters
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handleExport()}
+            disabled={loading || loadError || exporting || entries.length === 0}
+          >
+            <Download className="size-4" />
+            Export CSV
           </Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             {!viewingSomeoneElse && (
