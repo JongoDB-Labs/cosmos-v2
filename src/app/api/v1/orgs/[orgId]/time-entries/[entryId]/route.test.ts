@@ -11,7 +11,7 @@
 // actor without access should not be able to learn.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
+import { Permission, RolePermissions, type PermissionKey } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
 
@@ -285,6 +285,63 @@ describe("DELETE /time-entries/[entryId] — voids, never deletes", () => {
     const res = await DELETE(deleteRequest(), { params });
 
     expect(res.status).toBe(404);
+    expect(prisma.timeEntry.update).not.toHaveBeenCalled();
+  });
+});
+
+// The suite above hands the route hand-picked bits, so it passed while every
+// real MEMBER was refused: the built-in role lacked TIME_DELETE, and "Remove"
+// on a draft entry always ended in a 403. These run on the ROLE's own mask.
+describe("DELETE /time-entries/[entryId] — as a real MEMBER", () => {
+  const OWN_DRAFT = {
+    id: ENTRY_ID,
+    userId: ACTOR_ID,
+    orgId: ORG_ID,
+    status: "DRAFT",
+    hours: 8,
+    timesheetId: "ts-1",
+  };
+
+  function removeRequest(): NextRequest {
+    return new NextRequest(
+      `http://localhost/api/v1/orgs/o/time-entries/${ENTRY_ID}`,
+      {
+        method: "DELETE",
+        body: JSON.stringify({ reason: "logged twice" }),
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }
+
+  beforeEach(() => {
+    getAuthContext.mockResolvedValue(ctxWith(RolePermissions.MEMBER));
+    prisma.timeEntry.update.mockResolvedValue({ ...OWN_DRAFT, voidedAt: new Date() });
+  });
+
+  it("can remove their own draft entry", async () => {
+    prisma.timeEntry.findFirst.mockResolvedValue(OWN_DRAFT);
+
+    const res = await DELETE(removeRequest(), { params });
+
+    expect(res.status).toBe(204);
+    expect(prisma.timeEntry.update).toHaveBeenCalledOnce();
+  });
+
+  it("still cannot remove someone else's entry", async () => {
+    prisma.timeEntry.findFirst.mockResolvedValue({ ...OWN_DRAFT, userId: OTHER_ID });
+
+    const res = await DELETE(removeRequest(), { params });
+
+    expect(res.status).toBe(403);
+    expect(prisma.timeEntry.update).not.toHaveBeenCalled();
+  });
+
+  it("still cannot remove a submitted entry", async () => {
+    prisma.timeEntry.findFirst.mockResolvedValue({ ...OWN_DRAFT, status: "SUBMITTED" });
+
+    const res = await DELETE(removeRequest(), { params });
+
+    expect(res.status).toBe(400);
     expect(prisma.timeEntry.update).not.toHaveBeenCalled();
   });
 });

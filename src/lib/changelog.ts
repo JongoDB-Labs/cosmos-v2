@@ -49,6 +49,28 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.427.4",
+    date: "2026-10-22",
+    title: "Pages fade between each other again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Moving between pages now cross-fades smoothly, as it was meant to. The fade had quietly stopped working after an update to the underlying framework, so every page change was an abrupt swap.",
+      },
+    ],
+  },
+  {
+    version: "2.427.3",
+    date: "2026-10-22",
+    title: "Members can remove their own draft time entries",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Members can now remove their own draft time entries. Until now, Remove always failed with \"Couldn't remove the time entry.\" Submitted entries and other people's entries still can't be removed by members, and a removed entry is kept in the audit trail with the reason given.",
+      },
+    ],
+  },
+  {
     version: "2.427.2",
     date: "2026-10-22",
     title: "Security updates to the web framework",
