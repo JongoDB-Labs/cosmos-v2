@@ -45,7 +45,15 @@ export interface AgentToolCall {
 }
 
 export interface AgentLoopResult {
+  /** The final turn's text alone (titles, summaries, bot replies). */
   text: string;
+  /**
+   * Every turn's text, a blank line between turns: what `onDelta` streamed.
+   * The assistant persists this, so a preamble the reader watched arrive
+   * ("Let me look that up.") is still there when the answer lands and after
+   * a reload.
+   */
+  transcript: string;
   toolCalls: AgentToolCall[];
 }
 
@@ -65,7 +73,12 @@ export interface RunAgentLoopOptions {
   model?: string;
   tools?: ToolDefinition[];
   maxIterations?: number;
-  /** Stream the final answer's text deltas (final turn only). */
+  /**
+   * Stream the run's text as it arrives. `textSoFar` is cumulative across EVERY
+   * model turn (a blank line between turns), so each call extends the last —
+   * the assistant route forwards only the newly-appended slice and relies on
+   * that. The returned `text` is still the final turn alone.
+   */
   onDelta?: (textSoFar: string) => void;
 }
 
@@ -108,10 +121,14 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   const messages: ModelMessage[] = [{ role: "user", content: opts.initialPrompt }];
   const toolCalls: AgentToolCall[] = [];
   let finalText = "";
+  let streamed = "";
+  const turnTexts: string[] = [];
 
   for (let turn = 0; turn < max; turn++) {
     const ctx = { orgId: opts.orgId, userId: opts.userId, conversationId: opts.conversationId, turn, tenantClass: opts.tenantClass, mode: "enforced" as const };
-    let streamed = "";
+    // Restarting the text each turn made a tool turn's preamble swallow the
+    // start of the final answer downstream; separate the turns instead.
+    let separator = streamed ? "\n\n" : "";
     const reply = await runModelTurn({
       ctx,
       system: opts.systemPrompt,
@@ -119,10 +136,16 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       tools,
       model,
       onTextDelta: opts.onDelta
-        ? (delta) => { streamed += delta; opts.onDelta?.(streamed); }
+        ? (delta) => {
+            if (!delta) return;
+            streamed += separator + delta;
+            separator = "";
+            opts.onDelta?.(streamed);
+          }
         : undefined,
     });
 
+    if (reply.text) turnTexts.push(reply.text);
     if (reply.toolUses.length === 0) {
       finalText = reply.text;
       break;
@@ -332,6 +355,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       toolCalls.length > 0
         ? `I applied ${toolCalls.length} action${toolCalls.length === 1 ? "" : "s"} (shown above) but reached the tool-call limit before I could wrap up. They were applied — tell me to continue and I'll pick up where I left off, or narrow the request.`
         : "I couldn't complete that within the tool-call budget — please narrow the request.";
+    turnTexts.push(finalText);
   }
-  return { text: finalText, toolCalls };
+  return { text: finalText, transcript: turnTexts.join("\n\n"), toolCalls };
 }
