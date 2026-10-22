@@ -19,7 +19,7 @@ import { domIsBlocked, pickOffset, type Offset } from "./bubble-dodge";
  * Rendered only when an org is in context (the drawer's panels need an orgId).
  * On mobile the bubble lifts above the bottom-nav safe area.
  *
- * It also moves out of the way of whatever it would cover (COSMOS-34): see
+ * It also moves out of the way of whatever it would cover: see
  * {@link useDodge}.
  */
 export function FloatingAgentBubble({ orgId }: { orgId: string | undefined }) {
