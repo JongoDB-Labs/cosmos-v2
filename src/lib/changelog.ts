@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.427.4",
+    date: "2026-10-22",
+    title: "Pages fade between each other again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Moving between pages now cross-fades smoothly, as it was meant to. The fade had quietly stopped working after an update to the underlying framework, so every page change was an abrupt swap.",
+      },
+    ],
+  },
+  {
     version: "2.427.3",
     date: "2026-10-22",
     title: "Members can remove their own draft time entries",
