@@ -243,6 +243,10 @@ export const HANDLEABLE_FIELDS: Record<string, readonly string[]> = {
 
 const NATIVE_TOOL_ENTITY: Record<string, string> = {
   query_work_items: "work_item", list_work_items: "work_item",
+  // CQL search: rows are work items; its `cql`/`url` strings are dropped with
+  // the rest of the free text when withheld. describe_cql has no entry: the
+  // values it lists are names, so a withheld result is withheld whole.
+  search_work_items: "work_item",
   create_work_item: "work_item", update_work_item: "work_item", delete_work_item: "work_item",
   create_note: "note", update_note: "note", delete_note: "note",
   add_comment: "comment", list_comments: "comment", delete_comment: "comment",

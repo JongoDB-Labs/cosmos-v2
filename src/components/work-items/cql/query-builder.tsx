@@ -29,6 +29,7 @@ import { lineCol, type CqlDiagnostic, type Span } from "@/lib/query/errors";
 import { normalize } from "@/lib/query/normalize";
 import { parseCql } from "@/lib/query/parser";
 import { printCql, printNode } from "@/lib/query/print";
+import { CQL_EXAMPLES } from "@/lib/query/describe";
 import { QueryChips } from "./query-chips";
 import { useCqlValidate, type CqlClientSchema, type QueryMode } from "./use-cql";
 
@@ -324,19 +325,6 @@ function AdvancedMode({
   );
 }
 
-// Every example is checked to parse and typecheck (query-builder.test).
-const EXAMPLES: { q: string; says: string }[] = [
-  { q: "assignee = me AND statusCategory != DONE ORDER BY priority DESC", says: "My open work, most urgent first" },
-  { q: "priority IN (HIGH, CRITICAL) AND due < now()", says: "Urgent and overdue" },
-  { q: "sprint IN openSprints() AND assignee IS EMPTY", says: "Unassigned in the current sprint" },
-  { q: "assignee IN membersOf(\"Platform\") AND updated >= -3wd", says: "The Platform team's work touched in the last 3 working days" },
-  { q: 'text ~ "login" AND type = Bug', says: "Bugs that mention login (title, description or comments)" },
-  { q: "labels IN ALL (auth, security)", says: "Has both labels" },
-  { q: 'status CHANGED FROM Review TO "In Progress" AFTER -14d', says: "Sent back from review in the last two weeks" },
-  { q: "status WAS Done AND statusCategory != DONE", says: "Reopened after being done" },
-  { q: "assignee WAS me AND assignee != me", says: "Handed off by me (or to someone else)" },
-  { q: "priority CHANGED BY me DURING (startOfWeek(), now())", says: "Priorities I changed this week" },
-];
 
 function SyntaxHelp({ onPick }: { onPick: (q: string) => void }) {
   return (
@@ -354,7 +342,7 @@ function SyntaxHelp({ onPick }: { onPick: (q: string) => void }) {
         covers changes recorded since history tracking began, and for assignee only the primary assignee.
       </p>
       <ul className="space-y-1">
-        {EXAMPLES.map((e) => (
+        {CQL_EXAMPLES.map((e) => (
           <li key={e.q}>
             <button type="button" onClick={() => onPick(e.q)} className="text-left hover:underline">
               <code className="text-[var(--primary)]">{e.q}</code>

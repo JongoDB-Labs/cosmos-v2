@@ -1,5 +1,6 @@
 import { connectorToolDefs } from "./connectors";
 import { workItemTools } from "./tools/work-items";
+import { cqlTools } from "./tools/cql";
 import { noteTools } from "./tools/notes";
 import { commentTools } from "./tools/comments";
 import { timeTools } from "./tools/time";
@@ -188,6 +189,8 @@ export const cosmosTools: ToolDefinition[] = [
   // Phase 3b: cosmos-internal CRUD tools — split by domain so each domain
   // file owns its definitions + executor pair.
   ...workItemTools,
+  // The query language: one search across every readable project (CQL org switch).
+  ...cqlTools,
   ...noteTools,
   ...commentTools,
   ...timeTools,
@@ -224,6 +227,7 @@ export const cosmosTools: ToolDefinition[] = [
 // Re-export the native sub-catalogs for callers who want them directly.
 export {
   workItemTools,
+  cqlTools,
   noteTools,
   commentTools,
   timeTools,
