@@ -1,6 +1,6 @@
 // COSMOS-202 T1: the Bot Framework request check. Every rule in Microsoft's
 // list is a test here, each by breaking just that one part of a good request.
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import { fakeBotFramework } from "@/lib/testing/fake-bot-framework";
 import { BotAuthError, _resetBotKeys, verifyBotRequest } from "./bot-auth.server";
@@ -108,6 +108,30 @@ describe("verifyBotRequest", () => {
     now += 6 * 60_000;
     expect(await reason(good())).toBe("ok");
     expect(bf.state.fetches).toBe(2);
+  });
+
+  it("stops trusting a key set it couldn't refresh for twice its refresh age", async () => {
+    expect(await reason(good())).toBe("ok");
+    bf.state.down = true;
+    now += 47 * 3600_000;
+    expect(await reason(good())).toBe("ok");
+    now += 2 * 3600_000;
+    expect(await reason(good())).toBe("keys_expired");
+    bf.state.down = false;
+    now += 6 * 60_000;
+    expect(await reason(good())).toBe("ok"); // refreshed, trusted again
+  });
+
+  it("looks the app id up only after the signature, issuer, window and serviceUrl check out", async () => {
+    const lookup = vi.fn(async () => APP);
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    for (const bad of [null, good({}, { key: privateKey }), good({ iss: "x" }), good({ exp: 1 }), good({ serviceUrl: "https://evil.example/" })]) {
+      await expect(verifyBotRequest(bad, activity, lookup, deps())).rejects.toBeInstanceOf(BotAuthError);
+    }
+    expect(lookup).not.toHaveBeenCalled();
+    await verifyBotRequest(good(), activity, lookup, deps());
+    expect(lookup).toHaveBeenCalledTimes(1);
+    await expect(verifyBotRequest(good(), activity, async () => null, deps())).rejects.toMatchObject({ reason: "not_configured" });
   });
 
   it("with no keys at all and the key endpoint down, refuses", async () => {

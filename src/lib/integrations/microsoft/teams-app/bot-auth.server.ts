@@ -14,6 +14,10 @@ import { botFrameworkLoginOrigin } from "../hosts";
  *  - iss is https://api.botframework.com, aud is our app id;
  *  - inside its validity window, with five minutes' skew;
  *  - its serviceUrl claim equals the activity's serviceUrl.
+ * The key set is kept through an outage of the key endpoint, but not past
+ * twice its refresh age: after that nothing is accepted until it refreshes.
+ * The app id is looked up only once the signature has checked out, so an
+ * anonymous request never reaches the database.
  * There is deliberately no switch to turn any of it off.
  */
 
@@ -91,6 +95,8 @@ async function signingKey(kid: string, deps: Deps): Promise<SigningKey | null> {
       if (!keys) throw e instanceof BotAuthError ? e : new BotAuthError("keys_unavailable");
     }
   }
+  // ...but not for ever: keys we couldn't refresh for two days fail closed.
+  if (keys && now - keys.at > 2 * MAX_KEY_AGE_MS) throw new BotAuthError("keys_expired");
   return keys?.byKid.get(kid) ?? null;
 }
 
@@ -98,12 +104,15 @@ const b64json = (s: string) => JSON.parse(Buffer.from(s, "base64url").toString("
 
 /**
  * Throws BotAuthError unless `authorization` is a Bot Framework token for
- * `appId` that covers this activity (its channel and serviceUrl).
+ * our app that covers this activity (its channel and serviceUrl). `appId` is
+ * the id, or how to look it up; it is called only after the signature,
+ * issuer, validity window and serviceUrl have all checked out. "not_configured"
+ * means a genuine token arrived while this instance has no Microsoft app.
  */
 export async function verifyBotRequest(
   authorization: string | null,
   activity: { channelId?: unknown; serviceUrl?: unknown },
-  appId: string,
+  appId: string | (() => Promise<string | null>),
   deps: Deps = {},
 ): Promise<void> {
   const m = /^Bearer ([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/.exec(authorization ?? "");
@@ -125,11 +134,14 @@ export async function verifyBotRequest(
   if (!key.endorsements.includes(CHANNEL)) throw new BotAuthError("not_endorsed");
 
   if (claims.iss !== ISSUER) throw new BotAuthError("bad_issuer");
-  const aud = claims.aud;
-  if (!(aud === appId || (Array.isArray(aud) && aud.length === 1 && aud[0] === appId))) throw new BotAuthError("bad_audience");
   const now = Math.floor((deps.now ?? Date.now)() / 1000);
   if (typeof claims.exp !== "number" || claims.exp + SKEW_S < now) throw new BotAuthError("expired");
   if (typeof claims.nbf === "number" && claims.nbf - SKEW_S > now) throw new BotAuthError("not_yet_valid");
   const norm = (u: unknown) => (typeof u === "string" ? u.replace(/\/+$/, "").toLowerCase() : null);
   if (!norm(claims.serviceUrl) || norm(claims.serviceUrl) !== norm(activity.serviceUrl)) throw new BotAuthError("bad_service_url");
+
+  const id = typeof appId === "string" ? appId : await appId();
+  if (!id) throw new BotAuthError("not_configured");
+  const aud = claims.aud;
+  if (!(aud === id || (Array.isArray(aud) && aud.length === 1 && aud[0] === id))) throw new BotAuthError("bad_audience");
 }

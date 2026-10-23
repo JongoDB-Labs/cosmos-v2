@@ -43,7 +43,9 @@ const CSRF_EXEMPT_PREFIXES = [
 // like any other API surface now.
 
 function isCsrfExempt(pathname: string): boolean {
-  return CSRF_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p));
+  // The path itself or below it, never a longer name that shares its prefix
+  // ("/api/teams/botX" is not "/api/teams/bot"). Same rule as isPublic.
+  return CSRF_EXEMPT_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
 function isSameOrigin(request: NextRequest): boolean {

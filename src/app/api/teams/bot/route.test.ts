@@ -8,8 +8,14 @@ import { fakeBotFramework } from "@/lib/testing/fake-bot-framework";
 const APP = "00000000-aaaa-bbbb-cccc-000000000001";
 const SVC = "https://smba.trafficmanager.net/amer/";
 const handled = vi.fn();
+const { appIdLookups } = vi.hoisted(() => ({ appIdLookups: { n: 0, value: "00000000-aaaa-bbbb-cccc-000000000001" as string | null } }));
 
-vi.mock("@/lib/integrations/microsoft/teams-app/identity.server", () => ({ teamsBotAppId: async () => APP }));
+vi.mock("@/lib/integrations/microsoft/teams-app/identity.server", () => ({
+  teamsBotAppId: async () => {
+    appIdLookups.n++;
+    return appIdLookups.value;
+  },
+}));
 vi.mock("@/lib/integrations/microsoft/teams-app/handlers.server", () => ({
   tenantOf: (a: { channelData?: { tenant?: { id?: string } } }) => a.channelData?.tenant?.id ?? "",
   handleActivity: async (a: unknown, origin: string) => {
@@ -32,12 +38,20 @@ function req(auth: string | null, body: unknown = activity, ip = `10.0.0.${++ipN
   });
 }
 
+/** A POST whose body is a stream: no Content-Length, as with a chunked upload. */
+const streamed = (body: ReadableStream<Uint8Array>, ip: string, auth: string) =>
+  new NextRequest("http://localhost:3000/api/teams/bot", {
+    method: "POST", body, duplex: "half", headers: { "x-forwarded-for": ip, authorization: auth },
+  } as unknown as ConstructorParameters<typeof NextRequest>[1]);
+
 describe("POST /api/teams/bot", () => {
   beforeEach(() => {
     _resetBotKeys();
     bf = fakeBotFramework();
     vi.stubGlobal("fetch", bf.fetch);
     handled.mockClear();
+    appIdLookups.n = 0;
+    appIdLookups.value = APP;
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
   });
   afterEach(() => vi.unstubAllGlobals());
@@ -69,6 +83,42 @@ describe("POST /api/teams/bot", () => {
     expect((await POST(req(bf.token({ aud: APP, serviceUrl: SVC }), "{nope"))).status).toBe(400);
     expect((await POST(req(bf.token({ aud: APP, serviceUrl: SVC }), "x".repeat(300 * 1024)))).status).toBe(413);
     expect(handled).not.toHaveBeenCalled();
+  });
+
+  it("caps the body by bytes read, whatever Content-Length says or when there is none (chunked)", async () => {
+    // 4 MB of two-byte characters: over the limit in bytes long before in characters.
+    const big = new TextEncoder().encode("é".repeat(2 * 1024 * 1024));
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (pulled >= big.length) return c.close();
+        c.enqueue(big.subarray(pulled, pulled + 64 * 1024));
+        pulled += 64 * 1024;
+      },
+    });
+    const r = streamed(stream, `10.1.0.${++ipN}`, bf.token({ aud: APP, serviceUrl: SVC }));
+    expect((await POST(r)).status).toBe(413);
+    expect(pulled).toBeLessThan(1024 * 1024); // stopped reading near the limit, didn't buffer 4 MB
+    expect(handled).not.toHaveBeenCalled();
+  });
+
+  it("counts bytes, not characters: 200 K two-byte characters (400 KB) are over the limit", async () => {
+    const body = JSON.stringify({ ...activity, text: "é".repeat(200 * 1024) });
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode(body));
+        c.close();
+      },
+    });
+    const r = streamed(stream, `10.2.0.${++ipN}`, bf.token({ aud: APP, serviceUrl: SVC }));
+    expect((await POST(r)).status).toBe(413);
+  });
+
+  it("touches no database for an unsigned or forged request, and is 503 when a real token finds no app configured", async () => {
+    for (const auth of [null, "Bearer a.b.c", bf.token({ aud: APP, serviceUrl: "https://evil.example/" })]) await POST(req(auth));
+    expect(appIdLookups.n).toBe(0);
+    appIdLookups.value = null;
+    expect((await POST(req(bf.token({ aud: APP, serviceUrl: SVC })))).status).toBe(503);
   });
 
   it("rate limits each IP before checking anything", async () => {

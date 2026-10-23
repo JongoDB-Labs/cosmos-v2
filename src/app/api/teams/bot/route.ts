@@ -13,6 +13,29 @@ import { handleActivity, tenantOf, type Activity } from "@/lib/integrations/micr
  */
 
 const MAX_BODY = 256 * 1024;
+
+/**
+ * The body as text, or null once it passes MAX_BODY bytes. Read off the
+ * stream and counted in bytes, so neither a missing or false Content-Length
+ * nor a chunked upload can make us buffer more than the limit.
+ */
+async function readCapped(request: NextRequest): Promise<string | null> {
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_BODY) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
 const limited = (retryAfter: number) =>
   new Response(JSON.stringify({ error: "rate_limited" }), { status: 429, headers: { "Content-Type": "application/json", "Retry-After": String(retryAfter) } });
 
@@ -21,8 +44,8 @@ export async function POST(request: NextRequest) {
   if (!ip.allowed) return limited(ip.retryAfter);
   if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) return new Response(null, { status: 413 });
 
-  const raw = await request.text();
-  if (raw.length > MAX_BODY) return new Response(null, { status: 413 });
+  const raw = await readCapped(request);
+  if (raw === null) return new Response(null, { status: 413 });
   let activity: Activity;
   try {
     activity = JSON.parse(raw) as Activity;
@@ -31,11 +54,11 @@ export async function POST(request: NextRequest) {
   }
   if (!activity || typeof activity !== "object") return new Response(null, { status: 400 });
 
-  const appId = await teamsBotAppId();
-  if (!appId) return new Response(null, { status: 503 });
   try {
-    await verifyBotRequest(request.headers.get("authorization"), activity, appId);
+    // The app id (a database read and a decrypt) only once the signature checks out.
+    await verifyBotRequest(request.headers.get("authorization"), activity, teamsBotAppId);
   } catch (e) {
+    if (e instanceof BotAuthError && e.reason === "not_configured") return new Response(null, { status: 503 });
     if (e instanceof BotAuthError) {
       // The reason only: never the token.
       console.warn(`[teams-bot] refused: ${e.reason}`);
