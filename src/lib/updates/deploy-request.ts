@@ -21,6 +21,7 @@
  * PENDING or RUNNING, so the loser of any race gets a unique violation. This
  * module's job is to turn that into an honest 409, not to pre-empt it.
  */
+import type { Prisma } from "@prisma/client";
 import type { UpdateCheck } from "./check";
 import { blockers } from "./preflight";
 
@@ -105,4 +106,70 @@ export function refusalStatus(reason: DeployRefusal["reason"]): number {
     case "preflight-blocked":
       return 422; // understood, and refused on the merits
   }
+}
+
+/**
+ * How long a RUNNING request may go without a sign of life before it is
+ * declared ABANDONED.
+ *
+ * Generous on purpose: a pre-deploy pg_dump plus image pulls legitimately take
+ * minutes, and a runner that heartbeats never gets near this. The failure it
+ * exists for is a runner that died mid-deploy (on production: the app restarted
+ * under it) — without it the row stays RUNNING forever, and the single-flight
+ * index refuses every later install with a 409.
+ */
+export const DEPLOY_HEARTBEAT_STALE_MS = 30 * 60 * 1000;
+
+type ClaimTimes = {
+  status: string;
+  requestedAt: Date;
+  claimedAt: Date | null;
+  heartbeatAt: Date | null;
+};
+
+/**
+ * Whether a request is a dead claim: RUNNING, and its last sign of life
+ * (`heartbeatAt ?? claimedAt ?? requestedAt`) is older than the stale window.
+ *
+ * Only RUNNING. A PENDING row was never claimed — "no runner installed" is a
+ * different state with its own handling, and abandoning it would hide that.
+ * ABANDONED means the outcome is UNKNOWN; it is never success or failure.
+ */
+export function isAbandonedClaim(row: ClaimTimes, now: Date): boolean {
+  if (row.status !== "RUNNING") return false;
+  const lastSign = row.heartbeatAt ?? row.claimedAt ?? row.requestedAt;
+  return now.getTime() - lastSign.getTime() > DEPLOY_HEARTBEAT_STALE_MS;
+}
+
+/**
+ * The same rule as {@link isAbandonedClaim}, as a Prisma `where` — so the
+ * reconciliation is one idempotent `updateMany`, with the coalesce spelled out
+ * as OR branches over which timestamps are null.
+ */
+export function abandonedClaimWhere(now: Date): Prisma.DeployRequestWhereInput {
+  const cutoff = new Date(now.getTime() - DEPLOY_HEARTBEAT_STALE_MS);
+  return {
+    status: "RUNNING",
+    OR: [
+      { heartbeatAt: { lt: cutoff } },
+      { heartbeatAt: null, claimedAt: { lt: cutoff } },
+      { heartbeatAt: null, claimedAt: null, requestedAt: { lt: cutoff } },
+    ],
+  };
+}
+
+/**
+ * Mark every dead RUNNING claim ABANDONED. Idempotent and cheap: one
+ * `updateMany`, a no-op when nothing is stale. Takes the client as a parameter
+ * so this module stays free of a database import.
+ */
+export async function abandonStaleClaims(
+  db: { deployRequest: { updateMany(args: Prisma.DeployRequestUpdateManyArgs): Promise<{ count: number }> } },
+  now: Date = new Date(),
+): Promise<number> {
+  const { count } = await db.deployRequest.updateMany({
+    where: abandonedClaimWhere(now),
+    data: { status: "ABANDONED", finishedAt: now },
+  });
+  return count;
 }

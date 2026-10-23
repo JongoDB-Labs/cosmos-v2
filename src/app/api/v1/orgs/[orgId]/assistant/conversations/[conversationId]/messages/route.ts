@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
+import { requirePermission, type AuthContext } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import {
   success,
@@ -169,6 +169,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const iterationCtx: IterationCtx = {
       orgId,
       userId: ctx.userId,
+      // The caller's OWN AuthContext — for an API key that is the minting
+      // user's permissions ∩ the key's scopes, plus its project ceiling. The
+      // agent's tools are authorised against this, not rebuilt from userId.
+      auth: ctx,
       conversationId,
       initialPrompt,
       systemPrompt,
@@ -195,6 +199,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 interface IterationCtx {
   orgId: string;
   userId: string;
+  /** The authenticated caller, as `getAuthContext` returned it. */
+  auth: AuthContext;
   conversationId: string;
   /** The full transcript serialized into the loop's initial user prompt. */
   initialPrompt: string;
@@ -243,6 +249,7 @@ async function runBlocking(ctx: IterationCtx): Promise<Response> {
   const result = await runAgentLoop({
     orgId: ctx.orgId,
     userId: ctx.userId,
+    auth: ctx.auth,
     tenantClass: ctx.tenantClass,
     conversationId: ctx.conversationId,
     systemPrompt: ctx.systemPrompt,
@@ -286,6 +293,7 @@ function runStreaming(ctx: IterationCtx): Response {
         const result = await runAgentLoop({
           orgId: ctx.orgId,
           userId: ctx.userId,
+          auth: ctx.auth,
           tenantClass: ctx.tenantClass,
           conversationId: ctx.conversationId,
           systemPrompt: ctx.systemPrompt,

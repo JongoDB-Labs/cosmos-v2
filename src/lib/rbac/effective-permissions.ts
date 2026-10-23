@@ -1,13 +1,15 @@
 import { prisma } from "@/lib/db/client";
-import { resolvePermissions } from "./check";
+import { resolvePermissions, type AuthContext } from "./check";
 import { maskFromDb } from "./permissions";
 import { coerceRules, type AbacRule } from "@/lib/abac/engine";
 import type { OrgRole } from "@prisma/client";
 
 /**
- * The actor's fully-resolved access state for an org, used by BOTH permission
- * seams (getAuthContext for HTTP routes, loadActorPermissions for AI tools) so
- * work-role grants + ABAC rules are folded in EXACTLY ONCE.
+ * The actor's fully-resolved access state for an org, used by every seam that
+ * resolves a USER (getAuthContext for sessions, verifyApiKey for the user behind
+ * a key, `loadMemberAuthContext` for server-initiated jobs) so work-role grants
+ * + ABAC rules are folded in EXACTLY ONCE. AI tools do NOT call this: they are
+ * authorised against the caller's own AuthContext (see ai/executors/_ctx.ts).
  *
  * `permissions` is purely WIDENED by work-role grants (role base | stored
  * override | Σ grants) — it can never lose a bit, so adding work-roles can
@@ -61,5 +63,34 @@ export async function loadEffectivePermissions(
     permissions: basePermissions | grants,
     basePermissions,
     abacRules: [...coerceRules(member.abacRules), ...workRolePolicies],
+  };
+}
+
+/**
+ * A session-shaped AuthContext for `userId` in `orgId`, built from the member's
+ * stored permissions — what `getAuthContext` returns for that user's cookie,
+ * minus the request-time floors (MFA, IP allowlist, idle timeout) a job has no
+ * request to evaluate. `null` when the user is not a member.
+ *
+ * ONLY for server-initiated work that acts as a user WITHOUT an inbound
+ * credential: an operator acceptance script, a scheduled job. Anything handling
+ * a request must pass the AuthContext that request authenticated with instead.
+ * Rebuilding it from the user id is precisely how an API key's scope mask and
+ * project ceiling got dropped on the way into the AI tools — this returns the
+ * user's FULL access, and there is no `isApiKey` or `projectScope` on it.
+ */
+export async function loadMemberAuthContext(
+  orgId: string,
+  userId: string,
+): Promise<AuthContext | null> {
+  const eff = await loadEffectivePermissions(orgId, userId);
+  if (!eff) return null;
+  return {
+    userId,
+    orgId,
+    orgRole: eff.orgRole,
+    permissions: eff.permissions,
+    basePermissions: eff.basePermissions,
+    abacRules: eff.abacRules,
   };
 }

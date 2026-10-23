@@ -63,7 +63,10 @@ const PAGES: Array<{ name: string; path: string; redirects?: true }> = [
   { name: "meetings", path: "/meetings" },
   { name: "notes", path: "/notes" },
   { name: "team", path: "/team" },
-  { name: "assistant", path: "/assistant" },
+  // The full-page assistant was retired for the drawer (scanned below); the old
+  // path redirects to the org home.
+  { name: "assistant (redirects to overview)", path: "/assistant", redirects: true },
+  { name: "pm-dashboard", path: "/pm-dashboard" },
   // Settings.
   // /settings is now a redirect to the viewer's first accessible page (profile
   // for the e2e admin). Kept as a surface to guard that the redirect lands on
@@ -220,5 +223,33 @@ test.describe("a11y — Issues query language", () => {
     await page.waitForTimeout(500);
     const serious = blocking(await runAxe(page));
     expect(serious, serious.map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets[0]}`).join("\n")).toHaveLength(0);
+  });
+});
+
+test.describe("a11y — the assistant drawer", () => {
+  test("assistant drawer has no serious/critical axe violations", async ({
+    page,
+    signInAs,
+  }) => {
+    await signInAs(EMAIL);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    // A full load, not "domcontentloaded": the drawer opens from a client
+    // handler, so clicking before hydration does nothing.
+    await page.goto(`/${ORG}`);
+    await page.waitForSelector("main", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Open assistant" }).click();
+    await expect(page.getByPlaceholder(/type a message/i).first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.waitForTimeout(500);
+
+    const serious = blocking(await runAxe(page));
+    expect(
+      serious,
+      "serious/critical a11y violations with the assistant drawer open:\n" +
+        serious
+          .map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets[0]}`)
+          .join("\n"),
+    ).toHaveLength(0);
   });
 });
