@@ -3,7 +3,7 @@ import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { ForbiddenError, NotFoundError, ConflictError } from "./rbac/check";
 import { serverReportError } from "./telemetry/server";
-import { problem } from "./openapi/problem";
+import { problem, ProblemError } from "./openapi/problem";
 import { isNoModelCredentialError } from "./ai/egress/types";
 
 export function success<T>(data: T, status = 200) {
@@ -26,6 +26,9 @@ export function noContent() {
  */
 export function handleApiError(error: unknown, request?: Request) {
   const opts = { request };
+  if (error instanceof ProblemError) {
+    return problem(error.status, error.code, error.message, { ...opts, headers: error.headers });
+  }
   if (error instanceof ForbiddenError) {
     return problem(403, "forbidden", error.message, opts);
   }
