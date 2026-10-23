@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.440.0",
+    date: "2026-10-23",
+    title: "Ask the assistant about your team's work",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The assistant can now list your teams and filter work items by team, so you can ask things like \"what's my team working on this sprint?\"",
+      },
+    ],
+  },
+  {
     version: "2.439.12",
     date: "2026-10-23",
     title: "PM Dashboard in the sidebar",
