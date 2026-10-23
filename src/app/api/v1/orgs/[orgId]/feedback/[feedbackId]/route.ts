@@ -6,6 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { FEEDBACK_ROW_SELECT, toFeedbackDto } from "@/lib/feedback/feedback-dto";
 
 type RouteParams = { params: Promise<{ orgId: string; feedbackId: string }> };
 
@@ -75,9 +76,22 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.title !== undefined && { title: data.title }),
         ...(data.description !== undefined && { description: data.description }),
       },
+      select: FEEDBACK_ROW_SELECT,
     });
 
-    return success(updated);
+    // Explicit per-viewer shape — never the raw row (see feedback-dto.ts). An
+    // author editing their own item must not get the triage reasoning back.
+    const author = await prisma.user.findUnique({
+      where: { id: updated.authorId },
+      select: { displayName: true, email: true },
+    });
+    return success(
+      toFeedbackDto(
+        updated,
+        { userId: ctx.userId, isStaff: hasPermission(ctx.permissions, Permission.ORG_UPDATE) },
+        author,
+      ),
+    );
   } catch (e) {
     return handleApiError(e);
   }
