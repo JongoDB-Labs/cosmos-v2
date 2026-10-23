@@ -12,7 +12,6 @@ import {
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   DndContext,
-  closestCorners,
   DragEndEvent,
   DragOverEvent,
   DragOverlay,
@@ -28,6 +27,7 @@ import {
   type NewIssueHandle,
 } from "@/components/boards/shared/new-issue-button";
 import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
+import { columnCollision } from "@/components/boards/shared/column-collision";
 import { KanbanCard } from "./kanban-card";
 import {
   FilterBar,
@@ -634,6 +634,14 @@ function KanbanBoardInner({
     }),
   );
 
+  const collisionDetection = useMemo(
+    () =>
+      columnCollision((id) =>
+        columns.some((c) => c.key === resolveColumnKey(id)),
+      ),
+    [columns],
+  );
+
   function handleDragStart(event: DragStartEvent) {
     const item = items.find((i) => i.id === event.active.id);
     setActiveItem(item ?? null);
@@ -1182,7 +1190,7 @@ function KanbanBoardInner({
         // No sensors while selecting → drag is fully disabled, so toggling a
         // card can never start a drag.
         sensors={selectMode ? [] : sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={collisionDetection}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
