@@ -1139,8 +1139,11 @@ export function CardDetailSheet({
         <SheetHeader>
           {/* Single identity line: "#1 · Task". The title is shown once, in the
               editable input below — not duplicated here. Item-level actions
-              (duplicate / delete) sit on the right, each permission-gated. */}
-          <div className="flex items-center justify-between gap-2 pr-10">
+              (duplicate / delete) sit on the right, each permission-gated.
+              Both rows WRAP: up to seven actions don't fit one line of a 672px
+              sheet, and the pane hides overflow-x, so a row that can't wrap
+              runs off the edge and takes Delete with it. */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pr-10">
             <SheetTitle className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
               <span className="font-mono">#{item.ticketNumber}</span>
               {item.workItemType && (
@@ -1149,7 +1152,10 @@ export function CardDetailSheet({
                 </span>
               )}
             </SheetTitle>
-            <div className="flex items-center gap-1">
+            <div
+              className="flex flex-wrap items-center justify-end gap-1"
+              data-testid="card-detail-actions"
+            >
               <Button
                 variant="ghost"
                 size="sm"
