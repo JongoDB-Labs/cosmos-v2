@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.5",
+    date: "2026-10-23",
+    title: "Updates never throw away what you're typing",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Cosmos is updated while you're filling in a form, writing a comment or have a dialog open, it no longer reloads the page under you. A message tells you a new version is ready, with a Reload button for when you've finished.",
+      },
+    ],
+  },
+  {
     version: "2.439.4",
     date: "2026-10-23",
     title: "Feedback details are shown only to the right people",
