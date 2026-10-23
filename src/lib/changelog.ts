@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.441.1",
+    date: "2026-10-23",
+    title: "Stuck installs no longer block updates",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An install whose installer stopped responding no longer blocks every later install: it's marked abandoned after 30 minutes without a heartbeat, and a new install can start.",
+      },
+    ],
+  },
+  {
     version: "2.441.0",
     date: "2026-10-23",
     title: "Split an issue per assignee",
