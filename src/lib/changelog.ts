@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.444.1",
+    date: "2026-10-23",
+    title: "Connector tools check your permissions",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: connector tools (email, Slack, Jira, calendar, GitHub) now require assistant access, and anything that sends or changes data outside Cosmos can't be done with an API key.",
+      },
+    ],
+  },
+  {
     version: "2.444.0",
     date: "2026-10-23",
     title: "API errors you can act on",
