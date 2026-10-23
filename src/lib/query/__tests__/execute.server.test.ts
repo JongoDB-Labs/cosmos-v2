@@ -102,6 +102,17 @@ describe("executeCql (e2e DB)", () => {
     expect((await run("due = 2026-10-19", { tz: "America/Chicago" })).titles).toEqual(["p1-login-bug"]);
   });
 
+  it("dates: IS EMPTY and IS NOT EMPTY split the items between them; != leaves the empty ones out", async () => {
+    const all = (await run(`project = ${w.P1.key}`)).titles;
+    const empty = (await run(`project = ${w.P1.key} AND due IS EMPTY`)).titles;
+    const set = (await run(`project = ${w.P1.key} AND due IS NOT EMPTY`)).titles;
+    expect(set).toEqual(["p1-login-bug"]);
+    expect([...empty, ...set].sort()).toEqual(all);
+    // != leaves out items with no date (the Jira rule); OR IS EMPTY brings them back.
+    expect((await run(`project = ${w.P1.key} AND due != 2026-10-21`)).titles).toEqual(["p1-login-bug"]);
+    expect((await run(`project = ${w.P1.key} AND (due != 2026-10-21 OR due IS EMPTY)`)).titles).toEqual(all);
+  });
+
   it("custom fields, estimates, highlight, work category, cancel reason", async () => {
     expect((await run(`cf[sev_${w.stamp}] = S1`)).titles).toEqual(["p1-login-bug"]);
     expect((await run(`Severity IN (S1, S2)`)).titles).toEqual(["p1-login-bug"]);
