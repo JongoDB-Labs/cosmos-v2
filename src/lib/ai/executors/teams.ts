@@ -1,10 +1,10 @@
 import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import { teamWorkItemWhere } from "@/lib/teams/item-teams";
-import { visibleProjectIdsForActor } from "@/lib/rbac/project-access";
+import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
 
 /**
  * Team tools (COSMOS-222). Teams are project-scoped, so "what is my team doing"
@@ -47,16 +47,17 @@ export async function listTeams(input: Record<string, unknown>, ctx: ToolContext
     if (outOfScope) return outOfScope;
     projectIds = [projectId];
   } else {
-    // Org-wide: every active project the asker can see, by the same rule as
-    // list_projects. Without this, "list the org's teams" cost one call per
-    // project.
+    // Org-wide: every active project the CALLER can see, by the same helper
+    // list_projects and GET /projects use, fed the caller's AuthContext, so a key
+    // scoped to one project lists that project's teams only. Without this, "list
+    // the org's teams" cost one call per project.
+    const auth = await loadAuthContext(ctx);
+    if (!auth) return { error: "Insufficient permissions" };
     const projects = await prisma.project.findMany({
       where: { orgId: ctx.orgId, archived: false },
       select: { id: true },
     });
-    projectIds = [
-      ...(await visibleProjectIdsForActor(ctx.orgId, ctx.userId, projects.map((p) => p.id))),
-    ];
+    projectIds = [...(await getVisibleProjectIds(auth, projects.map((p) => p.id)))];
   }
 
   const teams = await prisma.team.findMany({
