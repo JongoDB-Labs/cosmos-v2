@@ -125,6 +125,13 @@ describe("lists", () => {
     expect(people.at(-1)!.name).toBe("Unassigned");
   });
 
+  it("changes-since and activity with nothing recorded: an empty list, not an error", async () => {
+    for (const type of ["changes-since", "activity"]) {
+      const r = ok(await run({ type, query: q("priority = LOW"), config: {} }));
+      expect(r.data.changes, type).toEqual([]);
+    }
+  });
+
   it("changes-since and activity: recorded changes of the query's items only", async () => {
     const mine = await prisma.activity.create({
       data: { orgId: w.orgA, workItemId: w.items["p1-login-bug"].id, userId: w.bob.id, action: "updated", field: "columnKey", oldValue: "todo", newValue: "in-progress", createdAt: new Date("2026-10-11T10:00:00Z") },

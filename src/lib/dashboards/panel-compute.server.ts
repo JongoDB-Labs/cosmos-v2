@@ -320,6 +320,7 @@ async function changesFor(ctx: PanelRunContext, cls: Classifier, q: CqlQuery, fi
     select: { id: true, workItemId: true, userId: true, action: true, field: true, oldValue: true, newValue: true, createdAt: true },
   });
   const itemIds = [...new Set(acts.map((a) => a.workItemId!).filter(Boolean))];
+  if (itemIds.length === 0) return { items: [], total: ids.length };
   const { rows } = await listRows(ctx, { v: 1, where: { op: "in", field: { kind: "sys", id: "key" }, values: itemIds.map((id) => ({ t: "ref", entity: "item", id })) } }, Math.max(1, itemIds.length));
   const items = new Map((await toPanelRows(ctx, rows, cls)).map((r) => [r.id, r]));
   const userIds = [...new Set(acts.map((a) => a.userId))];
