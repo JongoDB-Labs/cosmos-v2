@@ -130,7 +130,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  // Cascades take boards, columns, items, activity, intervals and teams with them.
+  // work_items has no foreign key to projects, so items go first (their history,
+  // assignees and labels cascade with them); the project then takes its boards,
+  // columns, intervals and teams.
+  await prisma.workItem.deleteMany({ where: { projectId: { in: projectIds } } });
   await prisma.project.deleteMany({ where: { id: { in: projectIds } } });
   await prisma.workItemType.deleteMany({ where: { id: { in: typeIds } } });
 });
