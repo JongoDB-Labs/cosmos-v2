@@ -4,7 +4,7 @@ import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { API_KEY_SCOPES, type ApiKeyScope } from "./api-key-scopes";
-import { classifyBearer, parseApiKeyBearer } from "./bearer";
+import { classifyBearer, parseKeyToken } from "./bearer";
 
 // Re-exported so existing server importers of `@/lib/auth/api-key` keep working.
 // Client components MUST import these from `./api-key-scopes` directly — this
@@ -117,7 +117,7 @@ export async function verifyApiKeyHeader(
   authorization: string | null,
   orgId: string,
 ): Promise<AuthContext | null> {
-  const parsed = parseApiKeyBearer(authorization);
+  const parsed = parseKeyToken(authorization);
   if (!parsed) return null;
   const key = await prisma.apiKey.findUnique({
     where: { orgId_prefix: { orgId, prefix: parsed.prefix } },

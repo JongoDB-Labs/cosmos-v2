@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { classifyBearer, parseApiKeyBearer } from "../bearer";
+import { classifyBearer, parseKeyToken } from "../bearer";
 
 describe("classifyBearer", () => {
   it.each([
@@ -29,15 +29,15 @@ describe("classifyBearer", () => {
   );
 });
 
-describe("parseApiKeyBearer", () => {
+describe("parseKeyToken", () => {
   it("splits at the hex prefix and keeps the whole remainder as the secret", () => {
-    expect(parseApiKeyBearer("Bearer cosmos_a1b2c3_x_y-z")).toEqual({ prefix: "a1b2c3", secret: "x_y-z" });
+    expect(parseKeyToken("Bearer cosmos_a1b2c3_x_y-z")).toEqual({ prefix: "a1b2c3", secret: "x_y-z" });
   });
 
   it("never reads an OAuth token as a key", () => {
     // `oat` is not hex, so this cannot become prefix "oat"; were it to, an
     // access token would be looked up in api_keys under an attacker-chosen prefix.
-    expect(parseApiKeyBearer("Bearer cosmos_oat_0f1e_secret")).toBeNull();
+    expect(parseKeyToken("Bearer cosmos_oat_0f1e_secret")).toBeNull();
   });
 });
 

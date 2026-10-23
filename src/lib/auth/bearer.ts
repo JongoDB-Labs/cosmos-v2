@@ -40,7 +40,7 @@ export function classifyBearer(header: string | null | undefined): BearerKind | 
 }
 
 /** The prefix/secret split of an API key (or personal token) header, or null. */
-export function parseApiKeyBearer(
+export function parseKeyToken(
   header: string | null | undefined,
 ): { prefix: string; secret: string } | null {
   if (classifyBearer(header) !== "api_key") return null;
