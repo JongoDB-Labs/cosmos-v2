@@ -256,6 +256,15 @@ describe("depth is refused before parsing (never a stack overflow)", () => {
     // NOT IN is an operator, not a run of NOTs; a few NOTs are fine.
     expect(limit("priority NOT IN (LOW) AND NOT NOT assignee = me")).toBeUndefined();
   });
+  it("a value list's parentheses are not a group", () => {
+    const at = (inner: string) => `${"(".repeat(CQL_LIMITS.parenDepth)}${inner}${")".repeat(CQL_LIMITS.parenDepth)}`;
+    expect(limit(at("status IN (todo, done)"))).toBeUndefined();
+    expect(limit(at("labels IN ALL (a, b)"))).toBeUndefined();
+    expect(limit(at("status NOT IN (todo)"))).toBeUndefined();
+    expect(parseCql(at("status IN (todo, done)")).diagnostics).toEqual([]);
+    // One more group is still one too many.
+    expect(limit(`(${at("status IN (todo, done)")})`)?.message).toMatch(/Parentheses can nest at most/);
+  });
   it("points at where it went too deep", () => {
     const cql = `${"(".repeat(6)}a = 1${")".repeat(6)}`;
     expect(limit(cql)).toMatchObject({ from: 5, to: 6 });

@@ -1,0 +1,131 @@
+"use client";
+
+/**
+ * Client hooks for CQL on the Issues view.
+ *
+ *   useCqlSchema   what a query can say here (fields, custom fields,
+ *                  functions); `enabled: false` when the org has CQL off
+ *                  (the schema route 404s), so callers fall back to the
+ *                  legacy filter bar without a second flag.
+ *   useCqlUrlState the query lives in the URL (`?cql=`, `&mode=`), so a
+ *                  filtered list is shareable and survives a reload. Other
+ *                  params (`?item=` deep links) are left alone.
+ */
+import { useCallback, useMemo } from "react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { jsonFetch, FetchError } from "@/lib/query/json-fetcher";
+import { useOrgQueryKey } from "@/lib/query/keys";
+import type { FieldDef } from "@/lib/query/fields";
+import type { FunctionDef } from "@/lib/query/functions";
+import type { SchemaCustomField } from "@/lib/query/typecheck";
+import type { CqlQuery } from "@/lib/query/ast";
+import type { CqlDiagnostic } from "@/lib/query/errors";
+
+export interface CqlClientSchema {
+  version: 1;
+  fields: (Omit<FieldDef, "sortable" | "groupable"> & { sortable: boolean; groupable: boolean })[];
+  customFields: SchemaCustomField[];
+  functions: FunctionDef[];
+}
+
+export function useCqlSchema(orgId: string): { enabled: boolean; schema: CqlClientSchema | null; isLoading: boolean } {
+  const key = useOrgQueryKey("cql-schema");
+  const q = useQuery({
+    queryKey: key,
+    queryFn: async () => {
+      try {
+        return await jsonFetch<CqlClientSchema>(`/api/v1/orgs/${orgId}/cql/schema`);
+      } catch (e) {
+        // Off for this org: not an error, just the legacy filter bar.
+        if (e instanceof FetchError && e.status === 404) return null;
+        throw e;
+      }
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  // Only a real schema switches CQL on; anything else is the legacy bar.
+  const schema = q.data && q.data.version === 1 && Array.isArray(q.data.fields) ? q.data : null;
+  return { enabled: !!schema, schema, isLoading: q.isLoading };
+}
+
+export interface CqlValidation {
+  valid: boolean;
+  /** Resolved (refs carry ids): what saved views and "Save as board" store. */
+  query?: CqlQuery;
+  /** Canonical text. */
+  cql?: string;
+  diagnostics: CqlDiagnostic[];
+}
+
+/**
+ * The server's verdict on the applied query: unknown or ambiguous values
+ * (which only the server can resolve, scoped to what the viewer may read) and
+ * the resolved query. Shared by the builder and the Issues view, one request.
+ */
+export function useCqlValidate(orgId: string, cql: string, enabled: boolean) {
+  const key = useOrgQueryKey("cql-validate", cql);
+  return useQuery({
+    queryKey: key,
+    queryFn: () =>
+      jsonFetch<CqlValidation>(`/api/v1/orgs/${orgId}/cql/validate`, {
+        method: "POST",
+        body: JSON.stringify({ cql, mode: "warn", tz: viewerTimeZone() }),
+      }),
+    enabled: enabled && cql.trim() !== "",
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+export type QueryMode = "basic" | "advanced";
+
+export function useCqlUrlState(): {
+  cql: string;
+  mode: QueryMode | null;
+  setCql: (cql: string) => void;
+  setMode: (mode: QueryMode) => void;
+  /** Several params in one navigation (two replaces in a row race). */
+  update: (patch: Record<string, string | null>) => void;
+} {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const cql = searchParams.get("cql") ?? "";
+  const modeParam = searchParams.get("mode");
+  const mode: QueryMode | null = modeParam === "basic" || modeParam === "advanced" ? modeParam : null;
+
+  const replace = useCallback(
+    (patch: Record<string, string | null>) => {
+      const next = new URLSearchParams(searchParams.toString());
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null || v === "") next.delete(k);
+        else next.set(k, v);
+      }
+      const qs = next.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [router, pathname, searchParams],
+  );
+
+  return useMemo(
+    () => ({
+      cql,
+      mode,
+      setCql: (text: string) => replace({ cql: text.trim() || null }),
+      setMode: (m: QueryMode) => replace({ mode: m }),
+      update: replace,
+    }),
+    [cql, mode, replace],
+  );
+}
+
+/** The viewer's zone, sent with every query so startOfWeek() means their week. */
+export function viewerTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}

@@ -249,7 +249,8 @@ function timeCompiler(column: keyof Where & string, nullable: boolean, tz: strin
           .map((t) => (t.day ? t : { ...t, ...dayOf(t.from, tz) }))
           .map((t) => col({ gte: t.from, lt: t.to, ...(nullable ? { not: null } : {}) })),
       ),
-    isEmpty: nullable ? col({ equals: null }) : null,
+    // Plain `null`: through `col` it would carry `not: null` too and match nothing.
+    isEmpty: nullable ? ({ [column]: null } as Where) : null,
     order: (cmp, x) => {
       const t = x as Extract<Bound, { k: "time" }>;
       // For a whole day, `<` means before the day and `<=` means through it.

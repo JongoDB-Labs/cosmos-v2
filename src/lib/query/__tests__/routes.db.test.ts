@@ -23,6 +23,9 @@ import { POST as queryRoute } from "@/app/api/v1/orgs/[orgId]/work-items/query/r
 import { POST as validateRoute } from "@/app/api/v1/orgs/[orgId]/cql/validate/route";
 import { GET as schemaRoute } from "@/app/api/v1/orgs/[orgId]/cql/schema/route";
 import { GET as searchRoute } from "@/app/api/v1/orgs/[orgId]/work-items/search/route";
+import { GET as exportRoute } from "@/app/api/v1/orgs/[orgId]/work-items/export/route";
+import { GET as switchGet, PUT as switchPut } from "@/app/api/v1/orgs/[orgId]/query-language/route";
+import { Permission } from "@/lib/rbac/permissions";
 
 describe("CQL routes (e2e DB)", () => {
   let w: World;
@@ -79,6 +82,8 @@ describe("CQL routes (e2e DB)", () => {
       // ...and ?cql= on search is the same 404: the parameter doesn't exist there.
       const s = await searchRoute(new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/work-items/search?cql=x`), { params: params() });
       expect(s.status).toBe(404);
+      const e = await exportRoute(new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/work-items/export?cql=x`), { params: params() });
+      expect(e.status).toBe(404);
       // The switch is checked first: no permissions still reads as "not here"
       // (and the session isn't even consulted).
       getAuthContext.mockImplementation(async () => ({ ...w.ctx(), permissions: 0n, basePermissions: 0n }) as AuthContext);
@@ -132,6 +137,71 @@ describe("CQL routes (e2e DB)", () => {
       { params: params() },
     );
     expect(mixed.status).toBe(400);
+  });
+
+  it("export ?cql= writes exactly the rows search shows for the same query", async () => {
+    const titlesFromCsv = (csv: string) =>
+      csv
+        .split("\n")
+        .slice(1)
+        .filter(Boolean)
+        .map((line) => line.split(",")[1]);
+    for (const cql of ["priority = CRITICAL ORDER BY due", "label = auth", "assignee IS EMPTY", 'text ~ "login"', "archived = true", ""]) {
+      const qs = cql ? `cql=${encodeURIComponent(cql)}&tz=UTC` : "cql=";
+      const s = await searchRoute(new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/work-items/search?${qs}&pageSize=100`), { params: params() });
+      expect(s.status, cql).toBe(200);
+      const shown = ((await s.json()) as { data: { title: string }[] }).data.map((r) => r.title);
+      const e = await exportRoute(new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/work-items/export?${qs}`), { params: params() });
+      expect(e.status, cql).toBe(200);
+      expect(titlesFromCsv(await e.text()), cql).toEqual(shown);
+    }
+    // The fixture's restricted project never appears, whatever the query says.
+    const all = await exportRoute(new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/work-items/export?cql=${encodeURIComponent(`project = ${w.P2.key}`)}`), { params: params() });
+    expect([200, 400]).toContain(all.status);
+    if (all.status === 200) expect(titlesFromCsv(await all.text())).toEqual([]);
+  });
+
+  it("export ?cql= refuses legacy filters alongside, and bad CQL is a positioned 400", async () => {
+    const mixed = await exportRoute(new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/work-items/export?cql=x&priority=HIGH`), { params: params() });
+    expect(mixed.status).toBe(400);
+    const bad = await exportRoute(new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/work-items/export?cql=${encodeURIComponent("priorty = HIGH")}`), { params: params() });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: { code: string } }).error.code).toBe("CQL_INVALID");
+    // ...also for someone who can read nothing (no early empty CSV first).
+    getAuthContext.mockImplementationOnce(async () => w.ctx({ projectScope: [] }));
+    const badEmpty = await exportRoute(new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/work-items/export?cql=${encodeURIComponent("priorty = HIGH")}`), { params: params() });
+    expect(badEmpty.status).toBe(400);
+  });
+
+  it("the org switch: settings admins turn CQL on and off (audited); others can't", async () => {
+    const put = (enabled: boolean) =>
+      new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/query-language`, { method: "PUT", body: JSON.stringify({ enabled }) });
+    const schemaStatus = async () => (await schemaRoute(new NextRequest("http://localhost/x"), { params: params() })).status;
+    const admin = () => ({ ...w.ctx(), permissions: w.ctx().permissions | Permission.ORG_MANAGE_SETTINGS }) as AuthContext;
+    const member = () => ({ ...w.ctx(), permissions: w.ctx().permissions & ~Permission.ORG_MANAGE_SETTINGS }) as AuthContext;
+    try {
+      getAuthContext.mockImplementationOnce(async () => member());
+      expect((await switchPut(put(false), { params: params() })).status).toBe(403);
+      expect(await schemaStatus()).toBe(200);
+
+      getAuthContext.mockImplementationOnce(async () => admin());
+      expect((await switchPut(put(false), { params: params() })).status).toBe(200);
+      expect(await schemaStatus()).toBe(404);
+      getAuthContext.mockImplementationOnce(async () => member());
+      const g = (await (await switchGet(new NextRequest("http://localhost/x"), { params: params() })).json()) as { enabled: boolean; canManage: boolean };
+      expect(g).toEqual({ enabled: false, canManage: false });
+
+      getAuthContext.mockImplementationOnce(async () => admin());
+      expect((await switchPut(put(true), { params: params() })).status).toBe(200);
+      expect(await schemaStatus()).toBe(200);
+      const audits = await prisma.auditLog.findMany({ where: { orgId: w.orgA, action: { in: ["cql.enabled", "cql.disabled"] } }, orderBy: { createdAt: "asc" } });
+      expect(audits.map((a) => a.action)).toEqual(["cql.disabled", "cql.enabled"]);
+      // Other settings survive the switch.
+      const org = await prisma.organization.findUniqueOrThrow({ where: { id: w.orgA }, select: { settings: true } });
+      expect(org.settings).toMatchObject({ cql: { enabled: true } });
+    } finally {
+      await prisma.organization.update({ where: { id: w.orgA }, data: { settings: withCqlEnabled({}, true) as object } });
+    }
   });
 
   it("search ?cql=: bad CQL is a 400 even for someone who can read nothing; too long is a 400", async () => {

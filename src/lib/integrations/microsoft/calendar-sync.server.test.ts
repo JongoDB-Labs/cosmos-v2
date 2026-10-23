@@ -42,12 +42,14 @@ describe("Outlook meeting sync (e2e DB)", () => {
   beforeEach(() => _resetCalendarTokenCache());
 
   /** Connect `u` in `orgId` as Microsoft account `oid` (its mailbox is its user id). */
-  async function connect(orgId: string, u: { id: string; email: string }, oid: string) {
-    const fetchFn = (async () =>
-      new Response(
-        JSON.stringify({ access_token: `at-${u.id}`, refresh_token: "rt", expires_in: 3600, id_token: jwt({ tid: TENANT, oid, preferred_username: u.email }) }),
-        { status: 200 },
-      )) as unknown as typeof fetch;
+  async function connect(orgId: string, u: { id: string; email: string }, oid: string, mail?: string) {
+    const fetchFn = (async (url: unknown) =>
+      String(url).includes("/me?")
+        ? new Response(JSON.stringify({ mail: mail ?? null, userPrincipalName: u.email }), { status: 200 })
+        : new Response(
+            JSON.stringify({ access_token: `at-${u.id}`, refresh_token: "rt", expires_in: 3600, id_token: jwt({ tid: TENANT, oid, preferred_username: u.email }) }),
+            { status: 200 },
+          )) as unknown as typeof fetch;
     await completeCalendarConnect(
       { orgId, userId: u.id, code: "c", verifier: "v", redirectUri: "https://x/cb", origin: "https://cosmos.example" },
       { fetch: fetchFn },
@@ -649,6 +651,28 @@ describe("Outlook meeting sync (e2e DB)", () => {
     expect(fresh).not.toBe(old);
     expect(g.eventsIn(fresh).map((e) => e.subject)).toEqual(["Sprint review"]);
     expect((await linkOf(alice.id, meeting.id))!.externalCalendarId).toBe(fresh);
+  });
+
+
+  it("recognises our calendar when the mailbox's address isn't its UPN", async () => {
+    const { org, alice, g, deps, stamp } = await setup();
+    g.setAddress(`Bearer at-${alice.id}`, "a.smith@corp.example"); // calendars report this owner
+    await connect(org.id, alice, `${alice.id}-${stamp}`, "a.smith@corp.example");
+    expect((await credOf(org.id, alice.id)).meta).toMatchObject({ mail: "a.smith@corp.example", upn: "alice@test.local" });
+    const first = await ensureCosmosCalendar(org.id, alice.id, deps);
+    const { id } = await credOf(org.id, alice.id);
+    await patchCalendarMeta(id, {}, ["calendarId"]);
+    expect(await ensureCosmosCalendar(org.id, alice.id, deps)).toBe(first); // adopted, not "Cosmos (synced)"
+    expect(calendarPosts(g)).toBe(1);
+  });
+
+  it("disconnect deletes the calendar we recorded even when its owner matches neither address", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    g.setAddress(`Bearer at-${alice.id}`, "someone.else@corp.example");
+    await syncMeeting(org.id, meeting.id, deps);
+    const cal = ((await credOf(org.id, alice.id)).meta as { calendarId: string }).calendarId;
+    expect(await removeCosmosCalendar(org.id, alice.id, deps)).toBe(true);
+    expect(g.calendars.has(cal)).toBe(false);
   });
 
 });

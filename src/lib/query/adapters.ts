@@ -165,3 +165,142 @@ function sortFrom(sort: WorkItemSort | undefined): CqlSort[] | undefined {
   )[sort.field];
   return id ? [{ field: sys(id), dir: sort.direction === "asc" ? "asc" : "desc" }] : undefined;
 }
+
+/**
+ * The reverse, for the transition only: a CqlQuery as the legacy filter, or
+ * null when the legacy shape can't say it. Saved views and "Save as board"
+ * still store WorkItemFilter until saved filters v2 (query phase 3), so the
+ * Issues view saves a CQL query that way when it fits, and says so when not.
+ *
+ * `cfTypes` decides how a custom-field clause was meant (MULTI_SELECT vs
+ * SELECT both read `cf = v`).
+ */
+export function toWorkItemFilter(
+  q: CqlQuery,
+  cfTypes: ReadonlyMap<string, string> = new Map(),
+): WorkItemFilter | null {
+  const f: WorkItemFilter = {};
+  const parts: CqlNode[] = !q.where ? [] : q.where.op === "and" ? q.where.args : [q.where];
+  const refIds = (values: CqlValue[], entity: RefEntity, sentinel?: string): string[] | null => {
+    const out: string[] = [];
+    for (const v of values) {
+      if (v.t === "ref" && v.entity === entity) out.push(v.id);
+      else if (v.t === "empty" && sentinel) out.push(sentinel);
+      else return null;
+    }
+    return out;
+  };
+  const listOf = (n: CqlNode): CqlValue[] | null =>
+    n.op === "in" && !n.negate && !n.all ? n.values : n.op === "cmp" && n.cmp === "eq" ? [n.value] : null;
+  const setRange = (key: "startDate" | "dueDate" | "createdAt" | "updatedAt", n: CqlNode): boolean => {
+    if (n.op !== "cmp" || n.value.t !== "date" || (n.cmp !== "gte" && n.cmp !== "lte")) return false;
+    f[key] = { ...(f[key] ?? {}), [n.cmp === "gte" ? "from" : "to"]: n.value.v };
+    return true;
+  };
+  const RANGE: Record<string, "startDate" | "dueDate" | "createdAt" | "updatedAt"> = {
+    start: "startDate",
+    due: "dueDate",
+    created: "createdAt",
+    updated: "updatedAt",
+  };
+
+  for (const n of parts) {
+    // Legacy text: title OR description.
+    if (
+      n.op === "or" && n.args.length === 2 && n.args.every((a) => a.op === "text" && !a.negate)
+      && (n.args[0] as { query: string }).query === (n.args[1] as { query: string }).query
+      && n.args.some((a) => a.op === "text" && a.field.kind === "sys" && a.field.id === "summary")
+      && n.args.some((a) => a.op === "text" && a.field.kind === "sys" && a.field.id === "description")
+    ) {
+      f.text = (n.args[0] as { query: string }).query;
+      continue;
+    }
+    if (n.op === "or" && n.args.length === 2 && n.args.every((a) => a.op === "cmp" && a.field.kind === "sys" && a.field.id === "archived")) {
+      f.archived = "all";
+      continue;
+    }
+    if (n.op === "and" || n.op === "or" || n.op === "not") return null;
+    const field = n.field;
+    if (field.kind === "cf") {
+      if (n.op !== "cmp" || n.cmp !== "eq") return null;
+      const type = cfTypes.get(field.key);
+      const kind = n.value.t === "bool" ? "CHECKBOX" : type === "MULTI_SELECT" ? "MULTI_SELECT" : type === "TEXT" ? "TEXT" : "SELECT";
+      if (n.value.t !== "str" && n.value.t !== "bool") return null;
+      (f.customFields ??= []).push({ key: field.key, kind, value: n.value.v });
+      continue;
+    }
+    const list = listOf(n);
+    switch (field.id) {
+      case "project": {
+        const ids = list && refIds(list, "project");
+        if (!ids) return null;
+        f.projectIds = ids;
+        break;
+      }
+      case "key": {
+        const ids = list && refIds(list, "item");
+        if (!ids) return null;
+        f.ids = ids;
+        break;
+      }
+      case "type": {
+        const ids = list && refIds(list, "type");
+        if (!ids) return null;
+        f.typeIds = ids;
+        break;
+      }
+      case "status": {
+        const ids = list && refIds(list, "status");
+        if (!ids) return null;
+        f.columnKeys = ids;
+        break;
+      }
+      case "priority": {
+        if (!list || !list.every((v) => v.t === "str")) return null;
+        f.priorities = list.map((v) => (v as { v: string }).v) as WorkItemFilter["priorities"];
+        break;
+      }
+      case "assignee": {
+        const ids = list && refIds(list, "user", UNASSIGNED);
+        if (!ids) return null;
+        f.assigneeIds = ids;
+        break;
+      }
+      case "label": {
+        if (!list) return null;
+        const names = list.map((v) => (v.t === "str" ? v.v : v.t === "ref" && v.entity === "label" ? v.label : undefined));
+        if (names.some((x) => !x)) return null;
+        f.labels = names as string[];
+        break;
+      }
+      case "sprint": {
+        const ids = list && refIds(list, "interval", NO_INTERVAL);
+        if (!ids) return null;
+        f.intervalIds = ids;
+        break;
+      }
+      case "watcher": {
+        const ids = list && refIds(list, "user");
+        if (!ids || ids.length !== 1) return null;
+        f.watchedByUserId = ids[0];
+        break;
+      }
+      case "archived":
+        if (n.op === "cmp" && n.cmp === "eq" && n.value.t === "bool" && n.value.v) f.archived = "only";
+        else return null;
+        break;
+      case "parent":
+        if (n.op === "empty") f.parent = { mode: n.negate ? "has_parent" : "no_parent" };
+        else {
+          const ids = list && refIds(list, "item");
+          if (!ids) return null;
+          f.parent = { mode: "is", parentIds: ids };
+        }
+        break;
+      default:
+        if (RANGE[field.id] && setRange(RANGE[field.id], n)) break;
+        return null;
+    }
+  }
+  return f;
+}
