@@ -25,12 +25,21 @@ vi.mock("@/lib/rbac/effective-permissions", () => ({ loadEffectivePermissions })
 vi.mock("@/lib/db/client", () => ({ prisma }));
 
 import { executeTool } from "./tool-executor";
+import type { AuthContext } from "@/lib/rbac/check";
+import type { ToolContext } from "@/lib/ai/executors/_ctx";
+import { stubAuth, stubToolCtx } from "@/lib/testing/tool-auth";
 
-const CTX = { orgId: "11111111-1111-1111-1111-111111111111", userId: "u1" };
+const CTX: ToolContext = stubToolCtx("11111111-1111-1111-1111-111111111111", "u1");
+/** The caller's AuthContext for the next call — replaces the mocked
+ *  `loadEffectivePermissions` these specs used to drive: tools are now
+ *  authorised against the caller's own context, not a lookup by user id. */
+const setActor = (actor: Partial<Omit<AuthContext, "orgId" | "userId">>) => {
+  CTX.auth = stubAuth(CTX.orgId, CTX.userId, actor);
+};
 
 function withBits(...keys: PermissionKey[]) {
   const permissions = keys.reduce((acc, k) => acc | Permission[k], 0n);
-  loadEffectivePermissions.mockResolvedValue({ orgRole: "MEMBER", permissions });
+  setActor({ orgRole: "MEMBER", permissions });
 }
 
 describe("executeTool — legacy read tools enforce per-tool permissions", () => {

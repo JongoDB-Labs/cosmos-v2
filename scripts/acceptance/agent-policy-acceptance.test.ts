@@ -38,6 +38,7 @@ vi.mock("@/lib/classification/effective", async (importOriginal) => ({
 
 import { prisma } from "@/lib/db/client";
 import { runAgentLoop } from "@/lib/ai/agent-loop";
+import { stubAuth } from "@/lib/testing/tool-auth";
 
 const WITH_POLICY_ORG = randomUUID();
 const NO_POLICY_ORG = randomUUID();
@@ -77,7 +78,7 @@ async function driveOneTool(orgId: string, toolUse: { id: string; name: string; 
     .mockResolvedValueOnce({ text: "", toolUses: [toolUse], stopReason: "tool_use" })
     .mockResolvedValueOnce({ text: "done", toolUses: [], stopReason: "end_turn" });
   const res = await runAgentLoop({
-    orgId, userId: ACCEPT_USER_ID, tenantClass: "commercial",
+    orgId, userId: ACCEPT_USER_ID, auth: stubAuth(orgId, ACCEPT_USER_ID), tenantClass: "commercial",
     systemPrompt: "sys", initialPrompt: "go", conversationId: `c-${id8()}`,
   });
   const messages = (runModelTurn.mock.calls[1]?.[0]?.messages ?? []) as Array<{ role: string; content: unknown }>;

@@ -32,13 +32,22 @@ vi.mock("@/lib/work-items/query/scope", () => ({ getReadableProjectIds }));
 vi.mock("@/lib/rbac/require-project-read", () => ({ requireProjectRead }));
 
 import { executeTool } from "./tool-executor";
+import type { AuthContext } from "@/lib/rbac/check";
+import type { ToolContext } from "@/lib/ai/executors/_ctx";
+import { stubAuth, stubToolCtx } from "@/lib/testing/tool-auth";
 
 const ORG = "org-1";
 const ME = "11111111-1111-4111-a111-111111111111";
 const OPEN_PROJECT = "22222222-2222-4222-a222-222222222222";
 const HIDDEN_PROJECT = "33333333-3333-4333-a333-333333333333";
 
-const ctx = { orgId: ORG, userId: ME };
+const ctx: ToolContext = stubToolCtx(ORG, ME);
+/** The caller's AuthContext for the next call — replaces the mocked
+ *  `loadEffectivePermissions` these specs used to drive: tools are now
+ *  authorised against the caller's own context, not a lookup by user id. */
+const setActor = (actor: Partial<Omit<AuthContext, "orgId" | "userId">>) => {
+  ctx.auth = stubAuth(ctx.orgId, ctx.userId, actor);
+};
 const lastWhere = () =>
   prisma.workItem.findMany.mock.calls.at(-1)?.[0]?.where as Record<
     string,
@@ -47,7 +56,7 @@ const lastWhere = () =>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  loadEffectivePermissions.mockResolvedValue({
+  setActor({
     orgRole: "MEMBER",
     permissions: Permission.ITEM_READ,
     basePermissions: Permission.ITEM_READ,
@@ -114,7 +123,7 @@ describe("query_intervals respects project scope", () => {
     // SPRINT_READ as well — otherwise the permission gate denies first and the
     // scope check is never reached, which would make these pass for the wrong
     // reason.
-    loadEffectivePermissions.mockResolvedValue({
+    setActor({
       orgRole: "MEMBER",
       permissions: Permission.ITEM_READ | Permission.SPRINT_READ,
       basePermissions: Permission.ITEM_READ | Permission.SPRINT_READ,
@@ -155,7 +164,7 @@ describe("list_comments respects the ticket's project scope", () => {
   const TICKET = "44444444-4444-4444-a444-444444444444";
 
   beforeEach(() => {
-    loadEffectivePermissions.mockResolvedValue({
+    setActor({
       orgRole: "MEMBER",
       permissions: Permission.COMMENT_READ,
       basePermissions: Permission.COMMENT_READ,

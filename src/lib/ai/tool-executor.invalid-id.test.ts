@@ -34,14 +34,23 @@ vi.mock("./executors/projects", () => ({
 }));
 
 import { executeTool } from "./tool-executor";
+import type { AuthContext } from "@/lib/rbac/check";
+import type { ToolContext } from "@/lib/ai/executors/_ctx";
+import { stubAuth, stubToolCtx } from "@/lib/testing/tool-auth";
 
-const CTX = { orgId: "11111111-1111-1111-1111-111111111111", userId: "22222222-2222-2222-2222-222222222222" };
+const CTX: ToolContext = stubToolCtx("11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222");
+/** The caller's AuthContext for the next call — replaces the mocked
+ *  `loadEffectivePermissions` these specs used to drive: tools are now
+ *  authorised against the caller's own context, not a lookup by user id. */
+const setActor = (actor: Partial<Omit<AuthContext, "orgId" | "userId">>) => {
+  CTX.auth = stubAuth(CTX.orgId, CTX.userId, actor);
+};
 const HALLUCINATED_ID = "f9s8d7f9-demo-proj-id";
 const WELL_FORMED_ID = "33333333-3333-3333-3333-333333333333";
 
 function withBits(...keys: PermissionKey[]) {
   const permissions = keys.reduce((acc, k) => acc | Permission[k], 0n);
-  loadEffectivePermissions.mockResolvedValue({
+  setActor({
     orgRole: "MEMBER",
     permissions,
     basePermissions: permissions,
