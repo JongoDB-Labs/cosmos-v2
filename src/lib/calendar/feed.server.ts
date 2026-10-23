@@ -4,11 +4,8 @@ import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { isProjectVisible } from "@/lib/rbac/project-access";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
-import { isMarkingLevel } from "@/lib/classification/levels";
-import { rankOf } from "@/lib/classification/effective";
-import { detectMarkings } from "@/lib/classification/markings";
+import { createClassificationResolver } from "@/lib/classification/resolver";
 import type { AuthContext } from "@/lib/rbac/check";
-import type { ClassificationLevel } from "@prisma/client";
 import { buildIcs } from "./ics";
 import { feedEvents } from "./feed-events";
 import { calendarFeedsEnabled, readFeedOptions } from "./feed-settings";
@@ -143,17 +140,7 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
 
   // Classification: a project (or org) whose ceiling carries a marking, or a
   // marking in the row's own text, makes the row busy-only.
-  const ceilings = await prisma.dataClassification.findMany({
-    where: { orgId },
-    select: { projectId: true, level: true },
-  });
-  const orgLevel: ClassificationLevel = ceilings.find((c) => c.projectId === null)?.level ?? "UNCLASSIFIED";
-  const levelFor = (pid: string | null) => {
-    const p = pid ? ceilings.find((c) => c.projectId === pid)?.level : undefined;
-    return p && rankOf(p) > rankOf(orgLevel) ? p : orgLevel;
-  };
-  const restricted = (pid: string | null, ...text: (string | null | undefined)[]) =>
-    isMarkingLevel(levelFor(pid)) || text.some((t) => !!t && detectMarkings(t));
+  const { restricted } = await createClassificationResolver(orgId);
 
   const events = feedEvents({
     options,
