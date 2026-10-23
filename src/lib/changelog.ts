@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.451.0",
+    date: "2026-10-23",
+    title: "Cosmos for Teams",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Use Cosmos from Microsoft Teams: search work items, preview links in chat, and create a work item from a Teams message, all with your own Cosmos permissions.",
+      },
+    ],
+  },
+  {
     version: "2.450.0",
     date: "2026-10-23",
     title: "Projects API: paging and standard errors",

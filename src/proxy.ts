@@ -31,6 +31,9 @@ const CSRF_EXEMPT_PREFIXES = [
   // route itself enforces (503 unset / 401 mismatch), so it cannot be
   // CSRF-forged by a browser. Same rationale as the `cosmos_` bearer skip.
   "/api/foreman/alert",
+  // Cosmos for Teams bot (COSMOS-202 T1): the Bot Connector POSTs with its own
+  // signed bearer JWT, which the route verifies; no browser, no cookie.
+  "/api/teams/bot",
 ];
 // NOTE: "/api/v1/orgs/" was previously exempted wholesale ("sub-routes do their
 // own auth") — but auth is not CSRF defense, and that silently disabled the
@@ -40,7 +43,9 @@ const CSRF_EXEMPT_PREFIXES = [
 // like any other API surface now.
 
 function isCsrfExempt(pathname: string): boolean {
-  return CSRF_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p));
+  // The path itself or below it, never a longer name that shares its prefix
+  // ("/api/teams/botX" is not "/api/teams/bot"). Same rule as isPublic.
+  return CSRF_EXEMPT_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
 function isSameOrigin(request: NextRequest): boolean {
@@ -92,6 +97,9 @@ const PUBLIC_PATH_PREFIXES = [
   // Watchdog down-alert — no browser session by definition (the daemon is
   // down); the route enforces its own bearer token.
   "/api/foreman/alert",
+  // Cosmos for Teams bot (COSMOS-202 T1): the Bot Connector has no session;
+  // the route verifies its signed token before anything else.
+  "/api/teams/bot",
   "/manifest.webmanifest",
   // Test-only routes — only active when E2E_TEST_AUTH=1; session check is
   // moot because these routes create/look up sessions themselves.
