@@ -29,6 +29,15 @@ describe("connect state", () => {
     expect(openConnectState(s.cookie.slice(0, -4) + "AAAA", s.state, 2_000)).toBeNull();
     expect(openConnectState(undefined, s.state, 2_000)).toBeNull();
   });
+
+  it("is single-use: a replayed callback is refused, and a failed attempt doesn't use it up", () => {
+    const s = newConnectState("org-1", "user-1", 1_000);
+    expect(openConnectState(s.cookie, "someone-else", 2_000)).toBeNull();
+    expect(openConnectState(s.cookie, s.state, 2_000)).not.toBeNull();
+    expect(openConnectState(s.cookie, s.state, 3_000)).toBeNull();
+    const other = newConnectState("org-1", "user-1", 1_000);
+    expect(openConnectState(other.cookie, other.state, 3_000)).not.toBeNull();
+  });
 });
 
 describe("URLs", () => {
