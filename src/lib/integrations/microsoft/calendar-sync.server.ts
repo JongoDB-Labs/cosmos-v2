@@ -360,7 +360,9 @@ export interface PullRunResult extends PullResult {
  * random delay so we never burst the tenant, and one person being throttled,
  * revoked or broken only ends that person's turn.
  */
-export async function runCalendarPulls(deps: GraphDeps & { jitterMs?: number; random?: () => number } = {}): Promise<PullRunResult> {
+export async function runCalendarPulls(
+  deps: GraphDeps & { jitterMs?: number; random?: () => number; signal?: AbortSignal } = {},
+): Promise<PullRunResult> {
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const random = deps.random ?? Math.random;
   const jitter = deps.jitterMs ?? 2_000;
@@ -372,6 +374,7 @@ export async function runCalendarPulls(deps: GraphDeps & { jitterMs?: number; ra
   for (const c of creds.sort(() => random() - 0.5)) {
     const meta = c.meta as unknown as CalendarMeta;
     if (meta?.status !== "connected" || !meta.calendarId) continue;
+    if (deps.signal?.aborted) break; // out of time: the rest go next run
     await sleep(Math.floor(random() * jitter));
     try {
       const r = await pullChanges(c.orgId, c.userId as string, deps);
@@ -401,5 +404,33 @@ export async function removeCosmosCalendar(orgId: string, userId: string, deps: 
     return true;
   } catch {
     return false;
+  }
+}
+
+/** When each person last had a lazy pull started here, so a busy page doesn't repeat it. */
+const lazyPulls = new Map<string, number>();
+const LAZY_PULL_EVERY_MS = 2 * 60_000;
+
+/**
+ * A freshness boost between scheduled runs: when someone opens their meetings,
+ * pull their Outlook changes after the response if the last pull is stale.
+ */
+export function pullSoonIfStale(orgId: string, userId: string, now = Date.now(), deps: GraphDeps = {}): Promise<void> | undefined {
+  const k = `${orgId}:${userId}`;
+  if ((lazyPulls.get(k) ?? 0) > now - LAZY_PULL_EVERY_MS) return undefined;
+  lazyPulls.set(k, now);
+  if (lazyPulls.size > 10_000) lazyPulls.delete(lazyPulls.keys().next().value as string);
+  const run = async () => {
+    const conn = await calendarConnection(orgId, userId);
+    if (!conn?.meta.calendarId || conn.meta.status !== "connected") return;
+    if (conn.meta.lastSyncAt && Date.parse(conn.meta.lastSyncAt) > now - LAZY_PULL_EVERY_MS) return;
+    await pullChanges(orgId, userId, deps);
+  };
+  const guarded = () => run().catch((e) => { if (!personal(e)) console.error("outlook pull failed:", e instanceof Error ? e.message : "unknown"); });
+  try {
+    after(guarded);
+    return undefined;
+  } catch {
+    return guarded(); // outside a request (scripts, tests)
   }
 }

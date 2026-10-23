@@ -6,7 +6,7 @@ import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { pullSoonIfStale, syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { z } from "zod";
 import { MeetingType } from "@prisma/client";
 
@@ -35,6 +35,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.MEETING_READ);
+    // COSMOS-202 B2: their Outlook edits, fetched after this response if stale.
+    if (!ctx.isApiKey) pullSoonIfStale(orgId, ctx.userId);
 
     const sp = request.nextUrl.searchParams;
     const projectId = sp.get("projectId");

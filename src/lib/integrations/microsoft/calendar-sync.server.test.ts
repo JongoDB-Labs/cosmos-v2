@@ -10,7 +10,7 @@ import { prisma } from "@/lib/db/client";
 import { fakeGraph } from "@/lib/testing/fake-graph";
 import { MS_CALENDAR } from "./calendar-connect";
 import { _resetCalendarTokenCache, completeCalendarConnect, disconnectCalendar } from "./calendar-token.server";
-import { pullChanges, removeCosmosCalendar, runCalendarPulls, syncMeeting, syncUserNow } from "./calendar-sync.server";
+import { pullChanges, pullSoonIfStale, removeCosmosCalendar, runCalendarPulls, syncMeeting, syncUserNow } from "./calendar-sync.server";
 
 // The Microsoft sign-in app, without the shared global row (and its vault key)
 // that another test file may be writing at the same time.
@@ -261,6 +261,18 @@ describe("Outlook meeting sync (e2e DB)", () => {
     expect(r.throttled).toBe(1);
     expect(r.people).toBeGreaterThanOrEqual(1);
     expect(g.sleeps.filter((ms) => ms === 250).length).toBeGreaterThanOrEqual(2); // jitter before each person
+  });
+
+  it("pulls lazily when someone opens their meetings, but not again within two minutes", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const deltas = () => g.calls.filter((c) => c.path.includes("calendarView/delta")).length;
+    const t = Date.now();
+    await pullSoonIfStale(org.id, alice.id, t, deps); // never pulled: goes
+    expect(deltas()).toBe(1);
+    expect(pullSoonIfStale(org.id, alice.id, t + 60_000, deps)).toBeUndefined(); // too soon
+    await pullSoonIfStale(org.id, alice.id, t + 3 * 60_000, deps); // stale again: goes
+    expect(deltas()).toBe(2);
   });
 
   it("Sync now pushes the person's meetings and pulls; disconnecting removes the calendar and the links", async () => {
