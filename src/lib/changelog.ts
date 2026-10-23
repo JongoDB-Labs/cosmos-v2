@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.11",
+    date: "2026-10-23",
+    title: "Clear message when Claude isn't connected",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Claude isn't connected, AI features now tell you so and point you to Settings \u2192 AI / Model, instead of showing a confusing API-key error.",
+      },
+    ],
+  },
+  {
     version: "2.439.10",
     date: "2026-10-23",
     title: "Bots only use the tools they're given",
