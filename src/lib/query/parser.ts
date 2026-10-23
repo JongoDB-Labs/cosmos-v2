@@ -565,8 +565,8 @@ function looksLikeWords(tokens: IToken[]): boolean {
   return !(first.tokenType === Identifier && lookupField(first.image));
 }
 
-/** Tokens a value list's `(` follows: `IN (a, b)`, `IN ALL (…)`, `DURING (a, b)`. */
-const LIST_OPENERS = new Set<TokenType>([In, All, During]);
+/** Tokens a value list's `(` follows: `IN (a, b)`, `IN ALL (…)`, `DURING (a, b)`, `FROM` / `TO` / `BY (a, b)`. */
+const LIST_OPENERS = new Set<TokenType>([In, All, During, From, To, By]);
 
 /**
  * The first place the token stream nests too deep, if any: grouping
