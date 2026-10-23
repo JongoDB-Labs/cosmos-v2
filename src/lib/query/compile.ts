@@ -353,6 +353,8 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
         },
         isEmpty: { assigneeId: null, assignees: { none: {} } },
       };
+    case "primaryAssignee":
+      return { match: (b) => nn("assigneeId", { in: ids(b) }), isEmpty: { assigneeId: null } };
     case "reporter":
       return { match: (b) => ({ createdById: { in: ids(b) } }), isEmpty: null };
     case "watcher":

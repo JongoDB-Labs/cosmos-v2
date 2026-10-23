@@ -53,6 +53,9 @@ describe("executeCql (e2e DB)", () => {
     expect(neq.titles).toEqual(["p1-coowned", "p1-done"]);
     expect(neq.diagnostics.map((d) => d.code)).toContain("CQL_NEQ_EXCLUDES_EMPTY");
     expect((await run("assignee != me OR assignee IS EMPTY")).titles).toEqual(["p1-child", "p1-coowned", "p1-done", "p1-unassigned"]);
+    // primaryAssignee ignores co-assignees: p1-coowned's only assignee is a co-assignee.
+    expect((await run(`primaryAssignee = "Bob Builder"`)).titles).toEqual(["p1-done"]);
+    expect((await run("primaryAssignee IS EMPTY")).titles).toEqual(["p1-child", "p1-coowned", "p1-unassigned"]);
     expect((await run("assignee IN (me, EMPTY)")).titles).toEqual(["p1-child", "p1-login-bug", "p1-unassigned", `p3-denied-${w.stamp}`]);
   });
 

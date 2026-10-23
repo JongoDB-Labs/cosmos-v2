@@ -84,7 +84,7 @@ const CATEGORY_ALIASES: Record<string, string> = {
 
 /** Fields where `!=` / NOT IN silently also hides "no value" (the Jira gotcha). */
 const NULLABLE = new Set([
-  "assignee", "watcher", "label", "sprint", "team", "parent", "milestone", "points",
+  "assignee", "primaryAssignee", "watcher", "label", "sprint", "team", "parent", "milestone", "points",
   "originalEstimate", "remainingEstimate", "timeSpent", "due", "start", "actualStart",
   "completed", "archivedAt", "cancelReason", "resolution", "highlight", "externalKey",
   "externalSource",
