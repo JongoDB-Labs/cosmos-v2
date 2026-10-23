@@ -1,0 +1,3065 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`parity: PUT /work-items/[itemId] > a due-date slip cascades to the parent and a successor 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "dueDate",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "todo",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 2,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "dueDate",
+        "newValue": "2026-01-25T12:00:00.000Z",
+        "oldValue": "2026-01-15T12:00:00.000Z",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": "2026-01-25T12:00:00.000Z",
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": "item:P",
+    "priority": "MEDIUM",
+    "startDate": "2026-01-10T12:00:00.000Z",
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "parent": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "dueDate",
+        "newValue": "2026-01-25T12:00:00.000Z",
+        "oldValue": "2026-01-20T12:00:00.000Z",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": "2026-01-25T12:00:00.000Z",
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": "2026-01-10T12:00:00.000Z",
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "P",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": null,
+      "assignees": [],
+      "children": [],
+      "columnKey": "todo",
+      "completedAt": null,
+      "scheduleCascade": [
+        {
+          "after": {
+            "dueDate": "2026-01-28T12:00:00.000Z",
+            "startDate": "2026-01-26T12:00:00.000Z",
+          },
+          "before": {
+            "dueDate": "2026-01-18T12:00:00.000Z",
+            "startDate": "2026-01-16T12:00:00.000Z",
+          },
+          "id": "item:S",
+          "reason": "successor-shift",
+        },
+        {
+          "after": {
+            "dueDate": "2026-01-25T12:00:00.000Z",
+            "startDate": "2026-01-10T12:00:00.000Z",
+          },
+          "before": {
+            "dueDate": "2026-01-20T12:00:00.000Z",
+            "startDate": "2026-01-10T12:00:00.000Z",
+          },
+          "id": "item:P",
+          "reason": "parent-envelope",
+        },
+      ],
+      "tags": [],
+    },
+    "status": 200,
+  },
+  "successor": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "dueDate",
+        "newValue": "2026-01-28T12:00:00.000Z",
+        "oldValue": "2026-01-18T12:00:00.000Z",
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "startDate",
+        "newValue": "2026-01-26T12:00:00.000Z",
+        "oldValue": "2026-01-16T12:00:00.000Z",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": "2026-01-28T12:00:00.000Z",
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": "2026-01-26T12:00:00.000Z",
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "S",
+    "workCategory": "BUSINESS",
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > assign to someone else notifies them 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "assigneeId",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [
+      {
+        "message": "Alice assigned you a work item",
+        "orgId": "org",
+        "relatedId": "item:A",
+        "relatedType": "work_item",
+        "title": "Assigned: #1 A",
+        "type": "work_item.assigned",
+        "url": "/test-org/issues?item=item:A",
+        "userId": "bob",
+      },
+    ],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "todo",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "assigneeId",
+        "newValue": "bob",
+        "oldValue": null,
+        "userId": "alice",
+      },
+    ],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": "bob",
+    "assignees": [
+      {
+        "sortOrder": -1,
+        "userId": "bob",
+      },
+    ],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": null,
+      "assignees": [
+        "bob",
+      ],
+      "children": [],
+      "columnKey": "todo",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > assignee set replaced wholesale 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "assigneeIds",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "todo",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "assigneeId",
+        "newValue": "alice",
+        "oldValue": "bob",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": "alice",
+    "assignees": [
+      {
+        "sortOrder": 0,
+        "userId": "alice",
+      },
+      {
+        "sortOrder": 1,
+        "userId": "bob",
+      },
+    ],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": null,
+      "assignees": [
+        "alice",
+        "bob",
+      ],
+      "children": [],
+      "columnKey": "todo",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > cancel with OBE creates the Cancelled column on first use 1`] = `
+{
+  "columns": [
+    [
+      {
+        "category": "TODO",
+        "key": "backlog",
+        "name": "Backlog",
+        "sortOrder": 0,
+      },
+      {
+        "category": "TODO",
+        "key": "todo",
+        "name": "To Do",
+        "sortOrder": 1,
+      },
+      {
+        "category": "IN_PROGRESS",
+        "key": "in_progress",
+        "name": "In Progress",
+        "sortOrder": 2,
+      },
+      {
+        "category": "IN_PROGRESS",
+        "key": "review",
+        "name": "Review",
+        "sortOrder": 3,
+      },
+      {
+        "category": "DONE",
+        "key": "done",
+        "name": "Done",
+        "sortOrder": 4,
+      },
+      {
+        "category": "DONE",
+        "key": "shipped",
+        "name": "Shipped",
+        "sortOrder": 5,
+      },
+      {
+        "category": "CANCELLED",
+        "key": "cancelled",
+        "name": "Cancelled",
+        "sortOrder": 6,
+      },
+    ],
+  ],
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "cancelReason, columnKey",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "cancelled",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "cancelReason",
+        "newValue": "OBE",
+        "oldValue": null,
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "columnKey",
+        "newValue": "cancelled",
+        "oldValue": "in_progress",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": "2026-01-10T12:00:00.000Z",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": "OBE",
+    "columnEnteredAt": "<now>",
+    "columnKey": "cancelled",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": "2026-01-10T12:00:00.000Z",
+      "assignees": [],
+      "children": [],
+      "columnKey": "cancelled",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > cancel with OTHER and a note, from done 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "cancelReason, cancelNote, columnKey",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "cancelled",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "cancelReason",
+        "newValue": "OTHER",
+        "oldValue": null,
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "columnKey",
+        "newValue": "cancelled",
+        "oldValue": "done",
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "completedAt",
+        "newValue": null,
+        "oldValue": "2026-02-20T12:00:00.000Z",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": "2026-01-10T12:00:00.000Z",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": "superseded by the new plan",
+    "cancelReason": "OTHER",
+    "columnEnteredAt": "<now>",
+    "columnKey": "cancelled",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": "2026-01-10T12:00:00.000Z",
+      "assignees": [],
+      "children": [],
+      "columnKey": "cancelled",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > custom fields merge into the existing values 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "customFields",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "todo",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {
+      "added": true,
+      "change": 2,
+      "keep": "me",
+    },
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": null,
+      "assignees": [],
+      "children": [],
+      "columnKey": "todo",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > move done → another done lane keeps completion 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "columnKey",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "shipped",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "columnKey",
+        "newValue": "shipped",
+        "oldValue": "done",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": "2026-01-10T12:00:00.000Z",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "shipped",
+    "completedAt": "2026-02-20T12:00:00.000Z",
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": "2026-01-10T12:00:00.000Z",
+      "assignees": [],
+      "children": [],
+      "columnKey": "shipped",
+      "completedAt": "2026-02-20T12:00:00.000Z",
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > move done → todo clears completion, keeps start 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "columnKey",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "todo",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "columnKey",
+        "newValue": "todo",
+        "oldValue": "done",
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "completedAt",
+        "newValue": null,
+        "oldValue": "2026-02-20T12:00:00.000Z",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": "2026-01-10T12:00:00.000Z",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": "2026-01-10T12:00:00.000Z",
+      "assignees": [],
+      "children": [],
+      "columnKey": "todo",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > move in_progress → done stamps completion, keeps start 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "columnKey",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "done",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [
+      [
+        "org",
+        "itemCompleted",
+        "✅ <b>PROJ-1</b> A completed",
+      ],
+    ],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "columnKey",
+        "newValue": "done",
+        "oldValue": "in_progress",
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "completedAt",
+        "newValue": "<now>",
+        "oldValue": null,
+        "userId": "alice",
+      },
+    ],
+    "actualStart": "2026-01-10T12:00:00.000Z",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "done",
+    "completedAt": "<now>",
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": "2026-01-10T12:00:00.000Z",
+      "assignees": [],
+      "children": [],
+      "columnKey": "done",
+      "completedAt": "<now>",
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > move into done with a manual completedAt: the manual value wins 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "columnKey, completedAt",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "done",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [
+      [
+        "org",
+        "itemCompleted",
+        "✅ <b>PROJ-1</b> A completed",
+      ],
+    ],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "actualStart",
+        "newValue": "<now>",
+        "oldValue": null,
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "columnKey",
+        "newValue": "done",
+        "oldValue": "todo",
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "completedAt",
+        "newValue": "2026-01-10T12:00:00.000Z",
+        "oldValue": null,
+        "userId": "alice",
+      },
+    ],
+    "actualStart": "<now>",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "done",
+    "completedAt": "2026-01-10T12:00:00.000Z",
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": "<now>",
+      "assignees": [],
+      "children": [],
+      "columnKey": "done",
+      "completedAt": "2026-01-10T12:00:00.000Z",
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > move into done with completedAt: null: the manual null wins 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "columnKey, completedAt",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "done",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "actualStart",
+        "newValue": "<now>",
+        "oldValue": null,
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "columnKey",
+        "newValue": "done",
+        "oldValue": "todo",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": "<now>",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "done",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": "<now>",
+      "assignees": [],
+      "children": [],
+      "columnKey": "done",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > move into in_progress with a manual actualStart 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "columnKey, actualStart",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "in_progress",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "actualStart",
+        "newValue": "2026-02-20T12:00:00.000Z",
+        "oldValue": null,
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "columnKey",
+        "newValue": "in_progress",
+        "oldValue": "todo",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": "2026-02-20T12:00:00.000Z",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "in_progress",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": "2026-02-20T12:00:00.000Z",
+      "assignees": [],
+      "children": [],
+      "columnKey": "in_progress",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > move to a key no board shows clears completion 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "columnKey",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "ghost",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "columnKey",
+        "newValue": "ghost",
+        "oldValue": "done",
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "completedAt",
+        "newValue": null,
+        "oldValue": "2026-02-20T12:00:00.000Z",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "ghost",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": null,
+      "assignees": [],
+      "children": [],
+      "columnKey": "ghost",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > move todo → custom done lane stamps both dates 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "columnKey",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "shipped",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [
+      [
+        "org",
+        "itemCompleted",
+        "✅ <b>PROJ-1</b> A completed",
+      ],
+    ],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "actualStart",
+        "newValue": "<now>",
+        "oldValue": null,
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "columnKey",
+        "newValue": "shipped",
+        "oldValue": "todo",
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "completedAt",
+        "newValue": "<now>",
+        "oldValue": null,
+        "userId": "alice",
+      },
+    ],
+    "actualStart": "<now>",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "shipped",
+    "completedAt": "<now>",
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": "<now>",
+      "assignees": [],
+      "children": [],
+      "columnKey": "shipped",
+      "completedAt": "<now>",
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > move todo → in_progress stamps actual start 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "columnKey",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "in_progress",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "actualStart",
+        "newValue": "<now>",
+        "oldValue": null,
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "columnKey",
+        "newValue": "in_progress",
+        "oldValue": "todo",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": "<now>",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "in_progress",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": "<now>",
+      "assignees": [],
+      "children": [],
+      "columnKey": "in_progress",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > move todo → review (IN_PROGRESS by category, not by key) 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "columnKey",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "review",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "actualStart",
+        "newValue": "<now>",
+        "oldValue": null,
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "columnKey",
+        "newValue": "review",
+        "oldValue": "todo",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": "<now>",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "review",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": "<now>",
+      "assignees": [],
+      "children": [],
+      "columnKey": "review",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > priority, interval, team, points, highlight, work category, archive 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "priority, intervalId, teamId, storyPoints, workCategory, archivedAt, highlight",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "todo",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "intervalId",
+        "newValue": "interval",
+        "oldValue": null,
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "priority",
+        "newValue": "HIGH",
+        "oldValue": "MEDIUM",
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "teamId",
+        "newValue": "team",
+        "oldValue": null,
+        "userId": "alice",
+      },
+    ],
+    "actualStart": null,
+    "archivedAt": "2026-02-20T12:00:00.000Z",
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": "GREEN",
+    "intervalId": "interval",
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "HIGH",
+    "startDate": null,
+    "storyPoints": 5,
+    "tags": [],
+    "teamId": "team",
+    "title": "A",
+    "workCategory": "ENABLER",
+  },
+  "res": {
+    "echo": {
+      "actualStart": null,
+      "assignees": [],
+      "children": [],
+      "columnKey": "todo",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > reopening a cancelled item clears the reason 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "columnKey",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "todo",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "cancelReason",
+        "newValue": null,
+        "oldValue": "OBE",
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "columnKey",
+        "newValue": "todo",
+        "oldValue": "cancelled",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": null,
+      "assignees": [],
+      "children": [],
+      "columnKey": "todo",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > reopening a merged item un-merges it 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "columnKey",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "in_progress",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 2,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "actualStart",
+        "newValue": "<now>",
+        "oldValue": null,
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "cancelReason",
+        "newValue": null,
+        "oldValue": "MERGED",
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "columnKey",
+        "newValue": "in_progress",
+        "oldValue": "cancelled",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": "<now>",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "in_progress",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": "<now>",
+      "assignees": [],
+      "children": [],
+      "columnKey": "in_progress",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > same column is not a move 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "columnKey",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "done",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "actualStart",
+        "newValue": "<now>",
+        "oldValue": null,
+        "userId": "alice",
+      },
+    ],
+    "actualStart": "<now>",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "done",
+    "completedAt": "2026-02-20T12:00:00.000Z",
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": "<now>",
+      "assignees": [],
+      "children": [],
+      "columnKey": "done",
+      "completedAt": "2026-02-20T12:00:00.000Z",
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > tags go through the label catalogue 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "tags",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "todo",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [
+      "parity-alpha",
+      "parity-beta",
+    ],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [
+      "parity-alpha",
+      "parity-beta",
+    ],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": null,
+      "assignees": [],
+      "children": [],
+      "columnKey": "todo",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [
+        "parity-alpha",
+        "parity-beta",
+      ],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > title and description edit 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "title, description",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [
+      [
+        "work_items",
+        "item:A",
+      ],
+    ],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "todo",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "title",
+        "newValue": "A renamed",
+        "oldValue": "A",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "now with words",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A renamed",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": null,
+      "assignees": [],
+      "children": [],
+      "columnKey": "todo",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: PUT /work-items/[itemId] > unassign clears the whole set 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.updated",
+        "entity": "work_item",
+        "entityId": "item:A",
+        "metadata": {
+          "changes": "assigneeId",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "columnKey": "todo",
+          "id": "item:A",
+          "projectId": "project",
+          "ticketNumber": 1,
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "updated",
+        "field": "assigneeId",
+        "newValue": null,
+        "oldValue": "bob",
+        "userId": "alice",
+      },
+    ],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "res": {
+    "echo": {
+      "actualStart": null,
+      "assignees": [],
+      "children": [],
+      "columnKey": "todo",
+      "completedAt": null,
+      "scheduleCascade": [],
+      "tags": [],
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: assistant updateWorkItem > assistant move into Review 1`] = `
+{
+  "effects": {
+    "audit": [],
+    "embed": [],
+    "notify": [],
+    "publish": [],
+    "teams": [],
+  },
+  "item": {
+    "activity": [],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "review",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "out": {
+    "assigneeId": null,
+    "assigneeName": null,
+    "columnKey": "review",
+    "id": "item:A",
+    "ticketNumber": 1,
+    "title": "A",
+    "updated": true,
+  },
+}
+`;
+
+exports[`parity: assistant updateWorkItem > assistant move into a custom Done column 1`] = `
+{
+  "effects": {
+    "audit": [],
+    "embed": [],
+    "notify": [],
+    "publish": [],
+    "teams": [],
+  },
+  "item": {
+    "activity": [],
+    "actualStart": "2026-01-10T12:00:00.000Z",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "shipped",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "out": {
+    "assigneeId": null,
+    "assigneeName": null,
+    "columnKey": "shipped",
+    "id": "item:A",
+    "ticketNumber": 1,
+    "title": "A",
+    "updated": true,
+  },
+}
+`;
+
+exports[`parity: assistant updateWorkItem > assistant move out of done 1`] = `
+{
+  "effects": {
+    "audit": [],
+    "embed": [],
+    "notify": [],
+    "publish": [],
+    "teams": [],
+  },
+  "item": {
+    "activity": [],
+    "actualStart": "2026-01-10T12:00:00.000Z",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "out": {
+    "assigneeId": null,
+    "assigneeName": null,
+    "columnKey": "todo",
+    "id": "item:A",
+    "ticketNumber": 1,
+    "title": "A",
+    "updated": true,
+  },
+}
+`;
+
+exports[`parity: assistant updateWorkItem > assistant reassignment 1`] = `
+{
+  "effects": {
+    "audit": [],
+    "embed": [],
+    "notify": [],
+    "publish": [],
+    "teams": [],
+  },
+  "item": {
+    "activity": [],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": "bob",
+    "assignees": [
+      {
+        "sortOrder": -1,
+        "userId": "bob",
+      },
+      {
+        "sortOrder": 0,
+        "userId": "alice",
+      },
+    ],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "HIGH",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "out": {
+    "assigneeId": "bob",
+    "assigneeName": "Bob",
+    "columnKey": "todo",
+    "id": "item:A",
+    "ticketNumber": 1,
+    "title": "A",
+    "updated": true,
+  },
+}
+`;
+
+exports[`parity: assistant updateWorkItem > assistant tag edit 1`] = `
+{
+  "effects": {
+    "audit": [],
+    "embed": [],
+    "notify": [],
+    "publish": [],
+    "teams": [],
+  },
+  "item": {
+    "activity": [],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [
+      "parity-epsilon",
+    ],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "out": {
+    "assigneeId": null,
+    "assigneeName": null,
+    "columnKey": "todo",
+    "id": "item:A",
+    "ticketNumber": 1,
+    "title": "A",
+    "updated": true,
+  },
+}
+`;
+
+exports[`parity: bulk > bulk assignee change 1`] = `
+{
+  "a": {
+    "activity": [],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": "bob",
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "HIGH",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "b": {
+    "activity": [],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": "bob",
+    "assignees": [
+      {
+        "sortOrder": 0,
+        "userId": "bob",
+      },
+    ],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "HIGH",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "B",
+    "workCategory": "BUSINESS",
+  },
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.bulk_updated",
+        "entity": "work_item",
+        "metadata": {
+          "count": "2",
+          "fields": "assigneeId, priority",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [
+      {
+        "message": "You've been assigned a work item",
+        "orgId": "org",
+        "relatedId": "item:A",
+        "relatedType": "work_item",
+        "title": "Assigned: A",
+        "type": "work_item.assigned",
+        "url": "/test-org/issues?item=item:A",
+        "userId": "bob",
+      },
+    ],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "ids": [
+            "item:A",
+            "item:B",
+          ],
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "res": {
+    "body": {
+      "updated": 2,
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: bulk > bulk move into Done 1`] = `
+{
+  "a": {
+    "activity": [],
+    "actualStart": "2026-01-10T12:00:00.000Z",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "done",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "b": {
+    "activity": [],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "done",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "B",
+    "workCategory": "BUSINESS",
+  },
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.bulk_updated",
+        "entity": "work_item",
+        "metadata": {
+          "count": "2",
+          "fields": "columnKey",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "ids": [
+            "item:A",
+            "item:B",
+          ],
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "res": {
+    "body": {
+      "updated": 2,
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: bulk > bulk tags 1`] = `
+{
+  "a": {
+    "activity": [],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [
+      "parity-delta",
+    ],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [
+      "parity-delta",
+    ],
+    "teamId": null,
+    "title": "A",
+    "workCategory": "BUSINESS",
+  },
+  "b": {
+    "activity": [],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [
+      "parity-delta",
+    ],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [
+      "parity-delta",
+    ],
+    "teamId": null,
+    "title": "B",
+    "workCategory": "BUSINESS",
+  },
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.bulk_updated",
+        "entity": "work_item",
+        "metadata": {
+          "count": "2",
+          "fields": "tags",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.updated",
+        {
+          "ids": [
+            "item:A",
+            "item:B",
+          ],
+        },
+      ],
+    ],
+    "teams": [],
+  },
+  "res": {
+    "body": {
+      "updated": 2,
+    },
+    "status": 200,
+  },
+}
+`;
+
+exports[`parity: create > POST creates with assignees, labels and history 1`] = `
+{
+  "effects": {
+    "audit": [
+      {
+        "action": "work_item.created",
+        "entity": "work_item",
+        "entityId": "item:created",
+        "metadata": {
+          "ticketNumber": "1",
+          "title": "Created",
+          "workItemTypeId": "type:task",
+        },
+        "orgId": "org",
+        "userId": "alice",
+      },
+    ],
+    "embed": [
+      [
+        "work_items",
+        "item:created",
+      ],
+    ],
+    "notify": [],
+    "publish": [
+      [
+        "org",
+        "work-item.created",
+        {
+          "columnKey": "in_progress",
+          "id": "item:created",
+          "projectId": "project",
+          "ticketNumber": 1,
+          "title": "Created",
+          "workItemTypeId": "type:task",
+        },
+      ],
+    ],
+    "teams": [
+      [
+        "org",
+        "itemCreated",
+        "🆕 <b>PROJ-1</b> Created created (LOW)",
+      ],
+    ],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "created",
+        "field": null,
+        "newValue": null,
+        "oldValue": null,
+        "userId": "alice",
+      },
+    ],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": "bob",
+    "assignees": [
+      {
+        "sortOrder": 0,
+        "userId": "bob",
+      },
+    ],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "in_progress",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [
+      "parity-gamma",
+    ],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "LOW",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [
+      "parity-gamma",
+    ],
+    "teamId": null,
+    "title": "Created",
+    "workCategory": "BUSINESS",
+  },
+  "status": 201,
+}
+`;
+
+exports[`parity: create > assistant create lands in the requested status 1`] = `
+{
+  "effects": {
+    "audit": [],
+    "embed": [
+      [
+        "work_items",
+        "item:ai",
+      ],
+    ],
+    "notify": [],
+    "publish": [],
+    "teams": [],
+  },
+  "item": {
+    "activity": [
+      {
+        "action": "created",
+        "field": null,
+        "newValue": null,
+        "oldValue": null,
+        "userId": "alice",
+      },
+    ],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "<now>",
+    "columnKey": "backlog",
+    "completedAt": null,
+    "customFields": {},
+    "description": "",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "From Cosmo",
+    "workCategory": "BUSINESS",
+  },
+  "out": {
+    "assigneeId": null,
+    "assigneeName": null,
+    "columnKey": "backlog",
+    "created": true,
+    "id": "item:ai",
+    "ticketNumber": 1,
+    "title": "From Cosmo",
+    "workItemTypeId": "type:task",
+  },
+}
+`;
+
+exports[`parity: merge and sprint > merge a duplicate 1`] = `
+{
+  "columns": [
+    [
+      {
+        "category": "TODO",
+        "key": "backlog",
+        "name": "Backlog",
+        "sortOrder": 0,
+      },
+      {
+        "category": "TODO",
+        "key": "todo",
+        "name": "To Do",
+        "sortOrder": 1,
+      },
+      {
+        "category": "IN_PROGRESS",
+        "key": "in_progress",
+        "name": "In Progress",
+        "sortOrder": 2,
+      },
+      {
+        "category": "IN_PROGRESS",
+        "key": "review",
+        "name": "Review",
+        "sortOrder": 3,
+      },
+      {
+        "category": "DONE",
+        "key": "done",
+        "name": "Done",
+        "sortOrder": 4,
+      },
+      {
+        "category": "DONE",
+        "key": "shipped",
+        "name": "Shipped",
+        "sortOrder": 5,
+      },
+      {
+        "category": "CANCELLED",
+        "key": "cancelled",
+        "name": "Cancelled",
+        "sortOrder": 6,
+      },
+    ],
+  ],
+  "dup": {
+    "activity": [
+      {
+        "action": "merged",
+        "field": "mergedIntoId",
+        "newValue": "PROJ-2",
+        "oldValue": null,
+        "userId": "alice",
+      },
+    ],
+    "actualStart": "2026-01-10T12:00:00.000Z",
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": "Merged into PROJ-2",
+    "cancelReason": "MERGED",
+    "columnEnteredAt": "<now>",
+    "columnKey": "cancelled",
+    "completedAt": null,
+    "customFields": {},
+    "description": "dup text",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": "item:Survivor",
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "Dup",
+    "workCategory": "BUSINESS",
+  },
+  "result": {
+    "mergedId": "item:Dup",
+    "moved": {
+      "attachments": 0,
+      "children": 0,
+      "comments": 0,
+      "links": 0,
+      "timeEntries": 0,
+    },
+    "survivorId": "item:Survivor",
+  },
+  "survivor": {
+    "activity": [
+      {
+        "action": "merged",
+        "field": "mergedFrom",
+        "newValue": "PROJ-1",
+        "oldValue": null,
+        "userId": "alice",
+      },
+    ],
+    "actualStart": null,
+    "archivedAt": null,
+    "assigneeId": null,
+    "assignees": [],
+    "cancelNote": null,
+    "cancelReason": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "todo",
+    "completedAt": null,
+    "customFields": {},
+    "description": "dup text",
+    "dueDate": null,
+    "highlight": null,
+    "intervalId": null,
+    "labels": [],
+    "mergedIntoId": null,
+    "parentId": null,
+    "priority": "MEDIUM",
+    "startDate": null,
+    "storyPoints": null,
+    "tags": [],
+    "teamId": null,
+    "title": "Survivor",
+    "workCategory": "BUSINESS",
+  },
+}
+`;
+
+exports[`parity: merge and sprint > sprint completion counts a custom Done column as done 1`] = `
+{
+  "done": "interval",
+  "open": null,
+  "report": {
+    "carriedItemIds": [
+      "item:Shipped",
+      "item:Open",
+    ],
+    "completedAt": "<now>",
+    "completedItems": 1,
+    "completedStoryPoints": 0,
+    "incompleteItems": 2,
+    "itemsByPriority": {
+      "MEDIUM": 3,
+    },
+    "totalItems": 3,
+    "totalStoryPoints": 0,
+    "velocity": 0,
+  },
+  "shipped": null,
+  "status": 200,
+}
+`;
