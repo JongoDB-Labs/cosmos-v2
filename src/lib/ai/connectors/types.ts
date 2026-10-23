@@ -22,6 +22,7 @@ import type { ToolDefinition } from "../tools";
 // dragging the egress runtime graph into the connector type layer — and `import type`
 // is erased at compile time, so there is no runtime interval either way.
 import type { TenantClass } from "../egress/types";
+import type { AuthContext } from "@/lib/rbac/check";
 
 /**
  * A connector's tenant AVAILABILITY — the D5 gov-block axis.
@@ -41,10 +42,11 @@ export type { TenantClass };
 
 /**
  * The execution context a connector executor receives: the `orgId`/`userId` of
- * the `ToolContext` the central `executeTool` dispatcher holds. It deliberately
- * does NOT carry the caller's `auth` — connector executors make no cosmos RBAC
- * decision today; they act through the org's / user's stored provider
- * credentials, and the native tools' gates live in `executors/_ctx.ts`. A
+ * the `ToolContext` the central `executeTool` dispatcher holds, and the caller's
+ * own `auth`. `executeConnectorTool` makes the Cosmos permission decision from
+ * `auth` (reads need CHAT_USE; writes also refuse an API key) before any executor
+ * runs; executors then act through the org's / user's stored provider
+ * credentials. A
  * descriptor's `execute` adapts this to its underlying executor's own context shape
  * (e.g. GitHub adds an optional injectable `fetchImpl` in tests; that stays internal
  * to its descriptor/executor and is NOT part of this shared contract).
@@ -52,6 +54,13 @@ export type { TenantClass };
 export interface ConnectorToolContext {
   orgId: string;
   userId: string;
+  /**
+   * The CALLER's AuthContext (session or API key). `executeConnectorTool` requires
+   * it (in its signature, and at runtime: missing, malformed, or for another
+   * org/user ⇒ refused). Optional here only because executors receive the same
+   * shape after the decision has been made.
+   */
+  auth?: AuthContext;
   /**
    * The org's data-sensitivity class (D5 gov-block axis). The dispatcher threads it
    * through so `executeConnectorTool` can hard-refuse a `commercial-only` tool for a

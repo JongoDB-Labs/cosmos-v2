@@ -49,6 +49,50 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.446.0",
+    date: "2026-10-23",
+    title: "Open feedback from a link",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Notifications and shared links now open the exact feedback item, even if it isn't near the top of the list.",
+      },
+    ],
+  },
+  {
+    version: "2.445.0",
+    date: "2026-10-23",
+    title: "Query language groundwork",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Groundwork for the Cosmos Query Language: a Jira-style query language for work items (assignee = me AND priority IN (HIGH, CRITICAL) ORDER BY due), available through the API to organisations that switch it on. The editor and saved filters follow.",
+      },
+    ],
+  },
+  {
+    version: "2.444.1",
+    date: "2026-10-23",
+    title: "Connector tools check your permissions",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: connector tools (email, Slack, Jira, calendar, GitHub) now require assistant access, and anything that sends or changes data outside Cosmos can't be done with an API key.",
+      },
+    ],
+  },
+  {
+    version: "2.444.0",
+    date: "2026-10-23",
+    title: "API errors you can act on",
+    highlights: [
+      {
+        kind: "feature",
+        text: "API errors now come back in a standard format (RFC 9457 problem+json) with a request ID you can quote to support, and every response carries an X-Request-Id header.",
+      },
+    ],
+  },
+  {
     version: "2.443.2",
     date: "2026-10-23",
     title: "Background job runner",
