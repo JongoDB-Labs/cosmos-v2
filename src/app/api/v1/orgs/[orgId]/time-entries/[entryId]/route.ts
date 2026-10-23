@@ -20,7 +20,7 @@ type RouteParams = { params: Promise<{ orgId: string; entryId: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, entryId } } = await parseRequest(getTimeEntry, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, getTimeEntry);
     requirePermission(ctx, Permission.TIME_READ);
 
     const entry = await prisma.timeEntry.findFirst({
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, entryId }, body: data } = await parseRequest(updateTimeEntry, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, updateTimeEntry);
 
     const existing = await prisma.timeEntry.findFirst({
       where: { id: entryId, orgId },

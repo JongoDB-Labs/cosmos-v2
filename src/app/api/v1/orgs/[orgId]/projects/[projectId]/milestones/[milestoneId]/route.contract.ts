@@ -12,7 +12,7 @@ export const updateMilestone = defineRoute({
   summary: "Update a milestone",
   tags: ["Milestones"],
   stability: "stable",
-  scopes: ["items:write"],
+  scopes: ["planning:write"],
   request: {
     params,
     body: z.object({
@@ -38,7 +38,7 @@ export const deleteMilestone = defineRoute({
   description: "Removes the milestone and its links. The linked work items are untouched.",
   tags: ["Milestones"],
   stability: "stable",
-  scopes: ["items:write"],
+  scopes: ["planning:write", "items:delete"],
   request: { params },
   responses: { 200: DeletedRef },
   errors: [400, 401, 403, 404],

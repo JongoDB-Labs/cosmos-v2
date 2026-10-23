@@ -14,7 +14,7 @@ type RouteParams = {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId, objectiveId }, body: data } = await parseRequest(createKeyResult, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, createKeyResult);
 
     // Scope check: the objective must belong to this org + project.
     const objective = await prisma.objective.findFirst({

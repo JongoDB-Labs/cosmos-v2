@@ -21,7 +21,7 @@ function loadMilestone(orgId: string, projectId: string, milestoneId: string) {
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId, milestoneId }, body: data } = await parseRequest(updateMilestone, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, updateMilestone);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
     const existing = await loadMilestone(orgId, projectId, milestoneId);
@@ -53,7 +53,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId, milestoneId } } = await parseRequest(deleteMilestone, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, deleteMilestone);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
     const existing = await loadMilestone(orgId, projectId, milestoneId);

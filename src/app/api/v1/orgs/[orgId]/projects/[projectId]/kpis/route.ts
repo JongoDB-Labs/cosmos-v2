@@ -15,7 +15,7 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId } } = await parseRequest(listKpis, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, listKpis);
     await requireProjectRead(ctx, projectId, "ANALYTICS_READ");
 
     const project = await prisma.project.findFirst({
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId }, body: data } = await parseRequest(createKpi, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, createKpi);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
     const project = await prisma.project.findFirst({

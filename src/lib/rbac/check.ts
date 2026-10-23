@@ -29,6 +29,12 @@ export interface AuthContext {
    */
   isApiKey?: boolean;
   /**
+   * The token's scopes, for a bearer context; absent for a browser session,
+   * which holds the user's own permissions. Checked against each public
+   * operation's contract (lib/openapi/org-context.ts), on top of the mask.
+   */
+  scopes?: string[];
+  /**
    * A hard ceiling on which projects this actor may touch, independent of role.
    *
    * `undefined` means unrestricted — every session has this, and nothing about

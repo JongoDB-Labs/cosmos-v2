@@ -24,7 +24,7 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string; interva
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId, intervalId } } = await parseRequest(getInterval, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, getInterval);
     await requireProjectRead(ctx, projectId, "SPRINT_READ");
 
     const interval = await prisma.interval.findFirst({
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId, intervalId }, body: data } = await parseRequest(updateInterval, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, updateInterval);
     await requireProjectManage(ctx, projectId, Permission.SPRINT_UPDATE);
 
     const existing = await prisma.interval.findFirst({ where: { id: intervalId, projectId, orgId } });

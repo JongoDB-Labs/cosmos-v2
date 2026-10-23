@@ -34,7 +34,7 @@ async function loadScopedKr(orgId: string, projectId: string, krId: string) {
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId, krId } } = await parseRequest(listCheckins, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, listCheckins);
 
     const kr = await loadScopedKr(orgId, projectId, krId);
     if (!kr) return problem(404, "not_found", undefined, { request });
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId, krId }, body: data } = await parseRequest(createCheckin, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, createCheckin);
 
     const kr = await loadScopedKr(orgId, projectId, krId);
     if (!kr) return problem(404, "not_found", undefined, { request });

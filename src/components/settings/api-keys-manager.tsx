@@ -52,7 +52,14 @@ type MintedKey = ApiKeyRow & { token: string };
 const SCOPE_LABELS: Record<ApiKeyScope, string> = {
   read: "Read",
   "items:write": "Write items",
+  "items:delete": "Delete items",
+  "planning:write": "Write plans (milestones, goals, KPIs, intervals)",
   "documents:write": "Write documents",
+  "time:read": "Read time",
+  "time:write": "Log time",
+  "members:read": "Read members",
+  "webhooks:manage": "Manage webhooks",
+  "audit:read": "Read the audit log",
   "rules:run": "Run checks",
 };
 

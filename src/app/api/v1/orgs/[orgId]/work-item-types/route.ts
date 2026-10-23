@@ -26,7 +26,7 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId } } = await parseRequest(listWorkItemTypes, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, listWorkItemTypes);
     requirePermission(ctx, Permission.PROJECT_READ);
 
     const types = await prisma.workItemType.findMany({

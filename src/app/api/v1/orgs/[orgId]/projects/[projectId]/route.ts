@@ -39,7 +39,7 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId } } = await parseRequest(getProject, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, getProject);
     await requireProjectRead(ctx, projectId, "PROJECT_READ");
 
     const project = await prisma.project.findFirst({
@@ -78,7 +78,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId }, body } = await parseRequest(updateProject, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, updateProject);
     // Inheriting authority: an org-wide PROJECT_UPDATE holder OR a MANAGER of
     // THIS project may edit it — so a project-admin can run their own project
     // without org-wide grants.

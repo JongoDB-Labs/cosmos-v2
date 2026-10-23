@@ -20,7 +20,7 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: p, query } = await parseRequest(listProjects, request, params);
-    const { ctx } = await orgContext(p.orgId);
+    const { ctx } = await orgContext(p.orgId, listProjects);
     requirePermission(ctx, Permission.PROJECT_READ);
 
     // `1`/`0` as well as `true`/`false`: callers used to be able to send either.
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId }, body: data } = await parseRequest(createProject, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, createProject);
     requirePermission(ctx, Permission.PROJECT_CREATE);
 
     const existing = await prisma.project.findUnique({

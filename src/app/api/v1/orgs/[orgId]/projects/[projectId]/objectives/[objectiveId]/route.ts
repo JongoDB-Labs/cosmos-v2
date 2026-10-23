@@ -21,7 +21,7 @@ async function loadObjective(orgId: string, projectId: string, objectiveId: stri
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId, objectiveId } } = await parseRequest(getObjective, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, getObjective);
     await requireProjectRead(ctx, projectId, "OKR_READ");
 
     const objective = await prisma.objective.findFirst({
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId, objectiveId }, body: data } = await parseRequest(updateObjective, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, updateObjective);
 
     const existing = await loadObjective(orgId, projectId, objectiveId);
     if (!existing) return problem(404, "not_found", undefined, { request });
@@ -116,7 +116,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId, objectiveId } } = await parseRequest(deleteObjective, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, deleteObjective);
 
     const existing = await loadObjective(orgId, projectId, objectiveId);
     if (!existing) return problem(404, "not_found", undefined, { request });

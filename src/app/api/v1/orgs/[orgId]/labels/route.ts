@@ -30,7 +30,7 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId }, query: { projectId } } = await parseRequest(listLabels, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, listLabels);
     requirePermission(ctx, Permission.ORG_READ);
 
     const labels = await prisma.label.findMany({

@@ -17,7 +17,7 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId }, query } = await parseRequest(listTimeEntries, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, listTimeEntries);
     requirePermission(ctx, Permission.TIME_READ);
 
     // `?userId=` with no value yields "", not null — and "" is NOT nullish, so
@@ -80,7 +80,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId }, body: data } = await parseRequest(createTimeEntry, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, createTimeEntry);
     requirePermission(ctx, Permission.TIME_CREATE);
 
     // Resolve the pay period BEFORE the insert so an entry is never briefly

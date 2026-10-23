@@ -15,7 +15,7 @@ type RouteParams = {
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId, goalId }, body: data } = await parseRequest(updateGoal, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, updateGoal);
     await requireProjectManage(ctx, projectId, Permission.OKR_UPDATE);
 
     const existing = await prisma.goal.findFirst({
@@ -49,7 +49,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId, goalId } } = await parseRequest(deleteGoal, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, deleteGoal);
     await requireProjectManage(ctx, projectId, Permission.OKR_DELETE);
 
     const existing = await prisma.goal.findFirst({

@@ -13,7 +13,7 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId }, query } = await parseRequest(listAuditLogs, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, listAuditLogs);
     requirePermission(ctx, Permission.AUDIT_LOG_READ);
 
     const { page, limit, action, entity, userId, startDate, endDate } = query;

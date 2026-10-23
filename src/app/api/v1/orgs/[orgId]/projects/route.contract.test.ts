@@ -137,3 +137,19 @@ describe("GET projects: the contract", () => {
     expect(res.headers.get("content-type")).toBe("application/problem+json");
   });
 });
+
+describe("GET projects: the scope gate", () => {
+  it("a token without `read` (or a write scope implying it) is refused 403 with a step-up challenge", async () => {
+    getAuthContext.mockResolvedValue(ctx({ isApiKey: true, scopes: ["time:write"] }));
+    const res = await get();
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("insufficient_scope");
+    expect(res.headers.get("www-authenticate")).toContain('error="insufficient_scope"');
+    expect(prisma.project.findMany).not.toHaveBeenCalled();
+  });
+
+  it("an items:write token passes the gate (write implies read)", async () => {
+    getAuthContext.mockResolvedValue(ctx({ isApiKey: true, scopes: ["items:write"] }));
+    expect((await get()).status).toBe(200);
+  });
+});

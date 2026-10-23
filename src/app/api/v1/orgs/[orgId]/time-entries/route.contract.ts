@@ -14,7 +14,7 @@ export const listTimeEntries = defineRoute({
     "Asking for someone outside that is a 403, not an empty list. Newest first.",
   tags: ["Time"],
   stability: "stable",
-  scopes: ["read"],
+  scopes: ["time:read"],
   request: {
     params: z.object({ orgId: Uuid }),
     query: z.object({
@@ -41,7 +41,7 @@ export const createTimeEntry = defineRoute({
   description: "Logs time for the caller, filed into the timesheet for its date.",
   tags: ["Time"],
   stability: "stable",
-  scopes: ["items:write"],
+  scopes: ["time:write"],
   request: {
     params: z.object({ orgId: Uuid }),
     body: z.object({

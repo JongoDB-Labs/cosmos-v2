@@ -10,10 +10,10 @@ export const listMembers = defineRoute({
   description: "Everyone in the organization, longest-standing first. Email addresses are not returned to API tokens.",
   tags: ["Members"],
   stability: "stable",
-  scopes: ["read"],
+  scopes: ["members:read"],
   request: { params: z.object({ orgId: Uuid }) },
   responses: { 200: z.array(Member) },
-  errors: [400, 401, 404],
+  errors: [400, 401, 403, 404],
   pagination: "cursor",
   sessionOnly: ["email"],
 });

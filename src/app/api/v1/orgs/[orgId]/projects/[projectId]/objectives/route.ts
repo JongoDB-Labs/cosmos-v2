@@ -16,7 +16,7 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId } } = await parseRequest(listObjectives, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, listObjectives);
     await requireProjectRead(ctx, projectId, "OKR_READ");
 
     const project = await prisma.project.findFirst({
@@ -117,7 +117,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId }, body: data } = await parseRequest(createObjective, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, createObjective);
     await requireProjectManage(ctx, projectId, Permission.OKR_CREATE);
 
     const project = await prisma.project.findFirst({
@@ -174,7 +174,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId }, body: { orderedIds } } = await parseRequest(reorderObjectives, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, reorderObjectives);
     await requireProjectManage(ctx, projectId, Permission.OKR_UPDATE);
 
     const project = await prisma.project.findFirst({

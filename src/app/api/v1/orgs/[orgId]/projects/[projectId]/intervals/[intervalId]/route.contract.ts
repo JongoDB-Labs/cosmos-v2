@@ -30,7 +30,7 @@ export const updateInterval = defineRoute({
     "started by hand, and completes only once every interval inside it has.",
   tags: ["Intervals"],
   stability: "stable",
-  scopes: ["items:write"],
+  scopes: ["planning:write"],
   request: {
     params,
     body: z.object({

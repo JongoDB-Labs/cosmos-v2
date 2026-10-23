@@ -34,7 +34,7 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId }, query } = await parseRequest(listIntervals, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, listIntervals);
     await requireProjectRead(ctx, projectId, "SPRINT_READ");
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId }, body: data } = await parseRequest(createInterval, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, createInterval);
     await requireProjectManage(ctx, projectId, Permission.SPRINT_CREATE);
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });

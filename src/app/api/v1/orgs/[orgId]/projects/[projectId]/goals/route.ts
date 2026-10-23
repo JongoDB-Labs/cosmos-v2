@@ -16,7 +16,7 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId } } = await parseRequest(listGoals, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, listGoals);
     await requireProjectRead(ctx, projectId, "OKR_READ");
 
     const project = await prisma.project.findFirst({
@@ -89,7 +89,7 @@ async function applyAutoProgress(orgId: string, goals: GoalWithLinks[]) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId }, body: data } = await parseRequest(createGoal, request, params);
-    const { ctx } = await orgContext(orgId);
+    const { ctx } = await orgContext(orgId, createGoal);
     await requireProjectManage(ctx, projectId, Permission.OKR_CREATE);
 
     const project = await prisma.project.findFirst({
