@@ -49,6 +49,28 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.449.0",
+    date: "2026-10-23",
+    title: "Feedback discussions",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Feedback threads now notify you when someone mentions you or replies to your comment.",
+      },
+    ],
+  },
+  {
+    version: "2.448.0",
+    date: "2026-10-23",
+    title: "Query language editor (beta)",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Organisations can turn on the Cosmos Query Language in Settings \u2192 Organization, then search Issues with queries like assignee = me AND priority IN (HIGH, CRITICAL), with suggestions as you type and shareable links.",
+      },
+    ],
+  },
+  {
     version: "2.447.1",
     date: "2026-10-23",
     title: "Outlook sync recognises your calendar",
