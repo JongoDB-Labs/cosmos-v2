@@ -59,7 +59,7 @@ const RELEASES: Release[] = [
       },
       {
         kind: "fix",
-        text: "On Time Tracking, “Export CSV” no longer goes briefly dead while the view reloads for the person you're viewing — a click in that window used to do nothing at all.",
+        text: "Time Tracking now loads your week once when it opens instead of twice, so “Export CSV” is ready as soon as the page is — and it only ever exports the week and person it names in the filename.",
       },
     ],
   },

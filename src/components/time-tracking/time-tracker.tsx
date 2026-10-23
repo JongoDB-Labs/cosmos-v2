@@ -318,6 +318,14 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
   const selfUserId = people.find((p) => p.isSelf)?.userId ?? "";
   const shownUserId = personId || selfUserId;
 
+  // Whether the people list has come back — EITHER WAY. `selfUserId` is "" both
+  // before the answer arrives and when the fetch fails, and those two states need
+  // opposite handling: wait for the first, proceed without a userId on the second
+  // (a broken picker must not become a broken page). Without this flag `load()`
+  // cannot tell them apart, so it fired once unscoped and once scoped on every
+  // mount — see the comment on the entries effect below.
+  const [peopleResolved, setPeopleResolved] = useState(false);
+
   useEffect(() => {
     (async () => {
       try {
@@ -327,6 +335,8 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
         setPeople(body.data ?? []);
       } catch {
         /* the picker is an enhancement, not a prerequisite */
+      } finally {
+        setPeopleResolved(true);
       }
     })();
   }, [orgId]);
@@ -431,6 +441,15 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
   // so a slow request for a previous week/filter can't clobber the current one.
   const reqRef = useRef(0);
   const load = useCallback(async () => {
+    // Don't ask until we know WHOSE time to ask for. `shownUserId` is "" until
+    // the people fetch resolves, and "" means unscoped — which, for a
+    // TIME_READ_ALL holder, is every entry in the org (see `selfUserId` above).
+    // Firing anyway loaded that org-wide set into `entries`, then immediately
+    // re-loaded scoped to the viewer: two requests, and a window in between
+    // where the rows on screen belonged to a different query than the controls
+    // described. Staying in `loading` until the answer arrives removes the
+    // window rather than papering over it.
+    if (!peopleResolved) return;
     const token = ++reqRef.current;
     setLoading(true);
     setLoadError(false);
@@ -461,7 +480,7 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
     } finally {
       if (reqRef.current === token) setLoading(false);
     }
-  }, [orgId, view, weekStart, weekEnd, filterStatus, filterBillable, shownUserId, refreshKey]);
+  }, [orgId, view, weekStart, weekEnd, filterStatus, filterBillable, shownUserId, peopleResolved, refreshKey]);
 
   // The week's timesheet, refetched whenever the week, the person, or a
   // successful action changes it. Inline IIFE + cancel flag, matching the CLIN
@@ -810,15 +829,16 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
             variant="outline"
             size="sm"
             onClick={() => void handleExport()}
-            // Not `loading ||`: load() re-runs whenever shownUserId changes, and
-            // on mount it changes once (selfUserId is "" until the people fetch
-            // resolves, then "me"). So the first load fills the list and ENABLES
-            // this button, the person-scoped reload re-disables it, and a click
-            // in that window was silently dropped — the button looked ready and
-            // did nothing. Export writes the entries already in state, so while
-            // any are on screen it stays live; with none, the `length === 0`
-            // test below still covers the loading case.
-            disabled={loadError || exporting || entries.length === 0}
+            // `loading` MUST stay in this guard. `load()` never clears
+            // `entries`, so during any reload — another person, another week, a
+            // changed filter — the previous selection's rows are still in state
+            // while `who` and `range` below already describe the NEW selection.
+            // Exporting there writes the old rows under the new name, and the
+            // CSV carries no person column to reveal it. The dead-button window
+            // this used to cause was the duplicate mount load, and that is fixed
+            // at its source in load() above, not by exporting whatever happens
+            // to be in state.
+            disabled={loading || loadError || exporting || entries.length === 0}
           >
             <Download className="size-4" />
             Export CSV
