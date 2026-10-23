@@ -5,7 +5,7 @@
 // the preamble ("Let me look that up.") the channel had just watched arrive.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { prisma, runAgentLoop, publish } = vi.hoisted(() => ({
+const { prisma, runAgentLoop, publish, postServerMessage } = vi.hoisted(() => ({
   prisma: {
     chatChannel: { findUnique: vi.fn(), update: vi.fn() },
     organization: { findUnique: vi.fn() },
@@ -14,13 +14,14 @@ const { prisma, runAgentLoop, publish } = vi.hoisted(() => ({
   },
   runAgentLoop: vi.fn(),
   publish: vi.fn(async () => {}),
+  postServerMessage: vi.fn<(m: { content: string }) => Promise<void>>(async () => {}),
 }));
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/ai/agent-loop", () => ({ runAgentLoop }));
 vi.mock("@/lib/realtime/bus", () => ({ getBus: () => ({ publish }) }));
 vi.mock("@/lib/chat/notifications", () => ({ fanOutChatMessage: vi.fn(async () => {}) }));
-vi.mock("@/lib/chat/system-message", () => ({ postServerMessage: vi.fn(async () => {}) }));
+vi.mock("@/lib/chat/system-message", () => ({ postServerMessage }));
 vi.mock("@/lib/chat/ensure-bots", () => ({
   ensureOrgBots: vi.fn(async () => ({
     assistant: { user: { id: "bot-1" }, toolScope: "FULL", persona: null, model: "sonnet" },
@@ -28,6 +29,7 @@ vi.mock("@/lib/chat/ensure-bots", () => ({
 }));
 
 import { runChatBot } from "./bot-runner";
+import { NoModelCredentialError } from "@/lib/ai/egress/types";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -60,5 +62,24 @@ describe("runChatBot — @assistant saves what it streamed", () => {
 
     const saved = prisma.chatMessage.update.mock.calls.at(-1)?.[0] as { data: { content: string } };
     expect(saved.data.content).toBe("Let me look that up.\n\nYou have 2 projects.");
+  });
+});
+
+describe("runChatBot — a failed run posts a SYSTEM notice", () => {
+  const run = () =>
+    runChatBot({ bot: "assistant", orgId: "o1", orgSlug: "acme", channelId: "ch1", invokerUserId: "u1", prompt: "hi" });
+
+  it("says Claude isn't connected when no model credential resolves", async () => {
+    runAgentLoop.mockRejectedValue(new NoModelCredentialError());
+    await run();
+    expect(postServerMessage.mock.calls.at(-1)?.[0].content).toBe(
+      "🤖 Claude isn't connected. Connect a Claude subscription in Settings → AI / Model.",
+    );
+  });
+
+  it("stays generic for any other failure", async () => {
+    runAgentLoop.mockRejectedValue(new Error("401 invalid x-api-key"));
+    await run();
+    expect(postServerMessage.mock.calls.at(-1)?.[0].content).toBe("🤖 AI is unavailable right now.");
   });
 });
