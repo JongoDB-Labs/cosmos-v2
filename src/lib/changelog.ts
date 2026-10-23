@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.445.0",
+    date: "2026-10-23",
+    title: "Query language groundwork",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Groundwork for the Cosmos Query Language: a Jira-style query language for work items (assignee = me AND priority IN (HIGH, CRITICAL) ORDER BY due), available through the API to organisations that switch it on. The editor and saved filters follow.",
+      },
+    ],
+  },
+  {
     version: "2.444.1",
     date: "2026-10-23",
     title: "Connector tools check your permissions",
