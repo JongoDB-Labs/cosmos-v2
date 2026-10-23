@@ -149,7 +149,10 @@ export function computeItemChange(args: {
   destCategory: ColumnCategory | null;
   now: Date;
 }): { updateData: Prisma.WorkItemUncheckedUpdateManyInput; trackFields: TrackedField[] } {
-  const { existing, patch: data, destCategory, now } = args;
+  const { existing, destCategory, now } = args;
+  // `columnKey: null` names no status (both schemas accept it as "nullish"), so
+  // it is no move: it must not clear a cancel reason or record a move to nothing.
+  const data: WorkItemPatch = args.patch.columnKey === null ? { ...args.patch, columnKey: undefined } : args.patch;
   const trackFields: TrackedField[] = [];
 
   if (data.title !== undefined && data.title !== existing.title) {
@@ -324,6 +327,8 @@ export async function applyWorkItemChange(
 ): Promise<ApplyChangeResult> {
   const { actorId, orgId, projectId, source } = input;
   const patch: WorkItemPatch = { ...input.patch };
+  // `columnKey: null` names no status: no move (see computeItemChange).
+  if (patch.columnKey === null) delete patch.columnKey;
 
   const rows = await tx.workItem.findMany({ where: { id: { in: [...input.itemIds] }, orgId, projectId } });
   const byId = new Map(rows.map((r) => [r.id, r]));

@@ -821,6 +821,31 @@ describe("parity: merge and sprint", () => {
     ).toMatchSnapshot();
   });
 
+  it("sprint completion counts a 'completed' lane stored as TODO as done", async () => {
+    // TODO is the column default (templates and the columns API store it when
+    // no category is given), so a done lane may carry it.
+    const w = await world({ columns: [...COLUMNS, { key: "completed", name: "Completed", category: "TODO" }] });
+    const interval = await prisma.interval.create({
+      data: { orgId, projectId: w.projectId, number: 1, name: "Sprint 1", startDate: T1, endDate: T2, status: "ACTIVE" },
+    });
+    names.set(interval.id, "interval");
+    const finished = await w.item("Finished", { columnKey: "completed", intervalId: interval.id, storyPoints: 3 });
+    const open = await w.item("Open", { columnKey: "in_progress", intervalId: interval.id, storyPoints: 2 });
+    const res = await completeInterval(
+      new NextRequest(`http://localhost/x`, { method: "POST", body: JSON.stringify({}) }),
+      { params: Promise.resolve({ orgId, projectId: w.projectId, intervalId: interval.id }) },
+    );
+    const row = await prisma.interval.findUniqueOrThrow({ where: { id: interval.id }, select: { report: true } });
+    expect(
+      norm({
+        status: res.status,
+        report: row.report,
+        finished: (await itemState(finished)).intervalId,
+        open: (await itemState(open)).intervalId,
+      }),
+    ).toMatchSnapshot();
+  });
+
   it("sprint completion counts a custom Done column as done", async () => {
     const w = await world();
     const interval = await prisma.interval.create({

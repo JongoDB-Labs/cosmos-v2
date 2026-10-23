@@ -32,7 +32,14 @@ describe("feedbackStatusForColumn with a category", () => {
     // A team-named done lane, and a done-sounding key that is really in progress.
     expect(feedbackStatusForColumn("released", "DONE")).toBe("DONE");
     expect(feedbackStatusForColumn("closed-loop-testing", "IN_PROGRESS")).toBe("IN_PROGRESS");
-    expect(feedbackStatusForColumn("ideas", "TODO")).toBe("PLANNED");
+  });
+
+  it("does not trust TODO, the default every column gets: the key decides", () => {
+    // A "Completed" lane created without a category is stored as TODO. Its
+    // linked feedback must stay DONE, not drop back to PLANNED.
+    expect(feedbackStatusForColumn("completed", "TODO")).toBe("DONE");
+    expect(feedbackStatusForColumn("backlog", "TODO")).toBe("PLANNED");
+    expect(feedbackStatusForColumn("ideas", "TODO")).toBeNull();
   });
 
   it("keeps IN_REVIEW for a review-named in-progress status", () => {

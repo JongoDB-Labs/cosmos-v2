@@ -41,11 +41,12 @@ type FeedbackStatus = "PLANNED" | "IN_PROGRESS" | "IN_REVIEW" | "DONE";
  *  `null` = no opinion (a cancelled item, or an unknown custom column, never
  *  touches feedback).
  *
- *  The status's CATEGORY decides when it is known: TODO is PLANNED, IN_PROGRESS
- *  is IN_PROGRESS, DONE is DONE. Statuses carry no "review" flag yet, so a
- *  review-named in-progress status is IN_REVIEW, parked for a human. Without a
- *  category (a client that cannot read columns, a key no board shows) the key's
- *  spelling is the only evidence, and the old heuristic applies. */
+ *  The status's CATEGORY decides when someone set one: IN_PROGRESS is
+ *  IN_PROGRESS, DONE is DONE. Statuses carry no "review" flag yet, so a
+ *  review-named in-progress status is IN_REVIEW, parked for a human. TODO is
+ *  the default every column gets when nobody chose, so it decides nothing on
+ *  its own; with it, or without a category (a client that cannot read columns,
+ *  a key no board shows), the key's spelling applies as it always has. */
 export function feedbackStatusForColumn(columnKey: string, category?: string | null): FeedbackStatus | null {
   const k = columnKey.toLowerCase();
   switch (category) {
@@ -53,11 +54,12 @@ export function feedbackStatusForColumn(columnKey: string, category?: string | n
       return "DONE";
     case "IN_PROGRESS":
       return k.includes("review") ? "IN_REVIEW" : "IN_PROGRESS";
-    case "TODO":
-      return "PLANNED";
     case "CANCELLED":
       return null;
   }
+  // No category, or TODO: TODO is the column default, stored for every column
+  // created without one, so a "Completed" lane may carry it. The key's
+  // spelling is the only reliable evidence then, as before categories.
   if (["done", "completed", "closed", "shipped"].some((w) => k.includes(w))) return "DONE";
   if (k.includes("review")) return "IN_REVIEW"; // parked for a human — distinct from active work
   if (["progress", "doing", "testing", "building"].some((w) => k.includes(w))) return "IN_PROGRESS";

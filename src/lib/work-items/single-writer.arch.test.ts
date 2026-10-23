@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 /**
@@ -18,13 +18,34 @@ import { join, relative } from "node:path";
  * outbox event is only enforced if no write can go around it.
  */
 
-/** Direct row writes, through the client or raw SQL. */
-const DIRECT_WRITE = /\.workItem\.(?:update|updateMany|create|createMany|upsert)\s*\(|\b(?:UPDATE|INSERT\s+INTO)\s+"?work_items\b/i;
+/** The ways a module can write `work_items` rows without the writer. */
+const DIRECT_WRITE = new RegExp(
+  [
+    // Through the client: prisma.workItem.update(…), tx.workItem.createMany(…).
+    String.raw`\.workItem\.(?:update|updateMany|create|createMany|upsert)\s*\(`,
+    // Raw SQL, quoted or schema-qualified: UPDATE "public"."work_items" …
+    String.raw`\b(?:UPDATE|INSERT\s+INTO)\s+(?:"?\w+"?\.)?"?work_items"?(?:\s|$)`,
+    // Raw SQL against a table chosen at runtime: UPDATE "${table}" …
+    String.raw`\b(?:UPDATE|INSERT\s+INTO)\s+"?\$\{`,
+    // A nested write through a relation: project.update({ data: { workItems: { updateMany … } } }).
+    String.raw`\bworkItems\s*:\s*\{\s*(?:create|createMany|connectOrCreate|update|updateMany|upsert|set|connect|disconnect|delete|deleteMany)\b`,
+    // The delegate itself handed on (aliased, wrapped), where its writes can no longer be seen.
+    String.raw`\b(?:prisma|tx|db|client|trx)\.workItem\b(?!\s*\.)`,
+  ].join("|"),
+  "i",
+);
 
 /** The module every write goes through. */
 const WRITER = "src/lib/work-items/write.server.ts";
 
-const ALLOWED = new Set([WRITER]);
+const ALLOWED = new Set([
+  WRITER,
+  // Writes only the `embedding` vector column, for any embeddable table.
+  // Search data, not item state: no status, no history.
+  "src/lib/rag/embed.ts",
+  // Hands `prisma.workItem` to its mention lookup, which only calls findMany.
+  "src/lib/mentions/registry.server.ts",
+]);
 
 /** May write status fields without a transition: the change service itself, and
  *  an import restoring another system's recorded state. */
@@ -51,7 +72,9 @@ function offenders(files: Map<string, string>, pattern: RegExp, allowed: Set<str
   return [...files].filter(([path, src]) => !allowed.has(path) && pattern.test(src)).map(([path]) => path);
 }
 
-const files = new Map(sourceFiles("src").map((f) => [f, readFileSync(f, "utf8")]));
+// `plugins/` holds composed plugins when present (it is absent in a core checkout).
+const roots = ["src", ...(existsSync("plugins") ? ["plugins"] : [])];
+const files = new Map(roots.flatMap((r) => sourceFiles(r)).map((f) => [f, readFileSync(f, "utf8")]));
 
 describe("work items have a single writer", () => {
   it("no module outside write.server.ts writes work_items rows directly", () => {
@@ -70,8 +93,18 @@ describe("work items have a single writer", () => {
       ["c.ts", "await db.workItem.create({ data })"],
       ["d.ts", "await tx.workItem.upsert({})"],
       ["e.ts", "await db.$executeRaw`UPDATE work_items SET tags = '{}'`"],
-      ["f.ts", "await prisma.workItem.findMany({})"],
+      ["f.ts", 'await db.$executeRaw`UPDATE "public"."work_items" SET x = 1`'],
+      ["g.ts", 'await db.$executeRawUnsafe(`UPDATE "${table}" SET x = 1`)'],
+      ["h.ts", "await tx.project.update({ where, data: { workItems: { updateMany: { where: {}, data: {} } } } })"],
+      ["i.ts", "await tx.interval.update({ where, data: { workItems: { set: [] } } })"],
+      ["j.ts", "const items = tx.workItem; await items.update({})"],
+      // Reads, and a relation field on a loaded row, are not writes.
+      ["k.ts", "await prisma.workItem.findMany({})"],
+      ["l.ts", "const linked = links.map((l) => l.workItem)"],
+      ["m.ts", "include: { workItems: { select: { id: true } } }"],
     ]);
-    expect(offenders(planted, DIRECT_WRITE, new Set())).toEqual(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"]);
+    expect(offenders(planted, DIRECT_WRITE, new Set())).toEqual([
+      "a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts", "g.ts", "h.ts", "i.ts", "j.ts",
+    ]);
   });
 });

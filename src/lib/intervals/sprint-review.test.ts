@@ -32,6 +32,35 @@ describe("what counts as done", () => {
     expect(review.completedItems).toBe(1);
     expect(review.incompleteItems).toBe(1);
   });
+
+  it("does not trust TODO, the default every column gets: a 'Completed' lane stored as TODO is done", () => {
+    const review = computeSprintReview({
+      startDate: start,
+      endDate: end,
+      reviewedAt: end,
+      items: [
+        { storyPoints: 1, columnKey: "completed" },
+        { storyPoints: 1, columnKey: "todo" },
+      ],
+      columns: [...STATUSES, { key: "completed", category: "TODO" }],
+    });
+    expect(review.completedItems).toBe(1);
+    expect(review.incompleteItems).toBe(1);
+  });
+
+  it("falls back to the key's done-words for a status no board shows", () => {
+    const review = computeSprintReview({
+      startDate: start,
+      endDate: end,
+      reviewedAt: end,
+      items: [
+        { storyPoints: 1, columnKey: "Closed-Wont-Fix" },
+        { storyPoints: 1, columnKey: "parked" },
+      ],
+      columns: STATUSES,
+    });
+    expect(review.completedItems).toBe(1);
+  });
 });
 
 describe("computeSprintReview", () => {

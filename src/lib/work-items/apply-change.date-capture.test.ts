@@ -140,3 +140,12 @@ describe("computeItemChange — actualStart/completedAt auto-capture + override"
     expect(audit).toEqual({ field: "dueDate", oldVal: "2026-08-30T00:00:00.000Z", newVal: null });
   });
 });
+
+describe("computeItemChange — a null status is no move", () => {
+  it("columnKey: null records no move and keeps a cancel reason", () => {
+    const item = existing({ columnKey: "cancelled", cancelReason: "OBE", cancelNote: "gone", completedAt: new Date("2026-02-01") });
+    const { updateData, trackFields } = computeItemChange({ existing: item, patch: { columnKey: null }, destCategory: null, now: NOW });
+    expect(updateData).toEqual({});
+    expect(trackFields).toEqual([]);
+  });
+});

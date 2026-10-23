@@ -54,21 +54,8 @@ export function isWorkItemDone(
   columns: readonly DoneStateColumn[] = [],
 ): boolean {
   if (item.completedAt != null) return true;
-  return isDoneStatus(item.columnKey, columns);
-}
 
-/**
- * True when an item in status `columnKey` is in a DONE-category status: the
- * column half of `isWorkItemDone`, for callers that ask about the status alone
- * (a sprint's report counts what sits in Done, whatever its dates say).
- *
- * The status's `category` is believed outright when `columns` knows the key;
- * the seeded `"done"` key is consulted only when it does not.
- */
-export function isDoneStatus(
-  columnKey: string | null | undefined,
-  columns: readonly DoneStateColumn[] = [],
-): boolean {
+  const columnKey = item.columnKey;
   if (!columnKey) return false;
 
   const column = columns.find((c) => c.key === columnKey);
@@ -76,4 +63,36 @@ export function isDoneStatus(
 
   // Column unknown to this surface — fall back to the seeded done lane's key.
   return columnKey.toLowerCase() === CANONICAL_DONE_KEY;
+}
+
+/** Words a done lane's key carries, as the sprint report matched them before categories. */
+const DONE_WORDS = ["done", "completed", "closed", "finished"] as const;
+
+/**
+ * Is an item in status `columnKey` finished, for a sprint's figures (the
+ * report, the review, what carries over) and the feedback a reporter sees?
+ *
+ * The status's CATEGORY decides when someone set one: DONE is done, and
+ * IN_PROGRESS or CANCELLED is not, whatever the lane is called ("Shipped"
+ * counts; a "Done" lane re-categorised to In Progress does not).
+ *
+ * TODO is not trusted on its own. It is the column default, stored for every
+ * column created without a category (templates, the columns API), and no
+ * backfill ever set it. So a "Completed" lane may well be stored as TODO, and
+ * these figures counted it done by its name before categories were read. For
+ * TODO, and for a key no board shows, the key's spelling still decides, so
+ * completing a sprint never carries finished work forward or flips delivered
+ * feedback back to Planned.
+ */
+export function isDoneStatus(
+  columnKey: string | null | undefined,
+  columns: readonly DoneStateColumn[] = [],
+): boolean {
+  if (!columnKey) return false;
+
+  const category = columns.find((c) => c.key === columnKey)?.category;
+  if (category && category !== "TODO") return category === "DONE";
+
+  const key = columnKey.toLowerCase();
+  return DONE_WORDS.some((w) => key.includes(w));
 }

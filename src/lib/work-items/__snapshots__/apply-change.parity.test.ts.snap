@@ -4559,6 +4559,29 @@ exports[`parity: merge and sprint > merge a duplicate 1`] = `
 }
 `;
 
+exports[`parity: merge and sprint > sprint completion counts a 'completed' lane stored as TODO as done 1`] = `
+{
+  "finished": "interval",
+  "open": null,
+  "report": {
+    "carriedItemIds": [
+      "item:Open",
+    ],
+    "completedAt": "<now>",
+    "completedItems": 1,
+    "completedStoryPoints": 3,
+    "incompleteItems": 1,
+    "itemsByPriority": {
+      "MEDIUM": 2,
+    },
+    "totalItems": 2,
+    "totalStoryPoints": 5,
+    "velocity": 3,
+  },
+  "status": 200,
+}
+`;
+
 exports[`parity: merge and sprint > sprint completion counts a custom Done column as done 1`] = `
 {
   "done": "interval",
