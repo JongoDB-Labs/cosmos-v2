@@ -57,6 +57,10 @@ const RELEASES: Release[] = [
         kind: "fix",
         text: "The notice that offers a Reload after an update now appears on every screen, including sign-in and password reset. Previously those screens showed nothing and did not reload either, so a tab opened before an update could sit there doing nothing. The notice stays put until you click Reload — it never dismisses itself, and nothing reloads behind your back once you leave the field.",
       },
+      {
+        kind: "fix",
+        text: "\"Export CSV\" on Time Tracking no longer ignores a click in the moment just after your entries appear, when the page was still settling.",
+      },
     ],
   },
   {

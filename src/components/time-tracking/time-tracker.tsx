@@ -810,7 +810,15 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
             variant="outline"
             size="sm"
             onClick={() => void handleExport()}
-            disabled={loading || loadError || exporting || entries.length === 0}
+            // Not `loading ||`: load() re-runs whenever shownUserId changes, and
+            // on mount it changes once (selfUserId is "" until the people fetch
+            // resolves, then "me"). So the first load fills the list and ENABLES
+            // this button, the person-scoped reload re-disables it, and a click
+            // in that window was silently dropped — the button looked ready and
+            // did nothing. Export writes the entries already in state, so while
+            // any are on screen it stays live; with none, the `length === 0`
+            // test below still covers the loading case.
+            disabled={loadError || exporting || entries.length === 0}
           >
             <Download className="size-4" />
             Export CSV
