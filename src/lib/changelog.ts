@@ -57,6 +57,10 @@ const RELEASES: Release[] = [
         kind: "feature",
         text: "The notifications bell is now a scrollable feed that loads older notifications automatically as you scroll, instead of stopping at the ten most recent. It tells you when you've reached the end. (The ticket didn't say whether history should load on scroll or behind a \"Load more\" button — this ships auto-load on scroll.)",
       },
+      {
+        kind: "fix",
+        text: "On Time Tracking, “Export CSV” no longer goes briefly dead while the view reloads for the person you're viewing — a click in that window used to do nothing at all.",
+      },
     ],
   },
   {
