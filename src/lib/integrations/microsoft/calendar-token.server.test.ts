@@ -6,7 +6,6 @@ import crypto from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import { prisma } from "@/lib/db/client";
 import { openSecret } from "@/lib/crypto/vault";
-import { setProviderConfig } from "@/lib/auth/provider-config";
 import { MS_CALENDAR } from "./calendar-connect";
 import {
   CalendarNotConnected,
@@ -16,6 +15,12 @@ import {
   completeCalendarConnect,
   purgeOrgCalendarConnections,
 } from "./calendar-token.server";
+
+// The Microsoft sign-in app, without the shared global row (and its vault key)
+// that another test file may be writing at the same time.
+vi.mock("@/lib/auth/provider-config", () => ({
+  getProviderConfig: async () => ({ enabled: true, clientId: "client-id", clientSecret: "client-secret", tenant: null }),
+}));
 
 const TENANT = "11111111-2222-3333-4444-555555555555";
 const jwt = (p: object) => `x.${Buffer.from(JSON.stringify(p)).toString("base64url")}.y`;
@@ -49,12 +54,10 @@ describe("Outlook Calendar tokens (e2e DB)", () => {
   const orgIds: string[] = [];
   afterAll(async () => {
     await prisma.organization.deleteMany({ where: { id: { in: orgIds } } }).catch(() => undefined);
-    await prisma.authProviderConfig.deleteMany({ where: { provider: "microsoft" } }).catch(() => undefined);
   });
   beforeEach(() => _resetCalendarTokenCache());
 
   async function setup({ tenantId = TENANT } = {}) {
-    await setProviderConfig("microsoft", { clientId: "client-id", clientSecret: "client-secret", enabled: true });
     const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const user = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" } });
     const org = await prisma.organization.create({ data: { name: `msc ${stamp}`, slug: `msc-${stamp}` } });
