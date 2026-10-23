@@ -152,6 +152,22 @@ describe("merging feedback (e2e DB)", () => {
     expect((await get(a)).status).toBe("OPEN");
   });
 
+  it("undoes a merge in the backfill's shape back to DECLINED", async () => {
+    // What 20261023160000_feedback_discussion_backfill writes for an old intake
+    // duplicate: no vote moves, the duplicate's author added as a follower.
+    const survivor = await item("bf-survivor", alice, [], [alice]);
+    const dup = await item("bf-dup", bob, [], [bob]);
+    await prisma.feedbackItem.update({ where: { id: dup }, data: { status: "MERGED", mergedIntoId: survivor } });
+    await prisma.feedbackSubscription.create({ data: { orgId, feedbackItemId: survivor, userId: bob, reason: "merged" } });
+    await prisma.feedbackMerge.create({
+      data: { orgId, duplicateId: dup, survivorId: survivor, previousStatus: "DECLINED", source: "intake", addedSubscriberIds: [bob] },
+    });
+    as(alice, "ADMIN");
+    expect((await undo(dup)).status).toBe(200);
+    expect(await get(dup)).toMatchObject({ status: "DECLINED", mergedIntoId: null });
+    expect(await followers(survivor)).toEqual(new Set([alice]));
+  });
+
   it("can still be undone after the survivor was deleted", async () => {
     const survivor = await item("gone", alice);
     const dup = await item("orphan", bob, [V2]);
