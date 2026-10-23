@@ -291,6 +291,8 @@ model Organization {
   workflowStatuses    WorkflowStatus[]
   domainEvents        DomainEvent[]
   workflows           Workflow[]
+  workflowVersions    WorkflowVersion[]
+  workflowAssignments WorkflowAssignment[]
   boardTemplates      BoardTemplate[]
   clins               Clin[]
   comments            Comment[]
@@ -1123,8 +1125,9 @@ model WorkflowVersion {
   publishedAt   DateTime?            @map("published_at")
   createdAt     DateTime             @default(now()) @map("created_at")
 
-  workflow    Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  publishedOf Workflow? @relation("PublishedVersion")
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workflow    Workflow     @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  publishedOf Workflow?    @relation("PublishedVersion")
 
   @@unique([workflowId, version])
   @@map("workflow_versions")
@@ -1139,6 +1142,7 @@ model WorkflowAssignment {
   workItemTypeId String? @map("work_item_type_id") @db.Uuid
   workflowId     String  @map("workflow_id") @db.Uuid
 
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   workItemType WorkItemType? @relation(fields: [workItemTypeId], references: [id], onDelete: Cascade)
   workflow     Workflow      @relation(fields: [workflowId], references: [id], onDelete: Restrict)
