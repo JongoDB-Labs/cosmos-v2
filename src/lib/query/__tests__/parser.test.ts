@@ -208,6 +208,11 @@ describe("parseCql — errors carry exact spans", () => {
   it("ORDER without BY", () => {
     expect(first("ORDER due").code).toBe("CQL_SYNTAX");
   });
+  it("a NUL character is refused where it is", () => {
+    const d = first('summary ~ "a\u0000b"');
+    expect(d.code).toBe("CQL_SYNTAX");
+    expect(d).toMatchObject({ from: 12, to: 13 });
+  });
   it("length limit", () => {
     const d = first(`summary ~ "${"x".repeat(CQL_LIMITS.textLength)}"`);
     expect(d.code).toBe("CQL_LIMIT");
@@ -250,6 +255,15 @@ describe("depth is refused before parsing (never a stack overflow)", () => {
     expect(limit(`key IN ${"childrenOf(".repeat(300)}X-1${")".repeat(300)}`)?.message).toMatch(/nest at most/);
     // NOT IN is an operator, not a run of NOTs; a few NOTs are fine.
     expect(limit("priority NOT IN (LOW) AND NOT NOT assignee = me")).toBeUndefined();
+  });
+  it("a value list's parentheses are not a group", () => {
+    const at = (inner: string) => `${"(".repeat(CQL_LIMITS.parenDepth)}${inner}${")".repeat(CQL_LIMITS.parenDepth)}`;
+    expect(limit(at("status IN (todo, done)"))).toBeUndefined();
+    expect(limit(at("labels IN ALL (a, b)"))).toBeUndefined();
+    expect(limit(at("status NOT IN (todo)"))).toBeUndefined();
+    expect(parseCql(at("status IN (todo, done)")).diagnostics).toEqual([]);
+    // One more group is still one too many.
+    expect(limit(`(${at("status IN (todo, done)")})`)?.message).toMatch(/Parentheses can nest at most/);
   });
   it("points at where it went too deep", () => {
     const cql = `${"(".repeat(6)}a = 1${")".repeat(6)}`;
