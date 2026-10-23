@@ -29,7 +29,12 @@ import { fetchUrl } from "./executors/utility";
 import { semanticSearch } from "./executors/rag";
 import { canonicalizeStageFilter } from "@/lib/crm/stages";
 import { Permission } from "@/lib/rbac/permissions";
-import { assertPermission, assertProjectRead, loadAuthContext } from "./executors/_ctx";
+import {
+  assertPermission,
+  assertProjectRead,
+  loadAuthContext,
+  type ToolContext as ExecutorToolContext,
+} from "./executors/_ctx";
 import { isOptionalUuid } from "@/lib/ids";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { logAudit } from "@/lib/audit";
@@ -89,9 +94,13 @@ import {
   listProducts,
 } from "./executors/crm";
 
-interface ToolContext {
-  orgId: string;
-  userId: string;
+/**
+ * The executor context (`orgId`, `userId` and the caller's own `auth`) plus the
+ * dispatch-layer extras. `auth` is REQUIRED and is what every permission check
+ * runs against — see `executors/_ctx.ts`; there is no fallback to the user's
+ * own permissions.
+ */
+interface ToolContext extends ExecutorToolContext {
   /**
    * The org's data-sensitivity class — threaded through so the connector dispatch
    * layer can enforce the D5 commercial-only gov-block (LAYER 2). OPTIONAL: callers

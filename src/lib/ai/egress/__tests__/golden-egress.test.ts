@@ -12,6 +12,7 @@
 // REAL executor wrapper shapes (`{count, items:[...]}`, `{count, results:[...]}`).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { stubAuth } from "@/lib/testing/tool-auth";
 
 // ---------------------------------------------------------------------------
 // Hoisted spies — must be created before any vi.mock() factory executes.
@@ -90,6 +91,7 @@ function loopOpts(
   return {
     orgId: "org-golden",
     userId: "u-golden",
+    auth: stubAuth("org-golden", "u-golden"),
     tenantClass,
     conversationId: "conv-golden",
     systemPrompt: "you are cosmos",

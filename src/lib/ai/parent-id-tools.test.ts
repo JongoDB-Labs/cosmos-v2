@@ -25,11 +25,20 @@ vi.mock("@/lib/work-items/query/scope", () => ({ getReadableProjectIds }));
 vi.mock("@/lib/rbac/require-project-read", () => ({ requireProjectRead }));
 
 import { executeTool } from "./tool-executor";
+import type { AuthContext } from "@/lib/rbac/check";
+import type { ToolContext } from "@/lib/ai/executors/_ctx";
+import { stubAuth, stubToolCtx } from "@/lib/testing/tool-auth";
 
 const ME = "11111111-1111-4111-a111-111111111111";
 const PROJECT = "22222222-2222-4222-a222-222222222222";
 const EPIC = "44444444-4444-4444-a444-444444444444";
-const ctx = { orgId: "org-1", userId: ME };
+const ctx: ToolContext = stubToolCtx("org-1", ME);
+/** The caller's AuthContext for the next call — replaces the mocked
+ *  `loadEffectivePermissions` these specs used to drive: tools are now
+ *  authorised against the caller's own context, not a lookup by user id. */
+const setActor = (actor: Partial<Omit<AuthContext, "orgId" | "userId">>) => {
+  ctx.auth = stubAuth(ctx.orgId, ctx.userId, actor);
+};
 
 const lastArgs = () =>
   prisma.workItem.findMany.mock.calls.at(-1)?.[0] as {
@@ -39,7 +48,7 @@ const lastArgs = () =>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  loadEffectivePermissions.mockResolvedValue({
+  setActor({
     orgRole: "MEMBER",
     permissions: Permission.ITEM_READ,
     basePermissions: Permission.ITEM_READ,

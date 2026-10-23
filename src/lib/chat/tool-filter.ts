@@ -6,7 +6,8 @@ import type { ChatBotToolScope } from "@prisma/client";
  *
  * A bot's `toolScope` is a HARD CEILING applied on top of the invoking human's
  * own per-tool permission scoping (see bot-runner.ts / agent-loop.ts — every
- * tool still runs via `executeTool(..., { userId: invoker })`). The scope only
+ * tool still runs via `executeTool(..., { userId, auth: invokerAuth })`,
+ * authorised against the invoker's own AuthContext). The scope only
  * ever REMOVES tools, never grants any:
  *
  *   NONE     → no cosmos tools at all (the bot is a chat-only persona).

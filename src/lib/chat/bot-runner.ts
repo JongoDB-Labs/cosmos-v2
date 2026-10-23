@@ -10,6 +10,7 @@ import { topics } from "@/lib/realtime/topics";
 import { ensureOrgBots, type BuiltInBotKey } from "@/lib/chat/ensure-bots";
 import { filterToolsByScope } from "@/lib/chat/tool-filter";
 import type { ChatBotToolScope } from "@prisma/client";
+import type { AuthContext } from "@/lib/rbac/check";
 
 /**
  * In-channel AI bots — config-driven by the `chat_bots` table, run through v2's
@@ -22,10 +23,11 @@ import type { ChatBotToolScope } from "@prisma/client";
  *  1. AUTHORSHIP — the reply is authored by the bot's SYNTHETIC USER
  *     (`User.isBot = true`, resolved via `ensureOrgBots`), NOT the invoking
  *     human. The bot is a first-class account so its messages attribute to it.
- *  2. CAPABILITY — every tool still executes AS THE INVOKING HUMAN
- *     (`runAgentLoop({ userId: invokerUserId })` → `executeTool(..., {userId})`,
- *     permission-checked against that human), so a bot can NEVER exceed the
- *     permissions of the person who summoned it. On top of that, the bot's
+ *  2. CAPABILITY — every tool still executes AS THE INVOKER, authorised
+ *     against the invoker's OWN AuthContext (`runAgentLoop({ auth:
+ *     invokerAuth })` → `executeTool(..., { auth })`), so a bot can NEVER exceed
+ *     the permissions of whoever summoned it — and when that was an API key,
+ *     the key's scope mask and project ceiling still bind. On top of that, the bot's
  *     `toolScope` (NONE/READONLY/FULL, from its chat_bots row) is a hard CEILING
  *     applied via `filterToolsByScope`; the note-taker additionally keeps its
  *     own allow-list.
@@ -116,6 +118,12 @@ export async function runChatBot(args: {
   orgSlug: string;
   channelId: string;
   invokerUserId: string;
+  /**
+   * The invoker's AuthContext exactly as the triggering route authenticated it.
+   * The bot's tools are authorised against this, not rebuilt from
+   * `invokerUserId`; a mismatch between the two refuses every tool call.
+   */
+  invokerAuth: AuthContext;
   /** For @assistant/`/ai`/answerer: the user's question. Ignored by the note-taker. */
   prompt?: string;
   model?: string;
@@ -225,6 +233,7 @@ export async function runChatBot(args: {
       const result = await runAgentLoop({
         orgId: args.orgId,
         userId: args.invokerUserId,
+        auth: args.invokerAuth,
         tenantClass,
         conversationId: channel.id,
         systemPrompt,
@@ -248,6 +257,7 @@ export async function runChatBot(args: {
       const result = await runAgentLoop({
         orgId: args.orgId,
         userId: args.invokerUserId,
+        auth: args.invokerAuth,
         tenantClass,
         conversationId: channel.id,
         systemPrompt,
@@ -274,6 +284,7 @@ export async function runChatBot(args: {
         orgSlug: args.orgSlug,
         channel: channelLite,
         invokerUserId: args.invokerUserId,
+        invokerAuth: args.invokerAuth,
         botUserId,
         systemPrompt,
         initialPrompt,
@@ -320,6 +331,8 @@ async function runStreamingAssistant(args: {
   channel: ChannelLite;
   /** The INVOKING human — tools execute as this identity (perm-scoped). */
   invokerUserId: string;
+  /** The invoker's own AuthContext — what the tools are authorised against. */
+  invokerAuth: AuthContext;
   /** The bot's synthetic user — authors the streamed reply. */
   botUserId: string;
   systemPrompt: string;
@@ -374,6 +387,7 @@ async function runStreamingAssistant(args: {
     result = await runAgentLoop({
       orgId: args.orgId,
       userId: args.invokerUserId,
+      auth: args.invokerAuth,
       tenantClass: args.tenantClass,
       conversationId: channel.id,
       systemPrompt: args.systemPrompt,

@@ -8,6 +8,7 @@ import { runModelTurn, toModelTools, projectForModel, projectResult, entityTypeF
 import type { TenantClass } from "./egress";
 import { effectiveCeiling, maxByRank, rankOf } from "@/lib/classification/effective";
 import type { ClassificationLevel } from "@prisma/client";
+import type { AuthContext } from "@/lib/rbac/check";
 
 /**
  * Opaque-handle resolver feature flag (default ON). When `EGRESS_HANDLES_ENABLED`
@@ -29,9 +30,11 @@ function handlesEnabled(): boolean {
  * `claude` CLI / `TOOL_CALL:` text protocol and the per-org host-CLI MCP config
  * flag are gone.
  *
- * SECURITY: every tool runs via `executeTool(..., { orgId, userId })`, which
- * permission-checks against THAT user — so a bot can never do anything the
- * invoking user couldn't. Callers pass the invoker's id. Additionally, every
+ * SECURITY: every tool runs via `executeTool(..., { orgId, userId, auth })`,
+ * which permission-checks against `auth` — the invoker's OWN AuthContext as the
+ * route received it, API-key scope and project ceiling included — so a bot (or
+ * a key driving the assistant) can never do anything its caller couldn't.
+ * Callers pass the invoker's AuthContext, never one rebuilt from the user id. Additionally, every
  * tool result is projected through the egress gate BEFORE it can re-enter the
  * model context under the data-driven MAC ceiling: CUI/FOUO data is withheld for
  * BOTH tenants; below that, `commercial` exposes and `gov` is default-deny.
@@ -64,6 +67,13 @@ export interface RunAgentLoopOptions {
   orgId: string;
   /** The INVOKING user — tools execute as this identity (perm-scoped). */
   userId: string;
+  /**
+   * The invoker's AuthContext exactly as the route authenticated it. Tools are
+   * authorised against THIS — not against `userId`'s full org permissions — so
+   * an API key's scope mask and project ceiling bind the agent too. Its
+   * `userId`/`orgId` must match the two above or every tool call is refused.
+   */
+  auth: AuthContext;
   /** Drives the egress gate. CUI/FOUO data is withheld for both tenants; below that gov default-denies. */
   tenantClass: TenantClass;
   /** Conversation id for egress-decision audit correlation. */
@@ -289,6 +299,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       const output = await executeTool(u.name, execInput, {
         orgId: opts.orgId,
         userId: opts.userId,
+        auth: opts.auth,
         tenantClass: opts.tenantClass,
         conversationId: opts.conversationId,
         // Defense in depth: dispatch refuses a tool whose connector this org disabled.

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
 import { createCrmContact, updateCrmContact, listPartners, listProducts } from "./crm";
-import type { ToolContext } from "./_ctx";
+import { memberToolCtx } from "@/lib/testing/tool-auth";
 
 const NON_MEMBER = "00000000-0000-0000-0000-000000000000";
 
@@ -19,8 +19,8 @@ describe("crm executors (e2e DB)", () => {
     });
     cleanup.orgIds.push(org.id);
     await prisma.orgMember.create({ data: { orgId: org.id, userId: owner.id, role: "OWNER" } });
-    const ctx: ToolContext = { orgId: org.id, userId: owner.id };
-    const denyCtx: ToolContext = { orgId: org.id, userId: NON_MEMBER };
+    const ctx = await memberToolCtx(org.id, owner.id);
+    const denyCtx = await memberToolCtx(org.id, NON_MEMBER);
     return { org, ctx, denyCtx };
   }
 
