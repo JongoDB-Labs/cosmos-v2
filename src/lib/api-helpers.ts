@@ -35,7 +35,7 @@ export function handleApiError(error: unknown, request?: Request) {
   if (error instanceof ConflictError) {
     // Business-rule / state violations (e.g. "payment exceeds balance") are client
     // errors — a 409, not a 500 that pollutes the error budget.
-    return problem(409, "model_not_connected", error.message, opts);
+    return problem(409, "conflict", error.message, opts);
   }
   if (isNoModelCredentialError(error)) {
     // No Claude connection is an org setup state, not a server fault: say so
