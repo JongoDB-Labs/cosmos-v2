@@ -22,6 +22,11 @@ import {
   executeConnectorTool,
 } from "./registry";
 import type { ConnectorDescriptor } from "./types";
+import { Permission } from "@/lib/rbac/permissions";
+import type { AuthContext } from "@/lib/rbac/check";
+// A signed-in MEMBER (holds CHAT_USE): the caller dispatch now requires.
+const AUTH = { userId: "u", orgId: "o", orgRole: "MEMBER", permissions: Permission.CHAT_USE, basePermissions: Permission.CHAT_USE, abacRules: [] } as unknown as AuthContext;
+
 
 function makeDescriptor(over: Partial<ConnectorDescriptor> & { provider: string }): ConnectorDescriptor {
   return { toolDefs: [], execute: async () => ({}), egress: {}, access: {}, ...over };
@@ -119,7 +124,7 @@ describe("DISPATCH refuses a connector the org disabled (defense in depth)", () 
     await expect(
       executeConnectorTool(
         "jira_search_issues", { q: 1 },
-        { orgId: "o", userId: "u", tenantClass: "commercial", conversationId: "c1", enabled: { enabledConnectors: ["github"], breadthEnabled: true } },
+        { orgId: "o", userId: "u", auth: AUTH, tenantClass: "commercial", conversationId: "c1", enabled: { enabledConnectors: ["github"], breadthEnabled: true } },
       ),
     ).rejects.toThrow(/DISABLED by this org's runtime config|runtime-config gate/i);
     expect(logEgressDecision).toHaveBeenCalledWith(
@@ -131,7 +136,7 @@ describe("DISPATCH refuses a connector the org disabled (defense in depth)", () 
     await expect(
       executeConnectorTool(
         "nango_proxy_request", {},
-        { orgId: "o", userId: "u", tenantClass: "commercial", enabled: { enabledConnectors: null, breadthEnabled: false } },
+        { orgId: "o", userId: "u", auth: AUTH, tenantClass: "commercial", enabled: { enabledConnectors: null, breadthEnabled: false } },
       ),
     ).rejects.toThrow(/runtime-config gate|DISABLED/i);
   });
@@ -139,7 +144,7 @@ describe("DISPATCH refuses a connector the org disabled (defense in depth)", () 
   it("ALLOWS an enabled connector's tool (no refusal, no audit)", async () => {
     const res = await executeConnectorTool(
       "github_list_issues", { q: 2 },
-      { offered: new Set(["github_list_issues"]), orgId: "o", userId: "u", tenantClass: "commercial", enabled: { enabledConnectors: ["github"], breadthEnabled: true } },
+      { offered: new Set(["github_list_issues"]), orgId: "o", userId: "u", auth: AUTH, tenantClass: "commercial", enabled: { enabledConnectors: ["github"], breadthEnabled: true } },
     );
     expect(res).toEqual({ provider: "github", name: "github_list_issues", input: { q: 2 } });
     expect(logEgressDecision).not.toHaveBeenCalled();
@@ -148,7 +153,7 @@ describe("DISPATCH refuses a connector the org disabled (defense in depth)", () 
   it("ABSENT filter ⇒ no extra narrowing (dispatch unchanged for enabled connectors)", async () => {
     const res = await executeConnectorTool(
       "jira_search_issues", {},
-      { offered: new Set(["jira_search_issues"]), orgId: "o", userId: "u", tenantClass: "commercial" },
+      { offered: new Set(["jira_search_issues"]), orgId: "o", userId: "u", auth: AUTH, tenantClass: "commercial" },
     );
     expect(res).toEqual({ provider: "jira", name: "jira_search_issues", input: {} });
     expect(logEgressDecision).not.toHaveBeenCalled();
@@ -160,7 +165,7 @@ describe("DISPATCH refuses a connector the org disabled (defense in depth)", () 
     await expect(
       executeConnectorTool(
         "nango_proxy_request", {},
-        { orgId: "o", userId: "u", tenantClass: "gov", enabled: { enabledConnectors: ["nango"], breadthEnabled: true } },
+        { orgId: "o", userId: "u", auth: AUTH, tenantClass: "gov", enabled: { enabledConnectors: ["nango"], breadthEnabled: true } },
       ),
     ).rejects.toThrow(/commercial-only|gov tenant|D5/i);
     expect(logEgressDecision).toHaveBeenCalledWith(

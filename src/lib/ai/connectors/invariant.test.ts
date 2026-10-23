@@ -267,3 +267,15 @@ describe("INVARIANT LOCK — every connector tool declares read or write", () =>
     expect(connectorToolAccess("not_a_connector_tool")).toBeUndefined();
   });
 });
+
+describe("INVARIANT LOCK — every connector write is audited", () => {
+  it("each connector tool that can write has an assistant audit mapping", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../tool-executor.ts", import.meta.url), "utf8");
+    const map = src.slice(src.indexOf("const ASSISTANT_AUDIT_ACTIONS"), src.indexOf("};", src.indexOf("const ASSISTANT_AUDIT_ACTIONS")));
+    const { connectorToolAccess, connectorToolNames } = await import("./registry");
+    for (const name of connectorToolNames()) {
+      if (connectorToolAccess(name) === "write") expect(map, name).toMatch(new RegExp(`\\n\\s+${name}:`));
+    }
+  });
+});

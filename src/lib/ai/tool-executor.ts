@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import type { Prisma } from "@prisma/client";
 import { sumMoney, moneyToNumber } from "@/lib/money";
-import { connectorToolNames, executeConnectorTool } from "./connectors";
+import { connectorToolAccess, connectorToolNames, executeConnectorTool } from "./connectors";
 import {
   createWorkItem,
   updateWorkItem,
@@ -315,6 +315,8 @@ async function dispatchTool(
       enabled: ctx.enabled,
       // Only a tool the model was offered may run (absent ⇒ refused).
       offered: ctx.offered,
+      // The caller's own auth: dispatch decides the Cosmos permission from it.
+      auth: ctx.auth,
     });
   }
 
@@ -586,6 +588,10 @@ const ASSISTANT_AUDIT_ACTIONS: Record<string, { action: string; entity: string }
   update_calendar_event: { action: "assistant.calendar_event.updated", entity: "calendar_event" },
   delete_calendar_event: { action: "assistant.calendar_event.deleted", entity: "calendar_event" },
   create_drive_folder: { action: "assistant.drive_folder.created", entity: "drive_folder" },
+  jira_create_issue: { action: "assistant.jira_issue.created", entity: "jira_issue" },
+  slack_post_message: { action: "assistant.slack_message.posted", entity: "slack_message" },
+  // Audited only when it writes (any method but GET/HEAD); see auditAssistantToolUse.
+  nango_proxy_request: { action: "assistant.nango_request.sent", entity: "nango_request" },
 };
 
 /** Best-effort entity-id extraction from a tool result of unknown shape. */
@@ -627,6 +633,8 @@ async function auditAssistantToolUse(
 ): Promise<void> {
   const mapping = ASSISTANT_AUDIT_ACTIONS[name];
   if (!mapping) return;
+  // An input-dependent connector tool (the Nango proxy) is audited when it wrote.
+  if (connectorToolAccess(name, input) === "read") return;
   // Don't record an audit entry for a tool call that failed.
   if (result && typeof result === "object" && "error" in (result as Record<string, unknown>)) return;
   try {
