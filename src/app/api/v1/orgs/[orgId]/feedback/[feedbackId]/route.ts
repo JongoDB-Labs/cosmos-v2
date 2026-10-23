@@ -6,15 +6,72 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { requirePermission } from "@/lib/rbac/check";
 import { FEEDBACK_ROW_SELECT, toFeedbackDto } from "@/lib/feedback/feedback-dto";
+import { FEEDBACK_SUBJECT } from "@/lib/feedback/subject";
 
 type RouteParams = { params: Promise<{ orgId: string; feedbackId: string }> };
 
 const updateSchema = z.object({
-  status: z.nativeEnum(FeedbackStatus).optional(),
+  // MERGED is set only by a merge, never by hand.
+  status: z
+    .nativeEnum(FeedbackStatus)
+    .refine((s) => s !== "MERGED", "MERGED is set by merging, not by changing the status")
+    .optional(),
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(5000).optional(),
 });
+
+/**
+ * One feedback item, for the board's `?item=` deep link: a notification can
+ * point at an item that is not in the list's top 200. Same per-viewer shape and
+ * the same ORG_READ gate as the list.
+ */
+export async function GET(_request: NextRequest, { params }: RouteParams) {
+  try {
+    const { orgId, feedbackId } = await params;
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
+    if (!org) return new Response("Not found", { status: 404 });
+
+    const ctx = await getAuthContext(org.slug);
+    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    requirePermission(ctx, Permission.ORG_READ);
+
+    const item = await prisma.feedbackItem.findFirst({
+      where: { id: feedbackId, orgId },
+      select: {
+        ...FEEDBACK_ROW_SELECT,
+        attachments: {
+          select: { id: true, kind: true, url: true, filename: true, contentType: true, size: true },
+        },
+      },
+    });
+    if (!item) return new Response("Not found", { status: 404 });
+
+    const [vote, author] = await Promise.all([
+      prisma.feedbackVote.findFirst({
+        where: { userId: ctx.userId, feedbackItemId: item.id },
+        select: { feedbackItemId: true },
+      }),
+      prisma.user.findUnique({
+        where: { id: item.authorId },
+        select: { displayName: true, email: true },
+      }),
+    ]);
+
+    return success({
+      ...toFeedbackDto(
+        item,
+        { userId: ctx.userId, isStaff: hasPermission(ctx.permissions, Permission.ORG_UPDATE) },
+        author,
+      ),
+      attachments: item.attachments,
+      hasVoted: vote !== null,
+    });
+  } catch (e) {
+    return handleApiError(e);
+  }
+}
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
@@ -52,6 +109,18 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       await requireAccess(ctx, "ORG_UPDATE", {
         createdById: existing.authorId,
       });
+      // A merged item's status belongs to the merge. Changing it here would
+      // un-hide the item while it still points at its survivor (and its merge
+      // record still says merged), so it is refused until the merge is undone.
+      if (existing.mergedIntoId || existing.status === "MERGED") {
+        return new Response(
+          JSON.stringify({
+            error: "This request was merged into another one. Undo the merge to change its status.",
+            mergedIntoId: existing.mergedIntoId,
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
     }
     if (wantsContentEdit && !isAuthor) {
       if (!hasPermission(ctx.permissions, Permission.ORG_UPDATE)) {
@@ -123,7 +192,21 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
       });
     }
 
-    await prisma.feedbackItem.delete({ where: { id: feedbackId } });
+    // Comment has no FK to feedback_items (it is polymorphic), so the item's
+    // discussion and the backlinks it created go with it explicitly.
+    await prisma.$transaction(async (tx) => {
+      const comments = await tx.comment.findMany({
+        where: { orgId, subjectType: FEEDBACK_SUBJECT, subjectId: feedbackId },
+        select: { id: true },
+      });
+      if (comments.length > 0) {
+        await tx.reference.deleteMany({
+          where: { orgId, sourceType: "comment", sourceId: { in: comments.map((c) => c.id) } },
+        });
+        await tx.comment.deleteMany({ where: { orgId, subjectType: FEEDBACK_SUBJECT, subjectId: feedbackId } });
+      }
+      await tx.feedbackItem.delete({ where: { id: feedbackId } });
+    });
 
     return success({ id: feedbackId });
   } catch (e) {

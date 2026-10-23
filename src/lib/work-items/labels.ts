@@ -9,6 +9,7 @@
  * routes call this and never touch either directly.
  */
 import { Prisma } from "@prisma/client";
+import { rebuildTagMirror, updateWorkItems } from "@/lib/work-items/write.server";
 
 /** Prisma client or an interactive-transaction client. */
 type Db = Prisma.TransactionClient;
@@ -111,22 +112,7 @@ export async function recomputeTagMirror(
   db: Db,
   workItemIds: readonly string[],
 ): Promise<void> {
-  if (workItemIds.length === 0) return;
-  // The COALESCE is for the column's sake, not the caller's: array_agg over
-  // zero rows yields NULL, and `tags` is nullable, so an item losing its last
-  // label would be stored as NULL among rows that all hold '{}'. Prisma reads
-  // either back as [], so this is invisible from the app — it matters to the
-  // raw-SQL readers, where `= ANY(NULL)` is NULL rather than false.
-  await db.$executeRaw`
-    UPDATE work_items w
-    SET tags = COALESCE((
-      SELECT array_agg(l.name ORDER BY l.name)
-      FROM work_item_labels wl
-      JOIN labels l ON l.id = wl.label_id
-      WHERE wl.work_item_id = w.id
-    ), ARRAY[]::text[])
-    WHERE w.id = ANY(${[...workItemIds]}::uuid[])
-  `;
+  await rebuildTagMirror(db, workItemIds);
 }
 
 /**
@@ -163,10 +149,7 @@ export async function setWorkItemLabels(
     });
   }
 
-  await db.workItem.update({
-    where: { id: workItemId },
-    data: { tags: labels.map((l) => l.name) },
-  });
+  await updateWorkItems(db, [workItemId], { tags: labels.map((l) => l.name) });
 
   return labels;
 }

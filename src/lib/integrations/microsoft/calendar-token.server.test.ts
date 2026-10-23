@@ -13,6 +13,7 @@ import {
   _resetCalendarTokenCache,
   calendarAccessToken,
   completeCalendarConnect,
+  patchCalendarMeta,
   purgeOrgCalendarConnections,
 } from "./calendar-token.server";
 
@@ -92,6 +93,26 @@ describe("Outlook Calendar tokens (e2e DB)", () => {
     expect(JSON.stringify(row.meta)).not.toMatch(/rt-0|at-0/);
   });
 
+  it("records the mailbox's primary address from /me, and does without it when /me fails", async () => {
+    const { org, user } = await setup();
+    const withMail = vi.fn(async (url: unknown) =>
+      String(url).includes("/me?")
+        ? new Response(JSON.stringify({ mail: "a.smith@corp.example" }), { status: 200 })
+        : new Response(JSON.stringify({ access_token: "at-0", refresh_token: "rt-0", id_token: ID_TOKEN, expires_in: 3600 }), { status: 200 }),
+    ) as unknown as typeof fetch;
+    await completeCalendarConnect({ orgId: org.id, userId: user.id, code: "c", verifier: "v", redirectUri: "https://x/cb" }, { fetch: withMail });
+    let row = await prisma.connectorCredential.findFirstOrThrow({ where: { orgId: org.id, provider: MS_CALENDAR, userId: user.id } });
+    expect(row.meta).toMatchObject({ mail: "a.smith@corp.example" });
+    const noMe = vi.fn(async (url: unknown) =>
+      String(url).includes("/me?")
+        ? new Response(JSON.stringify({ mail: "not.from.an.error@corp.example" }), { status: 403 })
+        : new Response(JSON.stringify({ access_token: "at-0", refresh_token: "rt-0", id_token: ID_TOKEN, expires_in: 3600 }), { status: 200 }),
+    ) as unknown as typeof fetch;
+    await completeCalendarConnect({ orgId: org.id, userId: user.id, code: "c", verifier: "v", redirectUri: "https://x/cb" }, { fetch: noMe });
+    row = await prisma.connectorCredential.findFirstOrThrow({ where: { orgId: org.id, provider: MS_CALENDAR, userId: user.id } });
+    expect(row.meta).not.toHaveProperty("mail");
+  });
+
   it("refuses an account from another tenant and stores nothing", async () => {
     const { org, user } = await setup({ tenantId: "99999999-0000-0000-0000-000000000000" });
     await expect(connect(org.id, user.id)).rejects.toThrow(/different organization/);
@@ -115,6 +136,18 @@ describe("Outlook Calendar tokens (e2e DB)", () => {
     // Cached afterwards: no further call.
     await calendarAccessToken(org.id, user.id, { fetch: ep.fetchFn });
     expect(ep.calls).toHaveLength(1);
+  });
+
+  it("a refresh merges into the connection's meta, keeping the sync fields written alongside it", async () => {
+    const { org, user } = await setup();
+    await connect(org.id, user.id, "rt-1");
+    const row = await prisma.connectorCredential.findFirstOrThrow({ where: { orgId: org.id, provider: MS_CALENDAR, userId: user.id } });
+    await patchCalendarMeta(row.id, { calendarId: "cal-9", deltaLink: "https://graph.microsoft.com/v1.0/x?$deltatoken=1" });
+    _resetCalendarTokenCache();
+    const ep = tokenEndpoint(() => ({ status: 200, json: { access_token: "at-2", refresh_token: "rt-2", expires_in: 3600 } }));
+    await calendarAccessToken(org.id, user.id, { fetch: ep.fetchFn });
+    const after = await prisma.connectorCredential.findFirstOrThrow({ where: { id: row.id } });
+    expect(after.meta).toMatchObject({ calendarId: "cal-9", deltaLink: expect.stringContaining("deltatoken"), status: "connected", lastRefreshAt: expect.any(String) });
   });
 
   it("turns a revoked refresh token into 'reconnect' once, and never calls Microsoft again for it", async () => {

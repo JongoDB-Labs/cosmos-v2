@@ -7,6 +7,7 @@ import {
   IntervalKind,
 } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
+import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { resolveTypeAndColumn } from "@/lib/files/convert";
 import { upsertRoadmapNodes } from "@/lib/roadmap/import";
@@ -141,7 +142,7 @@ async function createIssue(
   const created = await prisma.$transaction(async (tx) => {
     const ticketNumber = await allocateTicketNumber(tx, { orgId, projectId });
     const sortOrder = await allocateSortOrder(tx, { orgId, projectId, columnKey });
-    const wi = await tx.workItem.create({
+    const wi = await createWorkItemRow(tx, {
       data: {
         orgId,
         projectId,

@@ -42,7 +42,8 @@ export function cancelInputError(reason: PickableCancelReason, note: string | nu
  * leaves it alone: `undefined` means "don't write these fields".
  */
 export function cancelFieldsForUpdate(args: {
-  requested: { reason?: PickableCancelReason; note?: string | null };
+  /** MERGED comes only from the merge service; the API accepts pickable reasons. */
+  requested: { reason?: CancelReason; note?: string | null };
   columnChanged: boolean;
   destIsCancelled: boolean;
   existing: { reason: CancelReason | null; note: string | null };

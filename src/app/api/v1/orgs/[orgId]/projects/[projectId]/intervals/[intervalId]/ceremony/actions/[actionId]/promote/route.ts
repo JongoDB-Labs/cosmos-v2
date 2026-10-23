@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
@@ -158,7 +159,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         columnKey: target.key,
       });
 
-      const item = await tx.workItem.create({
+      const item = await createWorkItemRow(tx, {
         data: {
           orgId,
           projectId,

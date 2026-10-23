@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { allocateTicketNumber } from "@/lib/work-items/allocate";
+import { createWorkItemRow, updateWorkItems, updateWorkItemsUnchecked } from "@/lib/work-items/write.server";
 import { IntervalKind, SprintStatus } from "@prisma/client";
 import {
   IGNORE,
@@ -442,7 +443,11 @@ export async function runImport(
     try {
       let id: string;
       if (n.externalId && done.has(n.externalId)) {
-        const up = await prisma.workItem.update({
+        // A re-import restores the source system's recorded state, status and
+        // dates included, so it writes them as given rather than as a
+        // transition (`updateWorkItemsUnchecked`; the import is one of the
+        // two callers allowed to).
+        const up = await prisma.workItem.findUniqueOrThrow({
           where: {
             orgId_externalSource_externalId: {
               orgId: ctx.orgId,
@@ -450,9 +455,9 @@ export async function runImport(
               externalId: n.externalId,
             },
           },
-          data: base,
           select: { id: true },
         });
+        await updateWorkItemsUnchecked(prisma, [up.id], base);
         id = up.id;
         updated++;
       } else {
@@ -461,7 +466,7 @@ export async function runImport(
             orgId: ctx.orgId,
             projectId: ctx.projectId,
           });
-          return tx.workItem.create({
+          return createWorkItemRow(tx, {
             data: {
               ...base,
               orgId: ctx.orgId,
@@ -600,7 +605,7 @@ export async function runImport(
       if (!childId || !parentId || childId === parentId) continue;
       if (n.externalKey && createsCycle(n.externalKey, n.parentKey!)) continue;
       try {
-        await prisma.workItem.update({ where: { id: childId }, data: { parentId } });
+        await updateWorkItems(prisma, [childId], { parentId });
       } catch {
         /* non-fatal: leave unparented if the link can't be set */
       }

@@ -14,6 +14,7 @@
  * deleted with its orgs.
  */
 import { prisma } from "@/lib/db/client";
+import { createWorkItemRow, updateWorkItems } from "@/lib/work-items/write.server";
 import { OrgRole } from "@prisma/client";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
@@ -133,7 +134,7 @@ export async function seedWorld(): Promise<World> {
   ) => {
     const n = (counters.get(projectId) ?? 0) + 1;
     counters.set(projectId, n);
-    const row = await prisma.workItem.create({
+    const row = await createWorkItemRow(prisma, {
       data: {
         orgId, projectId, ticketNumber: n, title: name, description: "", columnKey: "todo",
         workItemTypeId: typeTask, createdById: actor.id, ...data,
@@ -144,7 +145,7 @@ export async function seedWorld(): Promise<World> {
     for (const labelId of rel.labels ?? []) await prisma.workItemLabel.create({ data: { orgId, workItemId: row.id, labelId } });
     if (rel.labels?.length) {
       const names = await prisma.label.findMany({ where: { id: { in: rel.labels } }, select: { name: true } });
-      await prisma.workItem.update({ where: { id: row.id }, data: { tags: names.map((n) => n.name) } });
+      await updateWorkItems(prisma, [row.id], { tags: names.map((n) => n.name) });
     }
     for (const [i, userId] of (rel.assignees ?? []).entries()) {
       await prisma.workItemAssignee.create({ data: { workItemId: row.id, userId, sortOrder: i } });
@@ -165,7 +166,7 @@ export async function seedWorld(): Promise<World> {
   await mkItem("p1-done", A, P1.id, { priority: "MEDIUM", columnKey: "done", completedAt: new Date("2026-10-10T12:00:00Z"), intervalId: sprintP1Done, assigneeId: bob.id });
   await mkItem("p1-archived", A, P1.id, { archivedAt: new Date("2026-09-01T00:00:00Z"), assigneeId: actor.id });
   await mkItem("p1-child", A, P1.id, { parentId: undefined, workCategory: "ENABLER", cancelReason: "OBE", columnKey: "cancelled" });
-  await prisma.workItem.update({ where: { id: items["p1-child"].id }, data: { parentId: items["p1-login-bug"].id } });
+  await updateWorkItems(prisma, [items["p1-child"].id], { parentId: items["p1-login-bug"].id });
   await prisma.workItemLink.create({ data: { orgId: A, sourceItemId: items["p1-coowned"].id, targetItemId: items["p1-unassigned"].id, type: "BLOCKS" } });
 
   // Restricted twins: values identical to readable ones.
