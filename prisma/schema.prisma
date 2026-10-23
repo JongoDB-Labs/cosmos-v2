@@ -1011,7 +1011,7 @@ model WorkflowStatus {
   /// be deleted (ON DELETE RESTRICT from work_items).
   archivedAt DateTime?      @map("archived_at")
   createdAt  DateTime       @default(now()) @map("created_at")
-  updatedAt  DateTime       @updatedAt @map("updated_at")
+  updatedAt  DateTime       @default(now()) @updatedAt @map("updated_at")
 
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -1192,6 +1192,8 @@ model WorkItem {
   @@index([orgId, assigneeId])
   // The board team filter reads "this project's items for team X".
   @@index([projectId, teamId])
+  // Backs the status foreign key (project_id, column_key) -> workflow_statuses.
+  @@index([projectId, columnKey])
   @@map("work_items")
 }
 
