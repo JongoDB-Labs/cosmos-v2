@@ -20,6 +20,11 @@ import {
   executeConnectorTool,
 } from "./registry";
 import type { ConnectorDescriptor } from "./types";
+import { Permission } from "@/lib/rbac/permissions";
+import type { AuthContext } from "@/lib/rbac/check";
+// A signed-in MEMBER (holds CHAT_USE): the caller dispatch now requires.
+const AUTH = { userId: "u", orgId: "o", orgRole: "MEMBER", permissions: Permission.CHAT_USE, basePermissions: Permission.CHAT_USE, abacRules: [] } as unknown as AuthContext;
+
 // The REAL nango tool names + the egress projection, to prove no Nango tool maps to a
 // gov-exposed entity (it has no TOOL_ENTITY ⇒ full withhold; gov is blocked anyway).
 import { nangoTools } from "../tools/nango";
@@ -88,13 +93,13 @@ describe("L1 — tool-list derivation excludes commercial-only for gov", () => {
 describe("L2 — executeConnectorTool dispatch refuses commercial-only for gov", () => {
   it("THROWS for a gov ctx on a commercial-only tool (defense in depth)", async () => {
     await expect(
-      executeConnectorTool("broker_proxy", { q: 1 }, { orgId: "o", userId: "u", tenantClass: "gov" }),
+      executeConnectorTool("broker_proxy", { q: 1 }, { orgId: "o", userId: "u", auth: AUTH, tenantClass: "gov" }),
     ).rejects.toThrow(/commercial-only|not available to a gov tenant|D5/i);
   });
 
   it("AUDITS the refusal as an egress decision (connector_availability_block), no CUI", async () => {
     await expect(
-      executeConnectorTool("broker_proxy", { q: 1 }, { orgId: "o", userId: "u", tenantClass: "gov", conversationId: "c1" }),
+      executeConnectorTool("broker_proxy", { q: 1 }, { orgId: "o", userId: "u", auth: AUTH, tenantClass: "gov", conversationId: "c1" }),
     ).rejects.toThrow();
     expect(logEgressDecision).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -109,22 +114,22 @@ describe("L2 — executeConnectorTool dispatch refuses commercial-only for gov",
 
   it("FAIL-CLOSED: refuses a commercial-only tool when the tenant class is ABSENT", async () => {
     await expect(
-      executeConnectorTool("broker_list", {}, { orgId: "o", userId: "u" }),
+      executeConnectorTool("broker_list", {}, { orgId: "o", userId: "u", auth: AUTH }),
     ).rejects.toThrow(/commercial-only|D5/i);
   });
 
   it("ALLOWS a commercial tenant to dispatch a commercial-only tool", async () => {
-    const res = await executeConnectorTool("broker_proxy", { q: 2 }, { offered: new Set(["broker_proxy"]), orgId: "o", userId: "u", tenantClass: "commercial" });
+    const res = await executeConnectorTool("broker_proxy", { q: 2 }, { offered: new Set(["broker_proxy"]), orgId: "o", userId: "u", auth: AUTH, tenantClass: "commercial" });
     expect(res).toEqual({ provider: "broker", name: "broker_proxy", input: { q: 2 } });
     expect(logEgressDecision).not.toHaveBeenCalled();
   });
 
   it("ALLOWS an 'all'-availability tool for BOTH classes (unchanged dispatch)", async () => {
-    expect(await executeConnectorTool("native_read", {}, { offered: new Set(["native_read"]), orgId: "o", userId: "u", tenantClass: "gov" })).toEqual({
+    expect(await executeConnectorTool("native_read", {}, { offered: new Set(["native_read"]), orgId: "o", userId: "u", auth: AUTH, tenantClass: "gov" })).toEqual({
       provider: "native_all",
       name: "native_read",
     });
-    expect(await executeConnectorTool("native_read", {}, { offered: new Set(["native_read"]), orgId: "o", userId: "u", tenantClass: "commercial" })).toEqual({
+    expect(await executeConnectorTool("native_read", {}, { offered: new Set(["native_read"]), orgId: "o", userId: "u", auth: AUTH, tenantClass: "commercial" })).toEqual({
       provider: "native_all",
       name: "native_read",
     });
