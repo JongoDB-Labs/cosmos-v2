@@ -31,6 +31,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: { id: intervalId, projectId, orgId },
       include: {
         workItems: {
+          // Withheld by the WorkItem contract: index internals and the raw
+          // record an import came from. Not fetched, rather than fetched and dropped.
+          omit: { searchVector: true, sourceRecord: true },
           include: {
             _count: { select: { comments: true } },
           },

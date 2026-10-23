@@ -3,6 +3,10 @@ import { Prisma, $Enums } from "@prisma/client";
 import type { z } from "zod";
 import * as common from "../schemas/common";
 import * as E from "../schemas/enums.generated";
+import * as okr from "../schemas/okr";
+import * as goals from "../schemas/goals";
+import * as time from "../schemas/time";
+import * as audit from "../schemas/audit";
 
 /**
  * Response schemas are projections: a column they don't declare is a column
@@ -12,22 +16,26 @@ import * as E from "../schemas/enums.generated";
  * must name every scalar column of its model, or list it in OMITTED with the
  * reason it is withheld.
  */
-const ENTITIES: Record<string, { model: string; omitted: Record<string, string> }> = {
-  Project: { model: "Project", omitted: {} },
-  Board: { model: "Board", omitted: {} },
-  BoardColumn: { model: "BoardColumn", omitted: {} },
-  Interval: { model: "Interval", omitted: {} },
-  ProjectMember: { model: "ProjectMember", omitted: {} },
+type Entity = { schema: z.ZodObject<z.ZodRawShape>; model: string; omitted: Record<string, string> };
+
+const ENTITIES: Record<string, Entity> = {
+  Project: { schema: common.Project, model: "Project", omitted: {} },
+  Board: { schema: common.Board, model: "Board", omitted: {} },
+  BoardColumn: { schema: common.BoardColumn, model: "BoardColumn", omitted: {} },
+  Interval: { schema: common.Interval, model: "Interval", omitted: {} },
+  ProjectMember: { schema: common.ProjectMember, model: "ProjectMember", omitted: {} },
   WorkItem: {
+    schema: common.WorkItem,
     model: "WorkItem",
     omitted: {
       searchVector: "full-text index internals",
       sourceRecord: "the raw record an import came from; may hold another system's data",
     },
   },
-  MilestoneLink: { model: "MilestoneLink", omitted: {} },
-  Milestone: { model: "Milestone", omitted: {} },
+  MilestoneLink: { schema: common.MilestoneLink, model: "MilestoneLink", omitted: {} },
+  Milestone: { schema: common.Milestone, model: "Milestone", omitted: {} },
   Member: {
+    schema: common.Member,
     model: "OrgMember",
     omitted: {
       permissions: "a raw permission mask (AGENTS.md: never in a payload)",
@@ -35,9 +43,13 @@ const ENTITIES: Record<string, { model: string; omitted: Record<string, string> 
       removedAt: "the list shows memberships, not their history",
     },
   },
-  Label: { model: "Label", omitted: {} },
-  WorkItemType: { model: "WorkItemType", omitted: {} },
-  CustomField: { model: "CustomField", omitted: {} },
+  Label: { schema: common.Label, model: "Label", omitted: {} },
+  WorkItemType: { schema: common.WorkItemType, model: "WorkItemType", omitted: {} },
+  CustomField: { schema: common.CustomField, model: "CustomField", omitted: {} },
+  ...okr.entities,
+  ...goals.entities,
+  ...time.entities,
+  ...audit.entities,
 };
 
 const models = Prisma.dmmf.datamodel.models;
@@ -46,8 +58,8 @@ const scalarColumns = (model: string) =>
     .filter((f) => f.kind !== "object" && f.kind !== "unsupported")
     .map((f) => f.name);
 
-describe.each(Object.entries(ENTITIES))("%s schema", (name, { model, omitted }) => {
-  const shape = (common as unknown as Record<string, z.ZodObject<z.ZodRawShape>>)[name].shape;
+describe.each(Object.entries(ENTITIES))("%s schema", (_name, { schema, model, omitted }) => {
+  const shape = schema.shape;
 
   it(`declares every scalar column of ${model}, or withholds it on purpose`, () => {
     const missing = scalarColumns(model).filter((c) => !(c in shape) && !(c in omitted));

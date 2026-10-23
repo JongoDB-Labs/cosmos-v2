@@ -36,6 +36,12 @@ vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));
 
 import { GET } from "./route";
+import { timeEntryRow } from "@/lib/openapi/testing/rows";
+
+const E1 = "e1000000-0000-4000-8000-000000000001";
+const E2 = "e1000000-0000-4000-8000-000000000002";
+const MINE = "e1000000-0000-4000-8000-0000000000aa";
+const THEIRS = "e1000000-0000-4000-8000-0000000000bb";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const ACTOR_ID = "44444444-4444-4444-4444-444444444444";
@@ -75,8 +81,8 @@ describe("GET /time-entries — { data, total } list-envelope contract", () => {
   it("returns BOTH `data` (array) and `total` (number) keys", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
     const rows = [
-      { id: "e1", hours: 2 },
-      { id: "e2", hours: 3 },
+      timeEntryRow({ id: E1, userId: ACTOR_ID, hours: 2 }),
+      timeEntryRow({ id: E2, userId: ACTOR_ID, hours: 3 }),
     ];
     prisma.timeEntry.findMany.mockResolvedValue(rows);
     prisma.timeEntry.count.mockResolvedValue(2);
@@ -98,7 +104,7 @@ describe("GET /time-entries — { data, total } list-envelope contract", () => {
   it("`total` reflects the full count, independent of the returned page", async () => {
     // total comes from a separate count() — it can exceed data.length when paged.
     getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
-    prisma.timeEntry.findMany.mockResolvedValue([{ id: "e1", hours: 2 }]);
+    prisma.timeEntry.findMany.mockResolvedValue([timeEntryRow({ id: E1, userId: ACTOR_ID, hours: 2 })]);
     prisma.timeEntry.count.mockResolvedValue(57);
 
     const res = await GET(getRequest(), { params });
@@ -307,8 +313,8 @@ describe("GET /time-entries — rate redaction", () => {
 
   function rows() {
     return [
-      { id: "mine", userId: ACTOR_ID, hours: 2, rate: "150" },
-      { id: "theirs", userId: OTHER_ID, hours: 3, rate: "225" },
+      timeEntryRow({ id: MINE, userId: ACTOR_ID, hours: 2, rate: "150" }),
+      timeEntryRow({ id: THEIRS, userId: OTHER_ID, hours: 3, rate: "225" }),
     ];
   }
 
@@ -320,7 +326,7 @@ describe("GET /time-entries — rate redaction", () => {
     const body = await (await GET(getRequest(), { params })).json();
 
     expect(body.data).toHaveLength(2);
-    expect(body.data.find((e: { id: string }) => e.id === "theirs").rate).toBeNull();
+    expect(body.data.find((e: { id: string }) => e.id === THEIRS).rate).toBeNull();
   });
 
   it("one's OWN rate is never redacted — the actor typed it", async () => {
@@ -330,7 +336,7 @@ describe("GET /time-entries — rate redaction", () => {
 
     const body = await (await GET(getRequest(), { params })).json();
 
-    expect(body.data.find((e: { id: string }) => e.id === "mine").rate).toBe("150");
+    expect(body.data.find((e: { id: string }) => e.id === MINE).rate).toBe("150");
   });
 
   it("FINANCE_READ sees every rate", async () => {
@@ -342,6 +348,6 @@ describe("GET /time-entries — rate redaction", () => {
 
     const body = await (await GET(getRequest(), { params })).json();
 
-    expect(body.data.find((e: { id: string }) => e.id === "theirs").rate).toBe("225");
+    expect(body.data.find((e: { id: string }) => e.id === THEIRS).rate).toBe("225");
   });
 });
