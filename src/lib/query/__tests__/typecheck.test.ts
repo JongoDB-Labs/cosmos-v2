@@ -166,7 +166,7 @@ describe("typecheck — values", () => {
     expect(codes("assignee IN openSprints()")).toEqual(["CQL_TYPE_MISMATCH"]);
     expect(codes("due < openSprints()")).toEqual(["CQL_TYPE_MISMATCH"]);
     expect(codes("linkedItems(ACME-1, NOPE)")).toEqual(["CQL_TYPE_MISMATCH"]);
-    expect(codes("descendantsOf(ACME-1)")).toEqual(["CQL_NOT_YET_SUPPORTED"]);
+    expect(codes("descendantsOf(ACME-1)")).toEqual([]);
   });
 
   it("a set-valued function after = is taken as the IN it means", () => {

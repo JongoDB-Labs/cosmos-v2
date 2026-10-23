@@ -23,6 +23,12 @@ export interface CompileEnv {
   items: Map<string, { projectId: string; ticketNumber: number }>;
   /** Custom field types by key. */
   customFields: Map<string, CustomFieldType>;
+  /** Everything under an item (readable projects only), by the item's id: `ancestor`, `descendantsOf()`. */
+  descendants: Map<string, string[]>;
+  /** Items linked to each milestone the query names. */
+  milestoneItems: Map<string, string[]>;
+  /** Every item linked to any readable milestone (for `milestone IS EMPTY`). */
+  milestoneLinked: string[];
   contextProjectId?: string;
   sinceLastStandup?: Date;
 }

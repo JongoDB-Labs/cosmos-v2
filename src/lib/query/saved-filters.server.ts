@@ -162,7 +162,7 @@ export function legacyFilterOf(q: CqlQuery, cfTypes: ReadonlyMap<string, string>
   return toWorkItemFilter(q, cfTypes) ?? {};
 }
 
-const SCOPED = new Set(["project", "interval", "team", "item"]);
+const SCOPED = new Set(["project", "interval", "team", "item", "milestone"]);
 
 function refsOf(q: CqlQuery): Extract<CqlValue, { t: "ref" }>[] {
   const out: Extract<CqlValue, { t: "ref" }>[] = [];

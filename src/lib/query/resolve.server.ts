@@ -28,7 +28,7 @@ import {
 import { fieldDef, type SystemFieldId } from "./fields";
 import { lookupFunction } from "./functions";
 import { fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
-import { diag, type CqlDiagnostic, type Span } from "./errors";
+import { CqlError, diag, type CqlDiagnostic, type Span } from "./errors";
 import type { CustomFieldType, SchemaCustomField } from "./typecheck";
 
 /** A dashboard variable's value as a caller supplies it: ids/names, or nothing (= everyone). */
@@ -85,7 +85,7 @@ const KEY_RE = /^([A-Za-z][A-Za-z0-9_]*)-(\d+)$/;
  * People, labels and types are org-wide: an item assigned to someone who has
  * since left is still that person's item.
  */
-const SCOPED_REFS = new Set<RefEntity>(["project", "interval", "team", "item"]);
+const SCOPED_REFS = new Set<RefEntity>(["project", "interval", "team", "item", "milestone"]);
 /**
  * Stored refs that are re-checked against the ORG (not a project): a JSON
  * query (an API caller, a saved filter) could carry any id, and an id from
@@ -174,10 +174,10 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
 
   // ── 2. Batched, scoped lookups ─────────────────────────────────────────────
   const readableIds = [...readable];
-  const nameOrIdOr = (names: Set<string>, column: "name" | "key" | "email" | "displayName") =>
+  const nameOrIdOr = (names: Set<string>, column: "name" | "key" | "email" | "displayName" | "title") =>
     [...names].map((n) => ({ [column]: { equals: n, mode: "insensitive" as const } }));
 
-  const [projects, types, columns, intervals, teams, labels, members] = await Promise.all([
+  const [projects, types, columns, intervals, teams, labels, members, milestones] = await Promise.all([
     wanted.project.size || wanted.item.size || a.contextProjectId
       ? prisma.project.findMany({ where: { orgId, id: { in: readableIds } }, select: { id: true, key: true, name: true } })
       : [],
@@ -219,6 +219,12 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
             },
           },
           select: { user: { select: { id: true, email: true, displayName: true } } },
+        })
+      : [],
+    wanted.milestone.size
+      ? prisma.milestone.findMany({
+          where: { orgId, projectId: { in: readableIds }, OR: [...nameOrIdOr(wanted.milestone, "title"), { id: { in: [...wanted.milestone].filter(isUuid) } }] },
+          select: { id: true, title: true },
         })
       : [],
   ]);
@@ -287,6 +293,11 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     const ref: Ref = { t: "ref", entity: "label", id: l.id, label: l.name };
     put("label", l.name, ref);
     put("label", l.id, ref);
+  }
+  for (const m of milestones) {
+    const ref: Ref = { t: "ref", entity: "milestone", id: m.id, label: m.title };
+    put("milestone", m.title, ref);
+    put("milestone", m.id, ref);
   }
   const userByName = new Map<string, { id: string; email: string; displayName: string }[]>();
   for (const { user: u } of members) {
@@ -485,6 +496,42 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     }
   }
 
+  // ── 5b. Hierarchy and milestones, as id sets ─────────────────────────────────
+  // `ancestor = X` and `descendantsOf(X)`: everything under X at any depth,
+  // walking only readable projects. `milestone`: the items each named
+  // milestone links to (MilestoneLink has no relation to WorkItem).
+  const refIdsOf = (values: CqlValue[], entity: RefEntity) =>
+    values.filter((v): v is Ref => v.t === "ref" && v.entity === entity).map((v) => v.id);
+  const roots = new Set<string>();
+  const milestoneIds = new Set<string>();
+  let usesMilestone = false;
+  if (where) {
+    walk(where, (l) => {
+      const values = leafValues(l);
+      if (l.field.kind === "sys" && l.field.id === "ancestor") refIdsOf(values, "item").forEach((id) => roots.add(id));
+      if (l.field.kind === "sys" && l.field.id === "milestone") {
+        usesMilestone = true;
+        refIdsOf(values, "milestone").forEach((id) => milestoneIds.add(id));
+      }
+    });
+  }
+  for (const fn of fnValues) if (fn.name === "descendantsOf") refIdsOf(fn.args, "item").forEach((id) => roots.add(id));
+  const descendants = await descendantsByRoot(orgId, [...roots], readableIds);
+  const milestoneItems = new Map<string, string[]>();
+  let milestoneLinked: string[] = [];
+  if (usesMilestone) {
+    const links = await prisma.milestoneLink.findMany({
+      where: { milestone: { orgId, projectId: { in: readableIds } } },
+      select: { milestoneId: true, workItemId: true },
+      take: TOO_BROAD,
+    });
+    if (links.length >= TOO_BROAD) throw tooBroad("milestone");
+    for (const l of links) {
+      if (milestoneIds.has(l.milestoneId)) pushTo(milestoneItems, l.milestoneId, l.workItemId);
+    }
+    milestoneLinked = [...new Set(links.map((l) => l.workItemId))];
+  }
+
   // ── 6. Status categories per readable project ──────────────────────────────
   const statusCategories: CompileEnv["statusCategories"] = { TODO: [], IN_PROGRESS: [], DONE: [], CANCELLED: [] };
   if (needsStatusCategories) {
@@ -516,10 +563,48 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     statusCategories,
     items,
     customFields: cfTypes,
+    descendants,
+    milestoneItems,
+    milestoneLinked,
     ...(contextProject ? { contextProjectId: contextProject } : {}),
     ...(a.sinceLastStandup ? { sinceLastStandup: a.sinceLastStandup } : {}),
   };
   return { query: { ...a.query, where }, env, diagnostics };
+}
+
+/** Id sets past this many rows are refused rather than shipped as a giant IN list. */
+const TOO_BROAD = 50_001;
+
+function tooBroad(what: string): CqlError {
+  return new CqlError([diag("", "CQL_TOO_BROAD", `This ${what} clause matches too many items. Narrow it with a project or another condition.`)]);
+}
+
+/**
+ * Everything under each root, any depth, inside readable projects. One
+ * recursive query, parameterized (no SQL built from strings); UNION stops on
+ * cycles. Bounded: past TOO_BROAD rows it is refused.
+ */
+async function descendantsByRoot(orgId: string, roots: string[], readable: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (roots.length === 0 || readable.length === 0) return out;
+  const rows = await prisma.$queryRaw<{ root: string; id: string }[]>`
+    WITH RECURSIVE tree(root, id) AS (
+      SELECT w.parent_id, w.id FROM work_items w
+       WHERE w.parent_id = ANY(${roots}::uuid[]) AND w.org_id = ${orgId}::uuid AND w.project_id = ANY(${readable}::uuid[])
+      UNION
+      SELECT t.root, w.id FROM work_items w JOIN tree t ON w.parent_id = t.id
+       WHERE w.org_id = ${orgId}::uuid AND w.project_id = ANY(${readable}::uuid[])
+    )
+    SELECT root::text AS root, id::text AS id FROM tree LIMIT ${TOO_BROAD}`;
+  if (rows.length >= TOO_BROAD) throw tooBroad("descendants");
+  for (const r of rows) pushTo(out, r.root, r.id);
+  return out;
+}
+
+function pushTo(m: Map<string, string[]>, k: string, v: string): void {
+  const list = m.get(k);
+  if (list) list.push(v);
+  else m.set(k, [v]);
 }
 
 function dedupe(values: CqlValue[]): CqlValue[] {

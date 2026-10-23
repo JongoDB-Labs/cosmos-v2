@@ -114,6 +114,10 @@ function itemFnWhere(v: Extract<CqlValue, { t: "fn" }>, env: CompileEnv): Where 
       const id = refId(v.args[0]);
       return id ? { parentId: id } : FALSE;
     }
+    case "descendantsOf": {
+      const id = refId(v.args[0]);
+      return id ? { id: { in: env.descendants.get(id) ?? [] } } : FALSE;
+    }
     case "linkedItems": {
       const id = refId(v.args[0]);
       if (!id) return FALSE;
@@ -464,7 +468,15 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
         },
       };
     case "ancestor":
+      return {
+        match: (b) => ({ id: { in: [...new Set(ids(b).flatMap((root) => env.descendants.get(root) ?? []))] } }),
+        isEmpty: null,
+      };
     case "milestone":
+      return {
+        match: (b) => ({ id: { in: [...new Set(ids(b).flatMap((m) => env.milestoneItems.get(m) ?? []))] } }),
+        isEmpty: { id: { notIn: env.milestoneLinked } },
+      };
     case "rank":
       throw new Error(`${id} is not compiled in this phase`);
   }

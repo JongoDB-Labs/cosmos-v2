@@ -30,6 +30,9 @@ function env(over: Partial<CompileEnv> = {}): CompileEnv {
     },
     items: new Map([["item-100", { projectId: "p1", ticketNumber: 100 }]]),
     customFields: new Map([["sev", "SELECT"], ["n", "NUMBER"], ["areas", "MULTI_SELECT"]]),
+    descendants: new Map([["item-1", ["c1", "c2", "g1"]]]),
+    milestoneItems: new Map([["m1", ["c1", "x9"]]]),
+    milestoneLinked: ["c1", "x9", "y7"],
     ...over,
   };
 }
@@ -154,6 +157,16 @@ describe("compile — field by field", () => {
     expect(where('parent = "ref:item:i1"')).toEqual({ parentId: { in: ["i1"], not: null } });
     expect(where("watchedItems()")).toEqual({ watchers: { some: { userId: "me-id" } } });
     expect(where('childrenOf("ref:item:i1")')).toEqual({ parentId: "i1" });
+  });
+
+  it("hierarchy and milestones compile to the resolver's id sets", () => {
+    expect(where('ancestor = "ref:item:item-1"')).toEqual({ id: { in: ["c1", "c2", "g1"] } });
+    expect(where('ancestor IN ("ref:item:item-1", "ref:item:none")')).toEqual({ id: { in: ["c1", "c2", "g1"] } });
+    expect(where('ancestor = "ref:item:none"')).toEqual({ id: { in: [] } });
+    expect(where('descendantsOf("ref:item:item-1")')).toEqual({ id: { in: ["c1", "c2", "g1"] } });
+    expect(where('descendantsOf("ref:item:none")')).toEqual({ id: { in: [] } });
+    expect(where('milestone = "ref:milestone:m1"')).toEqual({ id: { in: ["c1", "x9"] } });
+    expect(where("milestone IS EMPTY")).toEqual({ id: { notIn: ["c1", "x9", "y7"] } });
   });
 
   it("key comparisons are within the item's project", () => {
