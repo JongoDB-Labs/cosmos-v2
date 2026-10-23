@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.450.0",
+    date: "2026-10-23",
+    title: "Projects API: paging and standard errors",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "For API clients: the projects list can now be paged (send limit or cursor; without them you still get the full list), unknown query parameters are ignored, and errors come back as standard problem+json.",
+      },
+    ],
+  },
+  {
     version: "2.449.1",
     date: "2026-10-23",
     title: "Consistent work item updates",
