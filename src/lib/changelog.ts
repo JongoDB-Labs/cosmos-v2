@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.447.1",
+    date: "2026-10-23",
+    title: "Outlook sync recognises your calendar",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Outlook calendar sync now recognises its Cosmos calendar when your sign-in name differs from your email address, so reconnecting no longer creates extra calendars.",
+      },
+    ],
+  },
+  {
     version: "2.447.0",
     date: "2026-10-23",
     title: "Outlook calendar sync",
