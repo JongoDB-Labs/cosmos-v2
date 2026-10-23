@@ -25,7 +25,8 @@ const req = (method: string, path: string, body?: unknown) =>
     method,
     ...(body !== undefined ? { body: JSON.stringify(body), headers: { "content-type": "application/json" } } : {}),
   });
-const p = (extra: Record<string, string> = {}) => ({ params: Promise.resolve({ orgId: w.orgA, viewId, ...extra }) });
+const p = () => ({ params: Promise.resolve({ orgId: w.orgA, viewId }) });
+const ps = (subId: string) => ({ params: Promise.resolve({ orgId: w.orgA, viewId, subId }) });
 
 beforeAll(async () => {
   w = await seedWorld();
@@ -78,18 +79,18 @@ describe("subscription routes", () => {
     ).json()) as { subscription: { id: string } };
     // Bob can see the filter (P1 reader) but didn't make this and isn't its recipient.
     await as(w.bob.id);
-    expect((await patch(req("PATCH", "x", { enabled: false }), p({ subId: subscription.id }))).status).toBe(404);
-    expect((await del(req("DELETE", "x"), p({ subId: subscription.id }))).status).toBe(404);
+    expect((await patch(req("PATCH", "x", { enabled: false }), ps(subscription.id))).status).toBe(404);
+    expect((await del(req("DELETE", "x"), ps(subscription.id))).status).toBe(404);
     const bobsList = (await (await list(req("GET", "x"), p())).json()) as { subscriptions: { id: string }[] };
     expect(bobsList.subscriptions.map((s) => s.id)).not.toContain(subscription.id);
 
     await as(w.actor.id);
-    expect((await patch(req("PATCH", "x", { cron: "* 9 * * *" }), p({ subId: subscription.id }))).status).toBe(400);
-    const paused = await patch(req("PATCH", "x", { enabled: false }), p({ subId: subscription.id }));
+    expect((await patch(req("PATCH", "x", { cron: "* 9 * * *" }), ps(subscription.id))).status).toBe(400);
+    const paused = await patch(req("PATCH", "x", { enabled: false }), ps(subscription.id));
     expect(((await paused.json()) as { subscription: { disabledReason: string } }).subscription.disabledReason).toBe("paused");
-    const resumed = await patch(req("PATCH", "x", { enabled: true }), p({ subId: subscription.id }));
+    const resumed = await patch(req("PATCH", "x", { enabled: true }), ps(subscription.id));
     expect(((await resumed.json()) as { subscription: { disabledAt: string | null } }).subscription.disabledAt).toBeNull();
-    expect((await del(req("DELETE", "x"), p({ subId: subscription.id }))).status).toBe(204);
+    expect((await del(req("DELETE", "x"), ps(subscription.id))).status).toBe(204);
     expect(await prisma.filterSubscription.count({ where: { id: subscription.id } })).toBe(0);
   });
 
