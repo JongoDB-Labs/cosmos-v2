@@ -433,7 +433,7 @@ export async function completeInterval(input: Record<string, unknown>, ctx: Tool
         if (!dest) throw new Error("moveIncompleteToIntervalId is not an interval in this project");
         destination = dest.id;
       }
-      await updateWorkItems(tx, incompleteItems.map((i) => i.id), { intervalId: destination });
+      await updateWorkItems(tx, incompleteItems.map((i) => i.id), { intervalId: destination }, { actorId: ctx.userId, source: "AI" });
     }
 
     const row = await tx.interval.update({

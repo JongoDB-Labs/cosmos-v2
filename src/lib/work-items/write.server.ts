@@ -15,8 +15,24 @@
  * restoring another system's recorded state, may write them, through
  * `updateWorkItemsUnchecked`, which the architecture test restricts to those
  * two callers.
+ *
+ * Every primitive also records the change in the domain-event outbox
+ * (`events.server.ts`), in the same transaction as the write, so automations
+ * and webhooks see every committed change and none that rolled back. Each one
+ * takes a `WriteMeta` (who, through what) for that; the change service passes
+ * `RECORDED_BY_CALLER` instead and records richer events itself.
  */
+import { randomUUID } from "node:crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
+import {
+  RECORDED_BY_CALLER,
+  eventValue,
+  inTransaction,
+  recordEvents,
+  type DomainEventInput,
+  type WriteMeta,
+  type WriteMetaOrCaller,
+} from "@/lib/work-items/events.server";
 
 /** The root client or an interactive-transaction client. */
 export type WorkItemDb = Prisma.TransactionClient | PrismaClient;
@@ -42,12 +58,85 @@ export class StatusFieldWriteError extends Error {
   }
 }
 
-/** Create one work item row. */
+/** Create one work item row, and its `work_item.created` event. */
 export function createWorkItemRow<T extends Prisma.WorkItemCreateArgs>(
   db: WorkItemDb,
   args: Prisma.SelectSubset<T, Prisma.WorkItemCreateArgs>,
+  meta: WriteMeta,
 ) {
-  return db.workItem.create<T>(args);
+  const data = args.data as Prisma.WorkItemUncheckedCreateInput;
+  if (!data.orgId || !data.projectId) {
+    throw new Error("createWorkItemRow needs orgId and projectId as plain fields, for the item's event.");
+  }
+  // The id is chosen here so the event can name the row whatever `select` the
+  // caller asked for.
+  const id = data.id ?? randomUUID();
+  return inTransaction(db, async (tx) => {
+    const row = await tx.workItem.create<T>({ ...args, data: { ...data, id } } as Prisma.SelectSubset<T, Prisma.WorkItemCreateArgs>);
+    await recordEvents(tx, meta, [
+      {
+        orgId: data.orgId,
+        projectId: data.projectId,
+        type: "work_item.created",
+        subjectId: id,
+        payload: {
+          ticketNumber: data.ticketNumber,
+          columnKey: data.columnKey ?? null,
+          workItemTypeId: data.workItemTypeId,
+          parentId: data.parentId ?? null,
+        },
+      },
+    ]);
+    return row;
+  });
+}
+
+type ItemSnapshot = { id: string; orgId: string; projectId: string } & Record<string, unknown>;
+
+/**
+ * The events for rows read before and after a write: one per item where a
+ * field changed, `work_item.transitioned` when its status did. A payload holds
+ * each changed field's before and after (free text only named, see eventValue).
+ */
+export function changeEvents(
+  before: readonly ItemSnapshot[],
+  after: readonly ItemSnapshot[],
+  fields: readonly string[],
+): DomainEventInput[] {
+  const afterById = new Map(after.map((r) => [r.id, r]));
+  return before.flatMap((b): DomainEventInput[] => {
+    const a = afterById.get(b.id);
+    if (!a) return [];
+    const changes: Record<string, { from: Prisma.InputJsonValue | null; to: Prisma.InputJsonValue | null }> = {};
+    for (const f of fields) {
+      if (JSON.stringify(b[f] ?? null) === JSON.stringify(a[f] ?? null)) continue;
+      changes[f] = { from: eventValue(f, b[f]), to: eventValue(f, a[f]) };
+    }
+    if (Object.keys(changes).length === 0) return [];
+    const moved = "columnKey" in changes;
+    return [
+      {
+        orgId: b.orgId,
+        projectId: b.projectId,
+        type: moved ? "work_item.transitioned" : "work_item.updated",
+        subjectId: b.id,
+        payload: moved
+          ? { from: b.columnKey as string, to: a.columnKey as string, changes }
+          : { changes },
+      },
+    ];
+  });
+}
+
+/** Read the given fields of the given items, with what an event needs to name them. */
+export function snapshotItems(
+  tx: Prisma.TransactionClient,
+  ids: readonly string[],
+  fields: readonly string[],
+): Promise<ItemSnapshot[]> {
+  const select: Record<string, true> = { id: true, orgId: true, projectId: true };
+  for (const f of fields) select[f] = true;
+  return tx.workItem.findMany({ where: { id: { in: [...ids] } }, select }) as unknown as Promise<ItemSnapshot[]>;
 }
 
 /**
@@ -61,10 +150,11 @@ export async function updateWorkItems(
   db: WorkItemDb,
   ids: readonly string[],
   data: Prisma.WorkItemUncheckedUpdateManyInput,
+  meta: WriteMetaOrCaller,
 ): Promise<number> {
   const statusFields = STATUS_FIELDS.filter((f) => f in data);
   if (statusFields.length > 0) throw new StatusFieldWriteError(statusFields);
-  return updateWorkItemsUnchecked(db, ids, data);
+  return updateWorkItemsUnchecked(db, ids, data, meta);
 }
 
 /**
@@ -75,24 +165,37 @@ export async function updateWorkItemsUnchecked(
   db: WorkItemDb,
   ids: readonly string[],
   data: Prisma.WorkItemUncheckedUpdateManyInput,
+  meta: WriteMetaOrCaller,
 ): Promise<number> {
   if (ids.length === 0) return 0;
-  const result = await db.workItem.updateMany({ where: { id: { in: [...ids] } }, data });
-  return result.count;
+  const write = async (tx: WorkItemDb) =>
+    (await tx.workItem.updateMany({ where: { id: { in: [...ids] } }, data })).count;
+  if (meta === RECORDED_BY_CALLER) return write(db);
+  const fields = Object.keys(data).filter((k) => data[k as keyof typeof data] !== undefined);
+  return inTransaction(db, async (tx) => {
+    const before = await snapshotItems(tx, ids, fields);
+    const count = await write(tx);
+    await recordEvents(tx, meta, changeEvents(before, await snapshotItems(tx, ids, fields), fields));
+    return count;
+  });
 }
 
 /**
  * Rebuild the `tags` mirror for the given items from their join rows. See
  * `recomputeTagMirror` in `labels.ts`, which owns when this runs.
  */
-export async function rebuildTagMirror(db: WorkItemDb, workItemIds: readonly string[]): Promise<void> {
+export async function rebuildTagMirror(
+  db: WorkItemDb,
+  workItemIds: readonly string[],
+  meta: WriteMetaOrCaller,
+): Promise<void> {
   if (workItemIds.length === 0) return;
   // The COALESCE is for the column's sake, not the caller's: array_agg over
   // zero rows yields NULL, and `tags` is nullable, so an item losing its last
   // label would be stored as NULL among rows that all hold '{}'. Prisma reads
   // either back as [], so this is invisible from the app — it matters to the
   // raw-SQL readers, where `= ANY(NULL)` is NULL rather than false.
-  await db.$executeRaw`
+  const write = (tx: WorkItemDb) => tx.$executeRaw`
     UPDATE work_items w
     SET tags = COALESCE((
       SELECT array_agg(l.name ORDER BY l.name)
@@ -102,4 +205,13 @@ export async function rebuildTagMirror(db: WorkItemDb, workItemIds: readonly str
     ), ARRAY[]::text[])
     WHERE w.id = ANY(${[...workItemIds]}::uuid[])
   `;
+  if (meta === RECORDED_BY_CALLER) {
+    await write(db);
+    return;
+  }
+  await inTransaction(db, async (tx) => {
+    const before = await snapshotItems(tx, workItemIds, ["tags"]);
+    await write(tx);
+    await recordEvents(tx, meta, changeEvents(before, await snapshotItems(tx, workItemIds, ["tags"]), ["tags"]));
+  });
 }

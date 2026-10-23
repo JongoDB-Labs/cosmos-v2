@@ -8,10 +8,19 @@ import { NextRequest } from "next/server";
 
 const { prisma, tx, getAuthContext, requireAccess } = vi.hoisted(() => {
   const tx = {
-    workItem: { aggregate: vi.fn(), updateMany: vi.fn(async () => ({ count: 1 })), create: vi.fn() },
+    workItem: {
+      aggregate: vi.fn(),
+      updateMany: vi.fn(async () => ({ count: 1 })),
+      create: vi.fn(),
+      // The single writer reads rows around a write for their outbox events.
+      findMany: vi.fn(async () => []),
+    },
     workItemAssignee: { deleteMany: vi.fn(), create: vi.fn() },
     workItemLink: { create: vi.fn() },
     activity: { create: vi.fn() },
+    domainEvent: { createMany: vi.fn() },
+    // A nested transaction joins the open one.
+    $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)),
   };
   return {
     tx,

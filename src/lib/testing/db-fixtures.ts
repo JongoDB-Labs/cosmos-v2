@@ -122,7 +122,7 @@ export async function createFixtureWorkItem(
           columnKey: input.columnKey,
           ticketNumber,
         },
-      });
+      }, { actorId: null, source: "SYSTEM" });
     } catch (e) {
       if (!isUniqueViolation(e)) throw e;
       lastError = e;

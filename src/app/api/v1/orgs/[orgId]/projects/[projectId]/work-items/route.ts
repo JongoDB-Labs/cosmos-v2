@@ -262,7 +262,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           },
           _count: { select: { comments: true, activities: true } },
         },
-      });
+      }, { actorId: ctx.userId, source: "API" });
 
       // Labels go through the catalogue, so a ticket created with one produces a
       // real Label row rather than a string only this item knows about. The
@@ -270,7 +270,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // differ from what the caller sent — asking for "security" when the org's
       // label is "Security" stores, and should return, "Security".
       if (data.tags !== undefined && data.tags.length > 0) {
-        const labels = await setWorkItemLabels(tx, orgId, created.id, data.tags);
+        const labels = await setWorkItemLabels(tx, orgId, created.id, data.tags, { actorId: ctx.userId, source: "API" });
         created.tags = labels.map((l) => l.name);
       }
 

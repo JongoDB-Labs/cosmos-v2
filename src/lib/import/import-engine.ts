@@ -457,7 +457,7 @@ export async function runImport(
           },
           select: { id: true },
         });
-        await updateWorkItemsUnchecked(prisma, [up.id], base);
+        await updateWorkItemsUnchecked(prisma, [up.id], base, { actorId: ctx.userId, source: "IMPORT" });
         id = up.id;
         updated++;
       } else {
@@ -477,7 +477,7 @@ export async function runImport(
               createdById: ctx.userId,
             },
             select: { id: true },
-          });
+          }, { actorId: ctx.userId, source: "IMPORT" });
         });
         id = cr.id;
         created++;
@@ -605,7 +605,7 @@ export async function runImport(
       if (!childId || !parentId || childId === parentId) continue;
       if (n.externalKey && createsCycle(n.externalKey, n.parentKey!)) continue;
       try {
-        await updateWorkItems(prisma, [childId], { parentId });
+        await updateWorkItems(prisma, [childId], { parentId }, { actorId: ctx.userId, source: "IMPORT" });
       } catch {
         /* non-fatal: leave unparented if the link can't be set */
       }
