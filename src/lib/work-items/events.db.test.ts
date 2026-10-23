@@ -64,6 +64,17 @@ describe("the work-item outbox", () => {
     expect(e.processedAt).toBeNull();
   });
 
+  it("records a write that names no one (a composed plugin's) as PLUGIN, with no actor", async () => {
+    await createWorkItemRow(prisma, {
+      data: {
+        orgId, projectId, workItemTypeId: typeId, createdById: userId,
+        title: "from a plugin", description: "", columnKey: "todo", ticketNumber: ++ticket,
+      },
+    });
+    const [e] = await eventsFor(await lastCreatedId());
+    expect(e).toMatchObject({ type: "work_item.created", actorId: null, source: "PLUGIN" });
+  });
+
   it("records an update's before and after, names free text without copying it, and skips a no-op", async () => {
     await create();
     const id = await lastCreatedId();

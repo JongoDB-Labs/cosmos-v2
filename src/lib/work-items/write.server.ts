@@ -20,11 +20,13 @@
  * (`events.server.ts`), in the same transaction as the write, so automations
  * and webhooks see every committed change and none that rolled back. Each one
  * takes a `WriteMeta` (who, through what) for that; the change service passes
- * `RECORDED_BY_CALLER` instead and records richer events itself.
+ * `RECORDED_BY_CALLER` instead and records richer events itself. `meta` is
+ * optional for the composed plugins' sake only (see PLUGIN_WRITE).
  */
 import { randomUUID } from "node:crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
+  PLUGIN_WRITE,
   RECORDED_BY_CALLER,
   eventValue,
   inTransaction,
@@ -62,7 +64,7 @@ export class StatusFieldWriteError extends Error {
 export function createWorkItemRow<T extends Prisma.WorkItemCreateArgs>(
   db: WorkItemDb,
   args: Prisma.SelectSubset<T, Prisma.WorkItemCreateArgs>,
-  meta: WriteMeta,
+  meta: WriteMeta = PLUGIN_WRITE,
 ) {
   const data = args.data as Prisma.WorkItemUncheckedCreateInput;
   if (!data.orgId || !data.projectId) {
@@ -150,7 +152,7 @@ export async function updateWorkItems(
   db: WorkItemDb,
   ids: readonly string[],
   data: Prisma.WorkItemUncheckedUpdateManyInput,
-  meta: WriteMetaOrCaller,
+  meta: WriteMetaOrCaller = PLUGIN_WRITE,
 ): Promise<number> {
   const statusFields = STATUS_FIELDS.filter((f) => f in data);
   if (statusFields.length > 0) throw new StatusFieldWriteError(statusFields);
@@ -165,7 +167,7 @@ export async function updateWorkItemsUnchecked(
   db: WorkItemDb,
   ids: readonly string[],
   data: Prisma.WorkItemUncheckedUpdateManyInput,
-  meta: WriteMetaOrCaller,
+  meta: WriteMetaOrCaller = PLUGIN_WRITE,
 ): Promise<number> {
   if (ids.length === 0) return 0;
   const write = async (tx: WorkItemDb) =>
@@ -187,7 +189,7 @@ export async function updateWorkItemsUnchecked(
 export async function rebuildTagMirror(
   db: WorkItemDb,
   workItemIds: readonly string[],
-  meta: WriteMetaOrCaller,
+  meta: WriteMetaOrCaller = PLUGIN_WRITE,
 ): Promise<void> {
   if (workItemIds.length === 0) return;
   // The COALESCE is for the column's sake, not the caller's: array_agg over

@@ -17,7 +17,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 
 /** Who or what made a change. */
-export type EventSource = "API" | "BULK" | "AI" | "IMPORT" | "SYSTEM" | "AUTOMATION" | "MIGRATION";
+export type EventSource = "API" | "BULK" | "AI" | "IMPORT" | "SYSTEM" | "AUTOMATION" | "MIGRATION" | "PLUGIN";
 
 export interface WriteMeta {
   /** Null for a write no person made (an import, a migration, the system). */
@@ -29,6 +29,14 @@ export interface WriteMeta {
   depth?: number;
   causedByRuleId?: string | null;
 }
+
+/**
+ * What a write records when its caller names no one. The primitives keep
+ * `meta` optional only so the private plugins composed into the product keep
+ * compiling against them; every caller in this repository passes it, which
+ * `write-meta.arch.test.ts` enforces.
+ */
+export const PLUGIN_WRITE: WriteMeta = { actorId: null, source: "PLUGIN" };
 
 /** The caller records the events for this write itself (the change service). */
 export const RECORDED_BY_CALLER = "recorded-by-caller" as const;
