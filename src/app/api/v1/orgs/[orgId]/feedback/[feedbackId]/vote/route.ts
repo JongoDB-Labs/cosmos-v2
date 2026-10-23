@@ -19,6 +19,16 @@ async function resolve(orgId: string, feedbackId: string) {
     where: { id: feedbackId, orgId },
   });
   if (!item) return { error: new Response("Not found", { status: 404 }) };
+  // A merged request's votes live on its survivor (and its own rows must stay
+  // exactly as they were, for an undo), so it can't be voted on or un-voted.
+  if (item.mergedIntoId || item.status === "MERGED") {
+    return {
+      error: new Response(
+        JSON.stringify({ error: "This request was merged; vote on the one it was merged into.", mergedIntoId: item.mergedIntoId }),
+        { status: 409, headers: { "Content-Type": "application/json" } },
+      ),
+    };
+  }
   return { ctx, item };
 }
 

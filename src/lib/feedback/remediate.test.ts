@@ -838,16 +838,27 @@ describe("runFeedbackRemediation — intake guardrails (e2e)", () => {
         new Set([voterOverlap, voterCanonicalOnly, voterDupOnly]),
       );
 
-      // The duplicate is DECLINED + linked, its own votes cleared, never delivered.
+      // The duplicate is MERGED into the canonical item and linked, its count
+      // zeroed, never delivered. Its own vote rows stay so the merge can be
+      // undone exactly; an intake merge has no person behind it.
       const dupAfter = await prisma.feedbackItem.findUniqueOrThrow({
         where: { id: dup.id },
-        select: { status: true, voteCount: true, deliveredAt: true, workItemId: true, triage: true },
+        select: { status: true, mergedIntoId: true, voteCount: true, deliveredAt: true, workItemId: true, triage: true },
       });
-      expect(dupAfter.status).toBe("DECLINED");
+      expect(dupAfter.status).toBe("MERGED");
+      expect(dupAfter.mergedIntoId).toBe(canonical.id);
       expect(dupAfter.voteCount).toBe(0);
       expect(dupAfter.deliveredAt).toBeNull();
       expect(dupAfter.workItemId).toBeNull();
-      expect(await prisma.feedbackVote.count({ where: { feedbackItemId: dup.id } })).toBe(0);
+      expect(await prisma.feedbackVote.count({ where: { feedbackItemId: dup.id } })).toBe(2);
+      const merge = await prisma.feedbackMerge.findFirstOrThrow({ where: { duplicateId: dup.id } });
+      expect(merge).toMatchObject({
+        survivorId: canonical.id,
+        source: "intake",
+        mergedById: null,
+        previousStatus: "OPEN",
+        movedVoteUserIds: [voterDupOnly],
+      });
       const link = (dupAfter.triage as Record<string, unknown>)?.duplicate as Record<string, unknown>;
       expect(link?.ref).toBe(`F:${canonical.id}`);
       expect(link?.targetFeedbackId).toBe(canonical.id);
@@ -866,6 +877,7 @@ describe("runFeedbackRemediation — intake guardrails (e2e)", () => {
     } finally {
       await prisma.notification.deleteMany({ where: { orgId, refId: { in: [canonical.id, dup.id] } } });
       await prisma.feedbackVote.deleteMany({ where: { feedbackItemId: { in: [canonical.id, dup.id] } } });
+      await prisma.feedbackMerge.deleteMany({ where: { duplicateId: dup.id } });
       await prisma.feedbackItem.deleteMany({ where: { id: { in: [canonical.id, dup.id] } } });
     }
   });
