@@ -1279,13 +1279,14 @@ model SavedViewFavorite {
 
 /// Explicit co-editors of a saved filter (Jira's "edit permissions").
 model SavedViewEditor {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   savedViewId String @map("saved_view_id") @db.Uuid
   userId      String @map("user_id") @db.Uuid
 
   savedView SavedView @relation(fields: [savedViewId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@id([savedViewId, userId])
+  @@unique([savedViewId, userId])
   @@index([userId])
   @@map("saved_view_editors")
 }
