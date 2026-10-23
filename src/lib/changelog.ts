@@ -49,6 +49,127 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.442.0",
+    date: "2026-10-23",
+    title: "Connect your Outlook calendar",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each person can connect their own Microsoft 365 account, once an admin has approved the app, so Cosmos can work with their Outlook calendar.",
+      },
+    ],
+  },
+  {
+    version: "2.441.1",
+    date: "2026-10-23",
+    title: "Stuck installs no longer block updates",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An install whose installer stopped responding no longer blocks every later install: it's marked abandoned after 30 minutes without a heartbeat, and a new install can start.",
+      },
+    ],
+  },
+  {
+    version: "2.441.0",
+    date: "2026-10-23",
+    title: "Split an issue per assignee",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An issue with several assignees can now be split into one linked copy per extra assignee, with the same fields and parent, from the issue's actions menu.",
+      },
+    ],
+  },
+  {
+    version: "2.440.0",
+    date: "2026-10-23",
+    title: "Ask the assistant about your team's work",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The assistant can now list your teams and filter work items by team, so you can ask things like \"what's my team working on this sprint?\"",
+      },
+    ],
+  },
+  {
+    version: "2.439.12",
+    date: "2026-10-23",
+    title: "PM Dashboard in the sidebar",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The PM Dashboard portfolio roll-up is now in the sidebar, and shows only the projects you can see; the old full-page assistant now opens the home page (use the assistant drawer).",
+      },
+    ],
+  },
+  {
+    version: "2.439.11",
+    date: "2026-10-23",
+    title: "Clear message when Claude isn't connected",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Claude isn't connected, AI features now tell you so and point you to Settings \u2192 AI / Model, instead of showing a confusing API-key error.",
+      },
+    ],
+  },
+  {
+    version: "2.439.10",
+    date: "2026-10-23",
+    title: "Bots only use the tools they're given",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: read-only chat bots, the note-taker and meeting summaries can no longer send email, post to Slack or Jira, or write to calendars, and the assistant refuses any tool it wasn't offered in that conversation.",
+      },
+    ],
+  },
+  {
+    version: "2.439.9",
+    date: "2026-10-23",
+    title: "Saved boards keep their filter",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A board saved from the Issues view now shows only the issues that matched your filters when you saved it, instead of every issue in the project.",
+      },
+    ],
+  },
+  {
+    version: "2.439.8",
+    date: "2026-10-23",
+    title: "Classified exports are marked and gated",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Issues CSV exports in government workspaces now include each item's classification, carry a CUI banner when they contain controlled information, and require the Org export permission for that data.",
+      },
+    ],
+  },
+  {
+    version: "2.439.7",
+    date: "2026-10-23",
+    title: "Search filters in API requests",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Searching work items through the API now honours the archived, id and \"watching\" filters in a POST body, and rejects filter keys it doesn't recognise instead of ignoring them.",
+      },
+    ],
+  },
+  {
+    version: "2.439.6",
+    date: "2026-10-23",
+    title: "Saved views respect project access",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Shared saved views that mention a project you can't access no longer appear in your saved-views list.",
+      },
+    ],
+  },
+  {
     version: "2.439.5",
     date: "2026-10-23",
     title: "Updates never throw away what you're typing",
