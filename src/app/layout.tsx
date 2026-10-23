@@ -8,6 +8,7 @@ import { ChunkReloadGuard } from "@/components/telemetry/chunk-reload-guard";
 import { getBrand } from "@/lib/brand";
 import { allSkinsCss, getSkinPreset } from "@/lib/theme/skins";
 import { RootBrandProvider } from "@/components/providers/root-brand-provider";
+import { Toaster } from "@/components/ui/sonner";
 
 // Registers a composed plugin's product profile before getBrand() reads it.
 // Without this the brand depends on whether some OTHER route happened to pull
@@ -181,6 +182,17 @@ export default function RootLayout({
           <Suspense fallback={null}>
             <RootBrandProvider>{children}</RootBrandProvider>
           </Suspense>
+          {/* The ONE toaster, app-wide — moved up from the dashboard layout.
+              <ChunkReloadGuard> above is mounted here, at the root, so it
+              fires on /login and /reset-password too; and sonner's toast()
+              publishes to the subscribers mounted AT THAT MOMENT, never
+              replaying for a toaster that mounts later. So while the toaster
+              was scoped to (dashboard), the guard's post-deploy "updated,
+              reload when you're ready" notice went nowhere on exactly the
+              screens where someone is mid-way through typing a password: no
+              notice and no reload, a tab stuck on a dead chunk. Keep it
+              mounted ONCE — two toasters render every toast twice. */}
+          <Toaster position="top-right" richColors />
         </CosmosMotionConfig>
       </body>
     </html>

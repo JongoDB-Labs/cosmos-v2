@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.8",
+    date: "2026-10-23",
+    title: "The \"new version ready\" notice reaches the sign-in screen too",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The notice that offers a Reload after an update now appears on every screen, including sign-in and password reset. Previously those screens showed nothing and did not reload either, so a tab opened before an update could sit there doing nothing. The notice stays put until you click Reload — it never dismisses itself, and nothing reloads behind your back once you leave the field.",
+      },
+    ],
+  },
+  {
     version: "2.439.7",
     date: "2026-10-23",
     title: "Search filters in API requests",
