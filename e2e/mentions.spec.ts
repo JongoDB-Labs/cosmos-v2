@@ -85,7 +85,10 @@ test.describe("@-tag any entity — assistant", () => {
     signInAs,
   }) => {
     await signInAs("alice@test.local");
-    await page.goto(`/${ORG_SLUG}/assistant`);
+    // The assistant lives in the drawer (the full-page /assistant route now
+    // redirects to the org home), opened from the topbar.
+    await page.goto(`/${ORG_SLUG}`);
+    await page.getByRole("button", { name: "Open assistant" }).click();
 
     const composer = page.getByPlaceholder(/type a message/i).first();
     await composer.click();

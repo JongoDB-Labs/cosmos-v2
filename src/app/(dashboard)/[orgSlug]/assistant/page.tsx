@@ -1,19 +1,16 @@
-import { getAuthContext } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
-import { AssistantPanel } from "@/components/assistant/assistant-panel";
 
-type PageParams = { params: Promise<{ orgSlug: string }> };
-
-// Full-height assistant surface (like Chat) — see chat/[channelId]/page.tsx for
-// the h-full rationale. The page-level H1 is sr-only so a11y keeps one H1.
-export default async function AssistantPage({ params }: PageParams) {
+/**
+ * The full-page assistant was retired: the topbar button and the floating
+ * bubble open the assistant DRAWER on any page, and nothing linked here any
+ * more. This stub sends old links and bookmarks to the org home instead of a
+ * 404. The org home enforces its own auth, so no check is needed here.
+ */
+export default async function AssistantRedirect({
+  params,
+}: {
+  params: Promise<{ orgSlug: string }>;
+}) {
   const { orgSlug } = await params;
-  const ctx = await getAuthContext(orgSlug);
-  if (!ctx) redirect("/");
-  return (
-    <div className="flex h-full flex-col" data-tour="assistant">
-      <h1 className="sr-only">Assistant</h1>
-      <AssistantPanel orgId={ctx.orgId} />
-    </div>
-  );
+  redirect(`/${orgSlug}`);
 }
