@@ -28,6 +28,11 @@ export const githubConnector: ConnectorDescriptor = {
   toolDefs: githubTools,
   execute: (name, input, ctx) =>
     executeGitHubTool(name, input, { userId: ctx.userId, orgId: ctx.orgId }),
+  access: {
+    github_list_issues: "read",
+    github_get_issue: "read",
+    github_list_pull_requests: "read",
+  },
   egress: {
     github_list_issues: { entityType: "github_issue" },
     github_get_issue: { entityType: "github_issue" },

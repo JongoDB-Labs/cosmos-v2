@@ -91,6 +91,7 @@ const DECIDED_BY_LABEL: Record<string, string> = {
   connector_availability_block: "Connector availability blocked",
   connector_gov_block: "Connector gov-blocked",
   connector_disabled_block: "Connector disabled",
+  tool_not_offered_block: "Tool not offered",
 };
 
 function decidedByVariant(reason: string): BadgeVariant {
