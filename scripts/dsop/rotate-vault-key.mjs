@@ -85,6 +85,8 @@ const SEALED_COLUMNS = [
   { table: "mcp_servers", pk: "id", column: "env_enc" },
   { table: "mcp_servers", pk: "id", column: "headers_enc" },
   { table: "update_settings", pk: "id", column: "registry_password_enc" },
+  // Idempotency-Key replays (24h); null while a request is in flight.
+  { table: "api_idempotency_keys", pk: "id", column: "response_body" },
 ];
 
 function reqEnv(name) {

@@ -10,6 +10,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createObjective, listObjectives, reorderObjectives } from "./route.contract";
+import { idempotent } from "@/lib/openapi/idempotency";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -118,54 +119,56 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId, projectId }, body: data } = await parseRequest(createObjective, request, params);
     const { ctx } = await orgContext(orgId, createObjective);
-    await requireProjectManage(ctx, projectId, Permission.OKR_CREATE);
+    return await idempotent({ request, ctx, orgId, body: data }, async () => {
+      await requireProjectManage(ctx, projectId, Permission.OKR_CREATE);
 
-    const project = await prisma.project.findFirst({
-      where: { id: projectId, orgId },
-    });
-    if (!project) return problem(404, "not_found", undefined, { request });
-
-    // An interval from ANOTHER project would silently mis-file the objective
-    // under a timebox its team never plans against, so it is rejected rather
-    // than quietly dropped.
-    if (data.intervalId) {
-      const interval = await prisma.interval.findFirst({
-        where: { id: data.intervalId, projectId },
-        select: { id: true },
+      const project = await prisma.project.findFirst({
+        where: { id: projectId, orgId },
       });
-      if (!interval) {
-        return new Response("intervalId must be an interval of this project", {
-          status: 400,
+      if (!project) return problem(404, "not_found", undefined, { request });
+
+      // An interval from ANOTHER project would silently mis-file the objective
+      // under a timebox its team never plans against, so it is rejected rather
+      // than quietly dropped.
+      if (data.intervalId) {
+        const interval = await prisma.interval.findFirst({
+          where: { id: data.intervalId, projectId },
+          select: { id: true },
         });
+        if (!interval) {
+          return new Response("intervalId must be an interval of this project", {
+            status: 400,
+          });
+        }
       }
-    }
 
-    // Append to the end of the project's manual order.
-    const last = await prisma.objective.findFirst({
-      where: { orgId, projectId },
-      orderBy: { sortOrder: "desc" },
-      select: { sortOrder: true },
+      // Append to the end of the project's manual order.
+      const last = await prisma.objective.findFirst({
+        where: { orgId, projectId },
+        orderBy: { sortOrder: "desc" },
+        select: { sortOrder: true },
+      });
+      const sortOrder = last ? last.sortOrder + 1 : 0;
+
+      const created = await prisma.objective.create({
+        data: {
+          orgId,
+          projectId,
+          title: data.title,
+          description: data.description ?? null,
+          period: data.period ?? null,
+          status: data.status,
+          parentId: data.parentId ?? null,
+          intervalId: data.intervalId ?? null,
+          committed: data.committed,
+          progress: 0,
+          sortOrder,
+        },
+        include: { keyResults: { orderBy: { sortOrder: "asc" } } },
+      });
+
+      return respond(createObjective, 200, created);
     });
-    const sortOrder = last ? last.sortOrder + 1 : 0;
-
-    const created = await prisma.objective.create({
-      data: {
-        orgId,
-        projectId,
-        title: data.title,
-        description: data.description ?? null,
-        period: data.period ?? null,
-        status: data.status,
-        parentId: data.parentId ?? null,
-        intervalId: data.intervalId ?? null,
-        committed: data.committed,
-        progress: 0,
-        sortOrder,
-      },
-      include: { keyResults: { orderBy: { sortOrder: "asc" } } },
-    });
-
-    return respond(createObjective, 200, created);
   } catch (e) {
     return handleApiError(e, request);
   }

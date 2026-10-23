@@ -180,6 +180,19 @@ async function ipAllowed(orgId: string): Promise<boolean> {
   return !!ip && ipMatchesAny(ip, rules.map((r) => r.cidr));
 }
 
+/**
+ * The org's IP allowlist, for a bearer credential: a token is not a way around
+ * where requests may come from. (Sessions get the same rule, with the
+ * INTERNAL_ADMINS break-glass, below.)
+ */
+export async function bearerIpAllowed(orgId: string): Promise<boolean> {
+  const sec = await prisma.orgSecuritySettings.findUnique({
+    where: { orgId },
+    select: { ipAllowlistEnabled: true },
+  });
+  return !sec?.ipAllowlistEnabled || (await ipAllowed(orgId));
+}
+
 export const getAuthContext = cache(
   async (orgSlug: string): Promise<AuthContext | null> => {
     const org = await prisma.organization.findUnique({
@@ -213,11 +226,7 @@ export const getAuthContext = cache(
       if (bearer !== "api_key") return null;
       const keyCtx = await verifyApiKeyHeader(authorization, org.id);
       if (!keyCtx) return null;
-      const sec = await prisma.orgSecuritySettings.findUnique({
-        where: { orgId: org.id },
-        select: { ipAllowlistEnabled: true },
-      });
-      if (sec?.ipAllowlistEnabled && !(await ipAllowed(org.id))) return null;
+      if (!(await bearerIpAllowed(org.id))) return null;
       return keyCtx;
     }
 

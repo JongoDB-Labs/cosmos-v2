@@ -49,5 +49,6 @@ export const createProject = defineRoute({
     }),
   },
   responses: { 201: ProjectWithBoards },
-  errors: [400, 401, 403, 404, 409],
+  errors: [400, 401, 403, 404, 409, 422],
+  idempotency: true,
 });

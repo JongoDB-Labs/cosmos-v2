@@ -47,5 +47,6 @@ export const createInterval = defineRoute({
     }),
   },
   responses: { 201: IntervalWithCount },
-  errors: [400, 401, 403, 404],
+  errors: [400, 401, 403, 404, 409, 422],
+  idempotency: true,
 });

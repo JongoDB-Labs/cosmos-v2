@@ -3,6 +3,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { userContext } from "@/lib/openapi/user-context";
+import { getMe } from "./route.contract";
 import { avatarUrlSchema } from "@/lib/security/image-url";
 
 const schema = z.object({
@@ -12,13 +16,13 @@ const schema = z.object({
   avatarUrl: avatarUrlSchema,
 });
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const user = await getCurrentUser();
-    if (!user) return new Response("Unauthorized", { status: 401 });
+    await parseRequest(getMe, request);
+    const { userId, token } = await userContext(getMe);
 
     const full = await prisma.user.findUnique({
-      where: { id: user.id },
+      where: { id: userId },
       select: {
         id: true,
         email: true,
@@ -33,11 +37,16 @@ export async function GET() {
         },
       },
     });
-    if (!full) return new Response("Not found", { status: 404 });
+    if (!full) return problem(404, "not_found", "User not found", { request });
 
-    return success(full);
+    return respond(getMe, 200, {
+      ...full,
+      ...(token && {
+        token: { orgId: token.orgId, scopes: token.scopes, kind: token.kind, expiresAt: token.expiresAt },
+      }),
+    });
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }
 

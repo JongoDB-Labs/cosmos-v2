@@ -74,8 +74,16 @@ describe("contracts", () => {
       const src = readFileSync(file, "utf8");
       if (!new RegExp(`parseRequest\\(\\s*${c.operationId}\\b`).test(src)) missing.push(`${key}: parseRequest(${c.operationId}, …)`);
       if (!new RegExp(`respond\\(\\s*${c.operationId}\\b`).test(src)) missing.push(`${key}: respond(${c.operationId}, …)`);
-      // The scope gate lives in orgContext, so the handler must hand it the contract.
-      if (!new RegExp(`orgContext\\([^)]*\\b${c.operationId}\\b`).test(src)) missing.push(`${key}: orgContext(…, ${c.operationId})`);
+      // The scope gate lives in orgContext / userContext, so a handler whose
+      // contract names scopes must hand it the contract.
+      if (c.scopes.length && !new RegExp(`(orgContext|userContext)\\([^)]*\\b${c.operationId}\\b`).test(src)) {
+        missing.push(`${key}: orgContext(…, ${c.operationId}) or userContext(${c.operationId})`);
+      }
+      // A contract that documents Idempotency-Key must honour it.
+      if (c.idempotency && !src.includes("idempotent(")) missing.push(`${key}: idempotent(…)`);
+      // `return idempotent(…)` inside try hands back the promise un-awaited, so
+      // its 409/422 rejections skip the route's catch and surface as bare 500s.
+      if (/return idempotent\(/.test(src)) missing.push(`${key}: return await idempotent(…)`);
     }
     expect(missing).toEqual([]);
   });

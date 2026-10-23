@@ -8,6 +8,7 @@ export const PROBLEM_CODES = {
   conflict: "Conflict",
   model_not_connected: "Claude isn't connected",
   rate_limited: "Too many requests",
+  idempotency_key_reused: "Idempotency key reused",
   internal_error: "Internal server error",
 } as const;
 

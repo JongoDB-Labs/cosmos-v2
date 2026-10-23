@@ -14,6 +14,7 @@ import { cursorPage } from "@/lib/openapi/paginate";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createProject, listProjects } from "./route.contract";
+import { idempotent } from "@/lib/openapi/idempotency";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -87,172 +88,174 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: { orgId }, body: data } = await parseRequest(createProject, request, params);
     const { ctx } = await orgContext(orgId, createProject);
-    requirePermission(ctx, Permission.PROJECT_CREATE);
+    return await idempotent({ request, ctx, orgId, body: data }, async () => {
+      requirePermission(ctx, Permission.PROJECT_CREATE);
 
-    const existing = await prisma.project.findUnique({
-      where: { orgId_key: { orgId, key: data.key } },
-    });
-    if (existing) {
-      return problem(409, "conflict", "Project key already exists", { request });
-    }
-
-    // Optionally load the template
-    type TemplateWithBoards = {
-      id: string;
-      isBuiltIn: boolean;
-      orgId: string | null;
-      sector: string;
-      defaultConfig: unknown;
-      boardTemplates: { id: string; name: string; boardType: string; sortOrder: number; defaultConfig: unknown }[];
-    };
-    let template: TemplateWithBoards | null = null;
-
-    if (data.templateId) {
-      const tpl = await prisma.projectTemplate.findUnique({
-        where: { id: data.templateId },
-        include: { boardTemplates: true },
+      const existing = await prisma.project.findUnique({
+        where: { orgId_key: { orgId, key: data.key } },
       });
-      if (!tpl) {
-        return problem(404, "not_found", "Template not found", { request });
+      if (existing) {
+        return problem(409, "conflict", "Project key already exists", { request });
       }
-      // Allow built-in templates or org-owned templates
-      if (!tpl.isBuiltIn && tpl.orgId !== orgId) {
-        return problem(404, "not_found", "Template not found", { request });
-      }
-      // Sector entitlement boundary: a tenant restricted to certain sectors
-      // (e.g. an example vertical → AEC only) cannot instantiate a template from a disabled
-      // sector even by POSTing its id directly — the listing filter is cosmetic
-      // without this. 404 (not 403) to avoid revealing the template exists.
-      const ent = await getEntitlements(orgId);
-      if (!isSectorEnabled(ent, tpl.sector)) {
-        return problem(404, "not_found", "Template not found", { request });
-      }
-      template = tpl;
-    }
 
-    const project = await prisma.$transaction(async (tx) => {
-      // Extract enabledFeatures from template defaultConfig if available
-      let enabledFeatures: string[] = [];
-      if (template) {
-        const cfg = template.defaultConfig as Record<string, unknown> | null;
-        if (cfg && Array.isArray(cfg.enabledFeatures)) {
-          enabledFeatures = cfg.enabledFeatures as string[];
+      // Optionally load the template
+      type TemplateWithBoards = {
+        id: string;
+        isBuiltIn: boolean;
+        orgId: string | null;
+        sector: string;
+        defaultConfig: unknown;
+        boardTemplates: { id: string; name: string; boardType: string; sortOrder: number; defaultConfig: unknown }[];
+      };
+      let template: TemplateWithBoards | null = null;
+
+      if (data.templateId) {
+        const tpl = await prisma.projectTemplate.findUnique({
+          where: { id: data.templateId },
+          include: { boardTemplates: true },
+        });
+        if (!tpl) {
+          return problem(404, "not_found", "Template not found", { request });
         }
+        // Allow built-in templates or org-owned templates
+        if (!tpl.isBuiltIn && tpl.orgId !== orgId) {
+          return problem(404, "not_found", "Template not found", { request });
+        }
+        // Sector entitlement boundary: a tenant restricted to certain sectors
+        // (e.g. an example vertical → AEC only) cannot instantiate a template from a disabled
+        // sector even by POSTing its id directly — the listing filter is cosmetic
+        // without this. 404 (not 403) to avoid revealing the template exists.
+        const ent = await getEntitlements(orgId);
+        if (!isSectorEnabled(ent, tpl.sector)) {
+          return problem(404, "not_found", "Template not found", { request });
+        }
+        template = tpl;
       }
 
-      const proj = await tx.project.create({
-        data: {
-          orgId,
-          name: data.name,
-          key: data.key,
-          description: data.description ?? null,
-          projectTemplateId: template?.id ?? null,
-          enabledFeatures,
-        },
-      });
+      const project = await prisma.$transaction(async (tx) => {
+        // Extract enabledFeatures from template defaultConfig if available
+        let enabledFeatures: string[] = [];
+        if (template) {
+          const cfg = template.defaultConfig as Record<string, unknown> | null;
+          if (cfg && Array.isArray(cfg.enabledFeatures)) {
+            enabledFeatures = cfg.enabledFeatures as string[];
+          }
+        }
 
-      if (template && template.boardTemplates.length > 0) {
-        // Create boards from template
-        for (const bt of template.boardTemplates) {
-          const boardCfg = bt.defaultConfig as Record<string, unknown> | null;
-          const columns = (boardCfg && Array.isArray(boardCfg.columns))
-            ? (boardCfg.columns as Array<{ name: string; key: string; color?: string; sortOrder?: number; category?: string }>)
-            : null;
+        const proj = await tx.project.create({
+          data: {
+            orgId,
+            name: data.name,
+            key: data.key,
+            description: data.description ?? null,
+            projectTemplateId: template?.id ?? null,
+            enabledFeatures,
+          },
+        });
 
+        if (template && template.boardTemplates.length > 0) {
+          // Create boards from template
+          for (const bt of template.boardTemplates) {
+            const boardCfg = bt.defaultConfig as Record<string, unknown> | null;
+            const columns = (boardCfg && Array.isArray(boardCfg.columns))
+              ? (boardCfg.columns as Array<{ name: string; key: string; color?: string; sortOrder?: number; category?: string }>)
+              : null;
+
+            const board = await tx.board.create({
+              data: {
+                orgId,
+                projectId: proj.id,
+                name: bt.name,
+                type: bt.boardType as import("@prisma/client").BoardType,
+                sortOrder: bt.sortOrder,
+              },
+            });
+
+            if (columns && columns.length > 0) {
+              await tx.boardColumn.createMany({
+                data: columns.map((col, idx) => ({
+                  boardId: board.id,
+                  name: col.name,
+                  key: col.key,
+                  color: col.color ?? "#7dd3fc",
+                  sortOrder: col.sortOrder ?? idx,
+                  category: (col.category as import("@prisma/client").ColumnCategory) ?? "TODO",
+                })),
+              });
+            } else {
+              await tx.boardColumn.createMany({
+                data: DEFAULT_COLUMNS.map((col) => ({
+                  boardId: board.id,
+                  ...col,
+                })),
+              });
+            }
+          }
+        } else {
+          // Default single board with default columns
           const board = await tx.board.create({
             data: {
               orgId,
               projectId: proj.id,
-              name: bt.name,
-              type: bt.boardType as import("@prisma/client").BoardType,
-              sortOrder: bt.sortOrder,
+              name: "Board",
+              type: "KANBAN",
+              sortOrder: 0,
             },
           });
 
-          if (columns && columns.length > 0) {
-            await tx.boardColumn.createMany({
-              data: columns.map((col, idx) => ({
-                boardId: board.id,
-                name: col.name,
-                key: col.key,
-                color: col.color ?? "#7dd3fc",
-                sortOrder: col.sortOrder ?? idx,
-                category: (col.category as import("@prisma/client").ColumnCategory) ?? "TODO",
-              })),
-            });
-          } else {
-            await tx.boardColumn.createMany({
-              data: DEFAULT_COLUMNS.map((col) => ({
-                boardId: board.id,
-                ...col,
-              })),
-            });
-          }
+          await tx.boardColumn.createMany({
+            data: DEFAULT_COLUMNS.map((col) => ({
+              boardId: board.id,
+              ...col,
+            })),
+          });
         }
-      } else {
-        // Default single board with default columns
-        const board = await tx.board.create({
-          data: {
-            orgId,
-            projectId: proj.id,
-            name: "Board",
-            type: "KANBAN",
-            sortOrder: 0,
+
+        const orgMember = await tx.orgMember.findUnique({
+          where: { orgId_userId: { orgId, userId: ctx.userId } },
+        });
+
+        if (orgMember) {
+          await tx.projectMember.create({
+            data: {
+              projectId: proj.id,
+              orgMemberId: orgMember.id,
+              role: "MANAGER",
+            },
+          });
+        }
+
+        return tx.project.findUnique({
+          where: { id: proj.id },
+          include: {
+            boards: { include: { columns: { orderBy: { sortOrder: "asc" } } } },
+            _count: { select: { boards: true, intervals: true, members: true } },
           },
         });
-
-        await tx.boardColumn.createMany({
-          data: DEFAULT_COLUMNS.map((col) => ({
-            boardId: board.id,
-            ...col,
-          })),
-        });
-      }
-
-      const orgMember = await tx.orgMember.findUnique({
-        where: { orgId_userId: { orgId, userId: ctx.userId } },
       });
 
-      if (orgMember) {
-        await tx.projectMember.create({
-          data: {
-            projectId: proj.id,
-            orgMemberId: orgMember.id,
-            role: "MANAGER",
-          },
-        });
+      logAudit({
+        orgId,
+        userId: ctx.userId,
+        action: "project.created",
+        entity: "project",
+        entityId: project!.id,
+        metadata: { name: data.name, key: data.key } as Record<string, string>,
+        ipAddress: getIpAddress(request),
+      }).catch(() => {});
+
+      // Sector field set (FR 454637a9): creating from a sector template seeds
+      // that sector's curated custom fields (org-scoped, idempotent by key — a
+      // second project of the same sector is a no-op). Best-effort: a seeding
+      // hiccup must never fail project creation.
+      if (template?.sector) {
+        await seedSectorFields(orgId, template.sector).catch(() => {});
       }
 
-      return tx.project.findUnique({
-        where: { id: proj.id },
-        include: {
-          boards: { include: { columns: { orderBy: { sortOrder: "asc" } } } },
-          _count: { select: { boards: true, intervals: true, members: true } },
-        },
-      });
+      revalidateOrgProjects(orgId);
+
+      return respond(createProject, 201, project);
     });
-
-    logAudit({
-      orgId,
-      userId: ctx.userId,
-      action: "project.created",
-      entity: "project",
-      entityId: project!.id,
-      metadata: { name: data.name, key: data.key } as Record<string, string>,
-      ipAddress: getIpAddress(request),
-    }).catch(() => {});
-
-    // Sector field set (FR 454637a9): creating from a sector template seeds
-    // that sector's curated custom fields (org-scoped, idempotent by key — a
-    // second project of the same sector is a no-op). Best-effort: a seeding
-    // hiccup must never fail project creation.
-    if (template?.sector) {
-      await seedSectorFields(orgId, template.sector).catch(() => {});
-    }
-
-    revalidateOrgProjects(orgId);
-
-    return respond(createProject, 201, project);
   } catch (error) {
     return handleApiError(error, request);
   }

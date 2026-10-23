@@ -5,6 +5,7 @@ import { applySecurityHeaders } from "@/lib/security/headers";
 import { classifyBearer } from "@/lib/auth/bearer";
 import { REQUEST_ID_HEADER, requestIdFor } from "@/lib/openapi/request-id";
 import { problem } from "@/lib/openapi/problem";
+import { budgetHeaders, chargeApiBudget } from "@/lib/rate-limit/api-budget";
 import { isMutatingMethod, isPathOrgFrozen } from "@/lib/cutover/freeze";
 
 function withSecurityHeaders(res: NextResponse): NextResponse {
@@ -128,7 +129,18 @@ export async function proxy(request: NextRequest) {
     forwarded.set(REQUEST_ID_HEADER, requestId);
     return NextResponse.next({ request: { headers: forwarded } });
   };
-  const res = await gate(request, next);
+  // Per-token budget (lib/rate-limit/api-budget.ts): every request presenting
+  // a Cosmos bearer is charged here, before any route runs, and every answer
+  // to one says what is left.
+  const authorization = request.headers.get("authorization");
+  const budget =
+    request.nextUrl.pathname.startsWith("/api/") && authorization && classifyBearer(authorization) !== null
+      ? chargeApiBudget(authorization, request.method)
+      : null;
+  const res = budget && !budget.allowed
+    ? withSecurityHeaders(problem(429, "rate_limited", "Rate limit exceeded for this token"))
+    : await gate(request, next);
+  if (budget) for (const [k, v] of Object.entries(budgetHeaders(budget))) res.headers.set(k, v);
   res.headers.set(REQUEST_ID_HEADER, requestId);
   return res;
 }

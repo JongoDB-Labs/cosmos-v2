@@ -42,5 +42,6 @@ export const createCheckin = defineRoute({
     }),
   },
   responses: { 201: KeyResultCheckin },
-  errors: [400, 401, 403, 404],
+  errors: [400, 401, 403, 404, 409, 422],
+  idempotency: true,
 });

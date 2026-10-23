@@ -28,7 +28,7 @@ export async function orgContext(orgId: string, contract: Pick<RouteContract, "s
  * Refused with the RFC 6750 step-up challenge, so a client can ask its user
  * for a token that covers what it was missing.
  */
-export function assertScopes(ctx: AuthContext, contract: Pick<RouteContract, "scopes">) {
+export function assertScopes(ctx: Pick<AuthContext, "scopes">, contract: Pick<RouteContract, "scopes">) {
   if (!ctx.scopes) return;
   const held = effectiveScopes(ctx.scopes);
   const missing = contract.scopes.filter((s) => !held.has(s));
