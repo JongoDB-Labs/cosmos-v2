@@ -89,6 +89,12 @@ ALTER TABLE "workflow_assignments" ADD CONSTRAINT "workflow_assignments_work_ite
 -- AddForeignKey
 ALTER TABLE "workflow_assignments" ADD CONSTRAINT "workflow_assignments_workflow_id_fkey" FOREIGN KEY ("workflow_id") REFERENCES "workflows"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
+-- AddForeignKey
+ALTER TABLE "workflow_versions" ADD CONSTRAINT "workflow_versions_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "workflow_assignments" ADD CONSTRAINT "workflow_assignments_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
 -- One project default per project: the composite unique above treats NULL
 -- type ids as distinct.
 CREATE UNIQUE INDEX "workflow_assignments_project_default_key" ON "workflow_assignments"("project_id") WHERE "work_item_type_id" IS NULL;
