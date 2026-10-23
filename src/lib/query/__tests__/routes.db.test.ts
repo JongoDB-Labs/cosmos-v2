@@ -210,7 +210,7 @@ describe("CQL routes (e2e DB)", () => {
       expect(await schemaStatus()).toBe(404);
       getAuthContext.mockImplementationOnce(async () => member());
       const g = (await (await switchGet(new NextRequest("http://localhost/x"), { params: params() })).json()) as { enabled: boolean; canManage: boolean };
-      expect(g).toEqual({ enabled: false, canManage: false });
+      expect(g).toEqual({ enabled: false, emailTitles: false, canManage: false });
 
       getAuthContext.mockImplementationOnce(async () => admin());
       expect((await switchPut(put(true), { params: params() })).status).toBe(200);
