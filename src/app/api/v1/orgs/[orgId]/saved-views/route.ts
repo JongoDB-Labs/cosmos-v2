@@ -22,7 +22,7 @@ import {
   visibleWhere,
 } from "@/lib/query/saved-filters.server";
 import { SAVED_VIEW_SELECT, toDto } from "@/lib/query/saved-filter-dto.server";
-import { cfTypesFor, editorProblem } from "@/lib/query/saved-filter-input.server";
+import { cfTypesFor, editorAccessProblem, editorProblem } from "@/lib/query/saved-filter-input.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -74,6 +74,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const s = await viewerScope(ctx);
     // `?projectId=`: the filters shared with that project (its "Filters" tab).
     const projectId = request.nextUrl.searchParams.get("projectId");
+    // A project you can't read lists nothing, rather than confirming it exists
+    // through a filter you co-edit.
+    if (projectId && !s.readable.has(projectId)) return success([]);
     const rows = (
       await prisma.savedView.findMany({
         where: projectId ? { AND: [visibleWhere(s), { visibility: "PROJECT", projectId }] } : visibleWhere(s),
@@ -129,9 +132,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       projectId: data.projectId ?? null,
       teamId: data.teamId ?? null,
     } as const;
-    const problem = (await visibilityProblem(s, target)) ?? (await editorProblem(orgId, data.editorIds));
+    const problem = (await visibilityProblem(s, target, { cql: cqlEnabled(org.settings) })) ?? (await editorProblem(orgId, data.editorIds));
     if (problem) {
       return new Response(JSON.stringify({ error: problem }), { status: 403, headers: { "Content-Type": "application/json" } });
+    }
+    const editorAccess = await editorAccessProblem(orgId, (data.editorIds ?? []).filter((u) => u !== ctx.userId), target);
+    if (editorAccess) {
+      return new Response(JSON.stringify({ error: editorAccess }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
 
     // The query, validated against what the caller can see.

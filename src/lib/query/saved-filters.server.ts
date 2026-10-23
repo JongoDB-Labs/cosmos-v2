@@ -5,7 +5,8 @@
  *   visibility  PRIVATE  the owner (and explicit editors)
  *               TEAM     members of the team who can read its project
  *               PROJECT  anyone who can read the project
- *               ORG      every member with ITEM_READ (setting it: FILTER_SHARE_ORG)
+ *               ORG      every member with ITEM_READ (setting it: FILTER_SHARE_ORG
+ *                        where CQL is on; any member where it isn't)
  *   edit        owner, editors, org administrators
  *   delete      owner, org administrators
  *
@@ -112,15 +113,21 @@ export function visibleWhere(s: ViewerScope): Prisma.SavedViewWhereInput {
 /**
  * May this actor give a filter this visibility? Returns the reason it can't,
  * or null. Checked on create and on every visibility change.
+ *
+ * `cql` is the org's query-language switch. Without it the org keeps the
+ * pre-CQL rule, where any member could share a filter with everyone; the
+ * FILTER_SHARE_ORG gate arrives with the rest of saved filters v2.
  */
 export async function visibilityProblem(
   s: ViewerScope,
   target: { visibility: FilterVisibility; projectId?: string | null; teamId?: string | null },
+  opts: { cql: boolean },
 ): Promise<string | null> {
   switch (target.visibility) {
     case "PRIVATE":
       return null;
     case "ORG":
+      if (!opts.cql) return null;
       return hasPermission(s.ctx.permissions, Permission.FILTER_SHARE_ORG)
         ? null
         : "Sharing a filter with the whole organization needs the Share filters with the org permission.";

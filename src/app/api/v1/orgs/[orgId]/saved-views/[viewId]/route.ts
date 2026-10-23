@@ -24,7 +24,7 @@ import {
   type ViewerScope,
 } from "@/lib/query/saved-filters.server";
 import { SAVED_VIEW_SELECT, toDto, type SavedViewRow } from "@/lib/query/saved-filter-dto.server";
-import { cfTypesFor, editorProblem } from "@/lib/query/saved-filter-input.server";
+import { cfTypesFor, editorAccessProblem, editorProblem } from "@/lib/query/saved-filter-input.server";
 import { isOrgAdministrator } from "@/lib/rbac/project-access";
 
 type RouteParams = { params: Promise<{ orgId: string; viewId: string }> };
@@ -87,7 +87,12 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const presented = await presentQuery(r.s, storedQuery(r.view));
     const dto = toDto(r.s, r.view, star ?? undefined, await cfTypesFor(orgId));
     // The legacy `filter` carries raw ids, including the ones withheld.
-    return success({ ...dto, ...(presented.partiallyRestricted ? { filter: {} } : {}), ...presented });
+    return success({
+      ...dto,
+      ...(presented.partiallyRestricted ? { filter: {} } : {}),
+      ...presented,
+      partiallyRestricted: presented.partiallyRestricted || dto.partiallyRestricted,
+    });
   } catch (error) {
     return handleApiError(error);
   }
@@ -107,6 +112,7 @@ async function update(request: NextRequest, { params }: RouteParams) {
   if (data.ownerId !== undefined && !s.isAdmin) return json({ error: "Only an administrator can change a filter's owner." }, 403);
 
   const patch: Prisma.SavedViewUpdateInput = {};
+  const audits: { action: string; metadata: Prisma.InputJsonObject }[] = [];
   if (data.name !== undefined && data.name !== view.name) {
     const clash = await prisma.savedView.findFirst({
       where: { ownerId: data.ownerId ?? view.ownerId, name: data.name, id: { not: viewId } },
@@ -155,8 +161,16 @@ async function update(request: NextRequest, { params }: RouteParams) {
     // Re-checked only when it changes: an administrator tidying names must
     // not need FILTER_SHARE_ORG for a filter someone else already shared.
     const moved = visibility !== view.visibility || target.projectId !== view.projectId || target.teamId !== view.teamId;
-    const problem = (moved ? await visibilityProblem(s, target) : null) ?? (await editorProblem(orgId, data.editorIds));
+    const problem = (moved ? await visibilityProblem(s, target, { cql: cqlEnabled(r.org.settings) }) : null) ?? (await editorProblem(orgId, data.editorIds));
     if (problem) return json({ error: problem }, 403);
+    // The editors the filter will have, checked against where it will point:
+    // a move re-checks the existing ones too.
+    if (moved || data.editorIds !== undefined) {
+      const owner = data.ownerId ?? view.ownerId;
+      const editors = (data.editorIds ?? view.editors.map((e) => e.userId)).filter((u) => u !== owner);
+      const editorAccess = await editorAccessProblem(orgId, editors, target);
+      if (editorAccess) return json({ error: editorAccess }, 400);
+    }
     patch.visibility = visibility;
     patch.shared = visibility === "ORG";
     patch.project = visibility === "PROJECT" && target.projectId ? { connect: { id: target.projectId } } : { disconnect: true };
@@ -166,7 +180,7 @@ async function update(request: NextRequest, { params }: RouteParams) {
       patch.editors = { deleteMany: {}, create: [...new Set(data.editorIds)].filter((u) => u !== owner).map((userId) => ({ userId })) };
     }
     if (moved && visibility === "ORG") {
-      await logAudit({ orgId, userId: s.ctx.userId, action: "saved_filter.shared_org", entity: "saved_view", entityId: viewId, metadata: { name: view.name } });
+      audits.push({ action: "saved_filter.shared_org", metadata: { name: view.name } });
     }
   }
 
@@ -176,10 +190,12 @@ async function update(request: NextRequest, { params }: RouteParams) {
     const clash = await prisma.savedView.findFirst({ where: { ownerId: data.ownerId, name: data.name ?? view.name }, select: { id: true } });
     if (clash) return json({ error: "The new owner already has a saved filter with that name." }, 409);
     patch.owner = { connect: { id: data.ownerId } };
-    await logAudit({ orgId, userId: s.ctx.userId, action: "saved_filter.owner_changed", entity: "saved_view", entityId: viewId, metadata: { from: view.ownerId, to: data.ownerId } });
+    audits.push({ action: "saved_filter.owner_changed", metadata: { from: view.ownerId, to: data.ownerId } });
   }
 
   const updated = await prisma.savedView.update({ where: { id: viewId }, data: patch, select: SAVED_VIEW_SELECT });
+  // Recorded once the change has happened, not for an update that then failed.
+  for (const a of audits) await logAudit({ orgId, userId: s.ctx.userId, entity: "saved_view", entityId: viewId, ...a });
   const star = await prisma.savedViewFavorite.findUnique({
     where: { savedViewId_userId: { savedViewId: viewId, userId: s.ctx.userId } },
     select: { sortOrder: true },

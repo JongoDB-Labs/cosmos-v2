@@ -296,4 +296,101 @@ describe("saved filters v2 (e2e DB)", () => {
     const run = await search(req(`work-items/search?filter=${id}`), { params: params() });
     expect(((await run.json()) as { data: { priority: string }[] }).data.every((r) => r.priority === "CRITICAL")).toBe(true);
   });
+
+  it("never names a project or team the viewer can't read: co-editors and ABAC-limited admins see null", async () => {
+    // Rows from before the editor rule below: the actor co-edits ghost's
+    // filters on P2, which the actor can't read.
+    const onP2 = await seed(ghost, "ghost on P2, actor edits", q(null), { visibility: "PROJECT", projectId: w.P2.id });
+    const onTeam = await seed(ghost, "ghost on secret team, actor edits", q(null), { visibility: "TEAM", teamId: w.teamP2 });
+    for (const id of [onP2, onTeam]) await prisma.savedViewEditor.create({ data: { savedViewId: id, userId: w.actor.id } });
+
+    // Ghost owns these and added the actor, so ghost's name is meant to show.
+    const noSecrets = (body: unknown) => {
+      const raw = JSON.stringify(body).replaceAll(/"ownerName":"[^"]*"/g, "");
+      for (const secret of w.secrets) expect(raw).not.toContain(secret);
+      expect(raw).not.toContain(w.P2.id);
+      expect(raw).not.toContain(w.teamP2);
+    };
+    const opened = async (id: string) => {
+      const res = await getOne(req(`saved-views/${id}`), { params: vparams(id) });
+      expect(res.status).toBe(200);
+      return (await res.json()) as { project: unknown; team: unknown; partiallyRestricted: boolean };
+    };
+
+    as(() => actor());
+    for (const id of [onP2, onTeam]) {
+      const body = await opened(id);
+      expect(body).toMatchObject({ project: null, team: null, partiallyRestricted: true });
+      noSecrets(body);
+    }
+    const listed = ((await (await list(req("saved-views"), { params: params() })).json()) as { id: string }[]).filter((v) => v.id === onP2 || v.id === onTeam);
+    expect(listed).toHaveLength(2);
+    noSecrets(listed);
+    // `?projectId=` doesn't confirm a project you can't read exists.
+    expect(await (await list(req(`saved-views?projectId=${w.P2.id}`), { params: params() })).json()).toEqual([]);
+
+    // An administrator an ABAC policy keeps out of P2 can still open (and
+    // manage) the filter, but not learn P2's name through it.
+    const fencedAdmin = () =>
+      ({ ...user(w.alex1.id), orgRole: OrgRole.ADMIN, abacRules: [{ effect: "deny", actions: ["ITEM_READ"], conditions: [{ attr: "projectId", op: "eq", value: w.P2.id }] }] }) as AuthContext;
+    as(fencedAdmin);
+    for (const id of [onP2, onTeam]) {
+      const body = await opened(id);
+      expect(body).toMatchObject({ project: null, team: null, partiallyRestricted: true });
+      noSecrets(body);
+    }
+
+    // Someone who can read P2 sees the target named.
+    as(() => user(ghost));
+    expect(await opened(onP2)).toMatchObject({ project: { id: w.P2.id, key: w.P2.key }, partiallyRestricted: false });
+    expect(await opened(onTeam)).toMatchObject({ team: { id: w.teamP2 }, partiallyRestricted: false });
+  });
+
+  it("an editor must be able to read the project or team a filter is shared with", async () => {
+    as(() => user(ghost));
+    const post = (body: object) => create(req("saved-views", "POST", { cql: "priority = LOW", ...body }), { params: params() });
+    const refused = await post({ name: "ghost P2 + actor", visibility: "PROJECT", projectId: w.P2.id, editorIds: [w.actor.id] });
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { error: string }).error).toMatch(/can't see the project/);
+    expect((await post({ name: "ghost team + actor", visibility: "TEAM", teamId: w.teamP2, editorIds: [w.actor.id] })).status).toBe(400);
+    expect(await prisma.savedView.count({ where: { name: { in: ["ghost P2 + actor", "ghost team + actor"] } } })).toBe(0);
+
+    // Adding one later, or moving a filter onto P2 while the actor edits it.
+    const made = (await (await post({ name: "ghost P2 alone", visibility: "PROJECT", projectId: w.P2.id })).json()) as { id: string };
+    expect((await patch(req(`saved-views/${made.id}`, "PATCH", { editorIds: [w.actor.id] }), { params: vparams(made.id) })).status).toBe(400);
+    const priv = (await (await post({ name: "ghost private + actor", editorIds: [w.actor.id] })).json()) as { id: string };
+    expect((await patch(req(`saved-views/${priv.id}`, "PATCH", { visibility: "PROJECT", projectId: w.P2.id }), { params: vparams(priv.id) })).status).toBe(400);
+    expect((await prisma.savedView.findUniqueOrThrow({ where: { id: priv.id } })).visibility).toBe("PRIVATE");
+    // An open project is fine.
+    expect((await patch(req(`saved-views/${priv.id}`, "PATCH", { visibility: "PROJECT", projectId: w.P1.id }), { params: vparams(priv.id) })).status).toBe(200);
+  });
+
+  it("orgs without CQL keep the old rule: any member may share a filter with everyone", async () => {
+    await prisma.organization.update({ where: { id: w.orgA }, data: { settings: withCqlEnabled({}, false) as object } });
+    try {
+      as(() => actor());
+      const res = await create(req("saved-views", "POST", { name: "legacy shared, no CQL", filter: {}, shared: true }), { params: params() });
+      expect(res.status).toBe(201);
+      expect(((await res.json()) as { shared: boolean }).shared).toBe(true);
+    } finally {
+      await prisma.organization.update({ where: { id: w.orgA }, data: { settings: withCqlEnabled({}, true) as object } });
+    }
+  });
+
+  it("audits an owner change only once it has happened", async () => {
+    const id = await seed(w.bob.id, "audit owner", q(null));
+    const audited = () => prisma.auditLog.count({ where: { orgId: w.orgA, entityId: id, action: "saved_filter.owner_changed" } });
+    getAuthContext.mockImplementation(async () => ({ ...user(w.alex1.id), orgRole: OrgRole.ADMIN }) as AuthContext);
+    // Refused after the owner change was accepted: an editor who can't read P2.
+    const refused = await patch(req(`saved-views/${id}`, "PATCH", { ownerId: ghost, visibility: "PROJECT", projectId: w.P2.id, editorIds: [w.actor.id] }), { params: vparams(id) });
+    expect(refused.status).toBe(400);
+    // The update itself throws (a name the new owner already has, raced past the check).
+    const update = vi.spyOn(prisma.savedView, "update").mockRejectedValueOnce(new Error("write failed"));
+    const thrown = await patch(req(`saved-views/${id}`, "PATCH", { ownerId: w.actor.id }), { params: vparams(id) });
+    update.mockRestore();
+    expect(thrown.status).toBe(500);
+    expect(await audited()).toBe(0);
+    expect((await patch(req(`saved-views/${id}`, "PATCH", { ownerId: w.actor.id }), { params: vparams(id) })).status).toBe(200);
+    expect(await audited()).toBe(1);
+  });
 });
