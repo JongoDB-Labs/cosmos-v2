@@ -1,0 +1,262 @@
+import type { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/db/client";
+import { openSecret, sealSecret } from "@/lib/crypto/vault";
+import { getProviderConfig } from "@/lib/auth/provider-config";
+import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
+import { microsoftLoginOrigin } from "./hosts";
+import { MS_CALENDAR, MS_CALENDAR_SCOPES, idTokenClaims, type IdClaims } from "./calendar-connect";
+
+/**
+ * COSMOS-202 (B1): a connected person's Microsoft Graph access token.
+ *
+ * - The REFRESH token is the only thing stored, sealed in ConnectorCredential.
+ *   Access tokens live in memory and expire with the process.
+ * - Refreshing is single-flight per person in this process, and serialised
+ *   across processes by a Postgres advisory lock held ONLY around the refresh.
+ *   Microsoft rotates the refresh token; the new one is always written back.
+ * - A refresh token Microsoft has revoked or expired (invalid_grant, or consent
+ *   withdrawn) flips the connection to "reconnect" and stops there: no retries,
+ *   no loop. The person sees a Reconnect button.
+ * - Every use re-checks that the connection should still exist (org switch on,
+ *   tenant unchanged, person still an active member). One that shouldn't is
+ *   deleted, not just refused.
+ */
+
+export class CalendarNotConnected extends Error {}
+export class CalendarReconnectNeeded extends Error {}
+
+export interface CalendarMeta {
+  tid: string;
+  oid: string;
+  upn: string;
+  scopes: string[];
+  status: "connected" | "reconnect";
+  connectedAt: string;
+  lastRefreshAt?: string;
+  [k: string]: unknown;
+}
+
+type FetchFn = typeof fetch;
+interface Deps {
+  fetch?: FetchFn;
+  now?: () => number;
+}
+
+const LOCK_NAMESPACE = 20202;
+const REFRESH_TIMEOUT_MS = 15_000;
+/** Refresh this long before the access token actually expires. */
+const EARLY_MS = 5 * 60_000;
+
+const cache = new Map<string, { token: string; exp: number }>();
+const inflight = new Map<string, Promise<string>>();
+const key = (orgId: string, userId: string) => `${orgId}:${userId}`;
+
+/** For tests: forget cached access tokens. */
+export function _resetCalendarTokenCache() {
+  cache.clear();
+  inflight.clear();
+}
+
+export interface OrgCalendarConfig {
+  clientId: string;
+  clientSecret: string;
+  tenantId: string;
+}
+
+/**
+ * The org's switch and app credentials, or null when the org can't connect
+ * calendars: integration not installed or not ACTIVE, no tenant pinned, or the
+ * instance's Microsoft app not configured.
+ */
+export async function orgCalendarConfig(orgId: string): Promise<OrgCalendarConfig | null> {
+  const integration = await prisma.integration.findFirst({
+    where: { orgId, provider: MS_CALENDAR, status: "ACTIVE" },
+    select: { config: true },
+  });
+  const tenantId = (integration?.config as { tenantId?: unknown } | null)?.tenantId;
+  if (typeof tenantId !== "string" || !tenantId.trim()) return null;
+  const app = await getProviderConfig("microsoft");
+  if (!app) return null;
+  return { clientId: app.clientId, clientSecret: app.clientSecret, tenantId: tenantId.trim() };
+}
+
+class TokenEndpointError extends Error {
+  constructor(public status: number, public code: string) {
+    super(`microsoft token endpoint: ${status} ${code}`);
+  }
+  /** Microsoft says this refresh token will never work again. */
+  get revoked() {
+    return ["invalid_grant", "interaction_required", "consent_required", "invalid_client"].includes(this.code);
+  }
+}
+
+interface TokenResponse {
+  access_token: string;
+  refresh_token?: string;
+  id_token?: string;
+  expires_in?: number;
+}
+
+async function tokenRequest(cfg: OrgCalendarConfig, params: Record<string, string>, f: FetchFn): Promise<TokenResponse> {
+  const res = await f(`${microsoftLoginOrigin()}/${encodeURIComponent(cfg.tenantId)}/oauth2/v2.0/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: cfg.clientId, client_secret: cfg.clientSecret, scope: MS_CALENDAR_SCOPES.join(" "), ...params }),
+    signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
+  });
+  const body = (await res.json().catch(() => ({}))) as Partial<TokenResponse> & { error?: string };
+  if (!res.ok || !body.access_token) throw new TokenEndpointError(res.status, body.error ?? "unknown_error");
+  return body as TokenResponse;
+}
+
+/**
+ * Finish a connect: trade the code for tokens, refuse an account from any
+ * tenant but the org's, and store the sealed refresh token. Returns the claims
+ * so the caller can audit-log who connected.
+ */
+export async function completeCalendarConnect(
+  a: { orgId: string; userId: string; code: string; verifier: string; redirectUri: string },
+  deps: Deps = {},
+): Promise<IdClaims> {
+  const cfg = await orgCalendarConfig(a.orgId);
+  if (!cfg) throw new CalendarNotConnected("Outlook Calendar isn't turned on for this organization.");
+  const t = await tokenRequest(
+    cfg,
+    { grant_type: "authorization_code", code: a.code, redirect_uri: a.redirectUri, code_verifier: a.verifier },
+    deps.fetch ?? fetch,
+  );
+  const claims = idTokenClaims(t.id_token);
+  if (!claims) throw new CalendarNotConnected("Microsoft didn't say which account this is.");
+  if (claims.tid.toLowerCase() !== cfg.tenantId.toLowerCase()) {
+    throw new CalendarNotConnected("That Microsoft account belongs to a different organization.");
+  }
+  if (!t.refresh_token) throw new CalendarNotConnected("Microsoft didn't grant offline access.");
+  const now = (deps.now ?? Date.now)();
+  const meta: CalendarMeta = {
+    ...claims,
+    scopes: MS_CALENDAR_SCOPES,
+    status: "connected",
+    connectedAt: new Date(now).toISOString(),
+  };
+  const secretEnc = sealSecret(JSON.stringify({ refreshToken: t.refresh_token }));
+  const existing = await prisma.connectorCredential.findFirst({
+    where: { orgId: a.orgId, provider: MS_CALENDAR, userId: a.userId },
+    select: { id: true },
+  });
+  if (existing) {
+    await prisma.connectorCredential.update({ where: { id: existing.id }, data: { secretEnc, meta: meta as Prisma.InputJsonValue } });
+  } else {
+    await prisma.connectorCredential.create({
+      data: { orgId: a.orgId, provider: MS_CALENDAR, userId: a.userId, secretEnc, meta: meta as Prisma.InputJsonValue },
+    });
+  }
+  cache.set(key(a.orgId, a.userId), { token: t.access_token, exp: now + (t.expires_in ?? 3600) * 1000 });
+  return claims;
+}
+
+export async function calendarConnection(orgId: string, userId: string) {
+  const row = await prisma.connectorCredential.findFirst({
+    where: { orgId, provider: MS_CALENDAR, userId },
+    select: { id: true, meta: true, updatedAt: true },
+  });
+  return row ? { id: row.id, meta: row.meta as unknown as CalendarMeta, updatedAt: row.updatedAt } : null;
+}
+
+/** Delete one person's connection. Idempotent. */
+export async function disconnectCalendar(orgId: string, userId: string): Promise<boolean> {
+  cache.delete(key(orgId, userId));
+  const r = await prisma.connectorCredential.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId } });
+  return r.count > 0;
+}
+
+/** Delete every person's connection in an org (the admin turned it off). */
+export async function purgeOrgCalendarConnections(orgId: string): Promise<number> {
+  for (const k of cache.keys()) if (k.startsWith(`${orgId}:`)) cache.delete(k);
+  const r = await prisma.connectorCredential.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId: { not: null } } });
+  return r.count;
+}
+
+/**
+ * Should this connection still exist? If not, it is deleted here, so a person
+ * who left, or an org that switched the integration off, keeps no token.
+ */
+async function ensureStillAllowed(orgId: string, userId: string): Promise<{ cfg: OrgCalendarConfig; meta: CalendarMeta }> {
+  const conn = await calendarConnection(orgId, userId);
+  if (!conn) throw new CalendarNotConnected("Outlook Calendar isn't connected.");
+  const [cfg, user, eff] = await Promise.all([
+    orgCalendarConfig(orgId),
+    prisma.user.findUnique({ where: { id: userId }, select: { deactivatedAt: true } }),
+    loadEffectivePermissions(orgId, userId),
+  ]);
+  const tenantMoved = cfg && conn.meta.tid?.toLowerCase() !== cfg.tenantId.toLowerCase();
+  if (!cfg || !user || user.deactivatedAt || !eff || tenantMoved) {
+    await disconnectCalendar(orgId, userId);
+    throw new CalendarNotConnected("Outlook Calendar is no longer connected.");
+  }
+  if (conn.meta.status === "reconnect") throw new CalendarReconnectNeeded("Reconnect Outlook Calendar.");
+  return { cfg, meta: conn.meta };
+}
+
+/**
+ * A Graph access token for this person, refreshing if needed.
+ * Throws CalendarNotConnected or CalendarReconnectNeeded; never loops.
+ */
+export async function calendarAccessToken(orgId: string, userId: string, deps: Deps = {}): Promise<string> {
+  const now = deps.now ?? Date.now;
+  const { cfg } = await ensureStillAllowed(orgId, userId);
+  const k = key(orgId, userId);
+  const hit = cache.get(k);
+  if (hit && hit.exp - EARLY_MS > now()) return hit.token;
+  const running = inflight.get(k);
+  if (running) return running;
+  const p = refresh(orgId, userId, cfg, deps).finally(() => inflight.delete(k));
+  inflight.set(k, p);
+  return p;
+}
+
+async function refresh(orgId: string, userId: string, cfg: OrgCalendarConfig, deps: Deps): Promise<string> {
+  const now = deps.now ?? Date.now;
+  const f = deps.fetch ?? fetch;
+  const outcome = await prisma.$transaction(
+    async (tx) => {
+      // Serialise refreshes for this person across processes. Released when the
+      // transaction ends; held only for this read-refresh-write.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LOCK_NAMESPACE}::int, hashtext(${`${orgId}:${userId}`}))`;
+      // Re-read under the lock: another process may have just rotated it.
+      const row = await tx.connectorCredential.findFirst({
+        where: { orgId, provider: MS_CALENDAR, userId },
+        select: { id: true, secretEnc: true, meta: true },
+      });
+      if (!row) return { kind: "gone" as const };
+      const { refreshToken } = JSON.parse(openSecret(row.secretEnc)) as { refreshToken: string };
+      try {
+        const t = await tokenRequest(cfg, { grant_type: "refresh_token", refresh_token: refreshToken }, f);
+        const meta = { ...(row.meta as object), status: "connected", lastRefreshAt: new Date(now()).toISOString() };
+        await tx.connectorCredential.update({
+          where: { id: row.id },
+          data: {
+            ...(t.refresh_token ? { secretEnc: sealSecret(JSON.stringify({ refreshToken: t.refresh_token })) } : {}),
+            meta: meta as Prisma.InputJsonValue,
+          },
+        });
+        return { kind: "ok" as const, token: t.access_token, exp: now() + (t.expires_in ?? 3600) * 1000 };
+      } catch (e) {
+        if (e instanceof TokenEndpointError && e.revoked) {
+          // Recorded inside the transaction, which then COMMITS: returning,
+          // not throwing, is what keeps this write.
+          await tx.connectorCredential.update({
+            where: { id: row.id },
+            data: { meta: { ...(row.meta as object), status: "reconnect" } as Prisma.InputJsonValue },
+          });
+          return { kind: "revoked" as const };
+        }
+        throw e;
+      }
+    },
+    { timeout: REFRESH_TIMEOUT_MS + 5_000, maxWait: 10_000 },
+  );
+  if (outcome.kind === "gone") throw new CalendarNotConnected("Outlook Calendar isn't connected.");
+  if (outcome.kind === "revoked") throw new CalendarReconnectNeeded("Reconnect Outlook Calendar.");
+  cache.set(`${orgId}:${userId}`, { token: outcome.token, exp: outcome.exp });
+  return outcome.token;
+}
