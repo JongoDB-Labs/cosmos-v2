@@ -26,8 +26,8 @@ describe("resolveTransition", () => {
 
   it("reports a tie between named transitions as ambiguous, listing them", () => {
     const r = resolveTransition(wf, { from: "review", to: "done" });
-    expect(r).toMatchObject({ ok: false, code: "TRANSITION_AMBIGUOUS" });
-    expect(r.ok === false && r.code === "TRANSITION_AMBIGUOUS" && r.candidates.map((c) => c.id)).toEqual([
+    expect(r).toMatchObject({ ok: false, code: "transition_ambiguous" });
+    expect(r.ok === false && r.code === "transition_ambiguous" && r.candidates.map((c) => c.id)).toEqual([
       "resolve",
       "fast-close",
     ]);
@@ -43,13 +43,13 @@ describe("resolveTransition", () => {
   it("refuses an explicit id that does not lead there", () => {
     expect(resolveTransition(wf, { from: "todo", to: "done", transitionId: "resolve" })).toMatchObject({
       ok: false,
-      code: "TRANSITION_NOT_ALLOWED",
+      code: "transition_not_allowed",
     });
   });
 
   it("refuses a move with no transition, and a status outside the workflow", () => {
-    expect(resolveTransition(wf, { from: "todo", to: "review" })).toMatchObject({ ok: false, code: "TRANSITION_NOT_ALLOWED" });
-    expect(resolveTransition(wf, { from: "todo", to: "ghost" })).toMatchObject({ ok: false, code: "TRANSITION_NOT_ALLOWED" });
+    expect(resolveTransition(wf, { from: "todo", to: "review" })).toMatchObject({ ok: false, code: "transition_not_allowed" });
+    expect(resolveTransition(wf, { from: "todo", to: "ghost" })).toMatchObject({ ok: false, code: "transition_not_allowed" });
   });
 });
 
