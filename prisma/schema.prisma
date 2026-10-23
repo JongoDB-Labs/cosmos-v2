@@ -5,7 +5,7 @@ generator client {
 
 datasource db {
   provider   = "postgresql"
-  extensions = [pgcrypto]
+  extensions = [pgcrypto, pg_trgm]
 }
 
 // ─────────────────────────────────────────────
@@ -1106,6 +1106,15 @@ model WorkItem {
   @@index([orgId, assigneeId])
   // The board team filter reads "this project's items for team X".
   @@index([projectId, teamId])
+  // CQL (query design §6.7): labels, custom fields, `text ~` on titles, and
+  // the scoped sorts and filters the query language makes common.
+  @@index([tags], type: Gin)
+  @@index([customFields(ops: JsonbPathOps)], type: Gin)
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([orgId, projectId, updatedAt(sort: Desc)])
+  @@index([orgId, dueDate])
+  @@index([orgId, createdById])
+  @@index([parentId])
   @@map("work_items")
 }
 
@@ -1299,6 +1308,11 @@ model Activity {
 
   @@index([orgId, workItemId])
   @@index([orgId, subjectType, subjectId])
+  // CQL history (WAS / CHANGED): per item and field in time order, by time
+  // (the value each item held when a window opens), and by value.
+  @@index([workItemId, field, createdAt])
+  @@index([orgId, field, createdAt])
+  @@index([orgId, field, newValue, createdAt])
   @@map("activities")
 }
 
@@ -3339,6 +3353,7 @@ model MilestoneLink {
   milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
 
   @@index([milestoneId])
+  @@index([workItemId])
   @@map("milestone_links")
 }
 
@@ -3865,6 +3880,7 @@ model WorkItemLink {
   targetItem WorkItem @relation("WorkItemLinkTarget", fields: [targetItemId], references: [id], onDelete: Cascade)
 
   @@index([orgId, sourceItemId])
+  @@index([orgId, targetItemId])
   @@map("work_item_links")
 }
 
