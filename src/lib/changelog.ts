@@ -49,7 +49,7 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
-    version: "2.439.8",
+    version: "2.439.13",
     date: "2026-10-23",
     title: "The \"new version ready\" notice reaches the sign-in screen too",
     highlights: [
