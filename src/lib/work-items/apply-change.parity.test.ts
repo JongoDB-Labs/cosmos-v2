@@ -34,6 +34,7 @@ import { OrgRole, type ColumnCategory } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
+import { stubToolCtx } from "@/lib/testing/tool-auth";
 
 const calls = vi.hoisted(() => ({
   audit: [] as unknown[],
@@ -720,7 +721,7 @@ describe("parity: create", () => {
     const w = await world();
     const out = (await aiCreate(
       { projectId: w.projectId, title: "From Cosmo", columnKey: "backlog", workItemTypeId: typeId },
-      { orgId, userId: aliceId },
+      stubToolCtx(orgId, aliceId, { orgRole: OrgRole.OWNER, permissions: allPermissions() }),
     )) as { id: string };
     names.set(out.id, "item:ai");
     expect(norm({ out, item: await itemState(out.id), effects: await sideEffects() })).toMatchSnapshot();
@@ -767,35 +768,35 @@ describe("parity: assistant updateWorkItem", () => {
   it("assistant move into Review", async () => {
     const w = await world();
     const a = await w.item("A");
-    const out = await aiUpdate({ itemId: a, columnKey: "review" }, { orgId, userId: aliceId });
+    const out = await aiUpdate({ itemId: a, columnKey: "review" }, stubToolCtx(orgId, aliceId, { orgRole: OrgRole.OWNER, permissions: allPermissions() }));
     expect(norm({ out, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
   });
 
   it("assistant move into a custom Done column", async () => {
     const w = await world();
     const a = await w.item("A", { columnKey: "in_progress", actualStart: T1 });
-    const out = await aiUpdate({ itemId: a, columnKey: "shipped" }, { orgId, userId: aliceId });
+    const out = await aiUpdate({ itemId: a, columnKey: "shipped" }, stubToolCtx(orgId, aliceId, { orgRole: OrgRole.OWNER, permissions: allPermissions() }));
     expect(norm({ out, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
   });
 
   it("assistant move out of done", async () => {
     const w = await world();
     const a = await w.item("A", { columnKey: "done", actualStart: T1, completedAt: T2 });
-    const out = await aiUpdate({ itemId: a, columnKey: "todo" }, { orgId, userId: aliceId });
+    const out = await aiUpdate({ itemId: a, columnKey: "todo" }, stubToolCtx(orgId, aliceId, { orgRole: OrgRole.OWNER, permissions: allPermissions() }));
     expect(norm({ out, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
   });
 
   it("assistant tag edit", async () => {
     const w = await world();
     const a = await w.item("A");
-    const out = await aiUpdate({ itemId: a, tags: ["parity-epsilon"] }, { orgId, userId: aliceId });
+    const out = await aiUpdate({ itemId: a, tags: ["parity-epsilon"] }, stubToolCtx(orgId, aliceId, { orgRole: OrgRole.OWNER, permissions: allPermissions() }));
     expect(norm({ out, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
   });
 
   it("assistant reassignment", async () => {
     const w = await world();
     const a = await w.item("A", { assigneeId: aliceId, assignees: { create: [{ userId: aliceId, sortOrder: 0 }] } });
-    const out = await aiUpdate({ itemId: a, assigneeId: bobId, priority: "HIGH" }, { orgId, userId: aliceId });
+    const out = await aiUpdate({ itemId: a, assigneeId: bobId, priority: "HIGH" }, stubToolCtx(orgId, aliceId, { orgRole: OrgRole.OWNER, permissions: allPermissions() }));
     expect(norm({ out, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
   });
 });
