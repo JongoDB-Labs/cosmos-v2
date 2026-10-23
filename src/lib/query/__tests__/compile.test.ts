@@ -156,6 +156,11 @@ describe("compile — field by field", () => {
     expect(where('childrenOf("ref:item:i1")')).toEqual({ parentId: "i1" });
   });
 
+  it("an empty date is a plain null, so IS EMPTY / IS NOT EMPTY / != partition", () => {
+    expect(where("due IS EMPTY")).toEqual({ dueDate: null });
+    expect(where("due IS NOT EMPTY")).toEqual({ NOT: { dueDate: null } });
+  });
+
   it("key comparisons are within the item's project", () => {
     expect(where('key > "ref:item:item-100"')).toEqual({ projectId: "p1", ticketNumber: { gt: 100 } });
     expect(where('key > "ref:item:unknown"')).toEqual({ id: { in: [] } });
