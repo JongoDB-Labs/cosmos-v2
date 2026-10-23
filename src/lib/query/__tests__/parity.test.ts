@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { paritySampleRate, scheduleParity } from "../parity.server";
-import { fromWorkItemFilter } from "../adapters";
+import { fromWorkItemFilter, toWorkItemFilter } from "../adapters";
+import type { WorkItemFilter } from "@/lib/work-items/query/filter";
+import { parseCql } from "../parser";
 
 describe("dark-ship parity", () => {
   it("samples everything outside production, 5% in production, and honours an override", () => {
@@ -53,5 +55,36 @@ describe("fromWorkItemFilter", () => {
       where: null,
       orderBy: [{ field: { kind: "sys", id: "due" }, dir: "asc" }],
     });
+  });
+});
+
+describe("toWorkItemFilter (transitional reverse)", () => {
+  const filters: WorkItemFilter[] = [
+    {},
+    { projectIds: ["p1", "p2"] },
+    { ids: ["i1"] },
+    { typeIds: ["t1"], columnKeys: ["todo", "done"] },
+    { priorities: ["HIGH", "LOW"] },
+    { assigneeIds: ["unassigned", "u1"] },
+    { labels: ["auth", "urgent"] },
+    { intervalIds: ["none", "s1"] },
+    { watchedByUserId: "u1" },
+    { archived: "only" },
+    { archived: "all" },
+    { parent: { mode: "has_parent" } },
+    { parent: { mode: "no_parent" } },
+    { parent: { mode: "is", parentIds: ["x"] } },
+    { dueDate: { from: "2026-01-01", to: "2026-02-01" }, createdAt: { from: "2025-01-01" } },
+    { text: "login" },
+    { customFields: [{ key: "sev", kind: "SELECT", value: "S1" }, { key: "ok", kind: "CHECKBOX", value: true }] },
+    { priorities: ["HIGH"], labels: ["auth"], assigneeIds: ["u1"], text: "x" },
+  ];
+  it("round-trips every legacy filter", () => {
+    for (const f of filters) expect(toWorkItemFilter(fromWorkItemFilter(f), new Map([["sev", "SELECT"]])), JSON.stringify(f)).toEqual(f);
+  });
+  it("is null for what the legacy shape can't say", () => {
+    for (const cql of ["priority = HIGH OR assignee = me", "NOT priority = HIGH", "assignee = me", "priority > LOW", "summary ~ x", "sprint IN openSprints()"]) {
+      expect(toWorkItemFilter(parseCql(cql).query), cql).toBeNull();
+    }
   });
 });

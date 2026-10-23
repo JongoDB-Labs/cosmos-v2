@@ -90,7 +90,7 @@ const NULLABLE = new Set([
   "externalSource",
 ]);
 
-const CF_OPS: Record<CustomFieldType, readonly OpFamily[]> = {
+export const CF_OPS: Record<CustomFieldType, readonly OpFamily[]> = {
   TEXT: ["eq", "empty"],
   URL: ["eq", "empty"],
   EMAIL: ["eq", "empty"],
@@ -102,7 +102,7 @@ const CF_OPS: Record<CustomFieldType, readonly OpFamily[]> = {
   USER: ["eq", "in", "empty"],
 };
 
-function cfValueKind(t: CustomFieldType): ValueKind {
+export function cfValueKind(t: CustomFieldType): ValueKind {
   switch (t) {
     case "NUMBER":
       return { kind: "number" };
