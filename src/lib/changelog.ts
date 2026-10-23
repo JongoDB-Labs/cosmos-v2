@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.443.0",
+    date: "2026-10-23",
+    title: "Sprints fill in empty dates",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Picking a sprint or interval on an issue now fills in its planned start and end dates when they're empty, and leaves dates you've already set alone.",
+      },
+    ],
+  },
+  {
     version: "2.442.0",
     date: "2026-10-23",
     title: "Connect your Outlook calendar",
