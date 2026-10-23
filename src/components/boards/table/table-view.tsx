@@ -6,6 +6,8 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
 import { matchesFilters } from "@/lib/work-items/board-filters";
+import { boardScope, inBoardScope } from "@/lib/boards/saved-filter";
+import { BoardScopeNotice } from "@/components/boards/shared/board-scope-notice";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
@@ -207,9 +209,12 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   // filter (what I am looking at right now). The two compose.
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
   const projectStatuses = useProjectStatuses(orgId, projectId);
+  // A board saved from Issues is scoped by that query (lib/boards/saved-filter);
+  // like typeKeys it is configuration, and the filter bar narrows within it.
+  const scope = useMemo(() => boardScope(board?.config), [board]);
   const visibleItems = useMemo(
-    () => items.filter((it) => matchesFilters(it, filters)),
-    [items, filters],
+    () => items.filter((it) => inBoardScope(scope, it) && matchesFilters(it, filters)),
+    [items, filters, scope],
   );
 
   // Persist a change to the board's type filter (optimistic: patch the board
@@ -1042,6 +1047,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           boardColumns={projectStatuses}
         />
       </div>
+      <BoardScopeNotice scope={scope} />
 
       <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       {/* Table */}
