@@ -39,8 +39,9 @@ describe("published spec lint", () => {
     for (const s of op["x-cosmos-scopes"] ?? []) expect(API_KEY_SCOPES).toContain(s);
   });
 
-  it.each(ops)("$where: documents 401, and every error is a Problem", ({ op }) => {
+  it.each(ops)("$where: documents 401 (and 403 when it needs scopes), and every error is a Problem", ({ op }) => {
     expect(Object.keys(op.responses)).toContain("401");
+    if (op["x-cosmos-scopes"]?.length) expect(Object.keys(op.responses)).toContain("403");
     for (const [status, r] of Object.entries(op.responses)) {
       if (Number(status) < 400) continue;
       expect(r.content?.["application/problem+json"]?.schema.$ref).toBe("#/components/schemas/Problem");

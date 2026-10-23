@@ -29,7 +29,7 @@ type RouteParams = { params: Promise<{ orgId: string }> };
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, listLabels);
     const { params: { orgId }, query: { projectId } } = await parseRequest(listLabels, request, params);
     requirePermission(ctx, Permission.ORG_READ);
 

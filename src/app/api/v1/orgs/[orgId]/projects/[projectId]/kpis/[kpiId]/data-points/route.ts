@@ -19,7 +19,7 @@ async function loadKpi(orgId: string, projectId: string, kpiId: string) {
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, listKpiDataPoints);
     const { params: { orgId, projectId, kpiId } } = await parseRequest(listKpiDataPoints, request, params);
     await requireProjectRead(ctx, projectId, "ANALYTICS_READ");
 
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, createKpiDataPoint);
     const { params: { orgId, projectId, kpiId }, body: data } = await parseRequest(createKpiDataPoint, request, params);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 

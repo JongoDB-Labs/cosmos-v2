@@ -17,9 +17,14 @@ const SCOPE_MASK: Record<ApiKeyScope, bigint> = {
   // conversation is part of reading an item, and without it a key could POST a
   // comment (with items:write) and then be denied its own reply on the way back
   // out — "Access denied by policy" on a GET the caller had just written to.
+  //
+  // ORG_READ and ANALYTICS_READ joined `read` with the public API: labels and
+  // custom fields gate on ORG_READ, and KPIs on ANALYTICS_READ, so a read token
+  // could not reach operations the spec documents as reads.
   read:
-    Permission.PROJECT_READ | Permission.ITEM_READ | Permission.COMMENT_READ |
-    Permission.OKR_READ | Permission.SPRINT_READ,
+    Permission.ORG_READ | Permission.PROJECT_READ | Permission.ITEM_READ |
+    Permission.COMMENT_READ | Permission.OKR_READ | Permission.SPRINT_READ |
+    Permission.ANALYTICS_READ,
   // Write means write: CREATE alone let a key file an item and then never touch
   // it again — no status change, no re-assign, no comment — which is most of
   // what "work the board without a browser" actually is. ITEM_UPDATE and
@@ -34,12 +39,28 @@ const SCOPE_MASK: Record<ApiKeyScope, bigint> = {
     Permission.COMMENT_CREATE | Permission.COMMENT_READ |
     Permission.OKR_READ | Permission.OKR_CREATE |
     Permission.SPRINT_READ | Permission.SPRINT_CREATE,
+  // The delete half of items:write, as its own decision: work items and OKRs.
+  // A planning delete (milestone, goal, KPI) needs planning:write as well.
+  "items:delete": Permission.ITEM_DELETE | Permission.OKR_DELETE,
+  // Milestones, goals, KPIs and interval changes, split out of items:write so a
+  // reporting integration can plan without being able to edit work.
+  "planning:write":
+    Permission.PROJECT_READ | Permission.PROJECT_UPDATE | Permission.ITEM_READ |
+    Permission.OKR_READ | Permission.OKR_CREATE | Permission.OKR_UPDATE |
+    Permission.SPRINT_READ | Permission.SPRINT_CREATE | Permission.SPRINT_UPDATE |
+    Permission.ANALYTICS_READ,
+  // Time is its own domain: hours are payroll and billing data, not work items.
+  // Rates stay behind canSeeRate (own rows, or FINANCE_READ) whatever the scope.
+  "time:read": Permission.TIME_READ,
+  "time:write": Permission.TIME_READ | Permission.TIME_CREATE | Permission.TIME_UPDATE,
   // A disclosure scope, not a permission: it adds no bits. A token sees
   // members' email addresses (member list, project members) only when it holds
   // it, because integrations match people by email and the key's owner should
   // opt into handing a script everyone's address. Contracts name the fields
   // (`scopedFields`); respond() removes them for tokens without it.
   "members:read": 0n,
+  "webhooks:manage": Permission.WEBHOOK_MANAGE,
+  "audit:read": Permission.AUDIT_LOG_READ,
   "documents:write":
     Permission.PROJECT_READ | Permission.PROJECT_UPDATE | Permission.ITEM_READ | Permission.ITEM_CREATE,
   // Exactly one permission, and deliberately no read: a scheduler needs to

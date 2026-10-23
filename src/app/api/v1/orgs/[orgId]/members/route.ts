@@ -23,7 +23,7 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, listMembers);
     const { params: { orgId }, query } = await parseRequest(listMembers, request, params);
     const page = cursorPage<{ joinedAt: Date; id: string }>({
       request, query,

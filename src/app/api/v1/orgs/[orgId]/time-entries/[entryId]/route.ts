@@ -19,7 +19,7 @@ type RouteParams = { params: Promise<{ orgId: string; entryId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, getTimeEntry);
     const { params: { orgId, entryId } } = await parseRequest(getTimeEntry, request, params);
     requirePermission(ctx, Permission.TIME_READ);
 
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, updateTimeEntry);
     const { params: { orgId, entryId }, body: data } = await parseRequest(updateTimeEntry, request, params);
 
     const existing = await prisma.timeEntry.findFirst({
