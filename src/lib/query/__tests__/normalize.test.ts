@@ -54,3 +54,32 @@ describe("validateAst — JSON queries", () => {
     expect(validateAst(history).diagnostics[0].code).toBe("CQL_LIMIT");
   });
 });
+
+describe("JSON size is measured before anything recursive touches it", () => {
+  const deepNot = (n: number): unknown => {
+    let node: unknown = { op: "cmp", field: { kind: "sys", id: "priority" }, cmp: "eq", value: { t: "str", v: "HIGH" } };
+    for (let i = 0; i < n; i++) node = { op: "not", arg: node };
+    return { v: CQL_VERSION, where: node };
+  };
+  it("thousands of nested NOTs are a limit diagnostic, not a crash", () => {
+    const r = validateAst(deepNot(5000));
+    expect(r.query).toBeNull();
+    expect(r.diagnostics[0]).toMatchObject({ code: "CQL_LIMIT" });
+  });
+  it("an AND with 123,000 args is refused, and fast", () => {
+    const leaf = { op: "cmp", field: { kind: "sys", id: "priority" }, cmp: "eq", value: { t: "str", v: "HIGH" } };
+    const t0 = Date.now();
+    const r = validateAst({ v: CQL_VERSION, where: { op: "and", args: Array.from({ length: 123_000 }, () => leaf) } });
+    expect(r.query).toBeNull();
+    expect(Date.now() - t0).toBeLessThan(2_000);
+    // Just over the clause limit: zod's cap says so, as a shape error.
+    const r2 = validateAst({ v: CQL_VERSION, where: { op: "and", args: Array.from({ length: CQL_LIMITS.clauses + 1 }, () => leaf) } });
+    expect(r2.query).toBeNull();
+  });
+  it("nodeDepth survives very wide nodes (no spread into Math.max)", async () => {
+    const { nodeDepth } = await import("../ast");
+    const leaf = { op: "empty", field: { kind: "sys", id: "due" } } as CqlNode;
+    expect(nodeDepth({ op: "and", args: Array.from({ length: 200_000 }, () => leaf) })).toBe(2);
+    expect(nodeDepth({ op: "not", arg: { op: "or", args: [leaf, { op: "not", arg: leaf }] } })).toBe(4);
+  });
+});

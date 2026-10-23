@@ -86,6 +86,13 @@ const KEY_RE = /^([A-Za-z][A-Za-z0-9_]*)-(\d+)$/;
  * since left is still that person's item.
  */
 const SCOPED_REFS = new Set<RefEntity>(["project", "interval", "team", "item"]);
+/**
+ * Stored refs that are re-checked against the ORG (not a project): a JSON
+ * query (an API caller, a saved filter) could carry any id, and an id from
+ * another org must match nothing rather than ride along with a forged label.
+ * A person who has left is still found (their membership row remains).
+ */
+const RECHECKED_REFS = new Set<RefEntity>([...SCOPED_REFS, "user", "label", "type"]);
 
 export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
   const text = a.text ?? "";
@@ -108,8 +115,8 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
   };
   const collect = (v: CqlValue, entity: RefEntity | null, field: FieldRef) => {
     if (v.t === "str" && entity) wanted[entity].add(v.v);
-    // Stored refs are re-checked too (see SCOPED_REFS below).
-    if (v.t === "ref" && SCOPED_REFS.has(v.entity)) wanted[v.entity].add(v.id);
+    // Stored refs are re-checked too (see SCOPED_REFS / RECHECKED_REFS).
+    if (v.t === "ref" && RECHECKED_REFS.has(v.entity)) wanted[v.entity].add(v.id);
     if (v.t === "num" && entity === "item") wanted.item.add(String(v.v));
     if (v.t === "var") varUses.push({ name: v.name, field, entity });
     if (v.t === "fn") v.args.forEach((arg, i) => collect(arg, fnArgEntity(v.name, i), field));
@@ -311,11 +318,15 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
   /** Resolve one value for an entity: a list (names can match several), or null if unknown. */
   const resolveValue = (v: CqlValue, entity: RefEntity | null): CqlValue[] | null => {
     if (v.t === "fn") return [{ ...v, args: v.args.flatMap((arg, i) => resolveValue(arg, fnArgEntity(v.name, i)) ?? [arg]) }];
-    if (v.t === "ref" && SCOPED_REFS.has(v.entity)) {
+    if (v.t === "ref" && RECHECKED_REFS.has(v.entity)) {
       // A stored ref (saved filter, dashboard panel) the viewer can't see is
       // DROPPED, silently: the query narrows to what they can see, exactly as
       // the scope envelope would, and nothing says the thing exists. The label
       // is refreshed from the current name.
+      if (v.entity === "user") {
+        const u = userByName.get(lc(v.id))?.find((x) => x.id === v.id);
+        return u ? [{ t: "ref", entity: "user", id: u.id, label: u.displayName }] : [];
+      }
       const hit = index.get(v.entity)?.get(lc(v.id))?.find((r) => r.id === v.id);
       return hit ? [hit] : [];
     }

@@ -18,7 +18,7 @@ import { classificationLabel, isMarkingLevel } from "@/lib/classification/levels
 import { logAudit } from "@/lib/audit";
 import { cqlEnabled } from "@/lib/query/flag";
 import { exportCql } from "@/lib/query/execute.server";
-import { cqlErrorResponse } from "@/lib/query/route.server";
+import { cqlErrorResponse, cqlTooLong } from "@/lib/query/route.server";
 import type { ClassificationLevel } from "@prisma/client";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -61,6 +61,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return new Response("Not found", { status: 404 });
 
+    const sp = request.nextUrl.searchParams;
+    const cqlOn = cqlEnabled(org.settings);
+    // Without the query language `?cql=` doesn't exist here: 404, as on search.
+    if (!cqlOn && sp.has("cql")) return new Response("Not found", { status: 404 });
+
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     // Org-level read gate (raw bit); per-project narrowing happens in
@@ -76,13 +81,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
     if (limited) return limited;
 
-    const allowedProjectIds = await getReadableProjectIds(ctx);
-    if (allowedProjectIds.length === 0) {
-      return new Response("", { status: 200, headers: csvHeaders(org.slug) });
-    }
-
-    const sp = request.nextUrl.searchParams;
-    const cql = cqlEnabled(org.settings) ? sp.get("cql") : null;
+    const cql = cqlOn ? sp.get("cql") : null;
     let data: Awaited<ReturnType<typeof runWorkItemQuery>>["data"];
     if (cql !== null) {
       const others = [...new Set(sp.keys())].filter((k) => k !== "cql" && k !== "tz");
@@ -92,12 +91,20 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           { status: 400, headers: { "content-type": "application/json" } },
         );
       }
+      const tooLong = cqlTooLong(cql);
+      if (tooLong) return tooLong;
+      // No early "nothing readable" answer: bad CQL is a 400 for everyone.
       try {
         ({ data } = await exportCql(ctx, { cql }, { tz: sp.get("tz") ?? undefined }));
       } catch (e) {
         return cqlErrorResponse(e);
       }
     } else {
+      const allowedProjectIds = await getReadableProjectIds(ctx);
+      if (allowedProjectIds.length === 0) {
+        return new Response("", { status: 200, headers: csvHeaders(org.slug) });
+      }
+
       // Reject parameters nothing will read, rather than answering as if they
       // had been applied. A filter that silently does not filter returns
       // plausible WRONG answers, which costs the caller more than an error.

@@ -226,3 +226,28 @@ describe("quick-fixes for typos", () => {
     expect(fixed("zzzzzzzz = 1")).toBeNull();
   });
 });
+
+describe("variables are people, teams, projects and sprints", () => {
+  const errs = (cql: string) => {
+    const p = parseCql(cql);
+    return typecheck(p.query, { customFields: [] }, cql, p.spans).diagnostics.filter((d) => d.severity === "error");
+  };
+  it("are allowed on those fields", () => {
+    expect(errs("assignee = $speaker AND team IN ($team) AND project = $project AND sprint = $sprint")).toEqual([]);
+  });
+  it("are refused on dates and numbers (no silent `has a due date`)", () => {
+    expect(errs("due < $d")[0]).toMatchObject({ code: "CQL_TYPE_MISMATCH", message: expect.stringContaining("can't be used on `due`") });
+    expect(errs("due = $d")).toHaveLength(1);
+    expect(errs("points > $n")).toHaveLength(1);
+    expect(errs("priority = $p")).toHaveLength(1);
+  });
+  it("are refused as function arguments", () => {
+    expect(errs("key IN updatedBy(me, $d)")[0]).toMatchObject({ code: "CQL_TYPE_MISMATCH", message: expect.stringContaining("doesn't take variables") });
+    expect(errs("assignee IN membersOf($team)")).toHaveLength(1);
+  });
+  it("updatedBy takes a person: a name, or me — no other function", () => {
+    expect(errs("key IN updatedBy(me)")).toEqual([]);
+    expect(errs('key IN updatedBy("Dana")')).toEqual([]);
+    expect(errs("key IN updatedBy(now())")).toHaveLength(1);
+  });
+});

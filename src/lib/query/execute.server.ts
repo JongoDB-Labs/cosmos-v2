@@ -47,6 +47,8 @@ export interface CqlRunOptions {
   /** Statement budget, ms. 3 s interactive; exports and subscriptions pass 10 s. */
   timeoutMs?: number;
   countTimeoutMs?: number;
+  /** Rows, then the count, one transaction at a time (background work such as parity). */
+  sequential?: boolean;
   /** Validation strictness for unknown values (validate route only). */
   mode?: "strict" | "warn" | "none";
 }
@@ -174,7 +176,7 @@ export async function executeCql(ctx: AuthContext, input: CqlInput, opts: CqlRun
     user: prepared.compiled.where,
   });
 
-  const [data, count] = await Promise.all([
+  const rows = () =>
     withStatementTimeout(opts.timeoutMs ?? 3_000, (tx) =>
       fetchIssueRows(tx, {
         where,
@@ -184,19 +186,20 @@ export async function executeCql(ctx: AuthContext, input: CqlInput, opts: CqlRun
         orgId: prepared.orgId,
         allowedProjectIds: prepared.readable,
       }),
-    ),
-    // Counting has its own, smaller budget: a slow count must not cost the
-    // rows, it just reads "1,000+".
+    );
+  // Counting has its own, smaller budget: a slow count must not cost the
+  // rows, it just reads "1,000+".
+  const count = () =>
     withStatementTimeout(opts.countTimeoutMs ?? 1_500, (tx) => tx.workItem.count({ where })).catch((e) => {
       if (e instanceof CqlError && e.diagnostics[0]?.code === "CQL_TIMEOUT") return null;
       throw e;
-    }),
-  ]);
+    });
+  const [data, total] = opts.sequential ? [await rows(), await count()] : await Promise.all([rows(), count()]);
 
   return {
     data,
-    total: count,
-    totalCapped: count === null,
+    total,
+    totalCapped: total === null,
     query: prepared.query,
     cql: prepared.cql,
     diagnostics: prepared.diagnostics,

@@ -1,7 +1,10 @@
 /**
  * The gate every CQL route shares, so none of them can forget a step:
  *
- *   org exists → signed in → raw ITEM_READ bit → org has CQL switched on
+ *   org exists → org has CQL switched on → signed in → raw ITEM_READ bit
+ *
+ * The switch comes first: for an org without it the routes do not exist, so
+ * everyone gets the same 404, whatever their permissions.
  *
  * The raw bit, not requireAccess(ITEM_READ): an org-wide query has no single
  * resource, and a resource-less ABAC check cannot resolve an `in_project` deny
@@ -16,18 +19,27 @@ import type { AuthContext } from "@/lib/rbac/check";
 import { handleApiError } from "@/lib/api-helpers";
 import { cqlEnabled } from "./flag";
 import { CqlError } from "./errors";
+import { CQL_LIMITS } from "./ast";
 
 export async function cqlGate(
   orgId: string,
 ): Promise<{ ctx: AuthContext; org: { id: string; slug: string } } | { response: Response }> {
   const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { id: true, slug: true, settings: true } });
-  if (!org) return { response: new Response("Not found", { status: 404 }) };
+  // Off: the routes do not exist yet for this org.
+  if (!org || !cqlEnabled(org.settings)) return { response: new Response("Not found", { status: 404 }) };
   const ctx = await getAuthContext(org.slug);
   if (!ctx) return { response: new Response("Unauthorized", { status: 401 }) };
   if (!hasPermission(ctx.permissions, Permission.ITEM_READ)) return { response: new Response("Forbidden", { status: 403 }) };
-  // Off: the routes do not exist yet for this org.
-  if (!cqlEnabled(org.settings)) return { response: new Response("Not found", { status: 404 }) };
   return { ctx, org: { id: org.id, slug: org.slug } };
+}
+
+/** Text longer than this is refused before it reaches the parser (CQL_LIMITS.textLength). */
+export function cqlTooLong(text: string): Response | null {
+  if (text.length <= CQL_LIMITS.textLength) return null;
+  return NextResponse.json(
+    { error: { code: "CQL_INVALID", message: `A query can be at most ${CQL_LIMITS.textLength} characters.`, diagnostics: [] } },
+    { status: 400 },
+  );
 }
 
 /** `400 { error: { code: "CQL_INVALID", diagnostics } }` (422 for a timeout); else the house handler. */
