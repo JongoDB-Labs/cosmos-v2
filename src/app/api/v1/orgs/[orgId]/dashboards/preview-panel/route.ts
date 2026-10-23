@@ -6,7 +6,8 @@ import { cqlErrorResponse, cqlGate, cqlTooLong } from "@/lib/query/route.server"
 import { parseCql } from "@/lib/query/parser";
 import { hasErrors } from "@/lib/query/errors";
 import { isValidTimeZone } from "@/lib/query/dates";
-import { computePanels } from "@/lib/dashboards/panel-data.server";
+import { computePanels, drillPanel } from "@/lib/dashboards/panel-data.server";
+import { sliceSchema } from "@/lib/dashboards/drill";
 import { filterDefsSchema, filterValueSchema } from "@/lib/dashboards/filters";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -22,6 +23,8 @@ const bodySchema = z.strictObject({
   filterValues: z.record(z.string().max(70), filterValueSchema).default({}),
   tz: z.string().max(64).default("UTC"),
   contextProjectId: z.string().uuid().optional(),
+  /** Set to list the items behind one slice instead of the panel itself. */
+  drill: sliceSchema.optional(),
 });
 
 /**
@@ -53,12 +56,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
       query = parsed.query;
     }
-    const [result] = await computePanels(gate.ctx, [{ type: body.type, query, config: body.config, ignoreFilters: body.ignoreFilters }], {
+    const spec = { type: body.type, query, config: body.config, ignoreFilters: body.ignoreFilters };
+    const opts = {
       tz: body.tz,
       filters: body.filters,
       filterValues: body.filterValues,
       ...(body.contextProjectId ? { contextProjectId: body.contextProjectId } : {}),
-    });
+    };
+    if (body.drill) return success(await drillPanel(gate.ctx, spec, body.drill, opts));
+    const [result] = await computePanels(gate.ctx, [spec], opts);
     return success(result);
   } catch (e) {
     return cqlErrorResponse(e);

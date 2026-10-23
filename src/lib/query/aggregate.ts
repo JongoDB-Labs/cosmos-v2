@@ -220,3 +220,8 @@ export function fold(
   });
   return { rows, folded };
 }
+
+/** The end (exclusive) of the bucket starting at `start`: the next bucket's start. */
+export function bucketEnd(start: string, bucket: "day" | "week" | "month", tz: string): string {
+  return startOf(bucket, new Date(start), tz, 1).toISOString();
+}
