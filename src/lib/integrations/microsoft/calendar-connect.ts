@@ -51,15 +51,34 @@ export function newConnectState(orgId: string, userId: string, now = Date.now())
 }
 
 /** The sealed cookie, if it is intact, unexpired, and matches `state`. */
+/**
+ * States already used, by hash, until they would have expired anyway, so a
+ * replayed callback (same cookie, same state) is refused even if the browser
+ * never cleared the cookie. Per process; the 10-minute expiry bounds it.
+ */
+const usedStates = new Map<string, number>();
+const MAX_USED_STATES = 10_000;
+
+/** Test hook. */
+export function _resetUsedConnectStates() {
+  usedStates.clear();
+}
+
 export function openConnectState(cookie: string | undefined, state: string | null, now = Date.now()): ConnectState | null {
   if (!cookie || !state) return null;
+  let s: ConnectState;
   try {
-    const s = JSON.parse(openSecret(cookie)) as ConnectState;
-    if (s.state !== state || typeof s.exp !== "number" || s.exp < now) return null;
-    return s;
+    s = JSON.parse(openSecret(cookie)) as ConnectState;
   } catch {
     return null;
   }
+  if (s.state !== state || typeof s.exp !== "number" || s.exp < now) return null;
+  for (const [h, exp] of usedStates) if (exp < now) usedStates.delete(h);
+  const h = createHash("sha256").update(state).digest("base64url");
+  if (usedStates.has(h)) return null;
+  if (usedStates.size >= MAX_USED_STATES) usedStates.delete(usedStates.keys().next().value as string);
+  usedStates.set(h, s.exp);
+  return s;
 }
 
 export function calendarAuthorizeUrl(o: {

@@ -43,7 +43,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     sameSite: "lax",
     path: MS_CALENDAR_CALLBACK_PATH,
     maxAge: 10 * 60,
-    secure: process.env.NODE_ENV === "production",
+    // Any https deployment, not only NODE_ENV=production ones.
+    secure: origin.startsWith("https:"),
   });
   return res;
 }
