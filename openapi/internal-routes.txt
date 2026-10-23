@@ -188,6 +188,7 @@ GET /orgs/{orgId}/feedback
 GET /orgs/{orgId}/feedback/attachments/{attachmentId}
 GET /orgs/{orgId}/feedback/remediation-config
 GET /orgs/{orgId}/feedback/remediation-queue
+GET /orgs/{orgId}/feedback/{feedbackId}
 GET /orgs/{orgId}/finance/expenses
 GET /orgs/{orgId}/finance/expenses/{expenseId}
 GET /orgs/{orgId}/finance/revenue
