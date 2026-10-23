@@ -1,5 +1,3 @@
-import type { NextRequest } from "next/server";
-
 /**
  * Return the public origin (scheme + host) the request came in on, honoring
  * reverse-proxy headers. Next.js 16's `request.url` defaults to the internal
@@ -11,7 +9,7 @@ import type { NextRequest } from "next/server";
  * 2. `host` header + scheme inferred from host (https for non-localhost)
  * 3. Fall back to request.url's origin
  */
-export function getPublicOrigin(request: NextRequest): string {
+export function getPublicOrigin(request: Request): string {
   const forwardedHost = request.headers.get("x-forwarded-host");
   const forwardedProto = request.headers.get("x-forwarded-proto");
   const hostHeader = request.headers.get("host");
