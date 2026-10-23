@@ -72,6 +72,20 @@ describe("JobRunner", () => {
     expect(r.status()[0]).toMatchObject({ lastOk: false, lastError: "aborted" });
   });
 
+  it("first ticks within 30s of start (plus jitter), then every everyMs", async () => {
+    const r = new JobRunner({ ...quiet, random: () => 0.5 });
+    let runs = 0;
+    r.register({ name: "soon", everyMs: 5 * 60_000, jitterMs: 100, run: async () => void runs++ });
+    r.register({ name: "fast", everyMs: 1000, jitterMs: 0, run: async () => undefined });
+    r.start();
+    const next = Object.fromEntries(r.status().map((s) => [s.name, Date.parse(s.nextRunAt!) - Date.now()]));
+    await r.stop();
+    expect(next.soon).toBeGreaterThan(29_000);
+    expect(next.soon).toBeLessThanOrEqual(30_050);
+    expect(next.fast).toBeLessThanOrEqual(1000);
+    expect(runs).toBe(0);
+  });
+
   it("refuses a duplicate name", () => {
     const r = new JobRunner(quiet);
     r.register({ name: "a", everyMs: 1, run: async () => undefined });

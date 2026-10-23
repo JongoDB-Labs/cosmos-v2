@@ -61,6 +61,7 @@ export interface JobStatus {
 /** Lock namespace (first key of the two-int advisory lock). */
 export const JOBS_LOCK_NAMESPACE = 20203;
 const MAX_BACKOFF_MS = 60 * 60_000;
+const FIRST_TICK_MAX_MS = 30_000;
 
 /** A Postgres advisory lock on its own connection. */
 export function pgJobLock(name: string, connectionString = process.env.DATABASE_URL ?? ""): JobLock {
@@ -155,14 +156,14 @@ export class JobRunner {
       },
     };
     this.jobs.set(def.name, entry);
-    if (this.started) this.schedule(entry, this.delay(entry));
+    if (this.started) this.schedule(entry, this.firstDelay(entry));
   }
 
   start(): void {
     if (this.started) return;
     this.started = true;
     this.stopping = false;
-    for (const e of this.jobs.values()) this.schedule(e, this.delay(e));
+    for (const e of this.jobs.values()) this.schedule(e, this.firstDelay(e));
   }
 
   async stop(): Promise<void> {
@@ -234,6 +235,12 @@ export class JobRunner {
     const base = e.def.everyMs * 2 ** Math.min(e.status.consecutiveFailures, 20);
     const jitter = Math.floor(this.random() * (e.def.jitterMs ?? Math.floor(e.def.everyMs / 10)));
     return Math.min(base, Math.max(MAX_BACKOFF_MS, e.def.everyMs)) + jitter;
+  }
+
+  /** The first tick after start: soon (a restart shouldn't skip a period), but spread out. */
+  private firstDelay(e: Entry): number {
+    const jitter = Math.floor(this.random() * (e.def.jitterMs ?? Math.floor(e.def.everyMs / 10)));
+    return Math.min(e.def.everyMs, FIRST_TICK_MAX_MS) + jitter;
   }
 
   private schedule(e: Entry, ms: number) {
