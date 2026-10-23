@@ -14,6 +14,25 @@ import type { IntegrationProvider } from "../registry";
  * separate `microsoft-teams-video` entry stays coming_soon.)
  */
 export const MANUAL_CATALOG: IntegrationProvider[] = [
+  // Outlook Calendar (COSMOS-202 B): overrides the generated coming_soon
+  // placeholder. Installing it is the org switch; each person then connects
+  // their own calendar from Preferences. The app credentials are the
+  // instance's Microsoft sign-in app (Admin, Sign-in providers), so the only
+  // field is the tenant every connection is pinned to.
+  {
+    slug: "microsoft-365-calendar",
+    name: "Outlook Calendar",
+    description:
+      "Let people connect their own Microsoft 365 calendar. Uses the instance's Microsoft sign-in app with the delegated Calendars.ReadWrite permission (an Entra admin grants consent once). Connections are limited to the tenant below.",
+    icon: "microsoftoutlook",
+    category: "email_calendar",
+    status: "available",
+    connect: "config",
+    authType: "oauth2",
+    sector: ["general"],
+    docsUrl: "https://learn.microsoft.com/en-us/graph/api/resources/calendar",
+    configFields: [{ key: "tenantId", label: "Directory (tenant) ID", type: "text", required: true }],
+  },
   {
     slug: "microsoft-teams-messaging",
     name: "Microsoft Teams",

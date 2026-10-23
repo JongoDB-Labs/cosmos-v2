@@ -153,6 +153,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           orgSlug: org.slug,
           channelId,
           invokerUserId: ctx.userId,
+          invokerAuth: ctx,
           prompt: parsed.data.content,
         }).catch(() => {});
       }

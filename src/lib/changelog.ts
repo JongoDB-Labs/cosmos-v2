@@ -49,6 +49,127 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.445.0",
+    date: "2026-10-23",
+    title: "Query language groundwork",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Groundwork for the Cosmos Query Language: a Jira-style query language for work items (assignee = me AND priority IN (HIGH, CRITICAL) ORDER BY due), available through the API to organisations that switch it on. The editor and saved filters follow.",
+      },
+    ],
+  },
+  {
+    version: "2.444.1",
+    date: "2026-10-23",
+    title: "Connector tools check your permissions",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: connector tools (email, Slack, Jira, calendar, GitHub) now require assistant access, and anything that sends or changes data outside Cosmos can't be done with an API key.",
+      },
+    ],
+  },
+  {
+    version: "2.444.0",
+    date: "2026-10-23",
+    title: "API errors you can act on",
+    highlights: [
+      {
+        kind: "feature",
+        text: "API errors now come back in a standard format (RFC 9457 problem+json) with a request ID you can quote to support, and every response carries an X-Request-Id header.",
+      },
+    ],
+  },
+  {
+    version: "2.443.2",
+    date: "2026-10-23",
+    title: "Background job runner",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Behind the scenes: periodic background work now runs on exactly one server at a time, with automatic failover. It's groundwork for calendar sync and automations.",
+      },
+    ],
+  },
+  {
+    version: "2.443.1",
+    date: "2026-10-23",
+    title: "Assistant tools respect API key limits",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: the assistant's tools now act with exactly the permissions you signed in with, so an API key's scope and project limit also bind on anything the assistant does.",
+      },
+    ],
+  },
+  {
+    version: "2.443.0",
+    date: "2026-10-23",
+    title: "Sprints fill in empty dates",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Picking a sprint or interval on an issue now fills in its planned start and end dates when they're empty, and leaves dates you've already set alone.",
+      },
+    ],
+  },
+  {
+    version: "2.442.0",
+    date: "2026-10-23",
+    title: "Connect your Outlook calendar",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each person can connect their own Microsoft 365 account, once an admin has approved the app, so Cosmos can work with their Outlook calendar.",
+      },
+    ],
+  },
+  {
+    version: "2.441.1",
+    date: "2026-10-23",
+    title: "Stuck installs no longer block updates",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An install whose installer stopped responding no longer blocks every later install: it's marked abandoned after 30 minutes without a heartbeat, and a new install can start.",
+      },
+    ],
+  },
+  {
+    version: "2.441.0",
+    date: "2026-10-23",
+    title: "Split an issue per assignee",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An issue with several assignees can now be split into one linked copy per extra assignee, with the same fields and parent, from the issue's actions menu.",
+      },
+    ],
+  },
+  {
+    version: "2.440.0",
+    date: "2026-10-23",
+    title: "Ask the assistant about your team's work",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The assistant can now list your teams and filter work items by team, so you can ask things like \"what's my team working on this sprint?\"",
+      },
+    ],
+  },
+  {
+    version: "2.439.12",
+    date: "2026-10-23",
+    title: "PM Dashboard in the sidebar",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The PM Dashboard portfolio roll-up is now in the sidebar, and shows only the projects you can see; the old full-page assistant now opens the home page (use the assistant drawer).",
+      },
+    ],
+  },
+  {
     version: "2.439.11",
     date: "2026-10-23",
     title: "Clear message when Claude isn't connected",

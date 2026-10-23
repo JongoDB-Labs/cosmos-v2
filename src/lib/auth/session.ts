@@ -7,6 +7,7 @@ import { isInternalAdmin } from "@/lib/internal/access";
 import { ipMatchesAny } from "@/lib/auth/cidr";
 import { SESSION_COOKIE } from "./client";
 import { verifyApiKeyHeader } from "./api-key";
+import { classifyBearer } from "./bearer";
 
 /**
  * Whether a session satisfies an org's Require-MFA floor, under the
@@ -202,8 +203,14 @@ export const getAuthContext = cache(
     // applied: they are properties of an interactive login, and a key has its own
     // expiry and revocation. The IP allowlist IS applied — that one is about
     // where a request comes from, which is just as true of a key.
+    //
+    // Any Cosmos bearer (classifyBearer non-null) decides the request on its
+    // own: one that is not a valid API key returns null here and never falls
+    // through to the cookie below.
     const authorization = (await headers()).get("authorization");
-    if (authorization && /^Bearer\s+cosmos_/.test(authorization.trim())) {
+    const bearer = classifyBearer(authorization);
+    if (bearer !== null) {
+      if (bearer !== "api_key") return null;
       const keyCtx = await verifyApiKeyHeader(authorization, org.id);
       if (!keyCtx) return null;
       const sec = await prisma.orgSecuritySettings.findUnique({
