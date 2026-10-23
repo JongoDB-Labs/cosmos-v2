@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { z } from "zod";
 
 const updateAttendeeSchema = z.object({
@@ -88,6 +89,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     if (!existing) return new Response("Not found", { status: 404 });
 
     await prisma.meetingAttendee.delete({ where: { id: attendeeId } });
+    syncMeetingSoon(orgId, meetingId);
 
     await logAudit({
       orgId,
