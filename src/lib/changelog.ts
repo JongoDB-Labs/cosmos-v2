@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.443.1",
+    date: "2026-10-23",
+    title: "Assistant tools respect API key limits",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: the assistant's tools now act with exactly the permissions you signed in with, so an API key's scope and project limit also bind on anything the assistant does.",
+      },
+    ],
+  },
+  {
     version: "2.443.0",
     date: "2026-10-23",
     title: "Sprints fill in empty dates",

@@ -40,8 +40,11 @@ export type ConnectorAvailability = "all" | "commercial-only";
 export type { TenantClass };
 
 /**
- * The execution context a connector executor receives. Mirrors the `ToolContext`
- * the central `executeTool` dispatcher already passes ({ orgId, userId }). A
+ * The execution context a connector executor receives: the `orgId`/`userId` of
+ * the `ToolContext` the central `executeTool` dispatcher holds. It deliberately
+ * does NOT carry the caller's `auth` — connector executors make no cosmos RBAC
+ * decision today; they act through the org's / user's stored provider
+ * credentials, and the native tools' gates live in `executors/_ctx.ts`. A
  * descriptor's `execute` adapts this to its underlying executor's own context shape
  * (e.g. GitHub adds an optional injectable `fetchImpl` in tests; that stays internal
  * to its descriptor/executor and is NOT part of this shared contract).

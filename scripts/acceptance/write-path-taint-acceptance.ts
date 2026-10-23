@@ -32,6 +32,7 @@ import { effectiveCeiling, rankOf } from "../../src/lib/classification/effective
 import { logEgressDecision } from "../../src/lib/ai/egress/audit";
 import { sha256Hex } from "../../src/lib/ai/egress/gate";
 import { createWorkItem } from "../../src/lib/ai/executors/work-items";
+import { loadMemberAuthContext } from "../../src/lib/rbac/effective-permissions";
 import { prisma } from "../../src/lib/db/client";
 import type { ClassificationLevel } from "@prisma/client";
 
@@ -164,7 +165,10 @@ async function main() {
       exposed: false, withheldCount: allowCount, contentHash: sha256Hex(JSON.stringify(allowArgs)),
       decidedBy: "handle_resolve", tenantClass: "gov", mode: "enforced",
     });
-    const out = await createWorkItem(allowResolved as Record<string, unknown>, { orgId: org.id, userId: user.id });
+    // Operator harness, no inbound credential: act as the seeded OWNER explicitly.
+    const auth = await loadMemberAuthContext(org.id, user.id);
+    if (!auth) throw new Error("acceptance user is not a member of the acceptance org");
+    const out = await createWorkItem(allowResolved as Record<string, unknown>, { orgId: org.id, userId: user.id, auth });
     allowOk = typeof out === "object" && out !== null && (out as { id?: string }).id !== undefined && !("error" in (out as object));
     check("ALLOW: the executor RAN and created the work_item (no permission/validation error)", allowOk, JSON.stringify(out).slice(0, 120));
   }
