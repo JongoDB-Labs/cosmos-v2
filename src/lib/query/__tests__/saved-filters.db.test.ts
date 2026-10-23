@@ -37,7 +37,8 @@ describe("saved filters v2 (e2e DB)", () => {
   };
   const actor = (extra: bigint = 0n) => ({ ...w.ctx(), permissions: w.ctx().permissions | extra }) as AuthContext;
   const bob = () => user(w.bob.id);
-  const params = (viewId?: string) => Promise.resolve({ orgId: w.orgA, ...(viewId ? { viewId } : {}) });
+  const params = () => Promise.resolve({ orgId: w.orgA });
+  const vparams = (viewId: string) => Promise.resolve({ orgId: w.orgA, viewId });
   const req = (path: string, method = "GET", body?: unknown) =>
     new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/${path}`, {
       method,
@@ -82,8 +83,8 @@ describe("saved filters v2 (e2e DB)", () => {
     // An id you can't see is the same 404 as one that doesn't exist.
     as(() => actor());
     const hidden = (await prisma.savedView.findFirstOrThrow({ where: { name: "bob team" } })).id;
-    expect((await getOne(req(`saved-views/${hidden}`), { params: params(hidden) })).status).toBe(404);
-    expect((await star(req(`saved-views/${hidden}/favorite`, "PUT", {}), { params: params(hidden) })).status).toBe(404);
+    expect((await getOne(req(`saved-views/${hidden}`), { params: vparams(hidden) })).status).toBe(404);
+    expect((await star(req(`saved-views/${hidden}/favorite`, "PUT", {}), { params: vparams(hidden) })).status).toBe(404);
   });
 
   it("shows a shared filter's text with what you can't read as ‹restricted›, and runs it narrowed", async () => {
@@ -95,7 +96,7 @@ describe("saved filters v2 (e2e DB)", () => {
       ],
     }), { visibility: "ORG", shared: true });
     as(() => actor());
-    const res = await getOne(req(`saved-views/${id}`), { params: params(id) });
+    const res = await getOne(req(`saved-views/${id}`), { params: vparams(id) });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { cql: string; partiallyRestricted: boolean; filter: unknown };
     expect(body.partiallyRestricted).toBe(true);
@@ -120,7 +121,7 @@ describe("saved filters v2 (e2e DB)", () => {
     // ...and it can't be overwritten by someone who can't see all of it.
     as(() => actor(0n));
     await prisma.savedViewEditor.create({ data: { savedViewId: id, userId: w.actor.id } });
-    const over = await patch(req(`saved-views/${id}`, "PATCH", { cql: "priority = LOW" }), { params: params(id) });
+    const over = await patch(req(`saved-views/${id}`, "PATCH", { cql: "priority = LOW" }), { params: vparams(id) });
     expect(over.status).toBe(409);
     // The list carries no legacy filter for it either (its ids are what's withheld).
     const listed = ((await (await list(req("saved-views"), { params: params() })).json()) as { id: string; filter: object }[]).find((v) => v.id === id)!;
@@ -132,13 +133,13 @@ describe("saved filters v2 (e2e DB)", () => {
     await prisma.customField.create({ data: { orgId: w.orgA, projectId: w.P2.id, key, name: `Secretfield ${w.stamp}`, fieldType: "TEXT" } });
     const id = await seed(ghost, "cf filter", q({ op: "cmp", field: { kind: "cf", key }, cmp: "eq", value: { t: "str", v: "x" } }), { visibility: "ORG", shared: true });
     as(() => actor());
-    const body = (await (await getOne(req(`saved-views/${id}`), { params: params(id) })).json()) as { cql: string; partiallyRestricted: boolean; broken?: string };
+    const body = (await (await getOne(req(`saved-views/${id}`), { params: vparams(id) })).json()) as { cql: string; partiallyRestricted: boolean; broken?: string };
     expect(body).toMatchObject({ cql: "", partiallyRestricted: true });
     expect(body.broken).toMatch(/fields you can't see/);
     expect(JSON.stringify(body)).not.toContain(key);
     // Its owner, who can see the field, gets the text.
     as(() => user(ghost));
-    const own = (await (await getOne(req(`saved-views/${id}`), { params: params(id) })).json()) as { cql: string };
+    const own = (await (await getOne(req(`saved-views/${id}`), { params: vparams(id) })).json()) as { cql: string };
     expect(own.cql).toContain(key);
   });
 
@@ -151,7 +152,7 @@ describe("saved filters v2 (e2e DB)", () => {
     try {
       const id = await seed(w.actor.id, "one sprint", q({ op: "cmp", field: { kind: "sys", id: "sprint" }, cmp: "eq", value: ref("interval", w.sprintP1Active) }));
       as(() => actor());
-      const body = (await (await getOne(req(`saved-views/${id}`), { params: params(id) })).json()) as { cql: string };
+      const body = (await (await getOne(req(`saved-views/${id}`), { params: vparams(id) })).json()) as { cql: string };
       // Bare or quoted, depending on whether the uuid starts with a digit.
       expect(body.cql).toMatch(new RegExp(`^sprint = "?${w.sprintP1Active}"?$`));
       // ...and that text runs as exactly the stored sprint.
@@ -230,25 +231,25 @@ describe("saved filters v2 (e2e DB)", () => {
     const id = await seed(w.bob.id, "bob shared edit", q(null));
     await prisma.savedViewEditor.create({ data: { savedViewId: id, userId: w.actor.id } });
     as(() => actor());
-    const ok = await patch(req(`saved-views/${id}`, "PATCH", { cql: "priority = CRITICAL", description: "urgent" }), { params: params(id) });
+    const ok = await patch(req(`saved-views/${id}`, "PATCH", { cql: "priority = CRITICAL", description: "urgent" }), { params: vparams(id) });
     expect(ok.status).toBe(200);
     expect((await prisma.savedView.findUniqueOrThrow({ where: { id } })).description).toBe("urgent");
-    expect((await patch(req(`saved-views/${id}`, "PATCH", { visibility: "PRIVATE", editorIds: [] }), { params: params(id) })).status).toBe(403);
-    expect((await remove(req(`saved-views/${id}`, "DELETE"), { params: params(id) })).status).toBe(403);
-    expect((await patch(req(`saved-views/${id}`, "PATCH", { ownerId: w.actor.id }), { params: params(id) })).status).toBe(403);
+    expect((await patch(req(`saved-views/${id}`, "PATCH", { visibility: "PRIVATE", editorIds: [] }), { params: vparams(id) })).status).toBe(403);
+    expect((await remove(req(`saved-views/${id}`, "DELETE"), { params: vparams(id) })).status).toBe(403);
+    expect((await patch(req(`saved-views/${id}`, "PATCH", { ownerId: w.actor.id }), { params: vparams(id) })).status).toBe(403);
 
     getAuthContext.mockImplementation(async () => ({ ...user(w.alex1.id), orgRole: OrgRole.ADMIN }) as AuthContext);
-    const moved = await patch(req(`saved-views/${id}`, "PATCH", { ownerId: w.actor.id }), { params: params(id) });
+    const moved = await patch(req(`saved-views/${id}`, "PATCH", { ownerId: w.actor.id }), { params: vparams(id) });
     expect(moved.status).toBe(200);
     expect((await prisma.savedView.findUniqueOrThrow({ where: { id } })).ownerId).toBe(w.actor.id);
     as(() => actor());
-    expect((await remove(req(`saved-views/${id}`, "DELETE"), { params: params(id) })).status).toBe(204);
+    expect((await remove(req(`saved-views/${id}`, "DELETE"), { params: vparams(id) })).status).toBe(204);
   });
 
   it("the legacy PUT still renames and re-shares, and the legacy fields stay derived", async () => {
     as(() => actor(Permission.FILTER_SHARE_ORG));
     const made = (await (await create(req("saved-views", "POST", { name: "legacy one", filter: { priorities: ["LOW"] } }), { params: params() })).json()) as { id: string };
-    const res = await legacyPut(req(`saved-views/${made.id}`, "PUT", { name: "legacy renamed", shared: true }), { params: params(made.id) });
+    const res = await legacyPut(req(`saved-views/${made.id}`, "PUT", { name: "legacy renamed", shared: true }), { params: vparams(made.id) });
     expect(res.status).toBe(200);
     const dto = (await res.json()) as { name: string; shared: boolean; visibility: string; filter: unknown };
     expect(dto).toMatchObject({ name: "legacy renamed", shared: true, visibility: "ORG", filter: { priorities: ["LOW"] } });
@@ -258,15 +259,15 @@ describe("saved filters v2 (e2e DB)", () => {
     const a = await seed(w.actor.id, "star a", q(null));
     const b = await seed(w.actor.id, "star b", q(null));
     as(() => actor());
-    expect((await star(req(`saved-views/${a}/favorite`, "PUT", {}), { params: params(a) })).status).toBe(200);
-    const second = (await (await star(req(`saved-views/${b}/favorite`, "PUT", {}), { params: params(b) })).json()) as { sortOrder: number };
+    expect((await star(req(`saved-views/${a}/favorite`, "PUT", {}), { params: vparams(a) })).status).toBe(200);
+    const second = (await (await star(req(`saved-views/${b}/favorite`, "PUT", {}), { params: vparams(b) })).json()) as { sortOrder: number };
     // Starring again is idempotent.
-    expect((await star(req(`saved-views/${a}/favorite`, "PUT", {}), { params: params(a) })).status).toBe(200);
+    expect((await star(req(`saved-views/${a}/favorite`, "PUT", {}), { params: vparams(a) })).status).toBe(200);
     expect(await prisma.savedViewFavorite.count({ where: { userId: w.actor.id, savedViewId: { in: [a, b] } } })).toBe(2);
     const listed = ((await (await list(req("saved-views"), { params: params() })).json()) as { id: string; favorite: boolean; favoriteOrder: number | null }[]).filter((v) => v.id === a || v.id === b);
     expect(listed.every((v) => v.favorite)).toBe(true);
     expect(second.sortOrder).toBeGreaterThan(listed.find((v) => v.id === a)!.favoriteOrder!);
-    expect((await unstar(req(`saved-views/${a}/favorite`, "DELETE"), { params: params(a) })).status).toBe(204);
+    expect((await unstar(req(`saved-views/${a}/favorite`, "DELETE"), { params: vparams(a) })).status).toBe(204);
     await prisma.savedView.delete({ where: { id: b } });
     expect(await prisma.savedViewFavorite.count({ where: { savedViewId: { in: [a, b] } } })).toBe(0);
   });
@@ -274,7 +275,7 @@ describe("saved filters v2 (e2e DB)", () => {
   it("a filter saved before phase 3 (no `query`) still opens and runs, from its legacy filter", async () => {
     const id = await seed(w.actor.id, "old style", null, { filter: { priorities: ["CRITICAL"] } });
     as(() => actor());
-    const body = (await (await getOne(req(`saved-views/${id}`), { params: params(id) })).json()) as { cql: string; partiallyRestricted: boolean };
+    const body = (await (await getOne(req(`saved-views/${id}`), { params: vparams(id) })).json()) as { cql: string; partiallyRestricted: boolean };
     expect(body.cql).toBe("priority IN (CRITICAL)");
     expect(body.partiallyRestricted).toBe(false);
     const run = await search(req(`work-items/search?filter=${id}`), { params: params() });
