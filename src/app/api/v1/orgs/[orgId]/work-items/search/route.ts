@@ -108,6 +108,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json().catch(() => ({}));
     const { filter, sort, page, pageSize } = workItemQuerySchema.parse(body);
+    // A watch list is personal: the GET twin only ever resolves `watchedByMe`
+    // to the caller, so the POST may name the caller and nobody else.
+    if (filter.watchedByUserId && filter.watchedByUserId !== ctx.userId) {
+      return new Response(
+        JSON.stringify({ error: "filter.watchedByUserId may only be your own user id" }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      );
+    }
 
     const result = await runWorkItemQuery({
       orgId,
