@@ -32,12 +32,13 @@ vi.mock("@/lib/rbac/project-access", async (importOriginal) => ({
 }));
 
 import { executeTool } from "./tool-executor";
+import { stubToolCtx } from "@/lib/testing/tool-auth";
 
 const ME = "11111111-1111-4111-a111-111111111111";
 const OTHER = "33333333-3333-4333-a333-333333333333";
 const PROJECT = "22222222-2222-4222-a222-222222222222";
 const TEAM = "55555555-5555-4555-a555-555555555555";
-const ctx = { orgId: "org-1", userId: ME };
+const ctx = stubToolCtx("org-1", ME, { permissions: Permission.ITEM_READ | Permission.PROJECT_READ });
 
 const member = (userId: string) => ({ projectMember: { orgMember: { userId } } });
 

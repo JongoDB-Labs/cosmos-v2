@@ -18,6 +18,7 @@ vi.mock("@/lib/classification/effective", async (importOriginal) => ({ ...(await
 import { runAgentLoop } from "../agent-loop";
 import { cosmosTools, type ToolDefinition } from "../tools";
 import { filterToolsByScope } from "@/lib/chat/tool-filter";
+import { stubAuth } from "@/lib/testing/tool-auth";
 
 const PERMISSIVE = { allowedTools: null, deniedTools: [], deniedDomains: [], maxResultLimit: null, allowedProjectIds: null };
 const CONNECTOR_WRITES = [
@@ -37,7 +38,7 @@ async function run(tools: ToolDefinition[] | undefined, call?: { name: string; i
   if (call) runModelTurn.mockResolvedValueOnce({ text: "", toolUses: [{ id: "t1", name: call.name, input: call.input ?? {} }], stopReason: "tool_use" });
   runModelTurn.mockResolvedValueOnce({ text: "done", toolUses: [], stopReason: "end_turn" });
   const res = await runAgentLoop({
-    orgId: "o1", userId: "u1", tenantClass: "commercial", conversationId: "c1",
+    orgId: "o1", userId: "u1", auth: stubAuth("o1", "u1"), tenantClass: "commercial", conversationId: "c1",
     systemPrompt: "sys", initialPrompt: "hi", ...(tools ? { tools } : {}),
   });
   const offered = (runModelTurn.mock.calls[0][0].tools as { name: string }[]).map((t) => t.name);

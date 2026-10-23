@@ -29,6 +29,7 @@
 //   5. FLAG OFF (EGRESS_HANDLES_ENABLED=false): no resolution, no taint check (parity).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import crypto from "node:crypto";
+import { stubAuth } from "@/lib/testing/tool-auth";
 
 // ── Hoisted spies + an in-memory handle store (mirrors handles-loop.redteam) ──
 const { callModel, executeTool, effectiveCeiling, logEgressDecision, classifyLikelyCui, store } = vi.hoisted(() => ({
@@ -143,7 +144,7 @@ function divergentCeiling(_orgId: string, projectId?: string | null) {
 
 function loopOpts(conversationId: string, extra: Record<string, unknown> = {}) {
   return {
-    orgId: "org-rt", userId: "u-rt", tenantClass: "gov" as const,
+    orgId: "org-rt", userId: "u-rt", auth: stubAuth("org-rt", "u-rt"), tenantClass: "gov" as const,
     conversationId, systemPrompt: "you are cosmos", initialPrompt: "do the thing", ...extra,
   };
 }

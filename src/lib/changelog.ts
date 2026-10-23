@@ -49,6 +49,39 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.443.2",
+    date: "2026-10-23",
+    title: "Background job runner",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Behind the scenes: periodic background work now runs on exactly one server at a time, with automatic failover. It's groundwork for calendar sync and automations.",
+      },
+    ],
+  },
+  {
+    version: "2.443.1",
+    date: "2026-10-23",
+    title: "Assistant tools respect API key limits",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: the assistant's tools now act with exactly the permissions you signed in with, so an API key's scope and project limit also bind on anything the assistant does.",
+      },
+    ],
+  },
+  {
+    version: "2.443.0",
+    date: "2026-10-23",
+    title: "Sprints fill in empty dates",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Picking a sprint or interval on an issue now fills in its planned start and end dates when they're empty, and leaves dates you've already set alone.",
+      },
+    ],
+  },
+  {
     version: "2.442.0",
     date: "2026-10-23",
     title: "Connect your Outlook calendar",

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
 import { listFeedback, createFeedback, setFeedbackStatus } from "./feedback";
-import type { ToolContext } from "./_ctx";
+import { memberToolCtx } from "@/lib/testing/tool-auth";
 
 /** e2e-DB tests against an ISOLATED throwaway org per test (never the shared
  *  test-org). Denial is exercised with a non-member ctx (no permissions). */
@@ -21,8 +21,8 @@ describe("feedback executors (e2e DB)", () => {
     });
     cleanup.orgIds.push(org.id);
     await prisma.orgMember.create({ data: { orgId: org.id, userId: owner.id, role: "OWNER" } });
-    const ctx: ToolContext = { orgId: org.id, userId: owner.id };
-    const denyCtx: ToolContext = { orgId: org.id, userId: NON_MEMBER };
+    const ctx = await memberToolCtx(org.id, owner.id);
+    const denyCtx = await memberToolCtx(org.id, NON_MEMBER);
     return { org, ctx, denyCtx, ownerId: owner.id };
   }
 
