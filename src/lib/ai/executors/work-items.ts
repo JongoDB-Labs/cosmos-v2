@@ -466,7 +466,9 @@ export async function listWorkItems(
   if (data.teamId) {
     const team = await teamFilter(ctx.orgId, data.teamId, [data.projectId]);
     if ("error" in team) return team;
-    where.AND = [team.where];
+    // Appended, not assigned, so a later AND clause added above can't be lost.
+    const and = where.AND ? (Array.isArray(where.AND) ? where.AND : [where.AND]) : [];
+    where.AND = [...and, team.where];
   }
 
   if (data.type) {

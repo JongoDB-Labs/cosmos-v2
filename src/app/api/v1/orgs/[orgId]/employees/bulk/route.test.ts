@@ -238,8 +238,9 @@ describe("POST /employees/bulk — only org members", () => {
     const res = await POST(req({ userIds: [ALICE, OUTSIDER, BOB] }), { params });
 
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({
+    expect(await res.json()).toMatchObject({
       error: "One of those people is not a member of this org",
+      code: "not_found",
     });
     // Nothing partially applied — the two genuine members did NOT get records.
     expect(prisma.employee.createManyAndReturn).not.toHaveBeenCalled();

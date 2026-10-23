@@ -230,6 +230,8 @@ jobs:
       ALLOWED_EMAILS: ci@example.com
       # Enables the /api/testenv/sign-in route the Playwright fixtures use.
       E2E_TEST_AUTH: "1"
+      # No periodic jobs (src/lib/jobs) against the shared CI database.
+      JOBS_DISABLED: "1"
       # Use the PRODUCTION realtime adapter (Postgres LISTEN/NOTIFY) in e2e. The
       # default in dev/test is the in-process memory bus, whose module-level
       # singleton is NOT reliably shared across next-dev's per-route module graphs
@@ -326,6 +328,8 @@ jobs:
       ALLOWED_EMAILS: ci@example.com
       # Enables the /api/testenv/sign-in route the Playwright fixtures use.
       E2E_TEST_AUTH: "1"
+      # No periodic jobs (src/lib/jobs) against the shared CI database.
+      JOBS_DISABLED: "1"
       # Opts the e2e/interaction/** specs back IN (testIgnore drops them by
       # default — see playwright.config.ts).
       E2E_INCLUDE_INTERACTION: "1"
