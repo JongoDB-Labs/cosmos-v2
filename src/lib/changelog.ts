@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.446.1",
+    date: "2026-10-23",
+    title: "Faster team lookups in the assistant",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Asking the assistant about your org's teams now takes one step instead of checking each project in turn.",
+      },
+    ],
+  },
+  {
     version: "2.446.0",
     date: "2026-10-23",
     title: "Open feedback from a link",
