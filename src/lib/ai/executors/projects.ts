@@ -1,10 +1,10 @@
 import { prisma } from "@/lib/db/client";
 import { firePluginProjectCreate } from "@/lib/plugins/enablement";
-import { visibleProjectIdsForActor } from "@/lib/rbac/project-access";
+import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { IntervalKind, SprintStatus, type Prisma } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 import { DEFAULT_COLUMNS } from "@/lib/boards/default-columns";
 import { loadStatusCategories } from "@/lib/boards/status-categories.server";
@@ -96,11 +96,15 @@ export async function listProjects(
     },
   });
 
-  // The assistant must not narrate a project the asker cannot open. Same rule
-  // as every other surface; short-circuits when nothing in the org is limited.
-  const visible = await visibleProjectIdsForActor(
-    ctx.orgId,
-    ctx.userId,
+  // The assistant must not narrate a project the asker cannot open. Same
+  // helper GET /projects uses, fed the CALLER's AuthContext — so a key scoped to
+  // one project lists that project only. The user-id variant this replaced
+  // (`visibleProjectIdsForActor`) rebuilt the actor from the user and so listed
+  // every project to a project-limited key.
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
+  const visible = await getVisibleProjectIds(
+    auth,
     allProjects.map((p) => p.id),
   );
   const projects = allProjects.filter((p) => visible.has(p.id));

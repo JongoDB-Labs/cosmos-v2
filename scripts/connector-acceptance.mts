@@ -13,7 +13,15 @@ import { executeTool } from "@/lib/ai/tool-executor";
 import { connectorToolNames } from "@/lib/ai/connectors/index";
 import { projectResult } from "@/lib/ai/egress/projection";
 
-const ctx = { orgId: "00000000-0000-0000-0000-0000000000ac", userId: "00000000-0000-0000-0000-0000000000ad" };
+const ORG_ID = "00000000-0000-0000-0000-0000000000ac";
+const USER_ID = "00000000-0000-0000-0000-0000000000ad";
+// Routing only: connector dispatch does not consult the RBAC context, so the
+// caller AuthContext carries NO permissions rather than an invented grant.
+const ctx = {
+  orgId: ORG_ID,
+  userId: USER_ID,
+  auth: { orgId: ORG_ID, userId: USER_ID, orgRole: "VIEWER" as const, permissions: 0n, basePermissions: 0n, abacRules: [] },
+};
 let failures = 0;
 const ok = (label: string, cond: boolean, detail?: unknown) => {
   console.log(`${cond ? "PASS" : "FAIL"}  ${label}${detail !== undefined ? `  → ${JSON.stringify(detail)}` : ""}`);

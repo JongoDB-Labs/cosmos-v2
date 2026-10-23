@@ -28,6 +28,7 @@ import {
 import { createStatusOptions } from "@/lib/boards/status-columns";
 import { filterMemberOptions, memberPickerOptions } from "@/lib/org/member-picker";
 import type { Board, BoardColumn, OrgMember, Interval } from "@/types/models";
+import { datesFromInterval } from "@/lib/intervals/fill-dates";
 import {
   EMPTY_SECTIONS,
   SECTION_FIELDS,
@@ -748,7 +749,17 @@ export function CreateWorkItemDialog({
                   aria-invalid={intervalMissing || undefined}
                   aria-describedby={intervalMissing ? "create-interval-hint" : undefined}
                   value={intervalId ?? ""}
-                  onChange={(e) => setIntervalId(e.target.value || null)}
+                  onChange={(e) => {
+                    const next = e.target.value || null;
+                    setIntervalId(next);
+                    // Fill only the planned dates still empty (COSMOS-223).
+                    const fill = datesFromInterval(
+                      { startDate, dueDate },
+                      intervals.find((c) => c.id === next),
+                    );
+                    if (fill.startDate) setStartDate(fill.startDate);
+                    if (fill.dueDate) setDueDate(fill.dueDate);
+                  }}
                   className={fieldClass}
                   disabled={submitting}
                 >

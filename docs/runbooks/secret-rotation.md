@@ -118,6 +118,11 @@ does not un-leak a plaintext that was already decrypted with the bad key.
 (`src/lib/ai/egress`). Stateless per-call (no server-side session bound to the key), so no
 overlap window is needed.
 
+It is read **only** when `COSMOS_ALLOW_ENV_MODEL_KEY=1` is also set: otherwise the
+chokepoint uses the org's or user's Claude subscription (or org API key) and an
+org with none gets "Claude isn't connected", never the env key. If the flag is
+off, there is nothing to rotate here.
+
 1. Issue a **new** API key in the Anthropic console.
 2. Set `ANTHROPIC_API_KEY=<new>` on the `cosmos` service (secret store in prod).
 3. Rolling restart. The chokepoint is the only caller, so one env var is the entire surface.

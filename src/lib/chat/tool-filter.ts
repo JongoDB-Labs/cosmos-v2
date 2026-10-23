@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "@/lib/ai/tools";
+import { connectorToolAccess } from "@/lib/ai/connectors";
 import type { ChatBotToolScope } from "@prisma/client";
 
 /**
@@ -6,7 +7,8 @@ import type { ChatBotToolScope } from "@prisma/client";
  *
  * A bot's `toolScope` is a HARD CEILING applied on top of the invoking human's
  * own per-tool permission scoping (see bot-runner.ts / agent-loop.ts — every
- * tool still runs via `executeTool(..., { userId: invoker })`). The scope only
+ * tool still runs via `executeTool(..., { userId, auth: invokerAuth })`,
+ * authorised against the invoker's own AuthContext). The scope only
  * ever REMOVES tools, never grants any:
  *
  *   NONE     → no cosmos tools at all (the bot is a chat-only persona).
@@ -44,6 +46,10 @@ const READONLY_EXPLICIT = new Set<string>([
 const READONLY_PREFIXES = ["query_", "list_", "get_", "search_", "read_"];
 
 function isReadOnlyTool(name: string): boolean {
+  // A connector tool is classified by its descriptor's declared access, never by
+  // its name (an input-dependent one, like an HTTP proxy, counts as a write here).
+  const access = connectorToolAccess(name);
+  if (access !== undefined) return access === "read";
   if (READONLY_EXPLICIT.has(name)) return true;
   return READONLY_PREFIXES.some((p) => name.startsWith(p));
 }

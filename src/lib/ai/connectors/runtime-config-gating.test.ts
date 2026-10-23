@@ -24,7 +24,7 @@ import {
 import type { ConnectorDescriptor } from "./types";
 
 function makeDescriptor(over: Partial<ConnectorDescriptor> & { provider: string }): ConnectorDescriptor {
-  return { toolDefs: [], execute: async () => ({}), egress: {}, ...over };
+  return { toolDefs: [], execute: async () => ({}), egress: {}, access: {}, ...over };
 }
 
 // Three native "all"-availability connectors (the Google/GitHub/Jira/Slack case).
@@ -139,7 +139,7 @@ describe("DISPATCH refuses a connector the org disabled (defense in depth)", () 
   it("ALLOWS an enabled connector's tool (no refusal, no audit)", async () => {
     const res = await executeConnectorTool(
       "github_list_issues", { q: 2 },
-      { orgId: "o", userId: "u", tenantClass: "commercial", enabled: { enabledConnectors: ["github"], breadthEnabled: true } },
+      { offered: new Set(["github_list_issues"]), orgId: "o", userId: "u", tenantClass: "commercial", enabled: { enabledConnectors: ["github"], breadthEnabled: true } },
     );
     expect(res).toEqual({ provider: "github", name: "github_list_issues", input: { q: 2 } });
     expect(logEgressDecision).not.toHaveBeenCalled();
@@ -148,7 +148,7 @@ describe("DISPATCH refuses a connector the org disabled (defense in depth)", () 
   it("ABSENT filter ⇒ no extra narrowing (dispatch unchanged for enabled connectors)", async () => {
     const res = await executeConnectorTool(
       "jira_search_issues", {},
-      { orgId: "o", userId: "u", tenantClass: "commercial" },
+      { offered: new Set(["jira_search_issues"]), orgId: "o", userId: "u", tenantClass: "commercial" },
     );
     expect(res).toEqual({ provider: "jira", name: "jira_search_issues", input: {} });
     expect(logEgressDecision).not.toHaveBeenCalled();

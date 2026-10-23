@@ -6,6 +6,8 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError } from "@/lib/api-helpers";
 import type { Prisma } from "@prisma/client";
+import { getReadableProjectIds } from "@/lib/work-items/query";
+import { visibleSavedViews } from "@/lib/work-items/query/saved-view-scope";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -20,9 +22,13 @@ const createSchema = z.object({
 
 /**
  * Saved views (FR 2b36c2b8): named, reusable Issues filters. The list returns
- * the caller's own views plus every org-shared one, so a user sees their
- * personal saves and the team's shared searches. Gated on ITEM_READ (a saved
- * view is just a work-item query).
+ * the caller's own views plus the org-shared ones they are allowed to see, so a
+ * user sees their personal saves and the team's shared searches. Gated on
+ * ITEM_READ (a saved view is just a work-item query).
+ *
+ * A shared view that references a project, sprint, item or custom field the
+ * caller cannot read is withheld from them (`visibleSavedViews`): listing it
+ * would disclose those things even though running it is scoped.
  */
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
@@ -34,7 +40,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ITEM_READ);
 
-    const views = await prisma.savedView.findMany({
+    const candidates = await prisma.savedView.findMany({
       where: { orgId, OR: [{ ownerId: ctx.userId }, { shared: true }] },
       orderBy: [{ name: "asc" }],
       select: {
@@ -47,6 +53,12 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         updatedAt: true,
       },
     });
+    const views = await visibleSavedViews(
+      orgId,
+      ctx.userId,
+      await getReadableProjectIds(ctx),
+      candidates,
+    );
 
     return success(
       views.map((v) => ({
