@@ -275,10 +275,38 @@ describe("Outlook meeting sync (e2e DB)", () => {
     expect(deltas()).toBe(2);
   });
 
+  it("Sync now pulls before it pushes, so an Outlook edit or delete isn't overwritten", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncUserNow(org.id, alice.id, deps);
+    const link = (await linkOf(alice.id, meeting.id))!;
+    const moved = new Date("2026-11-06T08:00:00.000Z");
+    await new Promise((r) => setTimeout(r, 5));
+    g.outlookEdit(link.externalEventId, { start: at(moved), end: at(new Date(moved.getTime() + 45 * 60_000)) });
+    expect(await syncUserNow(org.id, alice.id, deps)).toMatchObject({ applied: 1 });
+    expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).meetingDate).toEqual(moved);
+    // Her copy is the source: left as Outlook wrote it, not pushed back.
+    expect(g.events.get(link.externalEventId)!.start.dateTime).toBe("2026-11-06T08:00:00.0000000");
+    // Nothing unchanged is rewritten.
+    const patches = () => g.calls.filter((c) => c.method === "PATCH").length;
+    const before = patches();
+    await syncUserNow(org.id, alice.id, deps);
+    expect(patches()).toBe(before);
+    // Deleted in Outlook: detached, and Sync now doesn't bring it back.
+    g.outlookDelete(link.externalEventId);
+    expect(await syncUserNow(org.id, alice.id, deps)).toMatchObject({ detached: 1 });
+    expect(await linkOf(alice.id, meeting.id)).toBeNull();
+    expect(g.eventsIn([...g.calendars.keys()][0])).toHaveLength(0);
+    // ...until the meeting itself changes in Cosmos.
+    await new Promise((r) => setTimeout(r, 5));
+    await prisma.syncMeeting.update({ where: { id: meeting.id }, data: { title: "Back on" } });
+    await syncUserNow(org.id, alice.id, deps);
+    expect(g.eventsIn([...g.calendars.keys()][0]).map((e) => e.subject)).toEqual(["Back on"]);
+  });
+
   it("Sync now pushes the person's meetings and pulls; disconnecting removes the calendar and the links", async () => {
     const { org, alice, g, deps, meeting } = await setup();
     const r = await syncUserNow(org.id, alice.id, deps);
-    expect(r).toMatchObject({ echoes: 1 });
+    expect(r).toMatchObject({ applied: 0, ignored: 0 });
     expect(await linkOf(alice.id, meeting.id)).toBeTruthy();
     const conn = await prisma.connectorCredential.findFirstOrThrow({ where: { orgId: org.id, userId: alice.id, provider: MS_CALENDAR } });
     expect((conn.meta as { lastSyncAt?: string }).lastSyncAt).toBeTruthy();

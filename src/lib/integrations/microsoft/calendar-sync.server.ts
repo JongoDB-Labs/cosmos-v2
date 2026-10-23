@@ -331,22 +331,41 @@ async function applyOne(orgId: string, userId: string, ev: GraphEvent, out: Pull
 }
 
 /**
- * "Sync now" for one person: push every meeting they attend in the pull
- * window (creating the Cosmos calendar on first use), then pull their edits.
+ * "Sync now" for one person: first bring their Outlook edits back (so a push
+ * can't overwrite one), then push what Outlook is missing or behind on: each
+ * meeting they attend in the pull window that has no copy yet, or changed in
+ * Cosmos since its copy was written. A copy they deleted in Outlook stays gone.
  */
 export async function syncUserNow(orgId: string, userId: string, deps: GraphDeps = {}): Promise<PullResult> {
   const now = (deps.now ?? Date.now)();
   await ensureCosmosCalendar(orgId, userId, deps);
-  const meetings = await prisma.syncMeeting.findMany({
-    where: {
-      orgId,
-      status: { not: "CANCELLED" },
-      attendees: { some: { userId } },
-      meetingDate: { gte: new Date(now - PAST_DAYS * DAY), lte: new Date(now + FUTURE_DAYS * DAY) },
-    },
-  });
-  for (const m of meetings) await pushFor(orgId, userId, m, deps);
-  return pullChanges(orgId, userId, deps);
+  const pulled = await pullChanges(orgId, userId, deps);
+  const [meetings, links, detached] = await Promise.all([
+    prisma.syncMeeting.findMany({
+      where: {
+        orgId,
+        status: { not: "CANCELLED" },
+        attendees: { some: { userId } },
+        meetingDate: { gte: new Date(now - PAST_DAYS * DAY), lte: new Date(now + FUTURE_DAYS * DAY) },
+      },
+    }),
+    prisma.externalEventLink.findMany({
+      where: { orgId, provider: MS_CALENDAR, userId, entityType: ENTITY },
+      select: { entityId: true, lastSyncedAt: true },
+    }),
+    prisma.activity.findMany({
+      where: { orgId, userId, subjectType: ENTITY, action: "outlook_detached" },
+      select: { subjectId: true, createdAt: true },
+    }),
+  ]);
+  const synced = new Map(links.map((l) => [l.entityId, l.lastSyncedAt.getTime()]));
+  const detachedAt = new Map(detached.map((d) => [d.subjectId, d.createdAt.getTime()]));
+  for (const m of meetings) {
+    const at = synced.get(m.id);
+    if (at !== undefined ? m.updatedAt.getTime() <= at : m.updatedAt.getTime() <= (detachedAt.get(m.id) ?? -1)) continue;
+    await pushFor(orgId, userId, m, deps);
+  }
+  return pulled;
 }
 
 export interface PullRunResult extends PullResult {
