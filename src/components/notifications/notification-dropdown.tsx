@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Bell, Check } from "lucide-react";
+import { Bell, Check, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
@@ -38,26 +38,41 @@ interface NotificationDropdownProps {
   orgId: string;
 }
 
+/** One page of history. Small enough that opening the bell stays cheap on a
+ *  500-notice inbox, big enough that the first page fills the panel. */
+const PAGE_SIZE = 25;
+
 export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const orgSlug = pathname.split("/")[1];
   const sseRef = useRef<EventSource | null>(null);
+  // `createdAt` of the oldest row we hold — the cursor for the next page. A ref,
+  // not state, so the observer below doesn't have to be rebuilt to see it.
+  const cursorRef = useRef<string | null>(null);
+  const inFlightRef = useRef(false);
+  // Callback refs rather than `useRef`: the panel is portalled and only mounts
+  // when the bell is open, so an effect keyed on a ref object would never see it.
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const [sentinelEl, setSentinelEl] = useState<HTMLDivElement | null>(null);
 
-  // Initial REST fetch for the unread list.
+  // Initial REST fetch — the newest page, not the whole inbox.
   useEffect(() => {
     if (!orgId) return;
     let cancelled = false;
     (async () => {
       try {
-        // The dropdown shows ten. Asking for the whole inbox and throwing all
-        // but ten away is how a 500-notice inbox becomes a slow page load; the
-        // full list lives at /inbox.
-        const r = await fetch(`/api/v1/orgs/${orgId}/notifications?limit=10`);
+        const r = await fetch(`/api/v1/orgs/${orgId}/notifications?limit=${PAGE_SIZE}`);
         if (!r.ok) return;
         const data: Notification[] = await r.json();
-        if (!cancelled) setNotifications(data);
+        if (cancelled) return;
+        setNotifications(data);
+        cursorRef.current = data.length ? data[data.length - 1].createdAt : null;
+        // A short page is the end of history; a full one means ask again.
+        setHasMore(data.length === PAGE_SIZE);
       } catch {
         /* silently fail; SSE will deliver new ones anyway */
       }
@@ -66,6 +81,52 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
       cancelled = true;
     };
   }, [orgId]);
+
+  // Append the next page of older notifications. Guarded by `inFlightRef` so a
+  // burst of intersections (scroll is continuous) still fetches each page once.
+  const loadOlder = useCallback(async () => {
+    const cursor = cursorRef.current;
+    if (!orgId || !cursor || inFlightRef.current) return;
+    inFlightRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const r = await fetch(
+        `/api/v1/orgs/${orgId}/notifications?limit=${PAGE_SIZE}&cursor=${encodeURIComponent(cursor)}`,
+      );
+      if (!r.ok) return; // leave `hasMore` set — scrolling again retries
+      const page: Notification[] = await r.json();
+      if (page.length) {
+        cursorRef.current = page[page.length - 1].createdAt;
+        setNotifications((prev) => {
+          const seen = new Set(prev.map((n) => n.id));
+          return [...prev, ...page.filter((n) => !seen.has(n.id))];
+        });
+      }
+      setHasMore(page.length === PAGE_SIZE);
+    } catch {
+      /* transient — the sentinel tries again on the next scroll */
+    } finally {
+      inFlightRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [orgId]);
+
+  // Auto-load on scroll: a sentinel at the foot of the list asks for the next
+  // page as it comes into view. Rebuilt whenever the list grows, because an
+  // observer only reports a CHANGE in intersection — if a freshly appended page
+  // still leaves the sentinel visible, nothing would fire a second time.
+  useEffect(() => {
+    if (!scrollEl || !sentinelEl || !hasMore) return;
+    if (typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) void loadOlder();
+      },
+      { root: scrollEl, rootMargin: "120px" },
+    );
+    io.observe(sentinelEl);
+    return () => io.disconnect();
+  }, [scrollEl, sentinelEl, hasMore, loadOlder, notifications.length]);
 
   // Live SSE — prepend new notifications as they arrive.
   useEffect(() => {
@@ -195,38 +256,60 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
             </p>
           </div>
         ) : (
-          notifications.slice(0, 10).map((notification) => (
-            <DropdownMenuItem
-              key={notification.id}
-              className={cn(
-                "flex-col items-start gap-1 py-2.5",
-                !notification.read && "bg-muted/50",
-              )}
-              onClick={() => handleNotificationClick(notification)}
-            >
-              <div className="flex items-start gap-2 w-full">
-                {!notification.read && (
-                  <div className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1" />
+          <div
+            ref={setScrollEl}
+            data-slot="notification-feed"
+            aria-label="Notifications feed"
+            className="max-h-80 overflow-y-auto overscroll-contain"
+          >
+            {notifications.map((notification) => (
+              <DropdownMenuItem
+                key={notification.id}
+                className={cn(
+                  "flex-col items-start gap-1 py-2.5",
+                  !notification.read && "bg-muted/50",
                 )}
-                <div className="flex-1 min-w-0">
-                  <p
-                    className={cn(
-                      "text-sm truncate",
-                      !notification.read && "font-medium",
-                    )}
-                  >
-                    {notification.title}
-                  </p>
-                  <p className="text-xs text-muted-foreground line-clamp-2">
-                    {notification.body}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {timeAgo(notification.createdAt)}
-                  </p>
+                onClick={() => handleNotificationClick(notification)}
+              >
+                <div className="flex items-start gap-2 w-full">
+                  {!notification.read && (
+                    <div className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className={cn(
+                        "text-sm truncate",
+                        !notification.read && "font-medium",
+                      )}
+                    >
+                      {notification.title}
+                    </p>
+                    <p className="text-xs text-muted-foreground line-clamp-2">
+                      {notification.body}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {timeAgo(notification.createdAt)}
+                    </p>
+                  </div>
                 </div>
+              </DropdownMenuItem>
+            ))}
+            {hasMore && <div ref={setSentinelEl} aria-hidden className="h-px" />}
+            {loadingOlder && (
+              <div
+                role="status"
+                className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground"
+              >
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Loading older notifications…
               </div>
-            </DropdownMenuItem>
-          ))
+            )}
+            {!hasMore && (
+              <p className="py-3 text-center text-[10px] text-muted-foreground">
+                No older notifications
+              </p>
+            )}
+          </div>
         )}
         <div className="border-t border-[var(--border)] px-3 py-2">
           <Link

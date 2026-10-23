@@ -20,17 +20,25 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const sp = request.nextUrl.searchParams;
     const unreadOnly = sp.get("unreadOnly") === "true";
     // Optional, and the response is still a bare array either way — the bell
-    // reads this endpoint and shows ten, so it asks for ten rather than
-    // fetching an entire inbox to discard it. The paged, counted view the
-    // inbox PAGE needs lives at ./inbox.
+    // reads this endpoint a page at a time rather than fetching an entire inbox
+    // to discard most of it. The paged, counted view the inbox PAGE needs lives
+    // at ./inbox.
     const raw = Number(sp.get("limit"));
     const limit = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 200) : undefined;
+
+    // `cursor` is the `createdAt` of the oldest row the caller already has, same
+    // shape as ./inbox — paging back through history is one mechanism, not two.
+    // A caller that omits it (the e2e specs do) still gets the unpaged list.
+    const rawCursor = sp.get("cursor");
+    const cursor = rawCursor ? new Date(rawCursor) : null;
+    const before = cursor && !Number.isNaN(cursor.getTime()) ? cursor : null;
 
     const notifications = await prisma.notification.findMany({
       where: {
         orgId,
         userId: ctx.userId,
         ...(unreadOnly ? { read: false } : {}),
+        ...(before ? { createdAt: { lt: before } } : {}),
       },
       orderBy: { createdAt: "desc" },
       ...(limit ? { take: limit } : {}),

@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.442.0",
+    date: "2026-10-23",
+    title: "Scroll back through your notifications",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The notifications bell is now a scrollable feed that loads older notifications automatically as you scroll, instead of stopping at the ten most recent. It tells you when you've reached the end. (The ticket didn't say whether history should load on scroll or behind a \"Load more\" button — this ships auto-load on scroll.)",
+      },
+    ],
+  },
+  {
     version: "2.441.0",
     date: "2026-10-23",
     title: "Split an issue per assignee",
