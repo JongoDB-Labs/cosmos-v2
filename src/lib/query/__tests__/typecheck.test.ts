@@ -211,6 +211,22 @@ describe("typecheck — ORDER BY", () => {
   });
 });
 
+describe("quick-fixes for typos", () => {
+  const fixed = (cql: string) => {
+    const p = parseCql(cql);
+    const d = typecheck(p.query, { customFields: [] }, cql, p.spans).diagnostics.find((x) => x.fixes?.length);
+    const f = d?.fixes?.[0];
+    return f ? cql.slice(0, f.replace.from) + f.replace.insert + cql.slice(f.replace.to) : null;
+  };
+  it("a misspelt field, function or value is one click from right", () => {
+    expect(fixed("priorty = HIGH")).toBe("priority = HIGH");
+    expect(fixed("due < startOfWek(-1w)")).toBe("due < startOfWeek(-1w)");
+    expect(fixed("priority = HIHG")).toBe("priority = HIGH");
+    // Nothing near: no fix offered.
+    expect(fixed("zzzzzzzz = 1")).toBeNull();
+  });
+});
+
 describe("variables are people, teams, projects and sprints", () => {
   const errs = (cql: string) => {
     const p = parseCql(cql);
