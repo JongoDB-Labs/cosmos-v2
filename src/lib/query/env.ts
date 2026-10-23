@@ -49,3 +49,12 @@ export function varKey(name: string, field: FieldRef): string {
  * variables in BY resolve under this key.
  */
 export const HISTORY_BY_FIELD: FieldRef = { kind: "sys", id: "assignee" };
+
+/** One ORDER BY key for the SQL sort (compile.ts → sort.server.ts). */
+export type SqlSortKey = {
+  field: FieldRef;
+  dir: "asc" | "desc";
+  nulls: "first" | "last";
+  /** Custom fields: the type, which decides how the JSON value compares. */
+  cfType?: CustomFieldType;
+};

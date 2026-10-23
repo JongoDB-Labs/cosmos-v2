@@ -130,13 +130,13 @@ export const LINK_TYPES = [
 const DATE_OPS: readonly OpFamily[] = ["eq", "order", "empty"];
 
 export const FIELDS: readonly FieldDef[] = [
-  { id: "project", label: "Project", aliases: [], value: { kind: "ref", entity: "project" }, ops: ["eq", "in"], groupable: true, description: "Project key, name or id." },
+  { id: "project", label: "Project", aliases: [], value: { kind: "ref", entity: "project" }, ops: ["eq", "in"], sortable: true, groupable: true, description: "Project key, name or id." },
   { id: "key", label: "Key", aliases: ["issuekey", "id", "ticket"], value: { kind: "ref", entity: "item" }, ops: ["eq", "in", "order"], sortable: true, description: "Ticket key such as ACME-12. `key > ACME-100` compares within the project." },
   { id: "type", label: "Type", aliases: ["issuetype", "workitemtype"], value: { kind: "ref", entity: "type" }, ops: ["eq", "in", "history"], sortable: true, groupable: true, description: "Work item type key or name." },
-  { id: "status", label: "Status", aliases: ["column"], value: { kind: "ref", entity: "status" }, ops: ["eq", "in", "history"], groupable: true, description: "Board column name or key." },
+  { id: "status", label: "Status", aliases: ["column"], value: { kind: "ref", entity: "status" }, ops: ["eq", "in", "history"], sortable: true, groupable: true, description: "Board column name or key." },
   { id: "statusCategory", label: "Status category", aliases: ["category"], value: { kind: "enum", values: STATUS_CATEGORIES }, ops: ["eq", "in"], groupable: true, description: "TODO, IN_PROGRESS, DONE or CANCELLED. DONE also matches anything with a completion date." },
   { id: "priority", label: "Priority", aliases: [], value: { kind: "enum", values: PRIORITY_ORDER, ordered: true }, ops: ["eq", "in", "order", "history"], sortable: true, groupable: true, description: "LOW < MEDIUM < HIGH < CRITICAL." },
-  { id: "assignee", label: "Assignee", aliases: ["assignees"], value: { kind: "ref", entity: "user" }, ops: ["eq", "in", "empty", "history"], groupable: true, description: "Matches the primary assignee or any co-assignee. `me` is you." },
+  { id: "assignee", label: "Assignee", aliases: ["assignees"], value: { kind: "ref", entity: "user" }, ops: ["eq", "in", "empty", "history"], sortable: true, groupable: true, description: "Matches the primary assignee or any co-assignee. `me` is you." },
   { id: "primaryAssignee", label: "Primary assignee", aliases: [], value: { kind: "ref", entity: "user" }, ops: ["eq", "in", "empty"], groupable: true, description: "Only the primary assignee, ignoring co-assignees." },
   { id: "reporter", label: "Reporter", aliases: ["creator", "createdby"], value: { kind: "ref", entity: "user" }, ops: ["eq", "in"], groupable: true, description: "Who created the item." },
   { id: "watcher", label: "Watcher", aliases: ["watchers"], value: { kind: "ref", entity: "user" }, ops: ["eq", "in", "empty"], description: "Someone watching the item." },

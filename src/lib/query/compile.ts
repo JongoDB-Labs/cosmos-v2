@@ -38,7 +38,7 @@ import {
 } from "./ast";
 import { PRIORITY_ORDER, type SystemFieldId } from "./fields";
 import { applyRel, dayOf, durationSeconds, endOf, literalRange, periodOffset, startOf, workingDaysFrom, type Period } from "./dates";
-import { HISTORY_BY_FIELD, fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
+import { HISTORY_BY_FIELD, fnKey, varKey, type CompileEnv, type SqlSortKey, type StatusCategory } from "./env";
 import { HISTORY, historyKey, isHistoryColumn, type HistorySpec, type HistoryValueSet } from "./history";
 import type { CustomFieldType } from "./typecheck";
 
@@ -48,7 +48,16 @@ export interface Compiled {
   where: Where;
   archived: "active" | "only" | "all";
   orderBy: Prisma.WorkItemOrderByWithRelationInput[];
+  /**
+   * Set when the ORDER BY names something Prisma can't sort by (assignee's
+   * name, status name, project key, a custom field): the whole ordering then
+   * runs as SQL over the matching ids (sort.server.ts). `orderBy` is unused.
+   */
+  sqlSort: SqlSortKey[] | null;
 }
+
+/** Sort keys only the SQL path can order by. */
+const SQL_ONLY_SORT = new Set<string>(["assignee", "status", "project"]);
 
 export const TRUE: Where = {};
 export const FALSE: Where = { id: { in: [] } };
@@ -820,5 +829,17 @@ export function compileQuery(q: CqlQuery, env: CompileEnv): Compiled {
     // The default hides archived work, unless the query talks about archiving.
     archived: mentions ? "all" : "active",
     orderBy: compileOrderBy(q.orderBy),
+    sqlSort: sqlSortOf(q.orderBy, env),
   };
+}
+
+function sqlSortOf(sorts: CqlSort[] | undefined, env: CompileEnv): SqlSortKey[] | null {
+  if (!sorts?.some((s) => s.field.kind === "cf" || SQL_ONLY_SORT.has(s.field.id))) return null;
+  return sorts.map((s) => ({
+    field: s.field,
+    dir: s.dir,
+    // Postgres' default, as compileOrderBy uses.
+    nulls: s.nulls ?? (s.dir === "asc" ? "last" : "first"),
+    ...(s.field.kind === "cf" ? { cfType: env.customFields.get(s.field.key) } : {}),
+  }));
 }

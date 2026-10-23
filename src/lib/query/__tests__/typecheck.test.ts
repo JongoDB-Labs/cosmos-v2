@@ -205,10 +205,12 @@ describe("typecheck — the != warning (Jira's empty-value gotcha)", () => {
 });
 
 describe("typecheck — ORDER BY", () => {
-  it("sortable fields pass, two-phase sorts are not yet, others are refused", () => {
+  it("sortable fields pass, including the two-phase ones; others are refused", () => {
     expect(codes("ORDER BY due DESC, priority, key")).toEqual([]);
-    expect(codes("ORDER BY assignee")).toEqual(["CQL_NOT_YET_SUPPORTED"]);
-    expect(codes("ORDER BY Severity")).toEqual(["CQL_NOT_YET_SUPPORTED"]);
+    expect(codes("ORDER BY assignee, status DESC, project")).toEqual([]);
+    expect(codes('ORDER BY Severity, "Story Points X" DESC NULLS FIRST, "Go Live"')).toEqual([]);
+    expect(codes("ORDER BY Areas")).toEqual(["CQL_OPERATOR_NOT_SUPPORTED"]);
+    expect(codes("ORDER BY Approved")).toEqual(["CQL_OPERATOR_NOT_SUPPORTED"]);
     expect(codes("ORDER BY summary")).toEqual(["CQL_OPERATOR_NOT_SUPPORTED"]);
   });
 });

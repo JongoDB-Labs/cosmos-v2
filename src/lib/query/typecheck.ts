@@ -104,6 +104,9 @@ export const CF_OPS: Record<CustomFieldType, readonly OpFamily[]> = {
   USER: ["eq", "in", "empty"],
 };
 
+/** Custom field types ORDER BY accepts (sort.server.ts). */
+const SORTABLE_CF = new Set<CustomFieldType>(["NUMBER", "DATE", "TEXT", "URL", "EMAIL", "SELECT"]);
+
 export function cfValueKind(t: CustomFieldType): ValueKind {
   switch (t) {
     case "NUMBER":
@@ -510,9 +513,12 @@ export function typecheck(input: CqlQuery, schema: CqlSchema, text = "", spans?:
   function checkSort(s: CqlSort): CqlSort | null {
     const f = resolveField(s.field);
     if (!f) return null;
-    if (f.cf || (f.def && ["assignee", "status", "project"].includes(f.def.id))) {
-      err("CQL_NOT_YET_SUPPORTED", `Sorting by \`${f.cf ? f.cf.name : f.def!.id}\` arrives with query phase 4.`, s);
-      return null;
+    if (f.cf) {
+      if (!SORTABLE_CF.has(f.cf.fieldType)) {
+        err("CQL_OPERATOR_NOT_SUPPORTED", `Can't sort by \`${printField(s.field)}\`: only number, date, text and single-select custom fields sort.`, s);
+        return null;
+      }
+      return { ...s, field: f.ref };
     }
     if (!f.def!.sortable) {
       err("CQL_OPERATOR_NOT_SUPPORTED", `Can't sort by \`${printField(s.field)}\`.`, s);

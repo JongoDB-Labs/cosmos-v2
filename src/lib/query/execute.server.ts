@@ -24,6 +24,7 @@ import { typecheck } from "./typecheck";
 import { loadSchemaCustomFields, resolveQuery, type VarInput } from "./resolve.server";
 import { compileQuery, historySpecs, type Compiled } from "./compile";
 import { runHistoryPrefilters } from "./history.server";
+import { inOrder, sortedIds } from "./sort.server";
 import type { CompileEnv } from "./env";
 import { printCql } from "./print";
 import { CqlError, diag, hasErrors, type CqlDiagnostic, type Span } from "./errors";
@@ -187,14 +188,7 @@ export async function executeCql(ctx: AuthContext, input: CqlInput, opts: CqlRun
 
   const rows = () =>
     withStatementTimeout(opts.timeoutMs ?? 3_000, (tx) =>
-      fetchIssueRows(tx, {
-        where,
-        orderBy: prepared.compiled.orderBy,
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        orgId: prepared.orgId,
-        allowedProjectIds: prepared.readable,
-      }),
+      pageOfRows(tx, prepared, where, { skip: (page - 1) * pageSize, take: pageSize }),
     );
   // Counting has its own, smaller budget: a slow count must not cost the
   // rows, it just reads "1,000+".
@@ -233,14 +227,25 @@ export async function exportCql(ctx: AuthContext, input: CqlInput, opts: Omit<Cq
     user: prepared.compiled.where,
   });
   const data = await withStatementTimeout(opts.timeoutMs ?? 10_000, (tx) =>
-    fetchIssueRows(tx, {
-      where,
-      orderBy: prepared.compiled.orderBy,
-      skip: 0,
-      take: EXPORT_MAX_ROWS,
-      orgId: prepared.orgId,
-      allowedProjectIds: prepared.readable,
-    }),
+    pageOfRows(tx, prepared, where, { skip: 0, take: EXPORT_MAX_ROWS }),
   );
   return { data, query: prepared.query, cql: prepared.cql };
+}
+
+/** One page of rows: Prisma's ORDER BY, or the SQL sort then hydrate by id (sort.server.ts). */
+async function pageOfRows(
+  tx: Prisma.TransactionClient,
+  prepared: PreparedCql,
+  where: Prisma.WorkItemWhereInput,
+  page: { skip: number; take: number },
+): Promise<IssueRow[]> {
+  const base = { orgId: prepared.orgId, allowedProjectIds: prepared.readable };
+  if (!prepared.compiled.sqlSort) {
+    return fetchIssueRows(tx, { ...base, where, orderBy: prepared.compiled.orderBy, ...page });
+  }
+  const ids = await sortedIds(tx, where, prepared.compiled.sqlSort, page);
+  if (ids.length === 0) return [];
+  // Still inside the envelope: the ids came from it, and the hydrate re-checks.
+  const rows = await fetchIssueRows(tx, { ...base, where: { AND: [where, { id: { in: ids } }] }, orderBy: [{ id: "desc" }], skip: 0, take: ids.length });
+  return inOrder(ids, rows);
 }
