@@ -1,0 +1,406 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Cosmos API",
+    "version": "2026-11-01",
+    "description": "The Cosmos REST API. Guides, authentication and the changelog are at /developers."
+  },
+  "servers": [
+    {
+      "url": "/api/v1",
+      "description": "This Cosmos instance"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerPat": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A Cosmos API key or personal access token: `Authorization: Bearer cosmos_<prefix>_<secret>`. What it can do is its scopes intersected with its user's own permissions."
+      }
+    },
+    "schemas": {
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "Short uppercase key; ticket ids are `<key>-<number>`."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "ACTIVE",
+              "ON_HOLD",
+              "COMPLETE"
+            ]
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Board and display settings."
+          },
+          "projectTemplateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "enabledFeatures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional board tabs this project has switched on."
+          },
+          "sector": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Sector of the template the project was created from."
+          },
+          "teamScopedAccess": {
+            "type": "boolean",
+            "description": "Only project members (and org admins) can see it."
+          },
+          "clientId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "externalRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "krLinkTypeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "objectiveLinkTypeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "_count": {
+            "type": "object",
+            "properties": {
+              "boards": {
+                "type": "integer"
+              },
+              "intervals": {
+                "type": "integer"
+              },
+              "members": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "boards",
+              "intervals",
+              "members"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "name",
+          "key",
+          "description",
+          "status",
+          "archived",
+          "settings",
+          "projectTemplateId",
+          "enabledFeatures",
+          "sector",
+          "teamScopedAccess",
+          "clientId",
+          "externalRef",
+          "krLinkTypeId",
+          "objectiveLinkTypeId",
+          "createdAt",
+          "updatedAt",
+          "_count"
+        ]
+      },
+      "Uuid": {
+        "type": "string",
+        "format": "uuid",
+        "example": "0b8f6c1e-6a52-4bd0-9b0e-3a4c2f6d1e7a"
+      },
+      "IsoDateTime": {
+        "type": "string",
+        "format": "date-time",
+        "example": "2026-11-01T09:30:00.000Z"
+      },
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Relative URI of this code in the errors guide."
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "invalid_request",
+              "unauthorized",
+              "forbidden",
+              "insufficient_scope",
+              "not_found",
+              "conflict",
+              "model_not_connected",
+              "rate_limited",
+              "internal_error"
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "description": "The `X-Request-Id` of the request. Quote it to support."
+          },
+          "issues": {
+            "type": "array",
+            "items": {},
+            "description": "Validation failures, on 400 `invalid_request`."
+          },
+          "error": {
+            "type": "string",
+            "description": "Deprecated: same text as `detail` (or `title`). Kept for existing clients."
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "error"
+        ],
+        "description": "RFC 9457 problem details (`application/problem+json`)."
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/orgs/{orgId}/projects": {
+      "get": {
+        "operationId": "listProjects",
+        "summary": "List projects",
+        "description": "Projects in the organization that the caller can see, newest first. A token limited to certain projects lists only those, and team-scoped projects appear only to their members and org admins.",
+        "tags": [
+          "Projects"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "`true` lists archived projects instead of active ones."
+            },
+            "required": false,
+            "description": "`true` lists archived projects instead of active ones.",
+            "name": "archived",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Page size, 1–200. Bearer callers default to 50."
+            },
+            "required": false,
+            "description": "Page size, 1–200. Bearer callers default to 50.",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 1024,
+              "description": "Opaque cursor from the previous page's `Link: rel=\"next\"` (or `Cosmos-Next-Cursor`)."
+            },
+            "required": false,
+            "description": "Opaque cursor from the previous page's `Link: rel=\"next\"` (or `Cosmos-Next-Cursor`).",
+            "name": "cursor",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List projects",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Link": {
+                "description": "The next page, as `<url>; rel=\"next\"`. Absent on the last page.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-Next-Cursor": {
+                "description": "The next page's cursor, for clients that don't parse `Link`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Project"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

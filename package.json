@@ -12,6 +12,8 @@
     "check:examples": "node scripts/check-examples.mjs",
     "check:control-coverage": "node scripts/check-control-coverage.mjs",
     "check:licenses": "node scripts/check-dependency-licenses.mjs",
+    "openapi": "node scripts/openapi/collect.mjs && tsx scripts/openapi/build.mts",
+    "check:openapi": "node scripts/openapi/check.mjs",
     "analyze": "ANALYZE=true next build",
     "e2e": "playwright test",
     "e2e:install": "playwright install chromium",
@@ -39,6 +41,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",
+    "@asteasolutions/zod-to-openapi": "^9.1.0",
     "@aws-sdk/client-s3": "^3.1136.0",
     "@base-ui/react": "^1.8.0",
     "@dnd-kit/core": "^6.3.1",

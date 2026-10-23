@@ -114,6 +114,16 @@ Mutations use `useOrgMutation({ mutationFn, invalidate: [["themes"]] })` — sam
 - **Permission masks are decimal-string `TEXT`, not `BigInt`.** `OrgMember.permissions` and `WorkRole.grants` store a permission bitmask as a decimal string (the bitfield in `src/lib/rbac/permissions.ts` assigns bits ≥ 63, which overflow Postgres `BIGINT`). Keep ALL bit-math on `bigint` and cross the DB boundary with `maskFromDb()` (read) / `maskToDb()` (write) from `@/lib/rbac/permissions` — never `BigInt(row.permissions)` or `mask` written raw. The `JSON.stringify`-throws-on-BigInt crash class is gone, but these are still permission masks: don't `select`/`include` them into a `success()` payload carelessly. Project members with an explicit `select` that excludes `permissions`, and expose `WorkRole.grants` only as permission KEYS via `toWorkRoleDto` — never the raw value.
 - **Always behind a reverse proxy** — `compose/Caddyfile` puts **Caddy** in front of the app (not nginx, as this line said until 2026-09-14; verified against a running instance), and a tunnel or cloud LB may sit in front of that again. So `request.url` resolves to the bind hostname (`localhost:3000`), never the public URL. For any redirect, use `getPublicOrigin(request)` from `@/lib/auth/public-url`, which honors the `X-Forwarded-Host` + `X-Forwarded-Proto` the Caddyfile sets.
 
+## Public API routes: contract first (`route.contract.ts`)
+
+`/api/v1` is a documented public API (`/developers`, `openapi/cosmos-v1.json`). Its single source of truth is a zod contract beside each route, `route.contract.ts` (see `src/app/api/v1/orgs/[orgId]/projects/` for the pattern, and `src/lib/openapi/`):
+
+- **Adding a v1 route? Give it a contract.** `openapi/internal-routes.txt` lists the operations that don't have one yet. It's a ratchet: CI fails if it grows. A new route gets `defineRoute({ ..., stability: "internal" })`, which keeps it out of the public spec.
+- A `stable`/`beta` handler validates with `parseRequest(contract, request, params)` (strict query: an unknown param is a 400) and answers with `respond(contract, status, data)`. The response schema is a **projection**: undeclared fields are stripped in production and are a 500 everywhere else (tests and `next dev`), so select only what the contract declares, and add a column to the schema when the UI needs it.
+- Errors are RFC 9457 problems (`problem()`, `ProblemError`, or `handleApiError(e, request)`); the legacy `error` key is always kept.
+- Changed a contract? `npm run openapi` and commit `openapi/cosmos-v1.json`. `npm run check:openapi` is the CI drift gate; oasdiff fails breaking changes unless the PR has the `api-breaking` label.
+- Contract files are pure (zod + `@/lib/openapi/*` only); `coverage.arch.test.ts` enforces it.
+
 ## base-ui primitives don't support `asChild`
 
 The project uses `@base-ui/react` for `Button`, `DropdownMenu`, and `Dialog` — NOT Radix shadcn. Consequence: `<Button asChild><Link href="..."/></Button>` doesn't compile.

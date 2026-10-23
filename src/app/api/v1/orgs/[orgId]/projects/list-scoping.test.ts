@@ -45,6 +45,19 @@ function ctx(over: Partial<AuthContext> = {}): AuthContext {
 }
 
 const params = Promise.resolve({ orgId: ORG_ID });
+
+/** A whole row, as Prisma returns it: the route answers through a response
+ *  contract, and a partial row is (correctly) a contract violation. */
+function projectRow(over: { id: string; teamScopedAccess: boolean; name: string; key: string }) {
+  return {
+    orgId: ORG_ID, description: null, settings: {}, status: "ACTIVE", archived: false,
+    projectTemplateId: null, projectTemplate: null, enabledFeatures: [], clientId: null, externalRef: null,
+    krLinkTypeId: null, objectiveLinkTypeId: null,
+    createdAt: new Date("2026-10-01T00:00:00Z"), updatedAt: new Date("2026-10-01T00:00:00Z"),
+    _count: { boards: 1, intervals: 0, members: 2 },
+    ...over,
+  };
+}
 const listReq = () => new NextRequest(`http://localhost/api/v1/orgs/${ORG_ID}/projects`);
 
 async function listedIds(res: Response): Promise<string[]> {
@@ -59,8 +72,8 @@ beforeEach(() => {
   // The org has one ordinary project and one limited to its members.
   prisma.project.findMany.mockImplementation(() => {
     const rows = [
-      { id: OPEN, orgId: ORG_ID, teamScopedAccess: false, name: "Open", key: "OPN", _count: {} },
-      { id: RESTRICTED, orgId: ORG_ID, teamScopedAccess: true, name: "Secret", key: "SEC", _count: {} },
+      projectRow({ id: OPEN, teamScopedAccess: false, name: "Open", key: "OPN" }),
+      projectRow({ id: RESTRICTED, teamScopedAccess: true, name: "Secret", key: "SEC" }),
     ];
     return Promise.resolve(rows);
   });
@@ -115,7 +128,7 @@ describe("GET projects — team-scoped projects stay out of the list", () => {
     // The no-opt-in case is every existing org; it must not lose a project or
     // pay for a membership lookup.
     prisma.project.findMany.mockResolvedValue([
-      { id: OPEN, orgId: ORG_ID, teamScopedAccess: false, name: "Open", key: "OPN", _count: {} },
+      projectRow({ id: OPEN, teamScopedAccess: false, name: "Open", key: "OPN" }),
     ]);
     getAuthContext.mockResolvedValue(ctx());
     const ids = await listedIds(await GET(listReq(), { params }));

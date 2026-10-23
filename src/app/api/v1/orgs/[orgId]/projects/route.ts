@@ -4,13 +4,17 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { revalidateOrgProjects } from "@/lib/cache/queries";
 import { getEntitlements, isSectorEnabled } from "@/lib/entitlements";
 import { seedSectorFields } from "@/lib/custom-fields/seed-sector-fields";
 import { z } from "zod";
 import { DEFAULT_COLUMNS } from "@/lib/boards/default-columns";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { cursorPage } from "@/lib/openapi/paginate";
+import { problem } from "@/lib/openapi/problem";
+import { listProjects } from "./route.contract";
 
 const createProjectSchema = z.object({
   name: z.string().min(1).max(100),
@@ -24,26 +28,33 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
+    const { params: p, query } = await parseRequest(listProjects, request, params);
+    const org = await prisma.organization.findUnique({ where: { id: p.orgId } });
+    if (!org) return problem(404, "not_found", "Organization not found", { request });
 
     const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!ctx) return problem(401, "unauthorized", undefined, { request });
     requirePermission(ctx, Permission.PROJECT_READ);
 
-    const archived = request.nextUrl.searchParams.get("archived") === "true";
-
-    const projects = await prisma.project.findMany({
-      where: { orgId, archived },
+    const page = cursorPage<{ createdAt: Date; id: string }>({
+      request, query, bearer: !!ctx.isApiKey,
+      order: [
+        { field: "createdAt", dir: "desc", type: "date" },
+        { field: "id", dir: "desc", type: "string" },
+      ],
+    });
+    const fetched = await prisma.project.findMany({
+      where: { AND: [{ orgId: p.orgId, archived: query.archived === "true" }, page.where] },
       include: {
         _count: { select: { boards: true, intervals: true, members: true } },
         // The template's sector scopes the New-issue Type picker to the types
         // belonging to this project, rather than every type in the org.
         projectTemplate: { select: { sector: true } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: page.orderBy,
+      take: page.take,
     });
+    const { rows: projects, headers } = page.finish(fetched);
 
     // Drop the projects this actor may not see. The read-gate conversion
     // covered projects/[projectId]/**, which is everything that reads a
@@ -56,13 +67,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // the actor's memberships and org role, not on anything expressible as a
     // Prisma predicate here, and getVisibleProjectIds short-circuits when
     // nothing in the set is restricted (the common case) without querying
-    // memberships at all.
+    // memberships at all. (So a page can come back short; see paginate.ts.)
     const visible = await getVisibleProjectIds(
       ctx,
       projects.map((p) => p.id),
     );
 
-    return success(
+    return respond(
+      listProjects,
+      200,
       projects
         .filter((p) => visible.has(p.id))
         // Flatten the template relation to a bare `sector`, so the client reads
@@ -71,9 +84,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           ...p,
           sector: projectTemplate?.sector ?? null,
         })),
+      { headers },
     );
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
