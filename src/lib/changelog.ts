@@ -49,6 +49,28 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.9",
+    date: "2026-10-23",
+    title: "Saved boards keep their filter",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A board saved from the Issues view now shows only the issues that matched your filters when you saved it, instead of every issue in the project.",
+      },
+    ],
+  },
+  {
+    version: "2.439.8",
+    date: "2026-10-23",
+    title: "Classified exports are marked and gated",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Issues CSV exports in government workspaces now include each item's classification, carry a CUI banner when they contain controlled information, and require the Org export permission for that data.",
+      },
+    ],
+  },
+  {
     version: "2.439.7",
     date: "2026-10-23",
     title: "Search filters in API requests",
