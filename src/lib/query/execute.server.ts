@@ -10,7 +10,7 @@
  * filters, subscriptions, the assistant, API keys) goes through here, and an
  * arch test asserts nothing else imports compile.ts.
  */
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
@@ -275,4 +275,29 @@ async function pageOfRows(
   // Still inside the envelope: the ids came from it, and the hydrate re-checks.
   const rows = await fetchIssueRows(tx, { ...base, where: { AND: [where, { id: { in: ids } }] }, orderBy: [{ id: "desc" }], skip: 0, take: ids.length });
   return inOrder(ids, rows);
+}
+
+/**
+ * A query's full scoped where (envelope + predicate) in a form that survives
+ * JSON, for the board's in-memory interpreter (evaluate.ts). Dates become ISO
+ * strings; Prisma's JSON-null sentinels become `{ $null: … }` markers.
+ */
+export async function predicateCql(ctx: AuthContext, input: CqlInput, opts: CqlRunOptions = {}) {
+  const prepared = await prepareCql(ctx, input, opts);
+  const where = buildScopedWhere({
+    orgId: prepared.orgId,
+    allowedProjectIds: prepared.readable,
+    archived: prepared.compiled.archived,
+    user: prepared.compiled.where,
+  });
+  return { where: portableWhere(where), query: prepared.query, cql: prepared.cql, diagnostics: prepared.diagnostics };
+}
+
+export function portableWhere(where: unknown): unknown {
+  const nulls = new Map<unknown, string>([
+    [Prisma.AnyNull, "AnyNull"],
+    [Prisma.DbNull, "DbNull"],
+    [Prisma.JsonNull, "JsonNull"],
+  ]);
+  return JSON.parse(JSON.stringify(where, (_k, v) => (nulls.has(v) ? { $null: nulls.get(v) } : v)));
 }
