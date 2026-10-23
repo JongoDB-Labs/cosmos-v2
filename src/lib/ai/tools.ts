@@ -12,6 +12,7 @@ import { complianceTools } from "./tools/compliance";
 import { pmRegisterTools } from "./tools/pm-register";
 import { okrTools } from "./tools/okrs";
 import { milestoneTools } from "./tools/milestones";
+import { teamTools } from "./tools/teams";
 import { feedbackTools } from "./tools/feedback";
 import { meetingTools } from "./tools/meetings";
 import { goalsKpisTools } from "./tools/goals-kpis";
@@ -49,7 +50,7 @@ export function formatToolsForSystemPrompt(tools: ToolDefinition[]): string {
 export const cosmosTools: ToolDefinition[] = [
   {
     name: "query_work_items",
-    description: "Search and filter work items in the project. Returns matching items with their status, assignee, priority, interval and parentId (the item they sit under, or null).",
+    description: "Search and filter work items in the project. Returns matching items with their status, assignee, priority, interval, parentId (the item they sit under, or null) and teamId (the team that owns it, or null).",
     input_schema: {
       type: "object",
       properties: {
@@ -61,6 +62,11 @@ export const cosmosTools: ToolDefinition[] = [
         intervalId: { type: "string", description: "Filter by interval ID" },
         workItemTypeId: { type: "string", description: "Filter by work item type ID" },
         parentId: { type: "string", description: "Only the direct children of this work item (e.g. an epic's id)" },
+        teamId: {
+          type: "string",
+          description:
+            "Only this team's work (an id from list_teams): items the team owns, plus unowned items assigned to its members",
+        },
         limit: { type: "number", description: "Max results (default 20)" },
       },
       required: [],
@@ -200,6 +206,7 @@ export const cosmosTools: ToolDefinition[] = [
   // goals + KPIs, boards, documents, and CRM contact writes + partner/product reads.
   ...okrTools,
   ...milestoneTools,
+  ...teamTools,
   ...feedbackTools,
   ...meetingTools,
   ...goalsKpisTools,
@@ -229,6 +236,7 @@ export {
   pmRegisterTools,
   okrTools,
   milestoneTools,
+  teamTools,
   feedbackTools,
   meetingTools,
   goalsKpisTools,
