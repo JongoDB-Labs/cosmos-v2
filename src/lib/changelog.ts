@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.10",
+    date: "2026-10-23",
+    title: "Bots only use the tools they're given",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: read-only chat bots, the note-taker and meeting summaries can no longer send email, post to Slack or Jira, or write to calendars, and the assistant refuses any tool it wasn't offered in that conversation.",
+      },
+    ],
+  },
+  {
     version: "2.439.9",
     date: "2026-10-23",
     title: "Saved boards keep their filter",

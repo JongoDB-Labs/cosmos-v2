@@ -4,7 +4,12 @@
 // fail-loud duplicate/collision detection. Uses synthetic fixture descriptors
 // (NOT the real google/github connectors) so the contract is tested in isolation;
 // resetConnectors() clears any global registration between cases.
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+// The dispatch refusal audit, without a DB.
+const logEgressDecision = vi.hoisted(() => vi.fn());
+vi.mock("../egress/audit", () => ({ logEgressDecision }));
+
 import {
   registerConnector,
   resetConnectors,
@@ -21,6 +26,7 @@ function makeDescriptor(over: Partial<ConnectorDescriptor> & { provider: string 
     toolDefs: [],
     execute: async () => ({}),
     egress: {},
+    access: {},
     ...over,
   };
 }
@@ -62,12 +68,12 @@ describe("connector registry — registration + derived accessors", () => {
     registerConnector(alpha);
     registerConnector(beta);
 
-    expect(await executeConnectorTool("alpha_write", { x: 1 }, { orgId: "o", userId: "u" })).toEqual({
+    expect(await executeConnectorTool("alpha_write", { x: 1 }, { offered: new Set(["alpha_write"]), orgId: "o", userId: "u" })).toEqual({
       provider: "alpha",
       name: "alpha_write",
       input: { x: 1 },
     });
-    expect(await executeConnectorTool("beta_list", {}, { orgId: "o", userId: "u" })).toEqual({
+    expect(await executeConnectorTool("beta_list", {}, { offered: new Set(["beta_list"]), orgId: "o", userId: "u" })).toEqual({
       provider: "beta",
       name: "beta_list",
       input: {},
@@ -157,5 +163,20 @@ describe("connector registry — fail-loud collisions", () => {
     });
     registerConnector(conflicting);
     expect(() => connectorEgressMaps()).toThrow(/redefines EXPOSABLE_FIELDS/);
+  });
+});
+
+describe("connector dispatch runs only an OFFERED tool (fail closed)", () => {
+  it("refuses, and audits, a call with no offered set or one that doesn't include the tool", async () => {
+    const spy = logEgressDecision;
+    spy.mockClear();
+    resetConnectors();
+    registerConnector(alpha);
+    await expect(executeConnectorTool("alpha_write", {}, { orgId: "o", userId: "u" })).rejects.toThrow(/not offered/);
+    await expect(
+      executeConnectorTool("alpha_write", {}, { offered: new Set(["alpha_read"]), orgId: "o", userId: "u", conversationId: "c9" }),
+    ).rejects.toThrow(/not offered/);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ toolName: "alpha_write", decidedBy: "tool_not_offered_block", conversationId: "c9", exposed: false }));
   });
 });
