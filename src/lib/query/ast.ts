@@ -127,6 +127,9 @@ export function isLeaf(n: CqlNode): n is LeafNode {
 
 // ── zod ────────────────────────────────────────────────────────────────────
 
+/** Free text in a JSON query. Postgres text can't hold U+0000, so it is refused up front. */
+const text = (max: number) => z.string().max(max).refine((x) => !x.includes("\u0000"), "NUL characters aren't allowed.");
+
 const fieldRefSchema: z.ZodType<FieldRef> = z.union([
   z.strictObject({ kind: z.literal("sys"), id: z.enum(SYSTEM_FIELD_IDS) }),
   z.strictObject({ kind: z.literal("cf"), key: z.string().regex(/^[A-Za-z0-9_]{1,100}$/) }),
@@ -134,7 +137,7 @@ const fieldRefSchema: z.ZodType<FieldRef> = z.union([
 
 const valueSchema: z.ZodType<CqlValue> = z.lazy(() =>
   z.union([
-    z.strictObject({ t: z.literal("str"), v: z.string().max(500) }),
+    z.strictObject({ t: z.literal("str"), v: text(500) }),
     z.strictObject({ t: z.literal("num"), v: z.number().finite() }),
     z.strictObject({ t: z.literal("bool"), v: z.boolean() }),
     z.strictObject({
@@ -145,8 +148,8 @@ const valueSchema: z.ZodType<CqlValue> = z.lazy(() =>
     z.strictObject({
       t: z.literal("ref"),
       entity: z.enum(REF_ENTITIES),
-      id: z.string().min(1).max(200),
-      label: z.string().max(500).optional(),
+      id: text(200).pipe(z.string().min(1)),
+      label: text(500).optional(),
     }),
     z.strictObject({
       t: z.literal("fn"),
@@ -191,7 +194,7 @@ const nodeSchema: z.ZodType<CqlNode> = z.lazy(() =>
       op: z.literal("text"),
       field: fieldRefSchema,
       negate: z.boolean().optional(),
-      query: z.string().min(1).max(500),
+      query: text(500).pipe(z.string().min(1)),
     }),
     z.strictObject({
       op: z.literal("was"),
@@ -216,7 +219,7 @@ export const cqlQuerySchema: z.ZodType<CqlQuery> = z.strictObject({
   where: nodeSchema.nullable(),
   orderBy: z.array(sortSchema).max(CQL_LIMITS.sortKeys).optional(),
   context: z
-    .strictObject({ projectId: z.string().optional(), boardId: z.string().optional() })
+    .strictObject({ projectId: text(200).optional(), boardId: text(200).optional() })
     .optional(),
 });
 

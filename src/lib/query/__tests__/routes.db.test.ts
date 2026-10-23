@@ -214,6 +214,9 @@ describe("CQL routes (e2e DB)", () => {
 
   it("search ?cql= shares the query route's rate limit (30 per 10 s)", async () => {
     limiter.on = true;
+    // The bucket refills with Date.now(); a slow run (a loaded CI box) would
+    // earn tokens back mid-test. Frozen, 32 requests are 32 requests.
+    vi.useFakeTimers({ toFake: ["Date"] });
     // Its own user, so this bucket isn't the one the query-route test uses.
     getAuthContext.mockImplementation(async () => ({ ...w.ctx(), userId: w.bob.id }) as AuthContext);
     try {
@@ -228,6 +231,7 @@ describe("CQL routes (e2e DB)", () => {
       expect(statuses).toContain(429);
       expect(statuses.slice(0, 20).every((x) => x === 200)).toBe(true);
     } finally {
+      vi.useRealTimers();
       limiter.on = false;
       getAuthContext.mockImplementation(async () => w.ctx());
     }
@@ -314,6 +318,17 @@ describe("CQL routes (e2e DB)", () => {
       { numRuns: 300 },
     );
   }, 120_000);
+
+  it("a NUL character is a 400, as text or inside a JSON string (Postgres text can't hold one)", async () => {
+    // Found by the fuzz above: `" \u0000 "` reached the database as a text search.
+    for (const cql of ['" \u0000 "', 'summary ~ "a\u0000b"', "\u0000"]) {
+      expect((await queryRoute(post("work-items/query", { cql }), { params: params() })).status, JSON.stringify(cql)).toBe(400);
+    }
+    const query = { v: 1, where: { op: "text", field: { kind: "sys", id: "text" }, query: "a\u0000b" } };
+    expect((await queryRoute(post("work-items/query", { query }), { params: params() })).status).toBe(400);
+    const str = { v: 1, where: { op: "cmp", field: { kind: "sys", id: "status" }, cmp: "eq", value: { t: "str", v: "\u0000" } } };
+    expect((await queryRoute(post("work-items/query", { query: str }), { params: params() })).status).toBe(400);
+  });
 
   it("fuzz: any JSON nesting is a 200 or a 400, never a 500", async () => {
     const leaf = { op: "cmp", field: { kind: "sys", id: "priority" }, cmp: "eq", value: { t: "str", v: "HIGH" } };

@@ -543,20 +543,25 @@ function looksLikeWords(tokens: IToken[]): boolean {
   return !(first.tokenType === Identifier && lookupField(first.image));
 }
 
+/** Tokens a value list's `(` follows: `IN (a, b)`, `IN ALL (…)`, `DURING (a, b)`. */
+const LIST_OPENERS = new Set<TokenType>([In, All, During]);
+
 /**
  * The first place the token stream nests too deep, if any: grouping
  * parentheses beyond CQL_LIMITS.parenDepth, any parentheses (function calls
- * included) beyond CQL_LIMITS.nodeDepth, or more NOTs in a row than that.
+ * and value lists included) beyond CQL_LIMITS.nodeDepth, or more NOTs in a
+ * row than that. A function call's or a value list's `(` is not a group.
  */
 function depthProblem(tokens: IToken[]): { message: string; span: Span } | null {
   let groups = 0;
   let parens = 0;
   let nots = 0;
-  const open: boolean[] = []; // per open paren: was it a function call's?
+  const open: boolean[] = []; // per open paren: a call's or a list's (not a group)?
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     if (t.tokenType === LParen) {
-      const call = tokens[i - 1]?.tokenType === Identifier;
+      const before = tokens[i - 1]?.tokenType;
+      const call = before === Identifier || (before !== undefined && LIST_OPENERS.has(before));
       open.push(call);
       parens++;
       if (!call) groups++;
@@ -586,6 +591,12 @@ export function parseCql(text: string): ParseResult {
         to: text.length,
       }),
     );
+    return { query: { v: CQL_VERSION, where: null }, diagnostics, spans: new WeakMap() };
+  }
+  // Postgres text can't hold U+0000; refuse it here rather than fail in the database.
+  const nul = text.indexOf("\u0000");
+  if (nul >= 0) {
+    diagnostics.push(diag(text, "CQL_SYNTAX", "Queries can't contain a NUL character.", { from: nul, to: nul + 1 }));
     return { query: { v: CQL_VERSION, where: null }, diagnostics, spans: new WeakMap() };
   }
 
