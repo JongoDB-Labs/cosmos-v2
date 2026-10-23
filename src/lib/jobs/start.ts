@@ -16,6 +16,9 @@ export async function startJobs(): Promise<void> {
   await import("./jobs");
   const runner = appJobRunner();
   runner.start();
+  // Next's own server installs a SIGTERM handler that calls process.exit(143),
+  // so this release can lose the race. That's harmless: a session advisory
+  // lock dies with its connection, and the connection dies with the process.
   const stop = () => void runner.stop();
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
