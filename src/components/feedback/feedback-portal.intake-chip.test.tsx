@@ -44,7 +44,6 @@ vi.mock("@/lib/query/json-fetcher", () => ({
 }));
 
 import { FeedbackPortal } from "./feedback-portal";
-import { PermissionsProvider } from "@/components/providers/permissions-provider";
 
 const base = {
   id: "fr-1",
