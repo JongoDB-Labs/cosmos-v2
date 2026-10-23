@@ -9,13 +9,17 @@ import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { isProjectVisible } from "@/lib/rbac/project-access";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { createClassificationResolver, type ClassificationResolver } from "@/lib/classification/resolver";
+import { rateLimit } from "@/lib/rate-limit/bucket";
+import { createNotification } from "@/lib/notifications/create";
 import { MS_CALENDAR } from "./calendar-connect";
 import {
   CalendarNotConnected,
   CalendarReconnectNeeded,
   calendarConnection,
+  onCalendarOffboard,
   patchCalendarMeta,
   type CalendarMeta,
+  type OffboardReason,
 } from "./calendar-token.server";
 import { GraphError, GraphThrottled, graphRequest, type GraphDeps } from "./graph.server";
 
@@ -97,7 +101,8 @@ export async function pool<T>(items: T[], n: number, job: (item: T) => Promise<v
 
 /** Errors that end one person's sync without failing anyone else's. */
 const personal = (e: unknown) =>
-  e instanceof CalendarNotConnected || e instanceof CalendarReconnectNeeded || e instanceof GraphThrottled || e instanceof GraphError;
+  e instanceof CalendarNotConnected || e instanceof CalendarReconnectNeeded || e instanceof GraphThrottled || e instanceof GraphError ||
+  e instanceof InviteDeferred;
 
 // ── Who may see / edit a meeting ────────────────────────────────────────────
 
@@ -269,6 +274,331 @@ async function meetingLink(orgId: string, meta: CalendarMeta, meetingId: string)
   return org ? `${meta.origin}/${org.slug}/meetings/${meetingId}` : null;
 }
 
+// ── Invite mode ─────────────────────────────────────────────────────────────
+//
+// Real Outlook invitations from the organizer's calendar, per meeting, opt-in.
+// The organizer's copy (their link) becomes the invitation: its content hash
+// is prefixed "invite:" so it is recognised (and cancelled, not deleted) even
+// after the meeting itself is gone.
+
+const INVITE_PREFIX = "invite:";
+export const MAX_INVITEES = 100;
+/** What a cancellation says. Never the meeting's own title, details or link. */
+const CANCELLED_SUBJECT = "Meeting cancelled";
+const CANCELLED_COMMENT = "This meeting was cancelled.";
+
+export interface Invitee {
+  userId: string;
+  email: string;
+  name: string;
+}
+
+async function withAttendees(m: SyncMeeting): Promise<MeetingWithAttendees> {
+  const attendees = await prisma.meetingAttendee.findMany({ where: { meetingId: m.id }, select: { userId: true } });
+  return { ...m, attendees };
+}
+
+/** The meeting's attendees other than the organizer, with their addresses. */
+async function inviteesFor(m: MeetingWithAttendees): Promise<Invitee[]> {
+  const ids = m.attendees.map((a) => a.userId).filter((id) => id !== m.inviteOrganizerId);
+  if (!ids.length) return [];
+  const users = await prisma.user.findMany({
+    where: { id: { in: ids }, deactivatedAt: null },
+    select: { id: true, email: true, displayName: true },
+    orderBy: { email: "asc" },
+  });
+  return users.filter((u) => !!u.email).map((u) => ({ userId: u.id, email: u.email, name: u.displayName || u.email }));
+}
+
+const domainOf = (email: string) => email.split("@").pop()?.toLowerCase() ?? "";
+
+/**
+ * The org's own email domains: Security settings' allowed domains, or, when
+ * that is empty, the organizer's own (UPN and primary address).
+ */
+export async function orgEmailDomains(orgId: string, organizer?: Pick<CalendarMeta, "upn" | "mail">): Promise<string[]> {
+  const sec = await prisma.orgSecuritySettings.findUnique({ where: { orgId }, select: { allowedDomains: true } });
+  const listed = (sec?.allowedDomains ?? []).map((d) => d.trim().toLowerCase().replace(/^@/, "")).filter(Boolean);
+  if (listed.length) return [...new Set(listed)];
+  return [...new Set([organizer?.upn, organizer?.mail].filter((a): a is string => !!a).map(domainOf).filter(Boolean))];
+}
+
+const outside = (invitees: Invitee[], domains: string[]) =>
+  domains.length ? invitees.filter((i) => !domains.includes(domainOf(i.email))) : [];
+
+function inviteBody(base: ReturnType<typeof meetingEvent>, invitees: Invitee[]) {
+  return {
+    ...base,
+    attendees: invitees.map((i) => ({ emailAddress: { address: i.email, name: i.name }, type: "required" })),
+    responseRequested: true,
+  };
+}
+
+/** One hash per part, so an update can say what changed: time.title.details.attendees */
+const INVITE_PARTS = ["time", "title", "details", "attendees"] as const;
+function inviteHash(b: ReturnType<typeof inviteBody>): string {
+  const h = (v: unknown) => createHash("sha256").update(JSON.stringify(v)).digest("base64url").slice(0, 16);
+  return INVITE_PREFIX + [h([b.start, b.end]), h(b.subject), h([b.body, b.location]), h(b.attendees)].join(".");
+}
+function changedInviteParts(before: string, after: string): string[] {
+  if (!before.startsWith(INVITE_PREFIX)) return [...INVITE_PARTS];
+  const a = before.slice(INVITE_PREFIX.length).split(".");
+  const b = after.slice(INVITE_PREFIX.length).split(".");
+  return INVITE_PARTS.filter((_, i) => a[i] !== b[i]);
+}
+
+/** Thrown when an organizer is over their invitation budget: retried by the reconcile pass. */
+export class InviteDeferred extends Error {}
+/** Each organizer: at most 60 writes an hour that notify people (sends, updates, cancels). */
+function chargeInviteOp(organizerId: string) {
+  if (!rateLimit(`ms.invite.ops:${organizerId}`, { capacity: 60, refillPerSecond: 60 / 3600 }).allowed) {
+    throw new InviteDeferred("Outlook invitation limit reached; it goes out shortly.");
+  }
+}
+
+async function inviteAudit(
+  orgId: string, actorId: string, meetingId: string, action: string, invitees: Invitee[],
+  organizer: Pick<CalendarMeta, "upn" | "mail"> | undefined, extra: Record<string, string> = {},
+) {
+  const away = outside(invitees, await orgEmailDomains(orgId, organizer));
+  await logAudit({
+    orgId, userId: actorId, action, entity: "sync_meeting", entityId: meetingId,
+    // Counts and domains only: never anyone's address.
+    metadata: {
+      recipientCount: String(invitees.length),
+      outsideDomainCount: String(away.length),
+      outsideDomains: [...new Set(away.map((i) => domainOf(i.email)))].join(", "),
+      ...extra,
+    },
+  });
+}
+
+/** Cancel the organizer's event. `scrub` first blanks it, so the cancellation carries nothing of the meeting. */
+async function cancelInviteEvent(
+  orgId: string, userId: string, link: { externalEventId: string }, scrub: boolean, deps: GraphDeps,
+) {
+  const path = `/me/events/${encodeURIComponent(link.externalEventId)}`;
+  try {
+    chargeInviteOp(userId);
+    if (scrub) {
+      await graphRequest(orgId, userId, "PATCH", path, {
+        subject: CANCELLED_SUBJECT, body: { contentType: "text", content: "" }, location: { displayName: "" },
+      }, deps);
+    }
+    await graphRequest(orgId, userId, "POST", `${path}/cancel`, { comment: CANCELLED_COMMENT }, deps);
+  } catch (e) {
+    if (!(e instanceof GraphError && e.status === 404)) throw e; // already gone
+  }
+}
+
+export type InviteStopReason =
+  | "turned_off" | "classified" | "organizer_cannot_edit" | "too_many_attendees" | "organizer_not_connected"
+  | "organizer_disconnected" | OffboardReason;
+
+/**
+ * Why a meeting's invitations can't go on, or null. "paused": the organizer
+ * must reconnect, so nothing is sent (or stopped) meanwhile.
+ */
+async function inviteBlocker(orgId: string, m: MeetingWithAttendees, cls: ClassificationResolver): Promise<InviteStopReason | "paused" | null> {
+  const organizer = m.inviteOrganizerId!;
+  if (cls.restricted(m.projectId, m.title, m.meetingUrl)) return "classified";
+  const conn = await calendarConnection(orgId, organizer);
+  if (!conn) return "organizer_not_connected";
+  if (conn.meta.status !== "connected") return "paused";
+  const viewer = await viewerFor(orgId, organizer);
+  if (!(await viewer.canEdit(m))) return "organizer_cannot_edit";
+  if (m.attendees.length > MAX_INVITEES) return "too_many_attendees";
+  return null;
+}
+
+/**
+ * Stop a meeting's invitations: cancel the organizer's event (scrubbed first
+ * when the meeting is now classified), drop their link, turn invite mode off,
+ * and record why. The caller re-syncs, which brings back mirrored copies.
+ */
+async function stopInvite(
+  orgId: string, m: MeetingWithAttendees, reason: InviteStopReason, deps: GraphDeps, actorId: string,
+): Promise<void> {
+  const organizer = m.inviteOrganizerId!;
+  const link = await prisma.externalEventLink.findUnique({ where: linkKey(orgId, organizer, m.id) });
+  const invitees = await inviteesFor(m);
+  if (link?.contentHash?.startsWith(INVITE_PREFIX)) {
+    try {
+      await cancelInviteEvent(orgId, organizer, link, reason === "classified", deps);
+      await prisma.externalEventLink.delete({ where: { id: link.id } });
+    } catch (e) {
+      // No working token (not connected): nothing more we can send.
+      if (!(e instanceof CalendarNotConnected || e instanceof CalendarReconnectNeeded)) throw e;
+    }
+  }
+  await prisma.syncMeeting.updateMany({ where: { id: m.id, inviteOrganizerId: organizer }, data: { inviteOrganizerId: null } });
+  await meetingActivity(orgId, actorId, m.id, "outlook_invite_cancelled", null, null, reason);
+  const conn = await calendarConnection(orgId, organizer);
+  await inviteAudit(orgId, actorId, m.id, "microsoft_calendar.invite_cancelled", invitees, conn?.meta, { organizerId: organizer, reason });
+}
+
+export interface InvitePreview {
+  /** Whether invite mode is on, and who sends it. */
+  on: boolean;
+  organizerId: string | null;
+  /** May this person turn it on (or off) now; if not, why. */
+  canChange: boolean;
+  reason: "classified" | "not_connected" | "reconnect" | "cannot_edit" | "too_many_attendees" | "cancelled" | null;
+  recipients: { name: string; email: string; outside: boolean }[];
+  domains: string[];
+}
+
+/** What turning on invitations for this meeting would do, as this person. */
+export async function invitePreview(orgId: string, meetingId: string, actorId: string): Promise<InvitePreview | null> {
+  const m = (await prisma.syncMeeting.findFirst({
+    where: { id: meetingId, orgId },
+    include: { attendees: { select: { userId: true } } },
+  })) as MeetingWithAttendees | null;
+  if (!m) return null;
+  const cls = await createClassificationResolver(orgId);
+  const conn = await calendarConnection(orgId, actorId);
+  const asOrganizer = { ...m, inviteOrganizerId: m.inviteOrganizerId ?? actorId };
+  const invitees = await inviteesFor(asOrganizer);
+  const domains = await orgEmailDomains(orgId, conn?.meta);
+  const away = new Set(outside(invitees, domains).map((i) => i.userId));
+  const canEdit = await (await viewerFor(orgId, actorId)).canEdit(m);
+  const reason: InvitePreview["reason"] =
+    m.status === "CANCELLED" ? "cancelled"
+    : cls.restricted(m.projectId, m.title, m.meetingUrl) ? "classified"
+    : !conn ? "not_connected"
+    : conn.meta.status !== "connected" ? "reconnect"
+    : !canEdit ? "cannot_edit"
+    : m.attendees.length > MAX_INVITEES ? "too_many_attendees"
+    : null;
+  return {
+    on: !!m.inviteOrganizerId,
+    organizerId: m.inviteOrganizerId,
+    // Turning it off needs only edit rights; turning it on needs everything.
+    canChange: m.inviteOrganizerId ? canEdit : reason === null,
+    reason,
+    recipients: invitees.map((i) => ({ name: i.name, email: i.email, outside: away.has(i.userId) })),
+    domains,
+  };
+}
+
+export class InviteRefused extends Error {
+  constructor(public reason: string) {
+    super(reason);
+  }
+}
+
+/**
+ * Turn a meeting's Outlook invitations on (as `actorId`, the organizer) or off.
+ * On is refused for a classified meeting, someone not connected or unable to
+ * edit it, too many attendees, or over the toggle limit (10 an hour).
+ */
+export async function setMeetingInvite(orgId: string, meetingId: string, actorId: string, enabled: boolean, deps: GraphDeps = {}): Promise<void> {
+  if (!rateLimit(`ms.invite.toggle:${actorId}`, { capacity: 10, refillPerSecond: 10 / 3600 }).allowed) {
+    throw new InviteRefused("rate_limited");
+  }
+  const m = (await prisma.syncMeeting.findFirst({
+    where: { id: meetingId, orgId },
+    include: { attendees: { select: { userId: true } } },
+  })) as MeetingWithAttendees | null;
+  if (!m) throw new InviteRefused("not_found");
+  const viewer = await viewerFor(orgId, actorId);
+  if (!(await viewer.canEdit(m))) throw new InviteRefused("cannot_edit");
+  if (!enabled) {
+    if (!m.inviteOrganizerId) return;
+    await stopInvite(orgId, m, "turned_off", deps, actorId);
+    await syncMeeting(orgId, meetingId, deps); // mirrored copies come back
+    return;
+  }
+  if (m.inviteOrganizerId) {
+    if (m.inviteOrganizerId === actorId) return;
+    throw new InviteRefused("already_on"); // turn it off first; one organizer at a time
+  }
+  const preview = await invitePreview(orgId, meetingId, actorId);
+  if (!preview || preview.reason) throw new InviteRefused(preview?.reason ?? "not_found");
+  await prisma.syncMeeting.update({ where: { id: meetingId }, data: { inviteOrganizerId: actorId } });
+  await meetingActivity(orgId, actorId, meetingId, "outlook_invite_on", null, null, null);
+  await syncMeeting(orgId, meetingId, deps);
+}
+
+/** Upcoming meetings whose invitations this person sends. */
+export async function liveInvites(orgId: string, userId: string, now = Date.now()) {
+  return prisma.syncMeeting.findMany({
+    where: { orgId, inviteOrganizerId: userId, status: { not: "CANCELLED" }, meetingDate: { gte: new Date(now - DAY) } },
+    include: { attendees: { select: { userId: true } } },
+  }) as Promise<MeetingWithAttendees[]>;
+}
+
+/**
+ * The organizer is disconnecting. "cancel": cancel each invitation (attendees
+ * are told). "keep": leave them in Outlook, where Cosmos no longer updates
+ * them; their links are kept out of the clean-up so the calendar holding them
+ * isn't deleted. Either way invite mode ends and mirrored copies resume.
+ */
+export async function releaseInvitesOnDisconnect(orgId: string, userId: string, choice: "keep" | "cancel", deps: GraphDeps = {}) {
+  for (const m of await liveInvites(orgId, userId)) {
+    if (choice === "cancel") {
+      await stopInvite(orgId, m, "organizer_disconnected", deps, userId);
+    } else {
+      await prisma.syncMeeting.update({ where: { id: m.id }, data: { inviteOrganizerId: null } });
+      await meetingActivity(orgId, userId, m.id, "outlook_invite_released", null, null, "organizer_disconnected");
+      await logAudit({
+        orgId, userId, action: "microsoft_calendar.invite_released", entity: "sync_meeting", entityId: m.id,
+        metadata: { organizerId: userId, reason: "organizer_disconnected" },
+      });
+    }
+  }
+}
+
+/** Tell the org's admins, once per event, that invitations were stopped for someone. */
+async function notifyAdmins(orgId: string, organizerId: string, count: number, reason: OffboardReason) {
+  const [admins, who, org] = await Promise.all([
+    prisma.orgMember.findMany({ where: { orgId, role: { in: ["OWNER", "ADMIN"] } }, select: { userId: true } }),
+    prisma.user.findUnique({ where: { id: organizerId }, select: { displayName: true, email: true } }),
+    prisma.organization.findUnique({ where: { id: orgId }, select: { slug: true } }),
+  ]);
+  const name = who?.displayName || who?.email || "Someone";
+  const why = reason === "integration_disabled" ? "Outlook Calendar was turned off" : reason === "tenant_changed" ? "the Microsoft tenant changed" : `${name} no longer has access`;
+  for (const a of admins) {
+    await createNotification({
+      orgId, userId: a.userId, type: "integration.outlook_invites_cancelled",
+      title: `Outlook invitations cancelled (${count})`,
+      message: `${count} meeting invitation${count === 1 ? "" : "s"} sent from ${name}'s Outlook were cancelled because ${why}.`,
+      url: org ? `/${org.slug}/meetings` : null,
+    }).catch(() => undefined);
+  }
+}
+
+/**
+ * A connection is being removed because it may no longer exist (they left,
+ * were deactivated, the admin turned Outlook Calendar off, the tenant moved):
+ * cancel the invitations they send while the token still works, audit it, and
+ * tell the admins. Never leaves live invitations nobody in Cosmos can update.
+ */
+export async function offboardInvites(orgId: string, userId: string, reason: OffboardReason, deps: GraphDeps = {}) {
+  const meetings = await liveInvites(orgId, userId);
+  if (!meetings.length) return;
+  for (const m of meetings) {
+    try {
+      await stopInvite(orgId, m, reason, { ...deps, offboarding: true }, userId);
+    } catch (e) {
+      // Couldn't reach Microsoft: still end invite mode, so nothing pretends to be managed.
+      await prisma.syncMeeting.updateMany({ where: { id: m.id, inviteOrganizerId: userId }, data: { inviteOrganizerId: null } });
+      console.error("outlook invite cancel failed:", e instanceof Error ? e.message : "unknown");
+    }
+  }
+  await notifyAdmins(orgId, userId, meetings.length, reason);
+}
+onCalendarOffboard((orgId, userId, reason, deps) => offboardInvites(orgId, userId, reason, deps));
+
+/** Every organizer in an org, before the admin turns Outlook Calendar off. */
+export async function offboardOrgInvites(orgId: string, deps: GraphDeps = {}) {
+  const organizers = await prisma.syncMeeting.findMany({
+    where: { orgId, inviteOrganizerId: { not: null }, status: { not: "CANCELLED" } },
+    select: { inviteOrganizerId: true }, distinct: ["inviteOrganizerId"],
+  });
+  for (const o of organizers) await offboardInvites(orgId, o.inviteOrganizerId as string, "integration_disabled", deps);
+}
+
 /**
  * Create or update one person's copy of a meeting and store the echo
  * changeKey. Skips the write when the body is what we last sent, unless
@@ -277,16 +607,22 @@ async function meetingLink(orgId: string, meta: CalendarMeta, meetingId: string)
  */
 async function pushFor(
   orgId: string, userId: string, m: SyncMeeting, deps: GraphDeps,
-  cls: ClassificationResolver, force = false,
+  cls: ClassificationResolver, force = false, invitees?: Invitee[],
 ): Promise<void> {
   const conn = await calendarConnection(orgId, userId);
   if (!conn) return;
   let calendarId = await ensureCosmosCalendar(orgId, userId, deps);
   const restricted = cls.restricted(m.projectId, m.title, m.meetingUrl);
-  const body = meetingEvent(m, restricted, await meetingLink(orgId, conn.meta, m.id));
-  const hash = bodyHash(body);
+  const base = meetingEvent(m, restricted, await meetingLink(orgId, conn.meta, m.id));
+  // Invite mode (organizer only, never restricted): the attendees go on the
+  // event, and Outlook sends the invitations and updates.
+  const inviting = !!invitees && !restricted;
+  const body = inviting ? inviteBody(base, invitees!) : base;
+  const hash = inviting ? inviteHash(body as ReturnType<typeof inviteBody>) : bodyHash(body);
   const existing = await prisma.externalEventLink.findUnique({ where: linkKey(orgId, userId, m.id) });
   if (existing && !force && existing.contentHash === hash && existing.externalCalendarId === calendarId) return;
+  const wasInvite = !!existing?.contentHash?.startsWith(INVITE_PREFIX);
+  if (inviting || wasInvite) chargeInviteOp(userId); // this write notifies people
   let ev: GraphEvent | null = null;
   if (existing && existing.externalCalendarId === calendarId) {
     try {
@@ -324,6 +660,11 @@ async function pushFor(
       contentHash: hash, lastSyncedAt: new Date(),
     },
   });
+  if (inviting) {
+    await inviteAudit(orgId, userId, m.id, wasInvite ? "microsoft_calendar.invite_updated" : "microsoft_calendar.invite_sent", invitees!, conn.meta, {
+      ...(wasInvite ? { fields: changedInviteParts(existing!.contentHash!, hash).join(", ") } : {}),
+    });
+  }
 }
 
 /**
@@ -334,6 +675,17 @@ async function pushFor(
 async function removeFor(orgId: string, userId: string, meetingId: string, deps: GraphDeps) {
   const link = await prisma.externalEventLink.findUnique({ where: linkKey(orgId, userId, meetingId) });
   if (!link) return;
+  if (link.contentHash?.startsWith(INVITE_PREFIX)) {
+    // Their event is a meeting others were invited to: cancel it, so the
+    // attendees get a cancellation (a plain delete may not tell them).
+    await cancelInviteEvent(orgId, userId, link, false, deps);
+    await prisma.externalEventLink.delete({ where: { id: link.id } });
+    await logAudit({
+      orgId, userId, action: "microsoft_calendar.invite_cancelled", entity: "sync_meeting", entityId: meetingId,
+      metadata: { organizerId: userId, reason: "meeting_gone" },
+    });
+    return;
+  }
   try {
     await graphRequest(orgId, userId, "DELETE", `/me/events/${encodeURIComponent(link.externalEventId)}`, undefined, deps);
   } catch (e) {
@@ -366,6 +718,25 @@ export async function syncMeeting(orgId: string, meetingId: string, deps: GraphD
       })).map((c) => c.userId as string)
     : [];
   const cls = await createClassificationResolver(orgId);
+  // Invite mode: the organizer's event carries the attendees; nobody else
+  // gets a mirrored copy (the invitation is their copy). If it can't go on
+  // (classified now, organizer can't edit or isn't connected, too many
+  // people) it is cancelled and the meeting goes back to mirroring.
+  if (m && m.status !== "CANCELLED" && m.inviteOrganizerId) {
+    const organizer = m.inviteOrganizerId;
+    const blocked = await inviteBlocker(orgId, m, cls);
+    if (blocked === "paused") return; // organizer must reconnect; nothing changes meanwhile
+    if (blocked) {
+      await stopInvite(orgId, m, blocked, deps, organizer);
+      return syncMeeting(orgId, meetingId, deps, skipUserId);
+    }
+    const invitees = await inviteesFor(m);
+    const work: (() => Promise<void>)[] = [];
+    if (organizer !== skipUserId) work.push(() => pushFor(orgId, organizer, m, deps, cls, false, invitees));
+    for (const l of links) if (l.userId !== organizer) work.push(() => removeFor(orgId, l.userId, meetingId, deps));
+    await pool(work, CONCURRENCY, (w) => w());
+    return;
+  }
   const keep = new Set<string>();
   for (const userId of connected) if (await (await viewerFor(orgId, userId)).canSee(m!)) keep.add(userId);
   const work: (() => Promise<void>)[] = [];
@@ -538,7 +909,8 @@ async function applyOne(
       metadata: { reason: cosmosNewer ? "cosmos_newer" : "no_edit_rights", fields: trail.map((t) => t[0]).join(", ") },
     });
     await meetingActivity(orgId, userId, m.id, "outlook_change_ignored", trail.map((t) => t[0]).join(", "), null, cosmosNewer ? "cosmos_newer" : "no_edit_rights");
-    await pushFor(orgId, userId, m, deps, cls, true); // put the Cosmos version back
+    // Put the Cosmos version back (with its attendees, if it's an invitation).
+    await pushFor(orgId, userId, m, deps, cls, true, m.inviteOrganizerId === userId ? await inviteesFor(await withAttendees(m)) : undefined);
     out.ignored++;
     return;
   }
@@ -546,7 +918,11 @@ async function applyOne(
   for (const [field, o, n] of trail) await meetingActivity(orgId, userId, m.id, "outlook_updated", field, o, n);
   // Their copy now matches the meeting: record that, so nothing re-sends it.
   const conn = await calendarConnection(orgId, userId);
-  const hash = conn ? bodyHash(meetingEvent(updated, cls.restricted(updated.projectId, updated.title, updated.meetingUrl), await meetingLink(orgId, conn.meta, m.id))) : null;
+  const restrictedNow = cls.restricted(updated.projectId, updated.title, updated.meetingUrl);
+  const view = conn ? meetingEvent(updated, restrictedNow, await meetingLink(orgId, conn.meta, m.id)) : null;
+  const hash = !view ? null
+    : updated.inviteOrganizerId === userId && !restrictedNow ? inviteHash(inviteBody(view, await inviteesFor(await withAttendees(updated))))
+    : bodyHash(view);
   await prisma.externalEventLink.update({ where: { id: link.id }, data: { changeKey: ev.changeKey ?? null, contentHash: hash, lastSyncedAt: new Date() } });
   out.applied++;
   // Everyone else's copy follows; this person's is already the source.
@@ -594,7 +970,18 @@ async function reconcileUser(
     : [];
   const keepIds = new Set<string>();
   const toPush: SyncMeeting[] = [];
+  // Invite mode: the organizer's copy is the invitation, kept and brought up
+  // to date through syncMeeting (never removed here: removing would cancel it);
+  // everyone else has no copy of it.
+  const organizing: string[] = [];
+  for (const m of [...attended, ...extra]) {
+    if (m.inviteOrganizerId === userId && m.status !== "CANCELLED") {
+      keepIds.add(m.id);
+      organizing.push(m.id);
+    }
+  }
   for (const m of [...attended, ...extra.filter((x) => x.status !== "CANCELLED" && x.attendees.some((a) => a.userId === userId))]) {
+    if (m.inviteOrganizerId) continue;
     if (!(await viewer.canSee(m))) continue;
     keepIds.add(m.id);
     if (!linked.has(m.id)) {
@@ -606,6 +993,7 @@ async function reconcileUser(
   const work: (() => Promise<void>)[] = [
     ...[...linked].filter((id) => !keepIds.has(id)).map((id) => () => removeFor(orgId, userId, id, deps)),
     ...toPush.map((m) => () => pushFor(orgId, userId, m, deps, cls)), // a no-op when the body is unchanged
+    ...[...new Set(organizing)].map((id) => () => syncMeeting(orgId, id, deps)),
   ];
   await pool(work, CONCURRENCY, async (w) => {
     if (deps.signal?.aborted) return;
@@ -693,12 +1081,15 @@ export async function removeCosmosCalendar(orgId: string, userId: string, deps: 
       if (!(e instanceof GraphError && e.status === 404)) throw e;
       return true; // already gone
     }
-    if (shared > 0 || !mine) {
-      const links = await prisma.externalEventLink.findMany({
-        where: { orgId, provider: MS_CALENDAR, userId, entityType: ENTITY },
-        select: { entityId: true },
-      });
-      await pool(links, CONCURRENCY, (l) => removeFor(orgId, userId, l.entityId, deps));
+    // Invitations they chose to keep live in this calendar: never delete it
+    // then, and never touch those events (deleting one would cancel it).
+    const links = await prisma.externalEventLink.findMany({
+      where: { orgId, provider: MS_CALENDAR, userId, entityType: ENTITY },
+      select: { entityId: true, contentHash: true },
+    });
+    const kept = links.filter((l) => l.contentHash?.startsWith(INVITE_PREFIX));
+    if (shared > 0 || !mine || kept.length) {
+      await pool(links.filter((l) => !kept.includes(l)), CONCURRENCY, (l) => removeFor(orgId, userId, l.entityId, deps));
       return true;
     }
     await graphRequest(orgId, userId, "DELETE", `/me/calendars/${encodeURIComponent(conn.meta.calendarId)}`, undefined, deps);
