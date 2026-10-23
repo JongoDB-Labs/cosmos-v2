@@ -6,6 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { requirePermission } from "@/lib/rbac/check";
 import { FEEDBACK_ROW_SELECT, toFeedbackDto } from "@/lib/feedback/feedback-dto";
 
 type RouteParams = { params: Promise<{ orgId: string; feedbackId: string }> };
@@ -15,6 +16,57 @@ const updateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(5000).optional(),
 });
+
+/**
+ * One feedback item, for the board's `?item=` deep link: a notification can
+ * point at an item that is not in the list's top 200. Same per-viewer shape and
+ * the same ORG_READ gate as the list.
+ */
+export async function GET(_request: NextRequest, { params }: RouteParams) {
+  try {
+    const { orgId, feedbackId } = await params;
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
+    if (!org) return new Response("Not found", { status: 404 });
+
+    const ctx = await getAuthContext(org.slug);
+    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    requirePermission(ctx, Permission.ORG_READ);
+
+    const item = await prisma.feedbackItem.findFirst({
+      where: { id: feedbackId, orgId },
+      select: {
+        ...FEEDBACK_ROW_SELECT,
+        attachments: {
+          select: { id: true, kind: true, url: true, filename: true, contentType: true, size: true },
+        },
+      },
+    });
+    if (!item) return new Response("Not found", { status: 404 });
+
+    const [vote, author] = await Promise.all([
+      prisma.feedbackVote.findFirst({
+        where: { userId: ctx.userId, feedbackItemId: item.id },
+        select: { feedbackItemId: true },
+      }),
+      prisma.user.findUnique({
+        where: { id: item.authorId },
+        select: { displayName: true, email: true },
+      }),
+    ]);
+
+    return success({
+      ...toFeedbackDto(
+        item,
+        { userId: ctx.userId, isStaff: hasPermission(ctx.permissions, Permission.ORG_UPDATE) },
+        author,
+      ),
+      attachments: item.attachments,
+      hasVoted: vote !== null,
+    });
+  } catch (e) {
+    return handleApiError(e);
+  }
+}
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {

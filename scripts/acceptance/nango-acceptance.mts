@@ -17,6 +17,12 @@
 import { listConnections, nangoEnabled } from "@/lib/integrations/nango";
 import { executeNangoTool } from "@/lib/ai/executors/nango";
 import { connectorToolDefs, connectorToolNames, executeConnectorTool } from "@/lib/ai/connectors/index";
+import { Permission } from "@/lib/rbac/permissions";
+import type { AuthContext } from "@/lib/rbac/check";
+
+// Dispatch needs the caller (a member with CHAT_USE) and the offered tool names.
+const caller = (orgId: string, userId: string) =>
+  ({ orgId, userId, orgRole: "MEMBER", permissions: Permission.CHAT_USE, basePermissions: Permission.CHAT_USE, abacRules: [] }) as unknown as AuthContext;
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = "") {
@@ -53,7 +59,7 @@ async function main() {
   console.log("\n[3] L2 — dispatch refusal (executeConnectorTool):");
   let l2Refused = false;
   try {
-    await executeConnectorTool("nango_proxy_request", { provider: "x", endpoint: "/y" }, { orgId: "o", userId: "u", tenantClass: "gov" });
+    await executeConnectorTool("nango_proxy_request", { provider: "x", endpoint: "/y" }, { orgId: "o", userId: "u", tenantClass: "gov", auth: caller("o", "u"), offered: new Set(["nango_proxy_request"]) });
   } catch (e) {
     l2Refused = /commercial-only|not available to a gov tenant|D5/i.test((e as Error).message);
   }
@@ -68,7 +74,7 @@ async function main() {
 
   // ── 5. commercial path: dispatch routes to the executor + reaches Nango ────────
   console.log("\n[5] Commercial path — dispatch routes to the executor (real Nango):");
-  const commList = (await executeConnectorTool("nango_list_connections", {}, { orgId: "acceptance-commercial-org", userId: "u", tenantClass: "commercial" }));
+  const commList = (await executeConnectorTool("nango_list_connections", {}, { orgId: "acceptance-commercial-org", userId: "u", tenantClass: "commercial", auth: caller("acceptance-commercial-org", "u"), offered: new Set(["nango_list_connections"]) }));
   const commReached = commList !== null && typeof commList === "object" && !("error" in (commList as Record<string, unknown>));
   check("commercial executeConnectorTool(nango_list_connections) reaches Nango (non-error)", commReached,
     commReached ? "ok" : JSON.stringify(commList));
