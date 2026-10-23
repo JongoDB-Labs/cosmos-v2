@@ -53,3 +53,20 @@ describe("dashboard filters", () => {
     });
   });
 });
+
+import { relMs, workingDaysBetween } from "../panel-run.server";
+
+describe("day helpers", () => {
+  it("working days skip weekends", () => {
+    expect(workingDaysBetween(new Date("2026-10-01T09:00:00Z"), new Date("2026-10-12T15:00:00Z"))).toBe(7);
+    expect(workingDaysBetween(new Date("2026-10-09T09:00:00Z"), new Date("2026-10-12T09:00:00Z"))).toBe(1);
+    expect(workingDaysBetween(new Date("2026-10-12T09:00:00Z"), new Date("2026-10-01T09:00:00Z"))).toBe(0);
+  });
+  it("windows to milliseconds", () => {
+    const day = 86_400_000;
+    expect(relMs("-7d")).toBe(-7 * day);
+    expect(relMs("-2w")).toBe(-14 * day);
+    expect(relMs("-1M")).toBe(-30 * day);
+    expect(relMs("-5wd")).toBe(-7 * day);
+  });
+});

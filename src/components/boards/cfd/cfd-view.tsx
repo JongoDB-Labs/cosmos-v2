@@ -12,6 +12,7 @@ import {
 } from "@/components/charts/lazy-recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { WorkItem, Board, BoardColumn } from "@/types/models";
+import { cumulativeFlow, type CfdCategory } from "@/lib/dashboard/cfd";
 
 interface CfdViewProps {
   orgId: string;
@@ -85,74 +86,30 @@ export function CfdView({ orgId, projectId, projectKey, boardId }: CfdViewProps)
     return map;
   }, [columns]);
 
-  // Build CFD data: attempt to use createdAt and completedAt to simulate history
+  // The last 30 days, approximated from createdAt / completedAt (this view has
+  // no status history; dashboards' CFD panel feeds the same function real
+  // transitions).
   const { cfdData, categories, hasHistory } = useMemo(() => {
     if (items.length === 0) {
       return { cfdData: [], categories: [], hasHistory: false };
     }
-
-    // Get unique categories present
-    const catSet = new Set<string>();
-    for (const item of items) {
-      const cat = columnCategoryMap.get(item.columnKey) ?? "TODO";
-      catSet.add(cat);
-    }
-    const cats = categoryOrder.filter((c) => catSet.has(c));
-
-    // Build 30-day historical data based on item createdAt and completedAt
-    const now = new Date();
-    const days = 30;
-    const data: Array<Record<string, string | number>> = [];
-
-    // Check if we have any date variation
+    const flow = cumulativeFlow({
+      items,
+      category: (key) => (columnCategoryMap.get(key) ?? "TODO") as CfdCategory,
+      end: new Date(),
+      days: 30,
+    });
     const dates = items.map((i) => new Date(i.createdAt).getTime());
-    const minDate = Math.min(...dates);
-    const maxDate = Math.max(...dates);
-    const hasHistorical = maxDate - minDate > 86400000; // more than 1 day
-
-    for (let d = days; d >= 0; d--) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - d);
-      date.setHours(23, 59, 59, 999);
-
-      const dateLabel = date.toLocaleDateString("default", {
-        month: "short",
-        day: "numeric",
-      });
-
-      // Count items that existed by this date, per category
-      const counts: Record<string, number> = {};
-      for (const cat of cats) {
-        counts[cat] = 0;
-      }
-
-      for (const item of items) {
-        const created = new Date(item.createdAt);
-        if (created > date) continue; // item didn't exist yet
-
-        // Determine what category the item was in on this date
-        if (item.completedAt && new Date(item.completedAt) <= date) {
-          counts["DONE"] = (counts["DONE"] ?? 0) + 1;
-        } else {
-          // Use current category as approximation
-          const cat = columnCategoryMap.get(item.columnKey) ?? "TODO";
-          if (cat === "DONE") {
-            // Item is currently done but wasn't completed by this date
-            counts["IN_PROGRESS"] = (counts["IN_PROGRESS"] ?? 0) + 1;
-          } else {
-            counts[cat] = (counts[cat] ?? 0) + 1;
-          }
-        }
-      }
-
-      const entry: Record<string, string | number> = { date: dateLabel };
-      for (const cat of cats) {
-        entry[cat] = counts[cat] ?? 0;
-      }
-      data.push(entry);
-    }
-
-    return { cfdData: data, categories: cats, hasHistory: hasHistorical };
+    const cats = categoryOrder.filter((c) => flow.categories.includes(c as CfdCategory));
+    const data = flow.points.map((p) => {
+      const entry: Record<string, string | number> = {
+        date: new Date(`${p.date}T12:00:00Z`).toLocaleDateString("default", { month: "short", day: "numeric" }),
+      };
+      for (const cat of cats) entry[cat] = p.counts[cat as CfdCategory] ?? 0;
+      return entry;
+    });
+    // More than a day between the oldest and newest item: there is a history to show.
+    return { cfdData: data, categories: cats, hasHistory: Math.max(...dates) - Math.min(...dates) > 86400000 };
   }, [items, columnCategoryMap]);
 
   if (loading) return <CfdSkeleton />;
