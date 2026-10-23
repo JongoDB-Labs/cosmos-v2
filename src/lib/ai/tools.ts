@@ -51,7 +51,7 @@ export function formatToolsForSystemPrompt(tools: ToolDefinition[]): string {
 export const cosmosTools: ToolDefinition[] = [
   {
     name: "query_work_items",
-    description: "Search and filter work items in the project. Returns matching items with their status, assignee, priority, interval, parentId (the item they sit under, or null) and teamId (the team that owns it, or null).",
+    description: "Search and filter work items in the project. Returns matching items with their status, assignee, priority, interval, parentId (the item they sit under, or null) and teamId (the team that owns it, or null). For anything across projects, by date, label, sprint, history or text, use search_work_items when it is available.",
     input_schema: {
       type: "object",
       properties: {
