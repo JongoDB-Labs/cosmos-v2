@@ -8,7 +8,7 @@ import {
   updateWorkItem,
   listWorkItems,
 } from "./work-items";
-import type { ToolContext } from "./_ctx";
+import { memberToolCtx } from "@/lib/testing/tool-auth";
 
 /** Covers the work-item DEPENDENCY LINK tools added to this executor. */
 const NON_MEMBER = "00000000-0000-0000-0000-000000000000";
@@ -40,8 +40,8 @@ describe("work-item link executors (e2e DB)", () => {
       });
     const a = await mk(Math.floor(Math.random() * 1_000_000));
     const b = await mk(Math.floor(Math.random() * 1_000_000));
-    const ctx: ToolContext = { orgId: org.id, userId: owner.id };
-    const denyCtx: ToolContext = { orgId: org.id, userId: NON_MEMBER };
+    const ctx = await memberToolCtx(org.id, owner.id);
+    const denyCtx = await memberToolCtx(org.id, NON_MEMBER);
     return { org, project, a, b, ctx, denyCtx };
   }
 
@@ -134,7 +134,7 @@ describe("createWorkItem / updateWorkItem — self-assignee sentinel (e2e DB)", 
       data: { orgId: org.id, name: "P", key: `WM${stamp.slice(-4).toUpperCase()}` },
     });
     const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null } });
-    const ctx: ToolContext = { orgId: org.id, userId: owner.id };
+    const ctx = await memberToolCtx(org.id, owner.id);
     return { org, project, type, ctx, ownerId: owner.id };
   }
 
@@ -234,7 +234,7 @@ describe("createWorkItem / updateWorkItem — assignee resolves to a person (e2e
       data: { orgId: org.id, name: "P", key: `WN${stamp.slice(-4).toUpperCase()}` },
     });
     const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null } });
-    const ctx: ToolContext = { orgId: org.id, userId: owner.id };
+    const ctx = await memberToolCtx(org.id, owner.id);
     return { org, project, type, ctx, owner, other, outsider };
   }
 

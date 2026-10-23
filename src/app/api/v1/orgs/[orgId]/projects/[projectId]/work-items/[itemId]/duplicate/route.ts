@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { allocateTicketNumber } from "@/lib/work-items/allocate";
+import { copyFields } from "@/lib/work-items/copy-fields";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; itemId: string }>;
@@ -68,24 +69,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       const dupe = await tx.workItem.create({
         data: {
+          ...copyFields(source),
           orgId,
           projectId,
-          workItemTypeId: source.workItemTypeId,
           title: `Copy of ${source.title}`,
-          description: source.description,
-          columnKey: source.columnKey,
-          assigneeId: source.assigneeId,
-          priority: source.priority,
-          intervalId: source.intervalId,
-          parentId: source.parentId,
           ticketNumber,
-          storyPoints: source.storyPoints,
           sortOrder,
-          dueDate: source.dueDate,
-          startDate: source.startDate,
-          columnEnteredAt: new Date(),
-          tags: source.tags,
-          customFields: source.customFields ?? undefined,
           createdById: ctx.userId,
         },
         include: {
@@ -123,24 +112,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         for (const kid of kids) {
           const child = await tx.workItem.create({
             data: {
+              ...copyFields(kid),
               orgId,
               projectId,
-              workItemTypeId: kid.workItemTypeId,
               title: kid.title,
-              description: kid.description,
-              columnKey: kid.columnKey,
-              assigneeId: kid.assigneeId,
-              priority: kid.priority,
-              intervalId: kid.intervalId,
               parentId: dupe.id,
               ticketNumber: nextTicket++,
-              storyPoints: kid.storyPoints,
               sortOrder: kid.sortOrder,
-              dueDate: kid.dueDate,
-              startDate: kid.startDate,
-              columnEnteredAt: new Date(),
-              tags: kid.tags,
-              customFields: kid.customFields ?? undefined,
               createdById: ctx.userId,
             },
           });

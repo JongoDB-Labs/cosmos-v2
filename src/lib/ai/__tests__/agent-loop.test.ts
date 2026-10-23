@@ -1,5 +1,6 @@
 // src/lib/ai/__tests__/agent-loop.test.ts
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { stubAuth } from "@/lib/testing/tool-auth";
 
 // vi.hoisted keeps the spies safe to reference inside the hoisted mock factory.
 const { runModelTurn, executeTool, effectiveCeiling, getRuntimeConfig, getAgentPolicy, logEgressDecision } = vi.hoisted(() => ({
@@ -46,11 +47,11 @@ describe("runAgentLoop (native tool_use)", () => {
 
     const { runAgentLoop } = await import("../agent-loop");
     const res = await runAgentLoop({
-      orgId: "o1", userId: "u1", tenantClass: "commercial",
+      orgId: "o1", userId: "u1", auth: stubAuth("o1", "u1"), tenantClass: "commercial",
       systemPrompt: "sys", initialPrompt: "list projects", conversationId: "c1",
     });
 
-    expect(executeTool).toHaveBeenCalledWith("list_projects", {}, { orgId: "o1", userId: "u1", offered: expect.any(Set), tenantClass: "commercial", conversationId: "c1", enabled: { enabledConnectors: null, breadthEnabled: true } });
+    expect(executeTool).toHaveBeenCalledWith("list_projects", {}, { orgId: "o1", userId: "u1", auth: stubAuth("o1", "u1"), offered: expect.any(Set), tenantClass: "commercial", conversationId: "c1", enabled: { enabledConnectors: null, breadthEnabled: true } });
     expect(res.text).toBe("You have 2 projects.");
     expect(res.toolCalls).toHaveLength(1);
     expect(res.toolCalls[0].name).toBe("list_projects");
@@ -93,7 +94,7 @@ describe("runAgentLoop — onDelta across model turns", () => {
     const seen: string[] = [];
     const { runAgentLoop } = await import("../agent-loop");
     const res = await runAgentLoop({
-      orgId: "o1", userId: "u1", tenantClass: "commercial",
+      orgId: "o1", userId: "u1", auth: stubAuth("o1", "u1"), tenantClass: "commercial",
       systemPrompt: "sys", initialPrompt: "list projects", conversationId: "c1",
       onDelta: (t) => seen.push(t),
     });
@@ -117,7 +118,7 @@ describe("runAgentLoop — onDelta across model turns", () => {
     const seen: string[] = [];
     const { runAgentLoop } = await import("../agent-loop");
     await runAgentLoop({
-      orgId: "o1", userId: "u1", tenantClass: "commercial",
+      orgId: "o1", userId: "u1", auth: stubAuth("o1", "u1"), tenantClass: "commercial",
       systemPrompt: "sys", initialPrompt: "list projects", conversationId: "c1",
       onDelta: (t) => seen.push(t),
     });
@@ -156,7 +157,7 @@ describe("runAgentLoop — D5 commercial-only tool-list filter", () => {
     runModelTurn.mockResolvedValueOnce({ text: "ok", toolUses: [], stopReason: "end_turn" });
     const { runAgentLoop } = await import("../agent-loop");
     await runAgentLoop({
-      orgId: "o1", userId: "u1", tenantClass,
+      orgId: "o1", userId: "u1", auth: stubAuth("o1", "u1"), tenantClass,
       systemPrompt: "sys", initialPrompt: "hi", conversationId: "c1",
     });
     const tools = runModelTurn.mock.calls[0][0].tools as { name: string }[];
@@ -206,7 +207,7 @@ describe("runAgentLoop — per-org runtime-config gating", () => {
     getRuntimeConfig.mockReset().mockResolvedValue(config);
     runModelTurn.mockResolvedValueOnce({ text: "ok", toolUses: [], stopReason: "end_turn" });
     const { runAgentLoop } = await import("../agent-loop");
-    await runAgentLoop({ orgId: "o1", userId: "u1", tenantClass: "commercial", systemPrompt: "s", initialPrompt: "hi", conversationId: "c1" });
+    await runAgentLoop({ orgId: "o1", userId: "u1", auth: stubAuth("o1", "u1"), tenantClass: "commercial", systemPrompt: "s", initialPrompt: "hi", conversationId: "c1" });
     const tools = runModelTurn.mock.calls[0][0].tools as { name: string }[];
     resetConnectors();
     for (const d of saved) registerConnector(d);
@@ -247,7 +248,7 @@ describe("runAgentLoop — AgentPolicy enforcement (the middle gate)", () => {
       .mockResolvedValueOnce({ text: "done", toolUses: [], stopReason: "end_turn" });
     const { runAgentLoop } = await import("../agent-loop");
     const res = await runAgentLoop({
-      orgId: "o1", userId: "u1", tenantClass: "commercial",
+      orgId: "o1", userId: "u1", auth: stubAuth("o1", "u1"), tenantClass: "commercial",
       systemPrompt: "sys", initialPrompt: "go", conversationId: "c1",
     });
     const secondTurnMessages = runModelTurn.mock.calls[1]?.[0]?.messages;

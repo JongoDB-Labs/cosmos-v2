@@ -20,6 +20,11 @@ import {
   connectorEgressMaps,
 } from "./registry";
 import type { ConnectorDescriptor } from "./types";
+import { Permission } from "@/lib/rbac/permissions";
+import type { AuthContext } from "@/lib/rbac/check";
+// A signed-in MEMBER (holds CHAT_USE): the caller dispatch now requires.
+const AUTH = { userId: "u", orgId: "o", orgRole: "MEMBER", permissions: Permission.CHAT_USE, basePermissions: Permission.CHAT_USE, abacRules: [] } as unknown as AuthContext;
+
 
 function makeDescriptor(over: Partial<ConnectorDescriptor> & { provider: string }): ConnectorDescriptor {
   return {
@@ -68,12 +73,12 @@ describe("connector registry — registration + derived accessors", () => {
     registerConnector(alpha);
     registerConnector(beta);
 
-    expect(await executeConnectorTool("alpha_write", { x: 1 }, { offered: new Set(["alpha_write"]), orgId: "o", userId: "u" })).toEqual({
+    expect(await executeConnectorTool("alpha_write", { x: 1 }, { offered: new Set(["alpha_write"]), orgId: "o", userId: "u", auth: AUTH })).toEqual({
       provider: "alpha",
       name: "alpha_write",
       input: { x: 1 },
     });
-    expect(await executeConnectorTool("beta_list", {}, { offered: new Set(["beta_list"]), orgId: "o", userId: "u" })).toEqual({
+    expect(await executeConnectorTool("beta_list", {}, { offered: new Set(["beta_list"]), orgId: "o", userId: "u", auth: AUTH })).toEqual({
       provider: "beta",
       name: "beta_list",
       input: {},
@@ -84,7 +89,7 @@ describe("connector registry — registration + derived accessors", () => {
     registerConnector(alpha);
     // The guard fires synchronously — it's a programming-error tripwire, reached
     // only if a caller skipped the connectorToolNames() membership check.
-    expect(() => executeConnectorTool("not_a_tool", {}, { orgId: "o", userId: "u" })).toThrow(
+    expect(() => executeConnectorTool("not_a_tool", {}, { orgId: "o", userId: "u", auth: AUTH })).toThrow(
       /no connector owns tool/,
     );
   });
@@ -172,9 +177,9 @@ describe("connector dispatch runs only an OFFERED tool (fail closed)", () => {
     spy.mockClear();
     resetConnectors();
     registerConnector(alpha);
-    await expect(executeConnectorTool("alpha_write", {}, { orgId: "o", userId: "u" })).rejects.toThrow(/not offered/);
+    await expect(executeConnectorTool("alpha_write", {}, { orgId: "o", userId: "u", auth: AUTH })).rejects.toThrow(/not offered/);
     await expect(
-      executeConnectorTool("alpha_write", {}, { offered: new Set(["alpha_read"]), orgId: "o", userId: "u", conversationId: "c9" }),
+      executeConnectorTool("alpha_write", {}, { offered: new Set(["alpha_read"]), orgId: "o", userId: "u", auth: AUTH, conversationId: "c9" }),
     ).rejects.toThrow(/not offered/);
     expect(spy).toHaveBeenCalledTimes(2);
     expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ toolName: "alpha_write", decidedBy: "tool_not_offered_block", conversationId: "c9", exposed: false }));

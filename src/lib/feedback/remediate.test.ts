@@ -876,16 +876,39 @@ describe("runFeedbackRemediation — intake guardrails (e2e)", () => {
  * steal the scarce slots under test. Throttled items must stay OPEN (never
  * delivered, never flagged) so a later run picks them up once capacity frees, and
  * the submitter is told exactly once. Every item is torn down in a `finally`.
+ *
+ * HERMETIC against whatever else is in the shared test org, because the run reads
+ * org-wide state: the top-`limit` OPEN items by votes, the in-flight queue depth,
+ * the org's auto-trigger roles, and the submitter's membership. So the items use
+ * votes no stray item will outrank, the queue ceiling is set RELATIVE to the
+ * depth already there, every role may auto-trigger, the submitters are real
+ * members picked in a stable order, and a previous aborted run's leftovers are
+ * cleared first.
  */
 describe("runFeedbackRemediation — intake rate-limits (e2e)", () => {
   const TITLE_PREFIX = "[ratelimit-test]";
+  // Above any vote count real or stray feedback will carry (INT column).
+  const TOP_VOTES = 2_000_000_000;
   let orgId: string;
   let userId: string;
   let secondUserId: string;
   let mainProjectId: string;
   let originalSettings: Prisma.JsonValue;
 
-  async function setLimits(intakeLimits: Record<string, number>) {
+  /** The org's in-flight build queue, counted exactly as the run counts it. */
+  async function queueDepth() {
+    return prisma.feedbackItem.count({
+      where: { orgId, deliveredAt: { not: null }, status: { in: ["PLANNED", "IN_PROGRESS", "IN_REVIEW"] } },
+    });
+  }
+
+  /** `extraQueueSlots` is how many admits the queue has room for beyond what is
+   *  already in flight, so the ceiling never depends on the DB's ambient depth. */
+  async function setLimits(
+    limits: { perUserPerRun: number; perOrgPerRun: number; buildBudget: number },
+    extraQueueSlots: number,
+  ) {
+    const intakeLimits = { ...limits, maxQueueDepth: (await queueDepth()) + extraQueueSlots };
     const org = await prisma.organization.findUniqueOrThrow({
       where: { id: orgId },
       select: { settings: true },
@@ -898,6 +921,8 @@ describe("runFeedbackRemediation — intake rate-limits (e2e)", () => {
           ...settings,
           autoRemediation: { enabled: true, projectIds: [mainProjectId], defaultProjectId: mainProjectId },
           intakeLimits,
+          // The role gate is not under test here; never let it hide an admit.
+          autoTriggerRoles: [...ORG_ROLES],
         },
       },
     });
@@ -925,11 +950,30 @@ describe("runFeedbackRemediation — intake rate-limits (e2e)", () => {
     });
     mainProjectId = mainProject.id;
 
-    const users = await prisma.user.findMany({ select: { id: true }, take: 2 });
-    userId = users[0].id;
+    // Members of THIS org, in a stable order. `user.findMany({ take: 2 })` with no
+    // orderBy returned whichever rows sat first on disk, which need not belong to
+    // the org at all.
+    const members = await prisma.orgMember.findMany({
+      where: { orgId },
+      select: { userId: true },
+      orderBy: { userId: "asc" },
+      take: 2,
+    });
+    userId = members[0].userId;
     // Fall back to the same user if the seed only has one — the per-user vs
     // per-org distinction is still exercised by the pure planner tests.
-    secondUserId = users[1]?.id ?? users[0].id;
+    secondUserId = members[1]?.userId ?? members[0].userId;
+
+    // A run aborted mid-test (no finally) leaves its items OPEN at the top of
+    // the vote order, where they would take the slots this suite tests.
+    const stale = await prisma.feedbackItem.findMany({
+      where: { orgId, title: { startsWith: TITLE_PREFIX } },
+      select: { id: true },
+    });
+    const staleIds = stale.map((f) => f.id);
+    await prisma.notification.deleteMany({ where: { orgId, refId: { in: staleIds } } });
+    await prisma.workItem.deleteMany({ where: { orgId, title: { startsWith: TITLE_PREFIX } } });
+    await prisma.feedbackItem.deleteMany({ where: { id: { in: staleIds } } });
   });
 
   afterAll(async () => {
@@ -941,15 +985,15 @@ describe("runFeedbackRemediation — intake rate-limits (e2e)", () => {
   });
 
   it("throttles a single user past the per-user cap; excess stays OPEN and is queued", async () => {
-    await setLimits({ perUserPerRun: 1, perOrgPerRun: 50, maxQueueDepth: 100, buildBudget: 100 });
+    await setLimits({ perUserPerRun: 1, perOrgPerRun: 50, buildBudget: 100 }, 100);
     const titleA = `${TITLE_PREFIX} per-user A`;
     const titleB = `${TITLE_PREFIX} per-user B`;
     const a = await prisma.feedbackItem.create({
-      data: { orgId, authorId: userId, type: "FEATURE", title: titleA, voteCount: 1000, projectId: mainProjectId },
+      data: { orgId, authorId: userId, type: "FEATURE", title: titleA, voteCount: TOP_VOTES, projectId: mainProjectId },
       select: { id: true },
     });
     const b = await prisma.feedbackItem.create({
-      data: { orgId, authorId: userId, type: "FEATURE", title: titleB, voteCount: 999, projectId: mainProjectId },
+      data: { orgId, authorId: userId, type: "FEATURE", title: titleB, voteCount: TOP_VOTES - 1, projectId: mainProjectId },
       select: { id: true },
     });
 
@@ -992,15 +1036,15 @@ describe("runFeedbackRemediation — intake rate-limits (e2e)", () => {
   });
 
   it("throttles past the per-org cap across different users", async () => {
-    await setLimits({ perUserPerRun: 50, perOrgPerRun: 1, maxQueueDepth: 100, buildBudget: 100 });
+    await setLimits({ perUserPerRun: 50, perOrgPerRun: 1, buildBudget: 100 }, 100);
     const titleA = `${TITLE_PREFIX} per-org A`;
     const titleB = `${TITLE_PREFIX} per-org B`;
     const a = await prisma.feedbackItem.create({
-      data: { orgId, authorId: userId, type: "FEATURE", title: titleA, voteCount: 1000, projectId: mainProjectId },
+      data: { orgId, authorId: userId, type: "FEATURE", title: titleA, voteCount: TOP_VOTES, projectId: mainProjectId },
       select: { id: true },
     });
     const b = await prisma.feedbackItem.create({
-      data: { orgId, authorId: secondUserId, type: "FEATURE", title: titleB, voteCount: 999, projectId: mainProjectId },
+      data: { orgId, authorId: secondUserId, type: "FEATURE", title: titleB, voteCount: TOP_VOTES - 1, projectId: mainProjectId },
       select: { id: true },
     });
 
@@ -1026,7 +1070,6 @@ describe("runFeedbackRemediation — intake rate-limits (e2e)", () => {
   });
 
   it("throttles when the in-flight build queue is already at the depth ceiling", async () => {
-    await setLimits({ perUserPerRun: 50, perOrgPerRun: 50, maxQueueDepth: 1, buildBudget: 100 });
     const inflightTitle = `${TITLE_PREFIX} queue inflight`;
     const freshTitle = `${TITLE_PREFIX} queue fresh`;
     // An already-delivered item that hasn't reached DONE — it fills the one slot.
@@ -1043,11 +1086,14 @@ describe("runFeedbackRemediation — intake rate-limits (e2e)", () => {
       select: { id: true },
     });
     const fresh = await prisma.feedbackItem.create({
-      data: { orgId, authorId: userId, type: "FEATURE", title: freshTitle, voteCount: 1000, projectId: mainProjectId },
+      data: { orgId, authorId: userId, type: "FEATURE", title: freshTitle, voteCount: TOP_VOTES, projectId: mainProjectId },
       select: { id: true },
     });
 
     try {
+      // The in-flight item above (plus whatever was already in flight) fills the
+      // queue exactly: no room for one more.
+      await setLimits({ perUserPerRun: 50, perOrgPerRun: 50, buildBudget: 100 }, 0);
       const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
 
       expect(summary.items.find((i) => i.feedbackId === fresh.id)).toBeUndefined();
@@ -1068,15 +1114,15 @@ describe("runFeedbackRemediation — intake rate-limits (e2e)", () => {
   });
 
   it("throttles a near-duplicate flood, delivering only the first copy", async () => {
-    await setLimits({ perUserPerRun: 50, perOrgPerRun: 50, maxQueueDepth: 100, buildBudget: 100 });
+    await setLimits({ perUserPerRun: 50, perOrgPerRun: 50, buildBudget: 100 }, 100);
     const title = `${TITLE_PREFIX} flood`;
     const description = "The export button is broken and does nothing when clicked.";
     const a = await prisma.feedbackItem.create({
-      data: { orgId, authorId: userId, type: "BUG", title, description, voteCount: 1000, projectId: mainProjectId },
+      data: { orgId, authorId: userId, type: "BUG", title, description, voteCount: TOP_VOTES, projectId: mainProjectId },
       select: { id: true },
     });
     const b = await prisma.feedbackItem.create({
-      data: { orgId, authorId: userId, type: "BUG", title, description, voteCount: 999, projectId: mainProjectId },
+      data: { orgId, authorId: userId, type: "BUG", title, description, voteCount: TOP_VOTES - 1, projectId: mainProjectId },
       select: { id: true },
     });
 
