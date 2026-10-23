@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.441.0",
+    date: "2026-10-23",
+    title: "Split an issue per assignee",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An issue with several assignees can now be split into one linked copy per extra assignee, with the same fields and parent, from the issue's actions menu.",
+      },
+    ],
+  },
+  {
     version: "2.440.0",
     date: "2026-10-23",
     title: "Ask the assistant about your team's work",
