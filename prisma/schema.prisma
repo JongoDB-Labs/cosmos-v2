@@ -5551,6 +5551,8 @@ model ExternalEventLink {
   externalCalendarId String   @map("external_calendar_id")
   externalEventId    String   @map("external_event_id")
   changeKey          String?  @map("change_key")
+  /// Hash of the event body we last wrote, so an unchanged meeting isn't re-sent.
+  contentHash        String?  @map("content_hash")
   /// "meeting" for now.
   entityType         String   @map("entity_type")
   entityId           String   @map("entity_id") @db.Uuid

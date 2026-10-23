@@ -10,6 +10,7 @@ CREATE TABLE "external_event_links" (
     "external_calendar_id" TEXT NOT NULL,
     "external_event_id" TEXT NOT NULL,
     "change_key" TEXT,
+    "content_hash" TEXT,
     "entity_type" TEXT NOT NULL,
     "entity_id" UUID NOT NULL,
     "last_synced_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

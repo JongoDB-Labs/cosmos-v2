@@ -38,6 +38,8 @@ export interface CalendarMeta {
   calendarId?: string;
   /** Graph calendarView delta link for the next pull (B2). */
   deltaLink?: string;
+  /** When the delta's window ends; the pull restarts it before then (B2). */
+  windowEnd?: string;
   lastSyncAt?: string;
   [k: string]: unknown;
 }
@@ -143,6 +145,20 @@ export async function completeCalendarConnect(
   }
   if (!t.refresh_token) throw new CalendarNotConnected("Microsoft didn't grant offline access.");
   const now = (deps.now ?? Date.now)();
+  const existing = await prisma.connectorCredential.findFirst({
+    where: { orgId: a.orgId, provider: MS_CALENDAR, userId: a.userId },
+    select: { id: true, meta: true },
+  });
+  const prev = existing?.meta as CalendarMeta | undefined;
+  // A reconnect with the SAME Microsoft account keeps its sync state (its
+  // "Cosmos" calendar and delta position), so nothing is recreated. A different
+  // account starts clean: the old event links point into someone else's mailbox.
+  const sameAccount = !!prev && prev.oid === claims.oid && prev.tid?.toLowerCase() === claims.tid.toLowerCase();
+  const kept: Partial<CalendarMeta> = sameAccount
+    ? Object.fromEntries(
+        (["calendarId", "deltaLink", "windowEnd", "lastSyncAt"] as const).filter((k) => prev[k] !== undefined).map((k) => [k, prev[k]]),
+      )
+    : {};
   const meta: CalendarMeta = {
     ...claims,
     scopes: MS_CALENDAR_SCOPES,
@@ -150,14 +166,14 @@ export async function completeCalendarConnect(
     connectedAt: new Date(now).toISOString(),
     // The public address they connected from: links in synced events use it.
     ...(a.origin ? { origin: a.origin } : {}),
+    ...kept,
   };
   const secretEnc = sealSecret(JSON.stringify({ refreshToken: t.refresh_token }));
-  const existing = await prisma.connectorCredential.findFirst({
-    where: { orgId: a.orgId, provider: MS_CALENDAR, userId: a.userId },
-    select: { id: true },
-  });
   if (existing) {
     await prisma.connectorCredential.update({ where: { id: existing.id }, data: { secretEnc, meta: meta as Prisma.InputJsonValue } });
+    if (!sameAccount) {
+      await prisma.externalEventLink.deleteMany({ where: { orgId: a.orgId, provider: MS_CALENDAR, userId: a.userId } });
+    }
   } else {
     await prisma.connectorCredential.create({
       data: { orgId: a.orgId, provider: MS_CALENDAR, userId: a.userId, secretEnc, meta: meta as Prisma.InputJsonValue },
@@ -165,6 +181,23 @@ export async function completeCalendarConnect(
   }
   cache.set(key(a.orgId, a.userId), { token: t.access_token, exp: now + (t.expires_in ?? 3600) * 1000 });
   return claims;
+}
+
+/**
+ * Merge `patch` into a connection's meta (and drop `remove` keys) in one
+ * statement, so two writers (a token refresh and a sync) never overwrite each
+ * other's fields.
+ */
+export async function patchCalendarMeta(
+  credId: string,
+  patch: Partial<CalendarMeta>,
+  remove: string[] = [],
+  db: Pick<Prisma.TransactionClient, "$executeRaw"> = prisma,
+): Promise<void> {
+  await db.$executeRaw`
+    UPDATE connector_credentials
+       SET meta = (meta || ${JSON.stringify(patch)}::jsonb) - ${remove}::text[], updated_at = now()
+     WHERE id = ${credId}::uuid`;
 }
 
 export async function calendarConnection(orgId: string, userId: string) {
@@ -251,23 +284,20 @@ async function refresh(orgId: string, userId: string, cfg: OrgCalendarConfig, de
       const { refreshToken } = JSON.parse(openSecret(row.secretEnc)) as { refreshToken: string };
       try {
         const t = await tokenRequest(cfg, { grant_type: "refresh_token", refresh_token: refreshToken }, f);
-        const meta = { ...(row.meta as object), status: "connected", lastRefreshAt: new Date(now()).toISOString() };
-        await tx.connectorCredential.update({
-          where: { id: row.id },
-          data: {
-            ...(t.refresh_token ? { secretEnc: sealSecret(JSON.stringify({ refreshToken: t.refresh_token })) } : {}),
-            meta: meta as Prisma.InputJsonValue,
-          },
-        });
+        if (t.refresh_token) {
+          await tx.connectorCredential.update({
+            where: { id: row.id },
+            data: { secretEnc: sealSecret(JSON.stringify({ refreshToken: t.refresh_token })) },
+          });
+        }
+        // Merged in place, so a concurrent sync's delta position is never lost.
+        await patchCalendarMeta(row.id, { status: "connected", lastRefreshAt: new Date(now()).toISOString() }, [], tx);
         return { kind: "ok" as const, token: t.access_token, exp: now() + (t.expires_in ?? 3600) * 1000 };
       } catch (e) {
         if (e instanceof TokenEndpointError && e.revoked) {
           // Recorded inside the transaction, which then COMMITS: returning,
           // not throwing, is what keeps this write.
-          await tx.connectorCredential.update({
-            where: { id: row.id },
-            data: { meta: { ...(row.meta as object), status: "reconnect" } as Prisma.InputJsonValue },
-          });
+          await patchCalendarMeta(row.id, { status: "reconnect" }, [], tx);
           return { kind: "revoked" as const };
         }
         throw e;

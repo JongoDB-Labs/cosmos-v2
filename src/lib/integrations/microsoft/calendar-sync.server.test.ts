@@ -10,7 +10,8 @@ import { prisma } from "@/lib/db/client";
 import { fakeGraph } from "@/lib/testing/fake-graph";
 import { MS_CALENDAR } from "./calendar-connect";
 import { _resetCalendarTokenCache, completeCalendarConnect, disconnectCalendar } from "./calendar-token.server";
-import { pullChanges, pullSoonIfStale, removeCosmosCalendar, runCalendarPulls, syncMeeting, syncUserNow } from "./calendar-sync.server";
+import { ensureCosmosCalendar, pool, pullChanges, pullSoonIfStale, removeCosmosCalendar, runCalendarPulls, syncMeeting, syncUserNow } from "./calendar-sync.server";
+import { patchCalendarMeta } from "./calendar-token.server";
 
 // The Microsoft sign-in app, without the shared global row (and its vault key)
 // that another test file may be writing at the same time.
@@ -40,6 +41,19 @@ describe("Outlook meeting sync (e2e DB)", () => {
   });
   beforeEach(() => _resetCalendarTokenCache());
 
+  /** Connect `u` in `orgId` as Microsoft account `oid` (its mailbox is its user id). */
+  async function connect(orgId: string, u: { id: string; email: string }, oid: string) {
+    const fetchFn = (async () =>
+      new Response(
+        JSON.stringify({ access_token: `at-${u.id}`, refresh_token: "rt", expires_in: 3600, id_token: jwt({ tid: TENANT, oid, preferred_username: u.email }) }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+    await completeCalendarConnect(
+      { orgId, userId: u.id, code: "c", verifier: "v", redirectUri: "https://x/cb", origin: "https://cosmos.example" },
+      { fetch: fetchFn },
+    );
+  }
+
   /** alice can edit meetings (ADMIN); bob can only see them (VIEWER). Both connected. */
   async function setup() {
     const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -56,17 +70,7 @@ describe("Outlook meeting sync (e2e DB)", () => {
     await prisma.integration.create({
       data: { orgId: org.id, provider: MS_CALENDAR, displayName: "Outlook Calendar", config: { tenantId: TENANT }, status: "ACTIVE", installedById: alice.id },
     });
-    for (const u of [alice, bob]) {
-      const fetchFn = (async () =>
-        new Response(
-          JSON.stringify({ access_token: `at-${u.id}`, refresh_token: "rt", expires_in: 3600, id_token: jwt({ tid: TENANT, oid: u.id, preferred_username: u.email }) }),
-          { status: 200 },
-        )) as unknown as typeof fetch;
-      await completeCalendarConnect(
-        { orgId: org.id, userId: u.id, code: "c", verifier: "v", redirectUri: "https://x/cb", origin: "https://cosmos.example" },
-        { fetch: fetchFn },
-      );
-    }
+    for (const u of [alice, bob]) await connect(org.id, u, `${u.id}-${stamp}`);
     const g = fakeGraph();
     const deps = { fetch: g.fetch, sleep: g.sleep };
     const meeting = await prisma.syncMeeting.create({
@@ -76,7 +80,7 @@ describe("Outlook meeting sync (e2e DB)", () => {
         attendees: { create: [{ userId: alice.id }, { userId: bob.id }] },
       },
     });
-    return { org, alice, bob, g, deps, meeting };
+    return { org, alice, bob, g, deps, meeting, stamp };
   }
 
   const linkOf = (userId: string, meetingId: string) =>
@@ -315,4 +319,254 @@ describe("Outlook meeting sync (e2e DB)", () => {
     await disconnectCalendar(org.id, alice.id);
     expect(await prisma.externalEventLink.count({ where: { orgId: org.id, userId: alice.id } })).toBe(0);
   });
+
+  // ── Review fixes: who gets a copy ──────────────────────────────────────────
+
+  const credOf = (orgId: string, userId: string) =>
+    prisma.connectorCredential.findFirstOrThrow({ where: { orgId, provider: MS_CALENDAR, userId } });
+
+  it("gives no copy to an attendee who can't see the meeting's project, and removes one when access goes", async () => {
+    const { org, alice, bob, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const bEvent = (await linkOf(bob.id, meeting.id))!.externalEventId;
+    const p = await prisma.project.create({
+      data: { orgId: org.id, key: `T${Math.random().toString(36).slice(2, 7).toUpperCase()}`, name: "Team only", teamScopedAccess: true },
+    });
+    await prisma.syncMeeting.update({ where: { id: meeting.id }, data: { projectId: p.id } });
+    await syncMeeting(org.id, meeting.id, deps);
+    expect(g.events.get(bEvent)!.removed).toBe(true); // bob isn't on the team
+    expect(await linkOf(bob.id, meeting.id)).toBeNull();
+    expect(await linkOf(alice.id, meeting.id)).toBeTruthy(); // an admin still sees it
+    // Nor does Sync now bring it back for him.
+    await syncUserNow(org.id, bob.id, deps);
+    expect(await linkOf(bob.id, meeting.id)).toBeNull();
+  });
+
+  it("never sends a meeting to someone without MEETING_READ, and removes their copy at the next pull once they lose it", async () => {
+    const { org, alice, bob, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const bEvent = (await linkOf(bob.id, meeting.id))!.externalEventId;
+    await prisma.orgMember.updateMany({ where: { orgId: org.id, userId: bob.id }, data: { role: "GUEST" } });
+    await pullChanges(org.id, bob.id, deps); // the reconcile pass
+    expect(g.events.get(bEvent)!.removed).toBe(true);
+    const other = await prisma.syncMeeting.create({
+      data: { orgId: org.id, title: "Board prep", meetingDate: START, createdById: alice.id, notes: "", attendees: { create: [{ userId: alice.id }, { userId: bob.id }] } },
+    });
+    await syncMeeting(org.id, other.id, deps);
+    expect(await linkOf(bob.id, other.id)).toBeNull();
+    expect(JSON.stringify(g.calls.filter((c) => c.body).map((c) => c.body))).toContain("Board prep"); // alice got it
+    expect(g.eventsIn(((await credOf(org.id, bob.id)).meta as { calendarId: string }).calendarId)).toHaveLength(0);
+  });
+
+  // ── Review fixes: the Cosmos calendar survives reconnects ──────────────────
+
+  const calendarPosts = (g: ReturnType<typeof fakeGraph>) => g.calls.filter((c) => c.method === "POST" && c.path === "/me/calendars").length;
+
+  it("a reconnect with the same account keeps the calendar and delta; nothing is created twice", async () => {
+    const { org, alice, g, deps, meeting, stamp } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    await pullChanges(org.id, alice.id, deps);
+    const before = (await credOf(org.id, alice.id)).meta as { calendarId: string; deltaLink: string };
+    await connect(org.id, alice, `${alice.id}-${stamp}`);
+    const after = (await credOf(org.id, alice.id)).meta as { calendarId: string; deltaLink: string; status: string };
+    expect(after).toMatchObject({ calendarId: before.calendarId, deltaLink: before.deltaLink, status: "connected" });
+    await prisma.syncMeeting.update({ where: { id: meeting.id }, data: { title: "Renamed" } });
+    await syncMeeting(org.id, meeting.id, deps);
+    expect(calendarPosts(g)).toBe(2); // alice's and bob's, once each
+    expect(await linkOf(alice.id, meeting.id)).toBeTruthy();
+  });
+
+  it("finds an existing Cosmos calendar by name instead of creating a second one", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const { id, meta } = await credOf(org.id, alice.id);
+    const calendarId = (meta as { calendarId: string }).calendarId;
+    await patchCalendarMeta(id, {}, ["calendarId"]); // as if the record were lost
+    expect(await ensureCosmosCalendar(org.id, alice.id, deps)).toBe(calendarId);
+    expect(calendarPosts(g)).toBe(2);
+  });
+
+  it("creates one calendar for two concurrent callers, and recovers from Graph's 409 for a duplicate name", async () => {
+    const { org, alice, g, deps } = await setup();
+    const [a, b] = await Promise.all([ensureCosmosCalendar(org.id, alice.id, deps), ensureCosmosCalendar(org.id, alice.id, deps)]);
+    expect(a).toBe(b);
+    expect(calendarPosts(g)).toBe(1);
+    // Another instance won the race: our lookup missed it, our POST gets 409.
+    const { id } = await credOf(org.id, alice.id);
+    await patchCalendarMeta(id, {}, ["calendarId"]);
+    let hideOnce = true;
+    const racing = (async (url: unknown, init?: RequestInit) => {
+      if (hideOnce && String(url).includes("/me/calendars?")) {
+        hideOnce = false;
+        return new Response(JSON.stringify({ value: [] }), { status: 200 });
+      }
+      return g.fetch(url as string, init);
+    }) as typeof fetch;
+    expect(await ensureCosmosCalendar(org.id, alice.id, { ...deps, fetch: racing })).toBe(a);
+    expect(g.calls.some((c) => c.method === "POST" && c.path === "/me/calendars")).toBe(true);
+    expect([...g.calendars.values()].filter((c) => c.name === "Cosmos" && c.owner === `Bearer at-${alice.id}`)).toHaveLength(1);
+  });
+
+  it("a reconnect with a different Microsoft account starts clean", async () => {
+    const { org, alice, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    await connect(org.id, alice, "someone-else-entirely");
+    expect((await credOf(org.id, alice.id)).meta).not.toHaveProperty("calendarId");
+    expect(await linkOf(alice.id, meeting.id)).toBeNull();
+  });
+
+  it("two orgs on one mailbox share the calendar, and disconnecting one leaves the other's events", async () => {
+    const { org, alice, g, deps, meeting, stamp } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const org2 = await prisma.organization.create({ data: { name: `mss2 ${stamp}`, slug: `mss2-${stamp}` } });
+    orgIds.push(org2.id);
+    await prisma.orgMember.create({ data: { orgId: org2.id, userId: alice.id, role: "ADMIN" } });
+    await prisma.integration.create({
+      data: { orgId: org2.id, provider: MS_CALENDAR, displayName: "Outlook Calendar", config: { tenantId: TENANT }, status: "ACTIVE", installedById: alice.id },
+    });
+    await connect(org2.id, alice, `${alice.id}-${stamp}`); // the same Microsoft account
+    const m2 = await prisma.syncMeeting.create({
+      data: { orgId: org2.id, title: "Other org", meetingDate: START, createdById: alice.id, notes: "", attendees: { create: [{ userId: alice.id }] } },
+    });
+    await syncMeeting(org2.id, m2.id, deps);
+    expect(calendarPosts(g)).toBe(2); // org2 reused alice's "Cosmos" calendar
+    const one = (await linkOf(alice.id, meeting.id))!.externalEventId;
+    const two = (await prisma.externalEventLink.findFirst({ where: { orgId: org2.id, entityId: m2.id } }))!.externalEventId;
+    expect(await removeCosmosCalendar(org.id, alice.id, deps)).toBe(true);
+    expect(g.events.get(one)!.removed).toBe(true);
+    expect(g.events.get(two)!.removed).toBeFalsy();
+    expect([...g.calendars.values()].some((c) => c.owner === `Bearer at-${alice.id}`)).toBe(true);
+    // And org2's pull ignores org1's events in the shared calendar.
+    expect(await pullChanges(org2.id, alice.id, deps)).toMatchObject({ applied: 0, ignored: 0 });
+  });
+
+  // ── Review fixes: the pull window, orphans, classification, fan-out ────────
+
+  it("re-anchors the delta window once it has drifted a week, and not before", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    await pullChanges(org.id, alice.id, deps);
+    await pullChanges(org.id, alice.id, deps);
+    expect(new Set(g.deltaWindows.map((w) => w.to)).size).toBe(1); // resumed, same window
+    const { id } = await credOf(org.id, alice.id);
+    await patchCalendarMeta(id, { windowEnd: new Date(Date.now() + 150 * 86_400_000).toISOString() });
+    await pullChanges(org.id, alice.id, deps);
+    const last = g.deltaWindows[g.deltaWindows.length - 1];
+    expect(Date.parse(last.to) - Date.now()).toBeGreaterThan(179 * 86_400_000);
+    expect(Date.parse(((await credOf(org.id, alice.id)).meta as { windowEnd: string }).windowEnd)).toBe(Date.parse(last.to));
+  });
+
+  it("an event moved outside the window comes back as a move, not a detach", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    await pullChanges(org.id, alice.id, deps);
+    const link = (await linkOf(alice.id, meeting.id))!;
+    const far = new Date(Date.now() + 400 * 86_400_000);
+    far.setUTCMilliseconds(0);
+    await new Promise((r) => setTimeout(r, 5));
+    g.outlookEdit(link.externalEventId, { start: at(far), end: at(new Date(far.getTime() + 45 * 60_000)) });
+    expect(await pullChanges(org.id, alice.id, deps)).toMatchObject({ applied: 1, detached: 0 });
+    expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).meetingDate).toEqual(far);
+    expect(await linkOf(alice.id, meeting.id)).toBeTruthy();
+  });
+
+  it("retries a removal that failed, at the next pull", async () => {
+    const { org, bob, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const bEvent = (await linkOf(bob.id, meeting.id))!.externalEventId;
+    await prisma.meetingAttendee.deleteMany({ where: { meetingId: meeting.id, userId: bob.id } });
+    g.throttleNext(3); // the DELETE fails: 429, 429, 429
+    await syncMeeting(org.id, meeting.id, deps);
+    expect(g.events.get(bEvent)!.removed).toBeFalsy();
+    expect(await linkOf(bob.id, meeting.id)).toBeTruthy(); // kept, so it can be retried
+    await pullChanges(org.id, bob.id, deps);
+    expect(g.events.get(bEvent)!.removed).toBe(true);
+    expect(await linkOf(bob.id, meeting.id)).toBeNull();
+  });
+
+  it("deletes the Outlook copy when a pull finds its meeting gone", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const aEvent = (await linkOf(alice.id, meeting.id))!.externalEventId;
+    await prisma.syncMeeting.delete({ where: { id: meeting.id } }); // no push ran
+    await new Promise((r) => setTimeout(r, 5));
+    g.outlookEdit(aEvent, { subject: "edited after the meeting went" });
+    await pullChanges(org.id, alice.id, deps);
+    expect(g.events.get(aEvent)!.removed).toBe(true);
+  });
+
+  it("scrubs copies when the classification changes, which no meeting edit records", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const aEvent = (await linkOf(alice.id, meeting.id))!.externalEventId;
+    await prisma.dataClassification.create({ data: { orgId: org.id, level: "FOUO", appliedById: alice.id } });
+    await pullChanges(org.id, alice.id, deps);
+    expect(g.events.get(aEvent)!).toMatchObject({ subject: "Cosmos item", body: { content: "" }, location: { displayName: "" } });
+  });
+
+  it("doesn't re-send a meeting whose Outlook view didn't change (a notes edit)", async () => {
+    const { org, deps, g, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const writes = () => g.calls.filter((c) => c.method === "PATCH" || c.method === "POST").length;
+    const before = writes();
+    await prisma.syncMeeting.update({ where: { id: meeting.id }, data: { notes: "minutes from today" } });
+    await syncMeeting(org.id, meeting.id, deps);
+    expect(writes()).toBe(before);
+  });
+
+  it("treats a marking in the meeting link as classified too", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await prisma.syncMeeting.update({ where: { id: meeting.id }, data: { meetingUrl: "https://meet.example/CUI//SP-PRVCY-review" } });
+    await syncMeeting(org.id, meeting.id, deps);
+    expect(g.events.get((await linkOf(alice.id, meeting.id))!.externalEventId)!.subject).toBe("Cosmos item");
+    expect(JSON.stringify(g.calls)).not.toMatch(/meet\.example|Sprint review/);
+  });
+
+  it("leaves the time alone for an all-day Outlook event, and bounds what an edit can set", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const link = (await linkOf(alice.id, meeting.id))!;
+    await new Promise((r) => setTimeout(r, 5));
+    g.outlookEdit(link.externalEventId, { isAllDay: true, start: at(new Date("2026-11-09T00:00:00.000Z")), end: at(new Date("2026-11-10T00:00:00.000Z")) } as never);
+    await pullChanges(org.id, alice.id, deps);
+    expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).meetingDate).toEqual(START);
+    await new Promise((r) => setTimeout(r, 5));
+    g.outlookEdit(link.externalEventId, {
+      isAllDay: false, subject: "x".repeat(400),
+      start: at(START), end: at(new Date(START.getTime() + 3 * 86_400_000)),
+    } as never);
+    await pullChanges(org.id, alice.id, deps);
+    const m = await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } });
+    expect(m.durationMinutes).toBe(24 * 60);
+    expect(m.title).toHaveLength(255);
+  });
+
+  it("stops a pull when it's aborted, keeping the old delta position", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    await pullChanges(org.id, alice.id, deps);
+    const before = ((await credOf(org.id, alice.id)).meta as { deltaLink: string }).deltaLink;
+    await new Promise((r) => setTimeout(r, 5));
+    g.outlookEdit((await linkOf(alice.id, meeting.id))!.externalEventId, { subject: "Edited while we stopped" });
+    const ac = new AbortController();
+    ac.abort();
+    expect(await pullChanges(org.id, alice.id, { ...deps, signal: ac.signal })).toEqual({ applied: 0, ignored: 0, echoes: 0, detached: 0 });
+    expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).title).toBe("Sprint review");
+    expect(((await credOf(org.id, alice.id)).meta as { deltaLink: string }).deltaLink).toBe(before);
+    // The next, unhurried pull picks the edit up.
+    expect(await pullChanges(org.id, alice.id, deps)).toMatchObject({ applied: 1 });
+  });
+
+  it("runs at most 4 Graph writes at once", async () => {
+    let inFlight = 0;
+    let max = 0;
+    await pool(Array.from({ length: 10 }, (_, i) => i), 4, async () => {
+      inFlight++;
+      max = Math.max(max, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+    });
+    expect(max).toBe(4);
+  });
+
 });

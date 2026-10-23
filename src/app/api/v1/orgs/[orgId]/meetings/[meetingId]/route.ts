@@ -7,7 +7,7 @@ import { requireAccess } from "@/lib/abac/require-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { SYNCED_MEETING_FIELDS, syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { z } from "zod";
 import { MeetingStatus } from "@prisma/client";
 import { detectVideoProvider } from "@/lib/meetings/video";
@@ -110,7 +110,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
-    syncMeetingSoon(orgId, meetingId);
+    // Only what shows in Outlook needs a push (not notes, transcripts, summaries).
+    if (SYNCED_MEETING_FIELDS.some((f) => f in data)) syncMeetingSoon(orgId, meetingId);
     return success(updated);
   } catch (error) {
     return handleApiError(error);
