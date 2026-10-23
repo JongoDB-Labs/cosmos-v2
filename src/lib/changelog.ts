@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.446.0",
+    date: "2026-10-23",
+    title: "Open feedback from a link",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Notifications and shared links now open the exact feedback item, even if it isn't near the top of the list.",
+      },
+    ],
+  },
+  {
     version: "2.445.0",
     date: "2026-10-23",
     title: "Query language groundwork",
