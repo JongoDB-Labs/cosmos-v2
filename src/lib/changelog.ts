@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.2",
+    date: "2026-10-23",
+    title: "Cards drop where you point",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Dragging a card onto a Kanban board now lands it in the column under your pointer. Before, dropping into an empty or short column, such as an empty Backlog or Review, could miss or land in the column next to it.",
+      },
+    ],
+  },
+  {
     version: "2.439.1",
     date: "2026-10-22",
     title: "Sign-in pages render their title reliably",
