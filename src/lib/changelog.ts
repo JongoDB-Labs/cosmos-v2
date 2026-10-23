@@ -49,6 +49,50 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.6",
+    date: "2026-10-23",
+    title: "Saved views respect project access",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Shared saved views that mention a project you can't access no longer appear in your saved-views list.",
+      },
+    ],
+  },
+  {
+    version: "2.439.5",
+    date: "2026-10-23",
+    title: "Updates never throw away what you're typing",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Cosmos is updated while you're filling in a form, writing a comment or have a dialog open, it no longer reloads the page under you. A message tells you a new version is ready, with a Reload button for when you've finished.",
+      },
+    ],
+  },
+  {
+    version: "2.439.4",
+    date: "2026-10-23",
+    title: "Feedback details are shown only to the right people",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: the Feedback board no longer sends every member the diagnostic details captured with bug reports, the automated triage notes, or other people's email addresses. Staff who triage feedback still see everything; reporters still see their own email.",
+      },
+    ],
+  },
+  {
+    version: "2.439.3",
+    date: "2026-10-23",
+    title: "Issue details fit on a laptop screen",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The action buttons at the top of an issue's details now wrap onto a second line when space is tight, so Delete is no longer cut off at the edge on laptop-sized screens.",
+      },
+    ],
+  },
+  {
     version: "2.439.2",
     date: "2026-10-23",
     title: "Cards drop where you point",
