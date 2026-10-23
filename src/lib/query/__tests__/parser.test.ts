@@ -208,6 +208,11 @@ describe("parseCql — errors carry exact spans", () => {
   it("ORDER without BY", () => {
     expect(first("ORDER due").code).toBe("CQL_SYNTAX");
   });
+  it("a NUL character is refused where it is", () => {
+    const d = first('summary ~ "a\u0000b"');
+    expect(d.code).toBe("CQL_SYNTAX");
+    expect(d).toMatchObject({ from: 12, to: 13 });
+  });
   it("length limit", () => {
     const d = first(`summary ~ "${"x".repeat(CQL_LIMITS.textLength)}"`);
     expect(d.code).toBe("CQL_LIMIT");
