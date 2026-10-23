@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/client";
+import { createWorkItemRow } from "@/lib/work-items/write.server";
 
 /**
  * Fixture helpers for the DB-backed specs.
@@ -15,7 +16,7 @@ import { prisma } from "@/lib/db/client";
  * const last = await prisma.workItem.findFirst({
  *   where: { projectId }, orderBy: { ticketNumber: "desc" },
  * });
- * await prisma.workItem.create({ data: { ticketNumber: (last?.ticketNumber ?? 0) + 1 } });
+ * await createWorkItemRow(prisma, { data: { ticketNumber: (last?.ticketNumber ?? 0) + 1 } });
  * ```
  *
  * Read-then-write, with no lock between the two. Vitest runs spec FILES in
@@ -79,7 +80,7 @@ export async function createFixtureWorkItem(
     // same max and collide again on every retry, in lockstep.
     const ticketNumber = (last?.ticketNumber ?? 0) + 1 + attempt;
     try {
-      return await prisma.workItem.create({
+      return await createWorkItemRow(prisma, {
         data: {
           orgId: input.orgId,
           projectId: input.projectId,

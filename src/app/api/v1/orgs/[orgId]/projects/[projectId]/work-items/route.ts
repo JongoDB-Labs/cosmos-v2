@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
@@ -214,7 +215,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const assigneeIds =
         data.assigneeIds ?? (data.assigneeId ? [data.assigneeId] : []);
 
-      const created = await tx.workItem.create({
+      const created = await createWorkItemRow(tx, {
         data: {
           orgId,
           projectId,

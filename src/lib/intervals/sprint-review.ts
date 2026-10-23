@@ -4,17 +4,12 @@
  * I/O, no persistence, so it can run identically on the server (the /complete
  * route) and in the client review step.
  *
- * "Done" detection matches how a work item's board column marks completion; keep
- * it as the single source of truth so the review and the recorded report agree.
+ * "Done" is the item's status being in the DONE category (`isDoneStatus`), the
+ * same rule the report recorded at completion and the ceremony boards use. It
+ * used to be the key's spelling ("done"/"completed"/"closed"), which counted a
+ * team-named done lane such as "Shipped" as unfinished work.
  */
-
-const DONE_MATCHERS = ["done", "completed", "closed"] as const;
-
-/** True when a board column key represents finished work (done/completed/closed). */
-export function isDoneColumnKey(columnKey: string): boolean {
-  const k = columnKey.toLowerCase();
-  return DONE_MATCHERS.some((m) => k.includes(m));
-}
+import { isDoneStatus, type DoneStateColumn } from "@/lib/work-items/done-state";
 
 export interface SprintReviewItem {
   storyPoints?: number | null;
@@ -27,6 +22,8 @@ export interface SprintReviewInput {
   /** The moment the review is generated (sprint completion). Defaults to now. */
   reviewedAt?: string | Date;
   items: SprintReviewItem[];
+  /** The project's statuses with their categories. */
+  columns: readonly DoneStateColumn[];
 }
 
 export type PacingStatus = "ahead" | "on track" | "behind";
@@ -61,7 +58,7 @@ export function computeSprintReview(input: SprintReviewInput): SprintReview {
 
   const items = input.items;
   const totalItems = items.length;
-  const doneItems = items.filter((i) => isDoneColumnKey(i.columnKey));
+  const doneItems = items.filter((i) => isDoneStatus(i.columnKey, input.columns));
   const completedItems = doneItems.length;
   const incompleteItems = totalItems - completedItems;
 

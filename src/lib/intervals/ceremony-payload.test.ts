@@ -1,6 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { shippedItems, statusLabelFor } from "./ceremony-payload";
 
+// The project's statuses. "shipped" is a team-named done lane: done by its
+// CATEGORY, though its key says nothing about being done.
+const STATUSES = [
+  { key: "todo", category: "TODO" },
+  { key: "in_progress", category: "IN_PROGRESS" },
+  { key: "in_review", category: "IN_PROGRESS" },
+  { key: "done", category: "DONE" },
+  { key: "shipped", category: "DONE" },
+];
+
 const items = [
   { id: "1", ticketNumber: 115, title: "Azure gateway", columnKey: "done", storyPoints: 8 },
   { id: "2", ticketNumber: 33, title: "capacity ui", columnKey: "done", storyPoints: 2 },
@@ -12,12 +22,12 @@ const items = [
 
 describe("shippedItems", () => {
   it("includes only finished work", () => {
-    expect(shippedItems(items).map((i) => i.id)).not.toContain("5");
+    expect(shippedItems(items, STATUSES).map((i) => i.id)).not.toContain("5");
   });
 
   it("ranks by points descending, the way the outbrief reads", () => {
     // The deck leads with the heaviest work: 8, 8, 5, 2 … not ticket order.
-    expect(shippedItems(items).map((i) => i.storyPoints ?? 0)).toEqual([
+    expect(shippedItems(items, STATUSES).map((i) => i.storyPoints ?? 0)).toEqual([
       8, 8, 5, 2, 0,
     ]);
   });
@@ -25,13 +35,18 @@ describe("shippedItems", () => {
   it("breaks ties by ticket number so the order is stable between renders", () => {
     // Two 8-point items: ticket 14 before ticket 115. Without a tie-break the
     // order depends on the query, and the board reshuffles on every refetch.
-    const eights = shippedItems(items).filter((i) => i.storyPoints === 8);
+    const eights = shippedItems(items, STATUSES).filter((i) => i.storyPoints === 8);
     expect(eights.map((i) => i.ticketNumber)).toEqual([14, 115]);
+  });
+
+  it("counts a team-named done lane as shipped", () => {
+    const lane = [{ id: "7", ticketNumber: 7, title: "lane", columnKey: "shipped", storyPoints: 1 }];
+    expect(shippedItems(lane, STATUSES).map((i) => i.id)).toEqual(["7"]);
   });
 
   it("keeps unestimated work rather than dropping it from what shipped", () => {
     // It shipped. Excluding it would understate the sprint's delivery.
-    expect(shippedItems(items).map((i) => i.id)).toContain("6");
+    expect(shippedItems(items, STATUSES).map((i) => i.id)).toContain("6");
   });
 });
 

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { storeEmbedding } from "@/lib/rag/embed";
+import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { roadmapSlug } from "@/lib/roadmap/import";
 import { allocateTicketNumber, allocateTicketNumbers, allocateSortOrder } from "@/lib/work-items/allocate";
 
@@ -99,7 +100,7 @@ export async function convertBlockToWorkItem(input: {
       projectId: input.projectId,
       columnKey,
     });
-    const item = await tx.workItem.create({
+    const item = await createWorkItemRow(tx, {
       data: {
         orgId: input.orgId,
         projectId: input.projectId,
@@ -245,7 +246,7 @@ export async function convertTableToWorkItems(input: {
     let ticket = firstTicket - 1;
     let sort = firstSort - 1;
     for (const rec of records) {
-      const item = await tx.workItem.create({
+      const item = await createWorkItemRow(tx, {
         data: {
           orgId: input.orgId,
           projectId: input.projectId,

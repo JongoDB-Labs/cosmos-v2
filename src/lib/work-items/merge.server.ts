@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
-import { ensureCancelledColumn } from "@/lib/work-items/cancel.server";
+import { applyWorkItemChange } from "@/lib/work-items/apply-change.server";
+import { updateWorkItems } from "@/lib/work-items/write.server";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
 
 /**
@@ -62,7 +63,7 @@ export async function mergeWorkItems(
   const ref = (n: number) => `${project.key}-${n}`;
 
   // ── Fields: fill the survivor's gaps, never overwrite ──────────────────────
-  const fill: Prisma.WorkItemUncheckedUpdateInput = {};
+  const fill: Prisma.WorkItemUncheckedUpdateManyInput = {};
   const scalarKeys = [
     "description", "startDate", "dueDate", "storyPoints", "intervalId",
     // timeSpent is entered by hand (or imported); nothing derives it from time
@@ -97,7 +98,7 @@ export async function mergeWorkItems(
     fill.tags = tags;
     await setWorkItemLabels(tx, orgId, bId, tags);
   }
-  if (Object.keys(fill).length) await tx.workItem.update({ where: { id: bId }, data: fill });
+  if (Object.keys(fill).length) await updateWorkItems(tx, [bId], fill);
 
   // ── Tracked work moves to the survivor ─────────────────────────────────────
   const comments = await tx.comment.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
@@ -108,14 +109,15 @@ export async function mergeWorkItems(
   // duplicate's place instead, under the duplicate's parent, unless even that
   // would loop, when it becomes top-level.
   const onPath = [bId, ...bAbove];
-  const children = await tx.workItem.updateMany({
+  const movedChildren = await tx.workItem.findMany({
     where: { parentId: aId, id: { notIn: onPath } },
-    data: { parentId: bId },
+    select: { id: true },
   });
+  const children = { count: await updateWorkItems(tx, movedChildren.map((c) => c.id), { parentId: bId }) };
   const lifted = await tx.workItem.findFirst({ where: { parentId: aId, id: { in: onPath } }, select: { id: true } });
   if (lifted) {
     const safeParent = a.parentId && !aLine.includes(lifted.id) && !aLine.includes(bId) ? a.parentId : null;
-    await tx.workItem.update({ where: { id: lifted.id }, data: { parentId: safeParent } });
+    await updateWorkItems(tx, [lifted.id], { parentId: safeParent });
   }
   const attachments = await tx.document.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
   await tx.retroActionItem.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
@@ -175,17 +177,17 @@ export async function mergeWorkItems(
   await tx.workItemLink.create({ data: { orgId, sourceItemId: aId, targetItemId: bId, type: "DUPLICATES" } });
 
   // ── The duplicate: Cancelled, merged, pointing at the survivor ─────────────
-  const cancelledKey = await ensureCancelledColumn(tx, projectId);
-  await tx.workItem.update({
-    where: { id: aId },
-    data: {
-      columnKey: cancelledKey,
-      columnEnteredAt: new Date(),
-      completedAt: null,
-      cancelReason: "MERGED",
-      cancelNote: `Merged into ${ref(b.ticketNumber)}`,
-      mergedIntoId: bId,
-    },
+  // A cancel like any other, through the one writer: the MERGED reason finds
+  // (or creates) the Cancelled status, clears the actual end, and records the
+  // move in the duplicate's history. The merge route runs its own after-commit
+  // work, so the change's effects are not needed here.
+  await applyWorkItemChange(tx, {
+    actorId: userId,
+    orgId,
+    projectId,
+    itemIds: [aId],
+    patch: { cancelReason: "MERGED", cancelNote: `Merged into ${ref(b.ticketNumber)}`, mergedIntoId: bId },
+    source: "SYSTEM",
   });
   await tx.activity.createMany({
     data: [

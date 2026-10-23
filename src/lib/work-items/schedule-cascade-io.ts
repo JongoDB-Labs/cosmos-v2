@@ -11,6 +11,7 @@
  */
 import { Prisma } from "@prisma/client";
 import { planScheduleCascade } from "@/lib/work-items/schedule-cascade";
+import { updateWorkItems } from "@/lib/work-items/write.server";
 
 type Db = Prisma.TransactionClient;
 
@@ -65,10 +66,7 @@ export async function cascadeSchedule(db: Db, args: CascadeScheduleArgs): Promis
 
   const before = new Map(items.map((i) => [i.id, i]));
   for (const u of updates) {
-    await db.workItem.update({
-      where: { id: u.id },
-      data: { startDate: u.startDate, dueDate: u.dueDate },
-    });
+    await updateWorkItems(db, [u.id], { startDate: u.startDate, dueDate: u.dueDate });
   }
   const moved: CascadedItem[] = updates.map((u) => ({
     id: u.id,
