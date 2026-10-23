@@ -6,7 +6,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { cqlEnabled, withCqlEnabled } from "@/lib/query/flag";
+import { cqlEmailTitles, cqlEnabled, withCqlEmailTitles, withCqlEnabled } from "@/lib/query/flag";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -15,12 +15,13 @@ type RouteParams = { params: Promise<{ orgId: string }> };
  * every /cql/ route answers 404 while the switch is off, and this is how it
  * gets turned on.
  *
- * GET  { enabled, canManage } for any member (the Issues view reads the flag
- *      through /cql/schema; this is the settings card).
- * PUT  { enabled } with ORG_MANAGE_SETTINGS; audited.
+ * GET  { enabled, emailTitles, canManage } for any member (the Issues view
+ *      reads the flag through /cql/schema; this is the settings card).
+ * PUT  { enabled?, emailTitles? } with ORG_MANAGE_SETTINGS; each change audited.
+ *      emailTitles: may filter subscription emails carry item titles (§6.6).
  */
 async function load(orgId: string) {
-  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { id: true, slug: true, settings: true } });
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { id: true, slug: true, settings: true, tenantClass: true } });
   if (!org) return { org: null, ctx: null };
   return { org, ctx: await getAuthContext(org.slug) };
 }
@@ -30,7 +31,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const { org, ctx } = await load((await params).orgId);
     if (!org) return new Response("Not found", { status: 404 });
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    return success({ enabled: cqlEnabled(org.settings), canManage: hasPermission(ctx.permissions, Permission.ORG_MANAGE_SETTINGS) });
+    return success({
+      enabled: cqlEnabled(org.settings),
+      emailTitles: cqlEmailTitles(org.settings, org.tenantClass),
+      canManage: hasPermission(ctx.permissions, Permission.ORG_MANAGE_SETTINGS),
+    });
   } catch (error) {
     return handleApiError(error);
   }
@@ -43,16 +48,25 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_MANAGE_SETTINGS);
 
-    const { enabled } = z.strictObject({ enabled: z.boolean() }).parse(await request.json());
-    const before = cqlEnabled(org.settings);
-    await prisma.organization.update({ where: { id: org.id }, data: { settings: withCqlEnabled(org.settings, enabled) as object } });
-    if (before !== enabled) {
-      await logAudit({
-        orgId: org.id, userId: ctx.userId, action: enabled ? "cql.enabled" : "cql.disabled",
-        entity: "organization", entityId: org.id, metadata: {}, ipAddress: getIpAddress(request),
-      });
+    const body = z
+      .strictObject({ enabled: z.boolean().optional(), emailTitles: z.boolean().optional() })
+      .refine((b) => b.enabled !== undefined || b.emailTitles !== undefined, "Send enabled or emailTitles")
+      .parse(await request.json());
+    const before = { enabled: cqlEnabled(org.settings), emailTitles: cqlEmailTitles(org.settings, org.tenantClass) };
+    let settings: unknown = org.settings;
+    if (body.enabled !== undefined) settings = withCqlEnabled(settings, body.enabled);
+    if (body.emailTitles !== undefined) settings = withCqlEmailTitles(settings, body.emailTitles);
+    await prisma.organization.update({ where: { id: org.id }, data: { settings: settings as object } });
+    const audit = (action: string) =>
+      logAudit({ orgId: org.id, userId: ctx.userId, action, entity: "organization", entityId: org.id, metadata: {}, ipAddress: getIpAddress(request) });
+    if (body.enabled !== undefined && before.enabled !== body.enabled) await audit(body.enabled ? "cql.enabled" : "cql.disabled");
+    if (body.emailTitles !== undefined && before.emailTitles !== body.emailTitles) {
+      await audit(body.emailTitles ? "cql.email_titles_on" : "cql.email_titles_off");
     }
-    return success({ enabled });
+    return success({
+      enabled: body.enabled ?? before.enabled,
+      emailTitles: body.emailTitles ?? before.emailTitles,
+    });
   } catch (error) {
     return handleApiError(error);
   }
