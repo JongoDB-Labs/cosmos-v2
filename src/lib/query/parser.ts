@@ -99,8 +99,6 @@ function unquote(image: string): string {
 
 class CqlParser extends EmbeddedActionsParser {
   spans = new WeakMap<object, Span>();
-  parenDepth = 0;
-  maxParenDepth = 0;
 
   constructor() {
     super(ALL_TOKENS, { recoveryEnabled: true, maxLookahead: 3 });
@@ -175,13 +173,8 @@ class CqlParser extends EmbeddedActionsParser {
       {
         ALT: () => {
           const open = this.CONSUME(LParen);
-          this.ACTION(() => {
-            this.parenDepth++;
-            this.maxParenDepth = Math.max(this.maxParenDepth, this.parenDepth);
-          });
           const inner = this.SUBRULE(this.orExpr);
           const close = this.CONSUME(RParen);
-          this.ACTION(() => this.parenDepth--);
           // The span includes the parentheses, so `NOT (…)` highlights whole.
           return this.mark(inner ?? ({} as CqlNode), join(tokSpan(open), tokSpan(close)));
         },
@@ -550,6 +543,40 @@ function looksLikeWords(tokens: IToken[]): boolean {
   return !(first.tokenType === Identifier && lookupField(first.image));
 }
 
+/**
+ * The first place the token stream nests too deep, if any: grouping
+ * parentheses beyond CQL_LIMITS.parenDepth, any parentheses (function calls
+ * included) beyond CQL_LIMITS.nodeDepth, or more NOTs in a row than that.
+ */
+function depthProblem(tokens: IToken[]): { message: string; span: Span } | null {
+  let groups = 0;
+  let parens = 0;
+  let nots = 0;
+  const open: boolean[] = []; // per open paren: was it a function call's?
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.tokenType === LParen) {
+      const call = tokens[i - 1]?.tokenType === Identifier;
+      open.push(call);
+      parens++;
+      if (!call) groups++;
+      if (groups > CQL_LIMITS.parenDepth) return { message: `Parentheses can nest at most ${CQL_LIMITS.parenDepth} deep.`, span: tokSpan(t) };
+      if (parens > CQL_LIMITS.nodeDepth) return { message: `Conditions can nest at most ${CQL_LIMITS.nodeDepth} levels deep.`, span: tokSpan(t) };
+    } else if (t.tokenType === RParen) {
+      if (open.length) {
+        if (!open.pop()) groups--;
+        parens--;
+      }
+    }
+    if (t.tokenType === Not || t.tokenType === Bang) {
+      if (++nots > CQL_LIMITS.nodeDepth) return { message: `At most ${CQL_LIMITS.nodeDepth} NOTs in a row.`, span: tokSpan(t) };
+    } else if (t.tokenType !== LParen) {
+      nots = 0;
+    }
+  }
+  return null;
+}
+
 export function parseCql(text: string): ParseResult {
   const diagnostics: CqlDiagnostic[] = [];
   if (text.length > CQL_LIMITS.textLength) {
@@ -563,10 +590,16 @@ export function parseCql(text: string): ParseResult {
   }
 
   const lexed = cqlLexer.tokenize(text);
+  // Depth is checked on the tokens BEFORE parsing. The parser recurses once
+  // per level, so a few hundred `(` (closed or not) or a long run of NOTs
+  // would overflow the stack before any check after parsing could run.
+  const tooDeep = depthProblem(lexed.tokens);
+  if (tooDeep) {
+    diagnostics.push(diag(text, "CQL_LIMIT", tooDeep.message, tooDeep.span));
+    return { query: { v: CQL_VERSION, where: null }, diagnostics, spans: new WeakMap() };
+  }
   const p = parser();
   p.spans = new WeakMap();
-  p.parenDepth = 0;
-  p.maxParenDepth = 0;
   p.input = lexed.tokens;
   // Recovery can abandon the top rule entirely; an empty query stands in.
   const query = (p.query() as CqlQuery | undefined) ?? { v: CQL_VERSION, where: null };
@@ -608,9 +641,6 @@ export function parseCql(text: string): ParseResult {
         ? { from: text.length, to: text.length }
         : tokSpan(t);
     diagnostics.push(diag(text, "CQL_SYNTAX", friendlySyntax(e as never), span));
-  }
-  if (p.maxParenDepth > CQL_LIMITS.parenDepth) {
-    diagnostics.push(diag(text, "CQL_LIMIT", `Parentheses can nest at most ${CQL_LIMITS.parenDepth} deep.`));
   }
   // Recovery often reports the same token twice from two rules; the first,
   // most specific message is the useful one.

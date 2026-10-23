@@ -12,8 +12,9 @@ import {
 } from "@/lib/work-items/query";
 import { cqlEnabled } from "@/lib/query/flag";
 import { executeCql } from "@/lib/query/execute.server";
-import { cqlErrorResponse } from "@/lib/query/route.server";
 import { savedFilterQuery } from "@/lib/query/saved-filters.server";
+import { cqlErrorResponse, cqlTooLong } from "@/lib/query/route.server";
+import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { scheduleParity } from "@/lib/query/parity.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -51,6 +52,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return new Response("Not found", { status: 404 });
 
+    const sp = request.nextUrl.searchParams;
+    const cqlOn = cqlEnabled(org.settings);
+    // `?cql=` on an org without the query language: that parameter doesn't
+    // exist there, the same 404 as the other CQL routes (not "unknown param").
+    if (!cqlOn && sp.has("cql")) return new Response("Not found", { status: 404 });
+
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     // Org-level read gate: the raw bit only (see route doc). Per-project
@@ -60,11 +67,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return new Response("Forbidden", { status: 403 });
     }
 
-    const allowedProjectIds = await getReadableProjectIds(ctx);
-    if (allowedProjectIds.length === 0) return success(EMPTY_RESULT);
-
-    const sp = request.nextUrl.searchParams;
-    const cqlOn = cqlEnabled(org.settings);
     const cql = cqlOn ? sp.get("cql") : null;
     // `?filter=<savedFilterId>` runs a saved filter's stored query; with `cql`
     // too, the text wins (the filter id only says which one was loaded).
@@ -77,10 +79,19 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           { status: 400, headers: { "content-type": "application/json" } },
         );
       }
+      if (cql !== null) {
+        const tooLong = cqlTooLong(cql);
+        if (tooLong) return tooLong;
+      }
+      // The same budget as POST work-items/query: one query is one query.
+      const limited = checkRateLimit(request, "cql.query", ctx.userId, { capacity: 30, refillPerSecond: 3 });
+      if (limited) return limited;
       const stored = cql === null ? await savedFilterQuery(ctx, filterId!) : null;
       if (cql === null && !stored) {
         return new Response(JSON.stringify({ error: "Saved filter not found" }), { status: 404, headers: { "content-type": "application/json" } });
       }
+      // No early "nothing readable" answer here: a malformed query is still a
+      // 400 for someone who can read nothing (executeCql checks it first).
       try {
         const page = Number.parseInt(sp.get("page") ?? "1", 10);
         const pageSize = Number.parseInt(sp.get("pageSize") ?? "", 10);
@@ -94,6 +105,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         return cqlErrorResponse(e);
       }
     }
+
+    const allowedProjectIds = await getReadableProjectIds(ctx);
+    if (allowedProjectIds.length === 0) return success(EMPTY_RESULT);
 
     // Reject parameters nothing will read, rather than answering as if they
     // had been applied. A filter that silently does not filter returns
@@ -129,7 +143,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       page,
       pageSize,
     });
-    scheduleParity(ctx, { filter, sort, page, pageSize }, result);
+    scheduleParity(ctx, { filter, sort, page, pageSize }, result, cqlEnabled(org.settings));
     return success(result);
   } catch (error) {
     return handleApiError(error);
@@ -170,7 +184,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       page,
       pageSize,
     });
-    scheduleParity(ctx, { filter, sort, page, pageSize }, result);
+    scheduleParity(ctx, { filter, sort, page, pageSize }, result, cqlEnabled(org.settings));
     return success(result);
   } catch (error) {
     return handleApiError(error);

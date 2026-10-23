@@ -246,14 +246,21 @@ export function typecheck(input: CqlQuery, schema: CqlSchema, text = "", spans?:
     }
     v.args.forEach((a, i) => {
       const spec = def.args[i];
+      // A dashboard variable stands for a value of a FIELD; inside a function
+      // nothing gives it a type (`updatedBy(me, $d)` has no date to bind).
+      if (a.t === "var") {
+        err("CQL_TYPE_MISMATCH", `\`${def.name}()\` doesn't take variables like \`$${a.name}\`.`, a);
+        return;
+      }
       if (spec.kind === "rel" && a.t !== "rel" && a.t !== "num") err("CQL_TYPE_MISMATCH", `\`${def.name}()\` takes an offset like \`-1w\` or \`-1\`.`, a);
       if (spec.kind === "linkType" && !(a.t === "str" && (LINK_TYPES as readonly string[]).includes(a.v.toUpperCase()))) {
         err("CQL_TYPE_MISMATCH", `Link type must be one of ${LINK_TYPES.join(", ")}.`, a);
       }
-      if (spec.kind === "date" && !(a.t === "date" || a.t === "rel" || a.t === "fn" || a.t === "var")) {
+      if (spec.kind === "date" && !(a.t === "date" || a.t === "rel" || a.t === "fn")) {
         err("CQL_TYPE_MISMATCH", `\`${def.name}()\` takes dates here.`, a);
       }
-      if ((spec.kind === "item" || spec.kind === "team" || spec.kind === "user") && !(a.t === "str" || a.t === "ref" || a.t === "var" || (a.t === "fn" && spec.kind === "user"))) {
+      // The only function that names a person is currentUser() (`me`).
+      if ((spec.kind === "item" || spec.kind === "team" || spec.kind === "user") && !(a.t === "str" || a.t === "ref" || (a.t === "fn" && spec.kind === "user" && a.name === "currentUser"))) {
         err("CQL_TYPE_MISMATCH", `\`${def.name}()\` takes a ${spec.kind === "item" ? "ticket key" : spec.kind} here.`, a);
       }
     });
@@ -272,7 +279,16 @@ export function typecheck(input: CqlQuery, schema: CqlSchema, text = "", spans?:
 
   /** Check (and canonicalise) one value for a field kind. */
   function checkValue(v: CqlValue, kind: ValueKind, ctx: { inList: boolean; allowEmpty: boolean; field: string }): CqlValue | null {
-    if (v.t === "var") return v;
+    if (v.t === "var") {
+      // Dashboard variables are people, teams, projects and sprints. On a
+      // date or number they would need coercion this phase doesn't do
+      // (`due < $d` must not quietly become "has a due date").
+      if (kind.kind !== "ref") {
+        err("CQL_TYPE_MISMATCH", `Variables like \`$${v.name}\` stand for people, teams, projects or sprints, so they can't be used on \`${ctx.field}\`.`, v);
+        return null;
+      }
+      return v;
+    }
     if (v.t === "fn") return checkFunction(v, kind, ctx.inList);
     if (v.t === "empty") {
       if (!ctx.allowEmpty) {

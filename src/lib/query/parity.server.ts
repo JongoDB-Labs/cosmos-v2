@@ -6,9 +6,13 @@
  * the page of ids and the total with what the legacy builder returned. Logs a
  * `[cql-parity]` line with counts only: never titles, never ids.
  *
- * Sample rate: CQL_PARITY_SAMPLE (0..1). Default 0.05 in production and 1 in
- * any other environment, so staging compares everything. Cut over once the
- * logs show zero mismatches for 7 days.
+ * Who is sampled (owner decision on the #1105 review): orgs that have CQL
+ * switched on, at 0.05 in production and 1 elsewhere; any other org only when
+ * COSMOS_CQL_PARITY_RATE (0..1) is set explicitly, which then applies to every
+ * org. Otherwise 0: an org that hasn't opted in never pays for a second query.
+ * Each comparison runs its two statements one after the other, inside the
+ * normal 3 s / 1.5 s budget. Cut over once the logs show zero mismatches for
+ * 7 days.
  */
 import { after } from "next/server";
 import type { AuthContext } from "@/lib/rbac/check";
@@ -18,12 +22,13 @@ import { fromWorkItemFilter } from "./adapters";
 import { executeCql } from "./execute.server";
 import { CqlError } from "./errors";
 
-export function paritySampleRate(env: Record<string, string | undefined> = process.env): number {
-  const raw = env.CQL_PARITY_SAMPLE;
+export function paritySampleRate(cqlOn: boolean, env: Record<string, string | undefined> = process.env): number {
+  const raw = env.COSMOS_CQL_PARITY_RATE;
   if (raw !== undefined && raw !== "") {
     const n = Number(raw);
     return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0;
   }
+  if (!cqlOn) return 0;
   return env.NODE_ENV === "production" ? 0.05 : 1;
 }
 
@@ -48,7 +53,9 @@ export async function compareWithCql(
     const r = await executeCql(
       ctx,
       { query: fromWorkItemFilter(args.filter, args.sort) },
-      { page: args.page, pageSize: args.pageSize, timeoutMs: 10_000, countTimeoutMs: 10_000 },
+      // One transaction at a time, in the interactive budget: parity must not
+      // cost the database more than the search it shadows.
+      { page: args.page, pageSize: args.pageSize, sequential: true },
     );
     const a = legacy.data.map((x) => x.id);
     const b = r.data.map((x) => x.id);
@@ -78,9 +85,10 @@ export function scheduleParity(
   ctx: AuthContext,
   args: { filter: WorkItemFilter; sort: WorkItemSort | undefined; page: number; pageSize: number },
   legacy: RunQueryResult,
+  cqlOn: boolean,
   rand: () => number = Math.random,
 ): void {
-  if (rand() >= paritySampleRate()) return;
+  if (rand() >= paritySampleRate(cqlOn)) return;
   try {
     after(() => runParity(ctx, args, legacy));
   } catch {
