@@ -13,15 +13,21 @@ import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { notifyError } from "@/lib/errors/notify";
 
 /**
- * COSMOS-202 (B1): connect your own Outlook / Microsoft 365 calendar.
- * Off until an org admin installs the Outlook Calendar integration.
+ * COSMOS-202: connect your own Outlook / Microsoft 365 calendar (B1), and
+ * your Cosmos meetings are mirrored into it with Outlook edits brought back
+ * (B2). Off until an org admin installs the Outlook Calendar integration.
  */
 
 interface CalendarStatus {
   enabled: boolean;
   canManage: boolean;
   admin: { redirectUri: string; adminConsentUrl: string | null; appConfigured: boolean } | null;
-  connection: { account: string; status: "connected" | "reconnect"; connectedAt: string } | null;
+  connection: {
+    account: string;
+    status: "connected" | "reconnect";
+    connectedAt: string;
+    lastSyncAt: string | null;
+  } | null;
 }
 
 /** What the callback came back with (?outlook=…), in words. */
@@ -66,6 +72,12 @@ export function OutlookCalendarSection({ orgId }: { orgId: string }) {
     onSuccess: () => toast.success("Outlook Calendar disconnected"),
     onError: (e) => notifyError(e, "Couldn't disconnect."),
   });
+  const syncNow = useOrgMutation({
+    mutationFn: () => jsonFetch(`/api/v1/orgs/${orgId}/microsoft/calendar/sync`, { method: "POST" }),
+    invalidate: [["outlook-calendar"]],
+    onSuccess: () => toast.success("Outlook Calendar synced"),
+    onError: (e) => notifyError(e, "Couldn't sync."),
+  });
   const connectHref = `/api/v1/orgs/${orgId}/microsoft/calendar/connect`;
   const conn = data?.connection;
 
@@ -89,8 +101,7 @@ export function OutlookCalendarSection({ orgId }: { orgId: string }) {
         <div className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
             You&apos;ll sign in with your work Microsoft account and allow calendar access only. Cosmos writes
-            to a separate &quot;Cosmos&quot; calendar it creates, never your main one. Meeting sync is
-            rolling out; connecting now gets you ready for it.
+            to a separate &quot;Cosmos&quot; calendar it creates, never your main one.
           </p>
           <div>
             <a href={connectHref} className={cn(buttonVariants({ size: "sm" }))}>
@@ -108,6 +119,8 @@ export function OutlookCalendarSection({ orgId }: { orgId: string }) {
           ) : (
             <p className="text-sm">
               Connected as <strong>{conn.account}</strong> since {new Date(conn.connectedAt).toLocaleDateString()}.
+              {" "}
+              {conn.lastSyncAt ? `Last synced ${new Date(conn.lastSyncAt).toLocaleString()}.` : "Not synced yet."}
             </p>
           )}
           <div className="flex flex-wrap gap-2">
@@ -116,13 +129,23 @@ export function OutlookCalendarSection({ orgId }: { orgId: string }) {
                 Reconnect
               </a>
             )}
+            {conn.status === "connected" && (
+              <Button size="sm" onClick={() => syncNow.mutate()} disabled={syncNow.isPending}>
+                {syncNow.isPending ? "Syncing…" : "Sync now"}
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={() => disconnect.mutate()} disabled={disconnect.isPending}>
               Disconnect
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Disconnecting deletes the access Cosmos holds. To remove the app from your Microsoft account too, go
-            to myapps.microsoft.com.
+            Meetings you attend appear in your &quot;Cosmos&quot; calendar. A time or title change you make there
+            comes back to Cosmos if you can edit that meeting; otherwise the Cosmos version is put back. Deleting
+            the event in Outlook only removes your copy. Classified meetings show only as busy.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Disconnecting removes the &quot;Cosmos&quot; calendar from your Outlook and deletes the access Cosmos holds.
+            To remove the app from your Microsoft account too, go to myapps.microsoft.com.
           </p>
         </div>
       )}
