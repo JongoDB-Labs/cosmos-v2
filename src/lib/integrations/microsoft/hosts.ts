@@ -13,3 +13,8 @@ export function microsoftLoginOrigin(): string {
 export function microsoftGraphOrigin(): string {
   return strip(process.env.MICROSOFT_GRAPH_ORIGIN || "https://graph.microsoft.com");
 }
+
+/** Where the Bot Framework publishes the keys it signs requests to bots with. */
+export function botFrameworkLoginOrigin(): string {
+  return strip(process.env.BOT_FRAMEWORK_LOGIN_ORIGIN || "https://login.botframework.com");
+}
