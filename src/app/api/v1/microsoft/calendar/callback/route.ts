@@ -53,6 +53,7 @@ export async function GET(request: NextRequest) {
       code,
       verifier: s.verifier,
       redirectUri: `${origin}${MS_CALENDAR_CALLBACK_PATH}`,
+      origin,
     });
     await logAudit({
       orgId: s.orgId, userId: s.userId, action: "microsoft_calendar.connected", entity: "user", entityId: s.userId,

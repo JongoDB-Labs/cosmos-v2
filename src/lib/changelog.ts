@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.447.0",
+    date: "2026-10-23",
+    title: "Outlook calendar sync",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Connect Outlook Calendar and your Cosmos meetings appear in a Cosmos calendar in Outlook. Changes stay in sync both ways, and your own calendars are never touched.",
+      },
+    ],
+  },
+  {
     version: "2.446.1",
     date: "2026-10-23",
     title: "Faster team lookups in the assistant",
