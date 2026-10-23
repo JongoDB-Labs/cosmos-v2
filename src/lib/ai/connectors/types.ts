@@ -69,7 +69,21 @@ export interface ConnectorToolContext {
     enabledConnectors?: string[] | null;
     breadthEnabled?: boolean;
   };
+  /**
+   * The tool names the model was OFFERED this run. REQUIRED for a call to execute:
+   * `executeConnectorTool` refuses (and audits) a name outside it, and refuses
+   * everything when it's absent (fail closed). The agent loop always passes it.
+   */
+  offered?: ReadonlySet<string>;
 }
+
+/**
+ * Whether a connector tool only reads, or changes something outside Cosmos
+ * (sends, posts, creates, updates, deletes). A function decides from the call's
+ * input (e.g. an HTTP proxy's method); with no input to decide from, it counts as
+ * a write. Drives the bot tool-scope ceiling (READONLY offers only reads).
+ */
+export type ConnectorToolAccess = "read" | "write" | ((input: Record<string, unknown>) => "read" | "write");
 
 /** Per-tool egress mapping a connector contributes → merged into TOOL_ENTITY. */
 export interface ConnectorEgressEntry {
@@ -111,6 +125,8 @@ export interface ConnectorDescriptor {
     ctx: ConnectorToolContext,
   ): Promise<unknown>;
   egress: Record<string, ConnectorEgressEntry>;
+  /** Every tool in `toolDefs`, declared read or write (an invariant test enforces it). */
+  access: Record<string, ConnectorToolAccess>;
   exposableFields?: Record<string, readonly string[]>;
   handleableFields?: Record<string, readonly string[]>;
 }

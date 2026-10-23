@@ -208,6 +208,18 @@ export function connectorToolNames(
 }
 
 /**
+ * Is this connector tool a read or a write? `undefined` for a name no connector
+ * owns. An input-dependent tool decides from `input`; with none, it is a write.
+ */
+export function connectorToolAccess(name: string, input?: Record<string, unknown>): "read" | "write" | undefined {
+  const owner = toolNameOwner.get(name);
+  if (!owner) return undefined;
+  const a = owner.access[name];
+  if (typeof a === "function") return input ? a(input) : "write";
+  return a ?? "write";
+}
+
+/**
  * Route a tool call to its OWNING descriptor's executor. Throws if the name isn't a
  * registered connector tool — callers MUST gate on `connectorToolNames().has(name)`
  * first (the dispatcher does), so reaching here with an unknown name is a bug, not a
@@ -278,6 +290,29 @@ export function executeConnectorTool(
         `[connector-registry] tool "${name}" belongs to connector "${owner.provider}", ` +
           `which is DISABLED by this org's runtime config — refusing dispatch (runtime-config gate).`,
       ),
+    );
+  }
+
+  // ── OFFERED gate ─────────────────────────────────────────────────────────────
+  // Only a tool the model was offered this run may run: a bot's tool scope, a
+  // caller's own narrowed list (`tools: []`), or the tenant/config filters may all
+  // have withheld it, and a forged or hallucinated name must not get around that.
+  // No offered set at all ⇒ refuse (fail closed). Audited like the other refusals.
+  if (!ctx.offered || !ctx.offered.has(name)) {
+    logEgressDecision({
+      conversationId: ctx.conversationId ?? "n/a",
+      turn: -1,
+      valueKind: "tool_args",
+      toolName: name,
+      exposed: false,
+      withheldCount: 1,
+      contentHash: sha256Hex(JSON.stringify(input ?? {})),
+      decidedBy: "tool_not_offered_block",
+      tenantClass: ctx.tenantClass ?? "gov",
+      mode: "enforced",
+    });
+    return Promise.reject(
+      new Error(`[connector-registry] tool "${name}" was not offered in this run — refusing dispatch.`),
     );
   }
 

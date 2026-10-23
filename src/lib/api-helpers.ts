@@ -3,6 +3,7 @@ import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { ForbiddenError, NotFoundError, ConflictError } from "./rbac/check";
 import { serverReportError } from "./telemetry/server";
+import { isNoModelCredentialError } from "./ai/egress/types";
 
 export function success<T>(data: T, status = 200) {
   return NextResponse.json(data, { status });
@@ -34,6 +35,14 @@ export function handleApiError(error: unknown) {
     // errors — a 409, not a 500 that pollutes the error budget.
     return NextResponse.json(
       { error: error.message },
+      { status: 409 }
+    );
+  }
+  if (isNoModelCredentialError(error)) {
+    // No Claude connection is an org setup state, not a server fault: say so
+    // instead of a 500 (or, before, a stale env key's raw Anthropic 401).
+    return NextResponse.json(
+      { error: error.message, code: "model_not_connected" },
       { status: 409 }
     );
   }

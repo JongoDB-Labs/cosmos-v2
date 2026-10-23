@@ -82,6 +82,7 @@ import {
   Archive,
   Ban,
   Merge,
+  Split,
   ArchiveRestore,
   X,
 } from "lucide-react";
@@ -190,7 +191,9 @@ export function CardDetailSheet({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dupPrompt, setDupPrompt] = useState(false);
   const [dragChildIdx, setDragChildIdx] = useState<number | null>(null);
-  const [actionPending, setActionPending] = useState<null | "delete" | "duplicate">(null);
+  const [actionPending, setActionPending] = useState<null | "delete" | "duplicate" | "split">(null);
+  // COSMOS-89: confirm before turning one shared item into one per assignee.
+  const [splitPrompt, setSplitPrompt] = useState(false);
   // Synchronous re-entrancy guard for duplication. `actionPending` (state) can't
   // fully guard the trigger: the on-item effect below resets it to null whenever
   // the `item` prop reference changes — which happens the instant a duplicate
@@ -1004,6 +1007,35 @@ export function CardDetailSheet({
     }
   }
 
+  // Split per assignee (COSMOS-89): this item keeps its first assignee and each
+  // of the others gets their own copy. The new items reach every open board
+  // through the work-item.created events the route publishes.
+  async function handleSplit() {
+    if (!item || actionPending) return;
+    setActionPending("split");
+    try {
+      const res = await fetch(`${basePath}/${item.id}/split-assignees`, { method: "POST" });
+      if (!res.ok) throw new Error(`Failed to split (HTTP ${res.status})`);
+      const result: {
+        keptAssigneeId: string;
+        copies: { id: string; ticketNumber: number }[];
+      } = await res.json();
+      setAssigneeIds([result.keptAssigneeId]);
+      setAssigneeId(result.keptAssigneeId);
+      setSplitPrompt(false);
+      const fresh = await fetch(`${basePath}/${item.id}`);
+      if (fresh.ok) onUpdate((await fresh.json()) as WorkItem);
+      toast.success(
+        `Split into ${result.copies.length + 1} issues`,
+        { description: `New: ${result.copies.map((c) => `#${c.ticketNumber}`).join(", ")}` },
+      );
+    } catch (err) {
+      notifyError(err, "Couldn't split this item.");
+    } finally {
+      setActionPending(null);
+    }
+  }
+
   async function handleDuplicate(withChildren: boolean) {
     // Ignore repeat invocations while a duplicate is already in flight so rapid
     // clicks (or a prompt choice landing after the trigger re-enables) resolve to
@@ -1139,8 +1171,11 @@ export function CardDetailSheet({
         <SheetHeader>
           {/* Single identity line: "#1 · Task". The title is shown once, in the
               editable input below — not duplicated here. Item-level actions
-              (duplicate / delete) sit on the right, each permission-gated. */}
-          <div className="flex items-center justify-between gap-2 pr-10">
+              (duplicate / delete) sit on the right, each permission-gated.
+              Both rows WRAP: up to seven actions don't fit one line of a 672px
+              sheet, and the pane hides overflow-x, so a row that can't wrap
+              runs off the edge and takes Delete with it. */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pr-10">
             <SheetTitle className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
               <span className="font-mono">#{item.ticketNumber}</span>
               {item.workItemType && (
@@ -1149,7 +1184,10 @@ export function CardDetailSheet({
                 </span>
               )}
             </SheetTitle>
-            <div className="flex items-center gap-1">
+            <div
+              className="flex flex-wrap items-center justify-end gap-1"
+              data-testid="card-detail-actions"
+            >
               <Button
                 variant="ghost"
                 size="sm"
@@ -1588,6 +1626,18 @@ export function CardDetailSheet({
                 onValueChange={(ids) => void patchAssignees(ids)}
                 options={assigneeOptions}
               />
+              {assigneeIds.length > 1 && canEditItem && canDuplicate && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 h-6 gap-1.5 px-1.5 text-xs text-muted-foreground"
+                  onClick={() => setSplitPrompt(true)}
+                  disabled={actionPending !== null}
+                >
+                  <Split className="h-3.5 w-3.5" />
+                  Split per assignee
+                </Button>
+              )}
             </MetadataField>
 
             <MetadataField icon={Hash} label="Points">
@@ -2231,6 +2281,32 @@ export function CardDetailSheet({
         initialReason={item?.cancelReason === "MERGED" ? null : (item?.cancelReason ?? null)}
         initialNote={item?.cancelNote ?? null}
       />
+
+      {/* Split per assignee (COSMOS-89): say exactly who ends up where. */}
+      <Dialog open={splitPrompt} onOpenChange={(o) => !o && setSplitPrompt(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Split into one issue per assignee?</DialogTitle>
+            <DialogDescription>
+              #{item.ticketNumber} stays with{" "}
+              {assigneeOptions.find((o) => o.value === assigneeIds[0])?.label ?? "its first assignee"}.{" "}
+              {assigneeIds
+                .slice(1)
+                .map((id) => assigneeOptions.find((o) => o.value === id)?.label ?? "a member")
+                .join(", ")}{" "}
+              each get their own copy, with the same fields and parent, linked back to this one.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSplitPrompt(false)} disabled={actionPending === "split"}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleSplit()} disabled={actionPending === "split"}>
+              {actionPending === "split" ? "Splitting…" : `Split into ${assigneeIds.length} issues`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Duplicate-with-children prompt (only when the item has sub-items). */}
       <Dialog open={dupPrompt} onOpenChange={(o) => !o && setDupPrompt(false)}>
