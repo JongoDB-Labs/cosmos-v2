@@ -34,7 +34,11 @@ for (const m of ["hasPointerCapture", "setPointerCapture", "releasePointerCaptur
   }
 }
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/test-org/feedback" }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/test-org/feedback",
+  useRouter: () => ({ replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 // SSE EventSource jsdom lacks — the live-refresh subscription (COSMOS-129) is
 // orthogonal to what these tests exercise, so stub it to a no-op.
