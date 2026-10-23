@@ -123,8 +123,13 @@ describe("typecheck — fields", () => {
     expect(codes('"Go Live" < 2026-12-01')).toEqual([]);
     expect(codes("Owner = me")).toEqual([]);
     expect(codes("Approved > 3")).toEqual(["CQL_OPERATOR_NOT_SUPPORTED"]);
-    expect(codes("Notes ~ abc")).toEqual(["CQL_OPERATOR_NOT_SUPPORTED"]);
-    expect(codes("Severity IS EMPTY")).toEqual(["CQL_NOT_YET_SUPPORTED"]);
+    expect(codes("Notes ~ abc")).toEqual([]);
+    expect(codes("Severity ~ abc")).toEqual(["CQL_OPERATOR_NOT_SUPPORTED"]);
+    expect(codes("Severity IS EMPTY")).toEqual([]);
+    expect(codes("Severity IN (S1, EMPTY)")).toEqual([]);
+    expect(codes("Approved IS EMPTY")).toEqual(["CQL_OPERATOR_NOT_SUPPORTED"]);
+    // The Jira != gotcha applies to custom fields too.
+    expect(codes("Severity != S1")).toEqual(["CQL_NEQ_EXCLUDES_EMPTY"]);
   });
 });
 

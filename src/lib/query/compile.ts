@@ -23,7 +23,7 @@
  *     (history.server.ts, results in `env.history`). `BY u` means u made the
  *     change to v. `CHANGED` is a relation filter on Activity.
  */
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
   mentionsField,
   predValues,
@@ -502,6 +502,14 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
 
 function cfCompiler(key: string, type: CustomFieldType): FieldCompiler {
   const at = (f: Omit<Prisma.JsonNullableFilter<"WorkItem">, "path">): Where => ({ customFields: { path: [key], ...f } });
+  // Empty: never set (or JSON null), or cleared to "" / []. Checkboxes are
+  // never empty; an unset one is false.
+  const isEmpty = or(at({ equals: Prisma.AnyNull }), at({ equals: "" }), at({ equals: [] }));
+  const c = cfCompilerOf(type, at);
+  return type === "CHECKBOX" ? c : { ...c, isEmpty };
+}
+
+function cfCompilerOf(type: CustomFieldType, at: (f: Omit<Prisma.JsonNullableFilter<"WorkItem">, "path">) => Where): FieldCompiler {
   switch (type) {
     case "NUMBER":
       return {
@@ -535,8 +543,17 @@ function cfCompiler(key: string, type: CustomFieldType): FieldCompiler {
       return { match: (b) => or(...scalars(b).map((v) => at({ equals: v === true }))), isEmpty: null };
     case "USER":
       return { match: (b) => or(...ids(b).map((id) => at({ equals: id }))), isEmpty: null };
+    case "TEXT":
+    case "URL":
+    case "EMAIL":
+      return {
+        match: (b) => or(...scalars(b).map((v) => at({ equals: String(v) }))),
+        isEmpty: null,
+        // Like `summary ~`: contains, case-insensitive, LIKE wildcards escaped; a trailing * is a prefix.
+        text: (q) => (q.endsWith("*") ? at({ string_starts_with: likeText(q), mode: "insensitive" }) : at({ string_contains: likeText(q), mode: "insensitive" })),
+      };
     default:
-      // TEXT, URL, EMAIL, SELECT: exact value.
+      // SELECT: exact value.
       return { match: (b) => or(...scalars(b).map((v) => at({ equals: String(v) }))), isEmpty: null };
   }
 }
@@ -704,7 +721,9 @@ function compileLeaf(n: LeafNode, env: CompileEnv): Where {
       case "text": {
         if (!c.text) throw new Error("no text match");
         const w = c.text(n.query);
-        return n.negate ? not(w) : w;
+        if (!n.negate) return w;
+        // A custom field's `!~`, like its `!=`, leaves out items where it is empty.
+        return n.field.kind === "cf" && c.isEmpty ? and(not(w), not(c.isEmpty)) : not(w);
       }
       case "in":
       case "cmp": {

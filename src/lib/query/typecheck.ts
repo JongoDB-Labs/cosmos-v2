@@ -93,9 +93,9 @@ const NULLABLE = new Set([
 ]);
 
 export const CF_OPS: Record<CustomFieldType, readonly OpFamily[]> = {
-  TEXT: ["eq", "empty"],
-  URL: ["eq", "empty"],
-  EMAIL: ["eq", "empty"],
+  TEXT: ["eq", "text", "empty"],
+  URL: ["eq", "text", "empty"],
+  EMAIL: ["eq", "text", "empty"],
   NUMBER: ["eq", "order", "empty"],
   DATE: ["eq", "order", "empty"],
   SELECT: ["eq", "in", "empty"],
@@ -379,10 +379,6 @@ export function typecheck(input: CqlQuery, schema: CqlSchema, text = "", spans?:
       err("CQL_OPERATOR_NOT_SUPPORTED", `\`${name}\` has no order; ${opAdvice(ops)}.`, n);
       return null;
     }
-    if (f.cf && fam === "empty") {
-      err("CQL_NOT_YET_SUPPORTED", "`IS EMPTY` on custom fields arrives with query phase 4.", n);
-      return null;
-    }
     const allowEmpty = ops.includes("empty");
     const field = f.ref;
 
@@ -395,7 +391,7 @@ export function typecheck(input: CqlQuery, schema: CqlSchema, text = "", spans?:
         if (value.t === "fn" && lookupFunction(value.name)?.many) {
           return { op: "in", field, ...(n.cmp === "neq" ? { negate: true } : {}), values: [value] };
         }
-        if (n.cmp === "neq" && NULLABLE.has(name)) warnNeq(n, name);
+        if (n.cmp === "neq" && (f.cf ? allowEmpty : NULLABLE.has(name))) warnNeq(n, f.cf ? printField(field) : name);
         return { ...n, field, value };
       }
       case "in": {
@@ -403,7 +399,7 @@ export function typecheck(input: CqlQuery, schema: CqlSchema, text = "", spans?:
           .map((v) => checkValue(v, kind, { inList: true, allowEmpty, field: name }))
           .filter((v): v is CqlValue => !!v);
         if (values.length !== n.values.length) return null;
-        if (n.negate && NULLABLE.has(name) && !values.some((v) => v.t === "empty")) warnNeq(n, name);
+        if (n.negate && (f.cf ? allowEmpty : NULLABLE.has(name)) && !values.some((v) => v.t === "empty")) warnNeq(n, f.cf ? printField(field) : name);
         return { ...n, field, values };
       }
       case "empty":
