@@ -8,7 +8,7 @@ import { NextRequest } from "next/server";
 
 const { prisma, tx, getAuthContext, requireAccess } = vi.hoisted(() => {
   const tx = {
-    workItem: { aggregate: vi.fn(), update: vi.fn(), create: vi.fn() },
+    workItem: { aggregate: vi.fn(), updateMany: vi.fn(async () => ({ count: 1 })), create: vi.fn() },
     workItemAssignee: { deleteMany: vi.fn(), create: vi.fn() },
     workItemLink: { create: vi.fn() },
     activity: { create: vi.fn() },
@@ -86,8 +86,8 @@ describe("POST split-assignees", () => {
     expect(tx.workItemAssignee.deleteMany).toHaveBeenCalledWith({
       where: { workItemId: "src", userId: { in: ["bo", "cy"] } },
     });
-    expect(tx.workItem.update).toHaveBeenCalledWith({
-      where: { id: "src" },
+    expect(tx.workItem.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["src"] } },
       data: { assigneeId: "ann" },
     });
   });

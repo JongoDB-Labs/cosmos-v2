@@ -30,19 +30,29 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       // a release's feedback can be read as a set — the question this queue
       // exists to answer once people comment through the walkthrough.
       sourceRef: z.string().max(200).optional(),
+      // Merged duplicates live on in their survivor; staff can ask for them.
+      includeMerged: z.enum(["1"]).optional(),
     });
-    const { type, status, source, sourceRef } = querySchema.parse({
+    const { type, status, source, sourceRef, includeMerged } = querySchema.parse({
       type: request.nextUrl.searchParams.get("type") ?? undefined,
       status: request.nextUrl.searchParams.get("status") ?? undefined,
       source: request.nextUrl.searchParams.get("source") ?? undefined,
       sourceRef: request.nextUrl.searchParams.get("sourceRef") ?? undefined,
+      includeMerged: request.nextUrl.searchParams.get("includeMerged") ?? undefined,
     });
+    const showMerged = includeMerged === "1" && hasPermission(ctx.permissions, Permission.ORG_UPDATE);
 
     const items = await prisma.feedbackItem.findMany({
       where: {
         orgId,
         ...(type ? { type } : {}),
-        ...(status ? { status } : {}),
+        // Merged items are hidden, except from staff who ask for them and from
+        // the item's own author, who should still see "duplicate of …".
+        ...(status
+          ? { status }
+          : showMerged
+            ? {}
+            : { OR: [{ status: { not: "MERGED" } }, { authorId: ctx.userId }] }),
         ...(source ? { source } : {}),
         // Prefix match, so a tour id alone returns every step's feedback.
         ...(sourceRef ? { sourceRef: { startsWith: sourceRef } } : {}),

@@ -326,7 +326,7 @@ function AdvancedMode({
 
 // Every example is checked to parse and typecheck (query-builder.test).
 const EXAMPLES: { q: string; says: string }[] = [
-  { q: "assignee = me AND statusCategory != DONE ORDER BY priority DESC", says: "My open work, most urgent first" },
+  { q: "assignee = me AND statusCategory != DONE ORDER BY priority, due", says: "My open work, most urgent first" },
   { q: "priority IN (HIGH, CRITICAL) AND due < now()", says: "Urgent and overdue" },
   { q: "sprint IN openSprints() AND assignee IS EMPTY", says: "Unassigned in the current sprint" },
   { q: "assignee IN membersOf(\"Platform\") AND updated >= -3wd", says: "The Platform team's work touched in the last 3 working days" },

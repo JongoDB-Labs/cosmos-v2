@@ -204,6 +204,30 @@ describe("CQL routes (e2e DB)", () => {
     }
   });
 
+  it("the org switch never writes back settings it read before a concurrent change", async () => {
+    await prisma.organization.update({ where: { id: w.orgA }, data: { settings: { ...withCqlEnabled({}, true), calendarFeeds: { enabled: true } } as object } });
+    // The route's read returns settings from BEFORE someone switched calendar feeds off.
+    const real = prisma.organization.findUnique.bind(prisma.organization);
+    const stale = vi.spyOn(prisma.organization, "findUnique").mockImplementationOnce((async (args: never) => {
+      const row = await real(args);
+      await prisma.organization.update({ where: { id: w.orgA }, data: { settings: { ...withCqlEnabled({}, true), calendarFeeds: { enabled: false } } as object } });
+      return row;
+    }) as never);
+    try {
+      getAuthContext.mockImplementationOnce(async () => ({ ...w.ctx(), permissions: w.ctx().permissions | Permission.ORG_MANAGE_SETTINGS }) as AuthContext);
+      const res = await switchPut(
+        new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/query-language`, { method: "PUT", body: JSON.stringify({ enabled: true }) }),
+        { params: params() },
+      );
+      expect(res.status).toBe(200);
+      const org = await prisma.organization.findUniqueOrThrow({ where: { id: w.orgA }, select: { settings: true } });
+      expect(org.settings).toMatchObject({ cql: { enabled: true }, calendarFeeds: { enabled: false } });
+    } finally {
+      stale.mockRestore();
+      await prisma.organization.update({ where: { id: w.orgA }, data: { settings: withCqlEnabled({}, true) as object } });
+    }
+  });
+
   it("search ?cql=: bad CQL is a 400 even for someone who can read nothing; too long is a 400", async () => {
     getAuthContext.mockImplementationOnce(async () => w.ctx({ projectScope: [] }));
     const bad = await searchRoute(new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/work-items/search?cql=${encodeURIComponent("priorty = HIGH")}`), { params: params() });

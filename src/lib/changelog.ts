@@ -49,6 +49,83 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.449.1",
+    date: "2026-10-23",
+    title: "Consistent work item updates",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Bulk edits now work like editing each item, recording actual dates and history, and a custom-named Done column (such as \"Shipped\") counts as done in sprint completion, reviews and reports. Changes made by the assistant appear in an item's history and update open boards live.",
+      },
+    ],
+  },
+  {
+    version: "2.449.0",
+    date: "2026-10-23",
+    title: "Feedback discussions",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Feedback threads now notify you when someone mentions you or replies to your comment.",
+      },
+    ],
+  },
+  {
+    version: "2.448.0",
+    date: "2026-10-23",
+    title: "Query language editor (beta)",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Organisations can turn on the Cosmos Query Language in Settings \u2192 Organization, then search Issues with queries like assignee = me AND priority IN (HIGH, CRITICAL), with suggestions as you type and shareable links.",
+      },
+    ],
+  },
+  {
+    version: "2.447.1",
+    date: "2026-10-23",
+    title: "Outlook sync recognises your calendar",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Outlook calendar sync now recognises its Cosmos calendar when your sign-in name differs from your email address, so reconnecting no longer creates extra calendars.",
+      },
+    ],
+  },
+  {
+    version: "2.447.0",
+    date: "2026-10-23",
+    title: "Outlook calendar sync",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Connect Outlook Calendar and your Cosmos meetings appear in a Cosmos calendar in Outlook. Changes stay in sync both ways, and your own calendars are never touched.",
+      },
+    ],
+  },
+  {
+    version: "2.446.1",
+    date: "2026-10-23",
+    title: "Faster team lookups in the assistant",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Asking the assistant about your org's teams now takes one step instead of checking each project in turn.",
+      },
+    ],
+  },
+  {
+    version: "2.446.0",
+    date: "2026-10-23",
+    title: "Open feedback from a link",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Notifications and shared links now open the exact feedback item, even if it isn't near the top of the list.",
+      },
+    ],
+  },
+  {
     version: "2.445.0",
     date: "2026-10-23",
     title: "Query language groundwork",

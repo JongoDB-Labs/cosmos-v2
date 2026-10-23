@@ -40,6 +40,8 @@ vi.mock("@/components/providers/permissions-provider", async (orig) => {
     }),
   };
 });
+// The workspace reads the project's statuses for the sprint review; not under test here.
+vi.mock("@/hooks/use-project-statuses", () => ({ useProjectStatuses: () => [] }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 vi.mock("./capacity-dialog", () => ({ CapacityDialog: () => null }));
 vi.mock("./add-issues-dialog", () => ({ AddIssuesDialog: () => null }));

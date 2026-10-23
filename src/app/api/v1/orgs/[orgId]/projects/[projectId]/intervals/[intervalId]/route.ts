@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { updateWorkItems } from "@/lib/work-items/write.server";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
@@ -232,13 +233,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    await prisma.$transaction([
-      prisma.workItem.updateMany({
-        where: { intervalId },
-        data: { intervalId: null },
-      }),
-      prisma.interval.delete({ where: { id: intervalId } }),
-    ]);
+    await prisma.$transaction(async (tx) => {
+      const members = await tx.workItem.findMany({ where: { intervalId }, select: { id: true } });
+      await updateWorkItems(tx, members.map((m) => m.id), { intervalId: null });
+      await tx.interval.delete({ where: { id: intervalId } });
+    });
 
     await logAudit({
       orgId,
