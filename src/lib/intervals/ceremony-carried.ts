@@ -1,4 +1,4 @@
-import { isDoneColumnKey } from "./sprint-review";
+import { isDoneStatus, type DoneStateColumn } from "@/lib/work-items/done-state";
 
 /**
  * Resolves "what carried forward" for a sprint, and says which of three things
@@ -24,6 +24,8 @@ export interface CarriedInput {
   status: "PLANNED" | "ACTIVE" | "COMPLETED";
   items: { id: string; columnKey: string }[];
   report: unknown;
+  /** The project's statuses with their categories. */
+  statuses: readonly DoneStateColumn[];
 }
 
 export function resolveCarriedItems(input: CarriedInput): CarriedItems {
@@ -31,7 +33,7 @@ export function resolveCarriedItems(input: CarriedInput): CarriedItems {
     return {
       kind: "live",
       itemIds: input.items
-        .filter((i) => !isDoneColumnKey(i.columnKey))
+        .filter((i) => !isDoneStatus(i.columnKey, input.statuses))
         .map((i) => i.id),
     };
   }

@@ -5,6 +5,7 @@ import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requireBoardRead } from "@/lib/rbac/board-access";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { computeSprintReview } from "@/lib/intervals/sprint-review";
+import { loadStatusCategories } from "@/lib/boards/status-categories.server";
 import { resolveCarriedItems } from "@/lib/intervals/ceremony-carried";
 import { shippedItems, statusLabelFor } from "@/lib/intervals/ceremony-payload";
 import { computeNextSprintDefaults } from "@/lib/intervals/next-sprint";
@@ -133,16 +134,22 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const ceremony = board.ceremonies[0] ?? null;
     const config = (board.config ?? {}) as { showNoteAuthors?: boolean };
 
+    // "Done" is a status CATEGORY, read from the project's work boards: this
+    // ceremony board's own columns are prompts (Start/Stop/Continue), not statuses.
+    const statuses = await loadStatusCategories(prisma, projectId);
+
     const metrics = computeSprintReview({
       startDate: interval.startDate,
       endDate: interval.endDate,
       items: interval.workItems,
+      columns: statuses,
     });
 
     const carried = resolveCarriedItems({
       status: interval.status,
       items: interval.workItems,
       report: interval.report,
+      statuses,
     });
 
     // Once a sprint completes its carried items belong to another sprint, so
@@ -230,7 +237,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         sortOrder: c.sortOrder,
       })),
       metrics,
-      shipped: shippedItems(interval.workItems),
+      shipped: shippedItems(interval.workItems, statuses),
       carried: {
         kind: carried.kind,
         items: carriedItems.map((i) => ({

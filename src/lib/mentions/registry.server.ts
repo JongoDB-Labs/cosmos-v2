@@ -20,6 +20,8 @@ import {
 import { entityUrl } from "./urls";
 import { parseTicketQuery } from "./ticket-query";
 
+import { FEEDBACK_SUBJECT } from "@/lib/feedback/subject";
+import { feedbackItemUrl } from "@/lib/feedback/urls";
 export type SearchScope = { orgId: string; userId: string };
 
 export type EntityHit = {
@@ -366,14 +368,29 @@ export async function resolveBacklinks(opts: {
   });
   const directMap = new Map(direct.map((d) => [refKey(d.type, d.id), d]));
 
-  // comment sources → the work item they live on.
+  // comment sources → the work item they live on, or the feedback item they
+  // discuss. A feedback comment counts only while it is public and not
+  // deleted: internal notes and removed words never surface as a backlink.
   const commentIds = idsOf("comment");
   const comments = commentIds.length
     ? await prisma.comment.findMany({
         where: { id: { in: commentIds }, orgId: opts.orgId },
-        select: { id: true, workItemId: true },
+        select: { id: true, workItemId: true, subjectType: true, subjectId: true, visibility: true, deletedAt: true },
       })
     : [];
+  const feedbackComments = comments.filter(
+    (c) => c.subjectType === FEEDBACK_SUBJECT && c.subjectId && c.visibility === "PUBLIC" && !c.deletedAt,
+  );
+  const feedbackItems = feedbackComments.length
+    ? await prisma.feedbackItem.findMany({
+        where: { id: { in: feedbackComments.map((c) => c.subjectId as string) }, orgId: opts.orgId },
+        select: { id: true, title: true },
+      })
+    : [];
+  const feedbackById = new Map(feedbackItems.map((f) => [f.id, f]));
+  const commentToFeedback = new Map(
+    feedbackComments.map((c) => [c.id, feedbackById.get(c.subjectId as string)]),
+  );
   const commentWi = await resolveRefs({
     ...scope,
     refs: comments
@@ -411,7 +428,16 @@ export async function resolveBacklinks(opts: {
       if (d) out.push({ sourceType: r.sourceType, sourceId: r.sourceId, label: d.label, url: d.url, createdAt });
     } else if (r.sourceType === "comment") {
       const wi = commentToWi.get(r.sourceId);
+      const fb = commentToFeedback.get(r.sourceId);
       if (wi) out.push({ sourceType: "comment", sourceId: r.sourceId, label: `Comment · ${wi.label}`, url: wi.url, createdAt });
+      else if (fb)
+        out.push({
+          sourceType: "comment",
+          sourceId: r.sourceId,
+          label: `Comment · Feedback: ${fb.title}`,
+          url: `${feedbackItemUrl(opts.orgSlug, fb.id)}#c-${r.sourceId}`,
+          createdAt,
+        });
     } else if (r.sourceType === "chatMessage") {
       const ch = msgToChan.get(r.sourceId);
       const msg = msgs.find((m) => m.id === r.sourceId);
