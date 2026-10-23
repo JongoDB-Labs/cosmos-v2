@@ -23,6 +23,7 @@ import { logAudit } from "@/lib/audit";
 import { levelsReadableUnder, markingAllowed, markingForcesInternal } from "./marking";
 
 import { FEEDBACK_SUBJECT } from "./subject";
+import { activeSubscriberIds, ensureSubscribed } from "./subscriptions.server";
 
 export { FEEDBACK_SUBJECT };
 
@@ -236,7 +237,8 @@ export async function resolveReplyParent(
  * Write a comment and keep the item in step. Only PUBLIC comments count or
  * move "last activity": an internal note must not show up as a number or a
  * timestamp to people who can't read it. An OFFICIAL response becomes the
- * item's pinned answer, replacing any earlier one.
+ * item's pinned answer, replacing any earlier one. The writer follows the
+ * item from now on.
  */
 export async function insertFeedbackComment(
   tx: Prisma.TransactionClient,
@@ -274,6 +276,12 @@ export async function insertFeedbackComment(
     });
   }
   if (kind === "OFFICIAL") await pinOfficial(tx, input.feedbackItemId, comment.id);
+  await ensureSubscribed(tx, {
+    orgId: input.orgId,
+    feedbackItemId: input.feedbackItemId,
+    userId: input.authorId,
+    reason: "commenter",
+  });
   return comment;
 }
 
@@ -564,8 +572,9 @@ async function withdrawNotifications(tx: Prisma.TransactionClient, orgId: string
 
 /**
  * After the comment commits: tell the people it was addressed to. Mentions of
- * org members, and the author of the comment replied
- * to. The writer is never notified; nobody is notified twice. Best-effort.
+ * org members, the author of the comment replied to and, for a new comment,
+ * the item's followers. The writer is never notified; nobody is notified
+ * twice. Best-effort.
  */
 export async function notifyCommentAudience(input: {
   org: { id: string; slug: string };
@@ -576,6 +585,8 @@ export async function notifyCommentAudience(input: {
   repliedToUserId?: string | null;
   /** An internal note only ever notifies people currently on the team. */
   visibility?: CommentVisibility;
+  /** A NEW comment also tells everyone following the item (an edit doesn't). */
+  notifySubscribers?: boolean;
 }): Promise<void> {
   const { org, item, comment } = input;
   const url = `${feedbackItemUrl(org.slug, item.id)}#c-${comment.id}`;
@@ -603,6 +614,9 @@ export async function notifyCommentAudience(input: {
   for (const m of members) {
     if (notified.has(m.userId)) continue;
     notified.add(m.userId);
+    await ensureSubscribed(prisma, { orgId: org.id, feedbackItemId: item.id, userId: m.userId, reason: "mention" }).catch(
+      () => {},
+    );
     await createNotification({
       orgId: org.id,
       userId: m.userId,
@@ -616,11 +630,38 @@ export async function notifyCommentAudience(input: {
   }
 
   if (repliedTo && !notified.has(repliedTo)) {
+    notified.add(repliedTo);
     await createNotification({
       orgId: org.id,
       userId: repliedTo,
       type: "feedback.comment.replied",
       title: `New reply on "${item.title}"`,
+      message: snippet,
+      relatedId: item.id,
+      relatedType: "feedback_item",
+      url,
+    }).catch(() => {});
+  }
+
+  if (!input.notifySubscribers) return;
+  // Followers still in the org who haven't already heard about this comment;
+  // of an internal note, only those on the team now.
+  let followers = (await activeSubscriberIds(item.id)).filter((id) => !notified.has(id));
+  if (input.visibility === "INTERNAL") {
+    const staff = await currentStaff(org.id, followers);
+    followers = followers.filter((id) => staff.has(id));
+  }
+  if (followers.length === 0) return;
+  const stillMembers = await prisma.orgMember.findMany({
+    where: { orgId: org.id, userId: { in: followers } },
+    select: { userId: true },
+  });
+  for (const { userId } of stillMembers) {
+    await createNotification({
+      orgId: org.id,
+      userId,
+      type: "feedback.comment.created",
+      title: `New comment on "${item.title}"`,
       message: snippet,
       relatedId: item.id,
       relatedType: "feedback_item",

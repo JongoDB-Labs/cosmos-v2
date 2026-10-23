@@ -5,6 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { ensureSubscribed } from "@/lib/feedback/subscriptions.server";
 
 type RouteParams = { params: Promise<{ orgId: string; feedbackId: string }> };
 
@@ -37,6 +38,7 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
         await tx.feedbackVote.create({
           data: { feedbackItemId: feedbackId, userId: ctx.userId },
         });
+        await ensureSubscribed(tx, { orgId, feedbackItemId: feedbackId, userId: ctx.userId, reason: "voter" });
         return tx.feedbackItem.update({
           where: { id: feedbackId },
           data: { voteCount: { increment: 1 } },

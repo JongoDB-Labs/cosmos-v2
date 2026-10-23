@@ -9,6 +9,7 @@ import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { hasPermission } from "@/lib/rbac/permissions";
 import { FEEDBACK_ROW_SELECT, toFeedbackDto } from "@/lib/feedback/feedback-dto";
+import { ensureSubscribed } from "@/lib/feedback/subscriptions.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -166,6 +167,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         sourceRef: data.source === "app" ? null : (data.sourceRef ?? null),
       },
     });
+    await ensureSubscribed(prisma, { orgId, feedbackItemId: created.id, userId: ctx.userId, reason: "author" });
 
     // Link the submitter's own orphan attachments to the new item.
     let attachments: {

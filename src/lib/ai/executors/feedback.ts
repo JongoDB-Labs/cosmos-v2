@@ -4,6 +4,7 @@ import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
 import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
+import { ensureSubscribed } from "@/lib/feedback/subscriptions.server";
 
 /**
  * Feedback executors — the org's bug/feature backlog (FeedbackItem). Every query
@@ -88,6 +89,7 @@ export async function createFeedback(input: Record<string, unknown>, ctx: ToolCo
     },
     select: FEEDBACK_SELECT,
   });
+  await ensureSubscribed(prisma, { orgId: ctx.orgId, feedbackItemId: created.id, userId: ctx.userId, reason: "author" });
   return { created: true, id: created.id, feedback: created };
 }
 
