@@ -44,7 +44,8 @@ export type IntakeState = "accepted" | "held" | "rejected" | "throttled" | "gate
 export interface IntakeDecision {
   state: IntakeState;
   label: string;
-  reason: string;
+  /** Staff see the full reason; the author a fixed sentence; others none. */
+  reason?: string;
   score: number | null;
   categories?: string[];
 }

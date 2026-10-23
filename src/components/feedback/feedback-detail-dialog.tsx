@@ -156,7 +156,9 @@ export function FeedbackDetailDialog({
                         </span>
                       )}
                     </div>
-                    <p className="mt-1.5 text-xs text-muted-foreground">{detailItem.intake.reason}</p>
+                    {detailItem.intake.reason && (
+                      <p className="mt-1.5 text-xs text-muted-foreground">{detailItem.intake.reason}</p>
+                    )}
                   </div>
                 )}
 

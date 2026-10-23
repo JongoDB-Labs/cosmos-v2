@@ -63,4 +63,30 @@ describe("toFeedbackDto", () => {
 
     expect(dto).not.toHaveProperty("internalNote");
   });
+
+  describe("intake", () => {
+    it("gives another member only the outcome: no judge reasoning, score or categories", () => {
+      const { intake } = toFeedbackDto(row, { userId: "someone-else", isStaff: false }, author);
+
+      expect(intake).toEqual({ state: "held", label: "Held for review", score: null });
+    });
+
+    it("tells the author what happened in a fixed sentence, never the judge's words", () => {
+      const { intake } = toFeedbackDto(row, { userId: AUTHOR, isStaff: false }, author);
+
+      expect(intake?.state).toBe("held");
+      expect(intake?.score).toBeNull();
+      expect(intake?.reason).toBeTruthy();
+      expect(intake?.reason).not.toContain("prompt injection");
+      expect(intake).not.toHaveProperty("categories");
+    });
+
+    it("gives staff the full decision, score and reasoning included", () => {
+      const { intake } = toFeedbackDto(row, { userId: "admin", isStaff: true }, author);
+
+      expect(intake).toMatchObject({ state: "held", score: 0.8 });
+      expect(intake?.reason).toContain("prompt injection");
+    });
+  });
 });
+
