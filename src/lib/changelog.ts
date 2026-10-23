@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.442.0",
+    date: "2026-10-23",
+    title: "Connect your Outlook calendar",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each person can connect their own Microsoft 365 account, once an admin has approved the app, so Cosmos can work with their Outlook calendar.",
+      },
+    ],
+  },
+  {
     version: "2.441.1",
     date: "2026-10-23",
     title: "Stuck installs no longer block updates",
