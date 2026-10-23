@@ -258,13 +258,16 @@
             "schema": {
               "type": "string",
               "enum": [
-                "true",
-                "false"
+                "0",
+                "1",
+                "false",
+                "true"
               ],
-              "description": "`true` lists archived projects instead of active ones."
+              "description": "`true` (or `1`) lists archived projects instead of active ones.",
+              "example": "false"
             },
             "required": false,
-            "description": "`true` lists archived projects instead of active ones.",
+            "description": "`true` (or `1`) lists archived projects instead of active ones.",
             "name": "archived",
             "in": "query"
           },
@@ -273,10 +276,10 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 200,
-              "description": "Page size, 1–200. Bearer callers default to 50."
+              "description": "Page size, 1–200. Paging is opt-in: send `limit` (or a `cursor`, which pages by 50) to get pages; send neither to get the whole list."
             },
             "required": false,
-            "description": "Page size, 1–200. Bearer callers default to 50.",
+            "description": "Page size, 1–200. Paging is opt-in: send `limit` (or a `cursor`, which pages by 50) to get pages; send neither to get the whole list.",
             "name": "limit",
             "in": "query"
           },

@@ -14,23 +14,25 @@ const rows = (n: number): Row[] =>
   Array.from({ length: n }, (_, i) => ({ createdAt: new Date(Date.UTC(2026, 9, 30 - i)), id: `id-${i}` }));
 
 describe("cursorPage", () => {
-  it("a cookie caller with no limit is unbounded, as the UI expects", () => {
-    const page = cursorPage<Row>({ request: req(), query: {}, bearer: false, order: [...order] });
+  it("no limit and no cursor is the whole list, for every caller: paging is opt-in", () => {
+    const page = cursorPage<Row>({ request: req(), query: {}, order: [...order] });
     expect(page.take).toBeUndefined();
     const { rows: out, headers } = page.finish(rows(300));
     expect(out).toHaveLength(300);
     expect(headers.get("link")).toBeNull();
   });
 
-  it(`a bearer caller defaults to ${DEFAULT_PAGE_LIMIT}`, () => {
-    const page = cursorPage<Row>({ request: req(), query: {}, bearer: true, order: [...order] });
+  it(`a cursor without a limit pages by ${DEFAULT_PAGE_LIMIT}`, () => {
+    const cursor = cursorPage<Row>({ request: req(), query: { limit: 1 }, order: [...order] })
+      .finish(rows(2)).headers.get(NEXT_CURSOR_HEADER)!;
+    const page = cursorPage<Row>({ request: req(), query: { cursor }, order: [...order] });
     expect(page.take).toBe(DEFAULT_PAGE_LIMIT + 1);
   });
 
   it("fetches one extra row to know there is a next page, and links it on the PUBLIC origin", () => {
     const page = cursorPage<Row>({
       request: req(undefined, { "x-forwarded-host": "cosmos.example.gov", "x-forwarded-proto": "https" }),
-      query: { limit: 2 }, bearer: false, order: [...order],
+      query: { limit: 2 }, order: [...order],
     });
     expect(page.take).toBe(3);
     const { rows: out, headers } = page.finish(rows(3));
@@ -41,14 +43,14 @@ describe("cursorPage", () => {
   });
 
   it("no Link on the last page", () => {
-    const page = cursorPage<Row>({ request: req(), query: { limit: 2 }, bearer: false, order: [...order] });
+    const page = cursorPage<Row>({ request: req(), query: { limit: 2 }, order: [...order] });
     expect(page.finish(rows(2)).headers.get("link")).toBeNull();
   });
 
   it("the cursor resumes strictly after the last row, in sort order", () => {
-    const first = cursorPage<Row>({ request: req(), query: { limit: 2 }, bearer: false, order: [...order] });
+    const first = cursorPage<Row>({ request: req(), query: { limit: 2 }, order: [...order] });
     const cursor = first.finish(rows(3)).headers.get(NEXT_CURSOR_HEADER)!;
-    const next = cursorPage<Row>({ request: req(), query: { limit: 2, cursor }, bearer: false, order: [...order] });
+    const next = cursorPage<Row>({ request: req(), query: { limit: 2, cursor }, order: [...order] });
     const last = rows(2)[1];
     expect(next.where).toEqual({
       OR: [
@@ -62,7 +64,7 @@ describe("cursorPage", () => {
   it.each(["not-base64!", Buffer.from("[1]").toString("base64url"), Buffer.from('["nope","id"]').toString("base64url")])(
     "a tampered or foreign cursor is a 400, not a 500: %s",
     (cursor) => {
-      expect(() => cursorPage<Row>({ request: req(), query: { cursor }, bearer: false, order: [...order] }))
+      expect(() => cursorPage<Row>({ request: req(), query: { cursor }, order: [...order] }))
         .toThrow(ProblemError);
     },
   );

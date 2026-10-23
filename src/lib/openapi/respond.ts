@@ -30,9 +30,10 @@ function queryObject(sp: URLSearchParams): Record<string, string | string[]> {
  * `issues`, ProblemError → its own status), so it sits inside the route's
  * existing try/catch and handleApiError answers.
  *
- * The query is STRICT: a parameter the contract doesn't name is a 400, not
- * silently ignored. Otherwise `?statuss=done` returns every item and the
- * caller never learns why.
+ * Query parameters the contract doesn't name are DROPPED, not refused:
+ * existing clients send them (cache-busters like `_=`, tracking params), and
+ * these routes accepted them before they had contracts. A known parameter with
+ * an invalid value is still a 400.
  */
 export async function parseRequest<C extends RouteContract>(
   contract: C,
@@ -48,7 +49,7 @@ export async function parseRequest<C extends RouteContract>(
     querySchema = (querySchema ?? z.object({})).extend(pageQueryShape);
   }
   const q = queryObject(new URL(request.url).searchParams);
-  const parsedQuery = (querySchema ?? z.object({})).strict().parse(q);
+  const parsedQuery = (querySchema ?? z.object({})).parse(q);
 
   let parsedBody: unknown = undefined;
   if (shape.body) {

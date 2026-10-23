@@ -9,10 +9,16 @@ import { ProblemError } from "./problem";
  *   Link: <https://host/api/v1/…?limit=50&cursor=…>; rel="next"
  *   Cosmos-Next-Cursor: …
  *
- * No `Link` means the last page. A page may hold FEWER than `limit` items and
- * still have a next one (rows the caller can't see are dropped after the
- * fetch), so clients follow `next` until it's absent rather than stopping at a
- * short page.
+ * No `Link` means the last page. Clients follow `next` until it's absent
+ * rather than stopping at a short page.
+ *
+ * OPT-IN: a request with neither `limit` nor `cursor` gets the whole list, as
+ * it always has; existing clients that never learned about `Link` must not
+ * silently lose rows. A default page size is a later, announced change.
+ *
+ * Visibility belongs in the query's WHERE, never in a filter after the fetch:
+ * the cursor is built from a page's last row, so a row dropped afterwards would
+ * still put its sort key (an id, a timestamp) in `Link`.
  *
  * Keyset, not offset: the cursor is the sort key of the last row returned, so
  * rows inserted while a caller pages don't shift or repeat what it has seen.
@@ -25,7 +31,10 @@ export const MAX_PAGE_LIMIT = 200;
 
 export const pageQueryShape = {
   limit: z.coerce.number().int().min(1).max(MAX_PAGE_LIMIT).optional()
-    .describe(`Page size, 1–${MAX_PAGE_LIMIT}. Bearer callers default to ${DEFAULT_PAGE_LIMIT}.`),
+    .describe(
+      `Page size, 1–${MAX_PAGE_LIMIT}. Paging is opt-in: send \`limit\` (or a \`cursor\`, which pages by ` +
+      `${DEFAULT_PAGE_LIMIT}) to get pages; send neither to get the whole list.`,
+    ),
   cursor: z.string().max(1024).optional()
     .describe("Opaque cursor from the previous page's `Link: rel=\"next\"` (or `Cosmos-Next-Cursor`)."),
 };
@@ -85,18 +94,16 @@ export interface CursorPage<Row> {
 }
 
 /**
- * Plan one page. `limit` absent means unbounded for a cookie (browser) caller,
- * which is today's behaviour the UI relies on, and DEFAULT_PAGE_LIMIT for a
- * bearer caller, so an API client can never pull a whole table by accident.
+ * Plan one page. Neither `limit` nor `cursor` means the whole list (see the
+ * opt-in note above); a `cursor` alone pages by DEFAULT_PAGE_LIMIT.
  */
 export function cursorPage<Row>(opts: {
   request: Request;
   query: { limit?: number; cursor?: string };
-  bearer: boolean;
   order: SortKey<Row>[];
 }): CursorPage<Row> {
-  const { request, query, bearer, order } = opts;
-  const limit = query.limit ?? (bearer ? DEFAULT_PAGE_LIMIT : undefined);
+  const { request, query, order } = opts;
+  const limit = query.limit ?? (query.cursor ? DEFAULT_PAGE_LIMIT : undefined);
   const where = query.cursor ? keysetWhere(order, decodeCursor(query.cursor, order)) : {};
   return {
     where,

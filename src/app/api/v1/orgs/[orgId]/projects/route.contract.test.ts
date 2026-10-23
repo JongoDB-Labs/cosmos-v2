@@ -1,7 +1,7 @@
 // @vitest-environment node
 //
-// GET /orgs/{orgId}/projects through its contract: strict query, problem
-// errors, bearer paging. Visibility rules live in list-scoping.test.ts.
+// GET /orgs/{orgId}/projects through its contract: query parsing, problem
+// errors, opt-in paging. Visibility rules live in list-scoping.test.ts.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { Permission } from "@/lib/rbac/permissions";
@@ -50,13 +50,18 @@ const get = (qs = "", headers: Record<string, string> = {}) =>
 beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
-  prisma.project.findMany.mockImplementation(async (args: { take?: number }) =>
-    Array.from({ length: Math.min(args.take ?? 120, 120) }, (_, i) => row(i)));
+  prisma.project.findMany.mockImplementation(async (args: { take?: number; select?: unknown }) =>
+    args.select
+      ? Array.from({ length: 120 }, (_, i) => ({ id: row(i).id }))
+      : Array.from({ length: Math.min(args.take ?? 120, 120) }, (_, i) => row(i)));
 });
 
 describe("GET projects: the contract", () => {
-  it("a browser (cookie) caller still gets every project in one array, as the UI expects", async () => {
-    getAuthContext.mockResolvedValue(ctx());
+  it.each([
+    ["a browser (cookie) caller", {}],
+    ["an API key that sends no paging params (existing clients)", { isApiKey: true }],
+  ])("%s still gets every project in one array", async (_n, over) => {
+    getAuthContext.mockResolvedValue(ctx(over));
     const res = await get();
     expect(res.status).toBe(200);
     expect(await res.json()).toHaveLength(120);
@@ -73,9 +78,9 @@ describe("GET projects: the contract", () => {
     expect(first.createdAt).toBe("2026-10-30T00:00:00.000Z");
   });
 
-  it("a bearer caller gets 50 and a Link to the rest", async () => {
+  it("a caller that asks for pages gets them, with a Link to the rest on the public origin", async () => {
     getAuthContext.mockResolvedValue(ctx({ isApiKey: true }));
-    const res = await get("", { "x-forwarded-host": "cosmos.example.gov", "x-forwarded-proto": "https" });
+    const res = await get("?limit=50", { "x-forwarded-host": "cosmos.example.gov", "x-forwarded-proto": "https" });
     expect(await res.json()).toHaveLength(50);
     expect(pagingCalls()[0].take).toBe(51);
     expect(res.headers.get("link")).toMatch(/^<https:\/\/cosmos\.example\.gov\/api\/v1\/orgs\/.+\/projects\?limit=50&cursor=/);
@@ -88,25 +93,34 @@ describe("GET projects: the contract", () => {
     expect(second.status, JSON.stringify(await second.clone().json())).toBe(200);
     // The paging queries are the ones with an orderBy; visibility does its own lookup.
     const where = pagingCalls()[1].where;
-    expect(where.AND[0]).toEqual({ orgId: ORG_ID, archived: false });
+    expect(where.AND[0]).toMatchObject({ orgId: ORG_ID, archived: false });
     expect(where.AND[1].OR).toHaveLength(2);
   });
 
-  it("an unknown query parameter is a 400 naming it", async () => {
+  it("an unknown query parameter is ignored, as it was before the contract (cache-busters)", async () => {
     getAuthContext.mockResolvedValue(ctx());
-    const res = await get("?archive=true");
+    const res = await get("?_=1729700000");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toHaveLength(120);
+  });
+
+  it("an invalid value for `archived` is a 400 naming it", async () => {
+    getAuthContext.mockResolvedValue(ctx());
+    const res = await get("?archived=maybe");
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.code).toBe("invalid_request");
-    expect(JSON.stringify(body.issues)).toContain("archive");
+    expect(JSON.stringify(body.issues)).toContain("archived");
     expect(prisma.project.findMany).not.toHaveBeenCalled();
   });
 
-  it("`archived=true` lists archived projects", async () => {
-    getAuthContext.mockResolvedValue(ctx());
-    await get("?archived=true");
-    expect(pagingCalls()[0].where.AND[0]).toEqual({ orgId: ORG_ID, archived: true });
-  });
+  it.each([["true", true], ["1", true], ["false", false], ["0", false]])(
+    "`archived=%s` lists %s projects", async (v, archived) => {
+      getAuthContext.mockResolvedValue(ctx());
+      await get(`?archived=${v}`);
+      expect(pagingCalls()[0].where.AND[0]).toMatchObject({ orgId: ORG_ID, archived });
+    },
+  );
 
   it("a malformed org id is a 400 before any lookup; an unknown org a 404 problem", async () => {
     const bad = await GET(new NextRequest("http://localhost/api/v1/orgs/nope/projects"), { params: Promise.resolve({ orgId: "nope" }) });

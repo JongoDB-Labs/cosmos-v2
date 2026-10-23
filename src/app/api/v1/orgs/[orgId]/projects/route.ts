@@ -36,15 +36,33 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return problem(401, "unauthorized", undefined, { request });
     requirePermission(ctx, Permission.PROJECT_READ);
 
+    // `1`/`0` as well as `true`/`false`: callers used to be able to send either.
+    const archived = query.archived === "true" || query.archived === "1";
+
+    // Visibility is decided BEFORE paging and goes into the WHERE. Filtering
+    // after the fetch (as this route used to) let a hidden project end a page,
+    // and the cursor is built from a page's last row, so its id and createdAt
+    // went out in `Link` / `Cosmos-Next-Cursor` to exactly the caller it is
+    // hidden from. In the WHERE, pages are also full.
+    //
+    // getVisibleProjectIds works on ids (it resolves memberships once and
+    // short-circuits when nothing in the set is restricted), so it gets the
+    // org's candidates first: an id-only query over one org's projects.
+    const candidates = await prisma.project.findMany({
+      where: { orgId: p.orgId, archived },
+      select: { id: true },
+    });
+    const visible = await getVisibleProjectIds(ctx, candidates.map((c) => c.id));
+
     const page = cursorPage<{ createdAt: Date; id: string }>({
-      request, query, bearer: !!ctx.isApiKey,
+      request, query,
       order: [
         { field: "createdAt", dir: "desc", type: "date" },
         { field: "id", dir: "desc", type: "string" },
       ],
     });
     const fetched = await prisma.project.findMany({
-      where: { AND: [{ orgId: p.orgId, archived: query.archived === "true" }, page.where] },
+      where: { AND: [{ orgId: p.orgId, archived, id: { in: [...visible] } }, page.where] },
       include: {
         _count: { select: { boards: true, intervals: true, members: true } },
         // The template's sector scopes the New-issue Type picker to the types
@@ -56,23 +74,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
     const { rows: projects, headers } = page.finish(fetched);
 
-    // Drop the projects this actor may not see. The read-gate conversion
-    // covered projects/[projectId]/**, which is everything that reads a
-    // project's CONTENTS — but the LIST sits one level up, so a restricted
-    // project still appeared as a card and only 403'd once opened. That leaks
-    // its existence, name, key and counts to precisely the people it is meant
-    // to be hidden from.
-    //
-    // Filtered in memory rather than in the WHERE clause: visibility depends on
-    // the actor's memberships and org role, not on anything expressible as a
-    // Prisma predicate here, and getVisibleProjectIds short-circuits when
-    // nothing in the set is restricted (the common case) without querying
-    // memberships at all. (So a page can come back short; see paginate.ts.)
-    const visible = await getVisibleProjectIds(
-      ctx,
-      projects.map((p) => p.id),
-    );
-
+    // The projects this actor may not see were excluded in the WHERE above.
+    // The list is where a restricted project leaks its existence, name, key and
+    // counts to the people it is hidden from, so the result is narrowed again
+    // here: the rule must not depend on one predicate staying exactly as written.
     return respond(
       listProjects,
       200,

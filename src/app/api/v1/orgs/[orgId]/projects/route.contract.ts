@@ -17,8 +17,9 @@ export const listProjects = defineRoute({
   request: {
     params: z.object({ orgId: Uuid }),
     query: z.object({
-      archived: z.enum(["true", "false"]).optional()
-        .describe("`true` lists archived projects instead of active ones."),
+      archived: z.enum(["false", "true", "0", "1"]).optional()
+        .describe("`true` (or `1`) lists archived projects instead of active ones.")
+        .meta({ example: "false" }),
     }),
   },
   responses: { 200: z.array(Project) },

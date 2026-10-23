@@ -35,11 +35,17 @@ describe("parseRequest", () => {
     expect(r.query).toEqual({ n: 3, tag: ["a", "b"], limit: 10, cursor: "xyz" });
   });
 
-  it("refuses a query parameter the contract doesn't name (a typo is not a filter)", async () => {
-    await expect(parseRequest(getThings, req("/things/abc?nn=3"), { thingId: "abc" })).rejects.toBeInstanceOf(ZodError);
-    const res = handleApiError(await parseRequest(getThings, req("/things/abc?nn=3"), { thingId: "abc" }).catch((e) => e));
+  it("drops a query parameter the contract doesn't name (clients send cache-busters), keeping the known ones", async () => {
+    const r = await parseRequest(getThings, req("/things/abc?n=3&_=1729700000&utm_source=x"), { thingId: "abc" });
+    expect(r.query).toEqual({ n: 3 });
+  });
+
+  it("still refuses an invalid value for a parameter it does name", async () => {
+    const err = await parseRequest(getThings, req("/things/abc?n=three"), { thingId: "abc" }).catch((e) => e);
+    expect(err).toBeInstanceOf(ZodError);
+    const res = handleApiError(err);
     expect(res.status).toBe(400);
-    expect(JSON.stringify((await res.json()).issues)).toContain("nn");
+    expect(JSON.stringify((await res.json()).issues)).toContain("n");
   });
 
   it("refuses limit outside 1–200", async () => {
@@ -60,9 +66,9 @@ describe("parseRequest", () => {
     expect((await res.json()).detail).toBe("Request body must be valid JSON");
   });
 
-  it("a contract without a query schema still refuses query params", async () => {
-    await expect(parseRequest(createThing, req("/things?x=1", { method: "POST", body: '{"name":"x"}' })))
-      .rejects.toBeInstanceOf(ZodError);
+  it("a contract without a query schema ignores query params too", async () => {
+    const r = await parseRequest(createThing, req("/things?x=1", { method: "POST", body: '{"name":"x"}' }));
+    expect(r.query).toEqual({});
   });
 });
 
