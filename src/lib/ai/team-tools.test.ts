@@ -8,22 +8,28 @@ import { Permission } from "@/lib/rbac/permissions";
 import { projectStructural } from "@/lib/ai/egress/projection";
 import { itemMatchesTeam, teamWorkItemWhere, teamsByUser } from "@/lib/teams/item-teams";
 
-const { prisma, loadEffectivePermissions, getReadableProjectIds, requireProjectRead } =
+const { prisma, loadEffectivePermissions, getReadableProjectIds, requireProjectRead, visibleProjectIdsForActor } =
   vi.hoisted(() => ({
     prisma: {
       workItem: { findMany: vi.fn() },
       orgMember: { findMany: vi.fn() },
       team: { findMany: vi.fn(), findFirst: vi.fn() },
+      project: { findMany: vi.fn() },
     },
     loadEffectivePermissions: vi.fn(),
     getReadableProjectIds: vi.fn(),
     requireProjectRead: vi.fn(),
+    visibleProjectIdsForActor: vi.fn(),
   }));
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/rbac/effective-permissions", () => ({ loadEffectivePermissions }));
 vi.mock("@/lib/work-items/query/scope", () => ({ getReadableProjectIds }));
 vi.mock("@/lib/rbac/require-project-read", () => ({ requireProjectRead }));
+vi.mock("@/lib/rbac/project-access", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  visibleProjectIdsForActor,
+}));
 
 import { executeTool } from "./tool-executor";
 
@@ -61,6 +67,27 @@ beforeEach(() => {
 });
 
 describe("list_teams", () => {
+  it("without a projectId, lists teams across the projects the asker can see, in one call", async () => {
+    prisma.project.findMany.mockResolvedValue([{ id: PROJECT }, { id: "p-2" }, { id: "p-hidden" }]);
+    visibleProjectIdsForActor.mockResolvedValue(new Set([PROJECT, "p-2"]));
+    prisma.team.findMany.mockResolvedValue([
+      { id: TEAM, projectId: PROJECT, name: "Alpha", key: "A", members: [member(ME)] },
+      { id: "t3", projectId: "p-2", name: "Charlie", key: null, members: [] },
+    ]);
+
+    const res = (await executeTool("list_teams", {}, ctx)) as {
+      teams: { id: string; projectId: string; isMine: boolean }[];
+    };
+
+    expect(visibleProjectIdsForActor).toHaveBeenCalledWith("org-1", ME, [PROJECT, "p-2", "p-hidden"]);
+    const where = (prisma.team.findMany.mock.calls[0][0] as { where: Record<string, unknown> }).where;
+    expect(where).toEqual({ orgId: "org-1", projectId: { in: [PROJECT, "p-2"] } });
+    expect(res.teams.map((t) => [t.id, t.projectId, t.isMine])).toEqual([
+      [TEAM, PROJECT, true],
+      ["t3", "p-2", false],
+    ]);
+  });
+
   it("lists a project's teams and marks the ones the asker is on", async () => {
     prisma.team.findMany.mockResolvedValue([
       { id: TEAM, projectId: PROJECT, name: "Alpha", key: "A", members: [member(ME), member(OTHER)] },
