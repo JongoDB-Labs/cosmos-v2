@@ -18,19 +18,19 @@
  */
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
-import { Play, Search, X } from "lucide-react";
+import { CircleHelp, Play, Search, WandSparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { CQL_VERSION, type CqlNode, type CqlQuery } from "@/lib/query/ast";
 import { fromChips, toChips, type Chip } from "@/lib/query/basic";
-import { lineCol, type CqlDiagnostic } from "@/lib/query/errors";
+import { lineCol, type CqlDiagnostic, type Span } from "@/lib/query/errors";
 import { normalize } from "@/lib/query/normalize";
 import { parseCql } from "@/lib/query/parser";
-import { printCql } from "@/lib/query/print";
+import { printCql, printNode } from "@/lib/query/print";
 import { QueryChips } from "./query-chips";
-import type { CqlClientSchema, QueryMode } from "./use-cql";
+import { useCqlValidate, type CqlClientSchema, type QueryMode } from "./use-cql";
 
 const CqlEditor = dynamic(() => import("./cql-editor"), {
   ssr: false,
@@ -69,6 +69,22 @@ function useNarrow(): boolean {
   );
 }
 
+/**
+ * Where `target` (a node of the NORMALIZED query, which toChips works on) was
+ * written: the first node of the parsed tree that prints the same.
+ */
+function spanOf(root: CqlNode | null, target: CqlNode, spans: WeakMap<object, Span>): Span | undefined {
+  const want = printNode(target);
+  const stack: CqlNode[] = root ? [root] : [];
+  while (stack.length) {
+    const n = stack.shift()!;
+    if (printNode(n) === want) return spans.get(n);
+    if (n.op === "and" || n.op === "or") stack.push(...n.args);
+    else if (n.op === "not") stack.push(n.arg);
+  }
+  return undefined;
+}
+
 const isTextBox = (c: Chip) => c.kind === "text" && c.field.kind === "sys" && c.field.id === "text" && !c.negate;
 
 export interface QueryBuilderProps {
@@ -93,7 +109,7 @@ export function QueryBuilder({ orgId, schema, cql, onCqlChange, mode, onModeChan
   const basicBlocked = chips.ok
     ? null
     : (() => {
-        const span = chips.ok === false && "at" in chips && chips.at ? parsed.spans.get(chips.at) : undefined;
+        const span = !chips.ok && "at" in chips && chips.at ? spanOf(parsed.query.where, chips.at, parsed.spans) : undefined;
         const where = span ? ` (col ${lineCol(cql, span.from).column})` : "";
         return `This query ${chips.reason}${where}, which chips can't show. Edit it in Advanced.`;
       })();
@@ -231,43 +247,113 @@ function AdvancedMode({
   const narrow = useNarrow();
   const [draft, setDraft] = useState(cql);
   const [shown, setShown] = useState(cql);
+  const [help, setHelp] = useState(false);
   if (cql !== shown) {
     setShown(cql);
     setDraft(cql);
   }
   const run = (text = draft) => onRun(text.trim());
 
+  // Stage 2 lint (§8.3): what only the server knows (unknown or ambiguous
+  // values), 400 ms after typing stops. The applied text's findings arrive
+  // with the page; anything else is asked for here.
+  const [settled, setSettled] = useState(draft);
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(draft), 400);
+    return () => clearTimeout(t);
+  }, [draft]);
+  const live = useCqlValidate(orgId, settled, settled !== cql && !parseCql(settled).diagnostics.length);
+  const findings = draft === cql ? serverDiagnostics : settled === draft ? (live.data?.diagnostics ?? []) : [];
+
+  const format = () => {
+    const p = parseCql(draft);
+    if (!p.diagnostics.some((d) => d.severity === "error")) setDraft(printCql(p.query));
+  };
+
   return (
-    <div className="flex min-w-0 flex-1 flex-wrap items-start gap-2">
-      {narrow ? (
-        <Textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              run();
-            }
-          }}
-          rows={2}
-          aria-label="Query"
-          placeholder="assignee = me AND priority IN (HIGH, CRITICAL)"
-          className="min-w-0 flex-1 font-mono text-sm"
-          spellCheck={false}
-        />
-      ) : (
-        <CqlEditor
-          orgId={orgId}
-          value={draft}
-          onChange={setDraft}
-          onRun={(t) => run(t)}
-          schema={schema}
-          serverDiagnostics={draft === cql ? serverDiagnostics : []}
-        />
-      )}
-      <Button size="sm" onClick={() => run()} className="gap-1.5">
-        <Play className="h-3.5 w-3.5" aria-hidden /> Run query
-      </Button>
+    <div className="flex min-w-0 flex-1 flex-col gap-2">
+      <div className="flex min-w-0 flex-wrap items-start gap-2">
+        {narrow ? (
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                run();
+              }
+            }}
+            rows={2}
+            aria-label="Query"
+            placeholder="assignee = me AND priority IN (HIGH, CRITICAL)"
+            className="min-w-0 flex-1 font-mono text-sm"
+            spellCheck={false}
+          />
+        ) : (
+          <CqlEditor
+            orgId={orgId}
+            value={draft}
+            onChange={setDraft}
+            onRun={(t) => run(t)}
+            onHelp={() => setHelp((h) => !h)}
+            schema={schema}
+            serverDiagnostics={findings}
+          />
+        )}
+        <Button size="sm" onClick={() => run()} className="gap-1.5">
+          <Play className="h-3.5 w-3.5" aria-hidden /> Run query
+        </Button>
+        <Button variant="ghost" size="sm" onClick={format} title="Tidy the query's spacing and keywords" className="gap-1">
+          <WandSparkles className="h-3.5 w-3.5" aria-hidden /> Format
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => setHelp((h) => !h)}
+          aria-expanded={help}
+          aria-label="Syntax help"
+          title="Syntax help (Ctrl or Cmd + /)"
+        >
+          <CircleHelp className="h-4 w-4" aria-hidden />
+        </Button>
+      </div>
+      {/* The textarea has no inline lint, so its findings are listed. */}
+      {narrow && draft !== cql && <Diagnostics items={findings} text={draft} />}
+      {help && <SyntaxHelp onPick={(q) => setDraft(q)} />}
+    </div>
+  );
+}
+
+// Every example is checked to parse and typecheck (query-builder.test). History
+// (WAS / CHANGED) joins with query phase 4, with its "recorded since" caveat.
+const EXAMPLES: { q: string; says: string }[] = [
+  { q: "assignee = me AND statusCategory != DONE ORDER BY priority DESC", says: "My open work, most urgent first" },
+  { q: "priority IN (HIGH, CRITICAL) AND due < now()", says: "Urgent and overdue" },
+  { q: "sprint IN openSprints() AND assignee IS EMPTY", says: "Unassigned in the current sprint" },
+  { q: "assignee IN membersOf(\"Platform\") AND updated >= -3wd", says: "The Platform team's work touched in the last 3 working days" },
+  { q: 'text ~ "login" AND type = Bug', says: "Bugs that mention login (title, description or comments)" },
+  { q: "labels IN ALL (auth, security)", says: "Has both labels" },
+];
+
+function SyntaxHelp({ onPick }: { onPick: (q: string) => void }) {
+  return (
+    <div role="region" aria-label="Query syntax" className="rounded-md border border-[var(--border)] bg-[var(--bg)] p-3 text-xs">
+      <p className="mb-2 text-[var(--text-muted)]">
+        <code>field operator value</code>, joined with <code>AND</code> / <code>OR</code> and grouped with parentheses.
+        Operators: <code>= != &lt; &lt;= &gt; &gt;= IN NOT IN ~ !~ IS EMPTY</code>. Dates: <code>2026-01-31</code>,{" "}
+        <code>-7d</code>, <code>-3wd</code> (working days), <code>startOfWeek()</code>. <code>me</code> is you. Ctrl+Space
+        suggests what fits.
+      </p>
+      <ul className="space-y-1">
+        {EXAMPLES.map((e) => (
+          <li key={e.q}>
+            <button type="button" onClick={() => onPick(e.q)} className="text-left hover:underline">
+              <code className="text-[var(--primary)]">{e.q}</code>
+              <span className="ml-2 text-[var(--text-muted)]">{e.says}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

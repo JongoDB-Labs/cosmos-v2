@@ -45,7 +45,9 @@ export function useCqlSchema(orgId: string): { enabled: boolean; schema: CqlClie
     staleTime: 5 * 60_000,
     retry: false,
   });
-  return { enabled: !!q.data, schema: q.data ?? null, isLoading: q.isLoading };
+  // Only a real schema switches CQL on; anything else is the legacy bar.
+  const schema = q.data && q.data.version === 1 && Array.isArray(q.data.fields) ? q.data : null;
+  return { enabled: !!schema, schema, isLoading: q.isLoading };
 }
 
 export interface CqlValidation {

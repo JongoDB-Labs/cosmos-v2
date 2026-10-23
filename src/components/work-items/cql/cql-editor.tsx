@@ -11,14 +11,16 @@
  *   lint          syntax and types locally on every change (no network);
  *                 unknown names come from the server's /cql/validate, pushed
  *                 in as `serverDiagnostics`
- *   keys          Enter or Mod-Enter runs; Escape closes completion
+ *   hover         a value (a person, a sprint) shows what it resolves to
+ *   keys          Enter or Mod-Enter runs; Escape closes completion; Mod-/
+ *                 opens the syntax help
  *
  * Loaded with next/dynamic only when Advanced mode opens, so the Issues page's
  * first paint doesn't pay for CodeMirror.
  */
 import { useEffect, useRef } from "react";
 import { EditorState, StateEffect, StateField, type Extension } from "@codemirror/state";
-import { EditorView, keymap, placeholder as cmPlaceholder } from "@codemirror/view";
+import { EditorView, hoverTooltip, keymap, placeholder as cmPlaceholder } from "@codemirror/view";
 import { HighlightStyle, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
 import {
   autocompletion,
@@ -96,6 +98,7 @@ const theme = EditorView.theme({
   ".cm-tooltip": { border: "1px solid var(--border)", background: "var(--popover, var(--surface))", color: "var(--text)" },
   ".cm-tooltip-autocomplete ul li[aria-selected]": { background: "var(--accent)", color: "var(--accent-foreground, var(--text))" },
   ".cm-completionDetail": { color: "var(--text-muted)", marginLeft: "0.5em", fontStyle: "normal" },
+  ".cm-cql-hover": { padding: "2px 6px", fontSize: "0.75rem" },
 });
 
 // ── completion ───────────────────────────────────────────────────────────────
@@ -169,6 +172,37 @@ const toOption = (s: Suggestion): CmCompletion => ({
   type: s.kind === "function" ? "function" : s.kind === "keyword" ? "keyword" : "constant",
   apply: apply(`${s.insert} `),
 });
+
+/** Hovering a value shows what it names: the person's email, the sprint's project and state. */
+function valueHover(orgId: string): Extension {
+  return hoverTooltip(
+    async (view, pos) => {
+      const text = view.state.doc.toString();
+      const tok = cqlLexer.tokenize(text).tokens.find((t) => t.startOffset <= pos && pos <= (t.endOffset ?? t.startOffset));
+      if (!tok || (tok.tokenType.name !== "Identifier" && tok.tokenType.name !== "StringLit")) return null;
+      const { slot } = completionAt(text, tok.startOffset);
+      if (slot.kind !== "value") return null;
+      const word = tok.image.replace(/^["']|["']$/g, "");
+      const unq = (s: string) => s.replace(/^"|"$/g, "").toLowerCase();
+      const hit = (await suggest(orgId, slot.field, word)).find(
+        (s) => s.label.toLowerCase() === word.toLowerCase() || unq(s.insert) === word.toLowerCase(),
+      );
+      if (!hit?.detail) return null;
+      return {
+        pos: tok.startOffset,
+        end: (tok.endOffset ?? tok.startOffset) + 1,
+        above: true,
+        create: () => {
+          const dom = document.createElement("div");
+          dom.className = "cm-cql-hover";
+          dom.textContent = `${hit.label} · ${hit.detail}`;
+          return { dom };
+        },
+      };
+    },
+    { hoverTime: 350 },
+  );
+}
 
 function completionSource(orgId: string, getSchema: () => CqlClientSchema | null) {
   return async (ctx: CompletionContext): Promise<CompletionResult | null> => {
@@ -275,6 +309,8 @@ export interface CqlEditorProps {
   serverDiagnostics?: CqlDiagnostic[];
   placeholder?: string;
   autoFocus?: boolean;
+  /** Mod-/ : open the syntax help. */
+  onHelp?: () => void;
 }
 
 export default function CqlEditor({
@@ -286,13 +322,14 @@ export default function CqlEditor({
   serverDiagnostics: serverDiags = [],
   placeholder = "assignee = me AND priority IN (HIGH, CRITICAL) ORDER BY due",
   autoFocus,
+  onHelp,
 }: CqlEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   // Latest props for the long-lived extensions, without rebuilding the editor.
-  const latest = useRef({ onChange, onRun, schema });
+  const latest = useRef({ onChange, onRun, schema, onHelp });
   useEffect(() => {
-    latest.current = { onChange, onRun, schema };
+    latest.current = { onChange, onRun, schema, onHelp };
   });
 
   useEffect(() => {
@@ -310,6 +347,7 @@ export default function CqlEditor({
         keymap.of([
           { key: "Enter", run },
           { key: "Mod-Enter", run: (v) => (latest.current.onRun(v.state.doc.toString()), true) },
+          { key: "Mod-/", run: () => (latest.current.onHelp?.(), true) },
           ...historyKeymap,
           ...defaultKeymap,
         ]),
@@ -321,6 +359,7 @@ export default function CqlEditor({
         autocompletion({ override: [completionSource(orgId, () => latest.current.schema)], activateOnTyping: true }),
         serverDiagnostics,
         cqlLinter(() => latest.current.schema),
+        valueHover(orgId),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) latest.current.onChange(u.state.doc.toString());
         }),

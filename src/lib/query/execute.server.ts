@@ -202,3 +202,33 @@ export async function executeCql(ctx: AuthContext, input: CqlInput, opts: CqlRun
     diagnostics: prepared.diagnostics,
   };
 }
+
+/** The Issues CSV export's cap, the same as the legacy export's. */
+export const EXPORT_MAX_ROWS = 50_000;
+
+/**
+ * Every row a query matches, up to EXPORT_MAX_ROWS, for the CSV export: the
+ * same scope envelope and resolver as `executeCql`, no count, and the 10 s
+ * budget exports get.
+ */
+export async function exportCql(ctx: AuthContext, input: CqlInput, opts: Omit<CqlRunOptions, "page" | "pageSize" | "countTimeoutMs"> = {}) {
+  const prepared = await prepareCql(ctx, input, opts);
+  if (prepared.readable.length === 0) return { data: [], query: prepared.query, cql: prepared.cql };
+  const where = buildScopedWhere({
+    orgId: prepared.orgId,
+    allowedProjectIds: prepared.readable,
+    archived: prepared.compiled.archived,
+    user: prepared.compiled.where,
+  });
+  const data = await withStatementTimeout(opts.timeoutMs ?? 10_000, (tx) =>
+    fetchIssueRows(tx, {
+      where,
+      orderBy: prepared.compiled.orderBy,
+      skip: 0,
+      take: EXPORT_MAX_ROWS,
+      orgId: prepared.orgId,
+      allowedProjectIds: prepared.readable,
+    }),
+  );
+  return { data, query: prepared.query, cql: prepared.cql };
+}
