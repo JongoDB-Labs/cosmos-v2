@@ -167,6 +167,7 @@ GET /orgs/{orgId}/contracts/{contractId}
 GET /orgs/{orgId}/contracts/{contractId}/pdf
 GET /orgs/{orgId}/contracts/{contractId}/signature/status
 GET /orgs/{orgId}/cql/schema
+GET /orgs/{orgId}/cql/suggest
 GET /orgs/{orgId}/crm/contacts
 GET /orgs/{orgId}/crm/contacts/{contactId}
 GET /orgs/{orgId}/crm/pipeline
@@ -283,6 +284,7 @@ GET /orgs/{orgId}/projects/{projectId}/work-items/{itemId}/attachments
 GET /orgs/{orgId}/projects/{projectId}/work-items/{itemId}/comments
 GET /orgs/{orgId}/projects/{projectId}/work-items/{itemId}/document-source
 GET /orgs/{orgId}/projects/{projectId}/work-items/{itemId}/watch
+GET /orgs/{orgId}/query-language
 GET /orgs/{orgId}/runtime-config
 GET /orgs/{orgId}/saved-views
 GET /orgs/{orgId}/search
@@ -591,6 +593,7 @@ PUT /orgs/{orgId}/projects/{projectId}/objectives/{objectiveId}
 PUT /orgs/{orgId}/projects/{projectId}/tab-prefs
 PUT /orgs/{orgId}/projects/{projectId}/work-items/bulk
 PUT /orgs/{orgId}/projects/{projectId}/work-items/{itemId}
+PUT /orgs/{orgId}/query-language
 PUT /orgs/{orgId}/saved-views/{viewId}
 PUT /orgs/{orgId}/security/ip-allowlist/{entryId}
 PUT /orgs/{orgId}/security/scim-tokens/{tokenId}
