@@ -65,6 +65,7 @@ import {
   updateMilestone,
   deleteMilestone,
 } from "./executors/milestones";
+import { listTeams, teamFilter } from "./executors/teams";
 import { listFeedback, createFeedback, setFeedbackStatus } from "./executors/feedback";
 import {
   listMeetings,
@@ -92,6 +93,12 @@ import {
 interface ToolContext {
   orgId: string;
   userId: string;
+  /**
+   * The tool names the model was offered this run. Connector dispatch refuses a
+   * name outside it, and every connector call when it's absent (fail closed). The
+   * agent loop always supplies it (and refuses a not-offered native tool itself).
+   */
+  offered?: ReadonlySet<string>;
   /**
    * The org's data-sensitivity class — threaded through so the connector dispatch
    * layer can enforce the D5 commercial-only gov-block (LAYER 2). OPTIONAL: callers
@@ -297,6 +304,8 @@ async function dispatchTool(
       // The org's runtime-config enablement — so dispatch hard-refuses a disabled
       // connector (defense in depth behind the tool-list filter).
       enabled: ctx.enabled,
+      // Only a tool the model was offered may run (absent ⇒ refused).
+      offered: ctx.offered,
     });
   }
 
@@ -440,6 +449,10 @@ async function dispatchTool(
       return addKrCheckin(input, ctx);
     case "link_key_result_item":
       return linkKeyResultItem(input, ctx);
+
+    // Teams
+    case "list_teams":
+      return listTeams(input, ctx);
 
     // Milestones
     case "list_milestones":
@@ -651,7 +664,7 @@ async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) 
   // These land in `uuid` columns unvalidated, so a model-invented id raises
   // P2007 rather than returning nothing. `projectId` above is compared against
   // `readable` first, which is a string match and so already safe.
-  for (const field of ["assigneeId", "intervalId", "workItemTypeId", "parentId"] as const) {
+  for (const field of ["assigneeId", "intervalId", "workItemTypeId", "parentId", "teamId"] as const) {
     if (!isOptionalUuid(input[field])) return invalidIdError(field);
   }
   if (input.assigneeId) where.assigneeId = input.assigneeId as string;
@@ -660,6 +673,17 @@ async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) 
   if (input.workItemTypeId) where.workItemTypeId = input.workItemTypeId as string;
   if (input.parentId) where.parentId = input.parentId as string;
   if (input.query) where.title = { contains: input.query as string, mode: "insensitive" };
+  if (input.teamId) {
+    // Only a team in a project this query may already read (COSMOS-222).
+    const team = await teamFilter(
+      ctx.orgId,
+      input.teamId as string,
+      input.projectId ? [input.projectId as string] : readable,
+    );
+    if ("error" in team) return team;
+    where.projectId = team.projectId;
+    where.AND = [team.where];
+  }
 
   const items = await prisma.workItem.findMany({
     where,
@@ -668,7 +692,7 @@ async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) 
     select: {
       id: true, title: true, workItemTypeId: true, columnKey: true,
       priority: true, assigneeId: true, intervalId: true, parentId: true,
-      storyPoints: true, dueDate: true, completedAt: true,
+      teamId: true, storyPoints: true, dueDate: true, completedAt: true,
       ticketNumber: true, tags: true,
     },
   });

@@ -1,6 +1,7 @@
 import type { Milestone, MilestoneLink, MilestoneStatus } from "@prisma/client";
 import { deriveMilestoneDueDate } from "./milestone-date";
 import { prisma } from "@/lib/db/client";
+import { pmScopeWhere, type PmProjectScope } from "./project-scope";
 
 /**
  * Schedule derivation — milestone status + completion "trickle up" from the
@@ -71,9 +72,9 @@ const intervalSelect = {
  * query for milestones (+ links + Program Increment), one for the linked items'
  * columns — no per-milestone fan-out. Derivation is computed on read, never persisted.
  */
-export async function loadMilestonesWithDerived(orgId: string, projectId?: string) {
+export async function loadMilestonesWithDerived(orgId: string, projectId?: PmProjectScope) {
   const milestones = await prisma.milestone.findMany({
-    where: projectId ? { orgId, projectId } : { orgId },
+    where: pmScopeWhere(orgId, projectId),
     include: { links: true, interval: intervalSelect },
     orderBy: { dueDate: "asc" },
   });

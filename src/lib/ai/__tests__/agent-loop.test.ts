@@ -50,7 +50,7 @@ describe("runAgentLoop (native tool_use)", () => {
       systemPrompt: "sys", initialPrompt: "list projects", conversationId: "c1",
     });
 
-    expect(executeTool).toHaveBeenCalledWith("list_projects", {}, { orgId: "o1", userId: "u1", tenantClass: "commercial", conversationId: "c1", enabled: { enabledConnectors: null, breadthEnabled: true } });
+    expect(executeTool).toHaveBeenCalledWith("list_projects", {}, { orgId: "o1", userId: "u1", offered: expect.any(Set), tenantClass: "commercial", conversationId: "c1", enabled: { enabledConnectors: null, breadthEnabled: true } });
     expect(res.text).toBe("You have 2 projects.");
     expect(res.toolCalls).toHaveLength(1);
     expect(res.toolCalls[0].name).toBe("list_projects");
@@ -150,6 +150,7 @@ describe("runAgentLoop — D5 commercial-only tool-list filter", () => {
       toolDefs: [{ name: "broker_fixture_proxy", description: "p", input_schema: { type: "object", properties: {}, required: [] } }],
       execute: async () => ({}),
       egress: {},
+      access: {},
     });
     // One turn, no tool use → the loop returns immediately after building `tools`.
     runModelTurn.mockResolvedValueOnce({ text: "ok", toolUses: [], stopReason: "end_turn" });
@@ -195,12 +196,12 @@ describe("runAgentLoop — per-org runtime-config gating", () => {
     registerConnector({
       provider: "github",
       toolDefs: [{ name: "github_list_issues", description: "i", input_schema: { type: "object", properties: {}, required: [] } }],
-      execute: async () => ({}), egress: {},
+      execute: async () => ({}), egress: {}, access: {},
     });
     registerConnector({
       provider: "jira",
       toolDefs: [{ name: "jira_search_issues", description: "i", input_schema: { type: "object", properties: {}, required: [] } }],
-      execute: async () => ({}), egress: {},
+      execute: async () => ({}), egress: {}, access: {},
     });
     getRuntimeConfig.mockReset().mockResolvedValue(config);
     runModelTurn.mockResolvedValueOnce({ text: "ok", toolUses: [], stopReason: "end_turn" });

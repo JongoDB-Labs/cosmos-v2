@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
 import { sumMoney, roundMoney, moneyToNumber } from "@/lib/money";
 import { laborCostFor } from "@/lib/payroll/labor";
+import { pmScopeWhere, type PmProjectScope } from "./project-scope";
 
 /**
  * CLIN burn — attribute approved time + expenses to a CLIN and roll up actuals
@@ -33,10 +34,10 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export async function loadClinsWithBurn(
   orgId: string,
-  projectId?: string,
+  projectId?: PmProjectScope,
 ): Promise<ClinBurn[]> {
   const clins = await prisma.clin.findMany({
-    where: projectId ? { orgId, projectId } : { orgId },
+    where: pmScopeWhere(orgId, projectId),
     orderBy: { code: "asc" },
   });
   const clinIds = clins.map((c) => c.id);
@@ -152,10 +153,10 @@ const mDiff = (a: string, b: string) => {
 
 export async function loadClinBurnTimePhased(
   orgId: string,
-  projectId?: string,
+  projectId?: PmProjectScope,
 ): Promise<ClinBurnTimePhased> {
   const clins = await prisma.clin.findMany({
-    where: projectId ? { orgId, projectId } : { orgId },
+    where: pmScopeWhere(orgId, projectId),
     select: { id: true, value: true, fundedValue: true, popStart: true, popEnd: true },
   });
   // Contract values, not estimates: summed in Decimal. `fundedValue` is what
