@@ -11,9 +11,13 @@ import { prisma } from "@/lib/db/client";
 import type { CqlNode, CqlQuery } from "@/lib/query/ast";
 import { aggregateCql } from "@/lib/query/aggregate.server";
 import { burndown } from "@/lib/intervals/burndown";
-import { scopeChange, type IntervalChange } from "@/lib/dashboard/scope-change";
+import { carryover, predictability, scopeChange, type IntervalChange } from "@/lib/dashboard/scope-change";
+import { objectiveRollup } from "@/lib/dashboard/impediments";
+import { getReadableProjectIds } from "@/lib/work-items/query/scope";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { cycleTime, throughput, workTypeMix, type DeliveryItemLike } from "@/lib/dashboard/delivery-metrics";
 import { cumulativeFlow, type CfdCategory } from "@/lib/dashboard/cfd";
+import { rankOf } from "@/lib/classification/effective";
 import { andQuery, matchingIds, projectsClassification, relMs, runOptions, workingDaysBetween, type Classifier, type Compute, type PanelRunContext } from "./panel-run.server";
 
 const MS_DAY = 86_400_000;
@@ -42,12 +46,37 @@ async function itemsOf(ctx: PanelRunContext, q: CqlQuery) {
     ? await prisma.workItem.findMany({
         where: { id: { in: ids } },
         select: {
-          id: true, intervalId: true, storyPoints: true, actualStart: true, completedAt: true, createdAt: true, columnKey: true, projectId: true, workCategory: true,
+          id: true, ticketNumber: true, intervalId: true, storyPoints: true, actualStart: true, completedAt: true, createdAt: true, columnKey: true, projectId: true, workCategory: true,
           workItemType: { select: { key: true, name: true, color: true } },
         },
       })
     : [];
   return rows.map((r) => ({ ...r, done: done.has(r.id) }));
+}
+
+
+/** The viewer's items that are or were in a sprint, their sprint moves, and the last `n` sprints involved. */
+async function sprintHistory(ctx: PanelRunContext, q: CqlQuery, n: number) {
+  const items = await itemsOf(ctx, andQuery(q, "(sprint IS NOT EMPTY OR sprint CHANGED)"));
+  const acts = items.length
+    ? await prisma.activity.findMany({
+        where: { orgId: ctx.auth.orgId, workItemId: { in: items.map((i) => i.id) }, field: "intervalId" },
+        select: { workItemId: true, oldValue: true, newValue: true, createdAt: true },
+      })
+    : [];
+  const changes: IntervalChange[] = acts.map((a) => ({ workItemId: a.workItemId!, from: a.oldValue, to: a.newValue, at: a.createdAt }));
+  const ids = new Set<string>();
+  for (const i of items) if (i.intervalId) ids.add(i.intervalId);
+  for (const c of changes) for (const x of [c.from, c.to]) if (x) ids.add(x);
+  const intervals = (
+    await prisma.interval.findMany({
+      where: { id: { in: [...ids] }, orgId: ctx.auth.orgId, intervalKind: "SPRINT", projectId: { in: await getReadableProjectIds(ctx.auth) } },
+      select: INTERVAL,
+      orderBy: { startDate: "desc" },
+      take: n,
+    })
+  ).reverse();
+  return { items, changes, intervals, more: ids.size > intervals.length };
 }
 
 const noSprint = (cls: Classifier) => ({ data: { sprint: null }, meta: { total: 0, truncated: false, classification: cls.applies ? { level: cls.resolver.orgLevel, markedRows: 0 } : undefined } });
@@ -149,6 +178,82 @@ export const FLOW_COMPUTES = {
     const items = await itemsOf(ctx, andQuery(query, `completed >= ${config.window}`));
     return { data: workTypeMix(items.map(delivery)), meta: { total: items.length, truncated: false, classification: projectsClassification(cls, new Set(items.map((i) => i.projectId))) } };
   }) as Compute<"work-type-mix">,
+  velocity: (async ({ query, config }, ctx, cls) => {
+    const h = await sprintHistory(ctx, query, config.sprints);
+    const rows = scopeChange(h.changes, h.intervals, h.items.map((i) => ({ id: i.id, intervalId: i.intervalId, done: i.done })));
+    const closed = new Set(h.intervals.filter((i) => i.status === "COMPLETED").map((i) => i.id));
+    return {
+      data: { rows, predictability: predictability(rows, closed) },
+      meta: { total: h.items.length, truncated: h.more, classification: projectsClassification(cls, new Set(h.intervals.map((i) => i.projectId))) },
+    };
+  }) as Compute<"velocity">,
+
+  carryover: (async ({ query, config }, ctx, cls) => {
+    const h = await sprintHistory(ctx, query, config.sprints);
+    const result = carryover(h.changes, h.intervals);
+    const keys = new Map(
+      (await prisma.project.findMany({ where: { id: { in: [...new Set(h.items.map((i) => i.projectId))] } }, select: { id: true, key: true } })).map((p) => [p.id, p.key]),
+    );
+    const byId = new Map(h.items.map((i) => [i.id, `${keys.get(i.projectId)}-${i.ticketNumber}`]));
+    return {
+      data: { rows: result.rows, repeatOffenders: result.repeatOffenders.filter((r) => byId.has(r.workItemId)).map((r) => ({ ...r, key: byId.get(r.workItemId)! })) },
+      meta: { total: h.items.length, truncated: h.more, classification: projectsClassification(cls, new Set(h.intervals.map((i) => i.projectId))) },
+    };
+  }) as Compute<"carryover">,
+
+  "pi-objectives": (async ({ query }, ctx, cls) => {
+    // The active increment most of the panel's items sit in.
+    const readable = await getReadableProjectIds(ctx.auth);
+    const pis = await prisma.interval.findMany({
+      where: { orgId: ctx.auth.orgId, intervalKind: "PROGRAM_INCREMENT", status: "ACTIVE", projectId: { in: ctx.contextProjectId ? readable.filter((p) => p === ctx.contextProjectId) : readable } },
+      select: INTERVAL,
+    });
+    let pi: (typeof pis)[number] | null = null;
+    let best = -1;
+    for (const p of pis) {
+      const r = await aggregateCql(ctx.auth, { query: andQuery(query, { op: "cmp", field: { kind: "sys", id: "pi" }, cmp: "eq", value: { t: "ref", entity: "interval", id: p.id } }) }, { dims: [], measure: { fn: "count" } }, runOptions(ctx));
+      if (r.total > best) {
+        best = r.total;
+        pi = p;
+      }
+    }
+    if (!pi) return { data: { pi: null }, meta: { total: 0, truncated: false, classification: projectsClassification(cls, []) } };
+    // Objectives are OKR data: the project's own read rule decides, as on the Objectives tab.
+    try {
+      await requireProjectRead(ctx.auth, pi.projectId, "OKR_READ");
+    } catch {
+      return { data: { pi: null }, meta: { total: 0, truncated: false, classification: projectsClassification(cls, []) } };
+    }
+    const objectives = await prisma.objective.findMany({
+      where: { orgId: ctx.auth.orgId, projectId: pi.projectId, intervalId: pi.id },
+      select: { id: true, title: true, status: true, progress: true, intervalId: true, committed: true },
+      orderBy: { sortOrder: "asc" },
+    });
+    const roll = objectiveRollup(objectives.map((o) => ({ ...o, status: String(o.status) })), pi.id);
+    const mark = (o: { id: string; title: string }) => (cls.applies ? { classification: { level: cls.resolver.rowLevel(pi!.projectId, o.title), marked: cls.resolver.restricted(pi!.projectId, o.title) } } : {});
+    return {
+      data: {
+        pi: { id: pi.id, name: pi.name, start: pi.startDate.toISOString(), end: pi.endDate.toISOString() },
+        committed: roll.committed.map((o) => ({ ...o, ...mark(o) })),
+        stretch: roll.stretch.map((o) => ({ ...o, ...mark(o) })),
+        committedProgress: roll.committedProgress,
+        met: roll.met,
+      },
+      meta: {
+        total: objectives.length,
+        truncated: false,
+        classification: cls.applies
+          ? objectives.reduce(
+              (m, o) => {
+                const l = cls.resolver.rowLevel(pi!.projectId, o.title);
+                return { level: (rankOf(l) > rankOf(m.level) ? l : m.level), markedRows: m.markedRows + (cls.resolver.restricted(pi!.projectId, o.title) ? 1 : 0) };
+              },
+              { level: cls.resolver.levelFor(pi.projectId), markedRows: 0 },
+            )
+          : undefined,
+      },
+    };
+  }) as Compute<"pi-objectives">,
 };
 
 function delivery(i: Awaited<ReturnType<typeof itemsOf>>[number]): DeliveryItemLike {

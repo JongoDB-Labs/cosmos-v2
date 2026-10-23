@@ -12,6 +12,7 @@ import { computePanels, type PanelResult, type PanelSpec } from "../panel-data.s
 import { PANEL_TYPE_KEYS } from "../panel-registry";
 import { COMPUTES } from "../panel-compute.server";
 import type { DashboardFilterDef } from "../filters";
+import { Permission } from "@/lib/rbac/permissions";
 
 let w: World;
 const NOW = new Date("2026-10-12T15:00:00Z");
@@ -223,6 +224,66 @@ describe("sprint and flow", () => {
       const r = await run({ type, query: q(`project = ${w.P1.key}`), config: type === "throughput" ? {} : { window: "-30d" } });
       noSecrets(r);
       expect("error" in r, type).toBe(false);
+    }
+  });
+});
+
+describe("history and increments", () => {
+  it("velocity and carryover from recorded sprint moves; a slipped item is named", async () => {
+    const moved = await prisma.activity.create({
+      data: { orgId: w.orgA, workItemId: w.items["p1-coowned"].id, userId: w.actor.id, action: "updated", field: "intervalId", oldValue: w.sprintP1Done, newValue: w.sprintP1Active, createdAt: new Date("2026-10-02T09:00:00Z") },
+    });
+    // Make the sprints sequential so the move is "forward".
+    await prisma.interval.update({ where: { id: w.sprintP1Done }, data: { startDate: new Date("2026-09-17"), endDate: new Date("2026-09-30") } });
+    await prisma.workItem.update({ where: { id: w.items["p1-coowned"].id }, data: { intervalId: w.sprintP1Active } });
+    try {
+      const v = ok(await run({ type: "velocity", query: q(`project = ${w.P1.key}`), config: {} })).data as { rows: { intervalId: string; added: number }[]; predictability: { shortfall: unknown } };
+      expect(v.rows.map((r) => r.intervalId)).toEqual(expect.arrayContaining([w.sprintP1Done, w.sprintP1Active]));
+      expect(v.rows.find((r) => r.intervalId === w.sprintP1Active)!.added).toBe(1);
+      expect(v.predictability.shortfall).toBeTruthy();
+      const c = ok(await run({ type: "carryover", query: q(`project = ${w.P1.key}`), config: {} })).data as { rows: { intervalId: string; carriedIn: number; carriedOut: number }[] };
+      expect(c.rows.find((r) => r.intervalId === w.sprintP1Done)!.carriedOut).toBe(1);
+      expect(c.rows.find((r) => r.intervalId === w.sprintP1Active)!.carriedIn).toBe(1);
+    } finally {
+      await prisma.activity.delete({ where: { id: moved.id } });
+      await prisma.workItem.update({ where: { id: w.items["p1-coowned"].id }, data: { intervalId: null } });
+      await prisma.interval.update({ where: { id: w.sprintP1Done }, data: { startDate: new Date("2026-10-01"), endDate: new Date("2026-10-14") } });
+    }
+  });
+
+  it("pi-objectives: the active increment's committed vs stretch; never another project's", async () => {
+    const pi = await prisma.interval.create({
+      data: { orgId: w.orgA, projectId: w.P1.id, number: 900, name: "PI 26.4", status: "ACTIVE", intervalKind: "PROGRAM_INCREMENT", startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31") },
+    });
+    const secretPi = await prisma.interval.create({
+      data: { orgId: w.orgA, projectId: w.P2.id, number: 901, name: `Secret PI ${w.stamp}`, status: "ACTIVE", intervalKind: "PROGRAM_INCREMENT", startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31") },
+    });
+    await prisma.interval.update({ where: { id: w.sprintP1Active }, data: { parentId: pi.id } });
+    await prisma.objective.createMany({
+      data: [
+        { orgId: w.orgA, projectId: w.P1.id, intervalId: pi.id, title: "Ship login", progress: 100, committed: true },
+        { orgId: w.orgA, projectId: w.P1.id, intervalId: pi.id, title: "Polish docs", progress: 50, committed: false },
+        { orgId: w.orgA, projectId: w.P2.id, intervalId: secretPi.id, title: `Secretobjective ${w.stamp}`, progress: 10, committed: true },
+      ],
+    });
+    try {
+      // Without OKR_READ the objectives don't show at all.
+      const denied = ok(await run({ type: "pi-objectives", query: q(`project = ${w.P1.key}`), config: {} })).data as { pi: unknown };
+      expect(denied.pi).toBeNull();
+      const okrCtx = { ...w.ctx({ denyP3: true }), permissions: w.ctx().permissions | Permission.OKR_READ };
+      const [r] = await computePanels(okrCtx, [{ type: "pi-objectives", query: q(`project = ${w.P1.key}`), config: {} }], { tz: "UTC", now: NOW });
+      noSecrets(r);
+      expect(JSON.stringify(r)).not.toContain("Secretobjective");
+      const d = ok(r).data as { pi: { id: string }; committed: { title: string }[]; stretch: { title: string }[]; committedProgress: number; met: number };
+      expect(d.pi.id).toBe(pi.id);
+      expect(d.committed.map((o) => o.title)).toEqual(["Ship login"]);
+      expect(d.stretch.map((o) => o.title)).toEqual(["Polish docs"]);
+      expect(d).toMatchObject({ committedProgress: 100, met: 1 });
+      expect(ok(r).meta.total).toBe(2);
+    } finally {
+      await prisma.objective.deleteMany({ where: { intervalId: { in: [pi.id, secretPi.id] } } });
+      await prisma.interval.update({ where: { id: w.sprintP1Active }, data: { parentId: null } });
+      await prisma.interval.deleteMany({ where: { id: { in: [pi.id, secretPi.id] } } });
     }
   });
 });

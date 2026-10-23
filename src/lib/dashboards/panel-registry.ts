@@ -214,6 +214,25 @@ export const PANEL_TYPES = {
     size: { w: 4, h: 4, minW: 3, minH: 3 },
   }),
 
+  velocity: def({
+    type: "velocity", label: "Velocity and predictability", category: "flow", needsQuery: true, supportsDrill: false,
+    description: "Committed vs completed per sprint, and how reliably commitments are kept.",
+    config: z.strictObject({ sprints: z.number().int().min(2).max(20).default(8) }),
+    size: { w: 6, h: 4, minW: 4, minH: 3 },
+  }),
+  carryover: def({
+    type: "carryover", label: "Carryover", category: "flow", needsQuery: true, supportsDrill: false,
+    description: "Work carried from one sprint into the next, and the items that keep slipping.",
+    config: z.strictObject({ sprints: z.number().int().min(2).max(20).default(6) }),
+    size: { w: 6, h: 4, minW: 4, minH: 3 },
+  }),
+  "pi-objectives": def({
+    type: "pi-objectives", label: "PI objectives", category: "flow", needsQuery: true, supportsDrill: false,
+    description: "The program increment's committed and stretch objectives, and how far along they are.",
+    config: z.strictObject({}),
+    size: { w: 6, h: 5, minW: 4, minH: 3 },
+  }),
+
   // ── Context ─────────────────────────────────────────────────────────────
   markdown: def({
     type: "markdown", label: "Text", category: "context", needsQuery: false, supportsDrill: false,
