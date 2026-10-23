@@ -67,6 +67,9 @@ export const workItemPatchSchema = z.object({
   actualStart: z.string().datetime().nullable().optional(),
   completedAt: z.string().datetime().nullable().optional(),
   workCategory: z.nativeEnum(WorkCategory).optional(),
+  // The outcome of a finished or cancelled item ("Fixed", "Won't do"); free
+  // text so values imported from another tracker stay as they were.
+  resolution: z.string().max(200).nullable().optional(),
   // Archive / unarchive. A timestamp in, or null to bring it back.
   //
   // It rides on this route rather than getting an endpoint of its own because
@@ -177,6 +180,9 @@ export function computeItemChange(args: {
   if (primaryFromSet !== undefined && primaryFromSet !== existing.assigneeId) {
     trackFields.push({ field: "assigneeId", oldVal: existing.assigneeId, newVal: primaryFromSet });
   }
+  if (data.resolution !== undefined && (data.resolution?.trim() || null) !== existing.resolution) {
+    trackFields.push({ field: "resolution", oldVal: existing.resolution, newVal: data.resolution?.trim() || null });
+  }
   if (data.intervalId !== undefined && data.intervalId !== existing.intervalId) {
     trackFields.push({ field: "intervalId", oldVal: existing.intervalId, newVal: data.intervalId });
   }
@@ -212,6 +218,7 @@ export function computeItemChange(args: {
   if (data.actualStart !== undefined) updateData.actualStart = data.actualStart ? new Date(data.actualStart) : null;
   if (data.completedAt !== undefined) updateData.completedAt = data.completedAt ? new Date(data.completedAt) : null;
   if (data.workCategory !== undefined) updateData.workCategory = data.workCategory;
+  if (data.resolution !== undefined) updateData.resolution = data.resolution?.trim() || null;
   if (data.archivedAt !== undefined) updateData.archivedAt = data.archivedAt ? new Date(data.archivedAt) : null;
   if (data.highlight !== undefined) updateData.highlight = data.highlight;
   if (data.customFields !== undefined) {
