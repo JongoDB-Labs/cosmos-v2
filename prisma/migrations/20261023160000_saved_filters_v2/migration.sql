@@ -35,10 +35,11 @@ CREATE TABLE "saved_view_favorites" (
 
 -- CreateTable
 CREATE TABLE "saved_view_editors" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "saved_view_id" UUID NOT NULL,
     "user_id" UUID NOT NULL,
 
-    CONSTRAINT "saved_view_editors_pkey" PRIMARY KEY ("saved_view_id","user_id")
+    CONSTRAINT "saved_view_editors_pkey" PRIMARY KEY ("id")
 );
 
 -- DropIndex: (org_id, visibility) below covers org_id lookups.
@@ -58,6 +59,9 @@ CREATE UNIQUE INDEX "saved_view_favorites_saved_view_id_user_id_key" ON "saved_v
 
 -- CreateIndex
 CREATE INDEX "saved_view_editors_user_id_idx" ON "saved_view_editors"("user_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "saved_view_editors_saved_view_id_user_id_key" ON "saved_view_editors"("saved_view_id", "user_id");
 
 -- AddForeignKey
 ALTER TABLE "saved_views" ADD CONSTRAINT "saved_views_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "projects"("id") ON DELETE CASCADE ON UPDATE CASCADE;
