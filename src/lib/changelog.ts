@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.4",
+    date: "2026-10-23",
+    title: "Feedback details are shown only to the right people",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: the Feedback board no longer sends every member the diagnostic details captured with bug reports, the automated triage notes, or other people's email addresses. Staff who triage feedback still see everything; reporters still see their own email.",
+      },
+    ],
+  },
+  {
     version: "2.439.3",
     date: "2026-10-23",
     title: "Issue details fit on a laptop screen",
