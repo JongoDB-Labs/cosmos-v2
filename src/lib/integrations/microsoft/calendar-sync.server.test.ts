@@ -833,7 +833,7 @@ describe("Outlook meeting sync (e2e DB)", () => {
   });
 
   it("disconnecting: keep leaves the invitations (and their calendar) in Outlook; cancel cancels them", async () => {
-    const { org, alice, g, deps, meeting } = await setup();
+    const { org, alice, bob, g, deps, meeting } = await setup();
     await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
     const cal = ((await credOf(org.id, alice.id)).meta as { calendarId: string }).calendarId;
     const inviteId = (await linkOf(alice.id, meeting.id))!.externalEventId;
@@ -845,11 +845,15 @@ describe("Outlook meeting sync (e2e DB)", () => {
     expect(g.cancellations).toEqual([]);
     expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).inviteOrganizerId).toBeNull();
     expect(await prisma.auditLog.count({ where: { orgId: org.id, action: "microsoft_calendar.invite_released" } })).toBe(1);
+    expect((await invitePreview(org.id, meeting.id, bob.id))!.ended).toMatchObject({ how: "released", reason: "organizer_disconnected" });
 
     const two = await setup();
     await setMeetingInvite(two.org.id, two.meeting.id, two.alice.id, true, two.deps);
     await releaseInvitesOnDisconnect(two.org.id, two.alice.id, "cancel", two.deps);
     expect(two.g.cancellations).toHaveLength(1);
+    expect((await invitePreview(two.org.id, two.meeting.id, two.alice.id))!.ended).toMatchObject({ how: "cancelled", reason: "organizer_disconnected" });
+    await setMeetingInvite(two.org.id, two.meeting.id, two.alice.id, true, two.deps);
+    expect((await invitePreview(two.org.id, two.meeting.id, two.alice.id))!.ended).toBeNull();
   });
 
   it("when the organizer leaves the org, their invitations are cancelled, audited, and the admins told", async () => {
@@ -872,6 +876,13 @@ describe("Outlook meeting sync (e2e DB)", () => {
     await prisma.integration.updateMany({ where: { orgId: org.id, provider: MS_CALENDAR }, data: { status: "INACTIVE" } });
     await offboardInvites(org.id, alice.id, "integration_disabled", deps);
     expect(g.cancellations).toHaveLength(1);
+  });
+
+  it("the preview says when the org has Outlook Calendar off, so the meeting page can stay quiet", async () => {
+    const { org, alice, meeting } = await setup();
+    expect((await invitePreview(org.id, meeting.id, alice.id))!.available).toBe(true);
+    await prisma.integration.updateMany({ where: { orgId: org.id, provider: MS_CALENDAR }, data: { status: "INACTIVE" } });
+    expect((await invitePreview(org.id, meeting.id, alice.id))!.available).toBe(false);
   });
 
   it("limits each person to 10 invitation toggles an hour", async () => {

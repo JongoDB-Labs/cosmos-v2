@@ -49,6 +49,7 @@ import {
 import type { SyncMeeting, MeetingAttendee, OrgMember } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
 import { LoadError } from "@/components/ui/load-error";
+import { OutlookInvitePanel } from "./outlook-invite";
 
 interface MeetingDetailProps {
   orgId: string;
@@ -771,6 +772,8 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
           </div>
         )}
       </div>
+
+      <OutlookInvitePanel orgId={orgId} meetingId={meetingId} version={refreshKey} />
 
       <Separator />
 

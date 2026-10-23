@@ -17,6 +17,7 @@ import {
   CalendarReconnectNeeded,
   calendarConnection,
   onCalendarOffboard,
+  orgCalendarConfig,
   patchCalendarMeta,
   type CalendarMeta,
   type OffboardReason,
@@ -438,6 +439,8 @@ async function stopInvite(
 }
 
 export interface InvitePreview {
+  /** Whether the org has Outlook Calendar on at all. */
+  available: boolean;
   /** Whether invite mode is on, and who sends it. */
   on: boolean;
   organizerId: string | null;
@@ -446,6 +449,11 @@ export interface InvitePreview {
   reason: "classified" | "not_connected" | "reconnect" | "cannot_edit" | "too_many_attendees" | "cancelled" | null;
   recipients: { name: string; email: string; outside: boolean }[];
   domains: string[];
+  /**
+   * How invitations last ended, while off: "released" (left in Outlook, no
+   * longer updated) or "cancelled", and why.
+   */
+  ended: { how: "released" | "cancelled"; reason: string | null; at: string } | null;
 }
 
 /** What turning on invitations for this meeting would do, as this person. */
@@ -456,7 +464,7 @@ export async function invitePreview(orgId: string, meetingId: string, actorId: s
   })) as MeetingWithAttendees | null;
   if (!m) return null;
   const cls = await createClassificationResolver(orgId);
-  const conn = await calendarConnection(orgId, actorId);
+  const [conn, cfg] = await Promise.all([calendarConnection(orgId, actorId), orgCalendarConfig(orgId)]);
   const asOrganizer = { ...m, inviteOrganizerId: m.inviteOrganizerId ?? actorId };
   const invitees = await inviteesFor(asOrganizer);
   const domains = await orgEmailDomains(orgId, conn?.meta);
@@ -470,7 +478,14 @@ export async function invitePreview(orgId: string, meetingId: string, actorId: s
     : !canEdit ? "cannot_edit"
     : m.attendees.length > MAX_INVITEES ? "too_many_attendees"
     : null;
+  const last = m.inviteOrganizerId ? null : await prisma.activity.findFirst({
+    where: { orgId, subjectType: ENTITY, subjectId: m.id, action: { startsWith: "outlook_invite_" } },
+    orderBy: { createdAt: "desc" },
+    select: { action: true, newValue: true, createdAt: true },
+  });
+  const how = last?.action === "outlook_invite_released" ? "released" : last?.action === "outlook_invite_cancelled" ? "cancelled" : null;
   return {
+    available: !!cfg,
     on: !!m.inviteOrganizerId,
     organizerId: m.inviteOrganizerId,
     // Turning it off needs only edit rights; turning it on needs everything.
@@ -478,6 +493,7 @@ export async function invitePreview(orgId: string, meetingId: string, actorId: s
     reason,
     recipients: invitees.map((i) => ({ name: i.name, email: i.email, outside: away.has(i.userId) })),
     domains,
+    ended: how && last ? { how, reason: last.newValue, at: last.createdAt.toISOString() } : null,
   };
 }
 
