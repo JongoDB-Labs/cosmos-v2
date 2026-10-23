@@ -106,6 +106,7 @@ import { memberPickerOptions } from "@/lib/org/member-picker";
 import { entityUrl } from "@/lib/mentions/urls";
 import { useOrgSlug } from "@/lib/query/keys";
 import { toast } from "sonner";
+import { datesFromInterval, plannedDayToIso } from "@/lib/intervals/fill-dates";
 import {
   WORK_ITEM_HIGHLIGHTS,
   WORK_ITEM_HIGHLIGHT_ORDER,
@@ -568,14 +569,16 @@ export function CardDetailSheet({
 
   // Immediately persist a single field change via PUT and update parent cache.
   const patchField = useCallback(
-    async (field: string, value: unknown) => {
+    // `extra` rides in the SAME request: fields a change implies (an interval's
+    // dates, COSMOS-223) must not race the change itself as separate PUTs.
+    async (field: string, value: unknown, extra?: Record<string, unknown>) => {
       if (!item) return;
       const prevColumnKey = item.columnKey;
       try {
         const res = await fetch(`${basePath}/${item.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ [field]: value }),
+          body: JSON.stringify({ [field]: value, ...extra }),
         });
         if (!res.ok) throw new Error("Failed to update");
         const updated: WorkItem = await res.json();
@@ -636,10 +639,11 @@ export function CardDetailSheet({
         }
       } catch (err) {
         console.error(`Failed to patch ${field}:`, err);
-        // Revert ONLY the field that failed back to the server value (`item` is
+        // Revert ONLY the fields that failed back to the server value (`item` is
         // unchanged on failure since onUpdate runs only on success). Reverting
         // every field would clobber other concurrent/just-succeeded edits.
-        switch (field) {
+        for (const failed of [field, ...Object.keys(extra ?? {})])
+        switch (failed) {
           case "priority":
             setPriority(item.priority);
             break;
@@ -1731,12 +1735,21 @@ export function CardDetailSheet({
                     ...Object.fromEntries(intervals.map((s) => [s.id, s.name])),
                   }}
                   value={intervalId ?? "__none__"}
-                  onValueChange={(v) =>
-                    handleFieldChange(
-                      "intervalId",
-                      (v === "__none__" ? null : v) as string | null
-                    )
-                  }
+                  onValueChange={(v) => {
+                    const next = (v === "__none__" ? null : v) as string | null;
+                    setIntervalId(next);
+                    // Fill only the planned dates that are still empty (COSMOS-223).
+                    const fill = datesFromInterval(
+                      { startDate, dueDate },
+                      intervals.find((s) => s.id === next),
+                    );
+                    if (fill.startDate) setStartDate(fill.startDate);
+                    if (fill.dueDate) setDueDate(fill.dueDate);
+                    void patchField("intervalId", next, {
+                      ...(fill.startDate && { startDate: plannedDayToIso(fill.startDate) }),
+                      ...(fill.dueDate && { dueDate: plannedDayToIso(fill.dueDate) }),
+                    });
+                  }}
                 >
                   <SelectTrigger size="sm" aria-label="Interval" className="w-full text-xs">
                     <SelectValue />
