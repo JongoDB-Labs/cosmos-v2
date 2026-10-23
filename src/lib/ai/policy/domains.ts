@@ -128,6 +128,7 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   add_kr_checkin: "projects",
   link_key_result_item: "projects",
   list_milestones: "projects",
+  list_teams: "projects",
   create_milestone: "projects",
   update_milestone: "projects",
   delete_milestone: "projects",
