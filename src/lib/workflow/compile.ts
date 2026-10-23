@@ -18,7 +18,8 @@ export interface CompiledWorkflow {
 
 export function compileWorkflow(definition: WorkflowDefinition): CompiledWorkflow {
   const statusKeys = new Set(definition.statuses.map((s) => s.key));
-  const initialStatus = definition.statuses.find((s) => s.isInitial)?.key ?? definition.statuses[0].key;
+  // A project with no statuses yet has an empty open workflow and no initial status.
+  const initialStatus = definition.statuses.find((s) => s.isInitial)?.key ?? definition.statuses[0]?.key ?? "";
   const ids = new Map(definition.transitions.map((t) => [t.id, t]));
   const global = definition.transitions.filter((t) => t.from === "*");
   const bySource = new Map<string, TransitionSpec[]>();
@@ -104,6 +105,7 @@ export function buildOpenDefinition(
   statuses: readonly (StatusRef & { name: string; sortOrder: number })[],
 ): WorkflowDefinition {
   const ordered = [...statuses].sort((a, b) => a.sortOrder - b.sortOrder);
+  if (ordered.length === 0) return { schemaVersion: 1, statuses: [], transitions: [] };
   const initial =
     ordered.find((s) => s.category === "TODO" && !s.archived) ?? ordered.find((s) => !s.archived) ?? ordered[0];
   return {

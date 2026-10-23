@@ -18,6 +18,10 @@ const { getAuthContext, prisma, logAudit, createNotification } = vi.hoisted(() =
     project: { findUnique: vi.fn() },
     workItem: { deleteMany: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
     activity: { createMany: vi.fn() },
+    // The workflow engine: no workflow assigned, no statuses, nobody assigned.
+    workflowAssignment: { findMany: vi.fn(async () => []) },
+    workflowStatus: { findMany: vi.fn(async () => []) },
+    workItemAssignee: { findMany: vi.fn(async () => []) },
     $transaction: vi.fn(),
   },
   logAudit: vi.fn(),

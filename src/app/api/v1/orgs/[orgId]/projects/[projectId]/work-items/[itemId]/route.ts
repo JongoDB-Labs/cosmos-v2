@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamProjectError } from "@/lib/teams/item-team.server";
 import { applyWorkItemChange, workItemPatchSchema } from "@/lib/work-items/apply-change.server";
+import { changeContextSchema } from "@/lib/workflow/transition-request";
 import { runAfterCommit } from "@/lib/work-items/after-commit";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; itemId: string }> };
@@ -72,6 +73,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = workItemPatchSchema.parse(body);
+    const { transition, boardId } = changeContextSchema.parse(body);
 
     const teamError = await teamProjectError({ projectId, teamId: data.teamId });
     if (teamError) return Response.json({ error: teamError }, { status: 400 });
@@ -84,6 +86,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         itemIds: [itemId],
         patch: data,
         source: "API",
+        actor: ctx,
+        transition,
+        boardId,
       });
       const updated = await tx.workItem.findUniqueOrThrow({
         where: { id: itemId },

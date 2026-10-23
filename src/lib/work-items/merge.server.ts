@@ -193,6 +193,8 @@ export async function mergeWorkItems(
     patch: { cancelReason: "MERGED", cancelNote: `Merged into ${ref(b.ticketNumber)}`, mergedIntoId: bId },
     source: "SYSTEM",
     correlationId: meta.correlationId,
+    // The system's own cancel: held to the workflow's structure, not a person's rights.
+    actor: null,
   });
   await tx.activity.createMany({
     data: [

@@ -7,6 +7,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { applyWorkItemChange } from "@/lib/work-items/apply-change.server";
+import { transitionRequestSchema } from "@/lib/workflow/transition-request";
 import { mergeEffects, runAfterCommit, type AfterCommitEffects } from "@/lib/work-items/after-commit";
 import { z } from "zod";
 import { Priority } from "@prisma/client";
@@ -38,6 +39,8 @@ const bulkUpdateSchema = z.object({
     intervalId: z.string().uuid().nullable().optional(),
     tags: z.array(z.string()).optional(),
   }),
+  // The transition and its input, collected once for the whole selection.
+  transition: transitionRequestSchema.optional(),
 });
 
 const bulkDeleteSchema = z.object({
@@ -57,7 +60,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     await requireProjectManage(ctx, projectId, Permission.ITEM_BULK_EDIT);
 
     const body = await request.json();
-    const { ids, update } = bulkUpdateSchema.parse(body);
+    const { ids, update, transition } = bulkUpdateSchema.parse(body);
 
     // Each batch is one transaction through the same writer as a single edit,
     // so a bulk move stamps dates, clears a cancel reason, records history and
@@ -65,6 +68,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // each transaction (and its IN lists) small; a later batch failing leaves
     // the earlier ones applied, as before.
     const parts: AfterCommitEffects[] = [];
+    const denied: { id: string; code: string; message: string }[] = [];
     let updatedCount = 0;
     for (const batch of chunk(ids, BULK_CHUNK)) {
       const change = await prisma.$transaction((tx) =>
@@ -75,17 +79,21 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           itemIds: batch,
           patch: update,
           source: "BULK",
+          actor: ctx,
+          transition,
         }),
       );
       updatedCount += change.itemIds.length;
       parts.push(change.effects);
+      // The workflow refuses items one by one; the rest of the selection still
+      // moves, as a bulk transition does in Jira.
+      denied.push(...change.denied.map((d) => ({ id: d.itemId, code: d.body.code, message: d.body.error })));
     }
 
     const effects = mergeEffects(parts);
     if (effects) await runAfterCommit(effects, { ipAddress: getIpAddress(request) });
 
-    const result = { count: updatedCount };
-    return success({ updated: result.count });
+    return success({ updated: updatedCount, denied });
   } catch (error) {
     return handleApiError(error);
   }
