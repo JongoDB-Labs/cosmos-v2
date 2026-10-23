@@ -81,7 +81,7 @@ const highlight = HighlightStyle.define([
   { tag: tags.number, color: "var(--status-discovery-text)" },
   { tag: tags.operator, color: "var(--text-muted)" },
   { tag: tags.special(tags.variableName), color: "var(--status-blocked-text)" },
-  { tag: tags.invalid, color: "var(--destructive)", textDecoration: "underline wavy" },
+  { tag: tags.invalid, color: "var(--status-blocked-text)", textDecoration: "underline wavy" },
 ]);
 
 const theme = EditorView.theme({
@@ -92,12 +92,12 @@ const theme = EditorView.theme({
     background: "var(--surface)",
     color: "var(--text)",
   },
-  "&.cm-focused": { outline: "2px solid var(--ring)", outlineOffset: "1px" },
+  "&.cm-focused": { outline: "2px solid var(--color-ring)", outlineOffset: "1px" },
   ".cm-content": { fontFamily: "var(--font-mono, ui-monospace, monospace)", padding: "6px 8px", minHeight: "1.5rem" },
   ".cm-line": { padding: 0 },
   ".cm-placeholder": { color: "var(--text-muted)" },
-  ".cm-tooltip": { border: "1px solid var(--border)", background: "var(--popover, var(--surface))", color: "var(--text)" },
-  ".cm-tooltip-autocomplete ul li[aria-selected]": { background: "var(--accent)", color: "var(--accent-foreground, var(--text))" },
+  ".cm-tooltip": { border: "1px solid var(--border)", background: "var(--color-popover, var(--surface))", color: "var(--text)" },
+  ".cm-tooltip-autocomplete ul li[aria-selected]": { background: "var(--color-accent)", color: "var(--color-accent-foreground, var(--text))" },
   ".cm-completionDetail": { color: "var(--text-muted)", marginLeft: "0.5em", fontStyle: "normal" },
   ".cm-cql-hover": { padding: "2px 6px", fontSize: "0.75rem" },
 });

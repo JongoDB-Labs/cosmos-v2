@@ -363,7 +363,7 @@ function Diagnostics({ items, text }: { items: CqlDiagnostic[]; text: string }) 
   return (
     <ul className="space-y-0.5 text-xs" aria-label="Query problems">
       {items.slice(0, 5).map((d, i) => (
-        <li key={i} className={d.severity === "error" ? "text-[var(--destructive)]" : "text-[var(--status-blocked-text,var(--text-muted))]"}>
+        <li key={i} className={d.severity === "error" ? "text-[var(--status-blocked-text)]" : "text-[var(--text-muted)]"}>
           {d.message}
           {d.hint ? ` ${d.hint}` : ""}
           <span className="ml-1 text-[var(--text-muted)]">(col {lineCol(text, d.from).column})</span>
