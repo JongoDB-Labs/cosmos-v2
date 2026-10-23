@@ -31,6 +31,11 @@ export const slackConnector: ConnectorDescriptor = {
   toolDefs: slackTools,
   execute: (name, input, ctx) =>
     executeSlackTool(name, input, { userId: ctx.userId, orgId: ctx.orgId }),
+  access: {
+    slack_list_channels: "read",
+    slack_search_messages: "read",
+    slack_post_message: "write",
+  },
   egress: {
     slack_search_messages: { entityType: "slack_message" },
     slack_list_channels: { entityType: "slack_channel" },

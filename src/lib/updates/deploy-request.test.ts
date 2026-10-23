@@ -6,7 +6,13 @@
 // decides whether a button takes production down, and the interesting cases are
 // all the ways it must say no. The happy path is a single line.
 import { describe, it, expect } from "vitest";
-import { decideDeploy, refusalStatus } from "./deploy-request";
+import {
+  abandonedClaimWhere,
+  decideDeploy,
+  DEPLOY_HEARTBEAT_STALE_MS,
+  isAbandonedClaim,
+  refusalStatus,
+} from "./deploy-request";
 import { evaluatePreflights, canApply, type PreflightFacts } from "./preflight";
 import type { UpdateCheck } from "./check";
 
@@ -235,5 +241,81 @@ describe("refusalStatus — distinct codes so the UI can react precisely", () =>
     expect(refusalStatus("no-update")).toBe(422);
     expect(refusalStatus("check-failed")).toBe(503);
     expect(refusalStatus("not-configured")).toBe(501);
+  });
+});
+
+// ── Dead claims ─────────────────────────────────────────────────────────────
+//
+// A runner that dies mid-deploy leaves its row RUNNING, and the single-flight
+// index then refuses every later install. These pin when such a row is retired.
+
+const NOW = new Date("2026-10-23T12:00:00.000Z");
+const ago = (ms: number) => new Date(NOW.getTime() - ms);
+const MIN = 60 * 1000;
+const STALE = DEPLOY_HEARTBEAT_STALE_MS + MIN;
+const FRESH = 2 * MIN;
+
+type ClaimRow = Parameters<typeof isAbandonedClaim>[0];
+const row = (over: Partial<ClaimRow>): ClaimRow => ({
+  status: "RUNNING",
+  requestedAt: ago(10 * DEPLOY_HEARTBEAT_STALE_MS),
+  claimedAt: ago(10 * DEPLOY_HEARTBEAT_STALE_MS),
+  heartbeatAt: null,
+  ...over,
+});
+
+/**
+ * Evaluates `abandonedClaimWhere`'s output against a row, for exactly the
+ * shapes it emits — so the Prisma form is held to the same table as the pure
+ * rule instead of being trusted to agree with it.
+ */
+function matches(where: Record<string, unknown>, r: Record<string, unknown>): boolean {
+  return Object.entries(where).every(([k, cond]) => {
+    if (k === "OR") return (cond as Record<string, unknown>[]).some((w) => matches(w, r));
+    if (cond === null) return r[k] === null;
+    if (typeof cond === "object" && "lt" in cond) {
+      return r[k] instanceof Date && (r[k] as Date).getTime() < (cond as { lt: Date }).lt.getTime();
+    }
+    return r[k] === cond;
+  });
+}
+
+describe("isAbandonedClaim / abandonedClaimWhere", () => {
+  const cases: [string, ClaimRow, boolean][] = [
+    ["a fresh heartbeat is alive, however old the claim", row({ heartbeatAt: ago(FRESH) }), false],
+    ["a stale heartbeat is abandoned", row({ heartbeatAt: ago(STALE) }), true],
+    ["no heartbeat, stale claim: abandoned", row({ heartbeatAt: null, claimedAt: ago(STALE) }), true],
+    ["no heartbeat, fresh claim: alive (runner has not ticked yet)", row({ heartbeatAt: null, claimedAt: ago(FRESH) }), false],
+    [
+      "no heartbeat, no claimedAt: falls back to requestedAt",
+      row({ heartbeatAt: null, claimedAt: null, requestedAt: ago(STALE) }),
+      true,
+    ],
+    [
+      "no heartbeat, no claimedAt, recent request: alive",
+      row({ heartbeatAt: null, claimedAt: null, requestedAt: ago(FRESH) }),
+      false,
+    ],
+    [
+      "PENDING is never touched, however old — 'no runner' is a separate state",
+      row({ status: "PENDING", claimedAt: null, requestedAt: ago(10 * STALE) }),
+      false,
+    ],
+    ["a finished row is never touched", row({ status: "SUCCEEDED", heartbeatAt: ago(STALE) }), false],
+  ];
+
+  for (const [name, r, expected] of cases) {
+    it(`pure rule: ${name}`, () => {
+      expect(isAbandonedClaim(r, NOW)).toBe(expected);
+    });
+    it(`where clause: ${name}`, () => {
+      expect(matches(abandonedClaimWhere(NOW) as Record<string, unknown>, r)).toBe(expected);
+    });
+  }
+
+  it("uses a 30-minute window", () => {
+    expect(DEPLOY_HEARTBEAT_STALE_MS).toBe(30 * 60 * 1000);
+    expect(isAbandonedClaim(row({ heartbeatAt: ago(29 * MIN) }), NOW)).toBe(false);
+    expect(isAbandonedClaim(row({ heartbeatAt: ago(31 * MIN) }), NOW)).toBe(true);
   });
 });

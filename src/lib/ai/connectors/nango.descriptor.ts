@@ -34,5 +34,11 @@ export const nangoConnector: ConnectorDescriptor = {
   execute: (name, input, ctx) => executeNangoTool(name, input, ctx),
   // No structural entity mapping ⇒ full withhold for gov (blocked anyway); commercial
   // flows full below FOUO (gate exposes before projection). See header.
+  access: {
+    nango_list_connections: "read",
+    nango_get_connection: "read",
+    // A proxied GET/HEAD only reads (no method means GET, as in the executor); any other may change data.
+    nango_proxy_request: (input) => (["GET", "HEAD"].includes(String(input.method ?? "GET").toUpperCase()) ? "read" : "write"),
+  },
   egress: {},
 };

@@ -32,6 +32,12 @@ export const jiraConnector: ConnectorDescriptor = {
   toolDefs: jiraTools,
   execute: (name, input, ctx) =>
     executeJiraTool(name, input, { userId: ctx.userId, orgId: ctx.orgId }),
+  access: {
+    jira_search_issues: "read",
+    jira_get_issue: "read",
+    jira_list_projects: "read",
+    jira_create_issue: "write",
+  },
   egress: {
     jira_search_issues: { entityType: "jira_issue" },
     jira_get_issue: { entityType: "jira_issue" },

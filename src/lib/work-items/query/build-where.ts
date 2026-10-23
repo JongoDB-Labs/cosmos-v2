@@ -200,7 +200,7 @@ export function buildWorkItemWhere(args: BuildWhereArgs): Prisma.WorkItemWhereIn
 /** Translate a DateRange into a Prisma DateTime filter, or null if both edges
  *  are absent / invalid. Invalid date strings are ignored (treated as absent)
  *  rather than throwing — the caller validates inputs at the edge. */
-function buildDateRange(
+export function buildDateRange(
   range: { from?: string; to?: string } | undefined,
 ): { gte?: Date; lte?: Date } | undefined {
   // A plain { gte?, lte? } is structurally assignable to BOTH Prisma's

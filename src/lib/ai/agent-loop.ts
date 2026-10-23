@@ -121,11 +121,19 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   const allConnectorNames = connectorToolNames(); // full set (no class) — to subtract
   const baseTools = opts.tools ?? cosmosTools;
   const nativeAndForeign = baseTools.filter((t) => !allConnectorNames.has(t.name));
+  // With a caller-supplied list, connector tools are re-added ONLY where that list
+  // named them: the tenant and runtime-config filters narrow the caller's choice,
+  // never widen it. (They used to be re-added wholesale, so a READONLY bot or
+  // `tools: []` still offered send_email / slack_post_message.) Without one, the
+  // default catalog is every connector tool the tenant and config allow.
+  const requested = opts.tools ? new Set(opts.tools.map((t) => t.name)) : null;
   const tenantTools: ToolDefinition[] = [
     ...nativeAndForeign,
-    ...connectorToolDefs(opts.tenantClass, enabledFilter),
+    ...connectorToolDefs(opts.tenantClass, enabledFilter).filter((t) => !requested || requested.has(t.name)),
   ];
   const tools = toModelTools(tenantTools);
+  // What the model was offered: the only names this run will execute.
+  const offered: ReadonlySet<string> = new Set(tenantTools.map((t) => t.name));
   const max = opts.maxIterations ?? MAX_TOOL_ITERATIONS;
   const model = opts.model ?? DEFAULT_MODEL;
   const messages: ModelMessage[] = [{ role: "user", content: opts.initialPrompt }];
@@ -175,6 +183,22 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
     const toolResultBlocks = [];
     const flagOn = handlesEnabled();
     for (const u of reply.toolUses) {
+      // ── OFFERED gate (before anything else) ──────────────────────────────────
+      // Run only a tool the model was offered this run. A name outside the list (a
+      // forged or hallucinated call, or a tool a bot's scope or the caller removed)
+      // is refused and audited, native or connector alike; nothing is resolved or run.
+      if (!offered.has(u.name)) {
+        logEgressDecision({
+          conversationId: opts.conversationId, turn, valueKind: "tool_args",
+          toolName: u.name, exposed: false, withheldCount: 1,
+          contentHash: sha256Hex(JSON.stringify(u.input ?? {})), decidedBy: "tool_not_offered_block",
+          tenantClass: opts.tenantClass, mode: "enforced",
+        });
+        const notOffered = { error: `tool "${u.name}" is not available in this conversation` };
+        toolResultBlocks.push({ type: "tool_result" as const, tool_use_id: u.id, content: JSON.stringify(notOffered) });
+        toolCalls.push({ id: u.id, name: u.name, arguments: u.input, result: notOffered });
+        continue;
+      }
       // ── RESOLVE handles in the tool args BEFORE execution (in-boundary) ──
       // The model may carry an opaque handle (a token minted for a previously
       // withheld CUI field) into a later tool call. Resolve every whole-string,
@@ -300,6 +324,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
         orgId: opts.orgId,
         userId: opts.userId,
         auth: opts.auth,
+        offered,
         tenantClass: opts.tenantClass,
         conversationId: opts.conversationId,
         // Defense in depth: dispatch refuses a tool whose connector this org disabled.
