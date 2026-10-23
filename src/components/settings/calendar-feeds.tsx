@@ -54,7 +54,10 @@ export function CalendarFeedsSection({ orgId }: { orgId: string }) {
   // A new link's URL, shown once. It can't be fetched again: only its hash is kept.
   const [fresh, setFresh] = useState<{ id: string; url: string } | null>(null);
 
-  const create = useOrgMutation({
+  // `void` spelled out: a zero-argument mutationFn gives TypeScript nothing to
+  // infer TVariables from, so it lands on `unknown` and `create.mutate()` stops
+  // compiling. Same shape as save-as-board-dialog and tax-dashboard.
+  const create = useOrgMutation<FeedRow & { url: string }, Error, void>({
     mutationFn: () => jsonFetch<FeedRow & { url: string }>(base, { method: "POST", body: JSON.stringify({}) }),
     invalidate: [["calendar-feeds"]],
     onSuccess: (f) => setFresh({ id: f.id, url: f.url }),
