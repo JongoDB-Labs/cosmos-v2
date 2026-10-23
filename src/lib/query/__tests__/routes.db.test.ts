@@ -214,6 +214,9 @@ describe("CQL routes (e2e DB)", () => {
 
   it("search ?cql= shares the query route's rate limit (30 per 10 s)", async () => {
     limiter.on = true;
+    // The bucket refills with Date.now(); a slow run (a loaded CI box) would
+    // earn tokens back mid-test. Frozen, 32 requests are 32 requests.
+    vi.useFakeTimers({ toFake: ["Date"] });
     // Its own user, so this bucket isn't the one the query-route test uses.
     getAuthContext.mockImplementation(async () => ({ ...w.ctx(), userId: w.bob.id }) as AuthContext);
     try {
@@ -228,6 +231,7 @@ describe("CQL routes (e2e DB)", () => {
       expect(statuses).toContain(429);
       expect(statuses.slice(0, 20).every((x) => x === 200)).toBe(true);
     } finally {
+      vi.useRealTimers();
       limiter.on = false;
       getAuthContext.mockImplementation(async () => w.ctx());
     }
