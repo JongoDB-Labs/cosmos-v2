@@ -11,7 +11,7 @@ const { prisma, getAuthContext, requireAccess } = vi.hoisted(() => ({
   prisma: {
     organization: { findUnique: vi.fn() },
     feedbackItem: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
-    feedbackVote: { findMany: vi.fn() },
+    feedbackVote: { findMany: vi.fn(), findFirst: vi.fn() },
     user: { findMany: vi.fn(), findUnique: vi.fn() },
   },
   getAuthContext: vi.fn(),
@@ -22,7 +22,7 @@ vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/abac/require-access", () => ({ requireAccess }));
 
 import { GET } from "./route";
-import { PUT } from "./[feedbackId]/route";
+import { PUT, GET as GET_ONE } from "./[feedbackId]/route";
 
 const ORG = "00000000-0000-4000-a000-000000000001";
 const ME = "member-1";
@@ -113,5 +113,39 @@ describe("PUT /feedback/[id] as the author", () => {
     expect(item).not.toHaveProperty("telemetry");
     expect(item).not.toHaveProperty("triage");
     expect(item.authorEmail).toBe("me@example.com");
+  });
+});
+
+describe("GET /feedback/[id] (the ?item= deep link) as a plain member", () => {
+  const getOne = () =>
+    GET_ONE(new NextRequest(`http://x/api/v1/orgs/${ORG}/feedback/f1`), {
+      params: Promise.resolve({ orgId: ORG, feedbackId: "f1" }),
+    });
+
+  it("returns the item in the same per-viewer shape as the list", async () => {
+    asMember();
+    prisma.feedbackItem.findFirst.mockResolvedValue(row(OTHER));
+    prisma.feedbackVote.findFirst.mockResolvedValue({ feedbackItemId: "f1" });
+    prisma.user.findUnique.mockResolvedValue({ displayName: "Bo", email: "bo@example.com" });
+
+    const res = await getOne();
+    const body = await res.json();
+    const item = body.data ?? body;
+
+    expect(res.status).toBe(200);
+    expect(item).toMatchObject({ id: "f1", authorName: "Bo", hasVoted: true, attachments: [] });
+    expect(item).not.toHaveProperty("telemetry");
+    expect(item).not.toHaveProperty("triage");
+    expect(item).not.toHaveProperty("authorEmail");
+  });
+
+  it("is a 404 for an item outside this org", async () => {
+    asMember();
+    prisma.feedbackItem.findFirst.mockResolvedValue(null);
+
+    const res = await getOne();
+
+    expect(res.status).toBe(404);
+    expect(prisma.feedbackItem.findFirst.mock.calls[0][0].where).toEqual({ id: "f1", orgId: ORG });
   });
 });
