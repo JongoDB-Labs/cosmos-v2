@@ -101,9 +101,13 @@ export interface EgressDecision {
    * refused at dispatch, defense in depth behind the tool-list filter):
    *   - "connector_disabled_block":     the connector-registry DISPATCH layer refused a tool
    *                          whose connector the org's runtime config disabled.
+   * Every tool call is checked against the tools the model was actually OFFERED:
+   *   - "tool_not_offered_block":       the agent loop (or connector dispatch) refused a
+   *                          tool the model was not offered this run (a forged or
+   *                          hallucinated name, or one a bot's tool scope removed).
    * The DB column (egress_decisions.decided_by) is TEXT, so no migration is needed.
    */
-  decidedBy: "rbac" | "agentpolicy" | "classification" | "tenant" | "none" | "handle_mint" | "handle_resolve" | "handle_taint_block" | "connector_availability_block" | "connector_gov_block" | "connector_disabled_block";
+  decidedBy: "rbac" | "agentpolicy" | "classification" | "tenant" | "none" | "handle_mint" | "handle_resolve" | "handle_taint_block" | "connector_availability_block" | "connector_gov_block" | "connector_disabled_block" | "tool_not_offered_block";
   tenantClass: TenantClass;
   mode: EgressMode;
   /** The data's effective classification ceiling at decision time (audit evidence). */

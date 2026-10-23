@@ -24,5 +24,18 @@ export const googleConnector: ConnectorDescriptor = {
     executeGoogleTool(name, input, { userId: ctx.userId, orgId: ctx.orgId }),
   // No structural entity mapping ⇒ full withhold for gov. (Unchanged from the
   // pre-registry projection.ts, which intentionally omitted every google_* tool.)
+  access: {
+    send_email: "write",
+    create_calendar_event: "write",
+    update_calendar_event: "write",
+    delete_calendar_event: "write",
+    create_drive_folder: "write",
+    search_emails: "read",
+    read_email: "read",
+    list_calendar_events: "read",
+    list_drive_files: "read",
+    read_google_doc: "read",
+    search_contacts: "read",
+  },
   egress: {},
 };

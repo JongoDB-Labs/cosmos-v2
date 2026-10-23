@@ -102,3 +102,19 @@ describe("filterToolsByScope", () => {
     expect(input).toHaveLength(ALL.length);
   });
 });
+
+describe("filterToolsByScope classifies connector tools by their declared access", () => {
+  it("READONLY keeps connector reads (by declaration, not name) and drops every connector write", async () => {
+    const { cosmosTools } = await import("@/lib/ai/tools");
+    const kept = filterToolsByScope("READONLY", cosmosTools).map((t) => t.name);
+    // Reads whose names the prefix heuristic alone would drop:
+    for (const r of ["github_list_issues", "jira_get_issue", "slack_search_messages", "m365_list_events", "nango_get_connection"]) {
+      expect(kept).toContain(r);
+    }
+    for (const w of ["send_email", "create_calendar_event", "delete_calendar_event", "create_drive_folder", "jira_create_issue", "slack_post_message"]) {
+      expect(kept).not.toContain(w);
+    }
+    // Input-dependent (a proxy whose method decides): never offered to READONLY.
+    expect(kept).not.toContain("nango_proxy_request");
+  });
+});

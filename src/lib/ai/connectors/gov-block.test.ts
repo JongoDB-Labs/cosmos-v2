@@ -26,7 +26,7 @@ import { nangoTools } from "../tools/nango";
 import { entityTypeForTool, projectResult } from "../egress/projection";
 
 function makeDescriptor(over: Partial<ConnectorDescriptor> & { provider: string }): ConnectorDescriptor {
-  return { toolDefs: [], execute: async () => ({}), egress: {}, ...over };
+  return { toolDefs: [], execute: async () => ({}), egress: {}, access: {}, ...over };
 }
 
 // An "all"-availability connector (the Google/GitHub case — unchanged for both classes).
@@ -114,17 +114,17 @@ describe("L2 — executeConnectorTool dispatch refuses commercial-only for gov",
   });
 
   it("ALLOWS a commercial tenant to dispatch a commercial-only tool", async () => {
-    const res = await executeConnectorTool("broker_proxy", { q: 2 }, { orgId: "o", userId: "u", tenantClass: "commercial" });
+    const res = await executeConnectorTool("broker_proxy", { q: 2 }, { offered: new Set(["broker_proxy"]), orgId: "o", userId: "u", tenantClass: "commercial" });
     expect(res).toEqual({ provider: "broker", name: "broker_proxy", input: { q: 2 } });
     expect(logEgressDecision).not.toHaveBeenCalled();
   });
 
   it("ALLOWS an 'all'-availability tool for BOTH classes (unchanged dispatch)", async () => {
-    expect(await executeConnectorTool("native_read", {}, { orgId: "o", userId: "u", tenantClass: "gov" })).toEqual({
+    expect(await executeConnectorTool("native_read", {}, { offered: new Set(["native_read"]), orgId: "o", userId: "u", tenantClass: "gov" })).toEqual({
       provider: "native_all",
       name: "native_read",
     });
-    expect(await executeConnectorTool("native_read", {}, { orgId: "o", userId: "u", tenantClass: "commercial" })).toEqual({
+    expect(await executeConnectorTool("native_read", {}, { offered: new Set(["native_read"]), orgId: "o", userId: "u", tenantClass: "commercial" })).toEqual({
       provider: "native_all",
       name: "native_read",
     });

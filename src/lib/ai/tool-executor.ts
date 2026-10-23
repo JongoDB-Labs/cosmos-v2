@@ -93,6 +93,12 @@ interface ToolContext {
   orgId: string;
   userId: string;
   /**
+   * The tool names the model was offered this run. Connector dispatch refuses a
+   * name outside it, and every connector call when it's absent (fail closed). The
+   * agent loop always supplies it (and refuses a not-offered native tool itself).
+   */
+  offered?: ReadonlySet<string>;
+  /**
    * The org's data-sensitivity class — threaded through so the connector dispatch
    * layer can enforce the D5 commercial-only gov-block (LAYER 2). OPTIONAL: callers
    * that don't supply it get the registry's fail-closed behavior (a commercial-only
@@ -297,6 +303,8 @@ async function dispatchTool(
       // The org's runtime-config enablement — so dispatch hard-refuses a disabled
       // connector (defense in depth behind the tool-list filter).
       enabled: ctx.enabled,
+      // Only a tool the model was offered may run (absent ⇒ refused).
+      offered: ctx.offered,
     });
   }
 

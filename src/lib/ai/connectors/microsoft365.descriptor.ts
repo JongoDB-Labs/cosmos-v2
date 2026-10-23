@@ -44,6 +44,12 @@ export const microsoft365Connector: ConnectorDescriptor = {
   toolDefs: microsoft365Tools,
   execute: (name, input, ctx) =>
     executeMicrosoft365Tool(name, input, { userId: ctx.userId, orgId: ctx.orgId }),
+  access: {
+    m365_list_users: "read",
+    m365_list_messages: "read",
+    m365_list_events: "read",
+    m365_list_drive_items: "read",
+  },
   egress: {
     m365_list_messages: { entityType: "m365_message" },
     m365_list_events: { entityType: "m365_event" },
