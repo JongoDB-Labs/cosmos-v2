@@ -11,6 +11,12 @@ import {
   unknownQueryParams,
 } from "@/lib/work-items/query";
 import { toCSV } from "@/lib/export/csv";
+import { classificationApplies } from "@/lib/compliance/classification";
+import { createClassificationResolver } from "@/lib/classification/resolver";
+import { rankOf } from "@/lib/classification/effective";
+import { classificationLabel, isMarkingLevel } from "@/lib/classification/levels";
+import { logAudit } from "@/lib/audit";
+import type { ClassificationLevel } from "@prisma/client";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -30,6 +36,18 @@ const day = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
  * type / project / assignee / parent names, not raw ids). The same scoping as
  * `/work-items/search` guarantees a user can never export items from a project
  * they can't read.
+ *
+ * Classification (GOV tenants only; a COMMERCIAL export carries no marking at
+ * all, per `classificationApplies`). Each row gets a Classification column: its
+ * project's effective ceiling, raised to CUI when its own title or tags carry a
+ * marking (`createClassificationResolver`, the calendar feed's rule). The file
+ * as a whole is handled at the highest of those levels and the org ceiling.
+ * When that is a marking level the export:
+ *   - requires ORG_EXPORT, because a file of controlled data leaving the system
+ *     is a dissemination decision, not a read;
+ *   - carries the banner as its first and last line, so the marking travels
+ *     with the file wherever it is opened or forwarded;
+ *   - is audited (`work_items.export.classified`).
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
@@ -86,8 +104,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       pageSize: 50_000,
     });
 
+    const marking = classificationApplies(org.tenantClass)
+      ? await createClassificationResolver(orgId)
+      : null;
+    const levels = marking
+      ? data.map((r) => marking.rowLevel(r.project.id, r.title, ...r.tags))
+      : [];
+    const fileLevel: ClassificationLevel | null = marking
+      ? levels.reduce((max, l) => (rankOf(l) > rankOf(max) ? l : max), marking.orgLevel)
+      : null;
+
     // Clean, common schema across the export (one row per work item).
-    const rows = data.map((r) => ({
+    const rows = data.map((r, i) => ({
       Ticket: r.ticketKey,
       Title: r.title,
       Type: r.type.name,
@@ -103,9 +131,36 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       Completed: day(r.completedAt),
       Created: day(r.createdAt),
       Updated: day(r.updatedAt),
+      ...(marking ? { Classification: classificationLabel(levels[i]) } : {}),
     }));
 
-    return new Response(toCSV(rows), { status: 200, headers: csvHeaders(org.slug) });
+    if (fileLevel === null || !isMarkingLevel(fileLevel)) {
+      return new Response(toCSV(rows), { status: 200, headers: csvHeaders(org.slug) });
+    }
+
+    if (!hasPermission(ctx.permissions, Permission.ORG_EXPORT)) {
+      // Plain text, not JSON: the Issues "Export CSV" button is a plain link,
+      // so a refusal is read in a browser tab as often as by an API client.
+      return new Response(
+        `This export contains ${classificationLabel(fileLevel)} information. `
+          + "Exporting it requires the Org export permission. "
+          + "Narrow the filter to unmarked projects, or ask an administrator.",
+        { status: 403, headers: { "content-type": "text/plain; charset=utf-8" } },
+      );
+    }
+
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "work_items.export.classified",
+      entity: "work_item",
+      metadata: { level: fileLevel, rows: rows.length },
+    });
+    const banner = classificationLabel(fileLevel).toUpperCase();
+    return new Response(`${banner}\n${toCSV(rows)}\n${banner}`, {
+      status: 200,
+      headers: { ...csvHeaders(org.slug), "X-Classification": banner },
+    });
   } catch (e) {
     return handleApiError(e);
   }
