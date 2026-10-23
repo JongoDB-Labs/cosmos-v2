@@ -108,7 +108,7 @@ export async function setFeedbackStatus(input: Record<string, unknown>, ctx: Too
 
   const existing = await prisma.feedbackItem.findFirst({
     where: { id: data.feedbackId, orgId: ctx.orgId },
-    select: { id: true, projectId: true },
+    select: { id: true, projectId: true, status: true, mergedIntoId: true },
   });
   if (!existing) return { error: "Feedback item not found" };
 
@@ -119,6 +119,11 @@ export async function setFeedbackStatus(input: Record<string, unknown>, ctx: Too
   if (existing.projectId) {
     const outOfScope = await assertProjectRead(ctx, existing.projectId, "ITEM_UPDATE");
     if (outOfScope) return { error: "Feedback item not found" };
+  }
+
+  // Same rule as PUT /feedback/[id]: a merged item's status belongs to the merge.
+  if (existing.mergedIntoId || existing.status === "MERGED") {
+    return { error: "This feedback was merged into another item; its status can't be changed until the merge is undone." };
   }
 
   const updated = await prisma.feedbackItem.update({

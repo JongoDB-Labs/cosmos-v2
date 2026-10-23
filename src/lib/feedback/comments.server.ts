@@ -15,7 +15,6 @@ import { uploadersByIds, FORMER_MEMBER, type Uploader } from "@/lib/files/upload
 import { parseMentions } from "@/lib/chat/mentions";
 import { mentionsToPlainText, userMentionLabels } from "@/lib/mentions/plain-text";
 import { createNotification } from "@/lib/notifications/create";
-import { ensureSubscribed } from "./subscriptions.server";
 import { feedbackItemUrl } from "./urls";
 
 import { FEEDBACK_SUBJECT } from "./subject";
@@ -178,7 +177,7 @@ export async function resolveReplyParent(
     : { id: parent.id, authorId: parent.authorId };
 }
 
-/** Write a public comment and keep the item's counters and subscribers in step. */
+/** Write a public comment and keep the item's counters in step. */
 export async function insertFeedbackComment(
   tx: Prisma.TransactionClient,
   input: {
@@ -206,18 +205,12 @@ export async function insertFeedbackComment(
     where: { id: input.feedbackItemId },
     data: { commentCount: { increment: 1 }, lastActivityAt: comment.createdAt },
   });
-  await ensureSubscribed(tx, {
-    orgId: input.orgId,
-    feedbackItemId: input.feedbackItemId,
-    userId: input.authorId,
-    reason: "commenter",
-  });
   return comment;
 }
 
 /**
  * After the comment commits: tell the people it was addressed to. Mentions of
- * org members (each also subscribed), and the author of the comment replied
+ * org members, and the author of the comment replied
  * to. The writer is never notified; nobody is notified twice. Best-effort.
  */
 export async function notifyCommentAudience(input: {
@@ -248,11 +241,6 @@ export async function notifyCommentAudience(input: {
   for (const m of members) {
     if (notified.has(m.userId)) continue;
     notified.add(m.userId);
-    await prisma
-      .$transaction((tx) =>
-        ensureSubscribed(tx, { orgId: org.id, feedbackItemId: item.id, userId: m.userId, reason: "mention" }),
-      )
-      .catch(() => {});
     await createNotification({
       orgId: org.id,
       userId: m.userId,

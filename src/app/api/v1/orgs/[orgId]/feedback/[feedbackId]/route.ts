@@ -109,6 +109,18 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       await requireAccess(ctx, "ORG_UPDATE", {
         createdById: existing.authorId,
       });
+      // A merged item's status belongs to the merge. Changing it here would
+      // un-hide the item while it still points at its survivor (and its merge
+      // record still says merged), so it is refused until the merge is undone.
+      if (existing.mergedIntoId || existing.status === "MERGED") {
+        return new Response(
+          JSON.stringify({
+            error: "This request was merged into another one. Undo the merge to change its status.",
+            mergedIntoId: existing.mergedIntoId,
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
     }
     if (wantsContentEdit && !isAuthor) {
       if (!hasPermission(ctx.permissions, Permission.ORG_UPDATE)) {

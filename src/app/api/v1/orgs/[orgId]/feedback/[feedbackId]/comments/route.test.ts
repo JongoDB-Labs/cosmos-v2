@@ -14,7 +14,10 @@ import { prisma } from "@/lib/db/client";
 import { GET, POST } from "./route";
 import { PATCH, DELETE } from "./[commentId]/route";
 import { GET as REVISIONS } from "./[commentId]/revisions/route";
-import { DELETE as DELETE_ITEM } from "../route";
+import { DELETE as DELETE_ITEM, PUT as PUT_ITEM } from "../route";
+import { GET as LIST } from "../../route";
+import { setFeedbackStatus } from "@/lib/ai/executors/feedback";
+import { memberToolCtx } from "@/lib/testing/tool-auth";
 
 const PREFIX = "[fb-discussion-test]";
 let orgId: string;
@@ -77,7 +80,7 @@ afterAll(async () => {
 describe("feedback discussion (e2e DB)", () => {
   let top: string;
 
-  it("lets a member comment, counts it and subscribes them", async () => {
+  it("lets a member comment and counts it", async () => {
     as(carol, "MEMBER");
     const res = await post("Would love this for night shifts.");
     expect(res.status).toBe(201);
@@ -89,10 +92,6 @@ describe("feedback discussion (e2e DB)", () => {
     const item = await prisma.feedbackItem.findUniqueOrThrow({ where: { id: itemId } });
     expect(item.commentCount).toBe(1);
     expect(item.lastActivityAt).not.toBeNull();
-    const sub = await prisma.feedbackSubscription.findUnique({
-      where: { feedbackItemId_userId: { feedbackItemId: itemId, userId: carol } },
-    });
-    expect(sub?.reason).toBe("commenter");
   });
 
   it("keeps replies one level deep: a reply to a reply joins the same thread", async () => {
@@ -200,6 +199,52 @@ describe("feedback discussion (e2e DB)", () => {
     expect(res.status).toBe(409);
     expect((await body(res)).mergedIntoId).toBe(survivor.id);
     await prisma.feedbackItem.update({ where: { id: itemId }, data: { status: "OPEN", mergedIntoId: null } });
+  });
+
+  describe("while the request is merged", () => {
+    let survivorId: string;
+    beforeAll(async () => {
+      const survivor = await prisma.feedbackItem.create({
+        data: { orgId, authorId: alice, type: "FEATURE", title: `${PREFIX} survivor 2` },
+      });
+      survivorId = survivor.id;
+      await prisma.feedbackItem.update({ where: { id: itemId }, data: { status: "MERGED", mergedIntoId: survivorId } });
+    });
+    afterAll(async () => {
+      await prisma.feedbackItem.update({ where: { id: itemId }, data: { status: "OPEN", mergedIntoId: null } });
+    });
+
+    it("refuses a status change, through the API and the assistant", async () => {
+      as(alice, "ADMIN");
+      const res = await PUT_ITEM(req("PUT", { status: "OPEN" }), p());
+      expect(res.status).toBe(409);
+      const tool = await setFeedbackStatus(
+        { feedbackId: itemId, status: "OPEN" },
+        await memberToolCtx(orgId, alice),
+      );
+      expect(tool).toHaveProperty("error");
+      const row = await prisma.feedbackItem.findUniqueOrThrow({ where: { id: itemId } });
+      expect(row).toMatchObject({ status: "MERGED", mergedIntoId: survivorId });
+    });
+
+    it("still lists it for its author, and not for other members", async () => {
+      const listed = async () =>
+        ((await body(await LIST(new NextRequest("http://localhost/x"), { params: Promise.resolve({ orgId }) } as never))) as {
+          id: string;
+        }[]).some((i) => i.id === itemId);
+      as(bob, "MEMBER"); // the author
+      expect(await listed()).toBe(true);
+      as(carol, "MEMBER");
+      expect(await listed()).toBe(false);
+    });
+
+    it("keeps the thread closed after the survivor is deleted", async () => {
+      await prisma.feedbackItem.delete({ where: { id: survivorId } }); // nulls mergedIntoId
+      const row = await prisma.feedbackItem.findUniqueOrThrow({ where: { id: itemId } });
+      expect(row).toMatchObject({ status: "MERGED", mergedIntoId: null });
+      as(bob, "MEMBER");
+      expect((await post("is anyone there?")).status).toBe(409);
+    });
   });
 
   it("takes the discussion with it when the request is deleted", async () => {

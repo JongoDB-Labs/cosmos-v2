@@ -46,7 +46,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: {
         orgId,
         ...(type ? { type } : {}),
-        ...(status ? { status } : showMerged ? {} : { status: { not: "MERGED" } }),
+        // Merged items are hidden, except from staff who ask for them and from
+        // the item's own author, who should still see "duplicate of …".
+        ...(status
+          ? { status }
+          : showMerged
+            ? {}
+            : { OR: [{ status: { not: "MERGED" } }, { authorId: ctx.userId }] }),
         ...(source ? { source } : {}),
         // Prefix match, so a tour id alone returns every step's feedback.
         ...(sourceRef ? { sourceRef: { startsWith: sourceRef } } : {}),

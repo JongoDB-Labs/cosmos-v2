@@ -50,9 +50,11 @@ export async function loadFeedbackRoute(
 /**
  * Why a write to this thread is refused, if it is: the item was merged (the
  * discussion lives on the survivor), or the thread is locked (staff only).
+ * MERGED counts even without a pointer: deleting the survivor nulls
+ * `mergedIntoId` (ON DELETE SET NULL), and that must not reopen the thread.
  */
 export function threadWriteBlock(route: FeedbackRouteContext): Response | null {
-  if (route.item.mergedIntoId) {
+  if (route.item.mergedIntoId || route.item.status === "MERGED") {
     return json(409, {
       error: "This request was merged into another one; continue the discussion there.",
       mergedIntoId: route.item.mergedIntoId,
