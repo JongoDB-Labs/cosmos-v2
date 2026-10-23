@@ -6,6 +6,7 @@ import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { pullSoonIfStale, syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { z } from "zod";
 import { MeetingType } from "@prisma/client";
 
@@ -19,6 +20,8 @@ const createMeetingSchema = z.object({
   customTypeId: z.string().uuid().nullish(),
   notes: z.string().nullish(),
   attendeeIds: z.array(z.string().uuid()).optional(),
+  // COSMOS-202: how long the meeting runs, for calendars it is mirrored into.
+  durationMinutes: z.number().int().min(5).max(24 * 60).optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -32,6 +35,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.MEETING_READ);
+    // COSMOS-202 B2: their Outlook edits, fetched after this response if stale.
+    if (!ctx.isApiKey) pullSoonIfStale(orgId, ctx.userId);
 
     const sp = request.nextUrl.searchParams;
     const projectId = sp.get("projectId");
@@ -126,6 +131,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         projectId: data.projectId ?? null,
         sprintId: data.sprintId ?? null,
         meetingDate: new Date(data.meetingDate),
+        ...(data.durationMinutes !== undefined && { durationMinutes: data.durationMinutes }),
         meetingType: data.customTypeId ? "OTHER" : data.meetingType ?? "STANDUP",
         customTypeId: data.customTypeId ?? null,
         notes: data.notes ?? "",
@@ -156,6 +162,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
+    syncMeetingSoon(orgId, meeting.id);
     return created(meeting);
   } catch (error) {
     return handleApiError(error);

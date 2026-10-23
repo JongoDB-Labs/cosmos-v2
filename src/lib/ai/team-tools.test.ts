@@ -12,8 +12,10 @@ const { prisma, loadEffectivePermissions, getReadableProjectIds, requireProjectR
   vi.hoisted(() => ({
     prisma: {
       workItem: { findMany: vi.fn() },
-      orgMember: { findMany: vi.fn() },
+      orgMember: { findMany: vi.fn(), findUnique: vi.fn() },
       team: { findMany: vi.fn(), findFirst: vi.fn() },
+      project: { findMany: vi.fn() },
+      projectMember: { findMany: vi.fn() },
     },
     loadEffectivePermissions: vi.fn(),
     getReadableProjectIds: vi.fn(),
@@ -62,6 +64,56 @@ beforeEach(() => {
 });
 
 describe("list_teams", () => {
+  describe("without a projectId (org-wide)", () => {
+    // Three active projects: one open, one open, one team-restricted that the
+    // asker is not on. The real getVisibleProjectIds decides, fed ctx.auth.
+    beforeEach(() => {
+      prisma.project.findMany.mockImplementation(
+        async (args: { where: { id?: { in: string[] } }; select: Record<string, boolean> }) => {
+          if (args.select.teamScopedAccess) {
+            return (args.where.id?.in ?? []).map((id) => ({ id, teamScopedAccess: id === "p-hidden" }));
+          }
+          return [{ id: PROJECT }, { id: "p-2" }, { id: "p-hidden" }];
+        },
+      );
+      prisma.orgMember.findUnique.mockResolvedValue({ id: "om-me" });
+      prisma.projectMember.findMany.mockResolvedValue([]);
+      prisma.team.findMany.mockResolvedValue([]);
+    });
+
+    const teamWhere = () =>
+      (prisma.team.findMany.mock.calls[0][0] as { where: Record<string, unknown> }).where;
+
+    it("lists teams across the projects the asker can see, in one call", async () => {
+      prisma.team.findMany.mockResolvedValue([
+        { id: TEAM, projectId: PROJECT, name: "Alpha", key: "A", members: [member(ME)] },
+        { id: "t3", projectId: "p-2", name: "Charlie", key: null, members: [] },
+      ]);
+
+      const res = (await executeTool("list_teams", {}, ctx)) as {
+        teams: { id: string; projectId: string; isMine: boolean }[];
+      };
+
+      expect(teamWhere()).toEqual({ orgId: "org-1", projectId: { in: [PROJECT, "p-2"] } });
+      expect(res.teams.map((t) => [t.id, t.projectId, t.isMine])).toEqual([
+        [TEAM, PROJECT, true],
+        ["t3", "p-2", false],
+      ]);
+    });
+
+    it("keeps a project-scoped API key to its own projects", async () => {
+      const keyCtx = stubToolCtx("org-1", ME, {
+        permissions: Permission.ITEM_READ | Permission.PROJECT_READ,
+        isApiKey: true,
+        projectScope: [PROJECT],
+      });
+
+      await executeTool("list_teams", {}, keyCtx);
+
+      expect(teamWhere()).toEqual({ orgId: "org-1", projectId: { in: [PROJECT] } });
+    });
+  });
+
   it("lists a project's teams and marks the ones the asker is on", async () => {
     prisma.team.findMany.mockResolvedValue([
       { id: TEAM, projectId: PROJECT, name: "Alpha", key: "A", members: [member(ME), member(OTHER)] },

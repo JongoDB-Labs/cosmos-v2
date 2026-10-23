@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// COSMOS-202 (B1): the Outlook calendar section shows exactly one next step for
+// COSMOS-202 (B1, B2): the Outlook calendar section shows exactly one next step for
 // each state: off for the org, not connected, connected, or reconnect needed.
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
@@ -41,7 +41,7 @@ describe("OutlookCalendarSection", () => {
 
   it("shows the connected account, and disconnects", async () => {
     vi.mocked(jsonFetch).mockResolvedValue(
-      status({ connection: { account: "a@contoso.example", status: "connected", connectedAt: "2026-10-23T00:00:00Z" } }) as never,
+      status({ connection: { account: "a@contoso.example", status: "connected", connectedAt: "2026-10-23T00:00:00Z", lastSyncAt: null } }) as never,
     );
     wrap(<OutlookCalendarSection orgId="o1" />);
     expect(await screen.findByText("a@contoso.example")).toBeTruthy();
@@ -52,9 +52,32 @@ describe("OutlookCalendarSection", () => {
     );
   });
 
+  it("shows when it last synced, and syncs now on request", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue(
+      status({
+        connection: { account: "a@contoso.example", status: "connected", connectedAt: "2026-10-23T00:00:00Z", lastSyncAt: "2026-10-23T12:00:00Z" },
+      }) as never,
+    );
+    wrap(<OutlookCalendarSection orgId="o1" />);
+    expect((await screen.findByText(/Last synced/)).textContent).toContain(new Date("2026-10-23T12:00:00Z").toLocaleString());
+    fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+    await waitFor(() =>
+      expect(jsonFetch).toHaveBeenCalledWith("/api/v1/orgs/o1/microsoft/calendar/sync", expect.objectContaining({ method: "POST" })),
+    );
+  });
+
+  it("says when it hasn't synced yet, and offers no Sync now while a reconnect is needed", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue(
+      status({ connection: { account: "a@contoso.example", status: "reconnect", connectedAt: "2026-10-23T00:00:00Z", lastSyncAt: null } }) as never,
+    );
+    wrap(<OutlookCalendarSection orgId="o1" />);
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("button", { name: "Sync now" })).toBeNull();
+  });
+
   it("asks to reconnect when Microsoft stopped accepting the connection", async () => {
     vi.mocked(jsonFetch).mockResolvedValue(
-      status({ connection: { account: "a@contoso.example", status: "reconnect", connectedAt: "2026-10-23T00:00:00Z" } }) as never,
+      status({ connection: { account: "a@contoso.example", status: "reconnect", connectedAt: "2026-10-23T00:00:00Z", lastSyncAt: null } }) as never,
     );
     wrap(<OutlookCalendarSection orgId="o1" />);
     expect((await screen.findByRole("alert")).textContent).toMatch(/stopped accepting/);

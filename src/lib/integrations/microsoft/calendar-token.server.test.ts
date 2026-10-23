@@ -13,6 +13,7 @@ import {
   _resetCalendarTokenCache,
   calendarAccessToken,
   completeCalendarConnect,
+  patchCalendarMeta,
   purgeOrgCalendarConnections,
 } from "./calendar-token.server";
 
@@ -115,6 +116,18 @@ describe("Outlook Calendar tokens (e2e DB)", () => {
     // Cached afterwards: no further call.
     await calendarAccessToken(org.id, user.id, { fetch: ep.fetchFn });
     expect(ep.calls).toHaveLength(1);
+  });
+
+  it("a refresh merges into the connection's meta, keeping the sync fields written alongside it", async () => {
+    const { org, user } = await setup();
+    await connect(org.id, user.id, "rt-1");
+    const row = await prisma.connectorCredential.findFirstOrThrow({ where: { orgId: org.id, provider: MS_CALENDAR, userId: user.id } });
+    await patchCalendarMeta(row.id, { calendarId: "cal-9", deltaLink: "https://graph.microsoft.com/v1.0/x?$deltatoken=1" });
+    _resetCalendarTokenCache();
+    const ep = tokenEndpoint(() => ({ status: 200, json: { access_token: "at-2", refresh_token: "rt-2", expires_in: 3600 } }));
+    await calendarAccessToken(org.id, user.id, { fetch: ep.fetchFn });
+    const after = await prisma.connectorCredential.findFirstOrThrow({ where: { id: row.id } });
+    expect(after.meta).toMatchObject({ calendarId: "cal-9", deltaLink: expect.stringContaining("deltatoken"), status: "connected", lastRefreshAt: expect.any(String) });
   });
 
   it("turns a revoked refresh token into 'reconnect' once, and never calls Microsoft again for it", async () => {
