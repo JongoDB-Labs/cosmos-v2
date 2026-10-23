@@ -159,9 +159,18 @@ interface GraphCalendar {
 const tagged = (c: GraphCalendar) =>
   !!c.singleValueExtendedProperties?.some((p) => p.id.toLowerCase() === COSMOS_CALENDAR_PROP.toLowerCase() && p.value === COSMOS_CALENDAR_TAG);
 
-/** Ours: tagged by us, in this person's own mailbox, and writable. */
-const ours = (c: GraphCalendar, mailbox: string) =>
-  tagged(c) && c.canEdit !== false && (!c.owner?.address || c.owner.address.toLowerCase() === mailbox.toLowerCase());
+/**
+ * Ours: tagged by us, writable, and in this person's own mailbox: its owner is
+ * their UPN or their primary SMTP address (which can differ), or it is the very
+ * calendar we recorded creating.
+ */
+const ours = (c: GraphCalendar, meta: Pick<CalendarMeta, "upn" | "mail" | "calendarId">) => {
+  if (!tagged(c) || c.canEdit === false) return false;
+  if (meta.calendarId && c.id === meta.calendarId) return true;
+  const owner = c.owner?.address?.toLowerCase();
+  if (!owner) return true;
+  return [meta.upn, meta.mail].some((a) => !!a && a.toLowerCase() === owner);
+};
 
 async function listCalendars(orgId: string, userId: string, deps: GraphDeps): Promise<GraphCalendar[]> {
   const q = new URLSearchParams({
@@ -196,10 +205,9 @@ export async function ensureCosmosCalendar(orgId: string, userId: string, deps: 
   const k = `${orgId}:${userId}`;
   const running = creating.get(k);
   if (running) return running;
-  const mailbox = conn.meta.upn ?? "";
   const p = (async () => {
     let cals = await listCalendars(orgId, userId, deps);
-    let id = cals.find((c) => ours(c, mailbox))?.id ?? null;
+    let id = cals.find((c) => ours(c, conn.meta))?.id ?? null;
     if (!id) {
       try {
         id = (
@@ -211,7 +219,7 @@ export async function ensureCosmosCalendar(orgId: string, userId: string, deps: 
       } catch (e) {
         if (!(e instanceof GraphError && e.status === 409)) throw e;
         cals = await listCalendars(orgId, userId, deps);
-        id = cals.find((c) => ours(c, mailbox))?.id ?? null;
+        id = cals.find((c) => ours(c, conn.meta))?.id ?? null;
         if (!id) throw e;
       }
     }
@@ -680,7 +688,7 @@ export async function removeCosmosCalendar(orgId: string, userId: string, deps: 
     try {
       const q = new URLSearchParams({ $select: "id,name,canEdit,owner", $expand: `singleValueExtendedProperties($filter=id eq '${COSMOS_CALENDAR_PROP}')` });
       const { data } = await graphRequest<GraphCalendar>(orgId, userId, "GET", `/me/calendars/${encodeURIComponent(conn.meta.calendarId)}?${q}`, undefined, deps);
-      mine = ours(data, conn.meta.upn ?? "");
+      mine = ours(data, conn.meta);
     } catch (e) {
       if (!(e instanceof GraphError && e.status === 404)) throw e;
       return true; // already gone
