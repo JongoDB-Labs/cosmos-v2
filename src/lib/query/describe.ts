@@ -99,3 +99,14 @@ export function cqlReference(customFields: readonly SchemaCustomField[] = []): s
   for (const e of CQL_EXAMPLES) lines.push(`- ${e.q}  -- ${e.says}`);
   return lines.join("\n");
 }
+
+/**
+ * The query in a model's reply: the first fenced block if there is one, else
+ * the first non-empty line, without a "CQL:" label or wrapping backticks.
+ */
+export function cqlFromReply(raw: string): string {
+  const fenced = /```[a-zA-Z]*\s*\n?([\s\S]*?)```/.exec(raw);
+  const body = (fenced ? fenced[1] : raw).trim();
+  const line = body.split(/\r?\n/).map((l) => l.trim()).find((l) => l.length > 0) ?? "";
+  return line.replace(/^(?:cql|query)\s*:\s*/i, "").replace(/^`+|`+$/g, "").trim();
+}

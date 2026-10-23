@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CQL_EXAMPLES, cqlReference, describeField, fieldNames } from "../describe";
+import { CQL_EXAMPLES, cqlFromReply, cqlReference, describeField, fieldNames } from "../describe";
 import { FIELDS, fieldDef } from "../fields";
 import { FUNCTIONS } from "../functions";
 import { parseCql } from "../parser";
@@ -32,5 +32,19 @@ describe("the CQL reference for the assistant", () => {
       expect(hasErrors(parsed.diagnostics), e.q).toBe(false);
       expect(hasErrors(typecheck(parsed.query, { customFields: [] }, e.q, parsed.spans).diagnostics), e.q).toBe(false);
     }
+  });
+});
+
+describe("cqlFromReply", () => {
+  it.each([
+    ["priority = HIGH", "priority = HIGH"],
+    ["  `priority = HIGH`  ", "priority = HIGH"],
+    ["CQL: priority = HIGH", "priority = HIGH"],
+    ["```cql\npriority = HIGH\n```", "priority = HIGH"],
+    ["Here you go:\n```\nassignee = me\n```\nThis finds yours.", "assignee = me"],
+    ["\n\nassignee = me\nexplanation", "assignee = me"],
+    ["", ""],
+  ])("%j → %j", (raw, want) => {
+    expect(cqlFromReply(raw)).toBe(want);
   });
 });
