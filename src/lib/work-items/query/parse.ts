@@ -39,8 +39,27 @@ const customFieldFilterSchema = z.object({
   value: z.union([z.string(), z.boolean()]),
 });
 
-/** zod schema for the filter object (shared by GET-normalised + POST bodies). */
-export const workItemFilterSchema: z.ZodType<WorkItemFilter> = z.object({
+/** Most ids a POST may look up directly — the same cap as one page. */
+export const MAX_FILTER_IDS = MAX_PAGE_SIZE;
+
+/**
+ * zod schema for the filter object (shared by GET-normalised + POST bodies).
+ *
+ * STRICT, deliberately. A plain z.object strips keys it does not declare, and
+ * this one used to omit `archived`, `ids` and `watchedByUserId`: a POST asking
+ * for archived items, a specific id or the caller's watch list got an
+ * unfiltered first page back, while the same filter on GET worked. A filter
+ * that silently does not filter returns plausible WRONG answers (see
+ * KNOWN_QUERY_PARAMS below for the GET side of the same rule), so an unknown
+ * key is now a 400 instead of a no-op.
+ */
+export const workItemFilterSchema: z.ZodType<WorkItemFilter> = z.strictObject({
+  ids: z.array(z.string().min(1)).max(MAX_FILTER_IDS).optional(),
+  archived: z.enum(["active", "only", "all"]).optional(),
+  // Only ever the caller's own id: the route rejects anyone else's, because a
+  // watch list is personal. Kept as an id (not a boolean) so the body is the
+  // WorkItemFilter shape a client already holds.
+  watchedByUserId: z.string().min(1).optional(),
   projectIds: z.array(z.string()).optional(),
   typeIds: z.array(z.string()).optional(),
   columnKeys: z.array(z.string()).optional(),

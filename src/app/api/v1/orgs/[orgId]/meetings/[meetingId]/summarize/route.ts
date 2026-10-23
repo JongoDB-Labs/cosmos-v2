@@ -47,6 +47,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const result = await runAgentLoop({
       orgId,
       userId: ctx.userId,
+      // The caller's own AuthContext (an API key stays scoped). `tools: []`
+      // removes the native catalog, but the loop still appends the org's
+      // connector tools, so this is not a no-tool run and must stay scoped.
+      auth: ctx,
       // fail-closed: only an explicit COMMERCIAL org gets the permissive class.
       tenantClass: org.tenantClass === "COMMERCIAL" ? "commercial" : "gov",
       conversationId: `meeting:${meetingId}`,

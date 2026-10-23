@@ -10,6 +10,7 @@ import type { ToolDefinition } from "@/lib/ai/tools";
 import type { IntegrationProvider } from "@/lib/integrations/registry";
 import type { PrismaClient } from "@prisma/client";
 import type { z } from "zod";
+import type { ToolContext as CoreToolContext } from "@/lib/ai/executors/_ctx";
 
 /**
  * PLUGIN REGISTRY (ADR 0003) — the packaging rung above sector templates and
@@ -142,8 +143,14 @@ export type PluginSlots = {
   [K in PluginSlotName]?: ComponentType<PluginSlotProps[K]>;
 };
 
-/** Context handed to plugin AI-tool executors. */
-export type PluginToolContext = { orgId: string; userId: string };
+/**
+ * Context handed to plugin AI-tool executors — the SAME shape as the core
+ * `ToolContext`, including `auth`: the caller's own AuthContext (an API key's
+ * scope mask and project ceiling included). The `_ctx.ts` helpers authorise
+ * against `auth` alone and refuse a context without it, so a dispatcher must
+ * forward the core context unchanged rather than rebuild `{ orgId, userId }`.
+ */
+export type PluginToolContext = CoreToolContext;
 
 /** SERVER-ONLY contributions, registered separately (registry/server.ts) so they
  *  never enter a client bundle. */
@@ -213,8 +220,8 @@ export type PluginServerHooks = {
    * tools' gates are function calls each one makes, not middleware every tool
    * passes through.
    *
-   * `PluginToolContext` is deliberately shaped like the core `ToolContext`
-   * ({ orgId, userId }) so the same helpers work here. Use them:
+   * `PluginToolContext` IS the core `ToolContext` ({ orgId, userId, auth }) so
+   * the same helpers work here, against the caller's own AuthContext. Use them:
    *
    *   assertPermission(ctx, Permission.X)          — the actor holds the bit
    *   assertProjectRead(ctx, projectId, "X_READ")  — and may open THAT project

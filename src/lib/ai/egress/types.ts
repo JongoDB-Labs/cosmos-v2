@@ -21,6 +21,29 @@ export type ModelCredential =
   | { kind: "oauth"; token: string }
   | { kind: "openai"; baseURL: string; apiKey: string; model: string };
 
+/** What a user sees when no model credential resolves for a call. */
+export const NO_MODEL_CREDENTIAL_MESSAGE =
+  "Claude isn't connected. Connect a Claude subscription in Settings → AI / Model.";
+
+/**
+ * No model credential resolved for this call: no caller credential, no personal
+ * or org Claude subscription, no org API key. The env `ANTHROPIC_API_KEY` is NOT
+ * a fallback unless the operator opts in with `COSMOS_ALLOW_ENV_MODEL_KEY=1` —
+ * a stale env key used to surface as Anthropic's "invalid x-api-key" 401, which
+ * hid the real cause. Callers show {@link NO_MODEL_CREDENTIAL_MESSAGE} or skip.
+ */
+export class NoModelCredentialError extends Error {
+  constructor(options?: { cause?: unknown }) {
+    super(NO_MODEL_CREDENTIAL_MESSAGE, options);
+    this.name = "NoModelCredentialError";
+  }
+}
+
+/** True for a {@link NoModelCredentialError}, also across module copies. */
+export function isNoModelCredentialError(err: unknown): err is NoModelCredentialError {
+  return err instanceof NoModelCredentialError || (err as Error | null)?.name === "NoModelCredentialError";
+}
+
 /** What kind of value is crossing the boundary toward the model. */
 export type ValueKind = "system" | "user" | "tool_result" | "tool_args" | "error";
 
@@ -78,9 +101,13 @@ export interface EgressDecision {
    * refused at dispatch, defense in depth behind the tool-list filter):
    *   - "connector_disabled_block":     the connector-registry DISPATCH layer refused a tool
    *                          whose connector the org's runtime config disabled.
+   * Every tool call is checked against the tools the model was actually OFFERED:
+   *   - "tool_not_offered_block":       the agent loop (or connector dispatch) refused a
+   *                          tool the model was not offered this run (a forged or
+   *                          hallucinated name, or one a bot's tool scope removed).
    * The DB column (egress_decisions.decided_by) is TEXT, so no migration is needed.
    */
-  decidedBy: "rbac" | "agentpolicy" | "classification" | "tenant" | "none" | "handle_mint" | "handle_resolve" | "handle_taint_block" | "connector_availability_block" | "connector_gov_block" | "connector_disabled_block";
+  decidedBy: "rbac" | "agentpolicy" | "classification" | "tenant" | "none" | "handle_mint" | "handle_resolve" | "handle_taint_block" | "connector_availability_block" | "connector_gov_block" | "connector_disabled_block" | "tool_not_offered_block";
   tenantClass: TenantClass;
   mode: EgressMode;
   /** The data's effective classification ceiling at decision time (audit evidence). */

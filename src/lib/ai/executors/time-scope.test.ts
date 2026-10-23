@@ -31,6 +31,9 @@ vi.mock("@/lib/time/scope", () => ({
 }));
 
 import { listTimeEntries } from "./time";
+import type { AuthContext } from "@/lib/rbac/check";
+import type { ToolContext } from "@/lib/ai/executors/_ctx";
+import { stubAuth, stubToolCtx } from "@/lib/testing/tool-auth";
 
 const ORG = "org-1";
 // Well-formed v4 UUIDs, version and variant nibbles included. The tool's zod
@@ -42,20 +45,26 @@ const SOMEONE_ELSE = "22222222-2222-4222-a222-222222222222";
 
 /** An ordinary member: TIME_READ (which everyone has), no finance access. */
 function asMember() {
-  loadEffectivePermissions.mockResolvedValue({
+  setActor({
     orgRole: "MEMBER",
     permissions: Permission.TIME_READ,
   });
 }
 
 function asFinance() {
-  loadEffectivePermissions.mockResolvedValue({
+  setActor({
     orgRole: "ADMIN",
     permissions: Permission.TIME_READ | Permission.FINANCE_READ,
   });
 }
 
-const ctx = { orgId: ORG, userId: ME };
+const ctx: ToolContext = stubToolCtx(ORG, ME);
+/** The caller's AuthContext for the next call — replaces the mocked
+ *  `loadEffectivePermissions` these specs used to drive: tools are now
+ *  authorised against the caller's own context, not a lookup by user id. */
+const setActor = (actor: Partial<Omit<AuthContext, "orgId" | "userId">>) => {
+  ctx.auth = stubAuth(ctx.orgId, ctx.userId, actor);
+};
 const lastWhere = () =>
   prisma.timeEntry.findMany.mock.calls.at(-1)?.[0]?.where as Record<
     string,

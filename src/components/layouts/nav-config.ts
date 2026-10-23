@@ -21,6 +21,7 @@ import {
   type LucideIcon,
   Upload,
   Inbox,
+  Gauge,
 } from "lucide-react";
 import { Permission } from "@/lib/rbac/permissions";
 
@@ -254,6 +255,17 @@ export const SIDEBAR_NAV: NavEntry[] = [
     icon: BarChart3,
     label: "Analytics",
     href: "/analytics",
+    anyOf: [Permission.ANALYTICS_READ],
+  },
+  {
+    // The org-wide roll-up of every project's PM Dashboard (milestones, KPIs,
+    // risks, deliverables, blockers, changes, CLIN burn). Portfolio reporting,
+    // so it is gated like Analytics.
+    type: "leaf",
+    id: "pm-dashboard",
+    icon: Gauge,
+    label: "PM Dashboard",
+    href: "/pm-dashboard",
     anyOf: [Permission.ANALYTICS_READ],
   },
   {
