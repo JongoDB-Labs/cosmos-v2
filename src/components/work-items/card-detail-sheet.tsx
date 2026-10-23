@@ -76,6 +76,7 @@ import {
   Archive,
   Ban,
   Merge,
+  Split,
   ArchiveRestore,
   X,
 } from "lucide-react";
@@ -100,6 +101,7 @@ import { memberPickerOptions } from "@/lib/org/member-picker";
 import { entityUrl } from "@/lib/mentions/urls";
 import { useOrgSlug } from "@/lib/query/keys";
 import { toast } from "sonner";
+import { datesFromInterval, plannedDayToIso } from "@/lib/intervals/fill-dates";
 import {
   WORK_ITEM_HIGHLIGHTS,
   WORK_ITEM_HIGHLIGHT_ORDER,
@@ -185,7 +187,9 @@ export function CardDetailSheet({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dupPrompt, setDupPrompt] = useState(false);
   const [dragChildIdx, setDragChildIdx] = useState<number | null>(null);
-  const [actionPending, setActionPending] = useState<null | "delete" | "duplicate">(null);
+  const [actionPending, setActionPending] = useState<null | "delete" | "duplicate" | "split">(null);
+  // COSMOS-89: confirm before turning one shared item into one per assignee.
+  const [splitPrompt, setSplitPrompt] = useState(false);
   // Synchronous re-entrancy guard for duplication. `actionPending` (state) can't
   // fully guard the trigger: the on-item effect below resets it to null whenever
   // the `item` prop reference changes — which happens the instant a duplicate
@@ -557,14 +561,16 @@ export function CardDetailSheet({
 
   // Immediately persist a single field change via PUT and update parent cache.
   const patchField = useCallback(
-    async (field: string, value: unknown) => {
+    // `extra` rides in the SAME request: fields a change implies (an interval's
+    // dates, COSMOS-223) must not race the change itself as separate PUTs.
+    async (field: string, value: unknown, extra?: Record<string, unknown>) => {
       if (!item) return;
       const prevColumnKey = item.columnKey;
       try {
         const res = await fetch(`${basePath}/${item.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ [field]: value }),
+          body: JSON.stringify({ [field]: value, ...extra }),
         });
         if (!res.ok) throw new Error("Failed to update");
         const updated: WorkItem = await res.json();
@@ -625,10 +631,11 @@ export function CardDetailSheet({
         }
       } catch (err) {
         console.error(`Failed to patch ${field}:`, err);
-        // Revert ONLY the field that failed back to the server value (`item` is
+        // Revert ONLY the fields that failed back to the server value (`item` is
         // unchanged on failure since onUpdate runs only on success). Reverting
         // every field would clobber other concurrent/just-succeeded edits.
-        switch (field) {
+        for (const failed of [field, ...Object.keys(extra ?? {})])
+        switch (failed) {
           case "priority":
             setPriority(item.priority);
             break;
@@ -992,6 +999,35 @@ export function CardDetailSheet({
       setComments((prev) => prev.filter((c) => c.id !== id));
     } catch (err) {
       notifyError(err, "Couldn't delete the comment.");
+    }
+  }
+
+  // Split per assignee (COSMOS-89): this item keeps its first assignee and each
+  // of the others gets their own copy. The new items reach every open board
+  // through the work-item.created events the route publishes.
+  async function handleSplit() {
+    if (!item || actionPending) return;
+    setActionPending("split");
+    try {
+      const res = await fetch(`${basePath}/${item.id}/split-assignees`, { method: "POST" });
+      if (!res.ok) throw new Error(`Failed to split (HTTP ${res.status})`);
+      const result: {
+        keptAssigneeId: string;
+        copies: { id: string; ticketNumber: number }[];
+      } = await res.json();
+      setAssigneeIds([result.keptAssigneeId]);
+      setAssigneeId(result.keptAssigneeId);
+      setSplitPrompt(false);
+      const fresh = await fetch(`${basePath}/${item.id}`);
+      if (fresh.ok) onUpdate((await fresh.json()) as WorkItem);
+      toast.success(
+        `Split into ${result.copies.length + 1} issues`,
+        { description: `New: ${result.copies.map((c) => `#${c.ticketNumber}`).join(", ")}` },
+      );
+    } catch (err) {
+      notifyError(err, "Couldn't split this item.");
+    } finally {
+      setActionPending(null);
     }
   }
 
@@ -1585,6 +1621,18 @@ export function CardDetailSheet({
                 onValueChange={(ids) => void patchAssignees(ids)}
                 options={assigneeOptions}
               />
+              {assigneeIds.length > 1 && canEditItem && canDuplicate && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 h-6 gap-1.5 px-1.5 text-xs text-muted-foreground"
+                  onClick={() => setSplitPrompt(true)}
+                  disabled={actionPending !== null}
+                >
+                  <Split className="h-3.5 w-3.5" />
+                  Split per assignee
+                </Button>
+              )}
             </MetadataField>
 
             <MetadataField icon={Hash} label="Points">
@@ -1678,12 +1726,21 @@ export function CardDetailSheet({
                     ...Object.fromEntries(intervals.map((s) => [s.id, s.name])),
                   }}
                   value={intervalId ?? "__none__"}
-                  onValueChange={(v) =>
-                    handleFieldChange(
-                      "intervalId",
-                      (v === "__none__" ? null : v) as string | null
-                    )
-                  }
+                  onValueChange={(v) => {
+                    const next = (v === "__none__" ? null : v) as string | null;
+                    setIntervalId(next);
+                    // Fill only the planned dates that are still empty (COSMOS-223).
+                    const fill = datesFromInterval(
+                      { startDate, dueDate },
+                      intervals.find((s) => s.id === next),
+                    );
+                    if (fill.startDate) setStartDate(fill.startDate);
+                    if (fill.dueDate) setDueDate(fill.dueDate);
+                    void patchField("intervalId", next, {
+                      ...(fill.startDate && { startDate: plannedDayToIso(fill.startDate) }),
+                      ...(fill.dueDate && { dueDate: plannedDayToIso(fill.dueDate) }),
+                    });
+                  }}
                 >
                   <SelectTrigger size="sm" aria-label="Interval" className="w-full text-xs">
                     <SelectValue />
@@ -2131,6 +2188,32 @@ export function CardDetailSheet({
         initialReason={item?.cancelReason === "MERGED" ? null : (item?.cancelReason ?? null)}
         initialNote={item?.cancelNote ?? null}
       />
+
+      {/* Split per assignee (COSMOS-89): say exactly who ends up where. */}
+      <Dialog open={splitPrompt} onOpenChange={(o) => !o && setSplitPrompt(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Split into one issue per assignee?</DialogTitle>
+            <DialogDescription>
+              #{item.ticketNumber} stays with{" "}
+              {assigneeOptions.find((o) => o.value === assigneeIds[0])?.label ?? "its first assignee"}.{" "}
+              {assigneeIds
+                .slice(1)
+                .map((id) => assigneeOptions.find((o) => o.value === id)?.label ?? "a member")
+                .join(", ")}{" "}
+              each get their own copy, with the same fields and parent, linked back to this one.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSplitPrompt(false)} disabled={actionPending === "split"}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleSplit()} disabled={actionPending === "split"}>
+              {actionPending === "split" ? "Splitting…" : `Split into ${assigneeIds.length} issues`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Duplicate-with-children prompt (only when the item has sub-items). */}
       <Dialog open={dupPrompt} onOpenChange={(o) => !o && setDupPrompt(false)}>

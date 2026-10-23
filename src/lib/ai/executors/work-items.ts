@@ -10,6 +10,7 @@ import {
 import { Prisma, Priority, LinkType } from "@prisma/client";
 import { z } from "zod";
 import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
+import { teamFilter } from "./teams";
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 import { allocateTicketNumber, allocateSortOrder } from "@/lib/work-items/allocate";
 import { intervalRequirementError } from "@/lib/work-items/interval-required.server";
@@ -58,6 +59,7 @@ const listWorkItemsSchema = z.object({
   type: z.string().optional(),
   search: z.string().optional(),
   parentId: z.string().uuid().optional(),
+  teamId: z.string().uuid().optional(),
   limit: z.number().int().positive().optional(),
 });
 
@@ -482,6 +484,13 @@ export async function listWorkItems(
   if (data.assigneeId) where.assigneeId = data.assigneeId;
   if (data.search) where.title = { contains: data.search, mode: "insensitive" };
   if (data.parentId) where.parentId = data.parentId;
+  if (data.teamId) {
+    const team = await teamFilter(ctx.orgId, data.teamId, [data.projectId]);
+    if ("error" in team) return team;
+    // Appended, not assigned, so a later AND clause added above can't be lost.
+    const and = where.AND ? (Array.isArray(where.AND) ? where.AND : [where.AND]) : [];
+    where.AND = [...and, team.where];
+  }
 
   if (data.type) {
     const typeId = await resolveWorkItemTypeId(data.projectId, data.type);
@@ -505,6 +514,7 @@ export async function listWorkItems(
       assigneeId: true,
       intervalId: true,
       parentId: true,
+      teamId: true,
       storyPoints: true,
       dueDate: true,
       workItemTypeId: true,
