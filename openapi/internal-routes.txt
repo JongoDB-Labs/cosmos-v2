@@ -466,6 +466,7 @@ POST /orgs/{orgId}/meetings/{meetingId}/video/sync-artifacts
 POST /orgs/{orgId}/members
 POST /orgs/{orgId}/members/{memberId}/password-reset
 POST /orgs/{orgId}/mentions/resolve
+POST /orgs/{orgId}/microsoft/calendar/sync
 POST /orgs/{orgId}/notes
 POST /orgs/{orgId}/notifications
 POST /orgs/{orgId}/notifications/inbox
