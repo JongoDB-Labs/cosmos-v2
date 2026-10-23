@@ -7,6 +7,7 @@ import { requireAccess } from "@/lib/abac/require-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { z } from "zod";
 import { MeetingStatus } from "@prisma/client";
 import { detectVideoProvider } from "@/lib/meetings/video";
@@ -21,6 +22,8 @@ const updateMeetingSchema = z.object({
   aiSummary: z.string().nullable().optional(),
   aiTickets: z.record(z.string(), z.unknown()).or(z.array(z.unknown())).optional(),
   meetingUrl: z.string().url().nullable().optional(),
+  // COSMOS-202: how long the meeting runs, for calendars it is mirrored into.
+  durationMinutes: z.number().int().min(5).max(24 * 60).optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string; meetingId: string }> };
@@ -84,6 +87,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.meetingDate !== undefined && {
           meetingDate: new Date(data.meetingDate),
         }),
+        ...(data.durationMinutes !== undefined && { durationMinutes: data.durationMinutes }),
         ...(data.notes !== undefined && { notes: data.notes ?? "" }),
         ...(data.transcript !== undefined && { transcript: data.transcript }),
         ...(data.aiSummary !== undefined && { aiSummary: data.aiSummary }),
@@ -106,6 +110,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
+    syncMeetingSoon(orgId, meetingId);
     return success(updated);
   } catch (error) {
     return handleApiError(error);
@@ -135,6 +140,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     });
 
     await prisma.syncMeeting.delete({ where: { id: meetingId } });
+    // The links outlive the meeting, so this removes everyone's Outlook copy.
+    syncMeetingSoon(orgId, meetingId);
 
     await logAudit({
       orgId,

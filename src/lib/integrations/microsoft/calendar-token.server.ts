@@ -33,6 +33,12 @@ export interface CalendarMeta {
   status: "connected" | "reconnect";
   connectedAt: string;
   lastRefreshAt?: string;
+  origin?: string;
+  /** The dedicated "Cosmos" calendar we write to (B2). */
+  calendarId?: string;
+  /** Graph calendarView delta link for the next pull (B2). */
+  deltaLink?: string;
+  lastSyncAt?: string;
   [k: string]: unknown;
 }
 
@@ -50,6 +56,11 @@ const EARLY_MS = 5 * 60_000;
 const cache = new Map<string, { token: string; exp: number }>();
 const inflight = new Map<string, Promise<string>>();
 const key = (orgId: string, userId: string) => `${orgId}:${userId}`;
+
+/** Forget one person's cached access token (Graph said it was no good). */
+export function _forgetCalendarAccessToken(orgId: string, userId: string) {
+  cache.delete(key(orgId, userId));
+}
 
 /** For tests: forget cached access tokens. */
 export function _resetCalendarTokenCache() {
@@ -115,7 +126,7 @@ async function tokenRequest(cfg: OrgCalendarConfig, params: Record<string, strin
  * so the caller can audit-log who connected.
  */
 export async function completeCalendarConnect(
-  a: { orgId: string; userId: string; code: string; verifier: string; redirectUri: string },
+  a: { orgId: string; userId: string; code: string; verifier: string; redirectUri: string; origin?: string },
   deps: Deps = {},
 ): Promise<IdClaims> {
   const cfg = await orgCalendarConfig(a.orgId);
@@ -137,6 +148,8 @@ export async function completeCalendarConnect(
     scopes: MS_CALENDAR_SCOPES,
     status: "connected",
     connectedAt: new Date(now).toISOString(),
+    // The public address they connected from: links in synced events use it.
+    ...(a.origin ? { origin: a.origin } : {}),
   };
   const secretEnc = sealSecret(JSON.stringify({ refreshToken: t.refresh_token }));
   const existing = await prisma.connectorCredential.findFirst({
@@ -165,14 +178,21 @@ export async function calendarConnection(orgId: string, userId: string) {
 /** Delete one person's connection. Idempotent. */
 export async function disconnectCalendar(orgId: string, userId: string): Promise<boolean> {
   cache.delete(key(orgId, userId));
-  const r = await prisma.connectorCredential.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId } });
+  // The event links go with the token: nothing is left to sync against.
+  const [r] = await prisma.$transaction([
+    prisma.connectorCredential.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId } }),
+    prisma.externalEventLink.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId } }),
+  ]);
   return r.count > 0;
 }
 
 /** Delete every person's connection in an org (the admin turned it off). */
 export async function purgeOrgCalendarConnections(orgId: string): Promise<number> {
   for (const k of cache.keys()) if (k.startsWith(`${orgId}:`)) cache.delete(k);
-  const r = await prisma.connectorCredential.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId: { not: null } } });
+  const [r] = await prisma.$transaction([
+    prisma.connectorCredential.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId: { not: null } } }),
+    prisma.externalEventLink.deleteMany({ where: { orgId, provider: MS_CALENDAR } }),
+  ]);
   return r.count;
 }
 

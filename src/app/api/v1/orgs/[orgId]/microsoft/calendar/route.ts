@@ -7,6 +7,7 @@ import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { MS_CALENDAR, MS_CALENDAR_CALLBACK_PATH, calendarAdminConsentUrl } from "@/lib/integrations/microsoft/calendar-connect";
+import { removeCosmosCalendar } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { calendarConnection, disconnectCalendar, orgCalendarConfig } from "@/lib/integrations/microsoft/calendar-token.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       canManage,
       admin,
       connection: conn
-        ? { account: conn.meta.upn, status: conn.meta.status, connectedAt: conn.meta.connectedAt }
+        ? { account: conn.meta.upn, status: conn.meta.status, connectedAt: conn.meta.connectedAt, lastSyncAt: conn.meta.lastSyncAt ?? null }
         : null,
     });
   } catch (error) {
@@ -57,16 +58,17 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-/** Disconnect: our sealed token is deleted at once. */
+/** Disconnect: the Outlook "Cosmos" calendar is removed if Microsoft allows, then our sealed token and links are deleted. */
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const r = await resolve((await params).orgId);
     if (!r) return new Response("Unauthorized", { status: 401 });
+    const calendarRemoved = await removeCosmosCalendar(r.org.id, r.ctx.userId);
     const had = await disconnectCalendar(r.org.id, r.ctx.userId);
     if (had) {
       await logAudit({
         orgId: r.org.id, userId: r.ctx.userId, action: "microsoft_calendar.disconnected",
-        entity: "user", entityId: r.ctx.userId, metadata: {}, ipAddress: getIpAddress(request),
+        entity: "user", entityId: r.ctx.userId, metadata: { calendarRemoved: String(calendarRemoved) }, ipAddress: getIpAddress(request),
       });
     }
     return success({ disconnected: had });

@@ -349,6 +349,7 @@ model Organization {
   timeOffRequests     TimeOffRequest[]
   bills               Bill[]
   calendarFeeds       CalendarFeed[]
+  externalEventLinks  ExternalEventLink[]
 
   @@map("organizations")
 }
@@ -430,6 +431,7 @@ model User {
   retroActionItems    RetroActionItem[]
   timeEntryPhasesSet  TimeEntryPhase[]
   calendarFeeds       CalendarFeed[]
+  externalEventLinks  ExternalEventLink[]
 
   @@map("users")
 }
@@ -2108,6 +2110,8 @@ model SyncMeeting {
   projectId          String?                     @map("project_id") @db.Uuid
   sprintId           String?                     @map("sprint_id") @db.Uuid
   meetingDate        DateTime                    @map("meeting_date")
+  /// How long it runs (COSMOS-202 B2): calendars need an end time.
+  durationMinutes    Int                         @default(30) @map("duration_minutes")
   meetingType        MeetingType                 @default(STANDUP) @map("meeting_type")
   status             MeetingStatus               @default(SCHEDULED)
   transcript         String?
@@ -5533,4 +5537,31 @@ model CalendarFeed {
 
   @@index([orgId, userId])
   @@map("calendar_feeds")
+}
+
+/// A Cosmos record mirrored as an event in someone's external calendar
+/// (COSMOS-202 B2), so the sync can update or remove that event, and recognise
+/// the echo of its own writes: `changeKey` is the one the provider returned for
+/// OUR last write; any other value means the person changed it there.
+model ExternalEventLink {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId              String   @map("org_id") @db.Uuid
+  userId             String   @map("user_id") @db.Uuid
+  provider           String
+  externalCalendarId String   @map("external_calendar_id")
+  externalEventId    String   @map("external_event_id")
+  changeKey          String?  @map("change_key")
+  /// "meeting" for now.
+  entityType         String   @map("entity_type")
+  entityId           String   @map("entity_id") @db.Uuid
+  lastSyncedAt       DateTime @default(now()) @map("last_synced_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, provider, userId, externalEventId])
+  @@unique([orgId, provider, userId, entityType, entityId])
+  @@index([orgId, entityType, entityId])
+  @@map("external_event_links")
 }
