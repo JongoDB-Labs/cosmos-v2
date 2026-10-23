@@ -18,8 +18,9 @@ vi.mock("@/lib/integrations/microsoft/teams-app/identity.server", () => ({
 }));
 vi.mock("@/lib/integrations/microsoft/teams-app/handlers.server", () => ({
   tenantOf: (a: { channelData?: { tenant?: { id?: string } } }) => a.channelData?.tenant?.id ?? "",
-  handleActivity: async (a: unknown, origin: string) => {
+  handleActivity: async (a: { name?: string }, origin: string) => {
     handled(a, origin);
+    if (a.name?.startsWith("boom")) throw new Error("db said: secret detail");
     return { status: 200, body: { composeExtension: { type: "result", attachments: [] } } };
   },
 }));
@@ -77,6 +78,16 @@ describe("POST /api/teams/bot", () => {
     const logged = vi.mocked(console.warn).mock.calls.flat().join(" ");
     expect(logged).toContain("bad_audience");
     expect(logged).not.toContain(t.slice(7, 40));
+  });
+
+  it("logs a failure with the activity's name reduced to a plain token: no newlines, no injected lines, no error text", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const res = await POST(req(bf.token({ aud: APP, serviceUrl: SVC }), { ...activity, name: "boom\n[teams-bot] FAKE admin login ok\r\n" }));
+    expect(res.status).toBe(500);
+    const line = err.mock.calls.flat().join(" ");
+    expect(line).toBe("[teams-bot] boomteams-botFAKEadminloginok failed (Error)");
+    expect(line).not.toMatch(/[\r\n]/);
+    expect(line).not.toContain("secret detail");
   });
 
   it("rejects bodies that aren't JSON, and oversized ones", async () => {

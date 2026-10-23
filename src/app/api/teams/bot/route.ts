@@ -76,7 +76,10 @@ export async function POST(request: NextRequest) {
       ? new Response(null, { status: reply.status })
       : Response.json(reply.body, { status: reply.status });
   } catch (e) {
-    console.error(`[teams-bot] ${activity.name ?? activity.type ?? "activity"} failed: ${e instanceof Error ? e.message : "error"}`);
+    // The activity's name is the caller's text: logged only as a short, plain token.
+    const what = String(activity.name ?? activity.type ?? "activity").replace(/[^\w.:/-]/g, "").slice(0, 64) || "activity";
+    // The error's class, not its message: messages can carry query data.
+    console.error(`[teams-bot] ${what} failed (${e instanceof Error ? e.name.replace(/\W/g, "").slice(0, 40) : "error"})`);
     return new Response(null, { status: 500 });
   }
 }

@@ -135,18 +135,31 @@ export function noticeCard(title: string, text: string): Card {
   ]);
 }
 
-/** Teams' message HTML, as plain text for a description. */
+const NAMED: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+
+/** HTML entities, decoded in one pass (so "&amp;lt;" is "&lt;", not "<"). */
+function decodeEntities(s: string): string {
+  return s.replace(/&(?:([a-z]+)|#(\d{1,7})|#x([0-9a-f]{1,6}));/gi, (m, name: string | undefined, dec: string | undefined, hex: string | undefined) => {
+    if (name) return NAMED[name.toLowerCase()] ?? m;
+    const cp = dec ? Number(dec) : parseInt(hex!, 16);
+    return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
+  });
+}
+
+/**
+ * Teams' message HTML, as plain text for a description. Entities are decoded
+ * FIRST and tags stripped after, repeatedly until nothing changes: decoding
+ * can turn text into a tag ("&lt;img onerror&gt;"), and removing one tag can
+ * join two halves into another ("<scr<script>ipt>"). What comes out has no
+ * "<...>" left in it at all, and is stored as plain text.
+ */
 export function messageText(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|li)>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, "&")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  // Line breaks while the tags are still Teams' own.
+  let s = html.replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|li)>/gi, "\n");
+  s = decodeEntities(s);
+  for (let prev = ""; prev !== s; ) {
+    prev = s;
+    s = s.replace(/<[^<>]*>/g, "");
+  }
+  return s.replace(/\n{3,}/g, "\n\n").trim();
 }
