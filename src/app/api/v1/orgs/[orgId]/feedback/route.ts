@@ -7,7 +7,8 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { success, handleApiError } from "@/lib/api-helpers";
-import { describeIntakeDecision } from "@/lib/feedback/intake-decision";
+import { hasPermission } from "@/lib/rbac/permissions";
+import { FEEDBACK_ROW_SELECT, toFeedbackDto } from "@/lib/feedback/feedback-dto";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -48,7 +49,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       },
       orderBy: [{ voteCount: "desc" }, { createdAt: "desc" }],
       take: 200,
-      include: {
+      select: {
+        ...FEEDBACK_ROW_SELECT,
         attachments: {
           select: { id: true, kind: true, url: true, filename: true, contentType: true, size: true },
         },
@@ -77,20 +79,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       : [];
     const authorById = new Map(authors.map((u) => [u.id, u]));
 
+    // Explicit per-viewer shape — never the raw row (see feedback-dto.ts).
+    const viewer = {
+      userId: ctx.userId,
+      isStaff: hasPermission(ctx.permissions, Permission.ORG_UPDATE),
+    };
     return success(
       items.map((i) => ({
-        ...i,
+        ...toFeedbackDto(i, viewer, authorById.get(i.authorId)),
+        attachments: i.attachments,
         hasVoted: voted.has(i.id),
-        // The author owns the item's title/description (and can delete it), so
-        // the portal shows those controls only on the current user's own items.
-        isMine: i.authorId === ctx.userId,
-        authorName: authorById.get(i.authorId)?.displayName ?? null,
-        authorEmail: authorById.get(i.authorId)?.email ?? null,
-        // Intake decision (Phase 3c): accepted / held / rejected / throttled /
-        // gated + reason (+ score), derived from the recorded triage so the board
-        // can show WHY an item was auto-accepted or pulled aside. `null` until the
-        // item has been through intake.
-        intake: describeIntakeDecision({ triage: i.triage, deliveredAt: i.deliveredAt }),
       })),
     );
   } catch (e) {
@@ -184,7 +182,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       });
     }
 
-    return success({ ...created, hasVoted: false, attachments });
+    const author = await prisma.user.findUnique({
+      where: { id: ctx.userId },
+      select: { displayName: true, email: true },
+    });
+    return success({
+      ...toFeedbackDto(
+        created,
+        { userId: ctx.userId, isStaff: hasPermission(ctx.permissions, Permission.ORG_UPDATE) },
+        author,
+      ),
+      hasVoted: false,
+      attachments,
+    });
   } catch (e) {
     return handleApiError(e);
   }
