@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.6",
+    date: "2026-10-23",
+    title: "Saved views respect project access",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Shared saved views that mention a project you can't access no longer appear in your saved-views list.",
+      },
+    ],
+  },
+  {
     version: "2.439.5",
     date: "2026-10-23",
     title: "Updates never throw away what you're typing",
