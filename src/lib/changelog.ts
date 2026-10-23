@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.3",
+    date: "2026-10-23",
+    title: "Issue details fit on a laptop screen",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The action buttons at the top of an issue's details now wrap onto a second line when space is tight, so Delete is no longer cut off at the edge on laptop-sized screens.",
+      },
+    ],
+  },
+  {
     version: "2.439.2",
     date: "2026-10-23",
     title: "Cards drop where you point",
