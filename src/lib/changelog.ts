@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.12",
+    date: "2026-10-23",
+    title: "PM Dashboard in the sidebar",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The PM Dashboard portfolio roll-up is now in the sidebar, and shows only the projects you can see; the old full-page assistant now opens the home page (use the assistant drawer).",
+      },
+    ],
+  },
+  {
     version: "2.439.11",
     date: "2026-10-23",
     title: "Clear message when Claude isn't connected",
