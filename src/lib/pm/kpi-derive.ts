@@ -1,5 +1,6 @@
 import type { Kpi, KpiAutoSource } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
+import { pmScopeWhere, type PmProjectScope } from "./project-scope";
 
 /**
  * KPI derivation — a KPI's currentValue can "trickle up" from execution (work
@@ -21,10 +22,10 @@ export interface ExecutionMetrics {
 /** Compute a project's (or org-wide) execution metrics in a couple of queries. */
 export async function computeExecutionMetrics(
   orgId: string,
-  projectId: string | undefined,
+  projectId: PmProjectScope,
   now: Date,
 ): Promise<ExecutionMetrics> {
-  const where = projectId ? { orgId, projectId } : { orgId };
+  const where = pmScopeWhere(orgId, projectId);
   const [items, completedIntervals] = await Promise.all([
     prisma.workItem.findMany({
       where,
@@ -107,10 +108,10 @@ export type DerivedKpi = Kpi & { derived: boolean };
  */
 export async function loadKpisWithDerived(
   orgId: string,
-  projectId?: string,
+  projectId?: PmProjectScope,
 ): Promise<DerivedKpi[]> {
   const kpis = await prisma.kpi.findMany({
-    where: projectId ? { orgId, projectId } : { orgId },
+    where: pmScopeWhere(orgId, projectId),
     orderBy: { sortOrder: "asc" },
   });
 

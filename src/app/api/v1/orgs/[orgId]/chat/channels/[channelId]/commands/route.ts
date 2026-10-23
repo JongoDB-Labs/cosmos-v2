@@ -106,6 +106,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           orgSlug: org.slug,
           channelId,
           invokerUserId: ctx.userId,
+          invokerAuth: ctx,
           prompt,
         }).catch(() => {});
         return success({ ok: true });
@@ -127,6 +128,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           orgSlug: org.slug,
           channelId,
           invokerUserId: ctx.userId,
+          invokerAuth: ctx,
         }).catch(() => {});
         return success({ ok: true });
       }

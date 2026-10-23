@@ -9,7 +9,7 @@ import {
   updateChangeRequest,
   listBlockers,
 } from "./pm-register";
-import type { ToolContext } from "./_ctx";
+import { memberToolCtx } from "@/lib/testing/tool-auth";
 
 const NON_MEMBER = "00000000-0000-0000-0000-000000000000";
 
@@ -30,8 +30,8 @@ describe("pm-register write executors (e2e DB)", () => {
     const project = await prisma.project.create({
       data: { orgId: org.id, name: "P", key: `PM${stamp.slice(-4).toUpperCase()}` },
     });
-    const ctx: ToolContext = { orgId: org.id, userId: owner.id };
-    const denyCtx: ToolContext = { orgId: org.id, userId: NON_MEMBER };
+    const ctx = await memberToolCtx(org.id, owner.id);
+    const denyCtx = await memberToolCtx(org.id, NON_MEMBER);
     return { org, project, ctx, denyCtx };
   }
 

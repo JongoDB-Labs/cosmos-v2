@@ -2,6 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { SESSION_COOKIE } from "@/lib/auth/client";
 import { applySecurityHeaders } from "@/lib/security/headers";
+import { classifyBearer } from "@/lib/auth/bearer";
+import { REQUEST_ID_HEADER, requestIdFor } from "@/lib/openapi/request-id";
+import { problem } from "@/lib/openapi/problem";
 import { isMutatingMethod, isPathOrgFrozen } from "@/lib/cutover/freeze";
 
 function withSecurityHeaders(res: NextResponse): NextResponse {
@@ -108,6 +111,21 @@ function isPublic(pathname: string): boolean {
 }
 
 export async function proxy(request: NextRequest) {
+  // X-Request-Id on every response, and on the request the route sees (see
+  // lib/openapi/request-id.ts). Set here, outside `gate`, so no early return
+  // in it can skip the header.
+  const requestId = requestIdFor(request.headers.get(REQUEST_ID_HEADER));
+  const next = () => {
+    const forwarded = new Headers(request.headers);
+    forwarded.set(REQUEST_ID_HEADER, requestId);
+    return NextResponse.next({ request: { headers: forwarded } });
+  };
+  const res = await gate(request, next);
+  res.headers.set(REQUEST_ID_HEADER, requestId);
+  return res;
+}
+
+async function gate(request: NextRequest, next: () => NextResponse): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
   // CSRF: refuse cross-origin mutating verbs. The session cookie is
@@ -118,14 +136,14 @@ export async function proxy(request: NextRequest) {
   // explicit, non-ambient credential (the caller sets the Authorization header
   // deliberately — it isn't attached by the browser like a cookie), so it
   // can't be CSRF-forged by a cross-origin page. We only skip the Origin check
-  // for a `cosmos_` bearer (matching `hasBearer` in lib/auth/api-key.ts); a
+  // for a `cosmos_` bearer (`classifyBearer` in lib/auth/bearer.ts); a
   // non-cosmos `Bearer …` falls back to cookie auth, so it must stay guarded.
   // Cookie (no-Authorization) requests are still fully guarded too.
   if (
     MUTATING_METHODS.has(request.method) &&
     pathname.startsWith("/api/") &&
     !isCsrfExempt(pathname) &&
-    !/^Bearer\s+cosmos_/.test(request.headers.get("authorization") ?? "") &&
+    classifyBearer(request.headers.get("authorization")) === null &&
     !isSameOrigin(request)
   ) {
     return withSecurityHeaders(
@@ -151,7 +169,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (isPublic(pathname)) {
-    return withSecurityHeaders(NextResponse.next());
+    return withSecurityHeaders(next());
   }
 
   const sessionId = request.cookies.get(SESSION_COOKIE)?.value;
@@ -163,7 +181,7 @@ export async function proxy(request: NextRequest) {
     });
 
     if (session && session.expiresAt.getTime() > Date.now()) {
-      return withSecurityHeaders(NextResponse.next());
+      return withSecurityHeaders(next());
     }
   }
 
@@ -174,19 +192,14 @@ export async function proxy(request: NextRequest) {
   // `Bearer …` is NOT a session and stays blocked here.
   if (
     pathname.startsWith("/api/") &&
-    /^Bearer\s+cosmos_/.test(request.headers.get("authorization") ?? "")
+    classifyBearer(request.headers.get("authorization")) !== null
   ) {
-    return withSecurityHeaders(NextResponse.next());
+    return withSecurityHeaders(next());
   }
 
   // Unauthenticated. JSON 401 for API, redirect to /login otherwise.
   if (pathname.startsWith("/api/")) {
-    return withSecurityHeaders(
-      new NextResponse(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
+    return withSecurityHeaders(problem(401, "unauthorized"));
   }
 
   const loginUrl = new URL("/login", request.url);

@@ -38,15 +38,24 @@ vi.mock("@/lib/rbac/require-project-read", () => ({ requireProjectRead }));
 vi.mock("@/lib/rbac/require-project-manage", () => ({ requireProjectManage }));
 
 import { createKpi } from "./goals-kpis";
+import type { AuthContext } from "@/lib/rbac/check";
+import type { ToolContext } from "@/lib/ai/executors/_ctx";
+import { stubAuth, stubToolCtx } from "@/lib/testing/tool-auth";
 
 const ORG = "org-1";
 const ME = "11111111-1111-4111-a111-111111111111";
 const PROJECT = "22222222-2222-4222-a222-222222222222";
-const ctx = { orgId: ORG, userId: ME };
+const ctx: ToolContext = stubToolCtx(ORG, ME);
+/** The caller's AuthContext for the next call — replaces the mocked
+ *  `loadEffectivePermissions` these specs used to drive: tools are now
+ *  authorised against the caller's own context, not a lookup by user id. */
+const setActor = (actor: Partial<Omit<AuthContext, "orgId" | "userId">>) => {
+  ctx.auth = stubAuth(ctx.orgId, ctx.userId, actor);
+};
 
 /** An ordinary member: holds the OKR bits, NOT PROJECT_UPDATE. */
 function asMember() {
-  loadEffectivePermissions.mockResolvedValue({
+  setActor({
     orgRole: "MEMBER",
     permissions: Permission.OKR_CREATE | Permission.OKR_UPDATE,
     basePermissions: Permission.OKR_CREATE,
