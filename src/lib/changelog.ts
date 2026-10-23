@@ -49,6 +49,28 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.8",
+    date: "2026-10-23",
+    title: "Classified exports are marked and gated",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Issues CSV exports in government workspaces now include each item's classification, carry a CUI banner when they contain controlled information, and require the Org export permission for that data.",
+      },
+    ],
+  },
+  {
+    version: "2.439.7",
+    date: "2026-10-23",
+    title: "Search filters in API requests",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Searching work items through the API now honours the archived, id and \"watching\" filters in a POST body, and rejects filter keys it doesn't recognise instead of ignoring them.",
+      },
+    ],
+  },
+  {
     version: "2.439.6",
     date: "2026-10-23",
     title: "Saved views respect project access",
