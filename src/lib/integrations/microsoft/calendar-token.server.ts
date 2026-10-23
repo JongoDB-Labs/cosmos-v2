@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { openSecret, sealSecret } from "@/lib/crypto/vault";
 import { getProviderConfig } from "@/lib/auth/provider-config";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
-import { microsoftLoginOrigin } from "./hosts";
+import { microsoftGraphOrigin, microsoftLoginOrigin } from "./hosts";
 import { MS_CALENDAR, MS_CALENDAR_SCOPES, idTokenClaims, type IdClaims } from "./calendar-connect";
 
 /**
@@ -29,6 +29,8 @@ export interface CalendarMeta {
   tid: string;
   oid: string;
   upn: string;
+  /** The mailbox's primary SMTP address, when it differs from the UPN's form. */
+  mail?: string;
   scopes: string[];
   status: "connected" | "reconnect";
   connectedAt: string;
@@ -127,6 +129,25 @@ async function tokenRequest(cfg: OrgCalendarConfig, params: Record<string, strin
  * tenant but the org's, and store the sealed refresh token. Returns the claims
  * so the caller can audit-log who connected.
  */
+/**
+ * The mailbox's primary SMTP address (Graph /me `mail`). In some tenants it
+ * differs from the UPN, and calendars report their owner by it. Best effort:
+ * without it, matching falls back to the UPN.
+ */
+async function mailboxAddress(accessToken: string, f: typeof fetch): Promise<string | undefined> {
+  try {
+    const res = await f(`${microsoftGraphOrigin()}/v1.0/me?$select=mail,userPrincipalName`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return undefined;
+    const body = (await res.json()) as { mail?: unknown };
+    return typeof body.mail === "string" && body.mail.includes("@") ? body.mail : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function completeCalendarConnect(
   a: { orgId: string; userId: string; code: string; verifier: string; redirectUri: string; origin?: string },
   deps: Deps = {},
@@ -159,8 +180,10 @@ export async function completeCalendarConnect(
         (["calendarId", "deltaLink", "windowEnd", "lastSyncAt"] as const).filter((k) => prev[k] !== undefined).map((k) => [k, prev[k]]),
       )
     : {};
+  const mail = await mailboxAddress(t.access_token, deps.fetch ?? fetch);
   const meta: CalendarMeta = {
     ...claims,
+    ...(mail ? { mail } : {}),
     scopes: MS_CALENDAR_SCOPES,
     status: "connected",
     connectedAt: new Date(now).toISOString(),
