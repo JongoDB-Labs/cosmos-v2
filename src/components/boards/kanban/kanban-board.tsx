@@ -41,6 +41,8 @@ import { useCustomFields } from "@/hooks/use-custom-fields";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import { boardBaseline, matchesFilters } from "@/lib/work-items/board-filters";
+import { boardScope, inBoardScope } from "@/lib/boards/saved-filter";
+import { BoardScopeNotice } from "@/components/boards/shared/board-scope-notice";
 import { presentLabels } from "@/lib/work-items/label-filter";
 import {
   blockedItemIds,
@@ -497,7 +499,11 @@ function KanbanBoardInner({
   // something different depending on which board you are looking at is worse
   // than no filter at all. A team's work is still a membership test, so an item
   // owned by someone on two teams matches both.
+  // The board's own scope (a board saved from Issues) comes first; the filter
+  // bar narrows within it. See lib/boards/saved-filter.
+  const scope = useMemo(() => boardScope(board?.config), [board]);
   const filteredItems = items.filter((item) =>
+    inBoardScope(scope, item) &&
     matchesFilters(item, filters, projectCustomFields, teamsByUserId, filterNow, {
       blocked: blockedIds,
       milestones: milestoneMap,
@@ -1025,6 +1031,7 @@ function KanbanBoardInner({
         baseFilters={baseFilters}
         showSwimlane
       />
+      <BoardScopeNotice scope={scope} />
 
       {/* Board toolbar: create, then bulk-select. "Select" enters a mode where
           drag is OFF and cards toggle; the action bar appears once something's

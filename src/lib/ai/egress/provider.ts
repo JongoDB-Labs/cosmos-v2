@@ -1,6 +1,6 @@
 // src/lib/ai/egress/provider.ts
 import Anthropic from "@anthropic-ai/sdk";
-import type { ModelCredential } from "./types";
+import { NoModelCredentialError, type ModelCredential } from "./types";
 
 export type { ModelCredential } from "./types";
 
@@ -37,7 +37,8 @@ export interface CallModelRequest {
   maxTokens?: number;
   /** When provided, stream text deltas to the caller (final result still returned). */
   onTextDelta?: (delta: string) => void;
-  /** Per-call credential resolved by the egress layer. Omit ⇒ env ANTHROPIC_API_KEY. */
+  /** Per-call credential resolved by the egress layer. Omit ⇒ env ANTHROPIC_API_KEY,
+   *  only when COSMOS_ALLOW_ENV_MODEL_KEY=1; otherwise NoModelCredentialError. */
   credential?: ModelCredential;
 }
 
@@ -65,11 +66,13 @@ let _envClient: Anthropic | null = null;
 /** Build the SDK client for the resolved credential (env key cached; others per-call). */
 function clientFor(credential: ModelCredential | undefined): Anthropic {
   if (!credential) {
+    // The env key is an explicit operator opt-in (self-hosters who really run on
+    // an API key), never a silent fallback: a stale prod key otherwise answers
+    // for a missing subscription with Anthropic's "invalid x-api-key".
     const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey)
-      throw new Error(
-        "No model credential: ANTHROPIC_API_KEY is unset and no org Claude subscription is connected.",
-      );
+    if (process.env.COSMOS_ALLOW_ENV_MODEL_KEY !== "1" || !apiKey) {
+      throw new NoModelCredentialError();
+    }
     if (_envClient) return _envClient;
     _envClient = new Anthropic({ apiKey });
     return _envClient;
