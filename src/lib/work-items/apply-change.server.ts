@@ -29,9 +29,12 @@ import {
   PICKABLE_CANCEL_REASONS,
   cancelFieldsForUpdate,
   cancelInputError,
+  cancelReasonLabel,
   type CancelReason,
 } from "@/lib/work-items/cancel";
 import { ensureCancelledStatus } from "@/lib/workflow/statuses.server";
+import { gateChange, throwIfDenied, type Denial, type EnforcementLevel, type TransitionRequest } from "@/lib/workflow/engine.server";
+import type { AuthContext } from "@/lib/rbac/check";
 import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
 import { setLabelsForMany, setWorkItemLabels } from "@/lib/work-items/labels";
 import { cascadeSchedule, type CascadedItem } from "@/lib/work-items/schedule-cascade-io";
@@ -123,6 +126,17 @@ export interface ApplyChangeInput {
   source: ChangeSource;
   /** Set when this change is part of a larger one (a merge), so their events share it. */
   correlationId?: string;
+  /**
+   * The person acting, for the workflow's restrictions and the override right.
+   * Null for a system change, which the workflow holds to its structure only.
+   */
+  actor: AuthContext | null;
+  /** The transition named and the input it asked for, when the client sends them. */
+  transition?: TransitionRequest;
+  /** The board the move was made on, for its hard WIP limits. */
+  boardId?: string;
+  /** Defaults to "structural" for SYSTEM changes and "full" otherwise. */
+  level?: EnforcementLevel;
 }
 
 export interface ApplyChangeResult {
@@ -132,6 +146,11 @@ export interface ApplyChangeResult {
   scheduleCascade: CascadedItem[];
   /** Run with `runAfterCommit` once the transaction has committed. */
   effects: AfterCommitEffects;
+  /**
+   * Items the workflow refused, with why. Only a BULK change gets here with
+   * refusals: any other change throws the first one as a TransitionError.
+   */
+  denied: Denial[];
 }
 
 interface TrackedField {
@@ -258,6 +277,23 @@ export function computeItemChange(args: {
   }
   if (data.mergedIntoId !== undefined) updateData.mergedIntoId = data.mergedIntoId;
 
+  // Resolution is the outcome of a finished or cancelled item (design §3.7):
+  // a cancel records its reason there unless the change names one, and a move
+  // anywhere that is neither Done nor Cancelled clears it, as reopening does.
+  if (data.resolution === undefined) {
+    const outcomeStatus = destCategory === ColumnCategory.DONE || destCategory === ColumnCategory.CANCELLED;
+    let resolution: string | null | undefined;
+    if (cancelFields?.cancelReason) {
+      resolution = cancelFields.cancelReason === "MERGED" ? "Duplicate" : cancelReasonLabel(cancelFields.cancelReason);
+    } else if (columnChanged && destCategory && !outcomeStatus && existing.resolution) {
+      resolution = null;
+    }
+    if (resolution !== undefined && resolution !== existing.resolution) {
+      updateData.resolution = resolution;
+      trackFields.push({ field: "resolution", oldVal: existing.resolution, newVal: resolution });
+    }
+  }
+
   // Actual End auto-capture (skipped when the request sets completedAt manually).
   if (data.completedAt === undefined) {
     if (doneColumn && !existing.completedAt) {
@@ -346,7 +382,6 @@ export async function applyWorkItemChange(
   const rows = await tx.workItem.findMany({ where: { id: { in: [...input.itemIds] }, orgId, projectId } });
   const byId = new Map(rows.map((r) => [r.id, r]));
   const items = input.itemIds.flatMap((id) => byId.get(id) ?? []);
-  const ids = items.map((i) => i.id);
 
   // A cancel names no column of its own: resolve (or create) the project's
   // Cancelled status first, so everything below treats it as a column move.
@@ -354,39 +389,71 @@ export async function applyWorkItemChange(
     patch.columnKey = await ensureCancelledStatus(tx, projectId, patch.columnKey);
   }
 
+  const now = new Date();
+  // The workflow first: nothing is written for an item it refuses. Each item
+  // that passes carries its own patch (the transition's input and actions).
+  const gate = await gateChange(tx, {
+    orgId,
+    projectId,
+    actor: input.actor,
+    actorId,
+    level: input.level ?? (source === "SYSTEM" ? "structural" : "full"),
+    items,
+    patch,
+    transition: input.transition,
+    boardId: input.boardId,
+    now,
+  });
+  if (source !== "BULK") throwIfDenied(gate);
+  const passed = new Map(gate.gates.map((g) => [g.itemId, g]));
+  const allowed = items.filter((i) => passed.has(i.id));
+  const ids = allowed.map((i) => i.id);
+
+  // Items whose effective patches are equal are changed together.
+  const patchGroups = new Map<string, { patch: WorkItemPatch; items: WorkItem[] }>();
+  for (const item of allowed) {
+    const p = passed.get(item.id)!.patch;
+    const key = JSON.stringify(p);
+    const group = patchGroups.get(key) ?? { patch: p, items: [] };
+    group.items.push(item);
+    patchGroups.set(key, group);
+  }
+  const groupPatches = [...patchGroups.values()].map((g) => g.patch);
+  const effectivePatch = groupPatches.length === 1 ? groupPatches[0] : patch;
+
   const effects: AfterCommitEffects = {
     orgId,
     projectId,
     actorId,
     source,
-    fields: Object.keys(patch),
-    textChanged: patch.title !== undefined || patch.description !== undefined,
+    fields: [...new Set(groupPatches.length > 0 ? groupPatches.flatMap((p) => Object.keys(p)) : Object.keys(patch))],
+    textChanged: groupPatches.some((p) => p.title !== undefined || p.description !== undefined),
     columnTouched: patch.columnKey !== undefined,
-    assigneeId: patch.assigneeId,
+    assigneeId: effectivePatch.assigneeId,
     items: [],
+    workflow: { forced: gate.forced, shadow: gate.shadow },
   };
-  if (items.length === 0) return { itemIds: [], scheduleCascade: [], effects };
+  if (allowed.length === 0) return { itemIds: [], scheduleCascade: [], effects, denied: gate.denials };
 
-  // Labels are NOT written with the row. `tags` is a mirror of the
-  // work_item_labels rows now, so writing the array directly would leave the
-  // catalogue out of step — the label would filter but not exist to rename or
-  // delete. The label helpers own both sides.
-  if (patch.tags !== undefined) {
-    if (ids.length === 1) await setWorkItemLabels(tx, orgId, ids[0], patch.tags, RECORDED_BY_CALLER);
-    else await setLabelsForMany(tx, orgId, ids, patch.tags, RECORDED_BY_CALLER);
+  const changes: { existing: WorkItem; updateData: Prisma.WorkItemUncheckedUpdateManyInput; trackFields: TrackedField[] }[] = [];
+  for (const group of patchGroups.values()) {
+    const groupIds = group.items.map((i) => i.id);
+    // Labels are NOT written with the row. `tags` is a mirror of the
+    // work_item_labels rows now, so writing the array directly would leave the
+    // catalogue out of step — the label would filter but not exist to rename or
+    // delete. The label helpers own both sides.
+    if (group.patch.tags !== undefined) {
+      if (groupIds.length === 1) await setWorkItemLabels(tx, orgId, groupIds[0], group.patch.tags, RECORDED_BY_CALLER);
+      else await setLabelsForMany(tx, orgId, groupIds, group.patch.tags, RECORDED_BY_CALLER);
+    }
+    const destCategory = group.patch.columnKey
+      ? ((await loadStatusCategories(tx, projectId, [group.patch.columnKey]))[0]?.category ?? null)
+      : null;
+    for (const existing of group.items) {
+      changes.push({ existing, ...computeItemChange({ existing, patch: group.patch, destCategory, now }) });
+    }
+    await syncAssigneeSets(tx, groupIds, group.patch);
   }
-
-  const destCategory = patch.columnKey
-    ? ((await loadStatusCategories(tx, projectId, [patch.columnKey]))[0]?.category ?? null)
-    : null;
-
-  const now = new Date();
-  const changes = items.map((existing) => ({
-    existing,
-    ...computeItemChange({ existing, patch, destCategory, now }),
-  }));
-
-  await syncAssigneeSets(tx, ids, patch);
 
   // Items whose rows take identical values are written together: a bulk move
   // is one statement per distinct outcome, not one per item.
@@ -410,14 +477,27 @@ export async function applyWorkItemChange(
       newValue: f.newVal,
     })),
   );
+  // A named transition is recorded too, so history can say "Started work"
+  // (design §3.6); the open workflow's moves are only the status change.
+  for (const g of gate.gates) {
+    if (g.transitionId) {
+      activity.push({ orgId, workItemId: g.itemId, userId: actorId, action: "transitioned", field: "transition", oldValue: null, newValue: g.transitionId });
+    }
+  }
   if (activity.length > 0) await tx.activity.createMany({ data: activity });
+
+  // The transition's own comments and watchers, in the same transaction.
+  const comments = gate.gates.flatMap((g) => g.comments.map((content) => ({ orgId, workItemId: g.itemId, authorId: actorId, content })));
+  if (comments.length > 0) await tx.comment.createMany({ data: comments });
+  const watchers = gate.gates.flatMap((g) => g.watchers.map((userId) => ({ orgId, workItemId: g.itemId, userId })));
+  if (watchers.length > 0) await tx.workItemWatcher.createMany({ data: watchers, skipDuplicates: true });
 
   // The outbox: the row writes above were RECORDED_BY_CALLER, so this records
   // one event per item from its row before and after, a transition when its
   // status moved. Tags are read back because the label helpers resolve them.
-  const eventFields = [...new Set([...changes.flatMap((c) => Object.keys(c.updateData)), ...(patch.tags !== undefined ? ["tags"] : [])])];
+  const eventFields = [...new Set([...changes.flatMap((c) => Object.keys(c.updateData)), ...(groupPatches.some((p) => p.tags !== undefined) ? ["tags"] : [])])];
   if (eventFields.length > 0) {
-    const before = items as unknown as Parameters<typeof changeEvents>[0];
+    const before = allowed as unknown as Parameters<typeof changeEvents>[0];
     await recordEvents(tx, meta, changeEvents(before, await snapshotItems(tx, ids, eventFields), eventFields));
   }
 
@@ -470,5 +550,5 @@ export async function applyWorkItemChange(
     };
   });
 
-  return { itemIds: ids, scheduleCascade, effects };
+  return { itemIds: ids, scheduleCascade, effects, denied: gate.denials };
 }

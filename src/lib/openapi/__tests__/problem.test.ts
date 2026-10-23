@@ -79,7 +79,7 @@ describe("handleApiError keeps every legacy body", () => {
         error: "Resolve needs a resolution.",
         code: "transition_input_required",
         transition: { id: "t1", name: "Resolve", to: "done" },
-        fields: [{ field: "resolution", required: true }],
+        fields: [{ field: { system: "resolution" }, required: true }],
       }),
       withId("req-9"),
     );
@@ -94,7 +94,7 @@ describe("handleApiError keeps every legacy body", () => {
       requestId: "req-9",
       error: "Resolve needs a resolution.",
       transition: { id: "t1", name: "Resolve", to: "done" },
-      fields: [{ field: "resolution", required: true }],
+      fields: [{ field: { system: "resolution" }, required: true }],
     });
   });
 
