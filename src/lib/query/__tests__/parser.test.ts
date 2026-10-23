@@ -232,3 +232,27 @@ describe("parseCql — spans", () => {
     expect(r.spans.get(v)).toEqual({ from: 11, to: 15 });
   });
 });
+
+describe("depth is refused before parsing (never a stack overflow)", () => {
+  const limit = (cql: string) => {
+    const r = parseCql(cql);
+    return r.diagnostics.find((d) => d.code === "CQL_LIMIT");
+  };
+  it("deep parentheses, closed or not", () => {
+    expect(limit(`${"(".repeat(316)}priority = HIGH${")".repeat(316)}`)?.message).toMatch(/Parentheses can nest at most/);
+    expect(limit(`${"(".repeat(3900)}priority = HIGH`)?.message).toMatch(/Parentheses can nest at most/);
+    // At the limit is fine.
+    expect(limit(`${"(".repeat(CQL_LIMITS.parenDepth)}priority = HIGH${")".repeat(CQL_LIMITS.parenDepth)}`)).toBeUndefined();
+  });
+  it("long runs of NOT, and nested function calls", () => {
+    expect(limit(`${"NOT ".repeat(950)}priority = HIGH`)?.message).toMatch(/NOTs in a row/);
+    expect(limit(`${"! ".repeat(1900)}priority = HIGH`)?.message).toMatch(/NOTs in a row/);
+    expect(limit(`key IN ${"childrenOf(".repeat(300)}X-1${")".repeat(300)}`)?.message).toMatch(/nest at most/);
+    // NOT IN is an operator, not a run of NOTs; a few NOTs are fine.
+    expect(limit("priority NOT IN (LOW) AND NOT NOT assignee = me")).toBeUndefined();
+  });
+  it("points at where it went too deep", () => {
+    const cql = `${"(".repeat(6)}a = 1${")".repeat(6)}`;
+    expect(limit(cql)).toMatchObject({ from: 5, to: 6 });
+  });
+});

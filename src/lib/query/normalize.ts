@@ -105,8 +105,43 @@ export function limitDiagnostics(q: CqlQuery, text = ""): CqlDiagnostic[] {
   return out;
 }
 
-/** Validate a JSON query: shape (zod) then limits. Returns the parsed query or diagnostics. */
+/**
+ * JSON nesting a valid query can reach: 8 levels of and/or/not (2 JSON levels
+ * each: the node and its args array), a leaf's field/values/value, nested
+ * function arguments and history predicates. Generous; the point is a bound.
+ */
+const MAX_JSON_DEPTH = 40;
+/** Objects and arrays in one query: 50 clauses × 200 values, with room. */
+const MAX_JSON_NODES = 20_000;
+
+/**
+ * Measure raw JSON without recursion, before anything recursive (zod's lazy
+ * schema, the walkers) touches it: a few thousand nested `not`s would
+ * otherwise overflow the stack and surface as a 500.
+ */
+function jsonTooBig(input: unknown): string | null {
+  const stack: [unknown, number][] = [[input, 1]];
+  let nodes = 0;
+  while (stack.length) {
+    const [v, d] = stack.pop()!;
+    if (v === null || typeof v !== "object") continue;
+    if (d > MAX_JSON_DEPTH) return `Conditions can nest at most ${CQL_LIMITS.nodeDepth} levels deep.`;
+    if (++nodes > MAX_JSON_NODES) return "This query is too large.";
+    // The clause limit, said the same way limitDiagnostics says it, before a
+    // huge `args` array reaches the schema.
+    const args = Array.isArray(v) ? null : (v as { args?: unknown }).args;
+    if (Array.isArray(args) && args.length > CQL_LIMITS.clauses) {
+      return `A query can have at most ${CQL_LIMITS.clauses} conditions (this has at least ${args.length}).`;
+    }
+    for (const child of Array.isArray(v) ? v : Object.values(v)) stack.push([child, d + 1]);
+  }
+  return null;
+}
+
+/** Validate a JSON query: size (iteratively), shape (zod), then limits. Returns the parsed query or diagnostics. */
 export function validateAst(input: unknown): { query: CqlQuery; diagnostics: [] } | { query: null; diagnostics: CqlDiagnostic[] } {
+  const tooBig = jsonTooBig(input);
+  if (tooBig) return { query: null, diagnostics: [diag("", "CQL_LIMIT", tooBig)] };
   const parsed = cqlQuerySchema.safeParse(input);
   if (!parsed.success) {
     const first = parsed.error.issues[0];

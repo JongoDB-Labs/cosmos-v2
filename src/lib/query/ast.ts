@@ -170,8 +170,8 @@ const predsSchema: z.ZodType<HistoryPreds> = z.strictObject({
 
 const nodeSchema: z.ZodType<CqlNode> = z.lazy(() =>
   z.union([
-    z.strictObject({ op: z.literal("and"), args: z.array(nodeSchema).min(2) }),
-    z.strictObject({ op: z.literal("or"), args: z.array(nodeSchema).min(2) }),
+    z.strictObject({ op: z.literal("and"), args: z.array(nodeSchema).min(2).max(CQL_LIMITS.clauses) }),
+    z.strictObject({ op: z.literal("or"), args: z.array(nodeSchema).min(2).max(CQL_LIMITS.clauses) }),
     z.strictObject({ op: z.literal("not"), arg: nodeSchema }),
     z.strictObject({
       op: z.literal("cmp"),
@@ -246,11 +246,17 @@ export function leafValues(leaf: LeafNode): CqlValue[] {
   return out;
 }
 
+/** How deep and/or/not nest. Iterative, and no spread: a node may have any number of args. */
 export function nodeDepth(n: CqlNode | null): number {
-  if (!n) return 0;
-  if (n.op === "and" || n.op === "or") return 1 + Math.max(...n.args.map(nodeDepth));
-  if (n.op === "not") return 1 + nodeDepth(n.arg);
-  return 1;
+  let max = 0;
+  const stack: [CqlNode, number][] = n ? [[n, 1]] : [];
+  while (stack.length) {
+    const [node, d] = stack.pop()!;
+    if (d > max) max = d;
+    if (node.op === "and" || node.op === "or") for (const a of node.args) stack.push([a, d + 1]);
+    else if (node.op === "not") stack.push([node.arg, d + 1]);
+  }
+  return max;
 }
 
 /** Does the query mention a field anywhere (including ORDER BY)? */

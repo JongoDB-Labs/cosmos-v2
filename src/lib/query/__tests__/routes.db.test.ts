@@ -75,9 +75,15 @@ describe("CQL routes (e2e DB)", () => {
     try {
       expect((await queryRoute(post("work-items/query", { cql: "" }), { params: params() })).status).toBe(404);
       expect((await schemaRoute(new NextRequest("http://localhost/x"), { params: params() })).status).toBe(404);
-      // ...and ?cql= on search is then just an unknown parameter.
+      expect((await validateRoute(post("cql/validate", { cql: "priority = HIGH" }), { params: params() })).status).toBe(404);
+      // ...and ?cql= on search is the same 404: the parameter doesn't exist there.
       const s = await searchRoute(new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/work-items/search?cql=x`), { params: params() });
-      expect(s.status).toBe(400);
+      expect(s.status).toBe(404);
+      // The switch is checked first: no permissions still reads as "not here"
+      // (and the session isn't even consulted).
+      getAuthContext.mockImplementation(async () => ({ ...w.ctx(), permissions: 0n, basePermissions: 0n }) as AuthContext);
+      expect((await queryRoute(post("work-items/query", { cql: "" }), { params: params() })).status).toBe(404);
+      getAuthContext.mockImplementation(async () => w.ctx());
     } finally {
       await prisma.organization.update({ where: { id: w.orgA }, data: { settings: withCqlEnabled({}, true) as object } });
     }
@@ -128,6 +134,78 @@ describe("CQL routes (e2e DB)", () => {
     expect(mixed.status).toBe(400);
   });
 
+  it("search ?cql=: bad CQL is a 400 even for someone who can read nothing; too long is a 400", async () => {
+    getAuthContext.mockImplementationOnce(async () => w.ctx({ projectScope: [] }));
+    const bad = await searchRoute(new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/work-items/search?cql=${encodeURIComponent("priorty = HIGH")}`), { params: params() });
+    expect(bad.status).toBe(400);
+    const long = await searchRoute(new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/work-items/search?cql=${"a".repeat(4001)}`), { params: params() });
+    expect(long.status).toBe(400);
+  });
+
+  it("search ?cql= shares the query route's rate limit (30 per 10 s)", async () => {
+    limiter.on = true;
+    // Its own user, so this bucket isn't the one the query-route test uses.
+    getAuthContext.mockImplementation(async () => ({ ...w.ctx(), userId: w.bob.id }) as AuthContext);
+    try {
+      const statuses: number[] = [];
+      for (let i = 0; i < 32; i++) {
+        const r = await searchRoute(
+          new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/work-items/search?cql=${encodeURIComponent("priority = HIGH")}`, { headers: { "x-forwarded-for": "10.9.9.9" } }),
+          { params: params() },
+        );
+        statuses.push(r.status);
+      }
+      expect(statuses).toContain(429);
+      expect(statuses.slice(0, 20).every((x) => x === 200)).toBe(true);
+    } finally {
+      limiter.on = false;
+      getAuthContext.mockImplementation(async () => w.ctx());
+    }
+  });
+
+  it("nesting that would overflow the stack is a 400, by text or JSON — never a 500", async () => {
+    const leaf = { op: "cmp", field: { kind: "sys", id: "priority" }, cmp: "eq", value: { t: "str", v: "HIGH" } };
+    let deep: unknown = leaf;
+    for (let i = 0; i < 1300; i++) deep = { op: "not", arg: deep };
+    const cases = [
+      { cql: `${"(".repeat(316)}priority = HIGH${")".repeat(316)}` },
+      { cql: `${"(".repeat(471)}priority = HIGH` },
+      { cql: `${"NOT ".repeat(900)}priority = HIGH` },
+      { query: { v: 1, where: deep } },
+      { query: { v: 1, where: { op: "and", args: Array.from({ length: 123_000 }, () => leaf) } } },
+    ];
+    for (const body of cases) {
+      const res = await queryRoute(post("work-items/query", body), { params: params() });
+      expect(res.status, JSON.stringify(body).slice(0, 60)).toBe(400);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe("CQL_INVALID");
+    }
+  });
+
+  it("JSON refs to people, labels or types from elsewhere match nothing and never print their forged label", async () => {
+    const other = await prisma.user.create({ data: { email: `other-${w.stamp}@x.test`, displayName: `Otherorg ${w.stamp}` } });
+    const foreignLabel = await prisma.label.create({ data: { orgId: w.orgB, name: `Foreignlabel ${w.stamp}` } });
+    try {
+      for (const value of [
+        { t: "ref", entity: "user", id: other.id, label: "Forged Name" },
+        { t: "ref", entity: "label", id: foreignLabel.id, label: "Forged Name" },
+        { t: "ref", entity: "type", id: "00000000-0000-4000-8000-000000000000", label: "Forged Name" },
+      ]) {
+        const field = { user: "assignee", label: "label", type: "type" }[value.entity as "user"];
+        const res = await queryRoute(post("work-items/query", { query: { v: 1, where: { op: "cmp", field: { kind: "sys", id: field }, cmp: "eq", value } } }), { params: params() });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { data: unknown[]; cql: string };
+        expect(body.data).toEqual([]);
+        expect(JSON.stringify(body)).not.toContain("Forged Name");
+      }
+      // A real member, by id, still works (the check is "is this ours", not "is this a name").
+      const mine = await queryRoute(post("work-items/query", { query: { v: 1, where: { op: "cmp", field: { kind: "sys", id: "assignee" }, cmp: "eq", value: { t: "ref", entity: "user", id: w.actor.id } } } }), { params: params() });
+      expect(((await mine.json()) as { data: unknown[] }).data.length).toBeGreaterThan(0);
+    } finally {
+      await prisma.label.delete({ where: { id: foreignLabel.id } }).catch(() => undefined);
+      await prisma.user.delete({ where: { id: other.id } }).catch(() => undefined);
+    }
+  });
+
   it("query is rate-limited per user (30 per 10 s)", async () => {
     limiter.on = true;
     try {
@@ -146,9 +224,15 @@ describe("CQL routes (e2e DB)", () => {
 
   it("fuzz: any string is a 200 or a 400, never a 500, and never names a restricted thing", async () => {
     const tokens = ["(", ")", "=", "!=", "~", "AND", "OR", "NOT", "IN", "IS", "EMPTY", "ORDER BY", ",", '"', "'", "me", "$x", "-7d", "priority", "assignee", "cf[", "]", "openSprints()", "\\", "%", "\u0000", "'; DROP TABLE work_items; --", "$1"];
+    // Deep nesting, the stack-overflow class: runs of "(" (closed or not),
+    // NOT / ! and nested calls, at any depth up to the text limit.
+    const deep = fc
+      .tuple(fc.constantFrom("(", "NOT ", "! ", "childrenOf("), fc.integer({ min: 1, max: 900 }), fc.boolean())
+      .map(([open, n, close]) => `${open.repeat(n)}priority = HIGH${close && open.endsWith("(") ? ")".repeat(n) : ""}`);
     const arb = fc.oneof(
       fc.string({ maxLength: 60 }),
       fc.array(fc.constantFrom(...tokens), { maxLength: 12 }).map((t) => t.join(" ")),
+      deep,
     );
     await fc.assert(
       fc.asyncProperty(arb, async (cql) => {
@@ -157,7 +241,36 @@ describe("CQL routes (e2e DB)", () => {
         const text = await res.text();
         for (const s of w.secrets) if (!cql.includes(s)) expect(text.includes(s), cql).toBe(false);
       }),
-      { numRuns: 250 },
+      { numRuns: 300 },
+    );
+  }, 120_000);
+
+  it("fuzz: any JSON nesting is a 200 or a 400, never a 500", async () => {
+    const leaf = { op: "cmp", field: { kind: "sys", id: "priority" }, cmp: "eq", value: { t: "str", v: "HIGH" } };
+    // The body is built as TEXT, the way an attacker would send it:
+    // JSON.stringify itself overflows on these, the server's JSON.parse
+    // doesn't. Built inside the property, so a failure prints as (kind, n).
+    const LEAF = JSON.stringify(leaf);
+    const body = (kind: string, n: number) => {
+      const [open, close] =
+        kind === "not"
+          ? ['{"op":"not","arg":', "}"]
+          : kind === "fn"
+            ? ['{"t":"fn","name":"childrenOf","args":[', "]}"]
+            : [`{"op":"${kind}","args":[`, `,${LEAF}]}`];
+      const inner = kind === "fn" ? '{"t":"str","v":"X-1"}' : LEAF;
+      const tree = open.repeat(n) + inner + close.repeat(n);
+      const where = kind === "fn" ? `{"op":"in","field":{"kind":"sys","id":"key"},"values":[${tree}]}` : tree;
+      return `{"query":{"v":1,"where":${where}}}`;
+    };
+    const raw = (text: string) =>
+      new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/work-items/query`, { method: "POST", body: text, headers: { "content-type": "application/json" } });
+    await fc.assert(
+      fc.asyncProperty(fc.constantFrom("not", "and", "or", "fn"), fc.integer({ min: 1, max: 20_000 }), async (kind, n) => {
+        const res = await queryRoute(raw(body(kind, n)), { params: params() });
+        expect([200, 400], `${kind} × ${n}: ${res.status}`).toContain(res.status);
+      }),
+      { numRuns: 60 },
     );
   }, 120_000);
 });
