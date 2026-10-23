@@ -28,6 +28,7 @@ DELETE /orgs/{orgId}/documents/{docId}/comments/{commentId}
 DELETE /orgs/{orgId}/documents/{docId}/shares/{shareId}
 DELETE /orgs/{orgId}/feedback/attachments/{attachmentId}
 DELETE /orgs/{orgId}/feedback/{feedbackId}
+DELETE /orgs/{orgId}/feedback/{feedbackId}/comments/{commentId}
 DELETE /orgs/{orgId}/feedback/{feedbackId}/vote
 DELETE /orgs/{orgId}/finance/expenses/{expenseId}
 DELETE /orgs/{orgId}/finance/revenue/{revenueId}
@@ -190,6 +191,8 @@ GET /orgs/{orgId}/feedback/attachments/{attachmentId}
 GET /orgs/{orgId}/feedback/remediation-config
 GET /orgs/{orgId}/feedback/remediation-queue
 GET /orgs/{orgId}/feedback/{feedbackId}
+GET /orgs/{orgId}/feedback/{feedbackId}/comments
+GET /orgs/{orgId}/feedback/{feedbackId}/comments/{commentId}/revisions
 GET /orgs/{orgId}/finance/expenses
 GET /orgs/{orgId}/finance/expenses/{expenseId}
 GET /orgs/{orgId}/finance/revenue
@@ -335,6 +338,7 @@ PATCH /orgs/{orgId}/chat/messages/{messageId}
 PATCH /orgs/{orgId}/classifications/{classificationId}
 PATCH /orgs/{orgId}/compliance/controls/{controlDbId}
 PATCH /orgs/{orgId}/documents/{docId}
+PATCH /orgs/{orgId}/feedback/{feedbackId}/comments/{commentId}
 PATCH /orgs/{orgId}/labels/{labelId}
 PATCH /orgs/{orgId}/mcp-servers/{serverId}
 PATCH /orgs/{orgId}/plugins/{slug}
@@ -436,6 +440,7 @@ POST /orgs/{orgId}/feedback
 POST /orgs/{orgId}/feedback/attachments
 POST /orgs/{orgId}/feedback/remediate
 POST /orgs/{orgId}/feedback/report-bug
+POST /orgs/{orgId}/feedback/{feedbackId}/comments
 POST /orgs/{orgId}/feedback/{feedbackId}/vote
 POST /orgs/{orgId}/finance/expenses
 POST /orgs/{orgId}/finance/expenses/bulk-approve
