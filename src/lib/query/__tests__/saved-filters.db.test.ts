@@ -128,6 +128,21 @@ describe("saved filters v2 (e2e DB)", () => {
     expect(listed.filter).toEqual({});
   });
 
+  it("?projectId= lists only the filters shared with that project", async () => {
+    await seed(w.bob.id, "for P1 tab", q(null), { visibility: "PROJECT", projectId: w.P1.id });
+    await seed(w.bob.id, "for P3 tab", q(null), { visibility: "PROJECT", projectId: w.P3.id });
+    await seed(w.bob.id, "org wide, not a project's", q(null), { visibility: "ORG", shared: true });
+    as(() => actor());
+    const res = await list(req(`saved-views?projectId=${w.P1.id}`), { params: params() });
+    const got = ((await res.json()) as { name: string }[]).map((v) => v.name);
+    expect(got).toContain("for P1 tab");
+    expect(got).not.toContain("for P3 tab");
+    expect(got).not.toContain("org wide, not a project's");
+    // A project you can't read lists nothing, rather than its filters.
+    const hidden = ((await (await list(req(`saved-views?projectId=${w.P2.id}`), { params: params() })).json()) as unknown[]);
+    expect(hidden).toEqual([]);
+  });
+
   it("a filter on a custom field you can't see shows no text at all (the field's name would leak)", async () => {
     const key = `secretcf_${w.stamp}`;
     await prisma.customField.create({ data: { orgId: w.orgA, projectId: w.P2.id, key, name: `Secretfield ${w.stamp}`, fieldType: "TEXT" } });

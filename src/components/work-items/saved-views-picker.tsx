@@ -27,6 +27,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { Bookmark, ChevronDown, Trash2, Users, Lock } from "lucide-react";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 
@@ -48,14 +49,11 @@ export function SavedViewsPicker({
   orgId,
   currentFilter,
   onApply,
-  saveDisabledReason,
 }: {
   orgId: string;
   /** The live filter bar state, serialized — saved verbatim on "Save". */
   currentFilter: WorkItemFilter;
   onApply: (filter: WorkItemFilter) => void;
-  /** Why the current filter can't be saved (a CQL query the stored shape can't say); disables "Save". */
-  saveDisabledReason?: string;
 }) {
   const key = useOrgQueryKey("saved-views");
   const { data: views = [] } = useQuery({
@@ -67,6 +65,8 @@ export function SavedViewsPicker({
   const [saveOpen, setSaveOpen] = useState(false);
   const [name, setName] = useState("");
   const [shared, setShared] = useState(false);
+  // Sharing with everyone is an administrator's call (FILTER_SHARE_ORG).
+  const mayShare = usePermissions().can(Permission.FILTER_SHARE_ORG);
 
   const createView = useOrgMutation<SavedView, Error, { name: string; filter: WorkItemFilter; shared: boolean }>({
     mutationFn: (body) =>
@@ -116,7 +116,7 @@ export function SavedViewsPicker({
           <ChevronDown className="h-3.5 w-3.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-56">
-          <DropdownMenuItem onClick={() => setSaveOpen(true)} disabled={!!saveDisabledReason} title={saveDisabledReason}>
+          <DropdownMenuItem onClick={() => setSaveOpen(true)}>
             <Bookmark className="mr-2 h-3.5 w-3.5" /> Save current filter…
           </DropdownMenuItem>
           {(mine.length > 0 || sharedByOthers.length > 0) && <DropdownMenuSeparator />}
@@ -164,9 +164,9 @@ export function SavedViewsPicker({
             <label className="flex items-center justify-between gap-3 text-sm">
               <span className="flex items-center gap-2 text-[var(--text)]">
                 {shared ? <Users className="size-4" /> : <Lock className="size-4" />}
-                {shared ? "Shared with the whole team" : "Only visible to me"}
+                {shared ? "Shared with the whole team" : mayShare ? "Only visible to me" : "Only visible to me (sharing needs an administrator)"}
               </span>
-              <ToggleSwitch checked={shared} onCheckedChange={setShared} aria-label="Share with the team" />
+              <ToggleSwitch checked={shared} onCheckedChange={setShared} disabled={!mayShare} aria-label="Share with the team" />
             </label>
           </div>
           <DialogFooter>

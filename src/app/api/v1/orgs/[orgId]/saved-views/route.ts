@@ -54,14 +54,14 @@ const createSchema = z
  *
  * GET lists the filters the caller can see (their own, ones they co-edit, and
  * ones shared with a team, project or the org they belong to), with their
- * star. Orgs without CQL keep #1093's rule: a filter someone else shared that
+ * star; `?projectId=` narrows to the filters shared with that project. Orgs without CQL keep #1093's rule: a filter someone else shared that
  * names something the caller can't read isn't listed. With CQL it is listed,
  * and GET /saved-views/:id shows its text with those parts ‹restricted›.
  *
  * POST saves one. With CQL the query is validated and stored resolved (ids);
  * the legacy `filter` is written alongside while it can say the query.
  */
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
@@ -72,9 +72,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     requirePermission(ctx, Permission.ITEM_READ);
 
     const s = await viewerScope(ctx);
+    // `?projectId=`: the filters shared with that project (its "Filters" tab).
+    const projectId = request.nextUrl.searchParams.get("projectId");
     const rows = (
       await prisma.savedView.findMany({
-        where: visibleWhere(s),
+        where: projectId ? { AND: [visibleWhere(s), { visibility: "PROJECT", projectId }] } : visibleWhere(s),
         orderBy: [{ name: "asc" }],
         take: 500,
         select: SAVED_VIEW_SELECT,
