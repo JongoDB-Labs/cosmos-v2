@@ -139,7 +139,13 @@
               "conflict",
               "model_not_connected",
               "rate_limited",
-              "internal_error"
+              "internal_error",
+              "transition_not_allowed",
+              "transition_ambiguous",
+              "transition_forbidden",
+              "transition_invalid",
+              "transition_input_required",
+              "type_change_needs_status"
             ]
           },
           "requestId": {
