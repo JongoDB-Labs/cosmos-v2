@@ -20,6 +20,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/acme/projects/FSC/boards/b1",
+  // The board's query bar (boards/shared/use-board-query) reads the URL too.
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 // Dragging, Shift and undo/redo are all gated on ITEM_UPDATE.

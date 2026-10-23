@@ -1,5 +1,7 @@
 "use client";
 
+import { useBoardQuery } from "@/components/boards/shared/use-board-query";
+import { BoardQueryBar } from "@/components/boards/shared/board-query-bar";
 import { useMemo, useState, useCallback, useRef } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import {
@@ -197,9 +199,11 @@ export function RaidView({
   // board that does not filter at all.
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
   const projectStatuses = useProjectStatuses(orgId, projectId);
+  // With the query language on, the bar and the board's scope are one CQL query (boards/shared/use-board-query).
+  const boardQuery = useBoardQuery({ orgId, projectId, config: undefined, rows: items as unknown as Record<string, unknown>[] });
   const visibleItems = useMemo(
-    () => items.filter((it) => matchesFilters(it, filters)),
-    [items, filters],
+    () => items.filter((it) => (boardQuery.enabled ? boardQuery.keep(it) : matchesFilters(it, filters))),
+    [items, filters, boardQuery],
   );
 
   const loading = itemsQ.isLoading || membersQ.isLoading;
@@ -298,15 +302,19 @@ export function RaidView({
     return (
       <div className="flex h-full flex-col">
         <div className="border-b border-[var(--border)] px-4 py-2">
-          <FilterBar
-            filters={filters}
-            onFilterChange={setFilters}
-            members={membersQ.data ?? []}
-            intervals={[]}
-            teams={[]}
-            orgId={orgId}
-            boardColumns={projectStatuses}
-          />
+          {boardQuery.enabled ? (
+            <BoardQueryBar orgId={orgId} q={boardQuery} />
+          ) : (
+            <FilterBar
+              filters={filters}
+              onFilterChange={setFilters}
+              members={membersQ.data ?? []}
+              intervals={[]}
+              teams={[]}
+              orgId={orgId}
+              boardColumns={projectStatuses}
+            />
+          )}
         </div>
         <div className="flex flex-1 items-center justify-center">
         <EmptyState
@@ -322,15 +330,19 @@ export function RaidView({
   return (
     <div className="flex flex-col h-full">
       <div className="border-b border-[var(--border)] px-4 py-2">
-        <FilterBar
-          filters={filters}
-          onFilterChange={setFilters}
-          members={membersQ.data ?? []}
-          intervals={[]}
-          teams={[]}
-          orgId={orgId}
-          boardColumns={projectStatuses}
-        />
+        {boardQuery.enabled ? (
+          <BoardQueryBar orgId={orgId} q={boardQuery} />
+        ) : (
+          <FilterBar
+            filters={filters}
+            onFilterChange={setFilters}
+            members={membersQ.data ?? []}
+            intervals={[]}
+            teams={[]}
+            orgId={orgId}
+            boardColumns={projectStatuses}
+          />
+        )}
       </div>
       {/* Toolbar */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-[var(--border)]">

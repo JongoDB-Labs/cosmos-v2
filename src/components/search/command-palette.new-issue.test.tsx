@@ -40,8 +40,10 @@ for (const m of ["hasPointerCapture", "setPointerCapture", "releasePointerCaptur
 
 const { push } = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push }),
+  useRouter: () => ({ push, replace: vi.fn() }),
   usePathname: () => "/acme/projects/FSC/boards/b1",
+  // The Gantt's query bar (boards/shared/use-board-query) reads the URL too.
+  useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));

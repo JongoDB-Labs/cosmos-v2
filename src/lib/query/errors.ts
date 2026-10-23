@@ -153,5 +153,6 @@ const TOO_BROAD_ADVICE = {
 
 /** CQL_TOO_BROAD, with advice that actually narrows the part that was too broad. */
 export function tooBroad(what: keyof typeof TOO_BROAD_ADVICE): CqlError {
-  return new CqlError([diag("", "CQL_TOO_BROAD", TOO_BROAD_ADVICE[what])]);
+  // A valid query over budget: 422, like CQL_TIMEOUT.
+  return new CqlError([diag("", "CQL_TOO_BROAD", TOO_BROAD_ADVICE[what])], 422);
 }

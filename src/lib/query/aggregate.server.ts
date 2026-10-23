@@ -108,7 +108,7 @@ export async function aggregateCql(
       if (items.length > AGG_MAX_ITEMS) {
         throw new CqlError([
           diag("", "CQL_TOO_BROAD", `Charts count at most ${AGG_MAX_ITEMS.toLocaleString("en-US")} items. Narrow the query with a project or a date range.`),
-        ]);
+        ], 422);
       }
       if (page.length < CHUNK) break;
       cursor = page[page.length - 1].id;
@@ -129,7 +129,7 @@ export async function aggregateCql(
       );
     } catch (e) {
       if (e instanceof RangeError) {
-        throw new CqlError([diag("", "CQL_TOO_BROAD", "That's too many time buckets for one chart. Use a coarser bucket (week or month) or a shorter range.")]);
+        throw new CqlError([diag("", "CQL_TOO_BROAD", "That's too many time buckets for one chart. Use a coarser bucket (week or month) or a shorter range.")], 422);
       }
       throw e;
     }
