@@ -22,7 +22,18 @@ export interface FakeEvent {
 
 export function fakeGraph(origin = "https://graph.microsoft.com") {
   // Each mailbox is its bearer token: one person never sees another's calendars.
-  const calendars = new Map<string, { id: string; name: string; owner?: string }>();
+  interface FakeCalendar {
+    id: string;
+    name: string;
+    /** The mailbox (bearer token) it lives in. */
+    owner?: string;
+    /** Other mailboxes it's shared with (they see it, read-only unless canEdit). */
+    sharedWith?: string[];
+    canEdit?: boolean;
+    props?: { id: string; value: string }[];
+  }
+  const calendars = new Map<string, FakeCalendar>();
+  const addresses = new Map<string, string>();
   const events = new Map<string, FakeEvent>();
   const calls: { method: string; path: string; body?: Record<string, unknown> }[] = [];
   let seq = 0;
@@ -53,13 +64,20 @@ export function fakeGraph(origin = "https://graph.microsoft.com") {
     calls.push({ method, path: path + url.search, body });
     const owner = String((init?.headers as Record<string, string> | undefined)?.Authorization ?? "");
     const mine = (calendarId: string) => calendars.get(calendarId)?.owner === owner;
+    const visible = (c: FakeCalendar) => c.owner === owner || !!c.sharedWith?.includes(owner);
+    const calView = (c: FakeCalendar) => ({
+      id: c.id, name: c.name,
+      canEdit: c.owner === owner ? c.canEdit !== false : !!c.canEdit,
+      owner: { address: addresses.get(c.owner ?? "") ?? c.owner },
+      singleValueExtendedProperties: c.props ?? [],
+    });
     if (throttle && throttle.count > 0) {
       throttle.count--;
       return reply(429, { error: { code: "TooManyRequests" } }, { "Retry-After": throttle.retryAfter });
     }
     let m: RegExpMatchArray | null;
     if (method === "GET" && path === "/me/calendars") {
-      return reply(200, { value: [...calendars.values()].filter((c) => c.owner === owner).map(({ id, name }) => ({ id, name })) });
+      return reply(200, { value: [...calendars.values()].filter(visible).map(calView) });
     }
     if (method === "POST" && path === "/me/calendars") {
       // Like Graph: a second calendar with the same name is refused.
@@ -67,8 +85,12 @@ export function fakeGraph(origin = "https://graph.microsoft.com") {
         return reply(409, { error: { code: "ErrorFolderExists" } });
       }
       const id = `cal-${++n}`;
-      calendars.set(id, { id, name: String(body?.name), owner });
+      calendars.set(id, { id, name: String(body?.name), owner, props: body?.singleValueExtendedProperties as FakeCalendar["props"] });
       return reply(201, { id, name: body?.name });
+    }
+    if ((m = path.match(/^\/me\/calendars\/([^/]+)$/)) && method === "GET") {
+      const c = calendars.get(decodeURIComponent(m[1]));
+      return c && visible(c) ? reply(200, calView(c)) : reply(404, { error: { code: "ErrorItemNotFound" } });
     }
     if ((m = path.match(/^\/me\/calendars\/([^/]+)$/)) && method === "DELETE") {
       const id = decodeURIComponent(m[1]);
@@ -79,7 +101,7 @@ export function fakeGraph(origin = "https://graph.microsoft.com") {
     if ((m = path.match(/^\/me\/calendars\/([^/]+)\/events$/)) && method === "POST") {
       const calendarId = decodeURIComponent(m[1]);
       if (!mine(calendarId)) return reply(404, { error: { code: "ErrorItemNotFound" } });
-      const existing = [...events.values()].find((e) => !e.removed && body?.transactionId && e.transactionId === body.transactionId);
+      const existing = [...events.values()].find((e) => !e.removed && e.calendarId === calendarId && body?.transactionId && e.transactionId === body.transactionId);
       if (existing) return reply(201, view(existing)); // Graph dedupes on transactionId
       const e = { ...(body as object), id: `ev-${++n}`, calendarId } as FakeEvent;
       bump(e);
@@ -129,6 +151,23 @@ export function fakeGraph(origin = "https://graph.microsoft.com") {
     calendars,
     events,
     sleeps,
+    /** The address a mailbox's own calendars report as their owner. */
+    setAddress(token: string, address: string) {
+      addresses.set(token, address);
+    },
+    /** A calendar we didn't make: the person's own, or one shared with them. */
+    addCalendar(c: Omit<FakeCalendar, "id"> & { id?: string }) {
+      const id = c.id ?? `cal-${++n}`;
+      calendars.set(id, { ...c, id });
+      return id;
+    },
+    /** An event someone put in a calendar themselves. */
+    addEvent(calendarId: string, subject: string) {
+      const e = { id: `ev-${++n}`, calendarId, subject, start: { dateTime: "2026-11-01T09:00:00.0000000", timeZone: "UTC" }, end: { dateTime: "2026-11-01T10:00:00.0000000", timeZone: "UTC" } } as FakeEvent;
+      bump(e);
+      events.set(e.id, e);
+      return e.id;
+    },
     /** The window of every delta read, in order. */
     deltaWindows,
     sleep: async (ms: number) => void sleeps.push(ms),

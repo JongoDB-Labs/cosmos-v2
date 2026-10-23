@@ -140,19 +140,54 @@ async function viewerFor(orgId: string, userId: string): Promise<Viewer> {
 
 const creating = new Map<string, Promise<string>>();
 
-async function findCalendarByName(orgId: string, userId: string, deps: GraphDeps): Promise<string | null> {
-  const { data } = await graphRequest<{ value: { id: string; name: string }[] }>(
-    orgId, userId, "GET", "/me/calendars?$select=id,name&$top=250", undefined, deps,
-  );
-  return data.value?.find((c) => c.name === CALENDAR_NAME)?.id ?? null;
+/**
+ * The tag we put on the calendar we create, so we only ever adopt our own: a
+ * person's own "Cosmos" calendar, or one a colleague shares with them, is never
+ * written to or deleted.
+ */
+export const COSMOS_CALENDAR_PROP = "String {15a54a29-b645-4cc8-988e-1a2322894aac} Name CosmosCalendar";
+export const COSMOS_CALENDAR_TAG = "cosmos-calendar";
+
+interface GraphCalendar {
+  id: string;
+  name: string;
+  canEdit?: boolean;
+  owner?: { address?: string };
+  singleValueExtendedProperties?: { id: string; value: string }[];
+}
+
+const tagged = (c: GraphCalendar) =>
+  !!c.singleValueExtendedProperties?.some((p) => p.id.toLowerCase() === COSMOS_CALENDAR_PROP.toLowerCase() && p.value === COSMOS_CALENDAR_TAG);
+
+/** Ours: tagged by us, in this person's own mailbox, and writable. */
+const ours = (c: GraphCalendar, mailbox: string) =>
+  tagged(c) && c.canEdit !== false && (!c.owner?.address || c.owner.address.toLowerCase() === mailbox.toLowerCase());
+
+async function listCalendars(orgId: string, userId: string, deps: GraphDeps): Promise<GraphCalendar[]> {
+  const q = new URLSearchParams({
+    $select: "id,name,canEdit,owner",
+    $top: "250",
+    $expand: `singleValueExtendedProperties($filter=id eq '${COSMOS_CALENDAR_PROP}')`,
+  });
+  const { data } = await graphRequest<{ value: GraphCalendar[] }>(orgId, userId, "GET", `/me/calendars?${q}`, undefined, deps);
+  return data.value ?? [];
+}
+
+/** "Cosmos", or, if the person already has a calendar by that name, "Cosmos (synced)", etc. */
+function freeName(cals: GraphCalendar[]): string {
+  const taken = new Set(cals.map((c) => c.name.toLowerCase()));
+  for (let i = 1; ; i++) {
+    const name = i === 1 ? CALENDAR_NAME : i === 2 ? `${CALENDAR_NAME} (synced)` : `${CALENDAR_NAME} (synced ${i - 1})`;
+    if (!taken.has(name.toLowerCase())) return name;
+  }
 }
 
 /**
- * The person's "Cosmos" calendar: the one we recorded, else one already in
- * their mailbox by that name (a reconnect, another org on the same tenant, or
- * another instance racing us), else a new one. One creation per person at a
- * time here; across instances Graph's 409 for a duplicate name lands on the
- * lookup again.
+ * The person's Cosmos calendar: the one we recorded, else the one WE created
+ * earlier (tagged, theirs, writable: a reconnect, another org on the same
+ * tenant, or another instance racing us), else a new tagged one, named so it
+ * never collides with a calendar of theirs. One creation per person at a time
+ * here; across instances a 409 lands on the lookup again.
  */
 export async function ensureCosmosCalendar(orgId: string, userId: string, deps: GraphDeps = {}): Promise<string> {
   const conn = await calendarConnection(orgId, userId);
@@ -161,14 +196,22 @@ export async function ensureCosmosCalendar(orgId: string, userId: string, deps: 
   const k = `${orgId}:${userId}`;
   const running = creating.get(k);
   if (running) return running;
+  const mailbox = conn.meta.upn ?? "";
   const p = (async () => {
-    let id = await findCalendarByName(orgId, userId, deps);
+    let cals = await listCalendars(orgId, userId, deps);
+    let id = cals.find((c) => ours(c, mailbox))?.id ?? null;
     if (!id) {
       try {
-        id = (await graphRequest<{ id: string }>(orgId, userId, "POST", "/me/calendars", { name: CALENDAR_NAME }, deps)).data.id;
+        id = (
+          await graphRequest<{ id: string }>(orgId, userId, "POST", "/me/calendars", {
+            name: freeName(cals),
+            singleValueExtendedProperties: [{ id: COSMOS_CALENDAR_PROP, value: COSMOS_CALENDAR_TAG }],
+          }, deps)
+        ).data.id;
       } catch (e) {
         if (!(e instanceof GraphError && e.status === 409)) throw e;
-        id = await findCalendarByName(orgId, userId, deps);
+        cals = await listCalendars(orgId, userId, deps);
+        id = cals.find((c) => ours(c, mailbox))?.id ?? null;
         if (!id) throw e;
       }
     }
@@ -177,6 +220,12 @@ export async function ensureCosmosCalendar(orgId: string, userId: string, deps: 
   })().finally(() => creating.delete(k));
   creating.set(k, p);
   return p;
+}
+
+/** The recorded calendar is gone (deleted in Outlook): forget it, so the next ensure finds or makes one. */
+async function forgetCalendar(orgId: string, userId: string) {
+  const conn = await calendarConnection(orgId, userId);
+  if (conn) await patchCalendarMeta(conn.id, {}, ["calendarId", "deltaLink", "windowEnd"]);
 }
 
 // ── Push ────────────────────────────────────────────────────────────────────
@@ -224,7 +273,7 @@ async function pushFor(
 ): Promise<void> {
   const conn = await calendarConnection(orgId, userId);
   if (!conn) return;
-  const calendarId = await ensureCosmosCalendar(orgId, userId, deps);
+  let calendarId = await ensureCosmosCalendar(orgId, userId, deps);
   const restricted = cls.restricted(m.projectId, m.title, m.meetingUrl);
   const body = meetingEvent(m, restricted, await meetingLink(orgId, conn.meta, m.id));
   const hash = bodyHash(body);
@@ -241,12 +290,20 @@ async function pushFor(
   if (!ev) {
     // transactionId lets Graph drop a retried create. It is per meeting version,
     // so a copy someone deleted in Outlook comes back when the meeting next changes.
-    ev = (
-      await graphRequest<GraphEvent>(
-        orgId, userId, "POST", `/me/calendars/${encodeURIComponent(calendarId)}/events`,
+    const create = (cal: string) =>
+      graphRequest<GraphEvent>(
+        orgId, userId, "POST", `/me/calendars/${encodeURIComponent(cal)}/events`,
         { ...body, transactionId: `cosmos-${m.id}-${userId}-${m.updatedAt.getTime()}` }, deps,
-      )
-    ).data;
+      );
+    try {
+      ev = (await create(calendarId)).data;
+    } catch (e) {
+      if (!(e instanceof GraphError && e.status === 404)) throw e;
+      // Our calendar was deleted in Outlook: find or make it again, once.
+      await forgetCalendar(orgId, userId);
+      calendarId = await ensureCosmosCalendar(orgId, userId, deps);
+      ev = (await create(calendarId)).data;
+    }
   }
   await prisma.externalEventLink.upsert({
     where: linkKey(orgId, userId, m.id),
@@ -371,6 +428,14 @@ export async function pullChanges(orgId: string, userId: string, deps: SyncDeps 
         restarted = true;
         next = fresh;
         continue;
+      }
+      // Our calendar is gone: forget it; the reconcile pass below makes a new
+      // one and re-sends everything into it.
+      if (e instanceof GraphError && e.status === 404) {
+        await forgetCalendar(orgId, userId);
+        await prisma.externalEventLink.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId } });
+        await reconcileUser(orgId, userId, deps, cls, viewer);
+        return out;
       }
       throw e;
     }
@@ -593,11 +658,11 @@ export async function runCalendarPulls(
 }
 
 /**
- * Before a person disconnects: clear their copies out of Outlook. Usually that
- * means deleting the whole "Cosmos" calendar; but when the same Microsoft
- * account is also connected from another Cosmos org (two orgs on one tenant)
- * that calendar is shared, so only this org's events are deleted. Best effort;
- * disconnecting goes ahead whatever Microsoft says.
+ * Before a person disconnects: clear their copies out of Outlook. The whole
+ * calendar is deleted only when it is one we created (tagged, theirs) and no
+ * other Cosmos org on the same Microsoft account still uses it; otherwise only
+ * this org's events are deleted, so nothing of theirs is ever lost. Best
+ * effort; disconnecting goes ahead whatever Microsoft says.
  */
 export async function removeCosmosCalendar(orgId: string, userId: string, deps: GraphDeps = {}): Promise<boolean> {
   try {
@@ -610,7 +675,17 @@ export async function removeCosmosCalendar(orgId: string, userId: string, deps: 
         AND: [{ meta: { path: ["oid"], equals: conn.meta.oid } }, { meta: { path: ["calendarId"], equals: conn.meta.calendarId } }],
       },
     });
-    if (shared > 0) {
+    // Only a calendar we created (tagged, theirs) is ever deleted whole.
+    let mine = false;
+    try {
+      const q = new URLSearchParams({ $select: "id,name,canEdit,owner", $expand: `singleValueExtendedProperties($filter=id eq '${COSMOS_CALENDAR_PROP}')` });
+      const { data } = await graphRequest<GraphCalendar>(orgId, userId, "GET", `/me/calendars/${encodeURIComponent(conn.meta.calendarId)}?${q}`, undefined, deps);
+      mine = ours(data, conn.meta.upn ?? "");
+    } catch (e) {
+      if (!(e instanceof GraphError && e.status === 404)) throw e;
+      return true; // already gone
+    }
+    if (shared > 0 || !mine) {
       const links = await prisma.externalEventLink.findMany({
         where: { orgId, provider: MS_CALENDAR, userId, entityType: ENTITY },
         select: { entityId: true },

@@ -72,6 +72,7 @@ describe("Outlook meeting sync (e2e DB)", () => {
     });
     for (const u of [alice, bob]) await connect(org.id, u, `${u.id}-${stamp}`);
     const g = fakeGraph();
+    for (const u of [alice, bob]) g.setAddress(`Bearer at-${u.id}`, u.email);
     const deps = { fetch: g.fetch, sleep: g.sleep };
     const meeting = await prisma.syncMeeting.create({
       data: {
@@ -567,6 +568,87 @@ describe("Outlook meeting sync (e2e DB)", () => {
       inFlight--;
     });
     expect(max).toBe(4);
+  });
+
+
+  // ── Review fixes: only ever our own calendar ───────────────────────────────
+
+  it("leaves a person's own 'Cosmos' calendar alone through connect, sync and disconnect", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    const token = `Bearer at-${alice.id}`;
+    const personal = g.addCalendar({ name: "Cosmos", owner: token });
+    const dentist = g.addEvent(personal, "Dentist (personal)");
+    await syncMeeting(org.id, meeting.id, deps);
+    const mine = ((await credOf(org.id, alice.id)).meta as { calendarId: string }).calendarId;
+    expect(mine).not.toBe(personal);
+    expect(g.calendars.get(mine)!.name).toBe("Cosmos (synced)");
+    expect(g.eventsIn(personal).map((e) => e.subject)).toEqual(["Dentist (personal)"]);
+    expect(g.calls.filter((c) => c.method !== "GET" && c.path.includes(personal))).toEqual([]);
+    expect(await removeCosmosCalendar(org.id, alice.id, deps)).toBe(true);
+    expect(g.calendars.has(personal)).toBe(true);
+    expect(g.events.get(dentist)!.removed).toBeFalsy();
+    expect(g.calendars.has(mine)).toBe(false); // ours, tagged, is deleted
+  });
+
+  it("never adopts a calendar shared with them, or a read-only one, even one tagged by someone else's Cosmos", async () => {
+    const { org, alice, bob, g, deps, meeting } = await setup();
+    const aliceToken = `Bearer at-${alice.id}`;
+    const tag = [{ id: "String {15a54a29-b645-4cc8-988e-1a2322894aac} Name CosmosCalendar", value: "cosmos-calendar" }];
+    const bobs = g.addCalendar({ name: "Cosmos", owner: `Bearer at-${bob.id}`, sharedWith: [aliceToken], canEdit: true, props: tag });
+    const subscription = g.addCalendar({ name: "Cosmos (synced)", owner: aliceToken, canEdit: false, props: tag });
+    await ensureCosmosCalendar(org.id, alice.id, deps);
+    const mine = ((await credOf(org.id, alice.id)).meta as { calendarId: string }).calendarId;
+    expect([bobs, subscription]).not.toContain(mine);
+    expect(g.calendars.get(mine)!.name).toBe("Cosmos (synced 2)");
+    // Only alice attends, so nothing at all should land in bob's calendar.
+    await prisma.meetingAttendee.deleteMany({ where: { meetingId: meeting.id, userId: bob.id } });
+    await syncMeeting(org.id, meeting.id, deps);
+    expect(g.calls.filter((c) => c.method !== "GET" && (c.path.includes(bobs) || c.path.includes(subscription)))).toEqual([]);
+  });
+
+  it("disconnect deletes only our events when the recorded calendar isn't one we tagged", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const { id, meta } = await credOf(org.id, alice.id);
+    const cal = (meta as { calendarId: string }).calendarId;
+    g.calendars.get(cal)!.props = []; // say an older build adopted it
+    const keep = g.addEvent(cal, "Their own event");
+    void id;
+    expect(await removeCosmosCalendar(org.id, alice.id, deps)).toBe(true);
+    expect(g.calendars.has(cal)).toBe(true);
+    expect(g.events.get(keep)!.removed).toBeFalsy();
+    expect(g.eventsIn(cal).map((e) => e.subject)).toEqual(["Their own event"]);
+  });
+
+  it("recovers when our calendar was deleted in Outlook: a new one, and the meetings go back in", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const old = ((await credOf(org.id, alice.id)).meta as { calendarId: string }).calendarId;
+    g.calendars.delete(old); // they deleted it in Outlook
+    // A push to a new meeting: the 404 is caught, the calendar re-made.
+    const m2 = await prisma.syncMeeting.create({
+      data: { orgId: org.id, title: "Retro", meetingDate: START, createdById: alice.id, notes: "", attendees: { create: [{ userId: alice.id }] } },
+    });
+    await syncMeeting(org.id, m2.id, deps);
+    const fresh = ((await credOf(org.id, alice.id)).meta as { calendarId: string }).calendarId;
+    expect(fresh).not.toBe(old);
+    expect(g.eventsIn(fresh).map((e) => e.subject)).toContain("Retro");
+    // And a pull puts the rest back.
+    await pullChanges(org.id, alice.id, deps);
+    expect(g.eventsIn(fresh).map((e) => e.subject).sort()).toEqual(["Retro", "Sprint review"]);
+  });
+
+
+  it("a pull that finds our calendar gone makes a new one and puts the meetings back", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const old = ((await credOf(org.id, alice.id)).meta as { calendarId: string }).calendarId;
+    g.calendars.delete(old);
+    await pullChanges(org.id, alice.id, deps);
+    const fresh = ((await credOf(org.id, alice.id)).meta as { calendarId: string }).calendarId;
+    expect(fresh).not.toBe(old);
+    expect(g.eventsIn(fresh).map((e) => e.subject)).toEqual(["Sprint review"]);
+    expect((await linkOf(alice.id, meeting.id))!.externalCalendarId).toBe(fresh);
   });
 
 });
