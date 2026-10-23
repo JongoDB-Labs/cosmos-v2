@@ -40,6 +40,10 @@ export const FEEDBACK_ROW_SELECT = {
   projectId: true,
   createdAt: true,
   updatedAt: true,
+  commentCount: true,
+  lastActivityAt: true,
+  mergedIntoId: true,
+  lockedAt: true,
   // Read for `intake` (everyone) and passed through to staff only.
   triage: true,
   telemetry: true,
@@ -103,6 +107,11 @@ export interface FeedbackDto {
   projectId: string | null;
   createdAt: Date;
   updatedAt: Date;
+  /** Public, non-deleted comments. */
+  commentCount: number;
+  lastActivityAt: Date | null;
+  mergedIntoId: string | null;
+  lockedAt: Date | null;
   isMine: boolean;
   authorName: string | null;
   intake: IntakeView | null;
@@ -133,6 +142,10 @@ export function toFeedbackDto(
     projectId: row.projectId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    commentCount: row.commentCount,
+    lastActivityAt: row.lastActivityAt,
+    mergedIntoId: row.mergedIntoId,
+    lockedAt: row.lockedAt,
     // The author owns the item's title/description (and can delete it), so
     // the portal shows those controls only on the current user's own items.
     isMine,

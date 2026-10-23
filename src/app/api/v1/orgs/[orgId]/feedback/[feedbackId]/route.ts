@@ -8,11 +8,16 @@ import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { requirePermission } from "@/lib/rbac/check";
 import { FEEDBACK_ROW_SELECT, toFeedbackDto } from "@/lib/feedback/feedback-dto";
+import { FEEDBACK_SUBJECT } from "@/lib/feedback/subject";
 
 type RouteParams = { params: Promise<{ orgId: string; feedbackId: string }> };
 
 const updateSchema = z.object({
-  status: z.nativeEnum(FeedbackStatus).optional(),
+  // MERGED is set only by a merge, never by hand.
+  status: z
+    .nativeEnum(FeedbackStatus)
+    .refine((s) => s !== "MERGED", "MERGED is set by merging, not by changing the status")
+    .optional(),
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(5000).optional(),
 });
@@ -104,6 +109,18 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       await requireAccess(ctx, "ORG_UPDATE", {
         createdById: existing.authorId,
       });
+      // A merged item's status belongs to the merge. Changing it here would
+      // un-hide the item while it still points at its survivor (and its merge
+      // record still says merged), so it is refused until the merge is undone.
+      if (existing.mergedIntoId || existing.status === "MERGED") {
+        return new Response(
+          JSON.stringify({
+            error: "This request was merged into another one. Undo the merge to change its status.",
+            mergedIntoId: existing.mergedIntoId,
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
     }
     if (wantsContentEdit && !isAuthor) {
       if (!hasPermission(ctx.permissions, Permission.ORG_UPDATE)) {
@@ -175,7 +192,21 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
       });
     }
 
-    await prisma.feedbackItem.delete({ where: { id: feedbackId } });
+    // Comment has no FK to feedback_items (it is polymorphic), so the item's
+    // discussion and the backlinks it created go with it explicitly.
+    await prisma.$transaction(async (tx) => {
+      const comments = await tx.comment.findMany({
+        where: { orgId, subjectType: FEEDBACK_SUBJECT, subjectId: feedbackId },
+        select: { id: true },
+      });
+      if (comments.length > 0) {
+        await tx.reference.deleteMany({
+          where: { orgId, sourceType: "comment", sourceId: { in: comments.map((c) => c.id) } },
+        });
+        await tx.comment.deleteMany({ where: { orgId, subjectType: FEEDBACK_SUBJECT, subjectId: feedbackId } });
+      }
+      await tx.feedbackItem.delete({ where: { id: feedbackId } });
+    });
 
     return success({ id: feedbackId });
   } catch (e) {

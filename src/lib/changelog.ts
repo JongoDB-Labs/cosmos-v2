@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.449.0",
+    date: "2026-10-23",
+    title: "Feedback discussions",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Feedback threads now notify you when someone mentions you or replies to your comment.",
+      },
+    ],
+  },
+  {
     version: "2.448.0",
     date: "2026-10-23",
     title: "Query language editor (beta)",
