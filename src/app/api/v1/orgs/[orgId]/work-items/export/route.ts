@@ -19,6 +19,7 @@ import { logAudit } from "@/lib/audit";
 import { cqlEnabled } from "@/lib/query/flag";
 import { exportCql } from "@/lib/query/execute.server";
 import { cqlErrorResponse } from "@/lib/query/route.server";
+import { savedFilterQuery } from "@/lib/query/saved-filters.server";
 import type { ClassificationLevel } from "@prisma/client";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -42,6 +43,7 @@ const day = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
  *
  * `?cql=` (where the org has CQL on) exports what a CQL query matches, the same
  * rows the Issues view shows for it; it replaces the other filter parameters.
+ * `?filter=<savedFilterId>` exports a saved filter's stored query.
  *
  * Classification (GOV tenants only; a COMMERCIAL export carries no marking at
  * all, per `classificationApplies`). Each row gets a Classification column: its
@@ -82,18 +84,22 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     const sp = request.nextUrl.searchParams;
-    const cql = cqlEnabled(org.settings) ? sp.get("cql") : null;
+    const cqlOn = cqlEnabled(org.settings);
+    const cql = cqlOn ? sp.get("cql") : null;
+    const filterId = cqlOn ? sp.get("filter") : null;
     let data: Awaited<ReturnType<typeof runWorkItemQuery>>["data"];
-    if (cql !== null) {
-      const others = [...new Set(sp.keys())].filter((k) => k !== "cql" && k !== "tz");
+    if (cql !== null || filterId !== null) {
+      const others = [...new Set(sp.keys())].filter((k) => k !== "cql" && k !== "tz" && k !== "filter");
       if (others.length > 0) {
         return new Response(
           JSON.stringify({ error: "`cql` replaces the other filter parameters", unknown: others }),
           { status: 400, headers: { "content-type": "application/json" } },
         );
       }
+      const stored = cql === null ? await savedFilterQuery(ctx, filterId!) : null;
+      if (cql === null && !stored) return new Response("Not found", { status: 404 });
       try {
-        ({ data } = await exportCql(ctx, { cql }, { tz: sp.get("tz") ?? undefined }));
+        ({ data } = await exportCql(ctx, cql !== null ? { cql } : { query: stored }, { tz: sp.get("tz") ?? undefined }));
       } catch (e) {
         return cqlErrorResponse(e);
       }

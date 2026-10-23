@@ -13,6 +13,7 @@ import {
 import { cqlEnabled } from "@/lib/query/flag";
 import { executeCql } from "@/lib/query/execute.server";
 import { cqlErrorResponse } from "@/lib/query/route.server";
+import { savedFilterQuery } from "@/lib/query/saved-filters.server";
 import { scheduleParity } from "@/lib/query/parity.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -63,19 +64,27 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (allowedProjectIds.length === 0) return success(EMPTY_RESULT);
 
     const sp = request.nextUrl.searchParams;
-    const cql = cqlEnabled(org.settings) ? sp.get("cql") : null;
-    if (cql !== null) {
-      const others = [...new Set(sp.keys())].filter((k) => !["cql", "tz", "page", "pageSize"].includes(k));
+    const cqlOn = cqlEnabled(org.settings);
+    const cql = cqlOn ? sp.get("cql") : null;
+    // `?filter=<savedFilterId>` runs a saved filter's stored query; with `cql`
+    // too, the text wins (the filter id only says which one was loaded).
+    const filterId = cqlOn ? sp.get("filter") : null;
+    if (cql !== null || filterId !== null) {
+      const others = [...new Set(sp.keys())].filter((k) => !["cql", "tz", "page", "pageSize", "filter"].includes(k));
       if (others.length > 0) {
         return new Response(
           JSON.stringify({ error: "`cql` replaces the other filter parameters", unknown: others }),
           { status: 400, headers: { "content-type": "application/json" } },
         );
       }
+      const stored = cql === null ? await savedFilterQuery(ctx, filterId!) : null;
+      if (cql === null && !stored) {
+        return new Response(JSON.stringify({ error: "Saved filter not found" }), { status: 404, headers: { "content-type": "application/json" } });
+      }
       try {
         const page = Number.parseInt(sp.get("page") ?? "1", 10);
         const pageSize = Number.parseInt(sp.get("pageSize") ?? "", 10);
-        const r = await executeCql(ctx, { cql }, {
+        const r = await executeCql(ctx, cql !== null ? { cql } : { query: stored }, {
           page: Number.isNaN(page) ? 1 : page,
           ...(Number.isNaN(pageSize) ? {} : { pageSize }),
           tz: sp.get("tz") ?? undefined,

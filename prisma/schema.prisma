@@ -426,6 +426,8 @@ model User {
   workItemAssignments WorkItemAssignee[]
   workItemWatches     WorkItemWatcher[]
   savedViews          SavedView[]
+  savedViewFavorites  SavedViewFavorite[]
+  savedViewEdits      SavedViewEditor[]
   retroNotes          RetroNote[]
   retroActionItems    RetroActionItem[]
   timeEntryPhasesSet  TimeEntryPhase[]
@@ -843,6 +845,7 @@ model Project {
 
   staffingAllocations StaffingAllocation[]
 
+  savedViews SavedView[]
   // @plugin-backrel:Project
 
   expenses Expense[]
@@ -875,6 +878,7 @@ model Team {
   members TeamMember[]
   boards  Board[]
   workItems WorkItem[]
+  savedViews SavedView[]
   // @plugin-backrel:Team
 
   @@unique([projectId, name])
@@ -1197,22 +1201,84 @@ model WorkItemLabel {
 // WorkItemFilter (lib/work-items/query/filter.ts). `shared` = visible to the
 // whole org (personal otherwise); only the owner (or an org admin) may edit or
 // delete. Names are unique per owner so "my Bugs" can't collide with itself.
+/// A saved filter (UI name). Evolved in place from the Issues "saved view"
+/// (query design §10): `query` (a resolved CqlQuery) is the source of truth;
+/// `filter` and `shared` are the legacy shape, kept and derived for one
+/// release so older clients keep working, then dropped.
 model SavedView {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId     String   @map("org_id") @db.Uuid
-  ownerId   String   @map("owner_id") @db.Uuid
-  name      String
-  filter    Json     @default("{}")
-  shared    Boolean  @default(false)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String           @map("org_id") @db.Uuid
+  ownerId     String           @map("owner_id") @db.Uuid
+  name        String
+  description String           @default("")
+  /// LEGACY WorkItemFilter. Written alongside `query` while it can say it.
+  filter      Json             @default("{}")
+  /// CqlQuery v1, refs resolved to ids. Null only on rows from before query
+  /// phase 3 until the backfill runs; readers derive it from `filter`.
+  query       Json?
+  /// The text as last typed, for display before the query is re-printed.
+  cqlText     String?          @map("cql_text")
+  /// Columns, grouping and sort preferences for the view.
+  display     Json             @default("{}")
+  visibility  FilterVisibility @default(PRIVATE)
+  /// Required when visibility = PROJECT.
+  projectId   String?          @map("project_id") @db.Uuid
+  /// Required when visibility = TEAM. A deleted team leaves the filter visible
+  /// to its owner only (fail closed), never to everyone.
+  teamId      String?          @map("team_id") @db.Uuid
+  /// LEGACY: true exactly when visibility = ORG.
+  shared      Boolean          @default(false)
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
 
-  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  owner User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  org       Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner     User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  project   Project?            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  team      Team?               @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  favorites SavedViewFavorite[]
+  editors   SavedViewEditor[]
 
   @@unique([ownerId, name])
-  @@index([orgId])
+  @@index([orgId, visibility])
+  @@index([projectId])
   @@map("saved_views")
+}
+
+/// Who can see a saved filter besides its owner (and its editors).
+enum FilterVisibility {
+  PRIVATE
+  TEAM
+  PROJECT
+  ORG
+}
+
+/// A user's star on a saved filter, and its place in their sidebar.
+model SavedViewFavorite {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  savedViewId String   @map("saved_view_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  savedView SavedView @relation(fields: [savedViewId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([savedViewId, userId])
+  @@index([userId])
+  @@map("saved_view_favorites")
+}
+
+/// Explicit co-editors of a saved filter (Jira's "edit permissions").
+model SavedViewEditor {
+  savedViewId String @map("saved_view_id") @db.Uuid
+  userId      String @map("user_id") @db.Uuid
+
+  savedView SavedView @relation(fields: [savedViewId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([savedViewId, userId])
+  @@index([userId])
+  @@map("saved_view_editors")
 }
 
 model Activity {
