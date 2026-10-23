@@ -36,7 +36,40 @@ const PATCH_KEY: Partial<Record<Extract<FieldRef, { system: string }>["system"],
   description: "description",
   workCategory: "workCategory",
   resolution: "resolution",
+  cancelReason: "cancelReason",
+  cancelNote: "cancelNote",
 };
+
+/** `fieldKey` for an input field, as the transition dialog and its request name it. */
+export function fieldKey(field: FieldRef): string {
+  return "custom" in field ? `custom:${field.custom}` : `system:${field.system}`;
+}
+
+/** `patch` with `field` set to `value`: one rule for actions and transition input. */
+export function setPatchField(patch: WorkItemPatch, field: FieldRef, value: unknown): WorkItemPatch {
+  if ("custom" in field) return { ...patch, customFields: { ...(patch.customFields ?? {}), [field.custom]: value } };
+  if (field.system === "labels") return { ...patch, tags: Array.isArray(value) ? value.map(String) : [] };
+  const key = PATCH_KEY[field.system];
+  return key ? { ...patch, [key]: value } : patch;
+}
+
+/**
+ * Fold a transition's input values (`{ "system:resolution": "Fixed" }`) into
+ * the patch. Only fields the transition asks for are taken: a request cannot
+ * smuggle an unrelated write in as "input".
+ */
+export function applyInput(
+  patch: WorkItemPatch,
+  asked: readonly { field: FieldRef }[],
+  input: Readonly<Record<string, unknown>>,
+): WorkItemPatch {
+  let out = patch;
+  for (const { field } of asked) {
+    const key = fieldKey(field);
+    if (Object.prototype.hasOwnProperty.call(input, key)) out = setPatchField(out, field, input[key]);
+  }
+  return out;
+}
 
 function resolveValue(v: ValueExpr, actorId: string, now: Date): unknown {
   if ("now" in v) return now.toISOString();
@@ -53,20 +86,13 @@ export function applyActions(
   actions: readonly PostActionSpec[],
   args: { patch: WorkItemPatch; item: ActionItem; actorId: string; now: Date },
 ): ActionResult {
-  const patch: WorkItemPatch = { ...args.patch };
+  let patch: WorkItemPatch = { ...args.patch };
   const comments: string[] = [];
   const watchers: string[] = [];
   let tags = patch.tags ?? [...args.item.tags];
   const setField = (field: FieldRef, value: unknown) => {
-    if ("custom" in field) {
-      patch.customFields = { ...(patch.customFields ?? {}), [field.custom]: value };
-    } else if (field.system === "labels") {
-      tags = Array.isArray(value) ? value.map(String) : [];
-      patch.tags = tags;
-    } else {
-      const key = PATCH_KEY[field.system];
-      if (key) (patch as Record<string, unknown>)[key] = value;
-    }
+    patch = setPatchField(patch, field, value);
+    if (patch.tags) tags = patch.tags;
   };
 
   for (const action of actions) {

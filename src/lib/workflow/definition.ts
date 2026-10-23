@@ -35,6 +35,9 @@ const SYSTEM_FIELDS = [
   "resolution",
   "workCategory",
   "labels",
+  // The cancel reason and note: inputs of a transition into Cancelled.
+  "cancelReason",
+  "cancelNote",
 ] as const;
 export type SystemField = (typeof SYSTEM_FIELDS)[number];
 

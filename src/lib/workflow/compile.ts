@@ -50,8 +50,8 @@ export function compiledVersion(versionId: string, definition: WorkflowDefinitio
 
 export type TransitionResolution =
   | { ok: true; transition: TransitionSpec }
-  | { ok: false; code: "TRANSITION_NOT_ALLOWED"; message: string }
-  | { ok: false; code: "TRANSITION_AMBIGUOUS"; message: string; candidates: { id: string; name: string }[] };
+  | { ok: false; code: "transition_not_allowed"; message: string }
+  | { ok: false; code: "transition_ambiguous"; message: string; candidates: { id: string; name: string }[] };
 
 /**
  * Which transition a move from `from` to `to` takes.
@@ -67,24 +67,24 @@ export function resolveTransition(
 ): TransitionResolution {
   const { from, to, transitionId } = args;
   if (!wf.statusKeys.has(to)) {
-    return { ok: false, code: "TRANSITION_NOT_ALLOWED", message: `"${to}" is not a status in this workflow.` };
+    return { ok: false, code: "transition_not_allowed", message: `"${to}" is not a status in this workflow.` };
   }
   const candidates = wf.from(from).filter((t) => t.to === to);
   if (transitionId) {
     const t = candidates.find((c) => c.id === transitionId);
     return t
       ? { ok: true, transition: t }
-      : { ok: false, code: "TRANSITION_NOT_ALLOWED", message: `That transition does not lead from "${from}" to "${to}".` };
+      : { ok: false, code: "transition_not_allowed", message: `That transition does not lead from "${from}" to "${to}".` };
   }
   if (candidates.length === 0) {
-    return { ok: false, code: "TRANSITION_NOT_ALLOWED", message: `This workflow has no way from "${from}" to "${to}".` };
+    return { ok: false, code: "transition_not_allowed", message: `This workflow has no way from "${from}" to "${to}".` };
   }
   const named = candidates.filter((t) => t.from !== "*");
   const pool = named.length > 0 ? named : candidates;
   if (pool.length === 1) return { ok: true, transition: pool[0] };
   return {
     ok: false,
-    code: "TRANSITION_AMBIGUOUS",
+    code: "transition_ambiguous",
     message: `Several transitions lead from "${from}" to "${to}"; pick one.`,
     candidates: pool.map((t) => ({ id: t.id, name: t.name })),
   };

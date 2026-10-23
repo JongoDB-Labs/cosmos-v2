@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyActions } from "../actions";
+import { applyActions, applyInput } from "../actions";
 
 const NOW = new Date("2026-06-01T12:00:00.000Z");
 const base = { item: { createdById: "bob", assigneeId: "carol", tags: ["Security"] }, actorId: "alice", now: NOW };
@@ -53,5 +53,25 @@ describe("applyActions", () => {
     );
     expect(r.watchers).toEqual(["11111111-1111-1111-1111-111111111111", "alice"]);
     expect(r.comments).toEqual(["Resolved by workflow"]);
+  });
+});
+
+describe("applyInput", () => {
+  it("takes only the fields the transition asks for", () => {
+    const patch = applyInput(
+      { columnKey: "done" },
+      [{ field: { system: "resolution" } }, { field: { custom: "root_cause" } }],
+      { "system:resolution": "Fixed", "custom:root_cause": "race", "system:assigneeId": "smuggled" },
+    );
+    expect(patch).toEqual({ columnKey: "done", resolution: "Fixed", customFields: { root_cause: "race" } });
+  });
+
+  it("maps the cancel reason and note onto the patch", () => {
+    expect(
+      applyInput({}, [{ field: { system: "cancelReason" } }, { field: { system: "cancelNote" } }], {
+        "system:cancelReason": "OTHER",
+        "system:cancelNote": "superseded",
+      }),
+    ).toEqual({ cancelReason: "OTHER", cancelNote: "superseded" });
   });
 });
