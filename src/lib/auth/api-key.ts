@@ -4,6 +4,7 @@ import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { API_KEY_SCOPES, type ApiKeyScope } from "./api-key-scopes";
+import { classifyBearer, parseApiKeyBearer } from "./bearer";
 
 // Re-exported so existing server importers of `@/lib/auth/api-key` keep working.
 // Client components MUST import these from `./api-key-scopes` directly — this
@@ -82,18 +83,12 @@ export async function mintApiKey(input: {
   return { token, record };
 }
 
-function parseToken(h: string | null): { prefix: string; secret: string } | null {
-  if (!h) return null;
-  // Hex prefix, then the secret as the entire remainder (base64url — may contain
-  // `_`/`-`). `[0-9a-f]+` stops at the `_` delimiter, so the split is exact.
-  const m = /^Bearer\s+cosmos_([0-9a-f]+)_(.+)$/.exec(h.trim());
-  return m ? { prefix: m[1], secret: m[2] } : null;
-}
-
 /** Cheap check (no DB) for whether a request even carries a cosmos bearer token,
- *  used to decide between the API-key and session auth paths. */
+ *  used to decide between the bearer and session auth paths. Any `cosmos_`
+ *  bearer counts, valid or not, so a malformed one is refused rather than
+ *  quietly retried as the cookie riding on the same request. */
 export function hasBearer(req: Request): boolean {
-  return /^Bearer\s+cosmos_/.test(req.headers.get("authorization") ?? "");
+  return classifyBearer(req.headers.get("authorization")) !== null;
 }
 
 /**
@@ -122,7 +117,7 @@ export async function verifyApiKeyHeader(
   authorization: string | null,
   orgId: string,
 ): Promise<AuthContext | null> {
-  const parsed = parseToken(authorization);
+  const parsed = parseApiKeyBearer(authorization);
   if (!parsed) return null;
   const key = await prisma.apiKey.findUnique({
     where: { orgId_prefix: { orgId, prefix: parsed.prefix } },
