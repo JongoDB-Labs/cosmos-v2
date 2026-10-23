@@ -7,6 +7,7 @@ vi.mock("@/lib/telemetry/server", () => ({ serverReportError: vi.fn() }));
 import { handleApiError } from "@/lib/api-helpers";
 import { ConflictError, ForbiddenError, NotFoundError } from "@/lib/rbac/check";
 import { NoModelCredentialError } from "@/lib/ai/egress/types";
+import { TransitionError } from "@/lib/workflow/contract";
 import { problem, PROBLEM_CONTENT_TYPE } from "../problem";
 import { REQUEST_ID_HEADER, requestIdFor } from "../request-id";
 
@@ -70,6 +71,31 @@ describe("handleApiError keeps every legacy body", () => {
     expect(body.status).toBe(status);
     // A 500 never echoes the thrown message.
     expect(JSON.stringify(body)).not.toContain("hunter2");
+  });
+
+  it("a workflow refusal is a problem with its code and what to ask for beside it", async () => {
+    const res = handleApiError(
+      new TransitionError({
+        error: "Resolve needs a resolution.",
+        code: "transition_input_required",
+        transition: { id: "t1", name: "Resolve", to: "done" },
+        fields: [{ field: "resolution", required: true }],
+      }),
+      withId("req-9"),
+    );
+    expect(res.status).toBe(422);
+    expect(res.headers.get("content-type")).toBe(PROBLEM_CONTENT_TYPE);
+    expect(await res.json()).toEqual({
+      type: "/developers/guides/errors#transition_input_required",
+      title: "Transition needs input",
+      status: 422,
+      detail: "Resolve needs a resolution.",
+      code: "transition_input_required",
+      requestId: "req-9",
+      error: "Resolve needs a resolution.",
+      transition: { id: "t1", name: "Resolve", to: "done" },
+      fields: [{ field: "resolution", required: true }],
+    });
   });
 
   it("Zod → 400 with the issues still at body.issues", async () => {
