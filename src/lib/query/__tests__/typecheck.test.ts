@@ -77,9 +77,6 @@ describe("typecheck — the field × operator matrix (generated from the registr
       expect(c).toEqual(["CQL_NOT_YET_SUPPORTED"]);
     } else if (!f.ops.includes(fam)) {
       expect(c).toEqual([fam === "history" ? "CQL_HISTORY_UNSUPPORTED" : "CQL_OPERATOR_NOT_SUPPORTED"]);
-    } else if (fam === "history") {
-      // Allowed by the field, compiled by query phase 4.
-      expect(c).toEqual(["CQL_NOT_YET_SUPPORTED"]);
     } else if (fam === "order" && f.value.kind === "ref" && f.id !== "key") {
       expect(c).toEqual(["CQL_OPERATOR_NOT_SUPPORTED"]);
     } else {
@@ -249,5 +246,48 @@ describe("variables are people, teams, projects and sprints", () => {
     expect(errs("key IN updatedBy(me)")).toEqual([]);
     expect(errs('key IN updatedBy("Dana")')).toEqual([]);
     expect(errs("key IN updatedBy(now())")).toHaveLength(1);
+  });
+});
+
+describe("typecheck — history (WAS / CHANGED)", () => {
+  it("accepts the Jira forms on the fields Activity records", () => {
+    for (const q of [
+      'status WAS "In Progress"',
+      "status WAS IN (todo, done) AFTER -30d",
+      "status WAS NOT done BEFORE 2026-10-01",
+      "priority WAS HIGH ON 2026-10-10",
+      "assignee WAS me BY me",
+      "assignee WAS EMPTY",
+      "sprint WAS IN openSprints()",
+      'status CHANGED FROM "In Progress" TO todo AFTER -14d',
+      "priority CHANGED BY membersOf(Platform) DURING (startOfWeek(-1w), endOfWeek(-1w))",
+      "due CHANGED",
+      "due WAS 2026-10-20",
+      "completed CHANGED AFTER startOfMonth()",
+    ]) {
+      expect(codes(q).filter((c) => c !== "CQL_NEQ_EXCLUDES_EMPTY"), q).toEqual([]);
+    }
+  });
+
+  it("types each part: values as the field, BY as people, the rest as dates", () => {
+    // The same finding `priority = URGENT` gets.
+    expect(codes("priority WAS URGENT")).toEqual(codes("priority = URGENT"));
+    expect(codes("priority CHANGED TO URGENT")).toEqual(codes("priority = URGENT"));
+    expect(codes("priority = URGENT")).toHaveLength(1);
+    expect(codes("status CHANGED BY 2026-10-01")).toEqual(["CQL_TYPE_MISMATCH"]);
+    expect(codes("status CHANGED AFTER me")).toEqual(["CQL_TYPE_MISMATCH"]);
+    expect(codes("status WAS EMPTY")).toEqual(["CQL_TYPE_MISMATCH"]);
+  });
+
+  it("FROM / TO only with CHANGED, ON alone", () => {
+    expect(codes("status WAS done FROM todo")).toEqual(["CQL_TYPE_MISMATCH"]);
+    expect(codes("status CHANGED ON 2026-10-01 AFTER 2026-09-01")).toEqual(["CQL_TYPE_MISMATCH"]);
+  });
+
+  it("fields history doesn't record say which ones it does", () => {
+    const d = check("cancelReason CHANGED").diagnostics[0];
+    expect(d.code).toBe("CQL_HISTORY_UNSUPPORTED");
+    expect(d.message).toContain("status");
+    expect(d.message).not.toContain("cancelReason");
   });
 });

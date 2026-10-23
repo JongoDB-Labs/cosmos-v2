@@ -40,6 +40,9 @@ export interface Completion {
 const COMPARE = new Set<TokenType>([Eq, Neq, Lt, Lte, Gt, Gte, Tilde, NotTilde]);
 const VALUE_TOKENS = new Set<TokenType>([StringLit, NumberLit, RelLit, DateLit, Variable, Empty, Null, Identifier]);
 const PREDS = new Set<TokenType>([From, To, By, After, Before, On]);
+/** BY takes people and AFTER / BEFORE / ON / DURING take dates, whatever the field. */
+const predAs = (t: TokenType): { as?: string } =>
+  t === By ? { as: "assignee" } : t === After || t === Before || t === On || t === During ? { as: "updated" } : {};
 
 type State =
   | { s: "field" }
@@ -47,9 +50,10 @@ type State =
   | { s: "afterNot"; field: string }
   | { s: "afterIn"; field: string }
   | { s: "afterIs"; field: string }
-  | { s: "value"; field: string }
-  | { s: "list"; field: string }
-  | { s: "listNext"; field: string }
+  // `as`: the field a history predicate's values are typed as (BY → people, AFTER → dates).
+  | { s: "value"; field: string; as?: string }
+  | { s: "list"; field: string; as?: string }
+  | { s: "listNext"; field: string; as?: string }
   | { s: "after"; field: string }
   | { s: "orderBy" }
   | { s: "sortField" }
@@ -130,8 +134,7 @@ export function completionAt(text: string, cursor: number): Completion {
         if (tt === And || tt === Or || tt === LParen || tt === Not || tt === Bang) st = { s: "field" };
         else if (tt === RParen) st = { s: "after", field: "" };
         else if (tt === Order) st = { s: "orderBy" };
-        else if (st.s === "after" && PREDS.has(tt)) st = { s: "value", field: st.field };
-        else if (st.s === "after" && tt === During) st = { s: "value", field: st.field };
+        else if (st.s === "after" && (PREDS.has(tt) || tt === During)) st = { s: "value", field: st.field, ...predAs(tt) };
         else if (tt === Identifier && t.image.toLowerCase() === "cf" && next?.tokenType === LBracket) {
           const close = toks.findIndex((x, j) => j > i && x.tokenType === RBracket);
           if (close < 0) return { slot: { kind: "field" }, from, prefix };
@@ -163,15 +166,15 @@ export function completionAt(text: string, cursor: number): Completion {
       case "value":
         if (tt === In) st = { s: "afterIn", field: st.field }; // WAS IN (…)
         else if (tt === Not) break; // WAS NOT …
-        else if (tt === LParen) st = { s: "list", field: st.field }; // DURING (
+        else if (tt === LParen) st = { s: "list", field: st.field, ...(st.as ? { as: st.as } : {}) }; // DURING ( / FROM (…)
         else if (VALUE_TOKENS.has(tt)) st = { s: "after", field: st.field };
         break;
       case "list":
-        if (VALUE_TOKENS.has(tt)) st = { s: "listNext", field: st.field };
+        if (VALUE_TOKENS.has(tt)) st = { s: "listNext", field: st.field, ...(st.as ? { as: st.as } : {}) };
         else if (tt === RParen) st = { s: "after", field: st.field };
         break;
       case "listNext":
-        if (tt === Comma) st = { s: "list", field: st.field };
+        if (tt === Comma) st = { s: "list", field: st.field, ...(st.as ? { as: st.as } : {}) };
         else if (tt === RParen) st = { s: "after", field: st.field };
         break;
       case "orderBy":
@@ -206,10 +209,11 @@ export function completionAt(text: string, cursor: number): Completion {
       case "afterIs":
         return { kind: "value", field: st.field, inList: false, afterIs: true } as const;
       case "afterIn":
-      case "list":
         return { kind: "value", field: st.field, inList: true } as const;
+      case "list":
+        return { kind: "value", field: st.as ?? st.field, inList: true } as const;
       case "value":
-        return { kind: "value", field: st.field, inList: false } as const;
+        return { kind: "value", field: st.as ?? st.field, inList: false } as const;
       case "listNext":
         return { kind: "keyword" } as const;
       case "after":

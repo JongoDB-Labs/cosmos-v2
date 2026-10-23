@@ -23,7 +23,7 @@ import { isOrgAdministrator } from "@/lib/rbac/project-access";
 import { canManageProject } from "@/lib/rbac/scope";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
-import { CQL_VERSION, type CqlNode, type CqlQuery, type CqlValue } from "./ast";
+import { CQL_VERSION, leafValues, type CqlNode, type CqlQuery, type CqlValue } from "./ast";
 import { fromWorkItemFilter, toWorkItemFilter } from "./adapters";
 import { CqlError } from "./errors";
 import { prepareCql } from "./execute.server";
@@ -166,16 +166,12 @@ const SCOPED = new Set(["project", "interval", "team", "item", "milestone"]);
 
 function refsOf(q: CqlQuery): Extract<CqlValue, { t: "ref" }>[] {
   const out: Extract<CqlValue, { t: "ref" }>[] = [];
-  const value = (v: CqlValue) => {
-    if (v.t === "ref") out.push(v);
-    else if (v.t === "fn") v.args.forEach(value);
-  };
   const node = (n: CqlNode | null) => {
     if (!n) return;
     if (n.op === "and" || n.op === "or") n.args.forEach(node);
     else if (n.op === "not") node(n.arg);
-    else if (n.op === "cmp") value(n.value);
-    else if (n.op === "in" || n.op === "was") n.values.forEach(value);
+    // Every value, function arguments and history's FROM / TO / BY included.
+    else for (const v of leafValues(n)) if (v.t === "ref") out.push(v);
   };
   node(q.where);
   return out;

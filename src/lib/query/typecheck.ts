@@ -18,6 +18,8 @@ import {
   type CqlQuery,
   type CqlSort,
   type CqlValue,
+  type HistoryPreds,
+  type PredValue,
   type FieldRef,
   type LeafNode,
 } from "./ast";
@@ -367,8 +369,7 @@ export function typecheck(input: CqlQuery, schema: CqlSchema, text = "", spans?:
         err("CQL_HISTORY_UNSUPPORTED", `History (WAS / CHANGED) is kept only for ${HISTORY_FIELDS.join(", ")}.`, n);
         return null;
       }
-      err("CQL_NOT_YET_SUPPORTED", "WAS and CHANGED arrive with query phase 4.", n);
-      return null;
+      return checkHistory(n as Extract<LeafNode, { op: "was" | "changed" }>, f.ref, kind, name, ops.includes("empty"));
     }
     if (!ops.includes(fam)) {
       err("CQL_OPERATOR_NOT_SUPPORTED", `${OP_TEXT[fam]} doesn't work on \`${name}\`; ${opAdvice(ops)}.`, n);
@@ -421,6 +422,57 @@ export function typecheck(input: CqlQuery, schema: CqlSchema, text = "", spans?:
       default:
         return null;
     }
+  }
+
+  /**
+   * `f WAS [NOT] [IN] v …` / `f CHANGED …`. Values (and FROM / TO) are typed as
+   * the field's own; BY takes people; AFTER / BEFORE / ON / DURING take dates.
+   */
+  function checkHistory(
+    n: Extract<LeafNode, { op: "was" | "changed" }>,
+    field: FieldRef,
+    kind: ValueKind,
+    name: string,
+    allowEmpty: boolean,
+  ): CqlNode | null {
+    const p = n.preds ?? {};
+    if (n.op === "was" && (p.from || p.to)) {
+      err("CQL_TYPE_MISMATCH", "`FROM` and `TO` go with `CHANGED`: `" + name + " CHANGED FROM x TO y`.", n);
+      return null;
+    }
+    if (p.on && (p.after || p.before || p.during)) {
+      err("CQL_TYPE_MISMATCH", "`ON` names one day; use it without `AFTER`, `BEFORE` or `DURING`.", n);
+      return null;
+    }
+    let ok = true;
+    const one = (v: CqlValue | undefined, k: ValueKind, ctx: { inList: boolean; allowEmpty: boolean; field: string }) => {
+      if (!v) return undefined;
+      const r = checkValue(v, k, ctx);
+      if (!r) ok = false;
+      return r ?? undefined;
+    };
+    const list = (v: PredValue | undefined, k: ValueKind, ctx: { inList: boolean; allowEmpty: boolean; field: string }): PredValue | undefined =>
+      v === undefined ? undefined : Array.isArray(v) ? v.map((x) => one(x, k, ctx)!) : one(v, k, ctx);
+    const asField = { inList: true, allowEmpty, field: name };
+    const when = { inList: false, allowEmpty: false, field: name };
+    const person: ValueKind = { kind: "ref", entity: "user" };
+    const time: ValueKind = { kind: "datetime" };
+    const preds: HistoryPreds = {
+      ...(p.from ? { from: list(p.from, kind, asField) } : {}),
+      ...(p.to ? { to: list(p.to, kind, asField) } : {}),
+      ...(p.by ? { by: list(p.by, person, { inList: true, allowEmpty: false, field: "BY" }) } : {}),
+      ...(p.after ? { after: one(p.after, time, when) } : {}),
+      ...(p.before ? { before: one(p.before, time, when) } : {}),
+      ...(p.on ? { on: one(p.on, time, when) } : {}),
+      ...(p.during ? { during: [one(p.during[0], time, when)!, one(p.during[1], time, when)!] as [CqlValue, CqlValue] } : {}),
+    };
+    if (n.op === "changed") {
+      if (!ok) return null;
+      return { op: "changed", field, ...(Object.keys(preds).length ? { preds } : {}) };
+    }
+    const values = n.values.map((v) => one(v, kind, asField));
+    if (!ok) return null;
+    return { op: "was", field, ...(n.negate ? { negate: true } : {}), values: values as CqlValue[], ...(Object.keys(preds).length ? { preds } : {}) };
   }
 
   function warnNeq(n: LeafNode, name: string) {

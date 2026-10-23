@@ -18,17 +18,20 @@ import { prisma } from "@/lib/db/client";
 import { isUuid } from "@/lib/ids";
 import type { AuthContext } from "@/lib/rbac/check";
 import {
+  predValues,
   type CqlNode,
   type CqlQuery,
   type CqlValue,
   type FieldRef,
+  type HistoryPreds,
   type LeafNode,
+  type PredValue,
   type RefEntity,
 } from "./ast";
 import { fieldDef, type SystemFieldId } from "./fields";
 import { lookupFunction } from "./functions";
-import { fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
-import { CqlError, diag, type CqlDiagnostic, type Span } from "./errors";
+import { HISTORY_BY_FIELD, fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
+import { TOO_BROAD, diag, tooBroad, type CqlDiagnostic, type Span } from "./errors";
 import type { CustomFieldType, SchemaCustomField } from "./typecheck";
 
 /** A dashboard variable's value as a caller supplies it: ids/names, or nothing (= everyone). */
@@ -121,15 +124,29 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     if (v.t === "var") varUses.push({ name: v.name, field, entity });
     if (v.t === "fn") v.args.forEach((arg, i) => collect(arg, fnArgEntity(v.name, i), field));
   };
-  const leafValues = (l: LeafNode): CqlValue[] =>
-    l.op === "cmp" ? [l.value] : l.op === "in" || l.op === "was" ? l.values : [];
+  /** A leaf's values, each with the field it is typed by: history's BY is people, its dates are no entity. */
+  const leafParts = (l: LeafNode): { v: CqlValue; field: FieldRef | null }[] => {
+    if (l.op === "cmp") return [{ v: l.value, field: l.field }];
+    if (l.op === "in") return l.values.map((v) => ({ v, field: l.field }));
+    if (l.op !== "was" && l.op !== "changed") return [];
+    const p = l.preds ?? {};
+    return [
+      ...(l.op === "was" ? l.values : []).map((v) => ({ v, field: l.field })),
+      ...[...predValues(p.from), ...predValues(p.to)].map((v) => ({ v, field: l.field })),
+      ...predValues(p.by).map((v) => ({ v, field: HISTORY_BY_FIELD })),
+      ...[p.after, p.before, p.on, ...(p.during ?? [])].filter((v): v is CqlValue => !!v).map((v) => ({ v, field: null })),
+    ];
+  };
+  const leafValues = (l: LeafNode): CqlValue[] => leafParts(l).map((x) => x.v);
   const walk = (n: CqlNode | null, f: (l: LeafNode) => void) => {
     if (!n) return;
     if (n.op === "and" || n.op === "or") n.args.forEach((x) => walk(x, f));
     else if (n.op === "not") walk(n.arg, f);
     else f(n);
   };
-  walk(a.query.where, (l) => leafValues(l).forEach((v) => collect(v, entityOf(l.field, cfTypes), l.field)));
+  walk(a.query.where, (l) =>
+    leafParts(l).forEach(({ v, field }) => collect(v, field ? entityOf(field, cfTypes) : null, field ?? l.field)),
+  );
 
   // Variables carry raw ids/names too; they resolve for the field they sit in.
   const varValues = new Map<string, CqlValue[] | null>();
@@ -411,6 +428,29 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
         if (!list) return n;
         return { ...n, values: dedupe(list) };
       }
+      case "was":
+      case "changed": {
+        // FROM / TO / BY resolve like IN lists: a status name that is a
+        // different key in each project becomes the list of those keys.
+        const p = n.preds ?? {};
+        const pred = (v: PredValue | undefined, field: FieldRef): PredValue | null | undefined => {
+          if (v === undefined) return undefined;
+          const r = resolveList(predValues(v), field);
+          return r && (r.length === 1 ? r[0] : dedupe(r));
+        };
+        const from = pred(p.from, n.field);
+        const to = pred(p.to, n.field);
+        const by = pred(p.by, HISTORY_BY_FIELD);
+        const values = n.op === "was" ? resolveList(n.values, n.field) : [];
+        if (from === null || to === null || by === null || values === null) return n;
+        const preds: HistoryPreds = {
+          ...p,
+          ...(from !== undefined ? { from } : {}),
+          ...(to !== undefined ? { to } : {}),
+          ...(by !== undefined ? { by } : {}),
+        };
+        return n.op === "was" ? { ...n, values: dedupe(values), preds } : { ...n, preds };
+      }
       default:
         return n;
     }
@@ -566,17 +606,11 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     descendants,
     milestoneItems,
     milestoneLinked,
+    history: new Map(),
     ...(contextProject ? { contextProjectId: contextProject } : {}),
     ...(a.sinceLastStandup ? { sinceLastStandup: a.sinceLastStandup } : {}),
   };
   return { query: { ...a.query, where }, env, diagnostics };
-}
-
-/** Id sets past this many rows are refused rather than shipped as a giant IN list. */
-const TOO_BROAD = 50_001;
-
-function tooBroad(what: string): CqlError {
-  return new CqlError([diag("", "CQL_TOO_BROAD", `This ${what} clause matches too many items. Narrow it with a project or another condition.`)]);
 }
 
 /**

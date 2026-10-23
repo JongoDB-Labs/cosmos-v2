@@ -16,12 +16,30 @@
  *   - `assignee` matches the primary assignee or any co-assignee.
  *   - `statusCategory = DONE` is "done column OR has a completion date", the
  *     same OR that lib/work-items/done-state.ts uses.
+ *   - History (`WAS`, `CHANGED`) reads the Activity rows the writers record:
+ *     `f WAS v` is "is v now, or a recorded change left or entered v";
+ *     with AFTER / BEFORE / ON / DURING it is "held v at some instant in that
+ *     window", which needs value intervals and so an id prefilter
+ *     (history.server.ts, results in `env.history`). `BY u` means u made the
+ *     change to v. `CHANGED` is a relation filter on Activity.
  */
 import type { Prisma } from "@prisma/client";
-import { mentionsField, type CmpOp, type CqlNode, type CqlQuery, type CqlSort, type CqlValue, type FieldRef, type LeafNode } from "./ast";
+import {
+  mentionsField,
+  predValues,
+  type CmpOp,
+  type CqlNode,
+  type CqlQuery,
+  type CqlSort,
+  type CqlValue,
+  type FieldRef,
+  type HistoryPreds,
+  type LeafNode,
+} from "./ast";
 import { PRIORITY_ORDER, type SystemFieldId } from "./fields";
 import { applyRel, dayOf, durationSeconds, endOf, literalRange, periodOffset, startOf, workingDaysFrom, type Period } from "./dates";
-import { fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
+import { HISTORY_BY_FIELD, fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
+import { HISTORY, historyKey, isHistoryColumn, type HistorySpec, type HistoryValueSet } from "./history";
 import type { CustomFieldType } from "./typecheck";
 
 type Where = Prisma.WorkItemWhereInput;
@@ -527,6 +545,147 @@ function isoDay(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+// ── History ──────────────────────────────────────────────────────────────────
+
+type ActivityWhere = Prisma.ActivityWhereInput;
+type HistoryLeaf = Extract<LeafNode, { op: "was" | "changed" }>;
+
+/** How one history clause is answered: a Prisma filter, or an id prefilter. */
+type HistoryPlan = { k: "where"; where: Where } | { k: "ids"; spec: HistorySpec };
+
+/** The values a history clause names, as Activity stores them. */
+function historySet(values: CqlValue[], field: FieldRef, env: CompileEnv): HistoryValueSet {
+  const b = bind(values, field, env);
+  return {
+    values: [...ids(b), ...scalars(b).map(String)],
+    ranges: b
+      .filter((x): x is Extract<Bound, { k: "time" }> => x.k === "time")
+      // A date value means its whole day, as `=` does.
+      .map((t) => (t.day ? t : { ...t, ...dayOf(t.from, env.tz) }))
+      .map((t) => ({ from: t.from.toISOString(), to: t.to.toISOString() })),
+    empty: hasEmpty(b),
+  };
+}
+
+/** AFTER / BEFORE / ON / DURING as one [from, to) window; null ends are open. */
+function historyWindow(p: HistoryPreds, env: CompileEnv): { from: Date | null; to: Date | null } {
+  let from: Date | null = null;
+  let to: Date | null = null;
+  const narrow = (lo: Date | null, hi: Date | null) => {
+    if (lo && (!from || lo > from)) from = lo;
+    if (hi && (!to || hi < to)) to = hi;
+  };
+  const time = (v: CqlValue) => timeOf(v, env) as Extract<Bound, { k: "time" }>;
+  if (p.after) {
+    // After a day means after the whole day; after an instant, from it.
+    const t = time(p.after);
+    narrow(t.day ? t.to : t.from, null);
+  }
+  if (p.before) narrow(null, time(p.before).from);
+  if (p.on) {
+    const t = time(p.on);
+    const d = t.day ? t : dayOf(t.from, env.tz);
+    narrow(d.from, d.to);
+  }
+  if (p.during) {
+    const a = time(p.during[0]);
+    const b = time(p.during[1]);
+    narrow(a.from, b.day ? b.to : new Date(b.from.getTime() + 1));
+  }
+  return { from, to };
+}
+
+/** An Activity string column matching a value set. */
+function activityMatch(column: "oldValue" | "newValue", set: HistoryValueSet): ActivityWhere {
+  const parts: ActivityWhere[] = [
+    ...(set.values.length ? [{ [column]: { in: set.values } }] : []),
+    ...(set.empty ? [{ [column]: null }] : []),
+  ];
+  if (parts.length === 0) return { id: { in: [] } };
+  return parts.length === 1 ? parts[0] : { OR: parts };
+}
+
+function historyPlan(n: HistoryLeaf, env: CompileEnv): HistoryPlan {
+  const id = n.field.kind === "sys" ? n.field.id : "";
+  if (!isHistoryColumn(id)) throw new Error(`${id} has no history`);
+  const h = HISTORY[id];
+  const date = h.kind === "date";
+  const p = n.preds ?? {};
+  const win = historyWindow(p, env);
+  const timed = !!(win.from || win.to);
+  const iso = (d: Date | null) => (d ? d.toISOString() : null);
+  const by = p.by ? ids(bind(predValues(p.by), HISTORY_BY_FIELD, env)) : undefined;
+  const act = (w: ActivityWhere): Where => ({
+    activities: {
+      some: {
+        action: "updated",
+        field: h.activity,
+        ...w,
+        ...(by ? { userId: { in: by } } : {}),
+        ...(timed ? { createdAt: { ...(win.from ? { gte: win.from } : {}), ...(win.to ? { lt: win.to } : {}) } } : {}),
+      },
+    },
+  });
+
+  if (n.op === "changed") {
+    const from = p.from ? historySet(predValues(p.from), n.field, env) : undefined;
+    const to = p.to ? historySet(predValues(p.to), n.field, env) : undefined;
+    if (date && (from || to)) {
+      return {
+        k: "ids",
+        spec: { kind: "changed", field: id, ...(from ? { old: from } : {}), ...(to ? { new: to } : {}), ...(by ? { by } : {}), from: iso(win.from), to: iso(win.to) },
+      };
+    }
+    const values = [...(from ? [activityMatch("oldValue", from)] : []), ...(to ? [activityMatch("newValue", to)] : [])];
+    return { k: "where", where: act(values.length ? { AND: values } : {}) };
+  }
+
+  const set = historySet(n.values, n.field, env);
+  if (by) {
+    // `WAS v BY u`: u changed it to v (Jira).
+    if (date) return { k: "ids", spec: { kind: "changed", field: id, new: set, by, from: iso(win.from), to: iso(win.to) } };
+    return { k: "where", where: act(activityMatch("newValue", set)) };
+  }
+  if (timed || date) return { k: "ids", spec: { kind: "held", field: id, set, from: iso(win.from), to: iso(win.to) } };
+  // Untimed: holds v now, or a recorded change left or entered v.
+  const now = or(
+    ...(set.values.length ? [h.nullable ? nn(h.column, { in: set.values }) : ({ [h.column]: { in: set.values } } as Where)] : []),
+    ...(set.empty ? [{ [h.column]: null } as Where] : []),
+  );
+  return { k: "where", where: or(now, act({ OR: [activityMatch("oldValue", set), activityMatch("newValue", set)] })) };
+}
+
+function compileHistory(n: HistoryLeaf, env: CompileEnv): Where {
+  const plan = historyPlan(n, env);
+  let positive: Where;
+  if (plan.k === "where") positive = plan.where;
+  else {
+    const hit = env.history.get(historyKey(plan.spec));
+    if (!hit) throw new Error("history prefilter missing; run historySpecs() first");
+    positive = { id: { in: hit } };
+  }
+  return n.op === "was" && n.negate ? not(positive) : positive;
+}
+
+/** The id prefilters a query's history clauses need, for history.server.ts to run before compiling. */
+export function historySpecs(where: CqlNode | null | undefined, env: CompileEnv): HistorySpec[] {
+  const out = new Map<string, HistorySpec>();
+  const visit = (n: CqlNode) => {
+    if (n.op === "and" || n.op === "or") n.args.forEach(visit);
+    else if (n.op === "not") visit(n.arg);
+    else if (n.op === "was" || n.op === "changed") {
+      try {
+        const plan = historyPlan(n, env);
+        if (plan.k === "ids") out.set(historyKey(plan.spec), plan.spec);
+      } catch (e) {
+        if (!(e instanceof Inert)) throw e;
+      }
+    }
+  };
+  if (where) visit(where);
+  return [...out.values()];
+}
+
 function compilerFor(field: FieldRef, env: CompileEnv): FieldCompiler {
   if (field.kind === "sys") return sysCompiler(field.id, env);
   const type = env.customFields.get(field.key);
@@ -567,8 +726,9 @@ function compileLeaf(n: LeafNode, env: CompileEnv): Where {
         // Jira: `!=` / NOT IN never match the empty value, unless EMPTY is listed.
         return c.isEmpty && !wantsEmpty ? and(not(positive), not(c.isEmpty)) : not(positive);
       }
-      default:
-        throw new Error(`${n.op} is not compiled in this phase`);
+      case "was":
+      case "changed":
+        return compileHistory(n, env);
     }
   } catch (e) {
     if (e instanceof Inert) return TRUE;

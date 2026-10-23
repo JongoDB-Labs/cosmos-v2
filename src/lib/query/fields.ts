@@ -164,7 +164,7 @@ export const FIELDS: readonly FieldDef[] = [
   { id: "archived", label: "Archived", aliases: [], value: { kind: "bool" }, ops: ["eq"], description: "Archived items are left out unless the query mentions `archived`." },
   { id: "archivedAt", label: "Archived at", aliases: [], value: { kind: "datetime" }, ops: DATE_OPS, sortable: true, description: "When it was archived." },
   { id: "workCategory", label: "Work category", aliases: [], value: { kind: "enum", values: WORK_CATEGORIES }, ops: ["eq", "in"], groupable: true, description: "BUSINESS or ENABLER." },
-  { id: "cancelReason", label: "Cancel reason", aliases: [], value: { kind: "enum", values: CANCEL_REASONS }, ops: ["eq", "in", "empty", "history"], description: "OBE, OTHER or MERGED." },
+  { id: "cancelReason", label: "Cancel reason", aliases: [], value: { kind: "enum", values: CANCEL_REASONS }, ops: ["eq", "in", "empty"], description: "OBE, OTHER or MERGED." },
   { id: "resolution", label: "Resolution", aliases: [], value: { kind: "string" }, ops: ["eq", "text", "empty"], description: "Resolution imported from Jira." },
   { id: "highlight", label: "Highlight", aliases: [], value: { kind: "enum", values: HIGHLIGHTS }, ops: ["eq", "in", "empty"], groupable: true, description: "Meeting callout: GREEN on track, AMBER at risk, RED blocked, …" },
   { id: "summary", label: "Summary", aliases: ["title"], value: { kind: "text" }, ops: ["text"], description: "Title contains, case-insensitive; `~ \"log*\"` is a prefix." },

@@ -22,7 +22,8 @@ import { parseCql } from "./parser";
 import { limitDiagnostics, validateAst } from "./normalize";
 import { typecheck } from "./typecheck";
 import { loadSchemaCustomFields, resolveQuery, type VarInput } from "./resolve.server";
-import { compileQuery, type Compiled } from "./compile";
+import { compileQuery, historySpecs, type Compiled } from "./compile";
+import { runHistoryPrefilters } from "./history.server";
 import type { CompileEnv } from "./env";
 import { printCql } from "./print";
 import { CqlError, diag, hasErrors, type CqlDiagnostic, type Span } from "./errors";
@@ -124,6 +125,14 @@ export async function prepareCql(ctx: AuthContext, input: CqlInput, opts: CqlRun
   });
   const diagnostics = [...checked.diagnostics, ...resolved.diagnostics];
   if (hasErrors(diagnostics)) throw new CqlError(diagnostics);
+
+  // History clauses Prisma can't express become id sets first (history.server.ts).
+  const specs = historySpecs(resolved.query.where, resolved.env);
+  if (specs.length) {
+    resolved.env.history = await withStatementTimeout(opts.timeoutMs ?? 3_000, (tx) =>
+      runHistoryPrefilters(tx, specs, ctx.orgId, readable),
+    );
+  }
 
   return {
     orgId: ctx.orgId,

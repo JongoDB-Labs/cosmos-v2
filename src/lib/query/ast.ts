@@ -81,10 +81,18 @@ export type CqlValue =
   /** `EMPTY` inside an IN list, e.g. `assignee IN (me, EMPTY)`. */
   | { t: "empty" };
 
+/** FROM / TO / BY: one value, or a list (`BY (me, "dana")`, or a status name that is a different key in each project). */
+export type PredValue = CqlValue | CqlValue[];
+
+/** A FROM / TO / BY value as a list. */
+export function predValues(v: PredValue | undefined): CqlValue[] {
+  return v === undefined ? [] : Array.isArray(v) ? v : [v];
+}
+
 export type HistoryPreds = {
-  from?: CqlValue;
-  to?: CqlValue;
-  by?: CqlValue;
+  from?: PredValue;
+  to?: PredValue;
+  by?: PredValue;
   after?: CqlValue;
   before?: CqlValue;
   on?: CqlValue;
@@ -158,10 +166,11 @@ const valueSchema: z.ZodType<CqlValue> = z.lazy(() =>
   ]),
 );
 
+const predValueSchema = z.union([valueSchema, z.array(valueSchema).max(CQL_LIMITS.inValues)]);
 const predsSchema: z.ZodType<HistoryPreds> = z.strictObject({
-  from: valueSchema.optional(),
-  to: valueSchema.optional(),
-  by: valueSchema.optional(),
+  from: predValueSchema.optional(),
+  to: predValueSchema.optional(),
+  by: predValueSchema.optional(),
   after: valueSchema.optional(),
   before: valueSchema.optional(),
   on: valueSchema.optional(),
@@ -241,7 +250,7 @@ export function leafValues(leaf: LeafNode): CqlValue[] {
   if (leaf.op === "in" || leaf.op === "was") leaf.values.forEach(push);
   if (leaf.op === "was" || leaf.op === "changed") {
     const p = leaf.preds ?? {};
-    [p.from, p.to, p.by, p.after, p.before, p.on, ...(p.during ?? [])].forEach(push);
+    [...predValues(p.from), ...predValues(p.to), ...predValues(p.by), p.after, p.before, p.on, ...(p.during ?? [])].forEach(push);
   }
   return out;
 }

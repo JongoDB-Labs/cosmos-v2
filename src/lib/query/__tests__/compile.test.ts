@@ -3,7 +3,8 @@
 // that whatever a user writes stays inside the scope envelope.
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
-import { compileQuery } from "../compile";
+import { compileQuery, historySpecs } from "../compile";
+import { historyKey } from "../history";
 import { parseCql } from "../parser";
 import { typecheck } from "../typecheck";
 import type { CompileEnv } from "../env";
@@ -33,6 +34,7 @@ function env(over: Partial<CompileEnv> = {}): CompileEnv {
     descendants: new Map([["item-1", ["c1", "c2", "g1"]]]),
     milestoneItems: new Map([["m1", ["c1", "x9"]]]),
     milestoneLinked: ["c1", "x9", "y7"],
+    history: new Map(),
     ...over,
   };
 }
@@ -167,6 +169,56 @@ describe("compile — field by field", () => {
     expect(where('descendantsOf("ref:item:none")')).toEqual({ id: { in: [] } });
     expect(where('milestone = "ref:milestone:m1"')).toEqual({ id: { in: ["c1", "x9"] } });
     expect(where("milestone IS EMPTY")).toEqual({ id: { notIn: ["c1", "x9", "y7"] } });
+  });
+
+  it("history: CHANGED and untimed WAS are Activity relation filters", () => {
+    const act = (w: object) => ({ activities: { some: { action: "updated", field: "columnKey", ...w } } });
+    expect(where("status CHANGED")).toEqual(act({}));
+    expect(where('status CHANGED FROM "ref:status:todo" TO ("ref:status:done", "ref:status:shipped") BY me')).toEqual(
+      act({
+        AND: [{ oldValue: { in: ["todo"] } }, { newValue: { in: ["done", "shipped"] } }],
+        userId: { in: ["me-id"] },
+      }),
+    );
+    expect(where('status CHANGED AFTER 2026-10-01 BEFORE -1d')).toEqual(
+      act({ createdAt: { gte: new Date("2026-10-02T00:00:00Z"), lt: new Date("2026-10-14T15:00:00Z") } }),
+    );
+    // Now, or a recorded change that left or entered it.
+    expect(where('status WAS "ref:status:done"')).toEqual({
+      OR: [{ columnKey: { in: ["done"] } }, act({ OR: [{ oldValue: { in: ["done"] } }, { newValue: { in: ["done"] } }] })],
+    });
+    // Nullable columns stay two-valued under NOT.
+    expect(where("assignee WAS NOT me")).toEqual({
+      NOT: {
+        OR: [
+          { assigneeId: { in: ["me-id"], not: null } },
+          { activities: { some: { action: "updated", field: "assigneeId", OR: [{ oldValue: { in: ["me-id"] } }, { newValue: { in: ["me-id"] } }] } } },
+        ],
+      },
+    });
+    expect(where("assignee WAS EMPTY BY me")).toEqual({
+      activities: { some: { action: "updated", field: "assigneeId", newValue: null, userId: { in: ["me-id"] } } },
+    });
+  });
+
+  it("history: windows and date fields come from env.history, keyed by their spec", () => {
+    const e = env();
+    const specs = historySpecs(q('status WAS "ref:status:done" AFTER -14d').where, e);
+    expect(specs).toEqual([
+      { kind: "held", field: "status", set: { values: ["done"], ranges: [], empty: false }, from: "2026-10-01T15:00:00.000Z", to: null },
+    ]);
+    e.history.set(historyKey(specs[0]), ["i1", "i2"]);
+    expect(where('status WAS "ref:status:done" AFTER -14d', e)).toEqual({ id: { in: ["i1", "i2"] } });
+    expect(where('status WAS NOT "ref:status:done" AFTER -14d', e)).toEqual({ NOT: { id: { in: ["i1", "i2"] } } });
+    // Without its prefilter the compiler refuses rather than guessing.
+    expect(() => where("due WAS 2026-10-20")).toThrow(/prefilter/);
+    expect(historySpecs(q("due WAS 2026-10-20").where, env())[0]).toMatchObject({
+      kind: "held",
+      field: "due",
+      set: { ranges: [{ from: "2026-10-20T00:00:00.000Z", to: "2026-10-21T00:00:00.000Z" }] },
+    });
+    // A history clause with an unset variable is inert, so it needs no prefilter.
+    expect(historySpecs(q("status WAS $s AFTER -1d").where, env())).toEqual([]);
   });
 
   it("key comparisons are within the item's project", () => {

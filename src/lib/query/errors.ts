@@ -134,3 +134,10 @@ export function suggest(word: string, candidates: Iterable<string>, max = 3): st
     .slice(0, max)
     .map(([c]) => c);
 }
+
+/** Prefilter id sets past this many rows are refused rather than shipped as a giant IN list. */
+export const TOO_BROAD = 50_001;
+
+export function tooBroad(what: string): CqlError {
+  return new CqlError([diag("", "CQL_TOO_BROAD", `This ${what} clause matches too many items. Narrow it with a project or a date range.`)]);
+}
