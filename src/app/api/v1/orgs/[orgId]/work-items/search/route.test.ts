@@ -40,7 +40,7 @@ const { getAuthContext, prisma } = vi.hoisted(() => ({
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 
-import { GET } from "./route";
+import { GET, POST } from "./route";
 
 // --- fixtures ----------------------------------------------------------------
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
@@ -214,5 +214,51 @@ describe("GET /work-items/search — org-wide ITEM_READ gate (resource-less)", (
     const whereArg = prisma.workItem.findMany.mock.calls[0][0].where;
     // Both projects in scope for the owner.
     expect(new Set(whereArg.projectId.in)).toEqual(new Set([P_MEMBER, P_OTHER]));
+  });
+});
+
+function postRequest(body: unknown): NextRequest {
+  return new NextRequest(`http://localhost/api/v1/orgs/${ORG_ID}/work-items/search`, {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json" },
+  });
+}
+
+describe("POST /work-items/search — filter keys the body used to lose", () => {
+  beforeEach(() => {
+    getAuthContext.mockResolvedValue(ctxWith({ permissions: bits("ITEM_READ") }));
+    prisma.workItem.findMany.mockResolvedValue([]);
+    prisma.workItem.count.mockResolvedValue(0);
+  });
+
+  it("archived, ids and the caller's own watchedByUserId all reach the where-clause", async () => {
+    const res = await POST(
+      postRequest({ filter: { archived: "only", ids: ["item-1"], watchedByUserId: ACTOR_ID } }),
+      { params },
+    );
+
+    expect(res.status).toBe(200);
+    const where = prisma.workItem.findMany.mock.calls[0][0].where;
+    expect(where.archivedAt).toEqual({ not: null });
+    expect(where.id).toEqual({ in: ["item-1"] });
+    expect(where.watchers).toEqual({ some: { userId: ACTOR_ID } });
+  });
+
+  it("someone else's watch list → 400, and nothing is queried", async () => {
+    const res = await POST(
+      postRequest({ filter: { watchedByUserId: "99999999-9999-9999-9999-999999999999" } }),
+      { params },
+    );
+
+    expect(res.status).toBe(400);
+    expect(prisma.workItem.findMany).not.toHaveBeenCalled();
+  });
+
+  it("an unknown filter key → 400 instead of an unfiltered page", async () => {
+    const res = await POST(postRequest({ filter: { includeArchived: true } }), { params });
+
+    expect(res.status).toBe(400);
+    expect(prisma.workItem.findMany).not.toHaveBeenCalled();
   });
 });
