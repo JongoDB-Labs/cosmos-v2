@@ -6,7 +6,8 @@ import { requirePermission } from "@/lib/rbac/check";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { cqlEmailTitles, cqlEnabled, withCqlEmailTitles, withCqlEnabled } from "@/lib/query/flag";
+import { cqlEmailTitles, cqlEnabled } from "@/lib/query/flag";
+import { patchCqlSettings } from "@/lib/query/route.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -52,11 +53,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       .strictObject({ enabled: z.boolean().optional(), emailTitles: z.boolean().optional() })
       .refine((b) => b.enabled !== undefined || b.emailTitles !== undefined, "Send enabled or emailTitles")
       .parse(await request.json());
-    const before = { enabled: cqlEnabled(org.settings), emailTitles: cqlEmailTitles(org.settings, org.tenantClass) };
-    let settings: unknown = org.settings;
-    if (body.enabled !== undefined) settings = withCqlEnabled(settings, body.enabled);
-    if (body.emailTitles !== undefined) settings = withCqlEmailTitles(settings, body.emailTitles);
-    await prisma.organization.update({ where: { id: org.id }, data: { settings: settings as object } });
+    const patch: Record<string, boolean> = {};
+    if (body.enabled !== undefined) patch.enabled = body.enabled;
+    if (body.emailTitles !== undefined) patch.emailTitles = body.emailTitles;
+    // One atomic merge; `old` is the cql settings as they were, for the audit.
+    const old = { cql: await patchCqlSettings(org.id, patch) };
+    const before = { enabled: cqlEnabled(old), emailTitles: cqlEmailTitles(old, org.tenantClass) };
     const audit = (action: string) =>
       logAudit({ orgId: org.id, userId: ctx.userId, action, entity: "organization", entityId: org.id, metadata: {}, ipAddress: getIpAddress(request) });
     if (body.enabled !== undefined && before.enabled !== body.enabled) await audit(body.enabled ? "cql.enabled" : "cql.disabled");

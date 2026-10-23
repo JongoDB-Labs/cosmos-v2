@@ -1,10 +1,24 @@
+import { registerJob } from "./runner";
+import { runCalendarPulls } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { runDueSubscriptions } from "@/lib/query/subscriptions.server";
+
 /**
  * Every periodic job the app runs, registered on the shared runner
  * (src/lib/jobs/runner.ts). Add one with registerJob({ name, everyMs, run }):
  * the run must be idempotent, since a leader change can repeat a run.
  */
-import { registerJob } from "./runner";
-import { runDueSubscriptions } from "@/lib/query/subscriptions.server";
+
+// COSMOS-202 B2: bring Outlook edits back into Cosmos for everyone connected.
+registerJob({
+  name: "outlook-calendar-pull",
+  everyMs: 5 * 60_000,
+  jitterMs: 30_000,
+  timeoutMs: 4 * 60_000,
+  run: async ({ signal }) => {
+    const r = await runCalendarPulls({ signal });
+    return r.people || r.throttled || r.failed ? { ...r } : undefined;
+  },
+});
 
 // CQL phase 6: emailed saved filters. Due rows are claimed with SKIP LOCKED and
 // their next run moved on before sending, so a repeated run sends nothing twice.

@@ -13,6 +13,7 @@
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { Prisma } from "@prisma/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
@@ -49,4 +50,22 @@ export function cqlErrorResponse(e: unknown): Response {
     return NextResponse.json({ error: { code, message: e.message, diagnostics: e.diagnostics } }, { status: e.status });
   }
   return handleApiError(e);
+}
+
+/**
+ * Merge keys into `Organization.settings.cql` in ONE statement, returning the
+ * `cql` object as it was. A read-modify-write in JS would lose a concurrent
+ * change to any other org setting written between the read and the write.
+ */
+export async function patchCqlSettings(orgId: string, patch: Record<string, boolean>): Promise<Record<string, unknown>> {
+  const rows = await prisma.$queryRaw<{ before: unknown }[]>(Prisma.sql`
+    WITH old AS (SELECT settings -> 'cql' AS cql FROM organizations WHERE id = ${orgId}::uuid FOR UPDATE)
+    UPDATE organizations o
+       SET settings = o.settings || jsonb_build_object('cql', COALESCE(o.settings -> 'cql', '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb),
+           updated_at = now()
+      FROM old
+     WHERE o.id = ${orgId}::uuid
+    RETURNING old.cql AS before`);
+  const before = rows[0]?.before;
+  return before && typeof before === "object" ? (before as Record<string, unknown>) : {};
 }

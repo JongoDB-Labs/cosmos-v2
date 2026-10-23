@@ -8,6 +8,7 @@
 // Revisit if teamScopedAccess is ever promoted from a visibility default to a
 // hard boundary.
 import { prisma } from "@/lib/db/client";
+import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { runModelTurn, type ModelCredential } from "@/lib/ai/egress";
 import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
 import { logAudit } from "@/lib/audit";
@@ -47,6 +48,7 @@ import type { OrgRole, Prisma } from "@prisma/client";
 import "@/lib/plugins/registry/server";
 import { resolveModelCredential } from "@/lib/ai/model-credential-provider";
 import { allocateTicketNumber, allocateSortOrder } from "@/lib/work-items/allocate";
+import { feedbackItemUrl } from "./urls";
 
 /**
  * Auto-remediation loop (FR 695aa097) — the in-app half.
@@ -824,7 +826,7 @@ async function runFeedbackRemediationInner(
           columnKey: target.columnKey,
         });
 
-        const workItem = await tx.workItem.create({
+        const workItem = await createWorkItemRow(tx, {
           data: {
             orgId,
             projectId: target.id,
@@ -915,7 +917,7 @@ async function runFeedbackRemediationInner(
           message: `"${item.title}" has been triaged into the backlog as ${ticketKey}.`,
           relatedId: item.id,
           relatedType: "feedback_item",
-          url: `/${org.slug}/feedback`,
+          url: feedbackItemUrl(org.slug, item.id),
         });
       } catch {
         /* reporter notification is best-effort */
@@ -1093,7 +1095,7 @@ export async function mergeDuplicateFeedback(
         `We linked it and merged your vote instead of opening a second ticket.`,
       relatedId: item.id,
       relatedType: "feedback_item",
-      url: `/${org.slug}/feedback`,
+      url: feedbackItemUrl(org.slug, item.id),
     });
   } catch {
     /* reporter notification is best-effort */
@@ -1162,7 +1164,7 @@ async function notifyThrottledFeedback(
       message: `"${item.title}" is queued — ${throttleMessage(reason)}.`,
       relatedId: item.id,
       relatedType: "feedback_item",
-      url: `/${org.slug}/feedback`,
+      url: feedbackItemUrl(org.slug, item.id),
     });
   } catch {
     /* reporter notification is best-effort */
@@ -1242,7 +1244,7 @@ async function parkForHumanTriage(
       message: `"${item.title}" was routed to a teammate — ${roleGateMessage()}.`,
       relatedId: item.id,
       relatedType: "feedback_item",
-      url: `/${org.slug}/feedback`,
+      url: feedbackItemUrl(org.slug, item.id),
     });
   } catch {
     /* reporter notification is best-effort */
@@ -1343,7 +1345,7 @@ async function parkFlaggedFeedback(
           : `"${item.title}" was routed to a human reviewer before any automated work — our intake checks flagged it for a closer look.`,
       relatedId: item.id,
       relatedType: "feedback_item",
-      url: `/${org.slug}/feedback`,
+      url: feedbackItemUrl(org.slug, item.id),
     });
   } catch {
     /* reporter notification is best-effort */

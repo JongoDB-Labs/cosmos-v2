@@ -4,7 +4,7 @@ import { completionAt } from "../complete";
 /** `|` marks the cursor. */
 function at(src: string) {
   const cursor = src.indexOf("|");
-  return completionAt(src.replace("|", ""), cursor);
+  return completionAt(src.slice(0, cursor) + src.slice(cursor + 1), cursor);
 }
 
 describe("completionAt — slots", () => {
