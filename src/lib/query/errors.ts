@@ -135,9 +135,23 @@ export function suggest(word: string, candidates: Iterable<string>, max = 3): st
     .map(([c]) => c);
 }
 
-/** Prefilter id sets past this many rows are refused rather than shipped as a giant IN list. */
-export const TOO_BROAD = 50_001;
+/**
+ * A prefilter's id set past this many items is refused rather than shipped as
+ * a giant IN list. Prisma binds one parameter per id and Postgres takes about
+ * 32,766 per statement, so this leaves room for the rest of the query; the
+ * total over a whole query is checked by MAX_LIST_VALUES (execute.server.ts).
+ */
+export const ID_SET_MAX = 25_000;
 
-export function tooBroad(what: string): CqlError {
-  return new CqlError([diag("", "CQL_TOO_BROAD", `This ${what} clause matches too many items. Narrow it with a project or a date range.`)]);
+const TOO_BROAD_ADVICE = {
+  history: "This history clause covers too many items. Use a shorter window (AFTER, BEFORE, ON or DURING).",
+  descendants: "There are too many items under this one to filter by. Use `parent =` or narrow to a project.",
+  milestone: "These milestones link too many items to filter by. Name fewer milestones.",
+  "milestone-empty": "Too many items have milestones to filter by whether one is set. Use `milestone = …` instead.",
+  query: "This query's clauses match too many items to combine. Narrow it with a project or a date range.",
+} as const;
+
+/** CQL_TOO_BROAD, with advice that actually narrows the part that was too broad. */
+export function tooBroad(what: keyof typeof TOO_BROAD_ADVICE): CqlError {
+  return new CqlError([diag("", "CQL_TOO_BROAD", TOO_BROAD_ADVICE[what])]);
 }

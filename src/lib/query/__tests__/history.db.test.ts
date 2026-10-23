@@ -79,6 +79,10 @@ describe("CQL history (e2e DB)", () => {
     expect(await titles("status WAS Done DURING (2026-09-21, 2026-09-22)")).toEqual(["hx-regressed", "hx-steady", "hx-unlogged"]);
     // An unrecorded move is taken to have happened at the last recorded one.
     expect(await titles('status WAS "In Progress" ON 2026-09-10')).toEqual(["hx-regressed"]);
+    // Entered Done inside the window (09-20), held something else when it opened.
+    expect(await titles("status WAS Done DURING (2026-09-15, 2026-09-25)")).toEqual(["hx-regressed", "hx-steady", "hx-unlogged"]);
+    // In Progress now, but only since 10-05: not during a window that closed before.
+    expect(await titles('status WAS "In Progress" DURING (2026-09-25, 2026-10-01)')).toEqual([]);
     // Nothing is held before the item existed.
     expect(await titles("status WAS Review BEFORE 2026-10-01")).toEqual([]);
     // Relative dates: 14 days before NOW is 10-01.

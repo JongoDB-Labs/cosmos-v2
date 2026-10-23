@@ -13,12 +13,11 @@ describe("history prefilters", () => {
   });
 
   const specs: HistorySpec[] = [
-    { kind: "held", field: "status", set: { values: ["done'; DROP TABLE work_items; --"], ranges: [], empty: false }, from: "2026-10-01T00:00:00.000Z", to: null },
-    { kind: "held", field: "due", set: { values: [], ranges: [{ from: "2026-10-20T00:00:00.000Z", to: "2026-10-21T00:00:00.000Z" }], empty: true }, from: null, to: null },
-    { kind: "changed", field: "completed", old: { values: [], ranges: [], empty: true }, by: ["u1"], from: null, to: "2026-10-15T00:00:00.000Z" },
+    { kind: "window", field: "status", set: { values: ["done'; DROP TABLE work_items; --"], ranges: [], empty: false }, from: "2026-10-01T00:00:00.000Z", to: null },
+    { kind: "window", field: "due", set: { values: [], ranges: [{ from: "2026-10-20T00:00:00.000Z", to: "2026-10-21T00:00:00.000Z" }], empty: true }, from: null, to: "2026-10-15T00:00:00.000Z" },
   ];
 
-  it.each(specs.map((s) => [s.kind, s.field, s] as const))("%s %s: org and readable scope are bound, values never inlined", (_k, _f, spec) => {
+  it.each(specs.map((s) => [s.field, s] as const))("%s: org and readable scope are bound, values never inlined", (_f, spec) => {
     const sql = historySql(spec, ORG, READABLE);
     expect(sql.values).toContain(ORG);
     expect(sql.values).toContainEqual(READABLE);

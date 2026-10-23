@@ -27,7 +27,7 @@ import { runHistoryPrefilters } from "./history.server";
 import { inOrder, sortedIds } from "./sort.server";
 import type { CompileEnv } from "./env";
 import { printCql } from "./print";
-import { CqlError, diag, hasErrors, type CqlDiagnostic, type Span } from "./errors";
+import { CqlError, diag, hasErrors, tooBroad, type CqlDiagnostic, type Span } from "./errors";
 import { isValidTimeZone } from "./dates";
 
 export interface CqlInput {
@@ -135,15 +135,42 @@ export async function prepareCql(ctx: AuthContext, input: CqlInput, opts: CqlRun
     );
   }
 
+  const compiled = compileQuery(resolved.query, resolved.env);
+  if (listValues(compiled.where) > MAX_LIST_VALUES) throw tooBroad("query");
+
   return {
     orgId: ctx.orgId,
     readable,
     query: resolved.query,
     cql: printCql(resolved.query),
     env: resolved.env,
-    compiled: compileQuery(resolved.query, resolved.env),
+    compiled,
     diagnostics,
   };
+}
+
+/**
+ * Prisma binds every value of an `in` / `notIn` list as its own parameter and
+ * Postgres takes about 32,766 per statement; past this the query is refused
+ * with advice instead of failing in the driver.
+ */
+export const MAX_LIST_VALUES = 30_000;
+
+/** How many `in` / `notIn` values a where carries. Iterative: no recursion depth to blow. */
+export function listValues(where: unknown): number {
+  let n = 0;
+  const stack: unknown[] = [where];
+  while (stack.length) {
+    const v = stack.pop();
+    if (Array.isArray(v)) stack.push(...v);
+    else if (v && typeof v === "object" && !(v instanceof Date)) {
+      for (const [k, x] of Object.entries(v)) {
+        if ((k === "in" || k === "notIn") && Array.isArray(x)) n += x.length;
+        else stack.push(x);
+      }
+    }
+  }
+  return n;
 }
 
 const TIMEOUT_RE = /statement timeout|canceling statement|57014/i;

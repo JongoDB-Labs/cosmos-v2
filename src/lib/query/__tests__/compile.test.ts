@@ -201,24 +201,50 @@ describe("compile — field by field", () => {
     });
   });
 
-  it("history: windows and date fields come from env.history, keyed by their spec", () => {
+  it("history: a window is prefiltered ids (held at the start or set inside), or holding it since", () => {
     const e = env();
-    const specs = historySpecs(q('status WAS "ref:status:done" AFTER -14d').where, e);
+    const q14 = 'status WAS "ref:status:done" AFTER -14d';
+    const specs = historySpecs(q(q14).where, e);
     expect(specs).toEqual([
-      { kind: "held", field: "status", set: { values: ["done"], ranges: [], empty: false }, from: "2026-10-01T15:00:00.000Z", to: null },
+      { kind: "window", field: "status", set: { values: ["done"], ranges: [], empty: false }, from: "2026-10-01T15:00:00.000Z", to: null },
     ]);
     e.history.set(historyKey(specs[0]), ["i1", "i2"]);
-    expect(where('status WAS "ref:status:done" AFTER -14d', e)).toEqual({ id: { in: ["i1", "i2"] } });
-    expect(where('status WAS NOT "ref:status:done" AFTER -14d', e)).toEqual({ NOT: { id: { in: ["i1", "i2"] } } });
-    // Without its prefilter the compiler refuses rather than guessing.
-    expect(() => where("due WAS 2026-10-20")).toThrow(/prefilter/);
-    expect(historySpecs(q("due WAS 2026-10-20").where, env())[0]).toMatchObject({
-      kind: "held",
-      field: "due",
-      set: { ranges: [{ from: "2026-10-20T00:00:00.000Z", to: "2026-10-21T00:00:00.000Z" }] },
+    const act = (w: object) => ({ activities: { some: { action: "updated", field: "columnKey", ...w } } });
+    expect(where(q14, e)).toEqual({ OR: [{ id: { in: ["i1", "i2"] } }, { columnKey: { in: ["done"] } }] });
+    expect(where(`NOT (${q14})`, e)).toMatchObject({ NOT: { OR: expect.any(Array) } });
+    // With an end: born before it, and quiet since.
+    const qB = 'status WAS "ref:status:done" BEFORE 2026-10-01';
+    const eB = env();
+    eB.history.set(historyKey(historySpecs(q(qB).where, eB)[0]), []);
+    const end = new Date("2026-10-01T00:00:00Z");
+    expect((where(qB, eB) as { OR: unknown[] }).OR[1]).toEqual({
+      AND: [{ columnKey: { in: ["done"] } }, { createdAt: { lt: end } }, { NOT: act({ createdAt: { gte: end } }) }],
     });
+    // Without its prefilter the compiler refuses rather than guessing.
+    expect(() => where(q14)).toThrow(/prefilter/);
     // A history clause with an unset variable is inert, so it needs no prefilter.
     expect(historySpecs(q("status WAS $s AFTER -1d").where, env())).toEqual([]);
+  });
+
+  it("history: dates match as ISO text ranges, in Activity and on the column", () => {
+    expect(where("due WAS 2026-10-20")).toEqual({
+      OR: [
+        { dueDate: { gte: new Date("2026-10-20T00:00:00Z"), lt: new Date("2026-10-21T00:00:00Z"), not: null } },
+        {
+          activities: {
+            some: {
+              action: "updated",
+              field: "dueDate",
+              OR: [
+                { oldValue: { gte: "2026-10-20T00:00:00.000Z", lt: "2026-10-21T00:00:00.000Z" } },
+                { newValue: { gte: "2026-10-20T00:00:00.000Z", lt: "2026-10-21T00:00:00.000Z" } },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    expect(historySpecs(q("due CHANGED FROM 2026-10-20 TO EMPTY").where, env())).toEqual([]);
   });
 
   it("key comparisons are within the item's project", () => {

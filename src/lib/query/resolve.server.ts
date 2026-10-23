@@ -31,7 +31,7 @@ import {
 import { fieldDef, type SystemFieldId } from "./fields";
 import { lookupFunction } from "./functions";
 import { HISTORY_BY_FIELD, fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
-import { TOO_BROAD, diag, tooBroad, type CqlDiagnostic, type Span } from "./errors";
+import { ID_SET_MAX, diag, tooBroad, type CqlDiagnostic, type Span } from "./errors";
 import type { CustomFieldType, SchemaCustomField } from "./typecheck";
 
 /** A dashboard variable's value as a caller supplies it: ids/names, or nothing (= everyone). */
@@ -544,32 +544,44 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     values.filter((v): v is Ref => v.t === "ref" && v.entity === entity).map((v) => v.id);
   const roots = new Set<string>();
   const milestoneIds = new Set<string>();
-  let usesMilestone = false;
+  // Only `IS EMPTY`, an EMPTY value and negations (`!=` / NOT IN leave out
+  // items with no milestone) need every linked item; `=` / IN need only the
+  // named milestones' links.
+  let needsLinked = false;
   if (where) {
     walk(where, (l) => {
       const values = leafValues(l);
       if (l.field.kind === "sys" && l.field.id === "ancestor") refIdsOf(values, "item").forEach((id) => roots.add(id));
       if (l.field.kind === "sys" && l.field.id === "milestone") {
-        usesMilestone = true;
         refIdsOf(values, "milestone").forEach((id) => milestoneIds.add(id));
+        if (l.op === "empty" || values.some((v) => v.t === "empty") || (l.op === "cmp" && l.cmp === "neq") || (l.op === "in" && l.negate)) {
+          needsLinked = true;
+        }
       }
     });
   }
   for (const fn of fnValues) if (fn.name === "descendantsOf") refIdsOf(fn.args, "item").forEach((id) => roots.add(id));
   const descendants = await descendantsByRoot(orgId, [...roots], readableIds);
   const milestoneItems = new Map<string, string[]>();
-  let milestoneLinked: string[] = [];
-  if (usesMilestone) {
+  if (milestoneIds.size) {
     const links = await prisma.milestoneLink.findMany({
-      where: { milestone: { orgId, projectId: { in: readableIds } } },
+      where: { milestoneId: { in: [...milestoneIds] }, milestone: { orgId, projectId: { in: readableIds } } },
       select: { milestoneId: true, workItemId: true },
-      take: TOO_BROAD,
+      take: ID_SET_MAX + 1,
     });
-    if (links.length >= TOO_BROAD) throw tooBroad("milestone");
-    for (const l of links) {
-      if (milestoneIds.has(l.milestoneId)) pushTo(milestoneItems, l.milestoneId, l.workItemId);
-    }
-    milestoneLinked = [...new Set(links.map((l) => l.workItemId))];
+    if (links.length > ID_SET_MAX) throw tooBroad("milestone");
+    for (const l of links) pushTo(milestoneItems, l.milestoneId, l.workItemId);
+  }
+  let milestoneLinked: string[] = [];
+  if (needsLinked) {
+    const linked = await prisma.milestoneLink.findMany({
+      where: { milestone: { orgId, projectId: { in: readableIds } } },
+      select: { workItemId: true },
+      distinct: ["workItemId"],
+      take: ID_SET_MAX + 1,
+    });
+    if (linked.length > ID_SET_MAX) throw tooBroad("milestone-empty");
+    milestoneLinked = linked.map((l) => l.workItemId);
   }
 
   // ── 6. Status categories per readable project ──────────────────────────────
@@ -616,7 +628,7 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
 /**
  * Everything under each root, any depth, inside readable projects. One
  * recursive query, parameterized (no SQL built from strings); UNION stops on
- * cycles. Bounded: past TOO_BROAD rows it is refused.
+ * cycles. Bounded: past ID_SET_MAX rows it is refused.
  */
 async function descendantsByRoot(orgId: string, roots: string[], readable: string[]): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
@@ -629,8 +641,8 @@ async function descendantsByRoot(orgId: string, roots: string[], readable: strin
       SELECT t.root, w.id FROM work_items w JOIN tree t ON w.parent_id = t.id
        WHERE w.org_id = ${orgId}::uuid AND w.project_id = ANY(${readable}::uuid[])
     )
-    SELECT root::text AS root, id::text AS id FROM tree LIMIT ${TOO_BROAD}`;
-  if (rows.length >= TOO_BROAD) throw tooBroad("descendants");
+    SELECT root::text AS root, id::text AS id FROM tree LIMIT ${ID_SET_MAX + 1}`;
+  if (rows.length > ID_SET_MAX) throw tooBroad("descendants");
   for (const r of rows) pushTo(out, r.root, r.id);
   return out;
 }

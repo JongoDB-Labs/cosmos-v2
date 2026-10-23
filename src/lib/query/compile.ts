@@ -19,7 +19,7 @@
  *   - History (`WAS`, `CHANGED`) reads the Activity rows the writers record:
  *     `f WAS v` is "is v now, or a recorded change left or entered v";
  *     with AFTER / BEFORE / ON / DURING it is "held v at some instant in that
- *     window", which needs value intervals and so an id prefilter
+ *     window", whose "held it when the window opened" part is an id prefilter
  *     (history.server.ts, results in `env.history`). `BY u` means u made the
  *     change to v. `CHANGED` is a relation filter on Activity.
  */
@@ -39,7 +39,7 @@ import {
 import { PRIORITY_ORDER, type SystemFieldId } from "./fields";
 import { applyRel, dayOf, durationSeconds, endOf, literalRange, periodOffset, startOf, workingDaysFrom, type Period } from "./dates";
 import { HISTORY_BY_FIELD, fnKey, varKey, type CompileEnv, type SqlSortKey, type StatusCategory } from "./env";
-import { HISTORY, historyKey, isHistoryColumn, type HistorySpec, type HistoryValueSet } from "./history";
+import { HISTORY, historyKey, isHistoryColumn, type HistoryField, type HistorySpec, type HistoryValueSet } from "./history";
 import type { CustomFieldType } from "./typecheck";
 
 type Where = Prisma.WorkItemWhereInput;
@@ -576,8 +576,11 @@ function isoDay(d: Date): string {
 type ActivityWhere = Prisma.ActivityWhereInput;
 type HistoryLeaf = Extract<LeafNode, { op: "was" | "changed" }>;
 
-/** How one history clause is answered: a Prisma filter, or an id prefilter. */
-type HistoryPlan = { k: "where"; where: Where } | { k: "ids"; spec: HistorySpec };
+/**
+ * How one history clause is answered: the id prefilters it needs (at most
+ * one), and its where given their results.
+ */
+type HistoryPlan = { specs: HistorySpec[]; build(idsOf: (spec: HistorySpec) => string[]): Where };
 
 /** The values a history clause names, as Activity stores them. */
 function historySet(values: CqlValue[], field: FieldRef, env: CompileEnv): HistoryValueSet {
@@ -621,75 +624,91 @@ function historyWindow(p: HistoryPreds, env: CompileEnv): { from: Date | null; t
   return { from, to };
 }
 
-/** An Activity string column matching a value set. */
+/**
+ * An Activity value column matching a set. Dates are stored as
+ * `toISOString()` text, one fixed width, so text order is time order and a
+ * day is a [from, to) range of strings.
+ */
 function activityMatch(column: "oldValue" | "newValue", set: HistoryValueSet): ActivityWhere {
   const parts: ActivityWhere[] = [
     ...(set.values.length ? [{ [column]: { in: set.values } }] : []),
+    ...set.ranges.map((r) => ({ [column]: { gte: r.from, lt: r.to } })),
     ...(set.empty ? [{ [column]: null }] : []),
   ];
   if (parts.length === 0) return { id: { in: [] } };
   return parts.length === 1 ? parts[0] : { OR: parts };
 }
 
+/** The item's current value matching a set. Nullable columns stay two-valued under NOT. */
+function currentMatch(h: (typeof HISTORY)[HistoryField], set: HistoryValueSet): Where {
+  const col = (filter: Record<string, unknown>): Where =>
+    h.nullable ? nn(h.column, filter) : ({ [h.column]: filter } as Where);
+  return or(
+    ...(set.values.length ? [col({ in: set.values })] : []),
+    ...set.ranges.map((r) => col({ gte: new Date(r.from), lt: new Date(r.to) })),
+    ...(set.empty ? [{ [h.column]: null } as Where] : []),
+  );
+}
+
 function historyPlan(n: HistoryLeaf, env: CompileEnv): HistoryPlan {
   const id = n.field.kind === "sys" ? n.field.id : "";
   if (!isHistoryColumn(id)) throw new Error(`${id} has no history`);
   const h = HISTORY[id];
-  const date = h.kind === "date";
   const p = n.preds ?? {};
   const win = historyWindow(p, env);
   const timed = !!(win.from || win.to);
-  const iso = (d: Date | null) => (d ? d.toISOString() : null);
   const by = p.by ? ids(bind(predValues(p.by), HISTORY_BY_FIELD, env)) : undefined;
-  const act = (w: ActivityWhere): Where => ({
+  const window = { ...(win.from ? { gte: win.from } : {}), ...(win.to ? { lt: win.to } : {}) };
+  const act = (w: ActivityWhere, opts: { by?: boolean; window?: boolean } = { by: true, window: true }): Where => ({
     activities: {
       some: {
         action: "updated",
         field: h.activity,
         ...w,
-        ...(by ? { userId: { in: by } } : {}),
-        ...(timed ? { createdAt: { ...(win.from ? { gte: win.from } : {}), ...(win.to ? { lt: win.to } : {}) } } : {}),
+        ...(opts.by && by ? { userId: { in: by } } : {}),
+        ...(opts.window && timed ? { createdAt: window } : {}),
       },
     },
   });
+  const plain = (where: Where): HistoryPlan => ({ specs: [], build: () => where });
 
   if (n.op === "changed") {
     const from = p.from ? historySet(predValues(p.from), n.field, env) : undefined;
     const to = p.to ? historySet(predValues(p.to), n.field, env) : undefined;
-    if (date && (from || to)) {
-      return {
-        k: "ids",
-        spec: { kind: "changed", field: id, ...(from ? { old: from } : {}), ...(to ? { new: to } : {}), ...(by ? { by } : {}), from: iso(win.from), to: iso(win.to) },
-      };
-    }
     const values = [...(from ? [activityMatch("oldValue", from)] : []), ...(to ? [activityMatch("newValue", to)] : [])];
-    return { k: "where", where: act(values.length ? { AND: values } : {}) };
+    return plain(act(values.length ? { AND: values } : {}));
   }
 
   const set = historySet(n.values, n.field, env);
-  if (by) {
-    // `WAS v BY u`: u changed it to v (Jira).
-    if (date) return { k: "ids", spec: { kind: "changed", field: id, new: set, by, from: iso(win.from), to: iso(win.to) } };
-    return { k: "where", where: act(activityMatch("newValue", set)) };
-  }
-  if (timed || date) return { k: "ids", spec: { kind: "held", field: id, set, from: iso(win.from), to: iso(win.to) } };
+  // `WAS v BY u`: u changed it to v (Jira).
+  if (by) return plain(act(activityMatch("newValue", set)));
   // Untimed: holds v now, or a recorded change left or entered v.
-  const now = or(
-    ...(set.values.length ? [h.nullable ? nn(h.column, { in: set.values }) : ({ [h.column]: { in: set.values } } as Where)] : []),
-    ...(set.empty ? [{ [h.column]: null } as Where] : []),
-  );
-  return { k: "where", where: or(now, act({ OR: [activityMatch("oldValue", set), activityMatch("newValue", set)] })) };
+  if (!timed) return plain(or(currentMatch(h, set), act({ OR: [activityMatch("oldValue", set), activityMatch("newValue", set)] })));
+
+  // Held v at some instant in the window: it held v when the window opened
+  // or a change inside the window set it (an id prefilter, bounded by the
+  // window's activity), or it holds v now and nothing was recorded since the
+  // window closed.
+  const spec: HistorySpec = { kind: "window", field: id, set, from: win.from?.toISOString() ?? null, to: win.to?.toISOString() ?? null };
+  return {
+    specs: [spec],
+    build: (idsOf) =>
+      or(
+        { id: { in: idsOf(spec) } },
+        and(
+          currentMatch(h, set),
+          ...(win.to ? [{ createdAt: { lt: win.to } }, { NOT: act({ createdAt: { gte: win.to } }, {}) }] : []),
+        ),
+      ),
+  };
 }
 
 function compileHistory(n: HistoryLeaf, env: CompileEnv): Where {
-  const plan = historyPlan(n, env);
-  let positive: Where;
-  if (plan.k === "where") positive = plan.where;
-  else {
-    const hit = env.history.get(historyKey(plan.spec));
+  const positive = historyPlan(n, env).build((spec) => {
+    const hit = env.history.get(historyKey(spec));
     if (!hit) throw new Error("history prefilter missing; run historySpecs() first");
-    positive = { id: { in: hit } };
-  }
+    return hit;
+  });
   return n.op === "was" && n.negate ? not(positive) : positive;
 }
 
@@ -701,8 +720,7 @@ export function historySpecs(where: CqlNode | null | undefined, env: CompileEnv)
     else if (n.op === "not") visit(n.arg);
     else if (n.op === "was" || n.op === "changed") {
       try {
-        const plan = historyPlan(n, env);
-        if (plan.k === "ids") out.set(historyKey(plan.spec), plan.spec);
+        for (const spec of historyPlan(n, env).specs) out.set(historyKey(spec), spec);
       } catch (e) {
         if (!(e instanceof Inert)) throw e;
       }

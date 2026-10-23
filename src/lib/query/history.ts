@@ -43,24 +43,22 @@ export interface HistoryValueSet {
 }
 
 /**
- * A clause Prisma can't express, answered by an id prefilter:
- * - `held`: the item held one of the values at some instant in [from, to)
- *   (`WAS … AFTER/BEFORE/ON/DURING`, and every `WAS` on a date field);
- * - `changed`: an Activity row with old / new values that only a time
- *   comparison can match (`due CHANGED FROM … TO …`).
- * Instants are ISO strings, so a spec is its own stable cache key.
+ * The part of a timed `WAS` worth answering in SQL: the items that held a
+ * value in the set when the window [from, to) opened (null `from` = when
+ * they were created), or were set to one by a recorded change inside it.
+ * Only items that changed from `from` on can be in it, which bounds it by
+ * the window's activity rather than by the number of items. The rest of the
+ * clause ("holds it now, and nothing was recorded since the window closed")
+ * is a plain Prisma filter. Instants are ISO strings, so a spec is its own
+ * stable cache key.
  */
-export type HistorySpec =
-  | { kind: "held"; field: HistoryField; set: HistoryValueSet; from: string | null; to: string | null }
-  | {
-      kind: "changed";
-      field: HistoryField;
-      old?: HistoryValueSet;
-      new?: HistoryValueSet;
-      by?: string[];
-      from: string | null;
-      to: string | null;
-    };
+export type HistorySpec = {
+  kind: "window";
+  field: HistoryField;
+  set: HistoryValueSet;
+  from: string | null;
+  to: string | null;
+};
 
 export function historyKey(spec: HistorySpec): string {
   return stableStringify(spec);

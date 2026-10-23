@@ -108,6 +108,10 @@ describe("CQL hierarchy and milestones (e2e DB)", () => {
     const admin = w.ctx({ role: OrgRole.ADMIN });
     expect(await titles(`milestone IS NOT EMPTY`, admin)).toEqual([`Secretitem ${w.stamp} login`, "p1-coowned", "p1-unassigned"]);
     expect(await titles(`milestone = "Secretmilestone ${w.stamp}"`, admin)).toEqual(["p1-unassigned"]);
+    // `!=` leaves out items with no milestone, as on any field.
+    expect(await titles(`milestone != "Beta ${w.stamp}"`)).toEqual([]);
+    expect(await titles(`milestone != "Beta ${w.stamp}"`, admin)).toEqual(["p1-unassigned"]);
+    expect(await titles(`milestone IN ("Beta ${w.stamp}", EMPTY) AND project = ${w.P1.key}`)).toContain("p1-done");
   });
 
   it("a milestone in a restricted project is unknown, by name and by id, and never named back", async () => {
