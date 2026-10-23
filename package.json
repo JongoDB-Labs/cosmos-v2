@@ -61,6 +61,7 @@
     "@lexical/selection": "^0.51.0",
     "@lexical/text": "^0.51.0",
     "@lexical/utils": "^0.51.0",
+    "@lezer/highlight": "1.2.5",
     "@nangohq/node": "^0.71.9",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-metrics-otlp-proto": "^0.222.0",
