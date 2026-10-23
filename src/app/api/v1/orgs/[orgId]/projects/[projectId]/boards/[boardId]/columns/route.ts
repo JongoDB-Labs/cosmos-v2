@@ -8,6 +8,7 @@ import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { ColumnCategory } from "@prisma/client";
+import { boardShowsStatuses, ensureStatuses, renameStatusIfUnshared } from "@/lib/workflow/statuses.server";
 
 const columnSchema = z.object({
   id: z.string().uuid().nullish(),
@@ -50,9 +51,36 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const { columns } = reorderSchema.parse(body);
 
     const result = await prisma.$transaction(async (tx) => {
-      const existingIds = (
-        await tx.boardColumn.findMany({ where: { boardId }, select: { id: true } })
-      ).map((c) => c.id);
+      const existingColumns = await tx.boardColumn.findMany({
+        where: { boardId },
+        select: { id: true, key: true },
+      });
+      const existingIds = existingColumns.map((c) => c.id);
+
+      // A delivery board's columns are views onto the project's statuses, so
+      // every column must name one. A key edited on an existing column renames
+      // its status when no other board still shows the old key, so the items
+      // follow instead of being left on a key nothing shows; then each column's
+      // status is made sure of, and a category set here is the status's
+      // category (the column keeps a mirror of it). Deleting a column only
+      // removes the view: its status and items stay. Ceremony boards are
+      // prompts, not statuses, and are left out of all of this.
+      if (board && boardShowsStatuses(board.type)) {
+        for (const col of columns) {
+          const before = existingColumns.find((c) => c.id === col.id);
+          if (before && before.key !== col.key) {
+            await renameStatusIfUnshared(tx, { projectId, from: before.key, to: col.key, columnId: before.id });
+          }
+        }
+        await ensureStatuses(
+          tx,
+          { orgId, projectId },
+          columns.map((c) => ({ key: c.key, name: c.name, color: c.color, category: c.category, sortOrder: c.sortOrder })),
+          // Only an explicit category is written to an existing status; a
+          // payload without one must not reset it to the TODO default.
+          { writeCategory: true },
+        );
+      }
 
       const incomingIds = columns.filter((c) => c.id).map((c) => c.id!);
       const toDelete = existingIds.filter((id) => !incomingIds.includes(id));
@@ -87,6 +115,17 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             },
           });
         }
+      }
+
+      // Each column mirrors its status's category (deprecated, kept in step for
+      // the readers not yet moved to statuses).
+      if (board && boardShowsStatuses(board.type)) {
+        await tx.$executeRaw`
+          UPDATE board_columns bc SET category = s.category
+          FROM workflow_statuses s
+          WHERE bc.board_id = ${boardId}::uuid AND s.project_id = ${projectId}::uuid
+            AND s.key = bc.key AND bc.category <> s.category
+        `;
       }
 
       return tx.boardColumn.findMany({

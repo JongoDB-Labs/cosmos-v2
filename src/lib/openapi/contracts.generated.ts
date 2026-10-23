@@ -2,8 +2,10 @@
 
 import * as c0 from "@/app/api/v1/orgs/[orgId]/microsoft/teams-app/package/route.contract";
 import * as c1 from "@/app/api/v1/orgs/[orgId]/microsoft/teams-app/route.contract";
-import * as c2 from "@/app/api/v1/orgs/[orgId]/projects/route.contract";
-import * as c3 from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/favorite/route.contract";
-import * as c4 from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/route.contract";
+import * as c2 from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/statuses/[key]/route.contract";
+import * as c3 from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/statuses/route.contract";
+import * as c4 from "@/app/api/v1/orgs/[orgId]/projects/route.contract";
+import * as c5 from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/favorite/route.contract";
+import * as c6 from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/route.contract";
 
-export const contractModules: readonly Record<string, unknown>[] = [c0, c1, c2, c3, c4];
+export const contractModules: readonly Record<string, unknown>[] = [c0, c1, c2, c3, c4, c5, c6];

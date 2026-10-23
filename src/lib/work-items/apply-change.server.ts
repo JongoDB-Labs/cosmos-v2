@@ -30,7 +30,7 @@ import {
   cancelInputError,
   type CancelReason,
 } from "@/lib/work-items/cancel";
-import { ensureCancelledColumn } from "@/lib/work-items/cancel.server";
+import { ensureCancelledStatus } from "@/lib/workflow/statuses.server";
 import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
 import { setLabelsForMany, setWorkItemLabels } from "@/lib/work-items/labels";
 import { cascadeSchedule, type CascadedItem } from "@/lib/work-items/schedule-cascade-io";
@@ -338,7 +338,7 @@ export async function applyWorkItemChange(
   // A cancel names no column of its own: resolve (or create) the project's
   // Cancelled status first, so everything below treats it as a column move.
   if (patch.cancelReason) {
-    patch.columnKey = await ensureCancelledColumn(tx, projectId, patch.columnKey);
+    patch.columnKey = await ensureCancelledStatus(tx, projectId, patch.columnKey);
   }
 
   const effects: AfterCommitEffects = {

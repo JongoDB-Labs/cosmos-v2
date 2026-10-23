@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/db/client";
+import type { ColumnCategory } from "@prisma/client";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
+import { DEFAULT_COLUMNS } from "@/lib/boards/default-columns";
+import { ensureStatuses } from "@/lib/workflow/statuses.server";
 
 /**
  * Fixture helpers for the DB-backed specs.
@@ -37,6 +40,33 @@ import { createWorkItemRow } from "@/lib/work-items/write.server";
  * retrying in lockstep do not simply collide again.
  */
 
+/**
+ * Give a spec's project the statuses its items will sit in.
+ *
+ * A work item's `column_key` must name one of its project's statuses (a foreign
+ * key), and a bare `prisma.project.create` has none. With no `keys`, the
+ * project gets the default board's statuses; a key the default board does not
+ * have is created as TODO unless `categories` says otherwise. Idempotent.
+ */
+export async function ensureFixtureStatuses(
+  projectId: string,
+  keys: readonly string[] = DEFAULT_COLUMNS.map((c) => c.key),
+  categories: Partial<Record<string, ColumnCategory>> = {},
+): Promise<void> {
+  const { orgId } = await prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { orgId: true } });
+  const defaults = new Map(DEFAULT_COLUMNS.map((c) => [c.key, c]));
+  await ensureStatuses(
+    prisma,
+    { orgId, projectId },
+    keys.map((key, i) => ({
+      key,
+      name: defaults.get(key)?.name ?? key,
+      category: categories[key] ?? defaults.get(key)?.category ?? "TODO",
+      sortOrder: defaults.get(key)?.sortOrder ?? 100 + i,
+    })),
+  );
+}
+
 /** Prisma's code for a unique-constraint violation. */
 const UNIQUE_VIOLATION = "P2002";
 
@@ -69,6 +99,7 @@ export async function createFixtureWorkItem(
   input: FixtureWorkItemInput,
   attempts = 8,
 ) {
+  await ensureFixtureStatuses(input.projectId, [input.columnKey]);
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt++) {
     const last = await prisma.workItem.findFirst({

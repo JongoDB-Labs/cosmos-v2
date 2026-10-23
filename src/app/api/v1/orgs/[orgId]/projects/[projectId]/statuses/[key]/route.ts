@@ -1,0 +1,117 @@
+import { NextRequest } from "next/server";
+import { prisma } from "@/lib/db/client";
+import { getAuthContext } from "@/lib/auth/session";
+import { requireProjectManage } from "@/lib/rbac/require-project-manage";
+import { Permission } from "@/lib/rbac/permissions";
+import { handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { logAudit } from "@/lib/audit";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { STATUS_BOARD_TYPES, ensureStatuses, toStatusDto } from "@/lib/workflow/statuses.server";
+import { deleteStatus, updateStatus } from "./route.contract";
+
+type RouteParams = { params: Promise<{ orgId: string; projectId: string; key: string }> };
+
+/** Resolve the org, actor and status, and check the actor may manage the project's statuses. */
+async function authorize(request: NextRequest, p: { orgId: string; projectId: string; key: string }) {
+  const org = await prisma.organization.findUnique({ where: { id: p.orgId } });
+  if (!org) return { ok: false as const, error: problem(404, "not_found", "Organization not found", { request }) };
+  const ctx = await getAuthContext(org.slug);
+  if (!ctx) return { ok: false as const, error: problem(401, "unauthorized", undefined, { request }) };
+  const project = await prisma.project.findFirst({ where: { id: p.projectId, orgId: p.orgId }, select: { id: true } });
+  if (!project) return { ok: false as const, error: problem(404, "not_found", "Project not found", { request }) };
+  // The same authority as editing a board's columns: org-wide board update, or project manager.
+  await requireProjectManage(ctx, p.projectId, Permission.BOARD_UPDATE);
+  const status = await prisma.workflowStatus.findUnique({
+    where: { projectId_key: { projectId: p.projectId, key: p.key } },
+  });
+  if (!status) return { ok: false as const, error: problem(404, "not_found", "Status not found", { request }) };
+  return { ok: true as const, ctx, status };
+}
+
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  try {
+    const { params: p, body } = await parseRequest(updateStatus, request, params);
+    const auth = await authorize(request, p);
+    if (!auth.ok) return auth.error;
+
+    const row = await prisma.$transaction(async (tx) => {
+      // The category goes through ensureStatuses so the board columns showing
+      // the status keep their (deprecated) mirror of it in step.
+      if (body.category) {
+        await ensureStatuses(tx, { orgId: p.orgId, projectId: p.projectId }, [
+          { key: p.key, name: auth.status.name, category: body.category },
+        ], { writeCategory: true });
+      }
+      return tx.workflowStatus.update({
+        where: { id: auth.status.id },
+        data: {
+          ...(body.name !== undefined && { name: body.name }),
+          ...(body.color !== undefined && { color: body.color }),
+          ...(body.sortOrder !== undefined && { sortOrder: body.sortOrder }),
+          ...(body.archived !== undefined && { archivedAt: body.archived ? (auth.status.archivedAt ?? new Date()) : null }),
+        },
+      });
+    });
+
+    await logAudit({
+      orgId: p.orgId,
+      userId: auth.ctx.userId,
+      action: "workflow.status_updated",
+      entity: "workflow_status",
+      entityId: row.id,
+      metadata: {
+        projectId: p.projectId,
+        key: row.key,
+        changes: Object.keys(body).join(", "),
+        ...(body.category && body.category !== auth.status.category
+          ? { categoryFrom: auth.status.category, categoryTo: body.category }
+          : {}),
+      },
+      ipAddress: getIpAddress(request),
+    });
+    return respond(updateStatus, 200, toStatusDto(row));
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  try {
+    const { params: p } = await parseRequest(deleteStatus, request, params);
+    const auth = await authorize(request, p);
+    if (!auth.ok) return auth.error;
+
+    const items = await prisma.workItem.count({ where: { projectId: p.projectId, columnKey: p.key } });
+    if (items > 0) {
+      return problem(
+        409,
+        "conflict",
+        `${items} item${items === 1 ? " is" : "s are"} in this status. Move ${items === 1 ? "it" : "them"} first, or archive the status.`,
+        { request },
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // The columns showing it go with it; a column must name a status.
+      await tx.boardColumn.deleteMany({
+        where: { key: p.key, board: { projectId: p.projectId, type: { in: STATUS_BOARD_TYPES } } },
+      });
+      // RESTRICT from work_items still guards a move into it racing this delete.
+      await tx.workflowStatus.delete({ where: { id: auth.status.id } });
+    });
+
+    await logAudit({
+      orgId: p.orgId,
+      userId: auth.ctx.userId,
+      action: "workflow.status_deleted",
+      entity: "workflow_status",
+      entityId: auth.status.id,
+      metadata: { projectId: p.projectId, key: p.key },
+      ipAddress: getIpAddress(request),
+    });
+    return respond(deleteStatus, 204, undefined);
+  } catch (error) {
+    return handleApiError(error);
+  }
+}

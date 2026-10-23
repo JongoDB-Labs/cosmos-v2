@@ -15,6 +15,7 @@
  */
 import { prisma } from "@/lib/db/client";
 import { createWorkItemRow, updateWorkItems } from "@/lib/work-items/write.server";
+import { seedBoardColumns } from "@/lib/workflow/provision.server";
 import { OrgRole } from "@prisma/client";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
@@ -73,15 +74,14 @@ export async function seedWorld(): Promise<World> {
   const mkProject = async (orgId: string, k: string, extra: Record<string, unknown> = {}) => {
     const p = await prisma.project.create({ data: { orgId, name: `Project ${k}`, key: key(k), ...extra } });
     const board = await prisma.board.create({ data: { orgId, projectId: p.id, name: "Board", type: "KANBAN" } });
-    await prisma.boardColumn.createMany({
-      data: [
-        { boardId: board.id, key: "todo", name: "To Do", category: "TODO", sortOrder: 0 },
-        { boardId: board.id, key: "in-progress", name: "In Progress", category: "IN_PROGRESS", sortOrder: 1 },
-        { boardId: board.id, key: "review", name: k === "PB" ? "Secret Review Lane" : "Review", category: "IN_PROGRESS", sortOrder: 2 },
-        { boardId: board.id, key: "done", name: "Done", category: "DONE", sortOrder: 3 },
-        { boardId: board.id, key: "cancelled", name: "Cancelled", category: "CANCELLED", sortOrder: 4 },
-      ],
-    });
+    // Through the provisioning path, so each column's status exists too.
+    await seedBoardColumns(prisma, board, [
+      { key: "todo", name: "To Do", category: "TODO" },
+      { key: "in-progress", name: "In Progress", category: "IN_PROGRESS" },
+      { key: "review", name: k === "PB" ? "Secret Review Lane" : "Review", category: "IN_PROGRESS" },
+      { key: "done", name: "Done", category: "DONE" },
+      { key: "cancelled", name: "Cancelled", category: "CANCELLED" },
+    ]);
     return { id: p.id, key: p.key };
   };
   const P1 = await mkProject(orgA.id, "PA");
