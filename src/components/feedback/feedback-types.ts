@@ -4,7 +4,7 @@
  */
 
 export type FType = "BUG" | "FEATURE";
-export type FStatus = "OPEN" | "PLANNED" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "DECLINED";
+export type FStatus = "OPEN" | "PLANNED" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "DECLINED" | "MERGED";
 
 export interface FeedbackAttachment {
   id: string;
@@ -37,6 +37,10 @@ export interface FeedbackItem {
   // Intake decision surfaced by the guardrail pipeline (Phase 3c): accepted /
   // held / rejected / throttled / gated + reason (+ score). Null until intake ran.
   intake?: IntakeDecision | null;
+  /** Public comments on the item (feedback discussion). */
+  commentCount?: number;
+  lockedAt?: string | null;
+  mergedIntoId?: string | null;
 }
 
 export type IntakeState = "accepted" | "held" | "rejected" | "throttled" | "gated";
@@ -74,8 +78,11 @@ export const STATUS_LABELS: Record<FStatus, string> = {
   IN_REVIEW: "In review",
   DONE: "Done",
   DECLINED: "Declined",
+  MERGED: "Merged",
 };
 
+// The statuses a person can choose or filter by. MERGED is not one: only a
+// merge sets it, and merged requests are hidden from the board.
 export const STATUS_ORDER: FStatus[] = [
   "OPEN",
   "PLANNED",

@@ -45,6 +45,11 @@ export const ALL_SERVER_EVENT_TYPES = [
   "feedback.flagged",
   "feedback.duplicate",
   "feedback.delivered",
+  // Feedback discussion. Ids only, never content: clients refetch through the
+  // permission-checked GET, so a payload can never carry what a viewer may not see.
+  "feedback.comment.created",
+  "feedback.comment.updated",
+  "feedback.comment.deleted",
   "settings.updated",
   "member.updated",
   "hello",

@@ -52,8 +52,9 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 vi.mock("@/hooks/use-realtime-events", () => ({
+  // Several components subscribe (the portal and the open item's thread).
   useRealtimeEvents: (_org: string, handlers: Record<string, () => void>) => {
-    nav.handlers = handlers;
+    Object.assign(nav.handlers, handlers);
   },
 }));
 const { jsonFetch, FetchErrorMock } = vi.hoisted(() => {
@@ -140,4 +141,15 @@ describe("FeedbackPortal — ?item= deep link", () => {
       await screen.findByText("That feedback no longer exists, or you don't have access to it."),
     ).toBeInTheDocument();
   });
+
+  it("keeps the #c- hash, so the thread can find the linked comment", async () => {
+    nav.params = new URLSearchParams("item=fr-old");
+    window.history.replaceState(null, "", "/test-org/feedback?item=fr-old#c-abc");
+    renderPortal();
+
+    await screen.findByRole("dialog");
+    await waitFor(() => expect(nav.replace).toHaveBeenCalled());
+    expect(nav.replace.mock.calls[0][0]).toBe("/test-org/feedback#c-abc");
+  });
 });
+

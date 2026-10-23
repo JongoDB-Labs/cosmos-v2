@@ -45,7 +45,7 @@ import {
   type FStatus,
   type FType,
 } from "./feedback-types";
-import { ChevronUp, Plus, Bug, Lightbulb, Megaphone } from "lucide-react";
+import { ChevronUp, Plus, Bug, Lightbulb, Megaphone, MessageSquare } from "lucide-react";
 
 // Shape of /api/v1/orgs/[orgId]/projects — `success(projects)` returns a bare
 // array (jsonFetch unwraps the `{ data }` envelope), so this is one element.
@@ -274,7 +274,8 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
       .finally(() => {
         const url = new URL(window.location.href);
         url.searchParams.delete("item");
-        router.replace(url.pathname + url.search);
+        // Keep the hash: `#c-<id>` points the thread at one comment.
+        router.replace(url.pathname + url.search + url.hash);
         handledDeepLinkRef.current = null;
       });
   }, [searchParams, basePath, router]);
@@ -589,6 +590,15 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                     <h3 className="font-medium text-sm truncate group-hover/fb:underline">
                       {item.title}
                     </h3>
+                    {(item.commentCount ?? 0) > 0 && (
+                      <span
+                        className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground"
+                        aria-label={`${item.commentCount} comment${item.commentCount === 1 ? "" : "s"}`}
+                      >
+                        <MessageSquare className="h-3 w-3" aria-hidden />
+                        {item.commentCount}
+                      </span>
+                    )}
                     {reporterLabel(item) && (
                       <span className="text-[10px] text-muted-foreground">
                         {reporterLabel(item)}
@@ -785,6 +795,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
 
       {/* Detail dialog — full view of a single item (FR: "click on the FR → modal with all the details"). */}
       <FeedbackDetailDialog
+        orgId={orgId}
         item={detailItem}
         canManage={canManage}
         busyId={busyId}

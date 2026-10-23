@@ -94,7 +94,8 @@ export async function createFeedback(input: Record<string, unknown>, ctx: ToolCo
 // ── set_feedback_status ─────────────────────────────────────────────────────
 const setStatusSchema = z.object({
   feedbackId: z.string().uuid(),
-  status: z.nativeEnum(FeedbackStatus),
+  // MERGED is set only by a merge, never as a plain status change.
+  status: z.nativeEnum(FeedbackStatus).refine((s) => s !== "MERGED", "MERGED is set by merging"),
 });
 
 export async function setFeedbackStatus(input: Record<string, unknown>, ctx: ToolContext) {

@@ -30,6 +30,7 @@ import {
   type FeedbackItem,
   type FStatus,
 } from "./feedback-types";
+import { FeedbackThread } from "./feedback-thread";
 
 /**
  * The full view of one feedback item (FR: "click on the FR and a modal pops up
@@ -38,6 +39,7 @@ import {
  * only its own edit mode.
  */
 export function FeedbackDetailDialog({
+  orgId,
   item: detailItem,
   canManage,
   busyId,
@@ -47,6 +49,7 @@ export function FeedbackDetailDialog({
   onSaveEdit,
   onRequestDelete: setConfirmDeleteId,
 }: {
+  orgId: string;
   item: FeedbackItem | null;
   canManage: boolean;
   busyId: string | null;
@@ -75,7 +78,7 @@ export function FeedbackDetailDialog({
           }
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           {detailItem && (
             <>
               <DialogHeader>
@@ -200,6 +203,8 @@ export function FeedbackDetailDialog({
                   </div>
                 )}
               </div>
+
+              <FeedbackThread orgId={orgId} item={detailItem} />
 
               <DialogFooter className="sm:justify-between">
                 <button
