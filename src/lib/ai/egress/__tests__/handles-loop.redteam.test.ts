@@ -23,6 +23,7 @@
 //   7. AUDIT: mint logs decidedBy:"handle_mint"; resolve logs "handle_resolve".
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import crypto from "node:crypto";
+import { stubAuth } from "@/lib/testing/tool-auth";
 
 // ── Hoisted spies + an in-memory handle store ──────────────────────────────
 const { callModel, executeTool, effectiveCeiling, logEgressDecision, classifyLikelyCui, store } = vi.hoisted(() => ({
@@ -122,7 +123,7 @@ const WORK_ITEM_LIST = { count: 1, items: [{ id: "w1", title: CUI_TITLE, status:
 
 function loopOpts(conversationId: string, extra: Record<string, unknown> = {}) {
   return {
-    orgId: "org-rt", userId: "u-rt", tenantClass: "gov" as const,
+    orgId: "org-rt", userId: "u-rt", auth: stubAuth("org-rt", "u-rt"), tenantClass: "gov" as const,
     conversationId, systemPrompt: "you are cosmos", initialPrompt: "do the thing", ...extra,
   };
 }

@@ -245,3 +245,37 @@ describe("INVARIANT LOCK — merged egress maps equal the locked literals", () =
     expect(JSON.stringify(mv)).not.toContain("jane@acme.us");
   });
 });
+
+describe("INVARIANT LOCK — every connector tool declares read or write", () => {
+  it("each descriptor's access map covers exactly its own tools", async () => {
+    const { getConnectorDescriptors } = await import("./registry");
+    for (const d of getConnectorDescriptors()) {
+      expect(Object.keys(d.access).sort(), d.provider).toEqual(d.toolDefs.map((t) => t.name).sort());
+    }
+  });
+
+  it("the writes are exactly the tools that send, post, create, update or delete", async () => {
+    const { connectorToolAccess, connectorToolNames } = await import("./registry");
+    const writes = [...connectorToolNames()].filter((n) => connectorToolAccess(n) === "write").sort();
+    expect(writes).toEqual([
+      "create_calendar_event", "create_drive_folder", "delete_calendar_event", "jira_create_issue",
+      "nango_proxy_request", "send_email", "slack_post_message", "update_calendar_event",
+    ]);
+    expect(connectorToolAccess("nango_proxy_request", { method: "GET" })).toBe("read");
+    expect(connectorToolAccess("nango_proxy_request", {})).toBe("read"); // no method ⇒ GET, as the executor does
+    expect(connectorToolAccess("nango_proxy_request", { method: "delete" })).toBe("write");
+    expect(connectorToolAccess("not_a_connector_tool")).toBeUndefined();
+  });
+});
+
+describe("INVARIANT LOCK — every connector write is audited", () => {
+  it("each connector tool that can write has an assistant audit mapping", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../tool-executor.ts", import.meta.url), "utf8");
+    const map = src.slice(src.indexOf("const ASSISTANT_AUDIT_ACTIONS"), src.indexOf("};", src.indexOf("const ASSISTANT_AUDIT_ACTIONS")));
+    const { connectorToolAccess, connectorToolNames } = await import("./registry");
+    for (const name of connectorToolNames()) {
+      if (connectorToolAccess(name) === "write") expect(map, name).toMatch(new RegExp(`\\n\\s+${name}:`));
+    }
+  });
+});

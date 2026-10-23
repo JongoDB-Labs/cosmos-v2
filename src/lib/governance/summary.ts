@@ -42,6 +42,7 @@ export const DECIDED_BY_REASONS = [
   "connector_availability_block",
   "connector_gov_block",
   "connector_disabled_block",
+  "tool_not_offered_block",
 ] as const;
 
 export type DecidedBy = (typeof DECIDED_BY_REASONS)[number];
