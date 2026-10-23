@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.9",
+    date: "2026-10-23",
+    title: "Saved boards keep their filter",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A board saved from the Issues view now shows only the issues that matched your filters when you saved it, instead of every issue in the project.",
+      },
+    ],
+  },
+  {
     version: "2.439.8",
     date: "2026-10-23",
     title: "Classified exports are marked and gated",
