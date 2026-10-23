@@ -9,7 +9,7 @@
  *   Shared with me  others' filters, by how they were shared
  *   Recently used   the last five you ran in this browser
  *
- * Per filter: Run, Star / Unstar, Edit details, Copy CQL, Copy link, Delete.
+ * Per filter: Run, Star / Unstar, Edit details, Copy CQL, Copy link, Subscribe, Delete.
  * "Copy CQL" copies the text as you may see it (‹restricted› parts and all).
  */
 import { useMemo, useState } from "react";
@@ -40,6 +40,8 @@ export interface FiltersMenuProps {
   activeId: string | null;
   onRun: (f: SavedFilter) => void;
   onEdit: (f: SavedFilter) => void;
+  /** Open the Subscribe dialog for this filter. */
+  onSubscribe: (f: SavedFilter) => void;
 }
 
 const SHARED_AS: Record<SavedFilter["visibility"], string> = {
@@ -49,7 +51,7 @@ const SHARED_AS: Record<SavedFilter["visibility"], string> = {
   ORG: "Everyone",
 };
 
-export function FiltersMenu({ orgId, orgSlug, activeId, onRun, onEdit }: FiltersMenuProps) {
+export function FiltersMenu({ orgId, orgSlug, activeId, onRun, onEdit, onSubscribe }: FiltersMenuProps) {
   const { data: filters = [] } = useSavedFilters(orgId);
   const { star, remove } = useSavedFilterMutations(orgId);
   const [q, setQ] = useState("");
@@ -95,6 +97,7 @@ export function FiltersMenu({ orgId, orgSlug, activeId, onRun, onEdit }: Filters
         {f.canEdit && <DropdownMenuItem onClick={() => onEdit(f)}>Edit details…</DropdownMenuItem>}
         <DropdownMenuItem onClick={() => void copyCql(f)}>Copy CQL</DropdownMenuItem>
         <DropdownMenuItem onClick={() => copyLink(f)}>Copy link</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onSubscribe(f)}>Subscribe…</DropdownMenuItem>
         {f.canDelete && (
           <>
             <DropdownMenuSeparator />

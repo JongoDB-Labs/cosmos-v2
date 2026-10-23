@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkSchedule, describeSchedule, nextRun, parseSchedule, type Schedule } from "../schedule";
+import { checkSchedule, describeSchedule, nextRun, parseSchedule, presetCron, type Schedule } from "../schedule";
 
 const s = (cron: string) => {
   const r = parseSchedule(cron);
@@ -77,5 +77,17 @@ describe("describeSchedule", () => {
     ["0 8,17 * * *", "Custom (0 8,17 * * *)"],
   ])("%s → %s", (cron, text) => {
     expect(describeSchedule(cron)).toBe(text);
+  });
+});
+
+describe("presetCron", () => {
+  it.each([
+    ["weekdays", "08:00", "0 8 * * 1-5"],
+    ["daily", "07:45", "45 7 * * *"],
+    ["weekly", "09:30", "30 9 * * 3"],
+    ["monthly", "18:05", "5 18 15 * *"],
+    ["custom", "08:00", "0 6 * * 2"],
+  ] as const)("%s at %s → %s", (preset, time, cron) => {
+    expect(presetCron(preset, time, 3, 15, " 0 6 * * 2 ")).toBe(cron);
   });
 });

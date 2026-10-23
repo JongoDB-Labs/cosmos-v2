@@ -153,3 +153,23 @@ export function describeSchedule(cron: string): string {
   if (parts[4] === "*" && s.days.size === 1) return `Monthly on day ${[...s.days][0]}${at}`;
   return `Custom (${cron})`;
 }
+
+export type Preset = "weekdays" | "daily" | "weekly" | "monthly" | "custom";
+
+/** The cron a Subscribe-dialog preset and an "HH:MM" time stand for. */
+export function presetCron(preset: Preset, time: string, weekday: number, monthDay: number, custom: string): string {
+  const [h, m] = time.split(":").map(Number);
+  const at = `${Number.isFinite(m) ? m : 0} ${Number.isFinite(h) ? h : 8}`;
+  switch (preset) {
+    case "weekdays":
+      return `${at} * * 1-5`;
+    case "daily":
+      return `${at} * * *`;
+    case "weekly":
+      return `${at} * * ${weekday}`;
+    case "monthly":
+      return `${at} ${monthDay} * *`;
+    default:
+      return custom.trim();
+  }
+}

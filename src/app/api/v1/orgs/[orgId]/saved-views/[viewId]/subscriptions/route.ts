@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { prisma } from "@/lib/db/client";
 import { success, created } from "@/lib/api-helpers";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { cqlErrorResponse, cqlGate } from "@/lib/query/route.server";
@@ -22,7 +23,8 @@ const subscriptionBody = z.strictObject({
 
 /**
  * A saved filter's email subscriptions (query design §12.4).
- * GET   the ones the caller made, that reach them, or (admins) all of them.
+ * GET   the ones the caller made, that reach them, or (admins) all of them;
+ *       plus the caller's teams, for the dialog's recipient picker.
  * POST  subscribe yourself, or a team you're on and manage.
  * Behind the query-language switch, like every CQL surface.
  */
@@ -34,7 +36,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const s = await viewerScope(gate.ctx);
     const view = await loadView(orgId, viewId);
     if (!view || !canSee(s, view)) return new Response("Not found", { status: 404 });
-    return success({ subscriptions: await listSubscriptions(s, viewId) });
+    // The teams the caller could subscribe: theirs (the server re-checks the rest).
+    const teams = await prisma.team.findMany({ where: { id: { in: [...s.teams.keys()] } }, select: { id: true, name: true }, orderBy: { name: "asc" } });
+    return success({ subscriptions: await listSubscriptions(s, viewId), teams });
   } catch (e) {
     return cqlErrorResponse(e);
   }
