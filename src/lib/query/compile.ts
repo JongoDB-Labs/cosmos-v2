@@ -1,0 +1,631 @@
+/**
+ * Resolved CqlQuery → Prisma where/orderBy. PURE: everything that needs the
+ * database (which sprints are open, which columns are "done", what a variable
+ * holds) was looked up by resolve.server.ts and arrives in `CompileEnv`.
+ *
+ * The output is the USER predicate only. It never mentions orgId and never
+ * widens project scope: execute.server.ts places it inside `buildScopedWhere`'s
+ * envelope, and a test walks generated trees to prove orgId never appears here.
+ * Only execute.server.ts may import this module (arch test).
+ *
+ * Semantics worth knowing:
+ *   - `!=` and `NOT IN` do not match items where the field is empty (Jira's
+ *     rule); the typechecker warns and offers `OR f IS EMPTY`.
+ *   - A clause whose value is an UNSET dashboard variable is inert (matches
+ *     everything): "Person: everyone" narrows nothing.
+ *   - `assignee` matches the primary assignee or any co-assignee.
+ *   - `statusCategory = DONE` is "done column OR has a completion date", the
+ *     same OR that lib/work-items/done-state.ts uses.
+ */
+import type { Prisma } from "@prisma/client";
+import { mentionsField, type CmpOp, type CqlNode, type CqlQuery, type CqlSort, type CqlValue, type FieldRef, type LeafNode } from "./ast";
+import { PRIORITY_ORDER, type SystemFieldId } from "./fields";
+import { applyRel, dayOf, durationSeconds, endOf, literalRange, periodOffset, startOf, workingDaysFrom, type Period } from "./dates";
+import { fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
+import type { CustomFieldType } from "./typecheck";
+
+type Where = Prisma.WorkItemWhereInput;
+
+export interface Compiled {
+  where: Where;
+  archived: "active" | "only" | "all";
+  orderBy: Prisma.WorkItemOrderByWithRelationInput[];
+}
+
+export const TRUE: Where = {};
+export const FALSE: Where = { id: { in: [] } };
+
+const and = (...w: Where[]): Where => {
+  const parts = w.filter((x) => Object.keys(x).length > 0);
+  return parts.length === 0 ? TRUE : parts.length === 1 ? parts[0] : { AND: parts };
+};
+const or = (...w: Where[]): Where => (w.length === 0 ? FALSE : w.length === 1 ? w[0] : { OR: w });
+const not = (w: Where): Where => ({ NOT: w });
+
+/**
+ * A filter on a NULLABLE column, made two-valued. In SQL `NOT (col IN (…))` is
+ * NULL, not true, when col is NULL, so negating a plain filter silently drops
+ * every row where the column is empty: `assignee != me` lost items whose only
+ * assignees were co-assignees. Carrying `not: null` inside the filter makes its
+ * NOT a true complement.
+ */
+const nn = (column: string, filter: Record<string, unknown>): Where => ({ [column]: { ...filter, not: null } }) as Where;
+
+/** One concrete value after functions and variables are expanded. */
+type Bound =
+  | { k: "id"; id: string }
+  | { k: "empty" }
+  | { k: "scalar"; v: string | number | boolean }
+  /** An instant, or for a date literal / `=` the whole day. */
+  | { k: "time"; from: Date; to: Date; day: boolean }
+  | { k: "where"; where: Where };
+
+class Inert extends Error {}
+
+function timeOf(v: CqlValue, env: CompileEnv): Bound {
+  switch (v.t) {
+    case "date": {
+      const r = literalRange(v.v, env.tz);
+      return { k: "time", ...r, day: /^\d{4}-\d{2}-\d{2}$/.test(v.v) };
+    }
+    case "rel": {
+      const at = applyRel(v.v, env.now, env.tz);
+      return { k: "time", from: at, to: new Date(at.getTime() + 1), day: false };
+    }
+    case "fn": {
+      const at = fnInstant(v, env);
+      return { k: "time", from: at, to: new Date(at.getTime() + 1), day: false };
+    }
+    default:
+      throw new Error(`Not a time value: ${v.t}`);
+  }
+}
+
+function fnInstant(v: Extract<CqlValue, { t: "fn" }>, env: CompileEnv): Date {
+  const arg = v.args[0] as { t: "rel"; v: string } | { t: "num"; v: number } | undefined;
+  const period = (name: string): Period => name.replace(/^(startOf|endOf)/, "").toLowerCase() as Period;
+  switch (v.name) {
+    case "now":
+      return env.now;
+    case "startOfDay":
+    case "startOfWeek":
+    case "startOfMonth":
+    case "startOfYear":
+      return startOf(period(v.name), env.now, env.tz, periodOffset(period(v.name), arg));
+    case "endOfDay":
+    case "endOfWeek":
+    case "endOfMonth":
+    case "endOfYear":
+      return endOf(period(v.name), env.now, env.tz, periodOffset(period(v.name), arg));
+    case "sinceLastStandup":
+      return env.sinceLastStandup ?? workingDaysFrom(env.now, env.tz, -1);
+    default:
+      throw new Error(`${v.name}() is not a date`);
+  }
+}
+
+/** Item-set functions as predicates on the item itself. */
+function itemFnWhere(v: Extract<CqlValue, { t: "fn" }>, env: CompileEnv): Where | null {
+  const refId = (x: CqlValue | undefined) => (x && x.t === "ref" ? x.id : null);
+  switch (v.name) {
+    case "watchedItems":
+      return { watchers: { some: { userId: env.actorUserId } } };
+    case "childrenOf": {
+      const id = refId(v.args[0]);
+      return id ? { parentId: id } : FALSE;
+    }
+    case "linkedItems": {
+      const id = refId(v.args[0]);
+      if (!id) return FALSE;
+      const typeArg = v.args[1];
+      const type = typeArg && typeArg.t === "str" ? (typeArg.v.toUpperCase() as Prisma.EnumLinkTypeFilter["equals"]) : undefined;
+      return or(
+        { outgoingLinks: { some: { targetItemId: id, ...(type ? { type } : {}) } } },
+        { incomingLinks: { some: { sourceItemId: id, ...(type ? { type } : {}) } } },
+      );
+    }
+    case "updatedBy": {
+      const userId = v.args[0]?.t === "ref" ? v.args[0].id : v.args[0]?.t === "fn" ? env.actorUserId : null;
+      if (!userId) return FALSE;
+      const from = v.args[1] ? (timeOf(v.args[1], env) as Extract<Bound, { k: "time" }>).from : undefined;
+      const to = v.args[2] ? (timeOf(v.args[2], env) as Extract<Bound, { k: "time" }>).to : undefined;
+      return {
+        activities: {
+          some: {
+            userId,
+            ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lt: to } : {}) } } : {}),
+          },
+        },
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+const DURATION_FIELDS = new Set<string>(["originalEstimate", "remainingEstimate", "timeSpent"]);
+
+/** Expand a leaf's values: functions to ids, variables to their values. */
+function bind(values: CqlValue[], field: FieldRef, env: CompileEnv): Bound[] {
+  const duration = field.kind === "sys" && DURATION_FIELDS.has(field.id);
+  const out: Bound[] = [];
+  for (const v of values) {
+    switch (v.t) {
+      case "var": {
+        const val = env.vars.get(varKey(v.name, field));
+        if (val == null) throw new Inert();
+        out.push(...bind(val, field, env));
+        break;
+      }
+      case "ref":
+        out.push({ k: "id", id: v.id });
+        break;
+      case "empty":
+        out.push({ k: "empty" });
+        break;
+      case "fn": {
+        if (v.name === "currentUser") {
+          out.push({ k: "id", id: env.actorUserId });
+          break;
+        }
+        if (v.name === "currentProject") {
+          out.push(env.contextProjectId ? { k: "id", id: env.contextProjectId } : { k: "where", where: FALSE });
+          break;
+        }
+        const itemWhere = itemFnWhere(v, env);
+        if (itemWhere) {
+          out.push({ k: "where", where: itemWhere });
+          break;
+        }
+        const ids = env.fnIds.get(fnKey(v));
+        if (ids) {
+          out.push(...ids.map((id) => ({ k: "id" as const, id })));
+          break;
+        }
+        out.push(timeOf(v, env));
+        break;
+      }
+      case "rel":
+        // `2h` on an estimate is an amount of time, not a moment.
+        out.push(duration ? { k: "scalar", v: v.v } : timeOf(v, env));
+        break;
+      case "date":
+        out.push(timeOf(v, env));
+        break;
+      case "str":
+      case "num":
+      case "bool":
+        out.push({ k: "scalar", v: v.v });
+        break;
+    }
+  }
+  return out;
+}
+
+const ids = (b: Bound[]) => b.filter((x): x is Extract<Bound, { k: "id" }> => x.k === "id").map((x) => x.id);
+const scalars = (b: Bound[]) => b.filter((x): x is Extract<Bound, { k: "scalar" }> => x.k === "scalar").map((x) => x.v);
+const wheres = (b: Bound[]) => b.filter((x): x is Extract<Bound, { k: "where" }> => x.k === "where").map((x) => x.where);
+const hasEmpty = (b: Bound[]) => b.some((x) => x.k === "empty");
+
+/**
+ * How a field matches a set of values, and what "empty" means for it. `match`
+ * gets the non-empty values; `isEmpty` is null for fields that are never empty.
+ */
+interface FieldCompiler {
+  match(b: Bound[]): Where;
+  isEmpty: Where | null;
+  /** `<` / `>` etc., for ordered fields. */
+  order?(cmp: Exclude<CmpOp, "eq" | "neq">, b: Bound): Where;
+  /** `IN ALL`, for multi-valued fields. */
+  matchAll?(b: Bound[]): Where;
+  /** `~`. */
+  text?(q: string): Where;
+}
+
+/**
+ * The text of a `~` search as a LIKE operand. Prisma's contains/startsWith do
+ * NOT escape LIKE wildcards: unescaped, `summary ~ "%"` matched every item and
+ * `_` matched any character. Postgres' default LIKE escape is backslash.
+ */
+export function likeText(q: string): string {
+  return q.replace(/\*$/, "").replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+function contains(column: "title" | "description" | "resolution" | "externalKey" | "externalSource", q: string): Where {
+  const prefix = q.endsWith("*") && column === "title";
+  const value = likeText(q);
+  return { [column]: prefix ? { startsWith: value, mode: "insensitive" } : { contains: value, mode: "insensitive" } } as Where;
+}
+
+function timeCompiler(column: keyof Where & string, nullable: boolean, tz: string): FieldCompiler {
+  const col = (filter: Prisma.DateTimeNullableFilter): Where =>
+    (nullable ? nn(column, filter as Record<string, unknown>) : ({ [column]: filter } as Where));
+  return {
+    match: (b) =>
+      or(
+        ...b
+          .filter((x): x is Extract<Bound, { k: "time" }> => x.k === "time")
+          // `=` means "on that day", for a literal date or an offset alike.
+          .map((t) => (t.day ? t : { ...t, ...dayOf(t.from, tz) }))
+          .map((t) => col({ gte: t.from, lt: t.to, ...(nullable ? { not: null } : {}) })),
+      ),
+    isEmpty: nullable ? col({ equals: null }) : null,
+    order: (cmp, x) => {
+      const t = x as Extract<Bound, { k: "time" }>;
+      // For a whole day, `<` means before the day and `<=` means through it.
+      switch (cmp) {
+        case "lt":
+          return col({ lt: t.from });
+        case "lte":
+          return col({ lt: t.day ? t.to : new Date(t.from.getTime() + 1) });
+        case "gt":
+          return col({ gte: t.day ? t.to : new Date(t.from.getTime() + 1) });
+        case "gte":
+          return col({ gte: t.from });
+      }
+    },
+  };
+}
+
+function numberCompiler(column: "storyPoints" | "originalEstimate" | "remainingEstimate" | "timeSpent", duration: boolean): FieldCompiler {
+  const num = (b: Bound): number => {
+    if (b.k !== "scalar") throw new Error("number expected");
+    if (duration && typeof b.v === "string") return durationSeconds(b.v) ?? NaN;
+    return Number(b.v);
+  };
+  const col = (f: Prisma.IntNullableFilter): Where => nn(column, f as Record<string, unknown>);
+  return {
+    match: (b) => col({ in: scalars(b).map((v) => num({ k: "scalar", v })) }),
+    isEmpty: { [column]: null } as Where,
+    order: (cmp, b) => col({ [cmp]: num(b) }),
+  };
+}
+
+function enumCompiler(column: "priority" | "workCategory" | "cancelReason" | "highlight", nullable: boolean): FieldCompiler {
+  return {
+    match: (b) =>
+      nullable ? nn(column, { in: scalars(b).map(String) }) : ({ [column]: { in: scalars(b).map(String) } } as Where),
+    isEmpty: nullable ? ({ [column]: null } as Where) : null,
+    order:
+      column === "priority"
+        ? (cmp, b) => {
+            const r = PRIORITY_ORDER.indexOf(String((b as { v: string }).v) as (typeof PRIORITY_ORDER)[number]);
+            const keep = PRIORITY_ORDER.filter((_, i) =>
+              cmp === "lt" ? i < r : cmp === "lte" ? i <= r : cmp === "gt" ? i > r : i >= r,
+            );
+            return { priority: { in: [...keep] } };
+          }
+        : undefined,
+  };
+}
+
+function stringCompiler(column: "resolution" | "externalKey" | "externalSource"): FieldCompiler {
+  return {
+    match: (b) => or(...scalars(b).map((v) => nn(column, { equals: String(v), mode: "insensitive" }))),
+    isEmpty: or({ [column]: null } as Where, { [column]: "" } as Where),
+    text: (q) => and(nn(column, {}), contains(column, q)),
+  };
+}
+
+function statusCategoryWhere(cat: StatusCategory, env: CompileEnv): Where {
+  const inColumns = or(
+    ...env.statusCategories[cat]
+      .filter((p) => p.keys.length > 0)
+      .map((p) => ({ projectId: p.projectId, columnKey: { in: p.keys } })),
+  );
+  // DONE is "in a done lane OR finished", like isWorkItemDone. The others
+  // exclude finished work so an item is in exactly one category.
+  if (cat === "DONE") return or(inColumns, { completedAt: { not: null } });
+  if (cat === "CANCELLED") return inColumns;
+  return and(inColumns, { completedAt: null });
+}
+
+function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
+  switch (id) {
+    case "project":
+      return { match: (b) => ({ projectId: { in: ids(b) } }), isEmpty: null };
+    case "key":
+      return {
+        match: (b) => or(...(ids(b).length ? [{ id: { in: ids(b) } }] : []), ...wheres(b)),
+        isEmpty: null,
+        order: (cmp, b) => {
+          const item = b.k === "id" ? env.items.get(b.id) : undefined;
+          if (!item) return FALSE;
+          return { projectId: item.projectId, ticketNumber: { [cmp]: item.ticketNumber } };
+        },
+      };
+    case "type":
+      return { match: (b) => ({ workItemTypeId: { in: ids(b) } }), isEmpty: null };
+    case "status":
+      return { match: (b) => ({ columnKey: { in: ids(b) } }), isEmpty: null };
+    case "statusCategory":
+      return {
+        match: (b) => or(...scalars(b).map((c) => statusCategoryWhere(c as StatusCategory, env))),
+        isEmpty: null,
+      };
+    case "priority":
+      return enumCompiler("priority", false);
+    case "assignee":
+      return {
+        match: (b) => {
+          const u = ids(b);
+          return or(nn("assigneeId", { in: u }), { assignees: { some: { userId: { in: u } } } });
+        },
+        isEmpty: { assigneeId: null, assignees: { none: {} } },
+      };
+    case "reporter":
+      return { match: (b) => ({ createdById: { in: ids(b) } }), isEmpty: null };
+    case "watcher":
+      return { match: (b) => ({ watchers: { some: { userId: { in: ids(b) } } } }), isEmpty: { watchers: { none: {} } } };
+    case "label":
+      return {
+        match: (b) => ({ labels: { some: { labelId: { in: ids(b) } } } }),
+        matchAll: (b) => and(...ids(b).map((labelId) => ({ labels: { some: { labelId } } }))),
+        isEmpty: { labels: { none: {} } },
+      };
+    case "sprint":
+      return { match: (b) => nn("intervalId", { in: ids(b) }), isEmpty: { intervalId: null } };
+    case "intervalKind":
+      return {
+        match: (b) =>
+          and(nn("intervalId", {}), {
+            interval: { is: { intervalKind: { in: scalars(b).map(String) as Prisma.EnumIntervalKindFilter["in"] } } },
+          }),
+        isEmpty: null,
+      };
+    case "pi":
+      return {
+        match: (b) => and(nn("intervalId", {}), or({ intervalId: { in: ids(b) } }, { interval: { is: { parentId: { in: ids(b) } } } })),
+        isEmpty: null,
+      };
+    case "team":
+      return { match: (b) => nn("teamId", { in: ids(b) }), isEmpty: { teamId: null } };
+    case "parent":
+      return { match: (b) => nn("parentId", { in: ids(b) }), isEmpty: { parentId: null } };
+    case "blocked": {
+      const blocked: Where = or(
+        { incomingLinks: { some: { type: "BLOCKS" } } },
+        { outgoingLinks: { some: { type: "BLOCKED_BY" } } },
+      );
+      return {
+        match: (b) => or(...scalars(b).map((v) => (v === true ? blocked : not(blocked)))),
+        isEmpty: null,
+      };
+    }
+    case "linkedTo":
+      return {
+        match: (b) =>
+          or(
+            { outgoingLinks: { some: { targetItemId: { in: ids(b) } } } },
+            { incomingLinks: { some: { sourceItemId: { in: ids(b) } } } },
+          ),
+        isEmpty: null,
+      };
+    case "points":
+      return numberCompiler("storyPoints", false);
+    case "originalEstimate":
+    case "remainingEstimate":
+    case "timeSpent":
+      return numberCompiler(id, true);
+    case "created":
+      return timeCompiler("createdAt", false, env.tz);
+    case "updated":
+      return timeCompiler("updatedAt", false, env.tz);
+    case "due":
+      return timeCompiler("dueDate", true, env.tz);
+    case "start":
+      return timeCompiler("startDate", true, env.tz);
+    case "actualStart":
+      return timeCompiler("actualStart", true, env.tz);
+    case "completed":
+      return timeCompiler("completedAt", true, env.tz);
+    case "statusChanged":
+      return timeCompiler("columnEnteredAt", true, env.tz);
+    case "archivedAt":
+      return timeCompiler("archivedAt", true, env.tz);
+    case "archived":
+      return {
+        match: (b) => or(...scalars(b).map((v) => (v === true ? { archivedAt: { not: null } } : { archivedAt: null }))),
+        isEmpty: null,
+      };
+    case "workCategory":
+      return enumCompiler("workCategory", false);
+    case "cancelReason":
+      return enumCompiler("cancelReason", true);
+    case "highlight":
+      return enumCompiler("highlight", true);
+    case "resolution":
+    case "externalKey":
+    case "externalSource":
+      return stringCompiler(id);
+    case "summary":
+      return { match: () => FALSE, isEmpty: null, text: (q) => contains("title", q) };
+    case "description":
+      return { match: () => FALSE, isEmpty: { description: "" }, text: (q) => contains("description", q) };
+    case "comment":
+      return {
+        match: () => FALSE,
+        isEmpty: null,
+        text: (q) => ({ comments: { some: { content: { contains: likeText(q), mode: "insensitive" } } } }),
+      };
+    case "text":
+      return {
+        match: () => FALSE,
+        isEmpty: null,
+        text: (q) => {
+          const value = likeText(q);
+          return or(
+            { title: { contains: value, mode: "insensitive" } },
+            { description: { contains: value, mode: "insensitive" } },
+            { comments: { some: { content: { contains: value, mode: "insensitive" } } } },
+          );
+        },
+      };
+    case "ancestor":
+    case "milestone":
+    case "rank":
+      throw new Error(`${id} is not compiled in this phase`);
+  }
+}
+
+function cfCompiler(key: string, type: CustomFieldType): FieldCompiler {
+  const at = (f: Omit<Prisma.JsonNullableFilter<"WorkItem">, "path">): Where => ({ customFields: { path: [key], ...f } });
+  switch (type) {
+    case "NUMBER":
+      return {
+        match: (b) => or(...scalars(b).map((v) => at({ equals: Number(v) }))),
+        isEmpty: null,
+        order: (cmp, b) => at({ [cmp]: Number((b as { v: number }).v) }),
+      };
+    case "DATE":
+      return {
+        match: (b) =>
+          or(
+            ...b
+              .filter((x): x is Extract<Bound, { k: "time" }> => x.k === "time")
+              .map((t) => at({ gte: isoDay(t.from), lt: isoDay(t.to) })),
+          ),
+        isEmpty: null,
+        // Stored as YYYY-MM-DD strings, which compare correctly as text.
+        order: (cmp, b) => {
+          const t = b as Extract<Bound, { k: "time" }>;
+          const bound = cmp === "lte" || cmp === "gt" ? (t.day ? t.to : t.from) : t.from;
+          return at({ [cmp === "lte" ? "lt" : cmp === "gt" ? "gte" : cmp]: isoDay(bound) });
+        },
+      };
+    case "MULTI_SELECT":
+      return {
+        match: (b) => or(...scalars(b).map((v) => at({ array_contains: [String(v)] }))),
+        matchAll: (b) => at({ array_contains: scalars(b).map(String) }),
+        isEmpty: null,
+      };
+    case "CHECKBOX":
+      return { match: (b) => or(...scalars(b).map((v) => at({ equals: v === true }))), isEmpty: null };
+    case "USER":
+      return { match: (b) => or(...ids(b).map((id) => at({ equals: id }))), isEmpty: null };
+    default:
+      // TEXT, URL, EMAIL, SELECT: exact value.
+      return { match: (b) => or(...scalars(b).map((v) => at({ equals: String(v) }))), isEmpty: null };
+  }
+}
+
+function isoDay(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function compilerFor(field: FieldRef, env: CompileEnv): FieldCompiler {
+  if (field.kind === "sys") return sysCompiler(field.id, env);
+  const type = env.customFields.get(field.key);
+  if (!type) throw new Error(`Unknown custom field ${field.key}`);
+  return cfCompiler(field.key, type);
+}
+
+function compileLeaf(n: LeafNode, env: CompileEnv): Where {
+  const c = compilerFor(n.field, env);
+  try {
+    switch (n.op) {
+      case "empty": {
+        if (!c.isEmpty) return n.negate ? TRUE : FALSE;
+        return n.negate ? not(c.isEmpty) : c.isEmpty;
+      }
+      case "text": {
+        if (!c.text) throw new Error("no text match");
+        const w = c.text(n.query);
+        return n.negate ? not(w) : w;
+      }
+      case "in":
+      case "cmp": {
+        const values = n.op === "in" ? n.values : [n.value];
+        const bound = bind(values, n.field, env);
+        if (n.op === "cmp" && n.cmp !== "eq" && n.cmp !== "neq") {
+          if (!c.order) throw new Error("not ordered");
+          return c.order(n.cmp, bound[0]);
+        }
+        const nonEmpty = bound.filter((x) => x.k !== "empty");
+        const wantsEmpty = hasEmpty(bound) && c.isEmpty;
+        const all = n.op === "in" && n.all && c.matchAll;
+        const positive = or(
+          ...(nonEmpty.length ? [all ? c.matchAll!(nonEmpty) : c.match(nonEmpty)] : []),
+          ...(wantsEmpty ? [c.isEmpty!] : []),
+        );
+        const negate = (n.op === "cmp" && n.cmp === "neq") || (n.op === "in" && n.negate);
+        if (!negate) return positive;
+        // Jira: `!=` / NOT IN never match the empty value, unless EMPTY is listed.
+        return c.isEmpty && !wantsEmpty ? and(not(positive), not(c.isEmpty)) : not(positive);
+      }
+      default:
+        throw new Error(`${n.op} is not compiled in this phase`);
+    }
+  } catch (e) {
+    if (e instanceof Inert) return TRUE;
+    throw e;
+  }
+}
+
+export function compileNode(n: CqlNode, env: CompileEnv): Where {
+  switch (n.op) {
+    case "and":
+      return and(...n.args.map((a) => compileNode(a, env)));
+    case "or":
+      return or(...n.args.map((a) => compileNode(a, env)));
+    case "not":
+      return not(compileNode(n.arg, env));
+    default:
+      return compileLeaf(n, env);
+  }
+}
+
+const SORT_COLUMN: Partial<Record<SystemFieldId, string>> = {
+  key: "ticketNumber",
+  created: "createdAt",
+  updated: "updatedAt",
+  due: "dueDate",
+  start: "startDate",
+  actualStart: "actualStart",
+  completed: "completedAt",
+  statusChanged: "columnEnteredAt",
+  archivedAt: "archivedAt",
+  points: "storyPoints",
+  originalEstimate: "originalEstimate",
+  remainingEstimate: "remainingEstimate",
+  timeSpent: "timeSpent",
+  rank: "sortOrder",
+  priority: "priority",
+};
+const NULLABLE_SORT = new Set(["dueDate", "startDate", "actualStart", "completedAt", "columnEnteredAt", "archivedAt", "storyPoints", "originalEstimate", "remainingEstimate", "timeSpent"]);
+
+export function compileOrderBy(sorts: CqlSort[] | undefined): Prisma.WorkItemOrderByWithRelationInput[] {
+  const out: Prisma.WorkItemOrderByWithRelationInput[] = [];
+  for (const s of sorts ?? []) {
+    if (s.field.kind !== "sys") continue;
+    if (s.field.id === "type") {
+      out.push({ workItemType: { name: s.dir } });
+      continue;
+    }
+    const col = SORT_COLUMN[s.field.id];
+    if (!col) continue;
+    // Priority is declared CRITICAL→LOW in the enum, so ASC already means
+    // CRITICAL first, matching buildOrderBy.
+    if (NULLABLE_SORT.has(col)) {
+      // Postgres' default (NULLS LAST for ASC, FIRST for DESC) unless asked.
+      const nulls = s.nulls ?? (s.dir === "asc" ? "last" : "first");
+      out.push({ [col]: { sort: s.dir, nulls } } as Prisma.WorkItemOrderByWithRelationInput);
+    } else {
+      out.push({ [col]: s.dir } as Prisma.WorkItemOrderByWithRelationInput);
+    }
+  }
+  // A stable tiebreak so pages never overlap or skip.
+  out.push({ createdAt: "desc" }, { id: "desc" });
+  return out;
+}
+
+/** The user predicate, the archived mode it implies, and the ORDER BY. */
+export function compileQuery(q: CqlQuery, env: CompileEnv): Compiled {
+  const mentions = mentionsField(q, "archived") || mentionsField(q, "archivedAt");
+  return {
+    where: q.where ? compileNode(q.where, env) : TRUE,
+    // The default hides archived work, unless the query talks about archiving.
+    archived: mentions ? "all" : "active",
+    orderBy: compileOrderBy(q.orderBy),
+  };
+}

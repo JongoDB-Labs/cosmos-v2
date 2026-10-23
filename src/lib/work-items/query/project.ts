@@ -8,7 +8,7 @@
  * fields are id + displayName + avatarUrl from the User table.
  */
 import { prisma } from "@/lib/db/client";
-import type { Priority } from "@prisma/client";
+import type { Prisma, Priority } from "@prisma/client";
 import { buildWorkItemWhere, buildOrderBy } from "./build-where";
 import type { WorkItemFilter, WorkItemSort } from "./filter";
 
@@ -70,51 +70,84 @@ export async function runWorkItemQuery(args: RunQueryArgs): Promise<RunQueryResu
   const orderBy = buildOrderBy(args.sort);
   const skip = (args.page - 1) * args.pageSize;
 
-  const [items, total] = await Promise.all([
-    prisma.workItem.findMany({
+  const [data, total] = await Promise.all([
+    fetchIssueRows(prisma, {
       where,
       orderBy,
       skip,
       take: args.pageSize,
-      select: {
-        id: true,
-        ticketNumber: true,
-        title: true,
-        columnKey: true,
-        priority: true,
-        assigneeId: true,
-        parentId: true,
-        intervalId: true,
-        storyPoints: true,
-        tags: true,
-        // Keep in step with `IssueRow` above AND the client-side copy in
-        // issues-view.tsx. A field missing from THIS select is `undefined` at
-        // runtime with a perfectly green type-check — Prisma's selected type is
-        // inferred, so the interface below is a claim, not a constraint.
-        highlight: true,
-        archivedAt: true,
-        startDate: true,
-        dueDate: true,
-        completedAt: true,
-        createdAt: true,
-        updatedAt: true,
-        projectId: true,
-        workItemType: {
-          select: { id: true, key: true, name: true, icon: true, color: true },
-        },
-        // Multi-assign: the full set rides along so registers can render a
-        // stacked-avatar cell without a second query.
-        assignees: {
-          orderBy: { sortOrder: "asc" },
-          select: {
-            userId: true,
-            user: { select: { id: true, displayName: true, avatarUrl: true } },
-          },
-        },
-      },
+      orgId: args.orgId,
+      allowedProjectIds: args.allowedProjectIds,
     }),
     prisma.workItem.count({ where }),
   ]);
+  return { data, total };
+}
+
+/** A Prisma client or an interactive-transaction client. */
+type Db = Pick<Prisma.TransactionClient, "workItem" | "project" | "user">;
+
+/**
+ * Fetch one page for an already-scoped `where` and project it to IssueRows.
+ * Shared by the legacy filter path above and the CQL executor, which runs it
+ * inside a transaction with a statement timeout (hence `db`).
+ *
+ * `allowedProjectIds` bounds the PARENT lookup: a readable child may have a
+ * parent the actor cannot read, and that parent must resolve to null.
+ */
+export async function fetchIssueRows(
+  db: Db,
+  args: {
+    where: Prisma.WorkItemWhereInput;
+    orderBy: Prisma.WorkItemOrderByWithRelationInput[];
+    skip: number;
+    take: number;
+    orgId: string;
+    allowedProjectIds: string[];
+  },
+): Promise<IssueRow[]> {
+  const items = await db.workItem.findMany({
+    where: args.where,
+    orderBy: args.orderBy,
+    skip: args.skip,
+    take: args.take,
+    select: {
+      id: true,
+      ticketNumber: true,
+      title: true,
+      columnKey: true,
+      priority: true,
+      assigneeId: true,
+      parentId: true,
+      intervalId: true,
+      storyPoints: true,
+      tags: true,
+      // Keep in step with `IssueRow` above AND the client-side copy in
+      // issues-view.tsx. A field missing from THIS select is `undefined` at
+      // runtime with a perfectly green type-check — Prisma's selected type is
+      // inferred, so the interface below is a claim, not a constraint.
+      highlight: true,
+      archivedAt: true,
+      startDate: true,
+      dueDate: true,
+      completedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      projectId: true,
+      workItemType: {
+        select: { id: true, key: true, name: true, icon: true, color: true },
+      },
+      // Multi-assign: the full set rides along so registers can render a
+      // stacked-avatar cell without a second query.
+      assignees: {
+        orderBy: { sortOrder: "asc" },
+        select: {
+          userId: true,
+          user: { select: { id: true, displayName: true, avatarUrl: true } },
+        },
+      },
+    },
+  });
 
   // Resolve cross-references in batch (projects, assignees, parents) — a flat
   // WorkItem row carries only ids.
@@ -124,20 +157,20 @@ export async function runWorkItemQuery(args: RunQueryArgs): Promise<RunQueryResu
 
   const [projects, assignees, parents] = await Promise.all([
     projectIds.length
-      ? prisma.project.findMany({
+      ? db.project.findMany({
           where: { id: { in: projectIds } },
           select: { id: true, key: true, name: true },
         })
       : Promise.resolve([]),
     assigneeIds.length
-      ? prisma.user.findMany({
+      ? db.user.findMany({
           where: { id: { in: assigneeIds } },
           // displayName + avatarUrl only — never permissions/BigInt.
           select: { id: true, displayName: true, avatarUrl: true },
         })
       : Promise.resolve([]),
     parentIds.length
-      ? prisma.workItem.findMany({
+      ? db.workItem.findMany({
           // RBAC: a readable child may have a parent in a project the actor
           // CANNOT read. Scope the parent fetch to the org + the actor's
           // readable project set so an out-of-scope parent resolves to null
@@ -212,5 +245,5 @@ export async function runWorkItemQuery(args: RunQueryArgs): Promise<RunQueryResu
     };
   });
 
-  return { data, total };
+  return data;
 }

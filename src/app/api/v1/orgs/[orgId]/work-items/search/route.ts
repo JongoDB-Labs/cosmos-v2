@@ -10,6 +10,10 @@ import {
   workItemQuerySchema,
   unknownQueryParams,
 } from "@/lib/work-items/query";
+import { cqlEnabled } from "@/lib/query/flag";
+import { executeCql } from "@/lib/query/execute.server";
+import { cqlErrorResponse } from "@/lib/query/route.server";
+import { scheduleParity } from "@/lib/query/parity.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -32,6 +36,13 @@ const EMPTY_RESULT = { data: [], total: 0 };
  * POST — a complex filter as a JSON body ({ filter, sort, page, pageSize }).
  * Both return { data: IssueRow[], total } — the jsonFetch unwrapper leaves a
  * two-key envelope intact.
+ *
+ * GET ?cql=… — where the org has CQL on, a query in the Cosmos Query Language
+ * instead of the individual filter params (which it replaces: mixing them is a
+ * 400). Answers { data, total, totalCapped, cql, diagnostics }.
+ *
+ * Every legacy search is also, on a sample and after the response, re-run
+ * through CQL and compared (lib/query/parity.server.ts) before cut-over.
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
@@ -50,6 +61,30 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const allowedProjectIds = await getReadableProjectIds(ctx);
     if (allowedProjectIds.length === 0) return success(EMPTY_RESULT);
+
+    const sp = request.nextUrl.searchParams;
+    const cql = cqlEnabled(org.settings) ? sp.get("cql") : null;
+    if (cql !== null) {
+      const others = [...new Set(sp.keys())].filter((k) => !["cql", "tz", "page", "pageSize"].includes(k));
+      if (others.length > 0) {
+        return new Response(
+          JSON.stringify({ error: "`cql` replaces the other filter parameters", unknown: others }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        );
+      }
+      try {
+        const page = Number.parseInt(sp.get("page") ?? "1", 10);
+        const pageSize = Number.parseInt(sp.get("pageSize") ?? "", 10);
+        const r = await executeCql(ctx, { cql }, {
+          page: Number.isNaN(page) ? 1 : page,
+          ...(Number.isNaN(pageSize) ? {} : { pageSize }),
+          tz: sp.get("tz") ?? undefined,
+        });
+        return success({ data: r.data, total: r.total, totalCapped: r.totalCapped, cql: r.cql, diagnostics: r.diagnostics });
+      } catch (e) {
+        return cqlErrorResponse(e);
+      }
+    }
 
     // Reject parameters nothing will read, rather than answering as if they
     // had been applied. A filter that silently does not filter returns
@@ -85,6 +120,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       page,
       pageSize,
     });
+    scheduleParity(ctx, { filter, sort, page, pageSize }, result);
     return success(result);
   } catch (error) {
     return handleApiError(error);
@@ -117,6 +153,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       page,
       pageSize,
     });
+    scheduleParity(ctx, { filter, sort, page, pageSize }, result);
     return success(result);
   } catch (error) {
     return handleApiError(error);
