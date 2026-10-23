@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
-import { mintApiKey, verifyApiKeyHeader } from "@/lib/auth/api-key";
+import { apiKeyAuthContext, mintApiKey } from "@/lib/auth/api-key";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { executeTool } from "../tool-executor";
@@ -17,8 +17,9 @@ import { executeTool } from "../tool-executor";
  * the assistant delete work items as the full user, and a key limited to one
  * project could read and write every other project.
  *
- * DB-backed: the keys are minted and verified through the real API-key path, so
- * the AuthContext under test is exactly what `getAuthContext` hands a route.
+ * DB-backed: the keys are minted for real and resolved by `apiKeyAuthContext`,
+ * the function `verifyApiKeyHeader` returns from, so the AuthContext under test
+ * is exactly what `getAuthContext` hands a route for that key.
  */
 describe("AI tools honor the caller's API-key scope (e2e DB)", () => {
   const orgIds: string[] = [];
@@ -52,13 +53,21 @@ describe("AI tools honor the caller's API-key scope (e2e DB)", () => {
     const itemA = await mk(projectA.id, `alpha-item-${stamp}`);
     const itemB = await mk(projectB.id, `bravo-item-${stamp}`);
 
-    /** Mint a key and resolve it exactly as `getAuthContext` would for a route. */
+    /**
+     * Mint a real key and resolve the context it acts with, through the same
+     * `apiKeyAuthContext` that `verifyApiKeyHeader` (and so `getAuthContext`)
+     * returns for it once the secret matches. Secret verification itself is
+     * covered by src/lib/auth/__tests__/api-key.test.ts; what matters here is
+     * the scoped context that reaches the tools.
+     */
     async function keyAuth(scopes: string[], projectIds?: string[]): Promise<AuthContext> {
-      const { token } = await mintApiKey({
+      const { record } = await mintApiKey({
         orgId: org.id, name: `k-${scopes.join("+")}`, scopes, createdById: owner.id, projectIds,
       });
-      const auth = await verifyApiKeyHeader(`Bearer ${token}`, org.id);
-      if (!auth) throw new Error("key did not verify");
+      const auth = await apiKeyAuthContext(org.id, {
+        createdById: owner.id, scopes: record.scopes, projectIds: record.projectIds,
+      });
+      if (!auth) throw new Error("key owner is not a member");
       return auth;
     }
 

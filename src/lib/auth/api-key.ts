@@ -135,9 +135,30 @@ export async function verifyApiKeyHeader(
   const a = Buffer.from(sha256(parsed.secret)); const b = Buffer.from(key.keyHash);
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
   if (key.expiresAt && key.expiresAt.getTime() < Date.now()) return null;
+  const ctx = await apiKeyAuthContext(orgId, {
+    createdById: key.createdById, scopes: key.scopes, projectIds: key.projectIds,
+  });
+  if (!ctx) return null;
+  void prisma.apiKey.update({ where: { id: key.id }, data: { lastUsed: new Date() } }).catch(() => {});
+  return ctx;
+}
+
+/**
+ * The AuthContext an AUTHENTICATED key acts with: its minting user's effective
+ * permissions ∩ the key's scope mask, its project ceiling, and `isApiKey`.
+ * `null` when the minting user is no longer a member of the org.
+ *
+ * Split out of `verifyApiKeyHeader` so the rule lives in exactly one place and
+ * can be exercised directly. It does NOT authenticate anything — the caller
+ * must already have matched the secret against `keyHash` and checked expiry,
+ * which is what `verifyApiKeyHeader` does before it gets here.
+ */
+export async function apiKeyAuthContext(
+  orgId: string,
+  key: { createdById: string; scopes: string[]; projectIds: string[] | null },
+): Promise<AuthContext | null> {
   const eff = await loadEffectivePermissions(orgId, key.createdById);
   if (!eff) return null;
-  void prisma.apiKey.update({ where: { id: key.id }, data: { lastUsed: new Date() } }).catch(() => {});
   const mask = scopeMask(key.scopes);
   return {
     userId: key.createdById, orgId, orgRole: eff.orgRole,
