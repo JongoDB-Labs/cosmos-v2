@@ -24,8 +24,7 @@ const DIRECT_WRITE = /\.workItem\.(?:update|updateMany|create|createMany|upsert)
 /** The module every write goes through. */
 const WRITER = "src/lib/work-items/write.server.ts";
 
-/** Test-only fixture helper: never reaches a build. */
-const ALLOWED = new Set([WRITER, "src/lib/testing/db-fixtures.ts"]);
+const ALLOWED = new Set([WRITER]);
 
 /** May write status fields without a transition: the change service itself, and
  *  an import restoring another system's recorded state. */

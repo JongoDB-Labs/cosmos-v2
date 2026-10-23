@@ -95,6 +95,7 @@ let aliceId = "";
 let bobId = "";
 let typeId = "";
 const projectIds: string[] = [];
+const typeIds: string[] = [];
 const names = new Map<string, string>();
 /** Each scenario's project key is random; snapshots show it as PROJ. */
 const projectKeys = new Set<string>();
@@ -131,6 +132,7 @@ beforeAll(async () => {
 afterAll(async () => {
   // Cascades take boards, columns, items, activity, intervals and teams with them.
   await prisma.project.deleteMany({ where: { id: { in: projectIds } } });
+  await prisma.workItemType.deleteMany({ where: { id: { in: typeIds } } });
 });
 
 beforeEach(() => {
@@ -535,6 +537,163 @@ describe("parity: PUT /work-items/[itemId]", () => {
         effects: await sideEffects(),
       }),
     ).toMatchSnapshot();
+  });
+});
+
+describe("parity: PUT /work-items/[itemId], every remaining field and edge", () => {
+  it("type change, parent change, sort order, null description", async () => {
+    const w = await world();
+    const story = (
+      await prisma.workItemType.create({
+        data: { orgId, key: `parity.story.${Math.random().toString(36).slice(2, 8)}`, name: "Story" },
+      })
+    ).id;
+    names.set(story, "type:story");
+    typeIds.push(story);
+    const parent = await w.item("P");
+    const a = await w.item("A", { description: "old" });
+    const res = await put(w, a, { workItemTypeId: story, parentId: parent, sortOrder: 42, description: null });
+    expect(norm({ res, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
+  });
+
+  it("clearing parent, interval, team, points, highlight and archive", async () => {
+    const w = await world();
+    const interval = await prisma.interval.create({
+      data: { orgId, projectId: w.projectId, number: 1, name: "Sprint 1", startDate: T1, endDate: T2 },
+    });
+    names.set(interval.id, "interval");
+    const team = await prisma.team.create({ data: { orgId, projectId: w.projectId, name: "Blue" } });
+    names.set(team.id, "team");
+    const parent = await w.item("P");
+    const a = await w.item("A", {
+      parentId: parent,
+      intervalId: interval.id,
+      teamId: team.id,
+      storyPoints: 3,
+      highlight: WORK_ITEM_HIGHLIGHT_ORDER[0],
+      archivedAt: T2,
+    });
+    const res = await put(w, a, {
+      parentId: null,
+      intervalId: null,
+      teamId: null,
+      storyPoints: null,
+      highlight: null,
+      archivedAt: null,
+    });
+    expect(norm({ res, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
+  });
+
+  it("assigning yourself sends no notification", async () => {
+    const w = await world();
+    const a = await w.item("A");
+    const res = await put(w, a, { assigneeId: aliceId });
+    expect(norm({ res, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
+  });
+
+  it("re-assigning to the same person keeps the set and notifies nobody", async () => {
+    const w = await world();
+    const a = await w.item("A", {
+      assigneeId: bobId,
+      assignees: { create: [{ userId: aliceId, sortOrder: 0 }, { userId: bobId, sortOrder: 1 }] },
+    });
+    const res = await put(w, a, { assigneeId: bobId });
+    expect(norm({ res, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
+  });
+
+  it("empty assignee set clears the primary", async () => {
+    const w = await world();
+    const a = await w.item("A", { assigneeId: bobId, assignees: { create: [{ userId: bobId, sortOrder: 0 }] } });
+    const res = await put(w, a, { assigneeIds: [] });
+    expect(norm({ res, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
+  });
+
+  it("clearing every tag", async () => {
+    const w = await world();
+    const a = await w.item("A");
+    await put(w, a, { tags: ["parity-zeta"] });
+    calls.audit.length = 0;
+    calls.publish.length = 0;
+    const res = await put(w, a, { tags: [] });
+    expect(norm({ res, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
+  });
+
+  it("cancel naming an existing Cancelled column keeps that column", async () => {
+    const w = await world({
+      columns: [
+        ...COLUMNS,
+        { key: "cancelled", name: "Cancelled", category: "CANCELLED" },
+        { key: "wontdo", name: "Won't do", category: "CANCELLED" },
+      ],
+    });
+    const a = await w.item("A");
+    const res = await put(w, a, { cancelReason: "OBE", columnKey: "wontdo" });
+    expect(
+      norm({ res, item: await itemState(a), columns: await columnsOf(w.projectId), effects: await sideEffects() }),
+    ).toMatchSnapshot();
+  });
+
+  it("cancelling an item already cancelled only changes the reason", async () => {
+    const w = await world({ columns: [...COLUMNS, { key: "cancelled", name: "Cancelled", category: "CANCELLED" }] });
+    const a = await w.item("A", { columnKey: "cancelled", cancelReason: "OBE" });
+    const res = await put(w, a, { cancelReason: "OTHER", cancelNote: "actually, other" });
+    expect(norm({ res, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
+  });
+
+  it("moving between two Cancelled columns keeps the reason", async () => {
+    const w = await world({
+      columns: [
+        ...COLUMNS,
+        { key: "cancelled", name: "Cancelled", category: "CANCELLED" },
+        { key: "wontdo", name: "Won't do", category: "CANCELLED" },
+      ],
+    });
+    const a = await w.item("A", { columnKey: "cancelled", cancelReason: "OBE", cancelNote: "n" });
+    const res = await put(w, a, { columnKey: "wontdo" });
+    expect(norm({ res, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
+  });
+
+  it("a status move and field edits in one request", async () => {
+    const w = await world();
+    const a = await w.item("A", { columnKey: "in_progress", actualStart: T1 });
+    const res = await put(w, a, {
+      columnKey: "done",
+      title: "A done",
+      priority: "LOW",
+      assigneeId: bobId,
+      dueDate: "2026-03-01T12:00:00.000Z",
+      customFields: { k: 1 },
+    });
+    expect(norm({ res, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
+  });
+
+  it("a start-date pull-in moves no successor", async () => {
+    const w = await world();
+    const a = await w.item("A", { startDate: T1, dueDate: new Date("2026-01-15T12:00:00.000Z") });
+    const succ = await w.item("S", { startDate: new Date("2026-01-16T12:00:00.000Z"), dueDate: new Date("2026-01-18T12:00:00.000Z") });
+    await prisma.workItemLink.create({ data: { orgId, sourceItemId: a, targetItemId: succ, type: "BLOCKS" } });
+    const res = await put(w, a, { startDate: "2026-01-05T12:00:00.000Z", dueDate: "2026-01-12T12:00:00.000Z" });
+    expect(
+      norm({ res, item: await itemState(a), successor: await itemState(succ), effects: await sideEffects() }),
+    ).toMatchSnapshot();
+  });
+
+  it("cascadeSkipIds keeps a co-edited successor where it is", async () => {
+    const w = await world();
+    const a = await w.item("A", { startDate: T1, dueDate: new Date("2026-01-15T12:00:00.000Z") });
+    const succ = await w.item("S", { startDate: new Date("2026-01-16T12:00:00.000Z"), dueDate: new Date("2026-01-18T12:00:00.000Z") });
+    await prisma.workItemLink.create({ data: { orgId, sourceItemId: a, targetItemId: succ, type: "BLOCKS" } });
+    const res = await put(w, a, { dueDate: "2026-01-25T12:00:00.000Z", cascadeSkipIds: [succ] });
+    expect(
+      norm({ res, item: await itemState(a), successor: await itemState(succ), effects: await sideEffects() }),
+    ).toMatchSnapshot();
+  });
+
+  it("an empty body changes nothing but is still audited", async () => {
+    const w = await world();
+    const a = await w.item("A");
+    const res = await put(w, a, {});
+    expect(norm({ res, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
   });
 });
 
