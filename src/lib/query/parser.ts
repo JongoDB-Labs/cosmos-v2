@@ -588,6 +588,12 @@ export function parseCql(text: string): ParseResult {
     );
     return { query: { v: CQL_VERSION, where: null }, diagnostics, spans: new WeakMap() };
   }
+  // Postgres text can't hold U+0000; refuse it here rather than fail in the database.
+  const nul = text.indexOf("\u0000");
+  if (nul >= 0) {
+    diagnostics.push(diag(text, "CQL_SYNTAX", "Queries can't contain a NUL character.", { from: nul, to: nul + 1 }));
+    return { query: { v: CQL_VERSION, where: null }, diagnostics, spans: new WeakMap() };
+  }
 
   const lexed = cqlLexer.tokenize(text);
   // Depth is checked on the tokens BEFORE parsing. The parser recurses once
