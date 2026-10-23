@@ -67,7 +67,6 @@ DELETE /orgs/{orgId}/projects/{projectId}/key-results/{krId}/links
 DELETE /orgs/{orgId}/projects/{projectId}/kpis/{kpiId}
 DELETE /orgs/{orgId}/projects/{projectId}/kpis/{kpiId}/data-points/{pointId}
 DELETE /orgs/{orgId}/projects/{projectId}/members
-DELETE /orgs/{orgId}/projects/{projectId}/milestones/{milestoneId}
 DELETE /orgs/{orgId}/projects/{projectId}/milestones/{milestoneId}/links/{linkId}
 DELETE /orgs/{orgId}/projects/{projectId}/objectives/{objectiveId}
 DELETE /orgs/{orgId}/projects/{projectId}/objectives/{objectiveId}/links
@@ -172,7 +171,6 @@ GET /orgs/{orgId}/cql/suggest
 GET /orgs/{orgId}/crm/contacts
 GET /orgs/{orgId}/crm/contacts/{contactId}
 GET /orgs/{orgId}/crm/pipeline
-GET /orgs/{orgId}/custom-fields
 GET /orgs/{orgId}/custom-fields/{fieldId}
 GET /orgs/{orgId}/documents
 GET /orgs/{orgId}/documents/{docId}
@@ -207,7 +205,6 @@ GET /orgs/{orgId}/invoices
 GET /orgs/{orgId}/invoices/aging
 GET /orgs/{orgId}/invoices/{invoiceId}
 GET /orgs/{orgId}/invoices/{invoiceId}/payments
-GET /orgs/{orgId}/labels
 GET /orgs/{orgId}/logo
 GET /orgs/{orgId}/mcp-servers
 GET /orgs/{orgId}/mcp-servers/{serverId}
@@ -215,7 +212,6 @@ GET /orgs/{orgId}/meeting-types
 GET /orgs/{orgId}/meetings
 GET /orgs/{orgId}/meetings/{meetingId}
 GET /orgs/{orgId}/meetings/{meetingId}/attendees
-GET /orgs/{orgId}/members
 GET /orgs/{orgId}/mentions/backlinks
 GET /orgs/{orgId}/mentions/search
 GET /orgs/{orgId}/microsoft/calendar
@@ -236,7 +232,6 @@ GET /orgs/{orgId}/products
 GET /orgs/{orgId}/products/{productId}
 GET /orgs/{orgId}/project-templates
 GET /orgs/{orgId}/project-templates/{templateId}
-GET /orgs/{orgId}/projects/{projectId}
 GET /orgs/{orgId}/projects/{projectId}/blockers
 GET /orgs/{orgId}/projects/{projectId}/boards
 GET /orgs/{orgId}/projects/{projectId}/boards/{boardId}
@@ -252,8 +247,6 @@ GET /orgs/{orgId}/projects/{projectId}/documents/{docId}/original
 GET /orgs/{orgId}/projects/{projectId}/export/xlsx
 GET /orgs/{orgId}/projects/{projectId}/goals
 GET /orgs/{orgId}/projects/{projectId}/interval-changes
-GET /orgs/{orgId}/projects/{projectId}/intervals
-GET /orgs/{orgId}/projects/{projectId}/intervals/{intervalId}
 GET /orgs/{orgId}/projects/{projectId}/intervals/{intervalId}/capacity
 GET /orgs/{orgId}/projects/{projectId}/intervals/{intervalId}/ceremony
 GET /orgs/{orgId}/projects/{projectId}/intervals/{intervalId}/planning
@@ -264,7 +257,6 @@ GET /orgs/{orgId}/projects/{projectId}/key-results/{krId}/links
 GET /orgs/{orgId}/projects/{projectId}/kpis
 GET /orgs/{orgId}/projects/{projectId}/kpis/{kpiId}/data-points
 GET /orgs/{orgId}/projects/{projectId}/members
-GET /orgs/{orgId}/projects/{projectId}/milestones
 GET /orgs/{orgId}/projects/{projectId}/objectives
 GET /orgs/{orgId}/projects/{projectId}/objectives/{objectiveId}
 GET /orgs/{orgId}/projects/{projectId}/objectives/{objectiveId}/links
@@ -314,7 +306,6 @@ GET /orgs/{orgId}/timesheets/periods
 GET /orgs/{orgId}/webhooks
 GET /orgs/{orgId}/webhooks/{webhookId}
 GET /orgs/{orgId}/webhooks/{webhookId}/deliveries
-GET /orgs/{orgId}/work-item-types
 GET /orgs/{orgId}/work-items
 GET /orgs/{orgId}/work-items/export
 GET /orgs/{orgId}/work-items/facets
@@ -351,7 +342,6 @@ PATCH /orgs/{orgId}/projects/{projectId}/goals/{goalId}
 PATCH /orgs/{orgId}/projects/{projectId}/intervals/{intervalId}/ceremony/actions/{actionId}
 PATCH /orgs/{orgId}/projects/{projectId}/intervals/{intervalId}/ceremony/notes/{noteId}
 PATCH /orgs/{orgId}/projects/{projectId}/kpis/{kpiId}
-PATCH /orgs/{orgId}/projects/{projectId}/milestones/{milestoneId}
 PATCH /orgs/{orgId}/projects/{projectId}/objectives
 PATCH /orgs/{orgId}/projects/{projectId}/pm-comments/{commentId}
 PATCH /orgs/{orgId}/projects/{projectId}/risks/{riskId}
@@ -483,7 +473,6 @@ POST /orgs/{orgId}/pay-runs/{payRunId}/post
 POST /orgs/{orgId}/products
 POST /orgs/{orgId}/project-templates
 POST /orgs/{orgId}/project-templates/{templateId}/clone
-POST /orgs/{orgId}/projects
 POST /orgs/{orgId}/projects/{projectId}/blockers
 POST /orgs/{orgId}/projects/{projectId}/boards
 POST /orgs/{orgId}/projects/{projectId}/boards/{boardId}/dashboard-widgets
@@ -498,7 +487,6 @@ POST /orgs/{orgId}/projects/{projectId}/export/xlsx
 POST /orgs/{orgId}/projects/{projectId}/goals
 POST /orgs/{orgId}/projects/{projectId}/goals/{goalId}/links
 POST /orgs/{orgId}/projects/{projectId}/import
-POST /orgs/{orgId}/projects/{projectId}/intervals
 POST /orgs/{orgId}/projects/{projectId}/intervals/{intervalId}/ceremony/actions
 POST /orgs/{orgId}/projects/{projectId}/intervals/{intervalId}/ceremony/actions/{actionId}/promote
 POST /orgs/{orgId}/projects/{projectId}/intervals/{intervalId}/ceremony/close
@@ -510,7 +498,6 @@ POST /orgs/{orgId}/projects/{projectId}/key-results/{krId}/checkins
 POST /orgs/{orgId}/projects/{projectId}/key-results/{krId}/links
 POST /orgs/{orgId}/projects/{projectId}/kpis
 POST /orgs/{orgId}/projects/{projectId}/kpis/{kpiId}/data-points
-POST /orgs/{orgId}/projects/{projectId}/milestones
 POST /orgs/{orgId}/projects/{projectId}/milestones/{milestoneId}/links
 POST /orgs/{orgId}/projects/{projectId}/objectives
 POST /orgs/{orgId}/projects/{projectId}/objectives/{objectiveId}/key-results
@@ -586,11 +573,9 @@ PUT /orgs/{orgId}/notifications/{notificationId}
 PUT /orgs/{orgId}/partners/{partnerId}
 PUT /orgs/{orgId}/preferences
 PUT /orgs/{orgId}/products/{productId}
-PUT /orgs/{orgId}/projects/{projectId}
 PUT /orgs/{orgId}/projects/{projectId}/boards/{boardId}
 PUT /orgs/{orgId}/projects/{projectId}/boards/{boardId}/columns
 PUT /orgs/{orgId}/projects/{projectId}/boards/{boardId}/dashboard-widgets/{widgetId}
-PUT /orgs/{orgId}/projects/{projectId}/intervals/{intervalId}
 PUT /orgs/{orgId}/projects/{projectId}/intervals/{intervalId}/capacity
 PUT /orgs/{orgId}/projects/{projectId}/key-results/{krId}
 PUT /orgs/{orgId}/projects/{projectId}/members

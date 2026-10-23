@@ -98,6 +98,17 @@ export function droppedKeys(wire: unknown, out: unknown, at = "$"): string[] {
  */
 const strictResponses = () => process.env.NODE_ENV !== "production";
 
+/** A copy of `v` with the named keys removed at every depth. */
+function withoutKeys(v: unknown, keys: Set<string>): unknown {
+  if (Array.isArray(v)) return v.map((x) => withoutKeys(x, keys));
+  if (isPlainObject(v)) {
+    return Object.fromEntries(
+      Object.entries(v).filter(([k]) => !keys.has(k)).map(([k, x]) => [k, withoutKeys(x, keys)]),
+    );
+  }
+  return v;
+}
+
 /**
  * Serialize `data` through the contract's response schema for `status`.
  *
@@ -110,7 +121,7 @@ export function respond<C extends RouteContract>(
   contract: C,
   status: keyof C["responses"] & number,
   data: unknown,
-  init: { headers?: HeadersInit } = {},
+  init: { headers?: HeadersInit; ctx?: { isApiKey?: boolean } } = {},
 ): NextResponse {
   const schema = (contract.responses as Record<number, z.ZodType | null | undefined>)[status];
   if (schema === undefined) {
@@ -118,7 +129,11 @@ export function respond<C extends RouteContract>(
   }
   if (schema === null) return new NextResponse(null, { status, headers: init.headers });
 
-  const wire: unknown = data === undefined ? undefined : JSON.parse(JSON.stringify(data));
+  let wire: unknown = data === undefined ? undefined : JSON.parse(JSON.stringify(data));
+  if (contract.sessionOnly?.length) {
+    if (!init.ctx) throw new ResponseContractError(contract.operationId, "sessionOnly needs the caller's ctx");
+    if (init.ctx.isApiKey) wire = withoutKeys(wire, new Set(contract.sessionOnly));
+  }
   const result = schema.safeParse(wire);
   if (!result.success) {
     throw new ResponseContractError(contract.operationId, z.prettifyError(result.error));

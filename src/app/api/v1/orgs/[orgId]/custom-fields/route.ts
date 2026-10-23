@@ -1,9 +1,13 @@
 import { NextRequest } from "next/server";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { listCustomFields } from "./route.contract";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { FieldType } from "@prisma/client";
@@ -23,15 +27,9 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { params: { orgId }, query: { projectId } } = await parseRequest(listCustomFields, request, params);
+    const { ctx } = await orgContext(orgId);
     requirePermission(ctx, Permission.ORG_READ);
-
-    const projectId = request.nextUrl.searchParams.get("projectId");
 
     const where: Prisma.CustomFieldWhereInput = {
       orgId,
@@ -46,9 +44,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     });
 
-    return success(fields);
+    return respond(listCustomFields, 200, fields);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
@@ -56,10 +54,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
+    if (!org) return problem(404, "not_found", undefined, { request });
 
     const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!ctx) return problem(401, "unauthorized", undefined, { request });
     requirePermission(ctx, Permission.CUSTOM_FIELD_MANAGE);
 
     const body = await request.json();
@@ -71,10 +69,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       where: { orgId, key: data.key },
     });
     if (existing) {
-      return new Response(
-        JSON.stringify({ error: `Custom field with key '${data.key}' already exists` }),
-        { status: 409, headers: { "Content-Type": "application/json" } }
-      );
+      return problem(409, "conflict", `Custom field with key '${data.key}' already exists`, { request });
     }
 
     const field = await prisma.customField.create({
@@ -102,6 +97,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     return created(field);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

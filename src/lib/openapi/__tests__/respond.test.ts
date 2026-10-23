@@ -123,3 +123,26 @@ describe("droppedKeys", () => {
       .toEqual(["$.b.d", "$.e[0].g"]);
   });
 });
+
+describe("respond: sessionOnly fields", () => {
+  const Person = z.object({ id: z.string(), email: z.string().optional(), manager: z.object({ email: z.string().optional() }) });
+  const getPeople = defineRoute({
+    method: "get", path: "/people", operationId: "getPeople", summary: "s", tags: ["T"], stability: "stable",
+    scopes: ["read"], request: {}, responses: { 200: z.array(Person) }, errors: [], sessionOnly: ["email"],
+  });
+  const rows = [{ id: "1", email: "a@x.gov", manager: { email: "b@x.gov" } }];
+
+  it("a browser session gets them", async () => {
+    expect(JSON.stringify(await respond(getPeople, 200, rows, { ctx: {} }).json())).toContain("a@x.gov");
+  });
+
+  it("a token never does, at any depth", async () => {
+    const body = JSON.stringify(await respond(getPeople, 200, rows, { ctx: { isApiKey: true } }).json());
+    expect(body).not.toContain("@x.gov");
+    expect(body).toContain('"id":"1"');
+  });
+
+  it("refuses to answer without knowing the caller", () => {
+    expect(() => respond(getPeople, 200, rows)).toThrow(/sessionOnly needs the caller's ctx/);
+  });
+});

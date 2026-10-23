@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { Prisma, ProjectStatus } from "@prisma/client";
+import { Prisma, $Enums } from "@prisma/client";
 import type { z } from "zod";
 import * as common from "../schemas/common";
+import * as E from "../schemas/enums.generated";
 
 /**
  * Response schemas are projections: a column they don't declare is a column
@@ -13,6 +14,30 @@ import * as common from "../schemas/common";
  */
 const ENTITIES: Record<string, { model: string; omitted: Record<string, string> }> = {
   Project: { model: "Project", omitted: {} },
+  Board: { model: "Board", omitted: {} },
+  BoardColumn: { model: "BoardColumn", omitted: {} },
+  Interval: { model: "Interval", omitted: {} },
+  ProjectMember: { model: "ProjectMember", omitted: {} },
+  WorkItem: {
+    model: "WorkItem",
+    omitted: {
+      searchVector: "full-text index internals",
+      sourceRecord: "the raw record an import came from; may hold another system's data",
+    },
+  },
+  MilestoneLink: { model: "MilestoneLink", omitted: {} },
+  Milestone: { model: "Milestone", omitted: {} },
+  Member: {
+    model: "OrgMember",
+    omitted: {
+      permissions: "a raw permission mask (AGENTS.md: never in a payload)",
+      abacRules: "authorization internals",
+      removedAt: "the list shows memberships, not their history",
+    },
+  },
+  Label: { model: "Label", omitted: {} },
+  WorkItemType: { model: "WorkItemType", omitted: {} },
+  CustomField: { model: "CustomField", omitted: {} },
 };
 
 const models = Prisma.dmmf.datamodel.models;
@@ -34,9 +59,15 @@ describe.each(Object.entries(ENTITIES))("%s schema", (name, { model, omitted }) 
   });
 });
 
-describe("enum copies match Prisma", () => {
-  // Written out in common.ts so contract files need no @prisma/client.
-  it("ProjectStatus", () => {
-    expect([...common.PROJECT_STATUSES]).toEqual(Object.values(ProjectStatus));
+describe("enums.generated.ts matches Prisma", () => {
+  // Prisma 7's DMMF carries no enums; the generated client's $Enums does.
+  const runtime = Object.entries($Enums as Record<string, Record<string, string>>);
+
+  it("has every Prisma enum, and only those", () => {
+    expect(Object.keys(E).sort()).toEqual(runtime.map(([n]) => n).sort());
+  });
+
+  it.each(runtime)("%s", (name, values) => {
+    expect([...(E as Record<string, readonly string[]>)[name]]).toEqual(Object.values(values));
   });
 });

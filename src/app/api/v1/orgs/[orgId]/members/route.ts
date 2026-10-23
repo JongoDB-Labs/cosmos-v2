@@ -1,9 +1,14 @@
 import { NextRequest } from "next/server";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { cursorPage } from "@/lib/openapi/paginate";
+import { listMembers } from "./route.contract";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { autoJoinGeneral } from "@/lib/chat/seed-general";
 import { z } from "zod";
@@ -18,15 +23,18 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
+    const { params: { orgId }, query } = await parseRequest(listMembers, request, params);
+    const { ctx } = await orgContext(orgId);
+    const page = cursorPage<{ joinedAt: Date; id: string }>({
+      request, query,
+      order: [
+        { field: "joinedAt", dir: "asc", type: "date" },
+        { field: "id", dir: "asc", type: "string" },
+      ],
+    });
 
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
-
-    const members = await prisma.orgMember.findMany({
-      where: { orgId },
+    const fetched = await prisma.orgMember.findMany({
+      where: { AND: [{ orgId }, page.where] },
       select: {
         id: true,
         orgId: true,
@@ -43,12 +51,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           },
         },
       },
-      orderBy: { joinedAt: "asc" },
+      orderBy: page.orderBy,
+      take: page.take,
     });
+    const { rows: members, headers } = page.finish(fetched);
 
-    return success(members);
+    return respond(listMembers, 200, members, { headers, ctx });
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
@@ -56,10 +66,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
+    if (!org) return problem(404, "not_found", undefined, { request });
 
     const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!ctx) return problem(401, "unauthorized", undefined, { request });
     requirePermission(ctx, Permission.ORG_MANAGE_MEMBERS);
 
     const body = await request.json();
@@ -74,10 +84,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       select: { id: true, removedAt: true },
     });
     if (existing && existing.removedAt === null) {
-      return new Response(
-        JSON.stringify({ error: "User is already a member" }),
-        { status: 409, headers: { "Content-Type": "application/json" } }
-      );
+      return problem(409, "conflict", "User is already a member", { request });
     }
 
     const memberSelect = {
@@ -138,6 +145,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     return created(member);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

@@ -90,6 +90,7 @@ function register(registry: OpenAPIRegistry, c: RouteContract) {
     responses: responses as never,
     "x-cosmos-scopes": c.scopes,
     "x-cosmos-stability": c.stability,
+    ...(c.sessionOnly && { "x-cosmos-session-only": c.sessionOnly }),
   });
 }
 

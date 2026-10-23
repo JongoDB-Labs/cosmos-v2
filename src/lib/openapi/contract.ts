@@ -53,6 +53,12 @@ export interface RouteContract<
   errors: ErrorStatus[];
   /** Lists only: `limit`/`cursor` query params plus `Link: rel="next"`. */
   pagination?: "cursor";
+  /**
+   * Field names returned to a signed-in browser session but removed, at any
+   * depth, for bearer tokens. For data the UI shows people that a token has no
+   * business exporting (email addresses). The schema marks each optional.
+   */
+  sessionOnly?: string[];
 }
 
 /** Identity at runtime; exists for inference, so `parseRequest` and
