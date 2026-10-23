@@ -19,10 +19,11 @@
  * first paint doesn't pay for CodeMirror.
  */
 import { useEffect, useRef } from "react";
-import { EditorState, StateEffect, StateField, type Extension } from "@codemirror/state";
+import { EditorState, Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { EditorView, hoverTooltip, keymap, placeholder as cmPlaceholder } from "@codemirror/view";
 import { HighlightStyle, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
 import {
+  acceptCompletion,
   autocompletion,
   completionStatus,
   startCompletion,
@@ -335,8 +336,13 @@ export default function CqlEditor({
   useEffect(() => {
     if (!host.current) return;
     const run = (v: EditorView) => {
-      // Enter accepts a completion when the list is open; otherwise it runs.
-      if (completionStatus(v.state) === "active") return false;
+      // While a completion list is open (or refreshing after a keystroke),
+      // Enter picks from it; it never runs a half-typed query, and never
+      // inserts a newline: a query is one logical line.
+      if (completionStatus(v.state) !== null) {
+        acceptCompletion(v);
+        return true;
+      }
       latest.current.onRun(v.state.doc.toString());
       return true;
     };
@@ -344,8 +350,8 @@ export default function CqlEditor({
       doc: value,
       extensions: [
         history(),
+        Prec.high(keymap.of([{ key: "Enter", run }])),
         keymap.of([
-          { key: "Enter", run },
           { key: "Mod-Enter", run: (v) => (latest.current.onRun(v.state.doc.toString()), true) },
           { key: "Mod-/", run: () => (latest.current.onHelp?.(), true) },
           ...historyKeymap,
@@ -356,7 +362,8 @@ export default function CqlEditor({
         syntaxHighlighting(highlight),
         theme,
         cmPlaceholder(placeholder),
-        autocompletion({ override: [completionSource(orgId, () => latest.current.schema)], activateOnTyping: true }),
+        // interactionDelay 0: Enter right after the list opens picks, rather than falling through.
+        autocompletion({ override: [completionSource(orgId, () => latest.current.schema)], activateOnTyping: true, interactionDelay: 0 }),
         serverDiagnostics,
         cqlLinter(() => latest.current.schema),
         valueHover(orgId),

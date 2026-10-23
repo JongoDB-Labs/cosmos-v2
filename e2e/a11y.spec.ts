@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/auth";
 import { runAxe, blocking } from "./fixtures/axe";
+import { openIssues, resetQueryLanguage, setQueryLanguage } from "./fixtures/issues-query";
 
 /**
  * Accessibility regression harness (ported from cosmos-prod). Signs in and runs
@@ -179,6 +180,32 @@ test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {
           serious
             .map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets[0]}`)
             .join("\n"),
+      ).toHaveLength(0);
+    });
+  }
+});
+
+// The query language bar (query design §14.3): both modes, with chips and the
+// CodeMirror editor on screen. The beta is off by default, so it is switched
+// on for these two scans and back off after.
+test.describe("a11y — Issues query language", () => {
+  test.afterAll(async ({ browser }) => {
+    await resetQueryLanguage(browser);
+  });
+
+  for (const mode of ["basic", "advanced"] as const) {
+    test(`issues (query language, ${mode}) has no serious/critical axe violations`, async ({ page, signInAs }) => {
+      await signInAs(EMAIL);
+      await setQueryLanguage(page.request, true);
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await openIssues(page, { cql: "assignee = me AND priority IN (HIGH, CRITICAL)", mode });
+      if (mode === "advanced") await expect(page.getByRole("textbox", { name: "Query" })).toBeVisible({ timeout: 20_000 });
+      else await expect(page.getByRole("group", { name: "Filter: Priority" })).toBeVisible();
+      await page.waitForTimeout(500);
+      const serious = blocking(await runAxe(page));
+      expect(
+        serious,
+        serious.map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets[0]}`).join("\n"),
       ).toHaveLength(0);
     });
   }

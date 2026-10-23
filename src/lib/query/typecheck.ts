@@ -32,8 +32,8 @@ import {
   type ValueKind,
 } from "./fields";
 import { FUNCTIONS, lookupFunction, type FunctionDef } from "./functions";
-import { diag, suggest, type CqlDiagnostic, type Span } from "./errors";
-import { printField } from "./print";
+import { diag, suggest, type CqlDiagnostic, type CqlFix, type Span } from "./errors";
+import { printField, quote } from "./print";
 
 export type CustomFieldType =
   | "TEXT"
@@ -173,8 +173,16 @@ function fnReturnsFor(kind: ValueKind): FunctionDef["returns"][] {
 export function typecheck(input: CqlQuery, schema: CqlSchema, text = "", spans?: WeakMap<object, Span>): TypecheckResult {
   const diagnostics: CqlDiagnostic[] = [];
   const at = (o: object | undefined) => (o && spans?.get(o)) || { from: 0, to: 0 };
-  const err = (code: Parameters<typeof diag>[1], message: string, o?: object, hint?: string) =>
-    diagnostics.push(diag(text, code, message, at(o), hint ? { hint } : {}));
+  const err = (code: Parameters<typeof diag>[1], message: string, o?: object, hint?: string, fixes?: CqlFix[]) =>
+    diagnostics.push(diag(text, code, message, at(o), { ...(hint ? { hint } : {}), ...(fixes?.length ? { fixes } : {}) }));
+  /** "Did you mean" as one-click fixes: replace the first `len` characters of `o`'s span. */
+  const replaceWith = (o: object, inserts: string[], len?: number): CqlFix[] => {
+    const span = at(o);
+    if (!span || span.to <= span.from) return [];
+    const to = len === undefined ? span.to : span.from + len;
+    return inserts.map((insert) => ({ label: `Use ${insert}`, replace: { from: span.from, to, insert } }));
+  };
+  const word = (s: string) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(s) ? s : quote(s));
 
   const cfByKey = new Map(schema.customFields.map((c) => [c.key.toLowerCase(), c]));
   const cfByName = new Map(schema.customFields.map((c) => [c.name.toLowerCase(), c]));
@@ -207,6 +215,8 @@ export function typecheck(input: CqlQuery, schema: CqlSchema, text = "", spans?:
       `Unknown field \`${f.key}\`.`,
       f,
       near.length ? `Did you mean ${near.map((n) => `\`${n}\``).join(" or ")}?` : undefined,
+      // A custom field written `cf[...]` keeps its brackets; only a bare name is swapped.
+      !text.slice(at(f)?.from ?? 0).startsWith("cf[") ? replaceWith(f, near.map(word)) : [],
     );
     return null;
   }
@@ -220,6 +230,8 @@ export function typecheck(input: CqlQuery, schema: CqlSchema, text = "", spans?:
         `Unknown function \`${v.name}()\`.`,
         v,
         near.length ? `Did you mean ${near.map((n) => `\`${n}()\``).join(" or ")}?` : undefined,
+        // Only the name: the arguments stay as typed.
+        replaceWith(v, near, v.name.length),
       );
       return null;
     }
@@ -292,7 +304,7 @@ export function typecheck(input: CqlQuery, schema: CqlSchema, text = "", spans?:
           ?? (ctx.field === "statusCategory" ? CATEGORY_ALIASES[raw.toLowerCase()] : undefined);
         if (!canon) {
           const near = suggest(raw, kind.values);
-          err("CQL_UNKNOWN_VALUE", `\`${raw}\` is not a ${ctx.field} value; use one of ${kind.values.join(", ")}.`, v, near.length ? `Did you mean \`${near[0]}\`?` : undefined);
+          err("CQL_UNKNOWN_VALUE", `\`${raw}\` is not a ${ctx.field} value; use one of ${kind.values.join(", ")}.`, v, near.length ? `Did you mean \`${near[0]}\`?` : undefined, replaceWith(v, near.slice(0, 1)));
           return null;
         }
         const out: CqlValue = { t: "str", v: canon };
