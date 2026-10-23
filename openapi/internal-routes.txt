@@ -166,6 +166,7 @@ GET /orgs/{orgId}/contracts
 GET /orgs/{orgId}/contracts/{contractId}
 GET /orgs/{orgId}/contracts/{contractId}/pdf
 GET /orgs/{orgId}/contracts/{contractId}/signature/status
+GET /orgs/{orgId}/cql/schema
 GET /orgs/{orgId}/crm/contacts
 GET /orgs/{orgId}/crm/contacts/{contactId}
 GET /orgs/{orgId}/crm/pipeline
@@ -418,6 +419,7 @@ POST /orgs/{orgId}/clients
 POST /orgs/{orgId}/compliance/controls
 POST /orgs/{orgId}/contracts
 POST /orgs/{orgId}/contracts/{contractId}/signature
+POST /orgs/{orgId}/cql/validate
 POST /orgs/{orgId}/crm/contacts
 POST /orgs/{orgId}/custom-fields
 POST /orgs/{orgId}/custom-fields/apply-sector
@@ -540,6 +542,7 @@ POST /orgs/{orgId}/webhooks
 POST /orgs/{orgId}/webhooks/{webhookId}/test
 POST /orgs/{orgId}/work-item-types
 POST /orgs/{orgId}/work-item-types/{typeId}/fields
+POST /orgs/{orgId}/work-items/query
 POST /orgs/{orgId}/work-items/search
 POST /orgs/{orgId}/work-items/{itemId}/comments
 POST /orgs/{orgId}/work-roles

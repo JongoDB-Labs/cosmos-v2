@@ -124,6 +124,10 @@ Mutations use `useOrgMutation({ mutationFn, invalidate: [["themes"]] })` — sam
 - Changed a contract? `npm run openapi` and commit `openapi/cosmos-v1.json`. `npm run check:openapi` is the CI drift gate; oasdiff fails breaking changes unless the PR has the `api-breaking` label.
 - Contract files are pure (zod + `@/lib/openapi/*` only); `coverage.arch.test.ts` enforces it.
 
+## Querying work items: CQL (`src/lib/query/`)
+
+`CqlQuery` v1 (`src/lib/query/ast.ts`) is the one filter format for work items: Issues, boards, saved filters, dashboards, subscriptions and the assistant all store or send it. Run one ONLY through `executeCql(ctx, { cql } | { query }, opts)` / `prepareCql` in `execute.server.ts`: it computes the readable projects itself and puts the compiled predicate inside `buildScopedWhere`'s envelope. Never import `compile.ts` (an arch test allows only the executor), never hand a project list to the query layer, and never build SQL from strings there. The modules without `.server` are client-safe (the editor parses and typechecks in the browser). Routes gate with `cqlGate` (raw ITEM_READ + the org's `settings.cql.enabled` switch while the feature is rolling out).
+
 ## base-ui primitives don't support `asChild`
 
 The project uses `@base-ui/react` for `Button`, `DropdownMenu`, and `Dialog` — NOT Radix shadcn. Consequence: `<Button asChild><Link href="..."/></Button>` doesn't compile.
