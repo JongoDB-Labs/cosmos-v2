@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requestIdOf } from "./request-id";
+import { PROBLEM_CODES, type ProblemCode } from "./problem-codes";
 
 /**
  * RFC 9457 `application/problem+json`: the one error shape the public API
@@ -10,19 +11,7 @@ import { requestIdOf } from "./request-id";
  * stdio MCP servers, scripts) sees no change. `issues` is kept too, for the
  * same reason, on validation failures.
  */
-export const PROBLEM_CODES = {
-  invalid_request: "Invalid request",
-  unauthorized: "Unauthorized",
-  forbidden: "Forbidden",
-  insufficient_scope: "Insufficient scope",
-  not_found: "Not found",
-  conflict: "Conflict",
-  model_not_connected: "Claude isn't connected",
-  rate_limited: "Too many requests",
-  internal_error: "Internal server error",
-} as const;
-
-export type ProblemCode = keyof typeof PROBLEM_CODES;
+export { PROBLEM_CODES, type ProblemCode };
 
 export interface Problem {
   /** Relative URI of the code's entry in the errors guide. */
@@ -71,4 +60,21 @@ export function problem(
   const headers = new Headers(opts.headers);
   headers.set("Content-Type", PROBLEM_CONTENT_TYPE);
   return NextResponse.json(problemBody(status, code, detail, opts), { status, headers });
+}
+
+/**
+ * Throw from anywhere under a route's try/catch; handleApiError turns it into
+ * the matching problem response. For the errors no domain class covers
+ * (malformed JSON, an unusable cursor, a scope the token lacks).
+ */
+export class ProblemError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: ProblemCode,
+    detail?: string,
+    readonly headers?: HeadersInit,
+  ) {
+    super(detail ?? PROBLEM_CODES[code]);
+    this.name = "ProblemError";
+  }
 }
