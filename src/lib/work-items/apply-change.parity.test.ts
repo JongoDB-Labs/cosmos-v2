@@ -17,11 +17,12 @@
 //   INTENDED DIFFS
 //   - bulk: "bulk move into Done", "bulk assignee change": a bulk edit now does
 //     what a single edit does (dates, cancel fields, history, the assignee SET,
-//     the same notification text).
+//     the same notification text), plus one Teams line for the whole move.
 //   - assistant: "assistant move into Review", "assistant move into a custom
-//     Done column", "assistant tag edit": done/started follow the column
-//     CATEGORY instead of the key's spelling, the edit is audited and published,
-//     and tags go through the label catalogue.
+//     Done column", "assistant move out of done", "assistant tag edit",
+//     "assistant reassignment": done/started follow the column CATEGORY instead
+//     of the key's spelling, the edit is recorded in history, audited,
+//     published and notified like a PUT, and tags go through the label catalogue.
 //   - sprint: "sprint completion counts a custom Done column as done".
 //   - merge: "merge a duplicate": the move to Cancelled is recorded in history.
 //
@@ -47,7 +48,8 @@ vi.mock("@/lib/auth/session", () => ({ getAuthContext: vi.fn(async () => calls.c
 vi.mock("@/lib/audit", () => ({
   logAudit: vi.fn(async (e: Record<string, unknown>) => {
     // The IP is the request's, not the change's.
-    const { ipAddress: _ip, ...rest } = e;
+    const rest = { ...e };
+    delete rest.ipAddress;
     calls.audit.push(rest);
   }),
 }));

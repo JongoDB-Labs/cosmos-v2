@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       });
       const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
 
-      const dupe = await tx.workItem.create({
+      const dupe = await createWorkItemRow(tx, {
         data: {
           orgId,
           projectId,
@@ -121,7 +122,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           orderBy: { sortOrder: "asc" },
         });
         for (const kid of kids) {
-          const child = await tx.workItem.create({
+          const child = await createWorkItemRow(tx, {
             data: {
               orgId,
               projectId,

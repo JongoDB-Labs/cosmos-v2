@@ -17,7 +17,8 @@
 /** Just enough of a board column. `BoardColumn` from `@/types/models` fits. */
 export interface DoneStateColumn {
   key: string;
-  category?: "TODO" | "IN_PROGRESS" | "DONE" | "CANCELLED";
+  /** A `ColumnCategory`; typed loosely so client status lists fit as they are. */
+  category?: string;
 }
 
 /** Just enough of a work item. `WorkItem` and `WorkItemRef` both fit. */
@@ -53,8 +54,21 @@ export function isWorkItemDone(
   columns: readonly DoneStateColumn[] = [],
 ): boolean {
   if (item.completedAt != null) return true;
+  return isDoneStatus(item.columnKey, columns);
+}
 
-  const columnKey = item.columnKey;
+/**
+ * True when an item in status `columnKey` is in a DONE-category status: the
+ * column half of `isWorkItemDone`, for callers that ask about the status alone
+ * (a sprint's report counts what sits in Done, whatever its dates say).
+ *
+ * The status's `category` is believed outright when `columns` knows the key;
+ * the seeded `"done"` key is consulted only when it does not.
+ */
+export function isDoneStatus(
+  columnKey: string | null | undefined,
+  columns: readonly DoneStateColumn[] = [],
+): boolean {
   if (!columnKey) return false;
 
   const column = columns.find((c) => c.key === columnKey);

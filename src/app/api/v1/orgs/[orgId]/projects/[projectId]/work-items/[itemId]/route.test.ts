@@ -29,7 +29,13 @@ const { getAuthContext, prisma, logAudit } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   prisma: {
     organization: { findUnique: vi.fn() },
-    workItem: { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    workItem: {
+      findFirst: vi.fn(),
+      findMany: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
+      updateMany: vi.fn(),
+      delete: vi.fn(),
+    },
     activity: { createMany: vi.fn() },
     user: { findUnique: vi.fn() },
     $transaction: vi.fn(),
@@ -101,7 +107,7 @@ beforeEach(() => {
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
   // existing work item — created by someone OTHER than the actor (so owns_resource
   // is false and any ownership-conditional policy is irrelevant here).
-  prisma.workItem.findFirst.mockResolvedValue({
+  const row = {
     id: ITEM_ID,
     orgId: ORG_ID,
     projectId: PROJECT_ID,
@@ -115,17 +121,15 @@ beforeEach(() => {
     createdById: "99999999-9999-9999-9999-999999999999",
     completedAt: null,
     ticketNumber: 7,
-  });
-  // $transaction runs the callback against a tx that mirrors prisma.
-  prisma.$transaction.mockImplementation(async (cb: (tx: typeof prisma) => unknown) => {
-    prisma.workItem.update.mockResolvedValue({
-      id: ITEM_ID,
-      title: "Updated",
-      description: "",
-    });
-    prisma.activity.createMany.mockResolvedValue({ count: 1 });
-    return cb(prisma);
-  });
+  };
+  prisma.workItem.findFirst.mockResolvedValue(row);
+  // $transaction runs the callback against a tx that mirrors prisma; the change
+  // service reads the row, writes it and the route reads the echo back.
+  prisma.workItem.findMany.mockResolvedValue([row]);
+  prisma.workItem.updateMany.mockResolvedValue({ count: 1 });
+  prisma.workItem.findUniqueOrThrow.mockResolvedValue({ ...row, title: "Updated" });
+  prisma.activity.createMany.mockResolvedValue({ count: 1 });
+  prisma.$transaction.mockImplementation(async (cb: (tx: typeof prisma) => unknown) => cb(prisma));
   prisma.workItem.delete.mockResolvedValue({ id: ITEM_ID });
   logAudit.mockResolvedValue(undefined);
 });
@@ -139,7 +143,7 @@ describe("PUT /work-items/[itemId] — ITEM_UPDATE authz (requireAccess)", () =>
 
     expect(res.status).toBe(403);
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(prisma.workItem.update).not.toHaveBeenCalled();
+    expect(prisma.workItem.updateMany).not.toHaveBeenCalled();
   });
 
   it("(b) ctx WITH ITEM_UPDATE and NO policy → success (200)", async () => {

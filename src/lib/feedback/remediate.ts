@@ -8,6 +8,7 @@
 // Revisit if teamScopedAccess is ever promoted from a visibility default to a
 // hard boundary.
 import { prisma } from "@/lib/db/client";
+import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { runModelTurn, type ModelCredential } from "@/lib/ai/egress";
 import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
 import { logAudit } from "@/lib/audit";
@@ -824,7 +825,7 @@ async function runFeedbackRemediationInner(
           columnKey: target.columnKey,
         });
 
-        const workItem = await tx.workItem.create({
+        const workItem = await createWorkItemRow(tx, {
           data: {
             orgId,
             projectId: target.id,

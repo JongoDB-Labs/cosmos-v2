@@ -1,17 +1,36 @@
 import { describe, it, expect } from "vitest";
-import { computeSprintReview, isDoneColumnKey } from "./sprint-review";
+import { computeSprintReview } from "./sprint-review";
 
 // A two-week sprint reviewed exactly at its end date.
 const start = "2026-07-01T00:00:00.000Z";
 const end = "2026-07-15T00:00:00.000Z";
 
-describe("isDoneColumnKey", () => {
-  it("matches done/completed/closed columns case-insensitively", () => {
-    expect(isDoneColumnKey("done")).toBe(true);
-    expect(isDoneColumnKey("Completed")).toBe(true);
-    expect(isDoneColumnKey("CLOSED")).toBe(true);
-    expect(isDoneColumnKey("in_progress")).toBe(false);
-    expect(isDoneColumnKey("todo")).toBe(false);
+
+// The project's statuses. "shipped" is a team-named done lane: done by its
+// CATEGORY, though its key says nothing about being done.
+const STATUSES = [
+  { key: "todo", category: "TODO" },
+  { key: "in_progress", category: "IN_PROGRESS" },
+  { key: "in_review", category: "IN_PROGRESS" },
+  { key: "done", category: "DONE" },
+  { key: "shipped", category: "DONE" },
+];
+
+describe("what counts as done", () => {
+  it("follows the status category, not the key's spelling", () => {
+    const review = computeSprintReview({
+      startDate: start,
+      endDate: end,
+      reviewedAt: end,
+      items: [
+        { storyPoints: 1, columnKey: "shipped" },
+        // A key that merely CONTAINS a done-word is not done.
+        { storyPoints: 1, columnKey: "closed-for-review" },
+      ],
+      columns: [...STATUSES, { key: "closed-for-review", category: "IN_PROGRESS" }],
+    });
+    expect(review.completedItems).toBe(1);
+    expect(review.incompleteItems).toBe(1);
   });
 });
 
@@ -26,6 +45,7 @@ describe("computeSprintReview", () => {
         { storyPoints: 3, columnKey: "done" },
         { storyPoints: 2, columnKey: "in_progress" },
       ],
+      columns: STATUSES,
     });
     expect(review.basis).toBe("points");
     expect(review.totalPoints).toBe(10);
@@ -47,6 +67,7 @@ describe("computeSprintReview", () => {
         { storyPoints: null, columnKey: "done" },
         { storyPoints: null, columnKey: "todo" },
       ],
+      columns: STATUSES,
     });
     expect(review.basis).toBe("items");
     expect(review.efficiency).toBe(50);
@@ -61,6 +82,7 @@ describe("computeSprintReview", () => {
         { storyPoints: 4, columnKey: "done" },
         { storyPoints: 6, columnKey: "in_progress" },
       ],
+      columns: STATUSES,
     });
     // At sprint end the whole commitment was due; 40% done → behind.
     expect(review.pacing).toBeCloseTo(0.4, 2);
@@ -77,6 +99,7 @@ describe("computeSprintReview", () => {
         { storyPoints: 5, columnKey: "done" },
         { storyPoints: 5, columnKey: "done" },
       ],
+      columns: STATUSES,
     });
     // Everything done at the halfway mark → well ahead of the ideal line.
     expect(review.pacingStatus).toBe("ahead");
@@ -89,6 +112,7 @@ describe("computeSprintReview", () => {
       endDate: end,
       reviewedAt: end,
       items: [],
+      columns: STATUSES,
     });
     expect(review.basis).toBe("items");
     expect(review.efficiency).toBe(0);
