@@ -46,7 +46,7 @@ export const API_KEY_SCOPE_LABELS: Record<ApiKeyScope, string> = {
  * or audit access. The mask stays the real limit: an implied `read` passes the
  * gate, and the read itself still needs the bits.
  */
-const IMPLIES: Partial<Record<ApiKeyScope, ApiKeyScope[]>> = {
+export const SCOPE_IMPLICATIONS: Partial<Record<ApiKeyScope, ApiKeyScope[]>> = {
   "items:write": ["read"],
   "planning:write": ["read"],
   "documents:write": ["read"],
@@ -59,7 +59,7 @@ export function effectiveScopes(scopes: readonly string[]): Set<ApiKeyScope> {
   for (const s of scopes) {
     if (!(API_KEY_SCOPES as readonly string[]).includes(s)) continue;
     out.add(s as ApiKeyScope);
-    for (const implied of IMPLIES[s as ApiKeyScope] ?? []) out.add(implied);
+    for (const implied of SCOPE_IMPLICATIONS[s as ApiKeyScope] ?? []) out.add(implied);
   }
   return out;
 }

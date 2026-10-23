@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -99,7 +100,8 @@ export function PersonalTokensPanel({
           </h2>
           <p className="mt-1 text-xs text-[var(--text-muted)]">
             Tokens that act as you in {orgName}, for scripts and tools. Each is limited to its scopes and
-            expires within {maxDays} days.
+            expires within {maxDays} days.{" "}
+            <Link href="/developers" className="underline hover:text-[var(--text)]">API docs</Link>
           </p>
         </div>
         <Button size="sm" onClick={openCreate}>

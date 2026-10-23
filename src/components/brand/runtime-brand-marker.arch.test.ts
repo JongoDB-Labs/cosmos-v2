@@ -19,7 +19,15 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-const MARKED_PAGES = ["src/app/login/page.tsx", "src/app/reset-password/page.tsx"];
+const MARKED_PAGES = [
+  "src/app/login/page.tsx",
+  "src/app/reset-password/page.tsx",
+  // /developers reads nothing from the request: no org, no cookies.
+  "src/app/(developers)/developers/page.tsx",
+  "src/app/(developers)/developers/guides/[slug]/page.tsx",
+  "src/app/(developers)/developers/reference/page.tsx",
+  "src/app/(developers)/developers/changelog/page.tsx",
+];
 
 function code(rel: string): string {
   return readFileSync(join(process.cwd(), rel), "utf8")

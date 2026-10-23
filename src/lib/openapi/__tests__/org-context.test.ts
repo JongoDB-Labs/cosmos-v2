@@ -6,6 +6,7 @@ vi.mock("@/lib/db/client", () => ({ prisma: { organization: { findUnique } } }))
 
 import { assertScopes, orgContext } from "../org-context";
 import { ProblemError } from "../problem";
+import { API_VERSION, SUPPORTED_API_VERSIONS } from "../version";
 
 const READ = { scopes: ["read" as const] };
 
@@ -15,7 +16,9 @@ describe("orgContext", () => {
   it("resolves the org by id and the caller within it by slug", async () => {
     findUnique.mockResolvedValue({ id: "o1", slug: "acme" });
     getAuthContext.mockResolvedValue({ userId: "u1" });
-    expect(await orgContext("o1", READ)).toEqual({ org: { id: "o1", slug: "acme" }, ctx: { userId: "u1" } });
+    expect(await orgContext("o1", READ)).toEqual({
+      org: { id: "o1", slug: "acme" }, ctx: { userId: "u1" }, apiVersion: API_VERSION,
+    });
     expect(getAuthContext).toHaveBeenCalledWith("acme");
   });
 
@@ -31,6 +34,28 @@ describe("orgContext", () => {
     const err = await orgContext("o1", READ).catch((e) => e);
     expect(err).toBeInstanceOf(ProblemError);
     expect(err).toMatchObject({ status: 401, code: "unauthorized" });
+  });
+});
+
+describe("orgContext: the API version a request runs at", () => {
+  const RETIRED = "2025-01-01";
+  beforeEach(() => {
+    findUnique.mockResolvedValue({ id: "o1", slug: "acme" });
+    SUPPORTED_API_VERSIONS[RETIRED] = { deprecatedAt: "2025-06-01", sunsetAt: "2026-06-01" };
+    return () => { delete SUPPORTED_API_VERSIONS[RETIRED]; };
+  });
+  const runningAt = (apiVersion?: string) => getAuthContext.mockResolvedValue({ userId: "u1", apiVersion });
+
+  it("is the context's version, current when unset", async () => {
+    runningAt("2026-11-01");
+    expect((await orgContext("o1", READ)).apiVersion).toBe("2026-11-01");
+    runningAt(undefined);
+    expect((await orgContext("o1", READ)).apiVersion).toBe(API_VERSION);
+  });
+
+  it("a request running at a retired version (a token's old pin) is a 410", async () => {
+    runningAt(RETIRED);
+    await expect(orgContext("o1", READ)).rejects.toMatchObject({ status: 410, code: "unsupported_api_version" });
   });
 });
 

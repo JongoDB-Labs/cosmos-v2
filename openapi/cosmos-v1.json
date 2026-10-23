@@ -19,6 +19,18 @@
         "description": "A Cosmos API key or personal access token: `Authorization: Bearer cosmos_<prefix>_<secret>`. What it can do is its scopes intersected with its user's own permissions."
       }
     },
+    "parameters": {
+      "ApiVersion": {
+        "name": "Cosmos-API-Version",
+        "in": "header",
+        "required": false,
+        "description": "The API version to run at (`YYYY-MM-DD`). Without it, a token runs at the version it was minted under and a browser session at the current one, 2026-11-01. An unknown version is a 400, a retired one a 410 (`unsupported_api_version`).",
+        "schema": {
+          "type": "string",
+          "example": "2026-11-01"
+        }
+      }
+    },
     "schemas": {
       "Me": {
         "type": "object",
@@ -151,6 +163,7 @@
               "model_not_connected",
               "rate_limited",
               "idempotency_key_reused",
+              "unsupported_api_version",
               "internal_error"
             ]
           },
@@ -3572,8 +3585,7 @@
           "createdAt"
         ]
       }
-    },
-    "parameters": {}
+    }
   },
   "paths": {
     "/me": {
@@ -3589,6 +3601,11 @@
             "bearerPat": []
           }
         ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
         "x-cosmos-scopes": [],
         "x-cosmos-stability": "stable",
         "responses": {
@@ -3597,6 +3614,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -3662,9 +3685,10 @@
             "bearerPat": []
           }
         ],
-        "x-cosmos-scopes": [],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "type": "string",
@@ -3678,12 +3702,20 @@
             "in": "query"
           }
         ],
+        "x-cosmos-scopes": [],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "List my personal access tokens",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -3768,6 +3800,11 @@
             "bearerPat": []
           }
         ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
         "x-cosmos-scopes": [],
         "x-cosmos-stability": "stable",
         "requestBody": {
@@ -3834,6 +3871,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -3935,9 +3978,10 @@
             "bearerPat": []
           }
         ],
-        "x-cosmos-scopes": [],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -3947,12 +3991,20 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [],
+        "x-cosmos-stability": "stable",
         "responses": {
           "204": {
             "description": "Revoke a personal access token",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -4047,6 +4099,11 @@
             "bearerPat": []
           }
         ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
         "x-cosmos-scopes": [],
         "x-cosmos-stability": "stable",
         "responses": {
@@ -4055,6 +4112,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -4125,11 +4188,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "audit:read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -4218,12 +4280,22 @@
             "in": "query"
           }
         ],
+        "x-cosmos-scopes": [
+          "audit:read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "List audit log entries",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -4327,11 +4399,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -4353,12 +4424,22 @@
             "in": "query"
           }
         ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "List custom fields",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -4465,11 +4546,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -4491,12 +4571,22 @@
             "in": "query"
           }
         ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "List labels",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -4603,14 +4693,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "members:read"
-        ],
-        "x-cosmos-stability": "stable",
-        "x-cosmos-session-only": [
-          "email"
-        ],
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -4643,12 +4729,25 @@
             "in": "query"
           }
         ],
+        "x-cosmos-scopes": [
+          "members:read"
+        ],
+        "x-cosmos-stability": "stable",
+        "x-cosmos-session-only": [
+          "email"
+        ],
         "responses": {
           "200": {
             "description": "List members",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -4767,11 +4866,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -4821,12 +4919,22 @@
             "in": "query"
           }
         ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "List projects",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -4943,11 +5051,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "items:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -4969,6 +5076,10 @@
             "in": "header"
           }
         ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -5021,6 +5132,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -5160,14 +5277,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "read"
-        ],
-        "x-cosmos-stability": "stable",
-        "x-cosmos-session-only": [
-          "email"
-        ],
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -5185,12 +5298,25 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "x-cosmos-session-only": [
+          "email"
+        ],
         "responses": {
           "200": {
             "description": "Get a project",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -5292,11 +5418,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "items:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -5314,6 +5439,10 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -5413,6 +5542,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -5516,11 +5651,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -5538,12 +5672,22 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "List goals",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -5647,11 +5791,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "planning:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -5681,6 +5824,10 @@
             "in": "header"
           }
         ],
+        "x-cosmos-scopes": [
+          "planning:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -5746,6 +5893,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -5885,12 +6038,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "planning:write",
-          "items:delete"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -5916,12 +6067,23 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "planning:write",
+          "items:delete"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "Delete a goal",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -6022,11 +6184,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "planning:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -6052,6 +6213,10 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "planning:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -6120,6 +6285,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -6223,11 +6394,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -6260,12 +6430,22 @@
             "in": "query"
           }
         ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "List intervals",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -6370,11 +6550,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "items:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -6404,6 +6583,10 @@
             "in": "header"
           }
         ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -6467,6 +6650,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -6606,11 +6795,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -6636,12 +6824,22 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "Get an interval",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -6743,11 +6941,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "planning:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -6773,6 +6970,10 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "planning:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -6831,6 +7032,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -6951,11 +7158,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "items:delete"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -6981,12 +7187,22 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "items:delete"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "Delete a key result",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -7088,11 +7304,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "items:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -7118,6 +7333,10 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -7167,6 +7386,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -7270,11 +7495,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -7300,12 +7524,22 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "List key-result check-ins",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -7410,11 +7644,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "items:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -7452,6 +7685,10 @@
             "in": "header"
           }
         ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -7505,6 +7742,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -7644,11 +7887,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -7666,12 +7908,22 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "List KPIs",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -7775,11 +8027,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "planning:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -7809,6 +8060,10 @@
             "in": "header"
           }
         ],
+        "x-cosmos-scopes": [
+          "planning:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -7881,6 +8136,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -8021,12 +8282,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "planning:write",
-          "items:delete"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -8052,12 +8311,23 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "planning:write",
+          "items:delete"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "Delete a KPI",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -8158,11 +8428,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "planning:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -8188,6 +8457,10 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "planning:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -8255,6 +8528,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -8358,11 +8637,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -8388,12 +8666,22 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "List KPI data points",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -8498,11 +8786,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "planning:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -8540,6 +8827,10 @@
             "in": "header"
           }
         ],
+        "x-cosmos-scopes": [
+          "planning:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -8583,6 +8874,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -8722,11 +9019,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -8744,12 +9040,22 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "List milestones",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -8854,11 +9160,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "planning:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -8888,6 +9193,10 @@
             "in": "header"
           }
         ],
+        "x-cosmos-scopes": [
+          "planning:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -8935,6 +9244,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -9075,12 +9390,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "planning:write",
-          "items:delete"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -9106,12 +9419,23 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "planning:write",
+          "items:delete"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "Delete a milestone",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -9212,11 +9536,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "planning:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -9242,6 +9565,10 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "planning:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -9304,6 +9631,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -9407,11 +9740,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -9429,12 +9761,22 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "List objectives",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -9539,11 +9881,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "items:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -9561,6 +9902,10 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -9590,6 +9935,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -9691,11 +10042,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "items:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -9725,6 +10075,10 @@
             "in": "header"
           }
         ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -9791,6 +10145,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -9930,11 +10290,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "items:delete"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -9960,12 +10319,22 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "items:delete"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "Delete an objective",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -10066,11 +10435,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -10096,12 +10464,22 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "Get an objective",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -10203,11 +10581,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "items:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -10233,6 +10610,10 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -10301,6 +10682,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -10403,11 +10790,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "items:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -10445,6 +10831,10 @@
             "in": "header"
           }
         ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -10502,6 +10892,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -10641,11 +11037,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "time:read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -10742,12 +11137,22 @@
             "in": "query"
           }
         ],
+        "x-cosmos-scopes": [
+          "time:read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "List time entries",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -10849,11 +11254,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "time:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -10875,6 +11279,10 @@
             "in": "header"
           }
         ],
+        "x-cosmos-scopes": [
+          "time:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -10954,6 +11362,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -11092,11 +11506,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "time:read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -11114,12 +11527,22 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "time:read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "Get a time entry",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -11221,11 +11644,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "time:write"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -11243,6 +11665,10 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "time:write"
+        ],
+        "x-cosmos-stability": "stable",
         "requestBody": {
           "required": true,
           "content": {
@@ -11321,6 +11747,12 @@
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }
@@ -11442,11 +11874,10 @@
             ]
           }
         ],
-        "x-cosmos-scopes": [
-          "read"
-        ],
-        "x-cosmos-stability": "stable",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          },
           {
             "schema": {
               "$ref": "#/components/schemas/Uuid"
@@ -11456,12 +11887,22 @@
             "in": "path"
           }
         ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
         "responses": {
           "200": {
             "description": "List work-item types",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-API-Version": {
+                "description": "The version this request ran at, when it named one in `Cosmos-API-Version`.",
                 "schema": {
                   "type": "string"
                 }

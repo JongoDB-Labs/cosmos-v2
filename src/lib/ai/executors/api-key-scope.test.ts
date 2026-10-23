@@ -4,6 +4,7 @@ import { apiKeyAuthContext, mintApiKey } from "@/lib/auth/api-key";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { executeTool } from "../tool-executor";
+import { API_VERSION } from "@/lib/openapi/version";
 
 /**
  * The assistant's tools must act with the CALLER's authority, not the authority
@@ -65,7 +66,7 @@ describe("AI tools honor the caller's API-key scope (e2e DB)", () => {
         orgId: org.id, name: `k-${scopes.join("+")}`, scopes, createdById: owner.id, projectIds,
       });
       const auth = await apiKeyAuthContext(org.id, {
-        id: record.id, kind: record.kind, createdById: owner.id, scopes: record.scopes, projectIds: record.projectIds,
+        id: record.id, kind: record.kind, apiVersion: API_VERSION, createdById: owner.id, scopes: record.scopes, projectIds: record.projectIds,
       });
       if (!auth) throw new Error("key owner is not a member");
       return auth;

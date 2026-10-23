@@ -8,6 +8,7 @@ import { ipMatchesAny } from "@/lib/auth/cidr";
 import { SESSION_COOKIE } from "./client";
 import { verifyApiKeyHeader } from "./api-key";
 import { classifyBearer } from "./bearer";
+import { API_VERSION_HEADER, resolveApiVersion } from "@/lib/openapi/version";
 
 /**
  * Whether a session satisfies an org's Require-MFA floor, under the
@@ -220,14 +221,16 @@ export const getAuthContext = cache(
     // Any Cosmos bearer (classifyBearer non-null) decides the request on its
     // own: one that is not a valid API key returns null here and never falls
     // through to the cookie below.
-    const authorization = (await headers()).get("authorization");
+    const requestHeaders = await headers();
+    const authorization = requestHeaders.get("authorization");
+    const requestedVersion = requestHeaders.get(API_VERSION_HEADER);
     const bearer = classifyBearer(authorization);
     if (bearer !== null) {
       if (bearer !== "api_key") return null;
       const keyCtx = await verifyApiKeyHeader(authorization, org.id);
       if (!keyCtx) return null;
       if (!(await bearerIpAllowed(org.id))) return null;
-      return keyCtx;
+      return { ...keyCtx, apiVersion: resolveApiVersion(requestedVersion, keyCtx.credential?.apiVersion) };
     }
 
     const user = await getCurrentUser();
@@ -291,6 +294,7 @@ export const getAuthContext = cache(
       permissions: effective.permissions,
       basePermissions: effective.basePermissions,
       abacRules: effective.abacRules,
+      apiVersion: resolveApiVersion(requestedVersion),
     };
   },
 );

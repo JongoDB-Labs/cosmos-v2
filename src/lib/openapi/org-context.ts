@@ -4,12 +4,15 @@ import { effectiveScopes } from "@/lib/auth/api-key-scopes";
 import type { AuthContext } from "@/lib/rbac/check";
 import type { RouteContract } from "./contract";
 import { ProblemError } from "./problem";
+import { API_VERSION, apiVersionRefusal } from "./version";
 
 /**
  * The prelude every org route repeats: resolve the org from the path's UUID,
  * then the caller (session cookie or bearer token) within it, then hold a
  * token to the scopes the operation's contract names. Throws problems (404,
  * 401, 403) for the route's catch to answer.
+ *
+ * `apiVersion` is the version this request runs at (AuthContext.apiVersion).
  */
 export async function orgContext(orgId: string, contract: Pick<RouteContract, "scopes">) {
   const org = await prisma.organization.findUnique({ where: { id: orgId } });
@@ -17,7 +20,19 @@ export async function orgContext(orgId: string, contract: Pick<RouteContract, "s
   const ctx = await getAuthContext(org.slug);
   if (!ctx) throw new ProblemError(401, "unauthorized");
   assertScopes(ctx, contract);
-  return { org, ctx };
+  const apiVersion = servableApiVersion(ctx.apiVersion ?? API_VERSION);
+  return { org, ctx, apiVersion };
+}
+
+/**
+ * `v`, or a problem if it can't be served. The proxy has already refused a
+ * header naming a bad version; what can still be retired here is a token's
+ * PIN, which only the database knows.
+ */
+export function servableApiVersion(v: string): string {
+  const refusal = apiVersionRefusal(v);
+  if (refusal) throw new ProblemError(refusal.status, "unsupported_api_version", refusal.detail);
+  return v;
 }
 
 /**

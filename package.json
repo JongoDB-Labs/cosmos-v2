@@ -70,6 +70,7 @@
     "@opentelemetry/sdk-metrics": "^2.7.1",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
+    "@scalar/api-reference-react": "0.9.79",
     "@schedule-x/calendar": "^4.8.0",
     "@schedule-x/react": "^4.1.0",
     "@schedule-x/theme-default": "^4.8.0",

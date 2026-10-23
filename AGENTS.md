@@ -123,6 +123,8 @@ Mutations use `useOrgMutation({ mutationFn, invalidate: [["themes"]] })` — sam
 - Paged lists (`pagination: "cursor"`) are **opt-in**: no `limit`/`cursor` returns the whole list, as existing clients expect. Put visibility in the query's WHERE, never in a filter after the fetch: the cursor comes from a page's last row and would carry a hidden row's id.
 - Errors are RFC 9457 problems (`problem()`, `ProblemError`, or `handleApiError(e, request)`); the legacy `error` key is always kept.
 - Changed a contract? `npm run openapi` and commit `openapi/cosmos-v1.json`. `npm run check:openapi` is the CI drift gate; oasdiff fails breaking changes unless the PR has the `api-breaking` label.
+- Changed the **public** spec? Add an entry to `src/lib/api-changelog.ts` (newest first; it renders at `/developers/changelog`). `check:openapi` fails without one. It is separate from `src/lib/changelog.ts`, which stays ops'. A breaking change also needs a new date version in `src/lib/openapi/version.ts`.
+- New problem `code`? Add it to `PROBLEM_CODES` and document it in `src/content/developers/errors.ts`; that file won't compile until you do.
 - Contract files are pure (zod + `@/lib/openapi/*` only); `coverage.arch.test.ts` enforces it.
 
 ## Querying work items: CQL (`src/lib/query/`)

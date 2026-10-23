@@ -13,8 +13,9 @@ vi.mock("@/lib/auth/api-key", () => ({ verifyKeyTokenHolder: h.verifyKeyTokenHol
 vi.mock("@/lib/db/client", () => ({ prisma: {} }));
 
 import { userContext } from "../user-context";
+import { API_VERSION } from "../version";
 
-const HOLDER = { userId: "u-token", orgId: "o1", scopes: ["read"], keyId: "k1", kind: "PERSONAL", expiresAt: null };
+const HOLDER = { userId: "u-token", orgId: "o1", scopes: ["read"], keyId: "k1", kind: "PERSONAL", expiresAt: null, apiVersion: API_VERSION };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -26,13 +27,15 @@ beforeEach(() => {
 
 describe("userContext: who is calling a route with no org in the path", () => {
   it("a session is the cookie's user, with no token", async () => {
-    expect(await userContext({ scopes: [] })).toEqual({ userId: "u-cookie" });
+    expect(await userContext({ scopes: [] })).toEqual({ userId: "u-cookie", apiVersion: API_VERSION });
   });
 
   it("a key token is its holder, with the token's org and scopes", async () => {
     h.authorization = "Bearer cosmos_abc_s";
     expect(await userContext({ scopes: [] })).toEqual({
-      userId: "u-token", token: { orgId: "o1", scopes: ["read"], keyId: "k1", kind: "PERSONAL", expiresAt: null },
+      userId: "u-token",
+      token: { orgId: "o1", scopes: ["read"], keyId: "k1", kind: "PERSONAL", expiresAt: null, apiVersion: API_VERSION },
+      apiVersion: API_VERSION,
     });
     expect(h.getCurrentUser).not.toHaveBeenCalled();
   });

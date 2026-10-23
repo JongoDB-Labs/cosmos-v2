@@ -1,0 +1,17 @@
+/*
+ * Scalar's stylesheet gives <body> its own theme background, in a cascade layer
+ * (scalar-base) declared after Tailwind's and so outranking it. The stylesheet
+ * stays in the document after a client-side navigation away from the
+ * reference, so without this every page after it would lose the app's
+ * background. Same layer, declared later: ours wins.
+ */
+@layer scalar-base {
+  body {
+    background-color: var(--bg);
+  }
+}
+
+/* Keep Scalar's sticky sidebar and headers below the /developers header: its h-14 (layout.tsx). */
+.scalar-app {
+  --scalar-custom-header-height: 3.5rem;
+}

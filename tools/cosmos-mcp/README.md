@@ -1,9 +1,14 @@
 # COSMOS BYO-LLM ingest — MCP server
 
+> **Deprecated.** Cosmos is getting a built-in remote MCP server at `/api/mcp`,
+> signed in with OAuth, with no local process to run and no secret in a config file.
+> This server will be removed once that ships; the setup guide will be at
+> `/developers` on your instance.
+
 A tiny, dependency-free stdio [MCP](https://modelcontextprotocol.io) server that
 lets an MCP-capable LLM client ingest structured items and documents into a
 COSMOS project. It wraps the bearer-authed HTTP ingest API
-(`docs/byollm/ingest-api.md`) — the model does the document→schema conversion;
+(the "Importing items" guide at `/developers/guides/importing-items`) — the model does the document→schema conversion;
 this server authenticates with your API key and calls the endpoints.
 
 ## Tools
@@ -23,7 +28,8 @@ this server authenticates with your API key and calls the endpoints.
 
 ## Setup
 
-Mint an org-scoped API key in COSMOS (**Settings → API keys**); choose the scopes
+Create a personal access token (**Settings → Profile → Personal access tokens**) or,
+as an admin, an org API key (**Settings → API keys**); choose the scopes
 you need (`read`, `items:write`, `documents:write`). The plaintext key
 (`cosmos_…`) is shown once — copy it. The key acts as the minting user, and its
 effective permissions are that user's permissions intersected with the chosen

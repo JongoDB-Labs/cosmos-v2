@@ -175,7 +175,7 @@ export async function verifyApiKeyHeader(
     where: { orgId_prefix: { orgId, prefix: parsed.prefix } },
     select: {
       id: true, keyHash: true, scopes: true, projectIds: true,
-      expiresAt: true, createdById: true, kind: true,
+      expiresAt: true, createdById: true, kind: true, apiVersion: true,
     },
   });
   if (!key || !key.createdById) return null;
@@ -183,7 +183,8 @@ export async function verifyApiKeyHeader(
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
   if (key.expiresAt && key.expiresAt.getTime() < Date.now()) return null;
   const ctx = await apiKeyAuthContext(orgId, {
-    id: key.id, kind: key.kind, createdById: key.createdById, scopes: key.scopes, projectIds: key.projectIds,
+    id: key.id, kind: key.kind, apiVersion: key.apiVersion,
+    createdById: key.createdById, scopes: key.scopes, projectIds: key.projectIds,
   });
   if (!ctx) return null;
   void prisma.apiKey.update({ where: { id: key.id }, data: { lastUsed: new Date() } }).catch(() => {});
@@ -202,7 +203,10 @@ export async function verifyApiKeyHeader(
  */
 export async function apiKeyAuthContext(
   orgId: string,
-  key: { id: string; kind: ApiKeyKind; createdById: string; scopes: string[]; projectIds: string[] | null },
+  key: {
+    id: string; kind: ApiKeyKind; apiVersion: string;
+    createdById: string; scopes: string[]; projectIds: string[] | null;
+  },
 ): Promise<AuthContext | null> {
   const eff = await loadEffectivePermissions(orgId, key.createdById);
   if (!eff) return null;
@@ -215,7 +219,9 @@ export async function apiKeyAuthContext(
     // ignored for any key an owner minted.
     isApiKey: true,
     scopes: key.scopes,
-    credential: { kind: "api_key", keyId: key.id, personal: key.kind === "PERSONAL" },
+    credential: {
+      kind: "api_key", keyId: key.id, personal: key.kind === "PERSONAL", apiVersion: key.apiVersion,
+    },
     abacRules: eff.abacRules,
     // Empty means org-wide, so it must stay UNDEFINED rather than become an
     // empty allowlist — `[]` as a ceiling would deny everything, turning every
@@ -237,7 +243,7 @@ export async function verifyKeyTokenHolder(authorization: string | null) {
     where: { prefix: parsed.prefix },
     select: {
       id: true, orgId: true, keyHash: true, scopes: true, expiresAt: true,
-      createdById: true, kind: true,
+      createdById: true, kind: true, apiVersion: true,
     },
     take: 5,
   });
@@ -251,7 +257,7 @@ export async function verifyKeyTokenHolder(authorization: string | null) {
     void prisma.apiKey.update({ where: { id: key.id }, data: { lastUsed: new Date() } }).catch(() => {});
     return {
       userId: key.createdById, orgId: key.orgId, scopes: key.scopes, keyId: key.id,
-      kind: key.kind, expiresAt: key.expiresAt,
+      kind: key.kind, expiresAt: key.expiresAt, apiVersion: key.apiVersion,
     };
   }
   return null;

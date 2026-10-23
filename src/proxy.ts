@@ -6,7 +6,9 @@ import { classifyBearer } from "@/lib/auth/bearer";
 import { REQUEST_ID_HEADER, requestIdFor } from "@/lib/openapi/request-id";
 import { problem } from "@/lib/openapi/problem";
 import { budgetHeaders, chargeApiBudget } from "@/lib/rate-limit/api-budget";
+import { API_VERSION_HEADER, apiVersionRefusal, deprecationHeaders } from "@/lib/openapi/version";
 import { isMutatingMethod, isPathOrgFrozen } from "@/lib/cutover/freeze";
+import { PUBLIC_DOCS_PATHS, publicApiDocs } from "@/lib/developers/visibility";
 
 function withSecurityHeaders(res: NextResponse): NextResponse {
   applySecurityHeaders(res.headers);
@@ -112,11 +114,14 @@ const PUBLIC_PATH_PREFIXES = [
 // like /login can load their images.
 const STATIC_ASSET_EXT = /\.(?:png|svg|ico|jpe?g|webp|gif|woff2?|ttf|otf|js)$/i;
 
+const underPrefix = (pathname: string, prefix: string) =>
+  pathname === prefix || pathname.startsWith(`${prefix}/`);
+
 function isPublic(pathname: string): boolean {
   if (STATIC_ASSET_EXT.test(pathname)) return true;
-  return PUBLIC_PATH_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  );
+  // The API docs and spec, only when the operator opted in (lib/developers/visibility.ts).
+  if (publicApiDocs() && PUBLIC_DOCS_PATHS.some((p) => underPrefix(pathname, p))) return true;
+  return PUBLIC_PATH_PREFIXES.some((prefix) => underPrefix(pathname, prefix));
 }
 
 export async function proxy(request: NextRequest) {
@@ -137,10 +142,22 @@ export async function proxy(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/api/") && authorization && classifyBearer(authorization) !== null
       ? chargeApiBudget(authorization, request.method)
       : null;
+  // `Cosmos-API-Version` (lib/openapi/version.ts): a version the request
+  // NAMES is checked and echoed here; a token's pin is the route's to resolve.
+  const requestedVersion = request.nextUrl.pathname.startsWith("/api/v1/")
+    ? request.headers.get(API_VERSION_HEADER)?.trim() || null
+    : null;
+  const versionRefusal = requestedVersion ? apiVersionRefusal(requestedVersion) : null;
   const res = budget && !budget.allowed
     ? withSecurityHeaders(problem(429, "rate_limited", "Rate limit exceeded for this token"))
-    : await gate(request, next);
+    : versionRefusal
+      ? withSecurityHeaders(problem(versionRefusal.status, "unsupported_api_version", versionRefusal.detail))
+      : await gate(request, next);
   if (budget) for (const [k, v] of Object.entries(budgetHeaders(budget))) res.headers.set(k, v);
+  if (requestedVersion && !versionRefusal) {
+    res.headers.set(API_VERSION_HEADER, requestedVersion);
+    for (const [k, v] of Object.entries(deprecationHeaders(requestedVersion))) res.headers.set(k, v);
+  }
   res.headers.set(REQUEST_ID_HEADER, requestId);
   return res;
 }

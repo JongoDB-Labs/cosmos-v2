@@ -12,6 +12,7 @@ import { API_KEY_SCOPES } from "@/lib/auth/api-key-scopes";
 type Op = {
   operationId?: string; summary?: string; tags?: string[];
   security?: Record<string, string[]>[];
+  parameters?: { $ref?: string }[];
   "x-cosmos-scopes"?: string[]; "x-cosmos-stability"?: string;
   responses: Record<string, { content?: Record<string, { schema: { $ref?: string; type?: string; items?: { $ref?: string } } }> }>;
 };
@@ -37,6 +38,10 @@ describe("published spec lint", () => {
   it.each(ops)("$where: security names real scopes, the same ones as x-cosmos-scopes", ({ op }) => {
     expect(op.security).toEqual([{ bearerPat: op["x-cosmos-scopes"] }]);
     for (const s of op["x-cosmos-scopes"] ?? []) expect(API_KEY_SCOPES).toContain(s);
+  });
+
+  it.each(ops)("$where: takes Cosmos-API-Version", ({ op }) => {
+    expect(op.parameters).toContainEqual({ $ref: "#/components/parameters/ApiVersion" });
   });
 
   it.each(ops)("$where: documents 401 (and 403 when it needs scopes), and every error is a Problem", ({ op }) => {

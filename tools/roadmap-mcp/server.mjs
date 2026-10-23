@@ -11,17 +11,17 @@
  *   COSMOS_BASE_URL   e.g. https://cosmos.example.com   (required)
  *   COSMOS_ORG_ID     org uuid                          (required)
  *   COSMOS_PROJECT_ID project uuid                       (required)
- *   COSMOS_COOKIE     a logged-in session cookie header  (required — the API is
- *                     session-authenticated; copy the `session=…` cookie)
+ *   COSMOS_TOKEN      a personal access token, `cosmos_…` (required; scope
+ *                     items:write). Never a browser session cookie.
  *
  * Example client config:
  *   { "command": "node", "args": ["tools/roadmap-mcp/server.mjs"],
  *     "env": { "COSMOS_BASE_URL": "...", "COSMOS_ORG_ID": "...",
- *              "COSMOS_PROJECT_ID": "...", "COSMOS_COOKIE": "session=..." } }
+ *              "COSMOS_PROJECT_ID": "...", "COSMOS_TOKEN": "cosmos_..." } }
  */
 import { createInterface } from "node:readline";
 
-const { COSMOS_BASE_URL, COSMOS_ORG_ID, COSMOS_PROJECT_ID, COSMOS_COOKIE } = process.env;
+const { COSMOS_BASE_URL, COSMOS_ORG_ID, COSMOS_PROJECT_ID, COSMOS_TOKEN } = process.env;
 const API = () =>
   `${COSMOS_BASE_URL}/api/v1/orgs/${COSMOS_ORG_ID}/projects/${COSMOS_PROJECT_ID}/roadmap-nodes`;
 
@@ -36,15 +36,17 @@ function error(id, code, message) {
 }
 
 async function apiFetch(path, init = {}) {
-  if (!COSMOS_BASE_URL || !COSMOS_ORG_ID || !COSMOS_PROJECT_ID || !COSMOS_COOKIE) {
-    throw new Error("Set COSMOS_BASE_URL, COSMOS_ORG_ID, COSMOS_PROJECT_ID, COSMOS_COOKIE");
+  if (!COSMOS_BASE_URL || !COSMOS_ORG_ID || !COSMOS_PROJECT_ID || !COSMOS_TOKEN) {
+    throw new Error(
+      "Set COSMOS_BASE_URL, COSMOS_ORG_ID, COSMOS_PROJECT_ID, COSMOS_TOKEN" +
+        (process.env.COSMOS_COOKIE ? " (COSMOS_COOKIE is no longer read: use a personal access token)" : ""),
+    );
   }
   const res = await fetch(path, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      Cookie: COSMOS_COOKIE,
-      Origin: COSMOS_BASE_URL,
+      Authorization: `Bearer ${COSMOS_TOKEN}`,
       ...(init.headers || {}),
     },
   });

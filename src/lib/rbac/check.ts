@@ -39,7 +39,17 @@ export interface AuthContext {
    * bucket, Idempotency-Key namespace, audit) and whether it is a member's
    * personal token or an org integration key.
    */
-  credential?: { kind: "api_key"; keyId: string; personal: boolean };
+  /**
+   * The API version this request runs at (lib/openapi/version.ts): the
+   * `Cosmos-API-Version` it named, else a token's mint-time pin, else the
+   * current one. Set by getAuthContext; absent means current.
+   */
+  apiVersion?: string;
+  credential?: {
+    kind: "api_key"; keyId: string; personal: boolean;
+    /** The API version the key was pinned to at mint (lib/openapi/version.ts). */
+    apiVersion: string;
+  };
   /**
    * A hard ceiling on which projects this actor may touch, independent of role.
    *

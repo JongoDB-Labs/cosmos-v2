@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db/client";
 import { idempotent } from "../idempotency";
 import { ProblemError } from "../problem";
 import type { AuthContext } from "@/lib/rbac/check";
+import { API_VERSION } from "../version";
 
 const ORIGINAL_VAULT_KEY = process.env.SSO_VAULT_KEY;
 let orgId: string;
@@ -20,7 +21,7 @@ beforeAll(async () => {
   orgId = org.id;
   ctx = {
     userId: randomUUID(), orgId, orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [],
-    isApiKey: true, credential: { kind: "api_key", keyId: randomUUID(), personal: true },
+    isApiKey: true, credential: { kind: "api_key", keyId: randomUUID(), personal: true, apiVersion: API_VERSION },
   };
 });
 afterAll(async () => {
@@ -102,7 +103,7 @@ describe("Idempotency-Key", () => {
 
   it("keys are per credential: another token's identical key is unrelated", async () => {
     const key = randomUUID();
-    const other = { ...ctx, credential: { kind: "api_key" as const, keyId: randomUUID(), personal: false } };
+    const other = { ...ctx, credential: { kind: "api_key" as const, keyId: randomUUID(), personal: false, apiVersion: API_VERSION } };
     await idempotent({ request: post(key), ctx, orgId, body: {} }, created());
     await idempotent({ request: post(key), ctx: other, orgId, body: {} }, created());
     expect(runs).toBe(2);
