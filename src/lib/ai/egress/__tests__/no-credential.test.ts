@@ -69,7 +69,8 @@ describe("no model credential", () => {
   it("an API route answers 409 model_not_connected with the user-facing message", async () => {
     const res = handleApiError(new NoModelCredentialError());
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({
+    // problem+json; the legacy `error` text and `code` are what callers read.
+    expect(await res.json()).toMatchObject({
       error:
         "Claude isn't connected. Connect a Claude subscription in Settings → AI / Model.",
       code: "model_not_connected",

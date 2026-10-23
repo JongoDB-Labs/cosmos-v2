@@ -49,6 +49,28 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.444.0",
+    date: "2026-10-23",
+    title: "API errors you can act on",
+    highlights: [
+      {
+        kind: "feature",
+        text: "API errors now come back in a standard format (RFC 9457 problem+json) with a request ID you can quote to support, and every response carries an X-Request-Id header.",
+      },
+    ],
+  },
+  {
+    version: "2.443.2",
+    date: "2026-10-23",
+    title: "Background job runner",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Behind the scenes: periodic background work now runs on exactly one server at a time, with automatic failover. It's groundwork for calendar sync and automations.",
+      },
+    ],
+  },
+  {
     version: "2.443.1",
     date: "2026-10-23",
     title: "Assistant tools respect API key limits",
