@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { ForbiddenError, NotFoundError, ConflictError } from "./rbac/check";
 import { serverReportError } from "./telemetry/server";
 import { problem } from "./openapi/problem";
+import { isNoModelCredentialError } from "./ai/egress/types";
 
 export function success<T>(data: T, status = 200) {
   return NextResponse.json(data, { status });
@@ -34,7 +35,12 @@ export function handleApiError(error: unknown, request?: Request) {
   if (error instanceof ConflictError) {
     // Business-rule / state violations (e.g. "payment exceeds balance") are client
     // errors — a 409, not a 500 that pollutes the error budget.
-    return problem(409, "conflict", error.message, opts);
+    return problem(409, "model_not_connected", error.message, opts);
+  }
+  if (isNoModelCredentialError(error)) {
+    // No Claude connection is an org setup state, not a server fault: say so
+    // instead of a 500 (or, before, a stale env key's raw Anthropic 401).
+    return problem(409, "model_not_connected", error.message, opts);
   }
   if (
     error instanceof Prisma.PrismaClientKnownRequestError &&

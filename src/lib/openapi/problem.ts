@@ -17,6 +17,7 @@ export const PROBLEM_CODES = {
   insufficient_scope: "Insufficient scope",
   not_found: "Not found",
   conflict: "Conflict",
+  model_not_connected: "Claude isn't connected",
   rate_limited: "Too many requests",
   internal_error: "Internal server error",
 } as const;

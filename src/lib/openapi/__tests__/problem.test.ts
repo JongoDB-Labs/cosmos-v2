@@ -6,6 +6,7 @@ vi.mock("@/lib/telemetry/server", () => ({ serverReportError: vi.fn() }));
 
 import { handleApiError } from "@/lib/api-helpers";
 import { ConflictError, ForbiddenError, NotFoundError } from "@/lib/rbac/check";
+import { NoModelCredentialError } from "@/lib/ai/egress/types";
 import { problem, PROBLEM_CONTENT_TYPE } from "../problem";
 import { REQUEST_ID_HEADER, requestIdFor } from "../request-id";
 
@@ -55,6 +56,7 @@ describe("handleApiError keeps every legacy body", () => {
     ["Forbidden", new ForbiddenError("Missing required permission"), 403, "forbidden", "Missing required permission"],
     ["NotFound", new NotFoundError("Item not found"), 404, "not_found", "Item not found"],
     ["Conflict", new ConflictError("payment exceeds balance"), 409, "conflict", "payment exceeds balance"],
+    ["NoModelCredential", new NoModelCredentialError(), 409, "model_not_connected", new NoModelCredentialError().message],
     ["P2002", p2002, 409, "conflict", "Conflicting concurrent request — please retry"],
     ["unknown", new Error("db exploded: password=hunter2"), 500, "internal_error", "Internal server error"],
   ] as const)("%s keeps its status, code and legacy text", async (_n, err, status, code, legacy) => {

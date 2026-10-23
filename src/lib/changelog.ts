@@ -49,6 +49,83 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.439.11",
+    date: "2026-10-23",
+    title: "Clear message when Claude isn't connected",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Claude isn't connected, AI features now tell you so and point you to Settings \u2192 AI / Model, instead of showing a confusing API-key error.",
+      },
+    ],
+  },
+  {
+    version: "2.439.10",
+    date: "2026-10-23",
+    title: "Bots only use the tools they're given",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: read-only chat bots, the note-taker and meeting summaries can no longer send email, post to Slack or Jira, or write to calendars, and the assistant refuses any tool it wasn't offered in that conversation.",
+      },
+    ],
+  },
+  {
+    version: "2.439.9",
+    date: "2026-10-23",
+    title: "Saved boards keep their filter",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A board saved from the Issues view now shows only the issues that matched your filters when you saved it, instead of every issue in the project.",
+      },
+    ],
+  },
+  {
+    version: "2.439.8",
+    date: "2026-10-23",
+    title: "Classified exports are marked and gated",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Issues CSV exports in government workspaces now include each item's classification, carry a CUI banner when they contain controlled information, and require the Org export permission for that data.",
+      },
+    ],
+  },
+  {
+    version: "2.439.7",
+    date: "2026-10-23",
+    title: "Search filters in API requests",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Searching work items through the API now honours the archived, id and \"watching\" filters in a POST body, and rejects filter keys it doesn't recognise instead of ignoring them.",
+      },
+    ],
+  },
+  {
+    version: "2.439.6",
+    date: "2026-10-23",
+    title: "Saved views respect project access",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Shared saved views that mention a project you can't access no longer appear in your saved-views list.",
+      },
+    ],
+  },
+  {
+    version: "2.439.5",
+    date: "2026-10-23",
+    title: "Updates never throw away what you're typing",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Cosmos is updated while you're filling in a form, writing a comment or have a dialog open, it no longer reloads the page under you. A message tells you a new version is ready, with a Reload button for when you've finished.",
+      },
+    ],
+  },
+  {
     version: "2.439.4",
     date: "2026-10-23",
     title: "Feedback details are shown only to the right people",

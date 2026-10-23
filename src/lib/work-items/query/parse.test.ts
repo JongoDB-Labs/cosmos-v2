@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Priority } from "@prisma/client";
-import { parseSearchParams, workItemQuerySchema } from "./parse";
+import { MAX_FILTER_IDS, parseSearchParams, workItemQuerySchema } from "./parse";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./filter";
 
 function sp(query: string): URLSearchParams {
@@ -161,6 +161,26 @@ describe("workItemQuerySchema — POST body", () => {
       { key: "team", kind: "SELECT", value: "Platform" },
       { key: "blocked", kind: "CHECKBOX", value: true },
     ]);
+  });
+  it("keeps archived, ids and watchedByUserId (they used to be stripped)", () => {
+    const parsed = workItemQuerySchema.parse({
+      filter: { archived: "only", ids: ["i1", "i2"], watchedByUserId: "u1" },
+    });
+    expect(parsed.filter.archived).toBe("only");
+    expect(parsed.filter.ids).toEqual(["i1", "i2"]);
+    expect(parsed.filter.watchedByUserId).toBe("u1");
+  });
+  it("rejects an unknown archived mode", () => {
+    expect(() => workItemQuerySchema.parse({ filter: { archived: "yes" } })).toThrow();
+  });
+  it("rejects more ids than one page", () => {
+    const ids = Array.from({ length: MAX_FILTER_IDS + 1 }, (_, i) => `i${i}`);
+    expect(() => workItemQuerySchema.parse({ filter: { ids } })).toThrow();
+  });
+  it("rejects an unknown filter key instead of silently dropping it", () => {
+    expect(() =>
+      workItemQuerySchema.parse({ filter: { includeArchived: true } }),
+    ).toThrow();
   });
   it("rejects an unknown custom-field kind", () => {
     expect(() =>

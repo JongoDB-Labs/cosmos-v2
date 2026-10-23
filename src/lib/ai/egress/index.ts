@@ -7,7 +7,7 @@ import { effectiveCeiling } from "@/lib/classification/effective";
 import { classifyLikelyCui } from "@/lib/classification/classifier";
 import { recordEgressError, recordClassifier, recordClassifierError } from "@/lib/observability/metrics";
 import { trace, SpanStatusCode } from "@opentelemetry/api";
-import type { EgressContext } from "./types";
+import { NoModelCredentialError, type EgressContext } from "./types";
 
 // OBSERVE-ONLY tracer for the chokepoint. Spans carry only enums/counts (tenant_class,
 // turn) — never message content. trace.getTracer() never throws and returns a no-op
@@ -15,7 +15,7 @@ import type { EgressContext } from "./types";
 const tracer = trace.getTracer("cosmos.egress");
 
 export type { EgressContext, EgressDecision, TenantClass, ValueKind, ModelCredential } from "./types";
-export { isWithheld } from "./types";
+export { isWithheld, NoModelCredentialError, isNoModelCredentialError, NO_MODEL_CREDENTIAL_MESSAGE } from "./types";
 export { projectForModel, sha256Hex } from "./gate";
 export { projectStructural, projectResult, entityTypeForTool, augmentWithHandles, HANDLEABLE_FIELDS } from "./projection";
 export { mintHandle, resolveHandle, resolveHandlesDeep, isHandle } from "./handles";
@@ -129,24 +129,27 @@ export async function runModelTurn(input: RunModelTurnInput): Promise<ModelTurnR
 
       // Per-org credential: resolve the org's ACTIVE model provider — Claude
       // subscription (oauth), a per-org Anthropic API key, or an OpenAI-compatible
-      // endpoint — to a stateless ModelCredential. Falls back to the env
-      // ANTHROPIC_API_KEY (credential undefined) when the org has none configured.
+      // endpoint — to a stateless ModelCredential. None configured ⇒ credential
+      // undefined, which the provider refuses with NoModelCredentialError unless
+      // the operator opted in to the env key (COSMOS_ALLOW_ENV_MODEL_KEY=1).
       // Resolved HERE (egress has org context) and passed in by value — the
       // chokepoint stays stateless + config-blind. A resolution failure must never
-      // widen egress: degrade to the env key.
+      // widen egress, and no longer degrades to the env key: it is the same typed
+      // error, so the caller says "Claude isn't connected" instead of a raw 401.
       let credential: ModelCredential | undefined;
       if (input.credential) {
         // A caller-supplied credential (e.g. Foreman's own subscription) wins —
         // authenticate as that connection instead of resolving the org default.
         credential = input.credential;
       } else {
+        stage = "credential";
         try {
           // userId lets the resolver prefer the requesting user's PERSONAL Claude
           // subscription over the org credential (FR: agent tied to the user's
           // token). Still resolved here, inside the chokepoint, passed by value.
           credential = await resolveOrgModelCredential(input.ctx.orgId, input.ctx.userId);
-        } catch {
-          credential = undefined;
+        } catch (err) {
+          throw new NoModelCredentialError({ cause: err });
         }
       }
 

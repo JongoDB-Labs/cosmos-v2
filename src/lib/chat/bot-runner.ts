@@ -4,6 +4,7 @@ import { fanOutChatMessage } from "@/lib/chat/notifications";
 import { formatAiContext } from "@/lib/chat/ai-context";
 import { parseMentions } from "@/lib/chat/mentions";
 import { runAgentLoop } from "@/lib/ai/agent-loop";
+import { isNoModelCredentialError } from "@/lib/ai/egress";
 import { cosmosTools } from "@/lib/ai/tools";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
@@ -109,6 +110,12 @@ function systemPromptFor(
  * level.
  */
 export type ConversationalBotKind = Exclude<ChatBotKind, "standup">;
+
+/** The SYSTEM notice for a failed bot run. A missing Claude connection says so
+ *  (the org can fix that); anything else stays generic. */
+function aiFailureNotice(err: unknown): string {
+  return isNoModelCredentialError(err) ? `🤖 ${err.message}` : "🤖 AI is unavailable right now.";
+}
 
 export async function runChatBot(args: {
   bot: ConversationalBotKind;
@@ -282,14 +289,14 @@ export async function runChatBot(args: {
         tenantClass,
       });
     }
-  } catch {
+  } catch (err) {
     if (channelLite) {
       await postServerMessage({
         orgSlug: args.orgSlug,
         channel: channelLite,
         kind: "SYSTEM",
         authorId: botUserId ?? args.invokerUserId,
-        content: "🤖 AI is unavailable right now.",
+        content: aiFailureNotice(err),
       }).catch(() => {});
     }
   }
@@ -398,7 +405,7 @@ async function runStreamingAssistant(args: {
         });
       },
     });
-  } catch {
+  } catch (err) {
     // Failed. If text had started streaming we created a placeholder — remove
     // it. Either way post a SYSTEM notice (a failure is a breadcrumb, not a bot
     // reply). Return so runChatBot's catch doesn't double-post.
@@ -417,7 +424,7 @@ async function runStreamingAssistant(args: {
       channel,
       kind: "SYSTEM",
       authorId: args.botUserId,
-      content: "🤖 AI is unavailable right now.",
+      content: aiFailureNotice(err),
     }).catch(() => {});
     return;
   }
