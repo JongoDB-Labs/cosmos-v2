@@ -4,6 +4,7 @@ import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { API_KEY_SCOPES, type ApiKeyScope } from "./api-key-scopes";
+import { classifyBearer, parseKeyToken } from "./bearer";
 
 // Re-exported so existing server importers of `@/lib/auth/api-key` keep working.
 // Client components MUST import these from `./api-key-scopes` directly — this
@@ -82,18 +83,12 @@ export async function mintApiKey(input: {
   return { token, record };
 }
 
-function parseToken(h: string | null): { prefix: string; secret: string } | null {
-  if (!h) return null;
-  // Hex prefix, then the secret as the entire remainder (base64url — may contain
-  // `_`/`-`). `[0-9a-f]+` stops at the `_` delimiter, so the split is exact.
-  const m = /^Bearer\s+cosmos_([0-9a-f]+)_(.+)$/.exec(h.trim());
-  return m ? { prefix: m[1], secret: m[2] } : null;
-}
-
 /** Cheap check (no DB) for whether a request even carries a cosmos bearer token,
- *  used to decide between the API-key and session auth paths. */
+ *  used to decide between the bearer and session auth paths. Any `cosmos_`
+ *  bearer counts, valid or not, so a malformed one is refused rather than
+ *  quietly retried as the cookie riding on the same request. */
 export function hasBearer(req: Request): boolean {
-  return /^Bearer\s+cosmos_/.test(req.headers.get("authorization") ?? "");
+  return classifyBearer(req.headers.get("authorization")) !== null;
 }
 
 /**
@@ -122,7 +117,7 @@ export async function verifyApiKeyHeader(
   authorization: string | null,
   orgId: string,
 ): Promise<AuthContext | null> {
-  const parsed = parseToken(authorization);
+  const parsed = parseKeyToken(authorization);
   if (!parsed) return null;
   const key = await prisma.apiKey.findUnique({
     where: { orgId_prefix: { orgId, prefix: parsed.prefix } },
@@ -135,9 +130,30 @@ export async function verifyApiKeyHeader(
   const a = Buffer.from(sha256(parsed.secret)); const b = Buffer.from(key.keyHash);
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
   if (key.expiresAt && key.expiresAt.getTime() < Date.now()) return null;
+  const ctx = await apiKeyAuthContext(orgId, {
+    createdById: key.createdById, scopes: key.scopes, projectIds: key.projectIds,
+  });
+  if (!ctx) return null;
+  void prisma.apiKey.update({ where: { id: key.id }, data: { lastUsed: new Date() } }).catch(() => {});
+  return ctx;
+}
+
+/**
+ * The AuthContext an AUTHENTICATED key acts with: its minting user's effective
+ * permissions ∩ the key's scope mask, its project ceiling, and `isApiKey`.
+ * `null` when the minting user is no longer a member of the org.
+ *
+ * Split out of `verifyApiKeyHeader` so the rule lives in exactly one place and
+ * can be exercised directly. It does NOT authenticate anything — the caller
+ * must already have matched the secret against `keyHash` and checked expiry,
+ * which is what `verifyApiKeyHeader` does before it gets here.
+ */
+export async function apiKeyAuthContext(
+  orgId: string,
+  key: { createdById: string; scopes: string[]; projectIds: string[] | null },
+): Promise<AuthContext | null> {
   const eff = await loadEffectivePermissions(orgId, key.createdById);
   if (!eff) return null;
-  void prisma.apiKey.update({ where: { id: key.id }, data: { lastUsed: new Date() } }).catch(() => {});
   const mask = scopeMask(key.scopes);
   return {
     userId: key.createdById, orgId, orgRole: eff.orgRole,

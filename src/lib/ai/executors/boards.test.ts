@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
 import { listBoards } from "./boards";
-import type { ToolContext } from "./_ctx";
+import { memberToolCtx } from "@/lib/testing/tool-auth";
 
 const NON_MEMBER = "00000000-0000-0000-0000-000000000000";
 
@@ -25,8 +25,8 @@ describe("boards executor (e2e DB)", () => {
     await prisma.board.create({
       data: { orgId: org.id, projectId: project.id, name: "Kanban", type: "KANBAN", sortOrder: 0 },
     });
-    const ctx: ToolContext = { orgId: org.id, userId: owner.id };
-    const denyCtx: ToolContext = { orgId: org.id, userId: NON_MEMBER };
+    const ctx = await memberToolCtx(org.id, owner.id);
+    const denyCtx = await memberToolCtx(org.id, NON_MEMBER);
     return { org, project, ctx, denyCtx };
   }
 
