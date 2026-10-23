@@ -11,9 +11,17 @@
  *   - everyone: the item's own content and state, `intake`, `authorName`;
  *   - the author, or staff (ORG_UPDATE): `authorEmail`;
  *   - staff only: `telemetry` and the raw `triage`.
+ *
+ * `intake` is scoped too (see `scopeIntake`): its reason can carry the security
+ * judge's own words, and its score says how close a submission came to the
+ * line. Both help someone tune a submission past the gate.
  */
 import type { FeedbackItem, FeedbackStatus, FeedbackType } from "@prisma/client";
-import { describeIntakeDecision, type IntakeDecision } from "./intake-decision";
+import {
+  describeIntakeDecision,
+  type IntakeDecision,
+  type IntakeState,
+} from "./intake-decision";
 
 /** The columns a feedback response is built from. */
 export const FEEDBACK_ROW_SELECT = {
@@ -32,6 +40,10 @@ export const FEEDBACK_ROW_SELECT = {
   projectId: true,
   createdAt: true,
   updatedAt: true,
+  commentCount: true,
+  lastActivityAt: true,
+  mergedIntoId: true,
+  lockedAt: true,
   // Read for `intake` (everyone) and passed through to staff only.
   triage: true,
   telemetry: true,
@@ -50,6 +62,35 @@ export interface FeedbackAuthor {
   email: string | null;
 }
 
+/**
+ * What the author is told about their own item's intake: a fixed sentence per
+ * outcome, never the judge's reasoning. Written for the person who filed it.
+ */
+const AUTHOR_INTAKE_REASON: Record<IntakeState, string> = {
+  accepted: "Accepted and added to the backlog.",
+  held: "Held for someone on the team to review before anything else happens.",
+  rejected: "Not accepted by the automated intake check. Someone on the team can review it.",
+  throttled: "Queued. It will be picked up automatically once there is capacity.",
+  gated: "Routed to a teammate for review before any automated work.",
+};
+
+/** The intake decision as this viewer may see it. */
+export type IntakeView = Pick<IntakeDecision, "state" | "label"> & {
+  reason?: string;
+  score: number | null;
+  categories?: string[];
+};
+
+export function scopeIntake(
+  decision: IntakeDecision | null,
+  { isStaff, isAuthor }: { isStaff: boolean; isAuthor: boolean },
+): IntakeView | null {
+  if (!decision) return null;
+  if (isStaff) return decision;
+  const base = { state: decision.state, label: decision.label, score: null };
+  return isAuthor ? { ...base, reason: AUTHOR_INTAKE_REASON[decision.state] } : base;
+}
+
 export interface FeedbackDto {
   id: string;
   orgId: string;
@@ -66,9 +107,14 @@ export interface FeedbackDto {
   projectId: string | null;
   createdAt: Date;
   updatedAt: Date;
+  /** Public, non-deleted comments. */
+  commentCount: number;
+  lastActivityAt: Date | null;
+  mergedIntoId: string | null;
+  lockedAt: Date | null;
   isMine: boolean;
   authorName: string | null;
-  intake: IntakeDecision | null;
+  intake: IntakeView | null;
   authorEmail?: string | null;
   telemetry?: FeedbackItem["telemetry"];
   triage?: FeedbackItem["triage"];
@@ -96,13 +142,20 @@ export function toFeedbackDto(
     projectId: row.projectId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    commentCount: row.commentCount,
+    lastActivityAt: row.lastActivityAt,
+    mergedIntoId: row.mergedIntoId,
+    lockedAt: row.lockedAt,
     // The author owns the item's title/description (and can delete it), so
     // the portal shows those controls only on the current user's own items.
     isMine,
     authorName: author?.displayName ?? null,
     // Intake decision (Phase 3c), derived from the recorded triage so the board
-    // can show WHY an item was accepted or held — without the raw reasoning.
-    intake: describeIntakeDecision({ triage: row.triage, deliveredAt: row.deliveredAt }),
+    // can show whether an item was accepted or held, scoped per viewer.
+    intake: scopeIntake(describeIntakeDecision({ triage: row.triage, deliveredAt: row.deliveredAt }), {
+      isStaff: viewer.isStaff,
+      isAuthor: isMine,
+    }),
   };
   if (isMine || viewer.isStaff) dto.authorEmail = author?.email ?? null;
   if (viewer.isStaff) {

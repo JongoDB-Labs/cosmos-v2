@@ -301,6 +301,8 @@ model Organization {
   employeeSupervisors EmployeeSupervisor[]
   expenses            Expense[]
   feedbackAttachments FeedbackAttachment[]
+  feedbackSubscribers FeedbackSubscription[]
+  feedbackMerges      FeedbackMerge[]
   frozenOrgs          FrozenOrg[]
   invoices            Invoice[]
   journalEntries      JournalEntry[]
@@ -349,6 +351,7 @@ model Organization {
   timeOffRequests     TimeOffRequest[]
   bills               Bill[]
   calendarFeeds       CalendarFeed[]
+  externalEventLinks  ExternalEventLink[]
 
   @@map("organizations")
 }
@@ -432,6 +435,7 @@ model User {
   retroActionItems    RetroActionItem[]
   timeEntryPhasesSet  TimeEntryPhase[]
   calendarFeeds       CalendarFeed[]
+  externalEventLinks  ExternalEventLink[]
 
   @@map("users")
 }
@@ -1315,10 +1319,82 @@ model Comment {
   createdAt   DateTime     @default(now()) @map("created_at")
   updatedAt   DateTime     @updatedAt @map("updated_at")
 
-  workItem WorkItem? @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  // Discussion fields (feedback discussion, Phase 1). Generic and nullable or
+  // defaulted, so existing work-item, PM-register and document comments read
+  // exactly as before: PUBLIC, plain COMMENTs, never edited/deleted/hidden.
+  /// One level of replies; a reply to a reply attaches to the same top level.
+  parentId        String?              @map("parent_id") @db.Uuid
+  visibility      CommentVisibility    @default(PUBLIC)
+  kind            CommentKind          @default(COMMENT)
+  /// STATUS_CHANGE: {from,to,source}; MERGE: {duplicateId,title,description,authorId}.
+  meta            Json?
+  /// Set on a content edit only (updatedAt also moves on hide/react).
+  editedAt        DateTime?            @map("edited_at")
+  /// Soft delete: a comment with replies leaves a tombstone.
+  deletedAt       DateTime?            @map("deleted_at")
+  deletedById     String?              @map("deleted_by_id") @db.Uuid
+  hiddenAt        DateTime?            @map("hidden_at")
+  hiddenById      String?              @map("hidden_by_id") @db.Uuid
+  /// off_topic | outdated | resolved | spam | abuse
+  hiddenReason    String?              @map("hidden_reason")
+  /// Set when a merge moved this comment here from another subject.
+  originSubjectId String?              @map("origin_subject_id") @db.Uuid
+  /// Opt-in marking. Never defaulted (classification.arch.test.ts).
+  classification  ClassificationLevel?
 
-  @@index([orgId, subjectType, subjectId])
+  workItem    WorkItem?            @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  parent      Comment?             @relation("CommentReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies     Comment[]            @relation("CommentReplies")
+  revisions   CommentRevision[]
+  reactions   CommentReaction[]
+  attachments FeedbackAttachment[]
+  officialFor FeedbackItem[]       @relation("FeedbackOfficialComment")
+
+  @@index([orgId, subjectType, subjectId, createdAt])
+  @@index([parentId])
   @@map("comments")
+}
+
+enum CommentVisibility {
+  PUBLIC
+  INTERNAL
+}
+
+enum CommentKind {
+  COMMENT
+  OFFICIAL
+  STATUS_CHANGE
+  MERGE
+  SYSTEM
+}
+
+/// Edit history (GitHub-style): the content as it was BEFORE each edit.
+model CommentRevision {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  commentId  String    @map("comment_id") @db.Uuid
+  content    String
+  editedById String    @map("edited_by_id") @db.Uuid
+  redactedAt DateTime? @map("redacted_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@index([commentId, createdAt])
+  @@map("comment_revisions")
+}
+
+/// Mirrors ChatMessageReaction.
+model CommentReaction {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  commentId String   @map("comment_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  emoji     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId, emoji])
+  @@map("comment_reactions")
 }
 
 model PushSubscription {
@@ -2175,6 +2251,8 @@ model SyncMeeting {
   projectId          String?                     @map("project_id") @db.Uuid
   sprintId           String?                     @map("sprint_id") @db.Uuid
   meetingDate        DateTime                    @map("meeting_date")
+  /// How long it runs (COSMOS-202 B2): calendars need an end time.
+  durationMinutes    Int                         @default(30) @map("duration_minutes")
   meetingType        MeetingType                 @default(STANDUP) @map("meeting_type")
   status             MeetingStatus               @default(SCHEDULED)
   transcript         String?
@@ -3472,6 +3550,8 @@ enum FeedbackStatus {
   IN_REVIEW
   DONE
   DECLINED
+  /// Set ONLY by a merge (FeedbackMerge); the status PUT refuses it.
+  MERGED
 }
 
 model FeedbackItem {
@@ -3516,6 +3596,21 @@ model FeedbackItem {
   votes       FeedbackVote[]
   attachments FeedbackAttachment[]
 
+  // Discussion (feedback discussion, Phase 1).
+  mergedIntoId      String?   @map("merged_into_id") @db.Uuid
+  /// The current pinned official response.
+  officialCommentId String?   @map("official_comment_id") @db.Uuid
+  /// PUBLIC, non-deleted comments only; denormalised for the list card.
+  commentCount      Int       @default(0) @map("comment_count")
+  lastActivityAt    DateTime? @map("last_activity_at")
+  lockedAt          DateTime? @map("locked_at")
+  lockedById        String?   @map("locked_by_id") @db.Uuid
+
+  mergedInto      FeedbackItem?          @relation("FeedbackMergedInto", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom      FeedbackItem[]         @relation("FeedbackMergedInto")
+  officialComment Comment?               @relation("FeedbackOfficialComment", fields: [officialCommentId], references: [id], onDelete: SetNull)
+  subscriptions   FeedbackSubscription[]
+
   @@index([orgId, status])
   // Backs the poller's "OPEN + not yet delivered" scan.
   @@index([orgId, deliveredAt])
@@ -3542,12 +3637,63 @@ model FeedbackAttachment {
   size           Int
   uploadedById   String       @map("uploaded_by_id") @db.Uuid
   createdAt      DateTime     @default(now()) @map("created_at")
+  /// Set when the file belongs to a comment; feedbackItemId stays set as well.
+  commentId      String?      @map("comment_id") @db.Uuid
 
   feedbackItem FeedbackItem? @relation(fields: [feedbackItemId], references: [id], onDelete: Cascade)
+  comment      Comment?      @relation(fields: [commentId], references: [id], onDelete: Cascade)
 
   @@index([feedbackItemId])
   @@index([uploadedById, createdAt])
+  @@index([commentId])
   @@map("feedback_attachments")
+}
+
+/// Who hears about a feedback item.
+model FeedbackSubscription {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String       @map("org_id") @db.Uuid
+  org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  feedbackItemId String       @map("feedback_item_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  /// author | voter | commenter | mention | manual | merged (the FIRST reason)
+  reason         String
+  /// Explicit opt-out. Never re-subscribed automatically.
+  unsubscribedAt DateTime?    @map("unsubscribed_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  feedbackItem FeedbackItem @relation(fields: [feedbackItemId], references: [id], onDelete: Cascade)
+
+  @@unique([feedbackItemId, userId])
+  @@index([orgId, userId])
+  @@map("feedback_subscriptions")
+}
+
+/// Makes feedback merges auditable and reversible.
+model FeedbackMerge {
+  id                 String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId              String          @map("org_id") @db.Uuid
+  org                Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  duplicateId        String          @map("duplicate_id") @db.Uuid
+  survivorId         String          @map("survivor_id") @db.Uuid
+  /// Only the votes that did not already exist on the survivor.
+  movedVoteUserIds   String[]        @map("moved_vote_user_ids") @db.Uuid
+  movedCommentIds    String[]        @map("moved_comment_ids") @db.Uuid
+  movedAttachmentIds String[]        @map("moved_attachment_ids") @db.Uuid
+  addedSubscriberIds String[]        @map("added_subscriber_ids") @db.Uuid
+  /// The duplicate's status before the merge, restored on undo.
+  previousStatus     FeedbackStatus? @map("previous_status")
+  /// manual | intake
+  source             String
+  /// Null for an intake merge: the dedup judge, not a person, made it.
+  mergedById         String?         @map("merged_by_id") @db.Uuid
+  createdAt          DateTime        @default(now()) @map("created_at")
+  undoneAt           DateTime?       @map("undone_at")
+  undoneById         String?         @map("undone_by_id") @db.Uuid
+
+  @@index([orgId, survivorId])
+  @@index([duplicateId])
+  @@map("feedback_merges")
 }
 
 model FeedbackVote {
@@ -5600,4 +5746,33 @@ model CalendarFeed {
 
   @@index([orgId, userId])
   @@map("calendar_feeds")
+}
+
+/// A Cosmos record mirrored as an event in someone's external calendar
+/// (COSMOS-202 B2), so the sync can update or remove that event, and recognise
+/// the echo of its own writes: `changeKey` is the one the provider returned for
+/// OUR last write; any other value means the person changed it there.
+model ExternalEventLink {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId              String   @map("org_id") @db.Uuid
+  userId             String   @map("user_id") @db.Uuid
+  provider           String
+  externalCalendarId String   @map("external_calendar_id")
+  externalEventId    String   @map("external_event_id")
+  changeKey          String?  @map("change_key")
+  /// Hash of the event body we last wrote, so an unchanged meeting isn't re-sent.
+  contentHash        String?  @map("content_hash")
+  /// "meeting" for now.
+  entityType         String   @map("entity_type")
+  entityId           String   @map("entity_id") @db.Uuid
+  lastSyncedAt       DateTime @default(now()) @map("last_synced_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, provider, userId, externalEventId])
+  @@unique([orgId, provider, userId, entityType, entityId])
+  @@index([orgId, entityType, entityId])
+  @@map("external_event_links")
 }

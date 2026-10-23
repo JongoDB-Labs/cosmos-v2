@@ -1,4 +1,4 @@
-import { isDoneColumnKey } from "./sprint-review";
+import { isDoneStatus, type DoneStateColumn } from "@/lib/work-items/done-state";
 
 /**
  * Projections a ceremony board renders. Pure, so the ordering a room looks at
@@ -31,9 +31,13 @@ export interface CeremonyColumn {
  * screen a team is staring at. Unestimated items sort last but are NOT dropped:
  * they shipped, and excluding them understates the sprint.
  */
-export function shippedItems(items: CeremonyItem[]): CeremonyItem[] {
+export function shippedItems(
+  items: CeremonyItem[],
+  /** The project's statuses with their categories. */
+  statuses: readonly DoneStateColumn[],
+): CeremonyItem[] {
   return items
-    .filter((i) => isDoneColumnKey(i.columnKey))
+    .filter((i) => isDoneStatus(i.columnKey, statuses))
     .sort(
       (a, b) =>
         (b.storyPoints ?? 0) - (a.storyPoints ?? 0) ||

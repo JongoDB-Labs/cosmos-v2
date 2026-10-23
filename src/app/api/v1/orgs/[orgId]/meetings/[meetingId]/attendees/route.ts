@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { createNotification } from "@/lib/notifications/create";
 import { z } from "zod";
 
@@ -107,6 +108,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       });
     }
 
+    syncMeetingSoon(orgId, meetingId);
     return created(attendee);
   } catch (error) {
     return handleApiError(error);
@@ -165,6 +167,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
+    syncMeetingSoon(orgId, meetingId);
     return success(results);
   } catch (error) {
     return handleApiError(error);

@@ -10,6 +10,7 @@ import { storeEmbedding } from "@/lib/rag/embed";
 import { allocateTicketNumber } from "@/lib/work-items/allocate";
 import { copyFields } from "@/lib/work-items/copy-fields";
 import { planSplit } from "@/lib/work-items/split-assignees";
+import { createWorkItemRow, updateWorkItems } from "@/lib/work-items/write.server";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; itemId: string }>;
@@ -73,10 +74,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       await tx.workItemAssignee.deleteMany({
         where: { workItemId: source.id, userId: { in: plan.splitOff } },
       });
-      await tx.workItem.update({
-        where: { id: source.id },
-        data: { assigneeId: plan.keep },
-      });
+      await updateWorkItems(tx, [source.id], { assigneeId: plan.keep });
       await tx.activity.create({
         data: {
           orgId,
@@ -91,7 +89,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       const made = [];
       for (const userId of plan.splitOff) {
-        const copy = await tx.workItem.create({
+        const copy = await createWorkItemRow(tx, {
           data: {
             ...copyFields(source),
             orgId,
