@@ -33,3 +33,12 @@ describe("stripHtmlToText", () => {
     expect(stripHtmlToText("a &#9999999; b")).toBe("a &#9999999; b");
   });
 });
+
+describe("stripHtmlToText end tags with attributes or whitespace", () => {
+  it("drops a script block whose end tag carries junk", () => {
+    expect(stripHtmlToText("a<script>evil()</script\t\n bar>b")).toBe("a b");
+  });
+  it("drops a style block whose end tag carries junk", () => {
+    expect(stripHtmlToText("a<style>x{}</style foo>b")).toBe("a b");
+  });
+});

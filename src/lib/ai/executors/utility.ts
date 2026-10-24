@@ -31,8 +31,8 @@ function decodeEntities(s: string): string {
  */
 export function stripHtmlToText(html: string): string {
   let s = html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, " ")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, " ")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi, " ")
     .replace(/<!--[\s\S]*?-->/g, " ");
   s = decodeEntities(s);
   for (let prev = ""; prev !== s; ) {
