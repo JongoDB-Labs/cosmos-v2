@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db/client";
 import { loadMemberAuthContext } from "@/lib/rbac/effective-permissions";
 import { myWork, projectWork, tabProjects } from "./tab-data.server";
 import type { TeamsUser } from "./identity.server";
+import { ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
 
 const ORIGIN = "https://cosmos.example";
 
@@ -34,6 +35,10 @@ describe("Teams tab data (e2e DB)", () => {
     const type = await taskType();
     const key = `TB${stamp.slice(-4).replace(/[^a-z0-9]/gi, "").toUpperCase()}X`;
     const project = await prisma.project.create({ data: { orgId: org.id, name: "Tabs project", key } });
+    // Statuses as a real project has them, with categories: the tab reads them to tell open from done or cancelled.
+    await ensureFixtureStatuses(project.id, ["todo", "in_progress", "shipped", "cancelled"], {
+      todo: "TODO", in_progress: "IN_PROGRESS", shipped: "DONE", cancelled: "CANCELLED",
+    });
     let n = 0;
     const item = (title: string, extra: object = {}) =>
       prisma.workItem.create({
@@ -44,8 +49,9 @@ describe("Teams tab data (e2e DB)", () => {
       });
     await item("Write the plan");
     await item("Ship it", { columnKey: "in_progress" });
-    await item("Done already", { columnKey: "done", completedAt: new Date() });
-    await item("Done but never dated", { columnKey: "done" });
+    await item("Done already", { columnKey: "shipped", completedAt: new Date() });
+    // Done by its status's category, though nothing called it "done" or dated it.
+    await item("Shipped but never dated", { columnKey: "shipped" });
     await item("Called off", { columnKey: "cancelled" });
     await item("Unassigned thing", { assigneeId: null, assignees: undefined });
     const as = async (u: { id: string }): Promise<TeamsUser> => ({

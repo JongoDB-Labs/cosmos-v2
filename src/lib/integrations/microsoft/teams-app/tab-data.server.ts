@@ -47,16 +47,17 @@ async function rows(u: TeamsUser, filter: WorkItemFilter): Promise<{ rows: Issue
 }
 
 /**
- * Open items only: not done (completed, or in a DONE lane of its board, the
- * same rule as everywhere else) and not cancelled (a CANCELLED lane).
+ * Open items only: not done (completed, or in a DONE status, the same rule as
+ * everywhere else) and not cancelled (a CANCELLED status). The project's
+ * workflow statuses decide, archived ones included: an item can still sit in one.
  */
 async function openOnly(list: IssueRow[]): Promise<IssueRow[]> {
   const projectIds = [...new Set(list.map((r) => r.project.id))];
-  const cols = projectIds.length
-    ? await prisma.boardColumn.findMany({ where: { board: { projectId: { in: projectIds } } }, select: { key: true, category: true, board: { select: { projectId: true } } } })
+  const statuses = projectIds.length
+    ? await prisma.workflowStatus.findMany({ where: { projectId: { in: projectIds } }, select: { projectId: true, key: true, category: true } })
     : [];
   const byProject = new Map<string, DoneStateColumn[]>();
-  for (const c of cols) byProject.set(c.board.projectId, [...(byProject.get(c.board.projectId) ?? []), { key: c.key, category: c.category }]);
+  for (const s of statuses) byProject.set(s.projectId, [...(byProject.get(s.projectId) ?? []), { key: s.key, category: s.category }]);
   return list.filter((r) => {
     const columns = byProject.get(r.project.id) ?? [];
     const column = columns.find((c) => c.key === r.columnKey);
