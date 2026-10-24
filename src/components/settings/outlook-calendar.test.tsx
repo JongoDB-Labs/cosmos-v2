@@ -95,6 +95,38 @@ describe("OutlookCalendarSection", () => {
     );
   });
 
+  it("keyboard focus follows the disconnect steps instead of falling to the page", async () => {
+    const conn = status({ connection: { account: "a@contoso.example", status: "connected", connectedAt: "2026-10-23T00:00:00Z", lastSyncAt: null } });
+    vi.mocked(jsonFetch).mockImplementation(async (url, init) => {
+      if (init?.method !== "DELETE") return conn as never;
+      throw new FetchError(409, { error: "Choose", liveInvites: 1 }, "Choose");
+    });
+    wrap(<OutlookCalendarSection orgId="o1" />);
+    const disconnect = await screen.findByRole("button", { name: "Disconnect" });
+    disconnect.focus();
+    fireEvent.click(disconnect);
+    const choice = await screen.findByRole("group", { name: "Your Outlook invitations" });
+    await waitFor(() => expect(document.activeElement).toBe(choice));
+    fireEvent.click(screen.getByRole("button", { name: "Don't disconnect" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Disconnect" })));
+  });
+
+  it("after disconnecting, focus moves to Connect", async () => {
+    const conn = status({ connection: { account: "a@contoso.example", status: "connected", connectedAt: "2026-10-23T00:00:00Z", lastSyncAt: null } });
+    let connected = true;
+    vi.mocked(jsonFetch).mockImplementation(async (_url, init) => {
+      if (init?.method === "DELETE") {
+        connected = false;
+        return {} as never;
+      }
+      return (connected ? conn : status({})) as never;
+    });
+    wrap(<OutlookCalendarSection orgId="o1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    const connect = await screen.findByRole("link", { name: "Connect Outlook Calendar" });
+    await waitFor(() => expect(document.activeElement).toBe(connect));
+  });
+
   it("shows when it last synced, and syncs now on request", async () => {
     vi.mocked(jsonFetch).mockResolvedValue(
       status({

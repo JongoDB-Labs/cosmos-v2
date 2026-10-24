@@ -49,6 +49,28 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.464.2",
+    date: "2026-10-24",
+    title: "Easier to use with a keyboard and screen reader",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On the Outlook invitations panel and the Outlook disconnect choice, keyboard focus now lands on the right place after each step instead of jumping to the top of the page. Alerts there, and the text of pop-up notices everywhere, now meet contrast standards in light and dark themes. The Teams sign-in tab has proper page structure for screen readers.",
+      },
+    ],
+  },
+  {
+    version: "2.464.1",
+    date: "2026-10-24",
+    title: "Dependency updates",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Routine updates to 46 libraries the app is built on, including the text editor, the dialog and menu components, and the AI client. No visible change is expected.",
+      },
+    ],
+  },
+  {
     version: "2.464.0",
     date: "2026-10-24",
     title: "Workflow transitions",
