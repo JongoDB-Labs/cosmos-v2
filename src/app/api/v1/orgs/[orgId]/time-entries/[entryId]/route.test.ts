@@ -30,7 +30,8 @@ vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));
 
-import { GET, DELETE } from "./route";
+import { GET, PUT, DELETE } from "./route";
+import { timeEntryRow } from "@/lib/openapi/testing/rows";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const ACTOR_ID = "44444444-4444-4444-4444-444444444444";
@@ -93,7 +94,7 @@ describe("GET /time-entries/[entryId] — read scoping", () => {
     // row comes back with a 200.
     prisma.timeEntry.findFirst.mockImplementation(
       ({ where }: { where: { userId?: { in: string[] } } }) => {
-        const row = { id: ENTRY_ID, userId: OTHER_ID, rate: "225" };
+        const row = timeEntryRow({ id: ENTRY_ID, userId: OTHER_ID, rate: "225" });
         const allowed = where.userId?.in;
         return Promise.resolve(allowed && !allowed.includes(row.userId) ? null : row);
       },
@@ -106,11 +107,7 @@ describe("GET /time-entries/[entryId] — read scoping", () => {
 
   it("TIME_READ_ALL lifts the owner constraint", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ", "TIME_READ_ALL")));
-    prisma.timeEntry.findFirst.mockResolvedValue({
-      id: ENTRY_ID,
-      userId: OTHER_ID,
-      rate: "225",
-    });
+    prisma.timeEntry.findFirst.mockResolvedValue(timeEntryRow({ id: ENTRY_ID, userId: OTHER_ID, rate: "225" }));
 
     const res = await GET(getRequest(), { params });
 
@@ -120,11 +117,7 @@ describe("GET /time-entries/[entryId] — read scoping", () => {
 
   it("redacts the rate on someone else's entry without FINANCE_READ", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ", "TIME_READ_ALL")));
-    prisma.timeEntry.findFirst.mockResolvedValue({
-      id: ENTRY_ID,
-      userId: OTHER_ID,
-      rate: "225",
-    });
+    prisma.timeEntry.findFirst.mockResolvedValue(timeEntryRow({ id: ENTRY_ID, userId: OTHER_ID, rate: "225" }));
 
     const body = await (await GET(getRequest(), { params })).json();
 
@@ -135,11 +128,7 @@ describe("GET /time-entries/[entryId] — read scoping", () => {
   it("keeps the rate on one's own entry", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
     prisma.employee.findMany.mockResolvedValue([]);
-    prisma.timeEntry.findFirst.mockResolvedValue({
-      id: ENTRY_ID,
-      userId: ACTOR_ID,
-      rate: "150",
-    });
+    prisma.timeEntry.findFirst.mockResolvedValue(timeEntryRow({ id: ENTRY_ID, userId: ACTOR_ID, rate: "150" }));
 
     const body = await (await GET(getRequest(), { params })).json();
 
@@ -343,5 +332,42 @@ describe("DELETE /time-entries/[entryId] — as a real MEMBER", () => {
 
     expect(res.status).toBe(400);
     expect(prisma.timeEntry.update).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The PUT response goes through the same rate choke point as the reads. An org
+ * admin may edit anyone's entry, but seeing the money on someone else's row
+ * still needs finance access, and the response to an edit is still a read.
+ */
+describe("PUT /time-entries/[entryId] — the response redacts the rate too", () => {
+  const putRequest = (body: unknown) =>
+    new NextRequest(`http://localhost/api/v1/orgs/o/time-entries/${ENTRY_ID}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+    });
+
+  beforeEach(() => {
+    prisma.timeEntry.findFirst.mockResolvedValue(timeEntryRow({ id: ENTRY_ID, userId: OTHER_ID, rate: "225" }));
+    prisma.timeEntry.update.mockResolvedValue(timeEntryRow({ id: ENTRY_ID, userId: OTHER_ID, hours: 3, rate: "225" }));
+    prisma.timesheet.findUnique.mockResolvedValue({ status: "OPEN" });
+  });
+
+  it("an admin without FINANCE_READ editing someone else's entry gets it back without the rate", async () => {
+    getAuthContext.mockResolvedValue({ ...ctxWith(bits("TIME_READ", "TIME_UPDATE")), orgRole: OrgRole.ADMIN });
+    const res = await PUT(putRequest({ hours: 3 }), { params });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.hours).toBe(3);
+    expect(body.rate).toBeNull();
+  });
+
+  it("with FINANCE_READ the rate comes back", async () => {
+    getAuthContext.mockResolvedValue({
+      ...ctxWith(bits("TIME_READ", "TIME_UPDATE", "FINANCE_READ")), orgRole: OrgRole.ADMIN,
+    });
+    const body = await (await PUT(putRequest({ hours: 3 }), { params })).json();
+    expect(body.rate).toBe("225");
   });
 });

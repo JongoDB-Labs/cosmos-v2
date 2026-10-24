@@ -214,7 +214,7 @@ describe("GET projects — a hidden project never reaches the cursor", () => {
     const out = rows
       .filter((r) => !allowed || allowed.includes(r.id))
       .filter((r) => !keyset || keyset.some((c) => holds(r, c)))
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .sort((a, b) => (b.createdAt as Date).getTime() - (a.createdAt as Date).getTime())
       .slice(0, args.take ?? rows.length);
     const select = args.select;
     return Promise.resolve(select
