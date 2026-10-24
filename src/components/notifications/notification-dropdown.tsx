@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
 import type { Notification } from "@/types/models";
 import { notificationHref } from "@/lib/notifications/href";
+import { NotificationPreview } from "./notification-preview";
 import {
   announceNotificationsChanged,
   onNotificationsChanged,
@@ -46,7 +47,15 @@ interface NotificationDropdownProps {
 /** What the bell shows of a notification; the inbox endpoint's row shape. */
 type BellItem = Pick<
   Notification,
-  "id" | "title" | "body" | "read" | "url" | "createdAt"
+  | "id"
+  | "type"
+  | "title"
+  | "body"
+  | "read"
+  | "url"
+  | "refType"
+  | "refId"
+  | "createdAt"
 >;
 
 type InboxPage = {
@@ -381,74 +390,79 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
               // The toggle sits beside the item, not inside it: a button
               // nested in a menuitem is two controls in one, and using it
               // would also open the notification.
-              <div
+              <NotificationPreview
                 key={notification.id}
-                className={cn(
-                  "flex items-start",
-                  !notification.read && "bg-muted/50",
-                )}
+                orgId={orgId}
+                notification={notification}
               >
-                <DropdownMenuItem
-                  className="min-w-0 flex-1 flex-col items-start gap-1 py-2.5"
-                  onClick={() => handleNotificationClick(notification)}
-                >
-                  <div className="flex items-start gap-2 w-full">
-                    {!notification.read && (
-                      <div className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p
-                        className={cn(
-                          "text-sm truncate",
-                          !notification.read && "font-medium",
-                        )}
-                      >
-                        {notification.title}
-                      </p>
-                      <p className="text-xs text-muted-foreground line-clamp-2">
-                        {notification.body}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        {timeAgo(notification.createdAt)}
-                      </p>
-                    </div>
-                  </div>
-                </DropdownMenuItem>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="mt-1.5 mr-1 shrink-0 text-muted-foreground"
-                  aria-label={
-                    notification.read
-                      ? `Mark "${notification.title}" unread`
-                      : `Mark "${notification.title}" read`
-                  }
-                  title={notification.read ? "Mark unread" : "Mark read"}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void setRead(notification.id, !notification.read);
-                  }}
-                >
-                  {notification.read ? (
-                    <Mail className="size-4" />
-                  ) : (
-                    <MailOpen className="size-4" />
+                <div
+                  className={cn(
+                    "flex items-start",
+                    !notification.read && "bg-muted/50",
                   )}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="mt-1.5 mr-1 shrink-0 text-muted-foreground"
-                  aria-label={`Clear "${notification.title}"`}
-                  title="Clear"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void clearOne(notification.id);
-                  }}
                 >
-                  <X className="size-4" />
-                </Button>
-              </div>
+                  <DropdownMenuItem
+                    className="min-w-0 flex-1 flex-col items-start gap-1 py-2.5"
+                    onClick={() => handleNotificationClick(notification)}
+                  >
+                    <div className="flex items-start gap-2 w-full">
+                      {!notification.read && (
+                        <div className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className={cn(
+                            "text-sm truncate",
+                            !notification.read && "font-medium",
+                          )}
+                        >
+                          {notification.title}
+                        </p>
+                        <p className="text-xs text-muted-foreground line-clamp-2">
+                          {notification.body}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          {timeAgo(notification.createdAt)}
+                        </p>
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="mt-1.5 mr-1 shrink-0 text-muted-foreground"
+                    aria-label={
+                      notification.read
+                        ? `Mark "${notification.title}" unread`
+                        : `Mark "${notification.title}" read`
+                    }
+                    title={notification.read ? "Mark unread" : "Mark read"}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void setRead(notification.id, !notification.read);
+                    }}
+                  >
+                    {notification.read ? (
+                      <Mail className="size-4" />
+                    ) : (
+                      <MailOpen className="size-4" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="mt-1.5 mr-1 shrink-0 text-muted-foreground"
+                    aria-label={`Clear "${notification.title}"`}
+                    title="Clear"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void clearOne(notification.id);
+                    }}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              </NotificationPreview>
             ))}
             {hasMore ? (
               <button
