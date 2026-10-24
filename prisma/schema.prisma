@@ -291,6 +291,8 @@ model Organization {
   boards              Board[]
   workflowStatuses    WorkflowStatus[]
   domainEvents        DomainEvent[]
+  automationRules     AutomationRule[]
+  automationRuns      AutomationRun[]
   workflows           Workflow[]
   workflowVersions    WorkflowVersion[]
   workflowAssignments WorkflowAssignment[]
@@ -447,6 +449,7 @@ model User {
   calendarFeeds               CalendarFeed[]
   externalEventLinks          ExternalEventLink[]
   meetingInvitesOrganized     SyncMeeting[]        @relation("MeetingInviteOrganizer")
+  ownedAutomationRules        AutomationRule[]     @relation("AutomationRuleOwner")
   teamsConversations          TeamsConversation[]
 
   @@map("users")
@@ -839,6 +842,7 @@ model Project {
   statuses            WorkflowStatus[]
   workflows           Workflow[]
   workflowAssignments WorkflowAssignment[]
+  automationRules     AutomationRule[]
   workItems           WorkItem[]
   intervals           Interval[]
   objectives          Objective[]
@@ -1067,7 +1071,84 @@ model DomainEvent {
 
   @@index([orgId, createdAt])
   @@index([subjectId, createdAt])
+  // Plus a partial index on (id) WHERE processed_at IS NULL, in SQL
+  // (20261023230000_workflow_statuses): the worker's claim reads only unprocessed rows.
   @@map("domain_events")
+}
+
+/// What an automation run ended as. SKIPPED_SELF: the event was this rule's
+/// own doing. LOOP: the chain was deeper than the limit. THROTTLED: the org's
+/// budget was spent, retried in the next window.
+enum AutomationRunStatus {
+  SUCCESS
+  NO_MATCH
+  PARTIAL
+  FAILED
+  LOOP
+  THROTTLED
+  SKIPPED_SELF
+}
+
+/// A project's (or, with no project, the org's) automation: a trigger, conditions
+/// and actions (`spec`, the zod AutomationSpec in src/lib/automation/spec.ts).
+/// Actions run as the org's automation principal, capped by `actorCap`.
+model AutomationRule {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String   @map("org_id") @db.Uuid
+  /// Null: org-wide.
+  projectId      String?  @map("project_id") @db.Uuid
+  name           String
+  enabled        Boolean  @default(true)
+  spec           Json
+  /// Bumped on every edit; a run records the revision it ran.
+  revision       Int      @default(1)
+  /// The author's effective permissions when the rule was last saved, as a
+  /// decimal-string mask (maskToDb / maskFromDb). Actions never exceed it.
+  actorCap       String   @map("actor_cap")
+  /// Told when the rule is auto-disabled. Null once that person is gone.
+  ownerId        String?  @map("owner_id") @db.Uuid
+  /// Let this rule's own changes fire other rules that also allow it.
+  allowChain     Boolean  @default(false) @map("allow_chain")
+  templateKey    String?  @map("template_key")
+  /// Set when the rule was switched off for looping or over its budget.
+  disabledReason String?  @map("disabled_reason")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  org     Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  owner   User?           @relation("AutomationRuleOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  runs    AutomationRun[]
+
+  @@index([orgId, projectId, enabled])
+  @@map("automation_rules")
+}
+
+/// One evaluation of a rule: for an event (eventId) or a scheduled run (null).
+model AutomationRun {
+  id            String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String              @map("org_id") @db.Uuid
+  ruleId        String              @map("rule_id") @db.Uuid
+  ruleRevision  Int                 @map("rule_revision")
+  /// The domain_events id. Not a foreign key: events are pruned before runs.
+  eventId       BigInt?             @map("event_id")
+  correlationId String              @map("correlation_id") @db.Uuid
+  depth         Int
+  status        AutomationRunStatus
+  itemsMatched  Int                 @default(0) @map("items_matched")
+  /// [{ kind, target, ok, error? }]
+  actions       Json                @default("[]")
+  durationMs    Int                 @map("duration_ms")
+  createdAt     DateTime            @default(now()) @map("created_at")
+
+  org  Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  rule AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  /// An event fires a rule at most once, even when a worker retries it.
+  @@unique([ruleId, eventId])
+  @@index([orgId, createdAt])
+  @@index([ruleId, createdAt])
+  @@map("automation_runs")
 }
 
 /// A named CUSTOM workflow: the statuses a project (or one of its work-item
@@ -2723,11 +2804,22 @@ model WebhookDelivery {
   responseBody  String?               @map("response_body")
   attempts      Int                   @default(0)
   lastAttemptAt DateTime?             @map("last_attempt_at")
+  /// The domain_events id this delivers (not a foreign key: events are pruned
+  /// first). Null for a test delivery.
+  eventId       BigInt?               @map("event_id")
+  /// When a PENDING delivery is next tried. Null: not queued.
+  nextAttemptAt DateTime?             @map("next_attempt_at")
   createdAt     DateTime              @default(now()) @map("created_at")
 
   webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
 
+  /// One delivery per webhook per event per name subscribed (a move into Done
+  /// is both work_item.transitioned and work_item.completed), however often the
+  /// worker retries it.
+  @@unique([webhookId, eventId, event])
   @@index([webhookId, createdAt])
+  // Plus a partial index on (next_attempt_at) WHERE status = 'PENDING', in SQL
+  // (20261024090000_automations): the sender reads only queued deliveries.
   @@map("webhook_deliveries")
 }
 

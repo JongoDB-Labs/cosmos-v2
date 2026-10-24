@@ -2,6 +2,8 @@ import { registerJob } from "./runner";
 import { runCalendarPulls } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { prisma } from "@/lib/db/client";
 import { pruneDomainEvents } from "@/lib/work-items/events.server";
+import { drainOutbox } from "@/lib/automation/outbox.server";
+import { sendDueDeliveries } from "@/lib/webhooks/deliver.server";
 import { sweepAllMarkedComments } from "@/lib/feedback/comments.server";
 import { runWorkflowMigrations } from "@/lib/workflow/migrate.server";
 import { runDueSubscriptions } from "@/lib/query/subscriptions.server";
@@ -25,15 +27,42 @@ registerJob({
   },
 });
 
-// Workflow: the domain-event outbox keeps EVENT_RETENTION_DAYS of history.
+// Workflow: the domain-event outbox keeps EVENT_RETENTION_DAYS of processed
+// history. `stuck` (unprocessed for over an hour) should stay 0.
 registerJob({
   name: "domain-events-prune",
   everyMs: 6 * 60 * 60_000,
   jitterMs: 10 * 60_000,
   timeoutMs: 10 * 60_000,
   run: async ({ signal }) => {
-    const deleted = await pruneDomainEvents(prisma, { signal });
-    return deleted ? { deleted } : undefined;
+    const r = await pruneDomainEvents(prisma, { signal });
+    return r.deleted || r.stuck ? r : undefined;
+  },
+});
+
+// Workflow P4: hand committed outbox events to their consumers (webhook
+// deliveries are queued here). Every second, so a change reaches a webhook
+// within a few seconds; a tick with nothing to do is one indexed query.
+registerJob({
+  name: "outbox-worker",
+  everyMs: 1_000,
+  jitterMs: 250,
+  timeoutMs: 30_000,
+  run: async ({ signal }) => {
+    const r = await drainOutbox(prisma, { signal });
+    return r.events ? { ...r } : undefined;
+  },
+});
+
+// Workflow P4: send queued webhook deliveries, retrying failures with backoff.
+registerJob({
+  name: "webhook-deliveries",
+  everyMs: 2_000,
+  jitterMs: 500,
+  timeoutMs: 60_000,
+  run: async ({ signal }) => {
+    const r = await sendDueDeliveries(prisma, { signal });
+    return r.sent || r.failed ? { ...r } : undefined;
   },
 });
 
