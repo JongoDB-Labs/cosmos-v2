@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.473.0",
+    date: "2026-10-24",
+    title: "Mark notifications read or unread from the bell",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each notification in the bell can now be marked read or unread on its own, and the unread count updates to match.",
+      },
+    ],
+  },
+  {
     version: "2.472.0",
     date: "2026-10-24",
     title: "Cosmos in your Teams chats and channels",

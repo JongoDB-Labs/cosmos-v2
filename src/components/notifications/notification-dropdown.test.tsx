@@ -16,10 +16,15 @@ import {
 import { NotificationDropdown } from "./notification-dropdown";
 import type { Notification } from "@/types/models";
 
+const { push, notifyError } = vi.hoisted(() => ({
+  push: vi.fn(),
+  notifyError: vi.fn(),
+}));
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push }),
   usePathname: () => "/acme",
 }));
+vi.mock("@/lib/errors/notify", () => ({ notifyError }));
 
 // jsdom has no EventSource; the component opens one for live updates.
 class FakeEventSource {
@@ -53,8 +58,13 @@ type Page = {
 };
 
 /** The bell reads the paged inbox endpoint; answer by cursor. */
-function mockInbox(pages: Record<string, Page>) {
-  const fetchMock = vi.fn(async (url: string) => {
+function mockInbox(
+  pages: Record<string, Page>,
+  put: { ok: boolean } = { ok: true },
+) {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === "PUT")
+      return { ok: put.ok, status: put.ok ? 200 : 500, json: async () => ({}) };
     const cursor = new URL(url, "http://x").searchParams.get("cursor") ?? "";
     const p = pages[cursor];
     if (!p) return { ok: false, status: 404, json: async () => ({}) };
@@ -207,5 +217,91 @@ describe("NotificationDropdown feed", () => {
         }),
       ).toBeEnabled(),
     );
+  });
+});
+
+describe("NotificationDropdown read and unread", () => {
+  const putBodies = (fetchMock: ReturnType<typeof mockInbox>) =>
+    fetchMock.mock.calls
+      .filter(([, init]) => init?.method === "PUT")
+      .map(([u, init]) => [
+        String(u).split("/").pop(),
+        JSON.parse(String(init!.body)),
+      ]);
+
+  it("marks a read notification unread, and the badge counts it", async () => {
+    const fetchMock = mockInbox({
+      "": { data: [notif("a", true), notif("b", false)], nextCursor: null },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await screen.findByRole("button", { name: "Notifications, 1 unread" });
+    await openBell();
+    fireEvent.click(
+      screen.getByRole("button", { name: 'Mark "Title a" unread' }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Notifications, 2 unread" }),
+    ).toBeInTheDocument();
+    expect(putBodies(fetchMock)).toEqual([["a", { read: false }]]);
+    // The toggle flips with it, so the same button marks it read again.
+    fireEvent.click(
+      screen.getByRole("button", { name: 'Mark "Title a" read' }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Notifications, 1 unread" }),
+    ).toBeInTheDocument();
+    expect(putBodies(fetchMock)).toEqual([
+      ["a", { read: false }],
+      ["a", { read: true }],
+    ]);
+  });
+
+  it("marks one read without opening it", async () => {
+    const withUrl = { ...notif("a", false), url: "/issues?item=a" };
+    const fetchMock = mockInbox({ "": { data: [withUrl], nextCursor: null } });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(
+      await screen.findByRole("button", { name: 'Mark "Title a" read' }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Notifications" }),
+    ).toBeInTheDocument();
+    expect(putBodies(fetchMock)).toEqual([["a", { read: true }]]);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("leaves the row as it was, and says so, when the server refuses", async () => {
+    mockInbox(
+      { "": { data: [notif("a", true)], nextCursor: null } },
+      { ok: false },
+    );
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(
+      await screen.findByRole("button", { name: 'Mark "Title a" unread' }),
+    );
+    await waitFor(() =>
+      expect(notifyError).toHaveBeenCalledWith(
+        expect.anything(),
+        "Couldn't mark that unread.",
+      ),
+    );
+    expect(
+      screen.getByRole("button", { name: 'Mark "Title a" unread' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Notifications" }),
+    ).toBeInTheDocument();
+  });
+
+  it("opening an already-read notification doesn't write it again", async () => {
+    const withUrl = { ...notif("a", true), url: "/issues?item=a" };
+    const fetchMock = mockInbox({ "": { data: [withUrl], nextCursor: null } });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Title a/ }));
+    expect(push).toHaveBeenCalledWith("/acme/issues?item=a");
+    expect(putBodies(fetchMock)).toEqual([]);
   });
 });
