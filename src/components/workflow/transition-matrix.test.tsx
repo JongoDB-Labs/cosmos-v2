@@ -56,6 +56,9 @@ describe("TransitionMatrix", () => {
     const { onEdit } = setup();
     fireEvent.click(screen.getByRole("button", { name: "Edit transition Start" }));
     expect(onEdit).toHaveBeenCalledWith("start");
+    // A move from any status is edited from its own row.
+    fireEvent.click(screen.getByRole("button", { name: "Edit transition Done" }));
+    expect(onEdit).toHaveBeenLastCalledWith("done");
   });
 
   it("is a table a screen reader can walk, and changes nothing read-only", () => {
