@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.464.0",
+    date: "2026-10-24",
+    title: "Workflow transitions",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Moving an item to a new status now goes through its project's workflow. A transition can ask for details first, such as a resolution or a required field, and admins with the new workflow permissions can override a blocked move, which is recorded in the audit log. Projects without a custom workflow behave as before.",
+      },
+    ],
+  },
+  {
     version: "2.463.3",
     date: "2026-10-24",
     title: "Internal: tidy the seed scripts",
