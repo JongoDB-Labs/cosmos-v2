@@ -15,7 +15,14 @@ const ORG = "11111111-1111-4111-8111-111111111111";
 const P = "22222222-2222-4222-8222-222222222222";
 const ME = "88888888-8888-4888-8888-888888888888";
 
-const h = vi.hoisted(() => ({ getAuthContext: vi.fn(), writes: [] as string[], view: null as unknown }));
+const h = vi.hoisted(() => ({
+  getAuthContext: vi.fn(),
+  writes: [] as string[],
+  view: null as unknown,
+  /** What viewerScope reports: the real one caps an admin's KEY to false. */
+  isAdmin: false,
+  canSee: true,
+}));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext: h.getAuthContext }));
 // The real rule, minus project visibility: the action's bit must be held.
 vi.mock("@/lib/rbac/require-project-read", () => ({
@@ -36,7 +43,9 @@ vi.mock("@/lib/db/client", () => {
       },
       // `h.view` is the caller's own view where a test needs one; none (so no
       // name clash) for create.
-      savedView: { findFirst: async () => h.view, create: w("savedView.create"), delete: w("savedView.delete") },
+      savedView: {
+        findFirst: async () => h.view, create: w("savedView.create"), delete: w("savedView.delete"), update: w("savedView.update"),
+      },
       savedViewFavorite: {
         aggregate: async () => ({ _max: { sortOrder: null } }),
         upsert: async () => { h.writes.push("favorite.upsert"); return { sortOrder: 0 }; },
@@ -49,14 +58,15 @@ vi.mock("@/lib/db/client", () => {
 // Visibility is not what's under test: the caller can see and owns the view.
 vi.mock("@/lib/query/saved-filters.server", async (orig) => ({
   ...(await orig<typeof import("@/lib/query/saved-filters.server")>()),
-  viewerScope: async (ctx: AuthContext) => ({ ctx }),
-  canSee: () => true,
+  viewerScope: async (ctx: AuthContext) => ({ ctx, isAdmin: h.isAdmin }),
+  canSee: () => h.canSee,
   canDelete: () => true,
+  canEdit: () => true,
 }));
 
 import { PATCH as editComment, DELETE as deleteComment } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]/route";
 import { PATCH as editPmComment, DELETE as deletePmComment } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/pm-comments/[commentId]/route";
-import { DELETE as deleteView } from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/route";
+import { DELETE as deleteView, PATCH as editView, PUT as legacyEditView } from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/route";
 import { PUT as starView, DELETE as unstarView } from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/favorite/route";
 import { POST as createView } from "@/app/api/v1/orgs/[orgId]/saved-views/route";
 
@@ -70,7 +80,7 @@ const req = (method: string, body?: unknown) =>
   new NextRequest("http://localhost/x", { method, ...(body ? { body: JSON.stringify(body), headers: { "Content-Type": "application/json" } } : {}) });
 const params = { params: Promise.resolve({ orgId: ORG, projectId: P, itemId: "w1", commentId: "c1" }) };
 
-beforeEach(() => { vi.clearAllMocks(); h.writes.length = 0; h.view = null; });
+beforeEach(() => { vi.clearAllMocks(); h.writes.length = 0; h.view = null; h.isAdmin = false; h.canSee = true; });
 
 describe("comment edits and deletes", () => {
   it.each([
@@ -137,5 +147,47 @@ describe("saved-view delete, star and unstar", () => {
     h.getAuthContext.mockResolvedValue(as(READ));
     expect((await call()).status).toBeLessThan(300);
     expect(h.writes).toEqual([write, write]);
+  });
+});
+
+describe("saved-view edits (PATCH, and the legacy PUT)", () => {
+  const viewParams = { params: Promise.resolve({ orgId: ORG, viewId: "v1" }) };
+  const OWN_VIEW = { id: "v1", orgId: ORG, ownerId: ME, name: "Mine", visibility: "PRIVATE", projectId: null, teamId: null, editors: [] };
+  const edits = [
+    ["edit", () => editView(req("PATCH", { name: "Renamed" }), viewParams as never)],
+    ["edit (legacy PUT)", () => legacyEditView(req("PUT", { name: "Renamed" }), viewParams as never)],
+  ] as const;
+
+  it.each(edits)("a read key can't %s its own view", async (_n, call) => {
+    h.view = OWN_VIEW;
+    h.getAuthContext.mockResolvedValue(as(READ, ["read"]));
+    expect((await call()).status).toBe(403);
+    expect(h.writes).toEqual([]);
+  });
+
+  it.each(edits)("an items:write key and an ITEM_READ session get past the gate to %s", async (_n, call) => {
+    h.view = OWN_VIEW;
+    h.getAuthContext.mockResolvedValue(as(WRITE, ["items:write"]));
+    expect((await call()).status).not.toBe(403);
+    h.getAuthContext.mockResolvedValue(as(READ));
+    expect((await call()).status).not.toBe(403);
+  });
+
+  it("an admin's key doesn't load someone else's private view as an administrator", async () => {
+    // viewerScope caps an admin's key (isAdmin false); the route must use that,
+    // not the raw orgRole, or the key reads and deletes filters it can't see.
+    h.view = { ...OWN_VIEW, ownerId: "someone-else" };
+    h.canSee = false;
+    h.getAuthContext.mockResolvedValue({ ...as(WRITE, ["items:write"]), orgRole: OrgRole.ADMIN });
+    expect((await deleteView(req("DELETE"), viewParams as never)).status).toBe(404);
+    expect(h.writes).toEqual([]);
+  });
+
+  it("the admin's session still does", async () => {
+    h.view = { ...OWN_VIEW, ownerId: "someone-else" };
+    h.canSee = false;
+    h.isAdmin = true;
+    h.getAuthContext.mockResolvedValue({ ...as(WRITE), orgRole: OrgRole.ADMIN });
+    expect((await deleteView(req("DELETE"), viewParams as never)).status).toBe(204);
   });
 });

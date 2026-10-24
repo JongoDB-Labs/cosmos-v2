@@ -122,7 +122,7 @@
   "DELETE v1/orgs/[orgId]/saved-views/[viewId]": [
     "canDelete",
     "viewerScope",
-    "isOrgAdministrator"
+    "isAdmin*"
   ],
   "DELETE v1/orgs/[orgId]/saved-views/[viewId]/favorite": [
     "viewerScope"
@@ -188,6 +188,11 @@
   ],
   "PATCH v1/orgs/[orgId]/projects/[projectId]/vendors/[vendorId]": [
     "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/saved-views/[viewId]": [
+    "canEdit",
+    "viewerScope",
+    "isAdmin*"
   ],
   "PATCH v1/orgs/[orgId]/tenant-class": [
     "orgRole",
@@ -281,6 +286,12 @@
   "POST v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/actions/[actionId]/promote": [
     "requireProjectManage"
   ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/close": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/open": [
+    "requireProjectManage"
+  ],
   "POST v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/complete": [
     "requireProjectManage"
   ],
@@ -371,6 +382,11 @@
   ],
   "PUT v1/orgs/[orgId]/projects/[projectId]/work-items/bulk": [
     "requireProjectManage"
+  ],
+  "PUT v1/orgs/[orgId]/saved-views/[viewId]": [
+    "canEdit",
+    "viewerScope",
+    "isAdmin*"
   ],
   "PUT v1/orgs/[orgId]/saved-views/[viewId]/favorite": [
     "viewerScope"

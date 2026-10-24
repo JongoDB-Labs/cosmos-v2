@@ -41,7 +41,7 @@ export function writesReachableBy(mask: bigint): string[] {
   for (const file of globSync("src/app/api/**/route.ts")) {
     const src = readFileSync(file, "utf8");
     for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
-      const code = handlerCode(src, method);
+      const code = handlerCode(src, method, file);
       if (!code) continue;
       const need = gateBits(code);
       if (need !== 0n && (need & ~mask) === 0n) {
@@ -137,7 +137,7 @@ export function helperGatedWrites(): Record<string, string[]> {
   for (const file of globSync("src/app/api/**/route.ts")) {
     const src = readFileSync(file, "utf8");
     for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
-      const code = handlerCode(src, method);
+      const code = handlerCode(src, method, file);
       if (!code) continue;
       const used = [
         ...ROLE_HELPERS.filter((h) => new RegExp(`\\b${h}\\(`).test(code)),
@@ -171,7 +171,7 @@ export function ungatedWrites(): string[] {
   for (const file of globSync("src/app/api/**/route.ts")) {
     const src = readFileSync(file, "utf8");
     for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
-      const code = handlerCode(src, method);
+      const code = handlerCode(src, method, file);
       if (code && gateBits(code) === 0n) {
         out.push(`${method} ${file.replace(/^src\/app\/api\//, "").replace(/\/route\.ts$/, "")}`);
       }

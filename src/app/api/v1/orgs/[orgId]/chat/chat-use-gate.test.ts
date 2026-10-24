@@ -103,9 +103,22 @@ describe("chat writes need CHAT_USE", () => {
   });
 });
 
-describe("/mute stays open: it only changes the caller's own notifications", () => {
-  it("a VIEWER's session can still mute", async () => {
+describe("/mute needs CHAT_USE too, like members/me PATCH that sets the same mute", () => {
+  it("a VIEWER's session can't mute", async () => {
     h.getAuthContext.mockResolvedValue(as(OrgRole.VIEWER, Permission.ORG_READ | Permission.PROJECT_READ));
+    const res = await call(runCommand as unknown as Handler, { channelId: "ch1" }, "POST", { command: "mute", args: "" });
+    expect(res.status).toBe(403);
+  });
+
+  it("an OWNER's key can't mute", async () => {
+    h.getAuthContext.mockResolvedValue(as(OrgRole.OWNER, Permission.ITEM_CREATE | Permission.ITEM_UPDATE, { isApiKey: true, scopes: ["items:write"] }));
+    const res = await call(runCommand as unknown as Handler, { channelId: "ch1" }, "POST", { command: "mute", args: "" });
+    expect(res.status).toBe(403);
+    expect(h.writes).toEqual([]);
+  });
+
+  it("a MEMBER's session gets past the gate to mute", async () => {
+    h.getAuthContext.mockResolvedValue(as(OrgRole.MEMBER, MEMBER));
     const res = await call(runCommand as unknown as Handler, { channelId: "ch1" }, "POST", { command: "mute", args: "" });
     expect(res.status).not.toBe(403);
   });

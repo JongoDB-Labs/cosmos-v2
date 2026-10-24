@@ -34,12 +34,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     });
     if (!channel || channel.orgId !== orgId) return new Response("Not found", { status: 404 });
 
-    await prisma.chatChannelMember
-      .update({
-        where: { channelId_userId: { channelId, userId: ctx.userId } },
-        data: { lastReadMessageId: parsed.data.messageId, lastReadAt: new Date() },
-      })
-      .catch(() => {/* not a member — quietly no-op */});
+    // Only a member has a read position. A non-member is a 404 and nothing is
+    // broadcast: the receipt below would otherwise show them in the channel.
+    const marked = await prisma.chatChannelMember.updateMany({
+      where: { channelId, userId: ctx.userId },
+      data: { lastReadMessageId: parsed.data.messageId, lastReadAt: new Date() },
+    });
+    if (marked.count === 0) return new Response("Not found", { status: 404 });
 
     // Tell my other tabs to clear the badge for this channel too.
     void getBus().publish(topics.user(ctx.userId), "chat.read.updated", {
