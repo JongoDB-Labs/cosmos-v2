@@ -1,7 +1,11 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
-import type { AuthContext } from "@/lib/rbac/check";
+import { ForbiddenError, type AuthContext } from "@/lib/rbac/check";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { canManageProject } from "@/lib/rbac/scope";
 import { Permission } from "@/lib/rbac/permissions";
+import { markingCeiling } from "@/lib/feedback/comments.server";
+import { levelsReadableUnder } from "@/lib/feedback/marking";
 
 /**
  * The work-item reads behind both addresses of an item: the project-scoped
@@ -20,22 +24,59 @@ const assignees = {
   },
 } as const;
 
-/** One item with its relations, first 50 comments and 50 latest changes; null if it isn't in this project. */
-export function loadWorkItemDetail(orgId: string, projectId: string, itemId: string) {
-  return prisma.workItem.findFirst({
+/**
+ * The comments a work-item read returns. Work-item threads have no staff
+ * audience, so they carry what anyone may read: public, neither deleted nor
+ * hidden, and marked no higher than the org's ceiling covers (the feedback
+ * thread's rule for a non-staff reader). Comments written on work items are
+ * all of that today; a comment that arrives otherwise (a merge, a later
+ * feature) stays out of the API rather than leaking its content.
+ */
+export async function readableCommentsWhere(orgId: string): Promise<Prisma.CommentWhereInput> {
+  return {
+    visibility: "PUBLIC",
+    deletedAt: null,
+    hiddenAt: null,
+    OR: [{ classification: null }, { classification: { in: levelsReadableUnder(await markingCeiling(orgId)) } }],
+  };
+}
+
+/** Whether the caller passes the project gate for `action`; any other error still throws. */
+async function mayRead(ctx: AuthContext, projectId: string, action: "ITEM_READ" | "COMMENT_READ") {
+  return requireProjectRead(ctx, projectId, action).then(
+    () => true,
+    (e) => {
+      if (e instanceof ForbiddenError) return false;
+      throw e;
+    },
+  );
+}
+
+/**
+ * One item with its relations, its first 50 readable comments (only for a
+ * caller who may read the project's comments; none otherwise) and its 50
+ * latest changes. Null if it isn't in this project.
+ */
+export async function loadWorkItemDetail(ctx: AuthContext, orgId: string, projectId: string, itemId: string) {
+  const withComments = await mayRead(ctx, projectId, "COMMENT_READ");
+  const item = await prisma.workItem.findFirst({
     where: { id: itemId, orgId, projectId },
     // Full-text index internals, never part of the response (schemas.test).
     omit: { searchVector: true },
     include: {
       parent,
       children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true, completedAt: true }, orderBy: { sortOrder: "asc" } },
-      comments: { orderBy: { createdAt: "asc" }, take: 50 },
+      comments: withComments
+        ? { where: await readableCommentsWhere(orgId), orderBy: { createdAt: "asc" }, take: 50 }
+        : false,
       activities: { orderBy: { createdAt: "desc" }, take: 50 },
       workItemType,
       interval: { select: { id: true, name: true, number: true, status: true } },
       assignees,
     },
   });
+  if (!item) return null;
+  return { ...item, comments: item.comments ?? [] };
 }
 
 /**
@@ -51,7 +92,7 @@ export async function loadWorkItemComments(ctx: AuthContext, orgId: string, proj
   if (!item) return null;
 
   const comments = await prisma.comment.findMany({
-    where: { workItemId: itemId, orgId },
+    where: { workItemId: itemId, orgId, ...(await readableCommentsWhere(orgId)) },
     orderBy: { createdAt: "asc" },
   });
   const authorIds = [...new Set(comments.map((c) => c.authorId))];
@@ -73,8 +114,19 @@ export async function loadWorkItemComments(ctx: AuthContext, orgId: string, proj
   }));
 }
 
-/** The project an item belongs to, found by its org-wide id; null if it isn't in this org. */
-export async function workItemProjectId(orgId: string, itemId: string): Promise<string | null> {
+/**
+ * For the org-scoped address: the project of an item the caller may read with
+ * `action`, or null. An item in a project the caller can't read is null too,
+ * so the route answers the same 404 as for an id that doesn't exist and a
+ * signed-in caller can't learn which ids exist elsewhere in the org.
+ */
+export async function readableItemProjectId(
+  ctx: AuthContext,
+  orgId: string,
+  itemId: string,
+  action: "ITEM_READ" | "COMMENT_READ",
+): Promise<string | null> {
   const item = await prisma.workItem.findFirst({ where: { id: itemId, orgId }, select: { projectId: true } });
-  return item?.projectId ?? null;
+  if (!item) return null;
+  return (await mayRead(ctx, item.projectId, action)) ? item.projectId : null;
 }

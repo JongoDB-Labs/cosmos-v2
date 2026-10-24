@@ -1,8 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { handleApiError } from "@/lib/api-helpers";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
-import { loadWorkItemComments, workItemProjectId } from "@/lib/work-items/read.server";
+import { loadWorkItemComments, readableItemProjectId } from "@/lib/work-items/read.server";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
@@ -34,9 +33,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, listWorkItemCommentsById);
     const { params: { orgId, itemId } } = await parseRequest(listWorkItemCommentsById, request, params);
-    const projectId = await workItemProjectId(orgId, itemId);
+    // An item in a project the caller can't read is the same 404 as a missing id.
+    const projectId = await readableItemProjectId(ctx, orgId, itemId, "COMMENT_READ");
     if (!projectId) return problem(404, "not_found", undefined, { request });
-    await requireProjectRead(ctx, projectId, "COMMENT_READ");
 
     const comments = await loadWorkItemComments(ctx, orgId, projectId, itemId);
     if (!comments) return problem(404, "not_found", undefined, { request });

@@ -1,8 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { handleApiError } from "@/lib/api-helpers";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
-import { loadWorkItemDetail, workItemProjectId } from "@/lib/work-items/read.server";
+import { loadWorkItemDetail, readableItemProjectId } from "@/lib/work-items/read.server";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
@@ -48,17 +47,18 @@ async function resolve(params: RouteParams["params"]) {
 /**
  * A read goes through the shared loader rather than the project route, so it
  * authenticates before it looks the item up: an unauthenticated caller gets
- * the same 401 whether or not the id exists.
+ * the same 401 whether or not the id exists. A signed-in caller who can't read
+ * the item's project gets the same 404 as for a missing id.
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, getWorkItemById);
     const { params: { orgId, itemId } } = await parseRequest(getWorkItemById, request, params);
-    const projectId = await workItemProjectId(orgId, itemId);
+    // An item in a project the caller can't read is the same 404 as a missing id.
+    const projectId = await readableItemProjectId(ctx, orgId, itemId, "ITEM_READ");
     if (!projectId) return problem(404, "not_found", undefined, { request });
-    await requireProjectRead(ctx, projectId, "ITEM_READ");
 
-    const item = await loadWorkItemDetail(orgId, projectId, itemId);
+    const item = await loadWorkItemDetail(ctx, orgId, projectId, itemId);
     if (!item) return problem(404, "not_found", undefined, { request });
     return respond(getWorkItemById, 200, item);
   } catch (error) {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "@/lib/openapi/contract";
-import { QueryId, Uuid } from "@/lib/openapi/schemas/common";
+import { QueryId, Uuid, firstOf } from "@/lib/openapi/schemas/common";
 import * as E from "@/lib/openapi/schemas/enums.generated";
 import { WorkItemListRow } from "@/lib/openapi/schemas/work-items";
 
@@ -21,18 +21,19 @@ export const listProjectWorkItems = defineRoute({
   request: {
     params,
     query: z.object({
-      // As before contracts: a blank filter is no filter, and `archived` takes
-      // any string (anything but `only` / `all` means "active only").
-      archived: z.string().optional()
+      // As before contracts: a blank filter is no filter, a repeated one reads
+      // as its first value, and `archived` takes any string (anything but
+      // `only` / `all` means "active only").
+      archived: firstOf(z.string().optional())
         .describe("`only`: just archived items; `all`: archived and active. Anything else, or none: active only."),
-      includeArchived: z.string().optional().describe("`1`: the same as `archived=all` (the alias that shipped first)."),
-      workItemTypeId: QueryId.optional(),
-      priority: z.union([z.enum(E.Priority), z.literal("")]).optional().describe("Blank means no filter."),
-      columnKey: z.string().optional().describe("A board column (status) key."),
-      assigneeId: QueryId.optional().describe("The primary assignee."),
-      intervalId: QueryId.optional(),
-      parentId: QueryId.optional(),
-      search: z.string().optional().describe("Case-insensitive match on the title."),
+      includeArchived: firstOf(z.string().optional()).describe("`1`: the same as `archived=all` (the alias that shipped first)."),
+      workItemTypeId: firstOf(QueryId.optional()),
+      priority: firstOf(z.union([z.enum(E.Priority), z.literal("")]).optional()).describe("Blank means no filter."),
+      columnKey: firstOf(z.string().optional()).describe("A board column (status) key."),
+      assigneeId: firstOf(QueryId.optional()).describe("The primary assignee."),
+      intervalId: firstOf(QueryId.optional()),
+      parentId: firstOf(QueryId.optional()),
+      search: firstOf(z.string().optional()).describe("Case-insensitive match on the title."),
     }),
   },
   responses: { 200: z.array(WorkItemListRow) },

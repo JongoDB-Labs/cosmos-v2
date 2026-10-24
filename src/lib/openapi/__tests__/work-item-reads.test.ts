@@ -95,6 +95,15 @@ describe("the project list's filters, as before contracts", () => {
     expect(await status(list(qs))).toBe(200);
   });
 
+  it.each([
+    ["search=a&search=b", { search: "a" }],
+    [`assigneeId=${ID}&assigneeId=bad`, { assigneeId: ID }],
+    ["priority=HIGH&priority=LOW", { priority: "HIGH" }],
+    ["archived=only&archived=all", { archived: "only" }],
+  ])("a repeated ?%s reads as its first value, as searchParams.get() did", async (qs, want) => {
+    expect((await list(qs)).query).toMatchObject(want);
+  });
+
   it.each(["assigneeId=bad", "intervalId=123", "priority=NOPE"])(
     "?%s is a 400 (it used to reach Prisma and fail as a 500)",
     async (qs) => {

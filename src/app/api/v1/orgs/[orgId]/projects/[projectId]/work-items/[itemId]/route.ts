@@ -23,7 +23,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { params: { orgId, projectId, itemId } } = await parseRequest(getWorkItem, request, params);
     await requireProjectRead(ctx, projectId, "ITEM_READ");
 
-    const item = await loadWorkItemDetail(orgId, projectId, itemId);
+    const item = await loadWorkItemDetail(ctx, orgId, projectId, itemId);
     if (!item) return problem(404, "not_found", undefined, { request });
 
     return respond(getWorkItem, 200, item);

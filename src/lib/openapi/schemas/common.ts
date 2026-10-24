@@ -60,6 +60,14 @@ export const QueryDate = z
   .meta({ format: "date-time", example: "2026-11-01" });
 
 /**
+ * A query parameter given more than once (`?search=a&search=b`) reads as its
+ * first value, as `searchParams.get()` did before these routes had contracts.
+ * Documented as the inner schema.
+ */
+export const firstOf = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((v) => (Array.isArray(v) ? v[0] : v), schema);
+
+/**
  * An id FILTER in a query string. Blank (`?assigneeId=`) means "no filter",
  * as these routes read it before they had contracts; anything else must be an
  * id (it used to reach Prisma and fail as a 500).
