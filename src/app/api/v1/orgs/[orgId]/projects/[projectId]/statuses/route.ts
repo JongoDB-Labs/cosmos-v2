@@ -39,8 +39,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const project = await prisma.project.findFirst({ where: { id: p.projectId, orgId: p.orgId }, select: { id: true } });
     if (!project) return problem(404, "not_found", "Project not found", { request });
-    // The same authority as adding a column: org-wide board update, or project manager.
+    // The same authority as adding a column: org-wide board update, or project
+    // manager; and once the project runs a custom workflow, a new status is a
+    // workflow change (design §6.4).
     await requireProjectManage(ctx, p.projectId, Permission.BOARD_UPDATE);
+    if ((await prisma.workflowAssignment.count({ where: { projectId: p.projectId } })) > 0) {
+      await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
+    }
 
     const existing = await prisma.workflowStatus.findUnique({
       where: { projectId_key: { projectId: p.projectId, key: body.key } },

@@ -49,6 +49,39 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.465.0",
+    date: "2026-10-24",
+    title: "Workflows you can design per project",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each project can now have its own workflows: choose which moves are allowed, who may make them, what a move asks for, what it checks and what it does (Project settings \u2192 Workflows). Workflows are edited as drafts with a live diagram and a simulator, published as versions you can restore, and can be saved as organization templates. When a new version drops a status, Cosmos asks where its items go and moves them in the background. A full column with a hard WIP limit now refuses moves from anywhere: the detail panel, bulk edits, the API and the assistant.",
+      },
+    ],
+  },
+  {
+    version: "2.464.6",
+    date: "2026-10-24",
+    title: "Clearer structure for screen readers",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The notification badge is easier to read in both themes. Settings pages and project boards use heading levels in order, and the navigation areas have names, so screen-reader users can move around the app more easily.",
+      },
+    ],
+  },
+  {
+    version: "2.464.5",
+    date: "2026-10-24",
+    title: "Security: assignees must be in your organization",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Work items can no longer be assigned to people outside their organization, or to people who have left it or been deactivated. Assigning an unknown person now gives a clear error instead of a server error.",
+      },
+    ],
+  },
+  {
     version: "2.464.4",
     date: "2026-10-24",
     title: "Updates reach the deployed app again",
