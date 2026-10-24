@@ -23,6 +23,7 @@ export const BankAccountProvider = ["MANUAL_IMPORT","AKOYA"] as const;
 export const BankTxnStatus = ["IMPORTED","CATEGORIZED","MATCHED","POSTED","EXCLUDED"] as const;
 export const IdpProtocol = ["OIDC"] as const;
 export const ProjectStatus = ["DRAFT","ACTIVE","ON_HOLD","COMPLETE"] as const;
+export const FilterVisibility = ["PRIVATE","TEAM","PROJECT","ORG"] as const;
 export const CommentVisibility = ["PUBLIC","INTERNAL"] as const;
 export const CommentKind = ["COMMENT","OFFICIAL","STATUS_CHANGE","MERGE","SYSTEM"] as const;
 export const FlagSeverity = ["INFO","WARNING","CRITICAL"] as const;

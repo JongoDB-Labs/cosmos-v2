@@ -212,6 +212,18 @@ test.describe("a11y — Issues query language", () => {
       ).toHaveLength(0);
     });
   }
+
+  test("project Filters tab (query language) has no serious/critical axe violations", async ({ page, signInAs }) => {
+    await signInAs(EMAIL);
+    await setQueryLanguage(page.request, true);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto(`/${ORG}/projects/${KEY}/filters`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("link", { name: "Filters" })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/No filters shared with this project|Project filters/).first()).toBeVisible({ timeout: 20_000 });
+    await page.waitForTimeout(500);
+    const serious = blocking(await runAxe(page));
+    expect(serious, serious.map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets[0]}`).join("\n")).toHaveLength(0);
+  });
 });
 
 test.describe("a11y — the assistant drawer", () => {

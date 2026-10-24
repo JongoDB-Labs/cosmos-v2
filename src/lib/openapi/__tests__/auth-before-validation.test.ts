@@ -26,12 +26,12 @@ const ID = "22222222-2222-4222-8222-222222222222";
 
 type Handler = (req: NextRequest, ctx: { params: Promise<Record<string, string>> }) => Promise<Response>;
 const ROUTES: [string, Handler, string, Record<string, string>][] = [
-  ["POST projects", createProject as Handler, "POST", { orgId: ORG }],
-  ["PUT project", updateProject as Handler, "PUT", { orgId: ORG, projectId: ID }],
-  ["POST intervals", createInterval as Handler, "POST", { orgId: ORG, projectId: ID }],
-  ["PUT interval", updateInterval as Handler, "PUT", { orgId: ORG, projectId: ID, intervalId: ID }],
-  ["POST milestones", createMilestone as Handler, "POST", { orgId: ORG, projectId: ID }],
-  ["PATCH milestone", updateMilestone as Handler, "PATCH", { orgId: ORG, projectId: ID, milestoneId: ID }],
+  ["POST projects", createProject as unknown as Handler, "POST", { orgId: ORG }],
+  ["PUT project", updateProject as unknown as Handler, "PUT", { orgId: ORG, projectId: ID }],
+  ["POST intervals", createInterval as unknown as Handler, "POST", { orgId: ORG, projectId: ID }],
+  ["PUT interval", updateInterval as unknown as Handler, "PUT", { orgId: ORG, projectId: ID, intervalId: ID }],
+  ["POST milestones", createMilestone as unknown as Handler, "POST", { orgId: ORG, projectId: ID }],
+  ["PATCH milestone", updateMilestone as unknown as Handler, "PATCH", { orgId: ORG, projectId: ID, milestoneId: ID }],
 ];
 
 /** A body every one of these routes refuses: wrong types for their fields. */
@@ -67,7 +67,7 @@ describe("mutating routes authenticate before they validate", () => {
   });
 
   it("a malformed org id is a 400 before any lookup (nothing to authenticate against)", async () => {
-    const res = await call(createProject as Handler, "POST", { orgId: "nope" });
+    const res = await call(createProject as unknown as Handler, "POST", { orgId: "nope" });
     expect(res.status).toBe(400);
     expect(h.findUnique).not.toHaveBeenCalled();
   });
