@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.470.2",
+    date: "2026-10-24",
+    title: "Delete an unused workflow",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Settings \u2192 Workflows can now delete a workflow that nothing follows, after a confirmation. A workflow that is a project's default or assigned to an item type can't be deleted.",
+      },
+    ],
+  },
+  {
     version: "2.470.1",
     date: "2026-10-24",
     title: "Inbox links open the right item",
