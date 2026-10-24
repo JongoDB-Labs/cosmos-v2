@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.463.1",
+    date: "2026-10-24",
+    title: "Internal: tidy the update checker",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal: removes dead code from the update checker and pins how it pairs app and migration images. No visible change.",
+      },
+    ],
+  },
+  {
     version: "2.463.0",
     date: "2026-10-24",
     title: "Work-item reads in the public API",
