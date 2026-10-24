@@ -19,6 +19,7 @@ import { feedbackItemUrl } from "./urls";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { isFeedbackStaff } from "./access";
 import { effectiveCeiling } from "@/lib/classification/effective";
+import { logAudit } from "@/lib/audit";
 import { levelsReadableUnder, markingAllowed, markingForcesInternal } from "./marking";
 
 import { FEEDBACK_SUBJECT } from "./subject";
@@ -456,21 +457,92 @@ export async function setMarking(
 
   const raised =
     !!input.classification && c.visibility === "PUBLIC" && markingForcesInternal(input.classification, ceiling);
-  if (raised) {
-    if (c.kind === "OFFICIAL") {
-      await tx.comment.update({ where: { id: input.commentId }, data: { kind: "COMMENT" } });
-      await tx.feedbackItem.updateMany({
-        where: { id: input.feedbackItemId, officialCommentId: input.commentId },
-        data: { officialCommentId: null },
-      });
-    }
-    const replies = await tx.comment.findMany({
-      where: { parentId: input.commentId, visibility: "PUBLIC" },
-      select: { id: true, deletedAt: true },
-    });
-    await takeInternal(tx, { ...input, deletedAt: c.deletedAt, replies });
-  }
+  if (raised) await withdrawMarked(tx, { ...input, kind: c.kind, deletedAt: c.deletedAt });
   return { from: c.classification, ceiling, tookInternal: raised };
+}
+
+/**
+ * A public comment is now marked above what the org's ceiling covers: it
+ * stops being the official answer, and it goes internal with every public
+ * reply under it. Returns how many replies went with it.
+ */
+async function withdrawMarked(
+  tx: Prisma.TransactionClient,
+  input: { orgId: string; feedbackItemId: string; commentId: string; kind: CommentKind; deletedAt: Date | null },
+): Promise<number> {
+  if (input.kind === "OFFICIAL") {
+    await tx.comment.update({ where: { id: input.commentId }, data: { kind: "COMMENT" } });
+    await tx.feedbackItem.updateMany({
+      where: { id: input.feedbackItemId, officialCommentId: input.commentId },
+      data: { officialCommentId: null },
+    });
+  }
+  const replies = await tx.comment.findMany({
+    where: { parentId: input.commentId, visibility: "PUBLIC" },
+    select: { id: true, deletedAt: true },
+  });
+  await takeInternal(tx, { ...input, replies });
+  return replies.length;
+}
+
+/**
+ * After the org's ceiling or tenant class changes: every public feedback
+ * comment now marked above what the ceiling covers is withdrawn the way a
+ * raised marking is (unpinned, internal with its replies, notifications taken
+ * back). The read-time filter already hides them; this takes back what was
+ * sent and keeps the replies from surfacing on their own. One transaction per
+ * comment, each re-checked inside it, and one audit entry per sweep.
+ */
+export async function sweepMarkedComments(input: {
+  orgId: string;
+  actorId: string;
+  reason: "ceiling_changed" | "tenant_class_changed";
+  ipAddress?: string | null;
+}): Promise<{ comments: number; replies: number }> {
+  const ceiling = await markingCeiling(input.orgId);
+  const over = await prisma.comment.findMany({
+    where: {
+      orgId: input.orgId,
+      subjectType: FEEDBACK_SUBJECT,
+      visibility: "PUBLIC",
+      AND: [{ classification: { not: null } }, { classification: { notIn: levelsReadableUnder(ceiling) } }],
+    },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  let comments = 0;
+  let replies = 0;
+  for (const { id } of over) {
+    await prisma.$transaction(async (tx) => {
+      const c = await tx.comment.findUnique({
+        where: { id },
+        select: { subjectId: true, visibility: true, kind: true, deletedAt: true, classification: true },
+      });
+      // A reply can be swept with its parent before its own turn comes.
+      if (!c?.subjectId || c.visibility !== "PUBLIC" || !c.classification) return;
+      if (!markingForcesInternal(c.classification, ceiling)) return;
+      replies += await withdrawMarked(tx, {
+        orgId: input.orgId,
+        feedbackItemId: c.subjectId,
+        commentId: id,
+        kind: c.kind,
+        deletedAt: c.deletedAt,
+      });
+      comments += 1;
+    });
+  }
+  if (comments > 0) {
+    await logAudit({
+      orgId: input.orgId,
+      userId: input.actorId,
+      action: "feedback.comments.marking_sweep",
+      entity: "organization",
+      entityId: input.orgId,
+      metadata: { reason: input.reason, ceiling, comments, replies },
+      ipAddress: input.ipAddress ?? undefined,
+    }).catch(() => {});
+  }
+  return { comments, replies };
 }
 
 /**

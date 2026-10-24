@@ -10,17 +10,25 @@ import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { NextRequest } from "next/server";
 import { RolePermissions } from "@/lib/rbac/permissions";
 
-const { getAuthContext, logAudit } = vi.hoisted(() => ({
+const { getAuthContext, getCurrentUser, logAudit } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
-  logAudit: vi.fn(async () => undefined),
+  getCurrentUser: vi.fn(),
+  logAudit: vi.fn(async (_entry: unknown) => undefined),
 }));
-vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
+vi.mock("@/lib/auth/session", () => ({ getAuthContext, getCurrentUser }));
 vi.mock("@/lib/audit", () => ({ logAudit }));
 
 import { prisma } from "@/lib/db/client";
 import { GET, POST } from "./route";
 import { PATCH } from "./[commentId]/route";
 import { GET as REVISIONS } from "./[commentId]/revisions/route";
+import {
+  DELETE as DELETE_CLASSIFICATION,
+  PATCH as PATCH_CLASSIFICATION,
+  PUT as PUT_CLASSIFICATION,
+} from "../../../classifications/[classificationId]/route";
+import { POST as SET_CLASSIFICATION } from "../../../classifications/route";
+import { PATCH as SET_TENANT_CLASS } from "@/app/api/internal/orgs/[orgId]/tenant-class/route";
 import { GET as POLICY } from "../../comment-policy/route";
 import { CommentChangeError, setVisibility } from "@/lib/feedback/comments.server";
 
@@ -263,5 +271,86 @@ describe("comment markings (e2e DB)", () => {
     as(alice, "ADMIN");
     const c = await body(await post({ content: "plain" }));
     expect((await patch(c.id, { classification: "UNCLASSIFIED" })).status).toBe(409);
+  });
+
+  describe("sweeping when the ceiling stops covering a marking", () => {
+    async function markedWithReply() {
+      as(alice, "ADMIN");
+      const c = await body(await post({ content: `Site list attached <@${carol}>`, classification: "CUI" }));
+      expect(c.visibility).toBe("PUBLIC");
+      as(carol, "MEMBER");
+      const reply = await body(await post({ content: "Ours is on it", parentId: c.id }));
+      const note = { orgId: govOrg, userId: carol, url: { endsWith: `#c-${c.id}` } };
+      expect(await prisma.notification.count({ where: note })).toBe(1);
+      return { c, reply, note };
+    }
+    // The org holds other tests' marked comments too, so the sweep's counts
+    // are checked as "at least this one and its reply".
+    async function expectWithdrawn(c: { id: string }, reply: { id: string }, note: object, reason: string) {
+      const rows = await prisma.comment.findMany({ where: { id: { in: [c.id, reply.id] } }, select: { visibility: true } });
+      expect(rows.map((r) => r.visibility)).toEqual(["INTERNAL", "INTERNAL"]);
+      expect(await prisma.notification.count({ where: note })).toBe(0);
+      const sweep = logAudit.mock.calls
+        .map(([e]) => e as { action: string; metadata: { reason: string; ceiling: string; comments: number; replies: number } })
+        .find((e) => e.action === "feedback.comments.marking_sweep");
+      expect(sweep?.metadata).toMatchObject({ reason, ceiling: "UNCLASSIFIED" });
+      expect(sweep!.metadata.comments).toBeGreaterThanOrEqual(1);
+      expect(sweep!.metadata.replies).toBeGreaterThanOrEqual(1);
+    }
+
+    it("withdraws them when an admin lowers the org ceiling", async () => {
+      inOrg(govOrg, govItem);
+      await setCeiling("CUI");
+      const { c, reply, note } = await markedWithReply();
+      const row = await prisma.dataClassification.findFirstOrThrow({ where: { orgId: govOrg, projectId: null } });
+
+      as(alice, "ADMIN");
+      logAudit.mockClear();
+      const res = await DELETE_CLASSIFICATION(req("DELETE"), {
+        params: Promise.resolve({ orgId: govOrg, classificationId: row.id }),
+      } as never);
+      expect(res.status).toBeLessThan(300);
+      await expectWithdrawn(c, reply, note, "ceiling_changed");
+    });
+
+    it("withdraws them when the ceiling is lowered in place (POST, PUT or PATCH)", async () => {
+      inOrg(govOrg, govItem);
+      const lowerings: [string, (rowId: string) => Promise<Response>][] = [
+        ["POST", () => SET_CLASSIFICATION(req("POST", { level: "UNCLASSIFIED" }), { params: Promise.resolve({ orgId: govOrg }) } as never)],
+        ["PUT", (id) => PUT_CLASSIFICATION(req("PUT", { level: "UNCLASSIFIED" }), { params: Promise.resolve({ orgId: govOrg, classificationId: id }) } as never)],
+        ["PATCH", (id) => PATCH_CLASSIFICATION(req("PATCH", { level: "UNCLASSIFIED" }), { params: Promise.resolve({ orgId: govOrg, classificationId: id }) } as never)],
+      ];
+      for (const [verb, lower] of lowerings) {
+        await setCeiling("CUI");
+        const { c, reply, note } = await markedWithReply();
+        const row = await prisma.dataClassification.findFirstOrThrow({ where: { orgId: govOrg, projectId: null } });
+        as(alice, "ADMIN");
+        logAudit.mockClear();
+        const res = await lower(row.id);
+        expect(res.status, verb).toBeLessThan(300);
+        await expectWithdrawn(c, reply, note, "ceiling_changed");
+      }
+    });
+
+    it("withdraws them when the tenant stops being a gov tenant", async () => {
+      inOrg(govOrg, govItem);
+      await setCeiling("CUI");
+      const { c, reply, note } = await markedWithReply();
+
+      const admins = process.env.INTERNAL_ADMINS;
+      process.env.INTERNAL_ADMINS = "alice@test.local";
+      getCurrentUser.mockResolvedValue({ id: alice, email: "alice@test.local" });
+      logAudit.mockClear();
+      try {
+        const res = await SET_TENANT_CLASS(req("PATCH", { tenantClass: "COMMERCIAL" }), {
+          params: Promise.resolve({ orgId: govOrg }),
+        } as never);
+        expect(res.status).toBe(200);
+        await expectWithdrawn(c, reply, note, "tenant_class_changed");
+      } finally {
+        process.env.INTERNAL_ADMINS = admins;
+        await prisma.organization.update({ where: { id: govOrg }, data: { tenantClass: "GOV" } });
+      }
+    });
   });
 });
