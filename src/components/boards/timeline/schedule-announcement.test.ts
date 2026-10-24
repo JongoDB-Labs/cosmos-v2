@@ -26,14 +26,14 @@ describe("announceSchedule", () => {
     );
   });
 
-  it("counts the dependents the cascade moved, singular and plural", () => {
-    expect(announceSchedule("moved", edit(1), label)).toContain(" 1 dependent item moved with it.");
-    expect(announceSchedule("moved", edit(2), label)).toContain(" 2 dependent items moved with it.");
+  it("counts the other items that moved with it, singular and plural", () => {
+    expect(announceSchedule("moved", edit(1), label)).toContain(" 1 other item moved with it.");
+    expect(announceSchedule("moved", edit(2), label)).toContain(" 2 other items moved with it.");
   });
 
   it("undo reads the dates it went back to; redo the dates it went forward to", () => {
     expect(announceSchedule("undo", edit(2), label)).toBe(
-      "Undid the change to FSC-1, Design: back to 1 Mar 2026 to 5 Mar 2026. 2 dependent items moved back.",
+      "Undid the change to FSC-1, Design: back to 1 Mar 2026 to 5 Mar 2026. 2 other items moved back.",
     );
     expect(announceSchedule("redo", edit(0), label)).toBe("Redid the change to FSC-1, Design: 3 Mar 2026 to 7 Mar 2026.");
   });

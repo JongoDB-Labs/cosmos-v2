@@ -3,9 +3,10 @@
  *
  * A drag ends in a generic "Schedule updated" toast, and undo/redo said nothing
  * at all, so someone who can't see the bars had no way to know which item moved,
- * where to, or that the dependents moved with it, let alone that it could be
- * taken back. These sentences name the item, its new dates and how many others
- * the cascade moved, and say how to undo.
+ * where to, or that others moved with it, let alone that it could be taken
+ * back. These sentences name the item, its new dates and how many others moved
+ * with it (what the cascade moved, and any sibling pushed out of the way), and
+ * say how to undo.
  *
  * Pure: the component renders the result into a polite live region.
  */
@@ -16,7 +17,7 @@ export interface AnnouncedRange {
 }
 
 export interface AnnouncedEdit {
-  /** The item the user dragged first; the rest are what its cascade moved. */
+  /** The item the user dragged first; the rest moved with it (cascade, pushed siblings). */
   items: { id: string; before: AnnouncedRange; after: AnnouncedRange }[];
 }
 
@@ -38,7 +39,7 @@ function range(r: AnnouncedRange): string {
 
 function others(n: number, verb: string): string {
   if (n === 0) return "";
-  return n === 1 ? ` 1 dependent item ${verb}.` : ` ${n} dependent items ${verb}.`;
+  return n === 1 ? ` 1 other item ${verb}.` : ` ${n} other items ${verb}.`;
 }
 
 export function announceSchedule(

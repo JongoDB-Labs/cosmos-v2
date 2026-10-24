@@ -3,7 +3,7 @@
 //
 // A drag ended in a generic "Schedule updated" toast and undo/redo said nothing,
 // so someone using a screen reader couldn't tell which item moved, where to,
-// whether its dependents went with it, or that it could be taken back. A polite
+// whether others moved with it, or that it could be taken back. A polite
 // live region now names all of that after a drop, an undo and a redo.
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
@@ -158,13 +158,13 @@ describe("TimelineView: reschedules are announced to screen readers", () => {
     expect(announcer().textContent).toBe("");
   });
 
-  it("a drop names the item, its new dates, the dependents that followed, and how to undo", async () => {
+  it("a drop names the item, its new dates, the other items that moved with it, and how to undo", async () => {
     cascadeFor = { i2: CASCADE };
     await renderTimeline();
     dragRight("i2");
     await waitFor(() => expect(announcer().textContent).toMatch(/^Moved FSC-102, Item 2 to /));
     const text = announcer().textContent!;
-    expect(text).toMatch(/1 dependent item moved with it\./);
+    expect(text).toMatch(/1 other item moved with it\./);
     expect(text).toMatch(/Control Z or Command Z to undo/);
     // The new dates, not the old ones.
     const put = putLog[0].body;
@@ -180,7 +180,7 @@ describe("TimelineView: reschedules are announced to screen readers", () => {
     fireEvent.click(screen.getByRole("button", { name: /undo/i }));
     await waitFor(() =>
       expect(announcer().textContent).toBe(
-        `Undid the change to FSC-102, Item 2: back to ${fmt(startOfLocalDay("2026-01-10"))} to ${fmt(startOfLocalDay("2026-02-01"))}. 1 dependent item moved back.`,
+        `Undid the change to FSC-102, Item 2: back to ${fmt(startOfLocalDay("2026-01-10"))} to ${fmt(startOfLocalDay("2026-02-01"))}. 1 other item moved back.`,
       ),
     );
 

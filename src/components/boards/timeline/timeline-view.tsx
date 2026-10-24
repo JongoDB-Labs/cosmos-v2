@@ -26,6 +26,8 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { announceSchedule, type ScheduleAction } from "./schedule-announcement";
+import { findCollisions, type Collision } from "./schedule-collisions";
+import { ScheduleCollisionDialog } from "./schedule-collision-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -751,6 +753,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // first and set a tick later, so the same sentence twice in a row (undo, redo,
   // undo) is still read out: a live region only speaks when its text changes.
   const [announcement, setAnnouncement] = useState("");
+  // A drop held back because it newly overlaps a sibling (schedule-collisions).
+  const [pendingCollision, setPendingCollision] = useState<{
+    id: string;
+    before: DateRange;
+    after: DateRange;
+    collisions: Collision[];
+  } | null>(null);
   const announceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (announceTimer.current) clearTimeout(announceTimer.current);
@@ -989,6 +998,25 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     setDragPreview(null);
   }, []);
 
+  // How an item is named in announcements and dialogs: "FSC-4, Design".
+  const labelFor = useCallback(
+    (id: string) => {
+      const it = items.find((x) => x.id === id);
+      return it ? `${projectKey}-${it.ticketNumber}, ${it.title}` : "the item";
+    },
+    [items, projectKey],
+  );
+
+  const announce = useCallback(
+    (action: ScheduleAction, edit: ScheduleEdit) => {
+      const text = announceSchedule(action, edit, labelFor);
+      setAnnouncement("");
+      if (announceTimer.current) clearTimeout(announceTimer.current);
+      announceTimer.current = setTimeout(() => setAnnouncement(text), 50);
+    },
+    [labelFor],
+  );
+
   // Persist the date snapshots ONE user action produced (optimistic cache write,
   // then a PUT each). Shared by drag commit, bulk Shift and undo/redo so they
   // behave identically. Returns what the server cascaded BEYOND the targets.
@@ -1009,20 +1037,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // The cost is a request chain rather than a fan-out. A wrong plan is worse
   // than a slow one, and "how far did that item move?" had no stable answer at
   // all while these raced.
-  const announce = useCallback(
-    (action: ScheduleAction, edit: ScheduleEdit) => {
-      const label = (id: string) => {
-        const it = items.find((x) => x.id === id);
-        return it ? `${projectKey}-${it.ticketNumber}, ${it.title}` : "the item";
-      };
-      const text = announceSchedule(action, edit, label);
-      setAnnouncement("");
-      if (announceTimer.current) clearTimeout(announceTimer.current);
-      announceTimer.current = setTimeout(() => setAnnouncement(text), 50);
-    },
-    [items, projectKey],
-  );
-
   const commitSchedule = useCallback(
     async (targets: Array<{ id: string; dates: DateRange }>): Promise<ItemDateSnapshot[]> => {
       if (targets.length === 0) return [];
@@ -1074,6 +1088,29 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     [qc, itemsKey, basePath],
   );
 
+  // Save a drop (and any siblings it pushed) as one undoable action.
+  //
+  // The undo entry is completed by the RESPONSE, not by the gesture: what else
+  // moved is the server's answer, and an entry written before it lands would
+  // undo the drag while leaving the cascade in place. Undo therefore arms a
+  // moment after the drop, which is also honest — there is nothing to take
+  // back until the save has happened.
+  const commitDrop = useCallback(
+    (main: ItemDateSnapshot, pushed: ItemDateSnapshot[]) => {
+      setRedoStack([]);
+      void (async () => {
+        const cascaded = await commitSchedule([
+          { id: main.id, dates: main.after },
+          ...pushed.map((p) => ({ id: p.id, dates: p.after })),
+        ]);
+        const edit = { items: [main, ...pushed, ...cascaded] };
+        setUndoStack((prev) => [...prev, edit]);
+        announce("moved", edit);
+      })();
+    },
+    [commitSchedule, announce],
+  );
+
   const onDragEnd = useCallback(
     (e: React.PointerEvent) => {
       const d = dragRef.current;
@@ -1107,20 +1144,49 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         startDate: newStart.toISOString(),
         dueDate: newEnd.toISOString(),
       };
-      setRedoStack([]);
-      // The undo entry is completed by the RESPONSE, not by the gesture: what
-      // else moved is the server's answer, and an entry written before it lands
-      // would undo the drag while leaving the cascade in place. Undo therefore
-      // arms a moment after the drop, which is also honest — there is nothing to
-      // take back until the save has happened.
-      void (async () => {
-        const cascaded = await commitSchedule([{ id: d.id, dates: after }]);
-        const edit = { items: [{ id: d.id, before, after }, ...cascaded] };
-        setUndoStack((prev) => [...prev, edit]);
-        announce("moved", edit);
-      })();
+      // A drop that newly lands on a sibling's dates waits for a decision
+      // (run in parallel, push the sibling, or cancel) instead of saving.
+      const moved = items.find((it) => it.id === d.id);
+      const collisions = findCollisions(
+        {
+          id: d.id,
+          parentId: moved?.parentId ?? null,
+          before: { start: d.origStart, end: d.origEnd },
+          after: { start: newStart, end: newEnd },
+        },
+        items,
+      );
+      if (collisions.length > 0) {
+        setPendingCollision({ id: d.id, before, after, collisions });
+        return;
+      }
+      commitDrop({ id: d.id, before, after }, []);
     },
-    [dayWidth, commitSchedule, announce],
+    [dayWidth, commitDrop, items],
+  );
+
+  // How a held drop is resolved. Every choice saves as ONE action, so a single
+  // undo takes back the drop, the pushed siblings and whatever they cascaded.
+  const resolveCollision = useCallback(
+    (choice: "parallel" | "later" | "earlier" | "cancel") => {
+      const p = pendingCollision;
+      setPendingCollision(null);
+      if (!p || choice === "cancel") return;
+      const pushed =
+        choice === "parallel"
+          ? []
+          : p.collisions.map((c) => {
+              const it = items.find((x) => x.id === c.id);
+              const to = choice === "later" ? c.later : c.earlier;
+              return {
+                id: c.id,
+                before: { startDate: it?.startDate ?? null, dueDate: it?.dueDate ?? null },
+                after: { startDate: to.start.toISOString(), dueDate: to.end.toISOString() },
+              };
+            });
+      commitDrop({ id: p.id, before: p.before, after: p.after }, pushed);
+    },
+    [pendingCollision, commitDrop, items],
   );
 
   // Undo/redo restore the WHOLE snapshot — the bar plus everything its cascade
@@ -1659,6 +1725,17 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       <div role="status" aria-live="polite" className="sr-only" data-testid="gantt-announcer">
         {announcement}
       </div>
+      {pendingCollision && (
+        <ScheduleCollisionDialog
+          open
+          movedLabel={labelFor(pendingCollision.id)}
+          collisions={pendingCollision.collisions.map((c) => ({ ...c, label: labelFor(c.id) }))}
+          onParallel={() => resolveCollision("parallel")}
+          onPushLater={() => resolveCollision("later")}
+          onPushEarlier={() => resolveCollision("earlier")}
+          onCancel={() => resolveCollision("cancel")}
+        />
+      )}
       {fullscreen && (
         <Button
           variant="outline"
