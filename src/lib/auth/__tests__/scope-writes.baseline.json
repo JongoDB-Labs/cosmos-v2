@@ -245,6 +245,7 @@
   ],
   "audit:read": [],
   "rules:run": [
+    "POST v1/orgs/[orgId]/automations/tick",
     "POST v1/orgs/[orgId]/rules/run"
   ]
 }

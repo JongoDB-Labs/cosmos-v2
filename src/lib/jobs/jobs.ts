@@ -3,6 +3,7 @@ import { runCalendarPulls } from "@/lib/integrations/microsoft/calendar-sync.ser
 import { prisma } from "@/lib/db/client";
 import { pruneDomainEvents } from "@/lib/work-items/events.server";
 import { drainOutbox } from "@/lib/automation/outbox.server";
+import { runDueSchedules } from "@/lib/automation/engine.server";
 import { sendDueDeliveries } from "@/lib/webhooks/deliver.server";
 import { sweepAllMarkedComments } from "@/lib/feedback/comments.server";
 import { runWorkflowMigrations } from "@/lib/workflow/migrate.server";
@@ -49,6 +50,20 @@ registerJob({
   run: async ({ signal }) => {
     const r = await drainOutbox(prisma, { signal });
     return r.events ? { ...r } : undefined;
+  },
+});
+
+// Workflow P4b: scheduled automation rules (hourly, daily, weekly) that are
+// due. Each runs at most once per slot; the runner's single leader means two
+// instances never run one at once.
+registerJob({
+  name: "automation-schedules",
+  everyMs: 60_000,
+  jitterMs: 5_000,
+  timeoutMs: 5 * 60_000,
+  run: async () => {
+    const ran = await runDueSchedules();
+    return ran ? { ran } : undefined;
   },
 });
 

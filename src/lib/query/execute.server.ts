@@ -215,6 +215,34 @@ export async function executeCql(ctx: AuthContext, input: CqlInput, opts: CqlRun
   };
 }
 
+/**
+ * The ids a query matches, for an automation: among `within` (does the item
+ * that fired a rule match its condition?) or across every readable project
+ * up to `limit` (the items a scheduled rule acts on). The same scope envelope
+ * and resolver as `executeCql`, under the caller's ctx, so an automation's
+ * condition sees no more than the owner it runs as.
+ */
+export async function matchingItemIds(
+  ctx: AuthContext,
+  input: CqlInput,
+  opts: Omit<CqlRunOptions, "page" | "pageSize" | "countTimeoutMs"> & { within?: readonly string[]; limit?: number } = {},
+): Promise<string[]> {
+  if (opts.within && opts.within.length === 0) return [];
+  const prepared = await prepareCql(ctx, input, opts);
+  if (prepared.readable.length === 0) return [];
+  const where = buildScopedWhere({
+    orgId: prepared.orgId,
+    allowedProjectIds: prepared.readable,
+    archived: prepared.compiled.archived,
+    user: prepared.compiled.where,
+    prefilterIds: opts.within ? [...opts.within] : null,
+  });
+  const rows = await withStatementTimeout(opts.timeoutMs ?? 5_000, (tx) =>
+    tx.workItem.findMany({ where, select: { id: true }, orderBy: { id: "asc" }, take: opts.limit ?? opts.within?.length ?? 500 }),
+  );
+  return rows.map((r) => r.id);
+}
+
 /** The Issues CSV export's cap, the same as the legacy export's. */
 export const EXPORT_MAX_ROWS = 50_000;
 
