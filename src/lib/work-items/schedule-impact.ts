@@ -38,14 +38,31 @@ export const ImpactSectionSchema = z.object({
   prompt: z
     .object({
       message: text(400),
-      // Same-origin paths only: a plugin may point into its own pages, never off-site.
+      // Same-origin paths only: a plugin may point into its own pages, never
+      // off-site. Not "//host" and not "/\\host": browsers read a backslash as a
+      // slash, so either would leave the site.
       action: z
-        .object({ label: text(60), href: z.string().regex(/^\/(?!\/)[^\s]*$/, "a same-origin path") })
+        .object({ label: text(60), href: z.string().regex(/^\/(?![\/\\])[^\s\\]*$/, "a same-origin path") })
         .optional(),
     })
     .optional(),
 });
 export type ImpactSection = z.infer<typeof ImpactSectionSchema>;
+
+/**
+ * A change to something core doesn't schedule (a plugin's own phases, say),
+ * passed through the same preview to the plugin that owns it. Its `kind` is
+ * "<plugin slug>.<name>", and only that plugin ever sees it.
+ */
+export const PLUGIN_CHANGE_KIND = /^([a-z0-9][a-z0-9-]*)\.[a-z0-9][a-z0-9_-]*$/;
+export const WORK_ITEM_KIND = "workItem";
+
+export interface PluginScheduleChange {
+  kind: string;
+  id: string;
+  startDate: string | null;
+  dueDate: string | null;
+}
 
 export interface ScheduleRange {
   startDate: string | null;

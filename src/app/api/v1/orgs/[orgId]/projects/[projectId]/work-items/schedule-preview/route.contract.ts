@@ -31,7 +31,8 @@ export const previewSchedule = defineRoute({
   description:
     "What moving these items to these dates WOULD do, without saving anything: every item that moves " +
     "(the cascade included: parents widened, successors shifted), each assignee's load before and after, " +
-    "and any sections enabled plugins add (fees, rates, hours). Needs ITEM_UPDATE on every item, as the " +
+    "and any sections enabled plugins add (fees, rates, hours). A change may name a plugin's own kind " +
+    "(\"<slug>.<name>\"), which is passed to that plugin alone; an unknown kind is a 400. Needs ITEM_UPDATE on every work item, as the " +
     "save would; a key needs items:write, the scope that could make the save.",
   tags: ["Work items"],
   stability: "internal",
@@ -40,10 +41,24 @@ export const previewSchedule = defineRoute({
     params: z.object({ orgId: Uuid, projectId: Uuid }),
     body: z.object({
       changes: z
-        .array(z.object({ id: Uuid, startDate: NullableDateTime, dueDate: NullableDateTime }))
+        .array(
+          z.object({
+            id: Uuid,
+            kind: z
+              .string()
+              .regex(/^(workItem|[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9_-]*)$/)
+              .optional()
+              .describe('"workItem" (the default) or a plugin\'s own "<slug>.<name>".'),
+            startDate: NullableDateTime,
+            dueDate: NullableDateTime,
+          }),
+        )
         .min(1)
         .max(50)
-        .refine((cs) => new Set(cs.map((c) => c.id)).size === cs.length, "each item at most once"),
+        .refine(
+          (cs) => new Set(cs.map((c) => `${c.kind ?? "workItem"}:${c.id}`)).size === cs.length,
+          "each item at most once",
+        ),
     }),
   },
   responses: {

@@ -12,7 +12,7 @@ import type { PrismaClient } from "@prisma/client";
 import type { z } from "zod";
 import type { ToolContext as CoreToolContext } from "@/lib/ai/executors/_ctx";
 import type { AuthContext } from "@/lib/rbac/check";
-import type { ImpactSection, ScheduleChange } from "@/lib/work-items/schedule-impact";
+import type { ImpactSection, PluginScheduleChange, ScheduleChange } from "@/lib/work-items/schedule-impact";
 
 /**
  * PLUGIN REGISTRY (ADR 0003) — the packaging rung above sector templates and
@@ -197,6 +197,15 @@ export type ScheduleImpactContext = {
   /** What core's cascade would move as a result (parents widened, successors
    *  shifted). Part of the impact: a pushed phase costs as much as a dragged one. */
   cascaded: ScheduleChange[];
+  /**
+   * Changes to THIS plugin's own kinds ("<slug>.<name>", e.g. its phases),
+   * passed through untouched; another plugin's kinds are never included. Core
+   * knows nothing about these ids beyond the project read on the route: check
+   * the caller may change them, and resolve them within `projectId`, yourself.
+   * Return their knock-on effects (what else a moved phase shifts) as your own
+   * section; the dialog shows it alongside core's.
+   */
+  pluginChanges: PluginScheduleChange[];
 };
 
 export type PluginServerHooks = {

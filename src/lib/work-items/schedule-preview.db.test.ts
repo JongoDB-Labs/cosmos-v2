@@ -208,6 +208,43 @@ describe("schedule preview: plugin sections", () => {
     expect(Date.now() - started).toBeLessThan(4000);
   });
 
+  it("a plugin's own kinds reach that plugin alone; core plans only work items", async () => {
+    h.ctx = person();
+    const seen: Record<string, ScheduleImpactContext["pluginChanges"]> = {};
+    register({ slug: "fees", scheduleImpact: async (_db, ctx) => { seen.fees = ctx.pluginChanges; return [{ key: "phases", title: "Phases", rows: [{ key: "p1", label: "Phase 1", before: "Mon", after: "Wed", tone: "warn" }] }]; } });
+    register({ slug: "slow", scheduleImpact: async (_db, ctx) => { seen.slow = ctx.pluginChanges; return []; } });
+    h.enabled.add("fees");
+    h.enabled.add("slow");
+    const phase = { id: "11111111-2222-4333-8444-555555555555", kind: "fees.phase", startDate: "2026-11-03T00:00:00.000Z", dueDate: "2026-11-07T00:00:00.000Z" };
+    const body = await (await post([...withA(), phase])).json();
+    expect(seen.fees).toEqual([{ kind: "fees.phase", id: phase.id, startDate: phase.startDate, dueDate: phase.dueDate }]);
+    expect(seen.slow).toEqual([]);
+    expect(body.changes.map((c: { itemId: string }) => c.itemId)).toEqual([a]);
+    expect(body.sections.map((s: { key: string }) => s.key)).toEqual(["fees:phases"]);
+  });
+
+  it("a request with only plugin kinds needs no work item, and its rows decide the confirm", async () => {
+    h.ctx = person();
+    register({ slug: "fees", scheduleImpact: async () => [{ key: "phases", title: "Phases", rows: [{ key: "p1", label: "Phase 1", tone: "neutral" }] }] });
+    h.enabled.add("fees");
+    const res = await post([{ id: "11111111-2222-4333-8444-555555555555", kind: "fees.phase", startDate: null, dueDate: null }]);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.changes).toEqual([]);
+    expect(body.needsConfirm).toBe(true);
+  });
+
+  it("a kind no enabled plugin owns is refused, never passed on", async () => {
+    h.ctx = person();
+    const hook = vi.fn(async () => []);
+    register({ slug: "off", scheduleImpact: hook });
+    const phase = (kind: string) => [{ id: "11111111-2222-4333-8444-555555555555", kind, startDate: null, dueDate: null }];
+    expect((await post(phase("off.phase"))).status).toBe(400); // registered, not enabled
+    expect((await post(phase("nobody.phase"))).status).toBe(400); // not registered
+    expect((await post(phase("Bad Kind"))).status).toBe(400); // not a kind at all
+    expect(hook).not.toHaveBeenCalled();
+  });
+
   it("a plugin can't point the dialog off-site", async () => {
     h.ctx = person();
     register({
@@ -216,5 +253,17 @@ describe("schedule preview: plugin sections", () => {
     });
     h.enabled.add("fees");
     expect((await (await post(withA())).json()).sections).toEqual([]);
+    // Nor by a backslash, which browsers read as a slash.
+    register({
+      slug: "fees",
+      scheduleImpact: async () => [{ key: "p", title: "Hours", rows: [], prompt: { message: "Add hours", action: { label: "Plan", href: "/\\evil.example/x" } } }],
+    });
+    expect((await (await post(withA())).json()).sections).toEqual([]);
+    // A path of its own is fine.
+    register({
+      slug: "fees",
+      scheduleImpact: async () => [{ key: "p", title: "Hours", rows: [], prompt: { message: "Add hours", action: { label: "Plan", href: "/acme/plan?phase=1" } } }],
+    });
+    expect((await (await post(withA())).json()).sections).toHaveLength(1);
   });
 });

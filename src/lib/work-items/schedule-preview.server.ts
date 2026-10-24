@@ -90,6 +90,8 @@ export async function previewSchedule(
   args: { orgId: string; projectId: string; input: PreviewItemInput[] },
 ): Promise<CorePreview & { missing: string[] }> {
   const { orgId, projectId, input } = args;
+  // Only plugin kinds were changed: there is nothing of core's to plan.
+  if (input.length === 0) return { changes: [], cascaded: [], allocation: [], missing: [] };
 
   // Exactly what the save's cascade loads (schedule-cascade-io): live items of
   // this project and the links between them.
