@@ -32,6 +32,7 @@ import {
 export type { MigrationMap, VersionLayout };
 import { workflowSettings } from "@/lib/workflow/settings";
 import { ensureStatuses, loadStatuses, type StatusRow } from "@/lib/workflow/statuses.server";
+import { assignableMembersWhere } from "@/lib/work-items/apply-change.server";
 
 type Tx = Prisma.TransactionClient;
 
@@ -523,7 +524,8 @@ async function referenceIssues(tx: Tx, orgId: string, projectId: string | null, 
   };
   await missing(
     users,
-    async (ids) => (await tx.orgMember.findMany({ where: { orgId, userId: { in: ids } }, select: { userId: true } })).map((m) => ({ id: m.userId })),
+    // The same members a change may assign (apply-change.server.ts): current and active.
+    async (ids) => (await tx.orgMember.findMany({ where: assignableMembersWhere(orgId, ids), select: { userId: true } })).map((m) => ({ id: m.userId })),
     "UNKNOWN_ASSIGNEE",
     "assigns someone who isn't a member of this organization.",
   );
