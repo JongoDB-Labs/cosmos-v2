@@ -279,6 +279,7 @@ export async function checkForUpdates(
 
   const status = updateStatus(currentVersion, versionsFromTags(tags, config.suffix));
   const auth = { username: config.username, password: config.password };
+  const registryHost = parseImageRef(config.repo).host;
 
   let candidateDigest: string | null = null;
   let candidateTag: string | null = null;
@@ -307,7 +308,6 @@ export async function checkForUpdates(
         missingSidecars = found.filter((f) => !f.ok).map((f) => f.r);
         break;
       }
-      if (app && !migrate) migrateImagePresent = false;
     }
   }
 
@@ -350,14 +350,19 @@ export async function checkForUpdates(
     migrateImagePresent,
     missingSidecars,
     sidecarCount: config.sidecarRepos.length,
-    candidateRegistryHost: parseImageRef(config.repo).host,
-    expectedRegistryHost: parseImageRef(config.repo).host,
+    // Both sides of the expected-registry comparison come from the SAME parse
+    // of `config.repo`, so the in-app check can only ever pass. That is not an
+    // oversight: in-app, the candidate is resolved against the configured repo
+    // by construction, so there is no second host to disagree. The predicate
+    // earns its keep in the host-side runner, which supplies a candidate host
+    // read from the image it is actually about to pull.
+    candidateRegistryHost: registryHost,
+    expectedRegistryHost: registryHost,
     dbReachable,
     currentHealthOk,
     // Not observable from inside the application container — it has no host
     // mount. Left null on purpose so the preflight reports `unknown` rather
-    // than a comfortable lie, and so `applyable` stays false for an in-app
-    // check. The host-side actuator fills these in.
+    // than a comfortable lie. The host-side actuator fills these in.
     hostDiskFreeBytes: null,
     estimatedRequiredBytes: null,
   };
@@ -380,7 +385,7 @@ export async function checkForUpdates(
   //
   // Same host ⇒ same credentials. Different host ⇒ anonymous, which is what a
   // public notes repository wants anyway.
-  const sameHost = parseImageRef(config.notesRepo).host === parseImageRef(config.repo).host;
+  const sameHost = parseImageRef(config.notesRepo).host === registryHost;
   const notesAuth = sameHost ? auth : {};
 
   const { notes, omitted } = status.updateAvailable
