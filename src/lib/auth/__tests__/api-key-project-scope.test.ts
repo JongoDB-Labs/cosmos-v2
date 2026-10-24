@@ -38,6 +38,9 @@ vi.mock("@/lib/db/client", () => ({
 
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { isProjectVisible } from "@/lib/rbac/project-access";
+import { canManageProject, getManagedProjectIds } from "@/lib/rbac/scope";
+import { canManageBoardsInProject, canWriteInProject } from "@/lib/rbac/project-role";
+import { canAdministerProject } from "@/lib/rbac/require-project-manage";
 
 const owner = (projectScope?: string[]): AuthContext =>
   ({
@@ -102,5 +105,27 @@ describe("empty vs absent — the distinction that protects existing keys", () =
     // Documents the hazard rather than endorsing it: if `[]` were ever passed
     // through as a ceiling, every pre-existing key would reach nothing at all.
     await expect(getReadableProjectIds(owner([]))).resolves.toEqual([]);
+  });
+});
+
+describe("the write-side gates hold the same ceiling", () => {
+  // An OWNER's key: every one of these says yes to the person, so a "no" here
+  // is the ceiling and nothing else.
+  it("manages, administers, writes and makes boards only inside the ceiling", async () => {
+    for (const [name, gate] of [
+      ["canManageProject", (c: AuthContext, p: string) => canManageProject(c, p)],
+      ["canAdministerProject", (c: AuthContext, p: string) => canAdministerProject(c, p)],
+      ["canWriteInProject", (c: AuthContext, p: string) => canWriteInProject(c, p)],
+      ["canManageBoardsInProject", (c: AuthContext, p: string) => canManageBoardsInProject(c, p)],
+    ] as const) {
+      expect(await gate(owner(["p2"]), "p2"), `${name} inside`).toBe(true);
+      expect(await gate(owner(["p2"]), "p1"), `${name} outside`).toBe(false);
+      expect(await gate(owner(), "p1"), `${name} unscoped`).toBe(true);
+    }
+  });
+
+  it("lists as managed only the projects inside the ceiling", async () => {
+    expect([...(await getManagedProjectIds(owner(["p2"]), ["p1", "p2", "p3"]))]).toEqual(["p2"]);
+    expect([...(await getManagedProjectIds(owner(), ["p1", "p2"]))]).toEqual(["p1", "p2"]);
   });
 });

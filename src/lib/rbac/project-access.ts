@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/client";
-import { type AuthContext } from "@/lib/rbac/check";
+import { inKeyProjectScope, type AuthContext } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import type { OrgRole } from "@prisma/client";
@@ -92,7 +92,7 @@ export async function isProjectVisible(
   // below, for the same reason as in getReadableProjectIds: an org
   // administrator keeps access to every project by design, so a restriction
   // evaluated after that would never bind for the people who mint keys.
-  if (ctx.projectScope && !ctx.projectScope.includes(projectId)) return false;
+  if (!inKeyProjectScope(ctx, projectId)) return false;
 
   // The default, and the reason existing orgs see no behaviour change.
   if (!project.teamScopedAccess) return true;

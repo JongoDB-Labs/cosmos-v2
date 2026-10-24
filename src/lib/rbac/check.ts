@@ -47,6 +47,16 @@ export interface AuthContext {
   projectScope?: readonly string[];
 }
 
+/**
+ * A project-scoped key's ceiling: false only for a key limited to projects
+ * when `projectId` isn't one of them. Sessions and org-wide keys carry no
+ * `projectScope`, so they always pass. Every project gate asks this first, ahead
+ * of any role short-circuit (an OWNER's key is limited like anyone's).
+ */
+export function inKeyProjectScope(ctx: Pick<AuthContext, "projectScope">, projectId: string): boolean {
+  return !ctx.projectScope || ctx.projectScope.includes(projectId);
+}
+
 export function resolvePermissions(
   orgRole: OrgRole,
   storedPermissions: bigint | null

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/client";
-import type { AuthContext } from "@/lib/rbac/check";
+import { inKeyProjectScope, type AuthContext } from "@/lib/rbac/check";
 import type { DocumentVisibility } from "@prisma/client";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { isProjectVisible, isOrgAdministrator } from "@/lib/rbac/project-access";
@@ -46,6 +46,9 @@ export async function readableDocument(
     },
   });
   if (!doc) return null;
+  // A project-scoped key sees no file filed in another project, not even one its
+  // minter uploaded or was shared: the key's ceiling binds before any grant.
+  if (doc.projectId && !inKeyProjectScope(ctx, doc.projectId)) return null;
 
   if (doc.visibility === "RESTRICTED") {
     // The uploader, the people they named, and org administrators. Checked FIRST

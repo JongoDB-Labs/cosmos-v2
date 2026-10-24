@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/client";
-import { type AuthContext } from "@/lib/rbac/check";
+import { inKeyProjectScope, type AuthContext } from "@/lib/rbac/check";
 import { isOrgAdministrator } from "@/lib/rbac/project-access";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { ProjectRole } from "@prisma/client";
@@ -18,6 +18,8 @@ export async function canManageProject(
   projectId: string,
   keyBit: bigint = Permission.PROJECT_UPDATE,
 ): Promise<boolean> {
+  // A project-scoped key manages nothing outside its projects.
+  if (!inKeyProjectScope(ctx, projectId)) return false;
   // Both ways in below come from WHO minted a key (their org role, their
   // project membership), so a key takes them only when its own scopes would
   // grant `keyBit` (lib/rbac/key-role.ts).
@@ -58,6 +60,8 @@ export async function getManagedProjectIds(
   ctx: AuthContext,
   projectIds: string[],
 ): Promise<Set<string>> {
+  // A project-scoped key manages only its own projects, as in canManageProject.
+  projectIds = projectIds.filter((id) => inKeyProjectScope(ctx, id));
   if (projectIds.length === 0) return new Set();
   // A key's scopes cap its role, exactly as in canManageProject.
   if (!roleCountsFor(ctx, Permission.PROJECT_UPDATE)) return new Set();
