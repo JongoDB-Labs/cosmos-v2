@@ -29,9 +29,7 @@ export const updateSavedView = defineRoute({
   description: "Change a saved filter's name, description, query, visibility or editors. Owners, editors and org admins only.",
   tags: ["Saved filters"],
   stability: "internal",
-  // A key's owner's own saved views, which handlers check no bit for: any key
-  // could edit them before scopes were enforced, so `read` keeps that.
-  scopes: ["read"],
+  scopes: ["items:write"],
   request: { params, body: z.object({}).passthrough() },
   responses: { 200: z.object({}).passthrough() },
   errors: [400, 401, 403, 404, 409],

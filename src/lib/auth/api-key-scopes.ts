@@ -43,6 +43,8 @@ const IMPLIES: Partial<Record<ApiKeyScope, ApiKeyScope[]>> = {
   // documents:write carries PROJECT_UPDATE and ITEM_CREATE, so keys minted
   // with it already reach milestone, KPI and project edits and work-item
   // creation; the same no-loss rule as items:write (the mask still decides).
+  // TODO(api): documents:write over-grants (its mask is wider than documents).
+  // Narrowing it is a future, announced change (API changelog), never silent.
   "documents:write": ["read", "items:write", "planning:write"],
   "time:write": ["time:read"],
 };

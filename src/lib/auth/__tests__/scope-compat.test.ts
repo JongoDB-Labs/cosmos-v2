@@ -10,10 +10,15 @@
 //      pre-existing scope, if the old mask held every bit the handler checks
 //      (read from its source), the new scope gate passes.
 //
-// The one named exception: handlers that check no bit at all (the member list,
-// saved views) were reachable by ANY key, including `rules:run` and a bare
-// `members:read`, which carry no read. Those two now need `read` for them, as
-// the scope table always said ("rules:run: deliberately no read").
+// Two named exceptions (ops, 2026-10-24), both listed for API clients in the
+// changelog:
+//   1. Handlers that check no bit at all (the member list, saved views) were
+//      reachable by ANY key, including `rules:run` and a bare `members:read`,
+//      which carry no read. Those two now need `read` for them, as the scope
+//      table always said ("rules:run: deliberately no read").
+//   2. Saved-view writes (star, unstar, update) check no bit either, so a `read`
+//      key could edit its owner's own views. They now need `items:write`: a
+//      read scope that writes is the wrong precedent for the scope model.
 //
 // The manager/admin role path is not "reach": #1130 closed it as a bug.
 import { describe, it, expect } from "vitest";
@@ -37,6 +42,8 @@ const BEFORE: Record<string, bigint> = {
   "rules:run": P.RULES_RUN,
 };
 const NO_READ = new Set(["rules:run", "members:read"]);
+/** Exception 2: writes with no bit check that now need a write scope. */
+const SAVED_VIEW_WRITES = new Set(["starSavedView", "unstarSavedView", "updateSavedView"]);
 
 describe("pre-existing scopes keep their masks", () => {
   it.each(Object.keys(BEFORE))("%s", (scope) => {
@@ -81,7 +88,8 @@ describe("no pre-existing scope loses an operation its mask reached", () => {
     const need = bitsChecked(src, contract.method);
     return Object.keys(BEFORE)
       .filter((s) => (BEFORE[s] & need) === need) // the old mask reached it
-      .filter((s) => !(need === 0n && NO_READ.has(s))) // the named exception
+      .filter((s) => !(need === 0n && NO_READ.has(s))) // exception 1
+      .filter((s) => !(SAVED_VIEW_WRITES.has(contract.operationId) && s === "read")) // exception 2
       .map((s) => [contract.operationId, s, contract] as const);
   });
 
@@ -92,5 +100,24 @@ describe("no pre-existing scope loses an operation its mask reached", () => {
 
   it.each(cases.map(([op, s, c]) => [`${op} with ${s}`, s, c] as const))("%s still passes the gate", (_n, scope, contract) => {
     expect(() => assertScopes(ctx([scope]), contract)).not.toThrow();
+  });
+});
+
+describe("the named exceptions are exactly what they say", () => {
+  const ctx = (scopes: string[]) =>
+    ({ userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes }) as never;
+  const byId = new Map(contracts().map(({ contract }) => [contract.operationId, contract]));
+
+  it.each([...SAVED_VIEW_WRITES])("%s needs items:write; a read key is refused", (op) => {
+    const c = byId.get(op)!;
+    expect(() => assertScopes(ctx(["read"]), c)).toThrow();
+    expect(() => assertScopes(ctx(["items:write"]), c)).not.toThrow();
+  });
+
+  it("the member list needs read; rules:run and a bare members:read are refused", () => {
+    const c = byId.get("listMembers")!;
+    expect(() => assertScopes(ctx(["rules:run"]), c)).toThrow();
+    expect(() => assertScopes(ctx(["members:read"]), c)).toThrow();
+    expect(() => assertScopes(ctx(["read"]), c)).not.toThrow();
   });
 });
