@@ -16,6 +16,9 @@ export const PROBLEM_CODES = {
   transition_invalid: "Transition checks failed",
   transition_input_required: "Transition needs input",
   type_change_needs_status: "New type needs a status",
+  // An assignee who isn't a member of the item's org; the same answer whether
+  // or not the user exists (src/lib/work-items/apply-change.server.ts).
+  assignee_not_in_org: "Assignee not in this organization",
 } as const;
 
 export type ProblemCode = keyof typeof PROBLEM_CODES;

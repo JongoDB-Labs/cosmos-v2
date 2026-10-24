@@ -4,7 +4,7 @@
 // (not a workflow transition) and the create route took any user id: a user
 // from another org was assigned (a cross-tenant write), and an id that didn't
 // exist was a 500 (an oracle for which users exist on the platform). Now both
-// get the SAME 400, through every path that names an assignee. Against a real
+// get the SAME 422 assignee_not_in_org, through every path that names an assignee. Against a real
 // database.
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { NextRequest } from "next/server";
@@ -20,6 +20,8 @@ vi.mock("@/lib/auth/session", () => ({ getAuthContext: async () => h.ctx, getCur
 
 import { POST as createItem } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/route";
 import { PUT as updateItem } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/route";
+import { PUT as bulkUpdate } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/bulk/route";
+import { updateWorkItem as aiUpdateWorkItem } from "@/lib/ai/executors/work-items";
 import { PATCH as editAction } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/actions/[actionId]/route";
 import { POST as promoteAction } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/actions/[actionId]/promote/route";
 
@@ -56,18 +58,18 @@ const change = (patch: Record<string, unknown>) =>
   ).then(() => ({ status: 200, body: {} }), (e) => answer(handleApiError(e)));
 
 describe("the change service holds every assignee to the org", () => {
-  it("an unknown id and a user from elsewhere get the same 400, and nothing is assigned", async () => {
+  it("an unknown id and a user from elsewhere get the same 422, and nothing is assigned", async () => {
     const unknown = await change({ assigneeId: NO_SUCH_USER });
     const foreign = await change({ assigneeId: outsider });
-    expect(unknown.status).toBe(400);
+    expect(unknown.status).toBe(422);
     expect(foreign).toEqual(unknown);
-    expect(unknown.body).toMatchObject({ code: "invalid_request", detail: "That person isn't a member of this organization." });
+    expect(unknown.body).toMatchObject({ code: "assignee_not_in_org", detail: "That person isn't a member of this organization." });
     expect((await prisma.workItem.findUniqueOrThrow({ where: { id: itemId } })).assigneeId).toBeNull();
     expect(await prisma.workItemAssignee.count({ where: { workItemId: itemId } })).toBe(0);
   });
 
   it("an outsider hidden in an assignee set is refused too", async () => {
-    expect((await change({ assigneeIds: [colleague, outsider] })).status).toBe(400);
+    expect((await change({ assigneeIds: [colleague, outsider] })).status).toBe(422);
   });
 
   it("an org member is assigned, and unassigning still works", async () => {
@@ -87,12 +89,12 @@ const json = (method: string, body: unknown) =>
   new NextRequest("http://localhost/x", { method, body: JSON.stringify(body), headers: { "Content-Type": "application/json" } });
 
 describe("the routes", () => {
-  it("create: an unknown id and an outsider get the same 400; an org member is created", async () => {
+  it("create: an unknown id and an outsider get the same 422; an org member is created", async () => {
     h.ctx = ownerSession();
     const params = { params: Promise.resolve({ orgId, projectId }) };
     const unknown = await answer(await createItem(json("POST", { title: "x", columnKey: "todo", assigneeId: NO_SUCH_USER }), params));
     const foreign = await answer(await createItem(json("POST", { title: "x", columnKey: "todo", assigneeIds: [outsider] }), params));
-    expect(unknown.status).toBe(400);
+    expect(unknown.status).toBe(422);
     expect(foreign).toEqual(unknown);
     const ok = await createItem(json("POST", { title: "x", columnKey: "todo", assigneeId: colleague }), params);
     expect(ok.status).toBe(201);
@@ -103,10 +105,32 @@ describe("the routes", () => {
     const params = { params: Promise.resolve({ orgId, projectId, itemId }) };
     const unknown = await answer(await updateItem(json("PUT", { assigneeId: NO_SUCH_USER }), params));
     const foreign = await answer(await updateItem(json("PUT", { assigneeId: outsider }), params));
-    expect(unknown.status).toBe(400);
+    expect(unknown.status).toBe(422);
     expect(foreign).toEqual(unknown);
     // The colleague is on no project at all, so on nothing the key can see; still assignable by id.
     expect((await updateItem(json("PUT", { assigneeId: colleague }), params)).status).toBe(200);
+  });
+});
+
+describe("bulk and the assistant", () => {
+  it("bulk update: an unknown id and an outsider get the same 422, and no item is assigned", async () => {
+    h.ctx = ownerSession();
+    const second = (await createFixtureWorkItem({ orgId, projectId, workItemTypeId: typeId, createdById: owner, title: "u", columnKey: "todo" })).id;
+    const params = { params: Promise.resolve({ orgId, projectId }) };
+    const unknown = await answer(await bulkUpdate(json("PUT", { ids: [itemId, second], update: { assigneeId: NO_SUCH_USER } }), params));
+    const foreign = await answer(await bulkUpdate(json("PUT", { ids: [itemId, second], update: { assigneeId: outsider } }), params));
+    expect(unknown.status).toBe(422);
+    expect(foreign).toEqual(unknown);
+    expect(await prisma.workItem.count({ where: { id: { in: [itemId, second] }, assigneeId: { in: [outsider, NO_SUCH_USER] } } })).toBe(0);
+  });
+
+  it("the assistant's update_work_item refuses an unknown id and an outsider alike, assigning no one", async () => {
+    const tool = { orgId, userId: owner, auth: ownerSession() };
+    const unknown = await aiUpdateWorkItem({ itemId, assigneeId: NO_SUCH_USER }, tool);
+    const foreign = await aiUpdateWorkItem({ itemId, assigneeId: outsider }, tool);
+    expect(unknown).toHaveProperty("error");
+    expect(foreign).toEqual(unknown);
+    expect((await prisma.workItem.findUniqueOrThrow({ where: { id: itemId } })).assigneeId).not.toBe(outsider);
   });
 });
 

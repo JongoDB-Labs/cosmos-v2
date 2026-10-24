@@ -216,7 +216,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // becomes a one-member set. First member is the primary.
       const assigneeIds =
         data.assigneeIds ?? (data.assigneeId ? [data.assigneeId] : []);
-      // Every assignee must be in this org: the same 400 for an unknown id and
+      // Every assignee must be in this org: the same 422 for an unknown id and
       // for a user elsewhere (no 500, no cross-tenant assignment).
       await assertAssigneesInOrg(tx, orgId, assigneeIds);
 

@@ -360,7 +360,7 @@ async function membersAmong(tx: Prisma.TransactionClient, orgId: string, ids: re
 
 /**
  * Every assignee must be a member of the item's org. An id that doesn't exist
- * and a user from another org get the SAME 400, so the answer says nothing
+ * and a user from another org get the SAME 422 `assignee_not_in_org`, so the answer says nothing
  * about which users exist on the platform, and an item is never assigned
  * across tenants. (Before, an unknown id was a 500 and an outsider was
  * assigned.) Used for every write that names assignees: the change service
@@ -372,7 +372,7 @@ export async function assertAssigneesInOrg(
   ids: readonly (string | null | undefined)[],
 ): Promise<void> {
   const named = ids.filter((id): id is string => !!id);
-  if (!(await membersAmong(tx, orgId, named))) throw new ProblemError(400, "invalid_request", NOT_A_MEMBER);
+  if (!(await membersAmong(tx, orgId, named))) throw new ProblemError(422, "assignee_not_in_org", NOT_A_MEMBER);
 }
 
 async function checkTransitionPatch(
