@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.475.0",
+    date: "2026-10-24",
+    title: "Work-item writes in the API reference",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The API reference now documents creating, updating and deleting work items, one at a time or in bulk. API keys need items:write to create and update, and items:delete to delete.",
+      },
+    ],
+  },
+  {
     version: "2.474.3",
     date: "2026-10-24",
     title: "Teams tabs load cleanly",
