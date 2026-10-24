@@ -8,7 +8,7 @@ import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { z } from "zod";
 import { roleCountsFor } from "@/lib/rbac/key-role";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -81,7 +81,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       isPrivate: m.channel.isPrivate,
       isGeneral: m.channel.isGeneral,
       canManage:
-        m.channel.kind === "CHANNEL" && (orgIsAdmin || m.role === "ADMIN"),
+        m.channel.kind === "CHANNEL" && roleCounts && (orgIsAdmin || m.role === "ADMIN"),
       projectId: m.channel.projectId,
       lastMessageAt: m.channel.lastMessageAt,
       notificationPref: m.notificationPref,
@@ -127,6 +127,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // Chat writes need CHAT_USE, as the Chat page itself does. An API key never
+    // holds it (no scope grants it), so a key can't create channels or post.
+    if (!hasPermission(ctx.permissions, Permission.CHAT_USE)) {
+      return new Response("Forbidden", { status: 403 });
+    }
 
     const limited = checkRateLimit(req, "chat.channel.create", ctx.userId, {
       capacity: 5,
