@@ -19,7 +19,7 @@ import { feedbackItemUrl } from "./urls";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { isFeedbackStaff } from "./access";
 import { effectiveCeiling } from "@/lib/classification/effective";
-import { markingForcesInternal } from "./marking";
+import { levelsReadableUnder, markingAllowed, markingForcesInternal } from "./marking";
 
 import { FEEDBACK_SUBJECT } from "./subject";
 
@@ -29,18 +29,32 @@ export interface CommentViewer {
   userId: string;
   /** On the feedback team (isFeedbackStaff). */
   isStaff: boolean;
+  /**
+   * The org's marking ceiling right now (markingCeiling). A marked comment is
+   * weighed against it on every read, so lowering the ceiling hides what it
+   * no longer covers at once, with no sweep.
+   */
+  markingCeiling: ClassificationLevel;
 }
 
-/** Which comments a viewer may see at all. Internal notes are staff-only. */
+/**
+ * Which comments a viewer may see at all. Internal notes are staff-only, and
+ * so is a public comment marked above what the org's ceiling covers today.
+ */
 export function visibleTo(viewer: CommentViewer): Prisma.CommentWhereInput {
-  return viewer.isStaff ? {} : { visibility: "PUBLIC" };
+  if (viewer.isStaff) return {};
+  return {
+    visibility: "PUBLIC",
+    OR: [{ classification: null }, { classification: { in: levelsReadableUnder(viewer.markingCeiling) } }],
+  };
 }
 
 /** Staff can narrow the thread to one audience; everyone else sees public. */
 export type ThreadFilter = "all" | "public" | "internal";
 
 function filterWhere(viewer: CommentViewer, filter: ThreadFilter): Prisma.CommentWhereInput {
-  if (!viewer.isStaff || filter === "public") return { visibility: "PUBLIC" };
+  if (!viewer.isStaff) return visibleTo(viewer);
+  if (filter === "public") return { visibility: "PUBLIC" };
   return filter === "internal" ? { visibility: "INTERNAL" } : {};
 }
 
@@ -276,6 +290,16 @@ async function pinOfficial(tx: Prisma.TransactionClient, feedbackItemId: string,
 }
 
 /**
+ * The ceiling a comment's marking is weighed against: the org's own on a gov
+ * tenant. Anywhere else nothing is cleared above unclassified, so a marking
+ * left over from a gov past stays with the team.
+ */
+export async function markingCeiling(orgId: string): Promise<ClassificationLevel> {
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { tenantClass: true } });
+  return org?.tenantClass === "GOV" ? effectiveCeiling(orgId) : "UNCLASSIFIED";
+}
+
+/**
  * Whether this org's staff can mark comments, and the org ceiling the marking
  * is weighed against. Null outside gov tenants: markings are a gov control.
  */
@@ -298,15 +322,18 @@ export class CommentChangeError extends Error {
  */
 export async function setOfficial(
   tx: Prisma.TransactionClient,
-  input: { feedbackItemId: string; commentId: string; official: boolean },
+  input: { orgId: string; feedbackItemId: string; commentId: string; official: boolean },
 ) {
   const c = await tx.comment.findUniqueOrThrow({
     where: { id: input.commentId },
-    select: { parentId: true, visibility: true, deletedAt: true, kind: true },
+    select: { parentId: true, visibility: true, deletedAt: true, kind: true, classification: true },
   });
   if (input.official) {
     if (c.deletedAt || c.parentId || c.visibility !== "PUBLIC" || (c.kind !== "COMMENT" && c.kind !== "OFFICIAL")) {
       throw new CommentChangeError("Only a public top-level comment can be the official response.");
+    }
+    if (c.classification && markingForcesInternal(c.classification, await markingCeiling(input.orgId))) {
+      throw new CommentChangeError("This comment is marked above what the whole org may read, so it can't be the official response.");
     }
     await pinOfficial(tx, input.feedbackItemId, input.commentId);
     return;
@@ -340,9 +367,8 @@ export async function setVisibility(
   const live = (deleted: Date | null) => (deleted ? 0 : 1);
 
   if (input.visibility === "PUBLIC") {
-    // Weighed against the ceiling now, whatever the tenant is today: a marking
-    // stays a marking.
-    if (c.classification && markingForcesInternal(c.classification, await effectiveCeiling(input.orgId))) {
+    // Weighed against the ceiling now: a marking stays a marking.
+    if (c.classification && markingForcesInternal(c.classification, await markingCeiling(input.orgId))) {
       throw new CommentChangeError("This note is marked above what the whole org may read, so it stays internal.");
     }
     if (c.parentId) {
@@ -374,15 +400,77 @@ export async function setVisibility(
   if (replies.some((r) => !r.deletedAt && !staff.has(r.authorId))) {
     throw new CommentChangeError("Someone outside the feedback team has replied, so this stays public.");
   }
-  const ids = [input.commentId, ...replies.map((r) => r.id)];
+  await takeInternal(tx, { ...input, deletedAt: c.deletedAt, replies });
+}
+
+/**
+ * Move a public comment and these public replies to internal notes: the
+ * public count follows, backlinks go (internal notes never show as one), and
+ * the notifications quoting them are taken back from everyone off the team.
+ */
+async function takeInternal(
+  tx: Prisma.TransactionClient,
+  input: {
+    orgId: string;
+    feedbackItemId: string;
+    commentId: string;
+    deletedAt: Date | null;
+    replies: { id: string; deletedAt: Date | null }[];
+  },
+) {
+  const ids = [input.commentId, ...input.replies.map((r) => r.id)];
   await tx.comment.updateMany({ where: { id: { in: ids } }, data: { visibility: "INTERNAL" } });
-  const n = live(c.deletedAt) + replies.filter((r) => !r.deletedAt).length;
+  const n = (input.deletedAt ? 0 : 1) + input.replies.filter((r) => !r.deletedAt).length;
   if (n) {
     await tx.feedbackItem.update({ where: { id: input.feedbackItemId }, data: { commentCount: { decrement: n } } });
   }
-  // References from internal notes are never shown as backlinks, so drop them.
   await tx.reference.deleteMany({ where: { orgId: input.orgId, sourceType: "comment", sourceId: { in: ids } } });
   await withdrawNotifications(tx, input.orgId, ids);
+}
+
+/**
+ * Staff: change or remove a comment's marking. Lowering it makes nothing
+ * public by itself. Raising a public comment above what the org's ceiling
+ * covers is a spill response: it is unpinned if it was the official answer,
+ * and it goes internal with every reply under it (they answer what it said),
+ * whoever wrote them.
+ */
+export async function setMarking(
+  tx: Prisma.TransactionClient,
+  input: { orgId: string; feedbackItemId: string; commentId: string; classification: ClassificationLevel | null },
+): Promise<{ from: ClassificationLevel | null; ceiling: ClassificationLevel; tookInternal: boolean }> {
+  const c = await tx.comment.findUniqueOrThrow({
+    where: { id: input.commentId },
+    select: { classification: true, visibility: true, kind: true, deletedAt: true },
+  });
+  const ceiling = await markingCeiling(input.orgId);
+  if (input.classification) {
+    if (!(await commentMarkingPolicy(input.orgId))) {
+      throw new CommentChangeError("Classification markings are for government tenants.");
+    }
+    if (!markingAllowed(input.classification, ceiling)) {
+      throw new CommentChangeError("That marking is above what this organization may hold.");
+    }
+  }
+  await tx.comment.update({ where: { id: input.commentId }, data: { classification: input.classification } });
+
+  const raised =
+    !!input.classification && c.visibility === "PUBLIC" && markingForcesInternal(input.classification, ceiling);
+  if (raised) {
+    if (c.kind === "OFFICIAL") {
+      await tx.comment.update({ where: { id: input.commentId }, data: { kind: "COMMENT" } });
+      await tx.feedbackItem.updateMany({
+        where: { id: input.feedbackItemId, officialCommentId: input.commentId },
+        data: { officialCommentId: null },
+      });
+    }
+    const replies = await tx.comment.findMany({
+      where: { parentId: input.commentId, visibility: "PUBLIC" },
+      select: { id: true, deletedAt: true },
+    });
+    await takeInternal(tx, { ...input, deletedAt: c.deletedAt, replies });
+  }
+  return { from: c.classification, ceiling, tookInternal: raised };
 }
 
 /**

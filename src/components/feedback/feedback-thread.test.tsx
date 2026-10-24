@@ -33,7 +33,7 @@ vi.mock("@/components/notes/editor/rich-text-editor", () => ({
 }));
 
 import { Permission } from "@/lib/rbac/permissions";
-import { FeedbackThread, MAKE_INTERNAL_CONFIRM, type FeedbackComment } from "./feedback-thread";
+import { FeedbackThread, MAKE_INTERNAL_CONFIRM, RAISE_MARKING_CONFIRM, type FeedbackComment } from "./feedback-thread";
 
 const c = (over: Partial<FeedbackComment>): FeedbackComment => ({
   id: "c1",
@@ -290,6 +290,48 @@ describe("FeedbackThread", () => {
         await waitFor(() => expect(posted()).toEqual([{ content: "Fixed in the CUI enclave", classification: "CUI" }]));
       });
 
+      it("offers only the markings this org may hold", async () => {
+        marking = { orgCeiling: "UNCLASSIFIED" };
+        thread = [];
+        renderThread();
+        const opts = [...(await screen.findByLabelText("Marking")).querySelectorAll("option")].map((o) => o.textContent);
+        expect(opts).toEqual(["No marking", "Public", "Unclassified", "CUI"]);
+
+        cleanup();
+        marking = { orgCeiling: "CONFIDENTIAL" };
+        renderThread();
+        const all = [...(await screen.findByLabelText("Marking")).querySelectorAll("option")].map((o) => o.textContent);
+        expect(all).toContain("Confidential");
+      });
+
+      it("changes a comment's marking, warning first when that takes it internal", async () => {
+        marking = { orgCeiling: "UNCLASSIFIED" };
+        thread = [c({ id: "a", content: "public one" }), c({ id: "n", content: "a note", visibility: "INTERNAL", classification: "CUI" })];
+        const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+        renderThread();
+        await screen.findByText("public one");
+        const [pub, note] = screen.getAllByLabelText("Change marking");
+        fireEvent.change(pub, { target: { value: "CUI" } });
+        expect(confirm).toHaveBeenCalledWith(RAISE_MARKING_CONFIRM);
+        expect(patched()).toEqual([]);
+
+        confirm.mockReturnValue(true);
+        fireEvent.change(pub, { target: { value: "CUI" } });
+        // Lowering, or marking an internal note, asks nothing.
+        confirm.mockClear();
+        fireEvent.change(note, { target: { value: "" } });
+        fireEvent.change(pub, { target: { value: "UNCLASSIFIED" } });
+        expect(confirm).not.toHaveBeenCalled();
+        await waitFor(() =>
+          expect(patched()).toEqual([
+            [`${BASE}/a`, { classification: "CUI" }],
+            [`${BASE}/n`, { classification: null }],
+            [`${BASE}/a`, { classification: "UNCLASSIFIED" }],
+          ]),
+        );
+        confirm.mockRestore();
+      });
+
       it("shows a comment's marking", async () => {
         thread = [c({ id: "m", content: "marked one", classification: "CUI" })];
         renderThread();
@@ -298,10 +340,11 @@ describe("FeedbackThread", () => {
       });
 
       it("offers no picker outside a gov tenant, and never asks for members", async () => {
-        thread = [];
+        thread = [c({ id: "a", content: "public one" })];
         renderThread();
-        await screen.findByLabelText("Comment");
+        await screen.findByText("public one");
         expect(screen.queryByLabelText("Marking")).toBeNull();
+        expect(screen.queryByLabelText("Change marking")).toBeNull();
 
         cleanup();
         h.jsonFetch.mockClear();
@@ -310,6 +353,7 @@ describe("FeedbackThread", () => {
         renderThread();
         await screen.findByLabelText("Comment");
         expect(screen.queryByLabelText("Marking")).toBeNull();
+        expect(screen.queryByLabelText("Change marking")).toBeNull();
         expect(h.jsonFetch.mock.calls.some(([u]) => u === POLICY)).toBe(false);
       });
     });

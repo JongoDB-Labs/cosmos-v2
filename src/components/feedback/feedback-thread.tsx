@@ -27,7 +27,7 @@ import {
   classificationLabel,
   type ClassificationLevel,
 } from "@/lib/classification/levels";
-import { COMMENT_MARKINGS, markingForcesInternal } from "@/lib/feedback/marking";
+import { COMMENT_MARKINGS, markingAllowed, markingForcesInternal } from "@/lib/feedback/marking";
 
 export interface FeedbackComment {
   id: string;
@@ -60,6 +60,11 @@ const countAll = (list: FeedbackComment[]) =>
 type Audience = "PUBLIC" | "INTERNAL";
 type ShowFilter = "all" | "public" | "internal";
 const TAB_KEY = "cosmos:feedback-composer-tab";
+
+export const RAISE_MARKING_CONFIRM =
+  "Mark this comment at a level the whole organization isn't cleared for? It and every reply under it become " +
+  "internal at once, it stops being the official response, and the notifications that quote them are taken back. " +
+  "Push alerts already delivered can't be recalled.";
 
 export const MAKE_INTERNAL_CONFIRM =
   "Make this comment internal? From now on only the feedback team will see it, and the notifications " +
@@ -130,6 +135,10 @@ export function FeedbackThread({
     staleTime: 5 * 60_000,
   });
   const markingPolicy = isStaff ? (policy?.marking ?? null) : null;
+  // Above CUI, only what the org's own ceiling covers may be stored at all.
+  const markings = markingPolicy
+    ? COMMENT_MARKINGS.filter((l) => markingAllowed(l.value, markingPolicy.orgCeiling))
+    : [];
 
   // Someone else's comment arrives without a refresh. Events carry ids only;
   // the refetch goes through the permission-checked GET.
@@ -227,7 +236,11 @@ export function FeedbackThread({
     }
   }
 
-  async function moderate(id: string, change: { visibility: Audience } | { official: boolean }, failure: string) {
+  async function moderate(
+    id: string,
+    change: { visibility: Audience } | { official: boolean } | { classification: ClassificationLevel | null },
+    failure: string,
+  ) {
     try {
       await jsonFetch(`${base}/${id}`, { method: "PATCH", body: JSON.stringify(change) });
       refresh();
@@ -347,6 +360,30 @@ export function FeedbackThread({
                   {c.visibility === "INTERNAL" ? "Make public" : "Make internal"}
                 </button>
               )}
+              {markingPolicy && (
+                <select
+                  aria-label="Change marking"
+                  value={c.classification ?? ""}
+                  onChange={(e) => {
+                    const next = (e.target.value || null) as ClassificationLevel | null;
+                    const raises =
+                      !!next && c.visibility === "PUBLIC" && markingForcesInternal(next, markingPolicy.orgCeiling);
+                    if (raises && !window.confirm(RAISE_MARKING_CONFIRM)) return;
+                    void moderate(c.id, { classification: next }, "Couldn't change the marking.");
+                  }}
+                  className="rounded border bg-background px-1 text-[11px]"
+                >
+                  <option value="">No marking</option>
+                  {c.classification && !markings.some((l) => l.value === c.classification) && (
+                    <option value={c.classification}>{classificationLabel(c.classification)}</option>
+                  )}
+                  {markings.map((l) => (
+                    <option key={l.value} value={l.value}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           ) : null
         }
@@ -434,7 +471,7 @@ export function FeedbackThread({
                   className="rounded-md border bg-background px-1.5 py-0.5 text-[11px]"
                 >
                   <option value="">No marking</option>
-                  {COMMENT_MARKINGS.map((l) => (
+                  {markings.map((l) => (
                     <option key={l.value} value={l.value}>
                       {l.label}
                     </option>

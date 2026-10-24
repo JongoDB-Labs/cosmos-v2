@@ -1,12 +1,13 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { success, created, handleApiError } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { syncReferences } from "@/lib/mentions/references";
 import { canCommentOnFeedback } from "@/lib/feedback/access";
-import { markingForcesInternal } from "@/lib/feedback/marking";
+import { markingAllowed, markingForcesInternal } from "@/lib/feedback/marking";
 import {
   commentMarkingPolicy,
   feedbackCommentDto,
@@ -83,10 +84,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return json(400, { error: "An official response is a public, top-level comment." });
     }
     let markedInternal = false;
+    let ceiling: string | null = null;
     if (data.classification) {
       if (!viewer.isStaff) return json(403, { error: "Only the feedback team can mark a comment." });
       const policy = await commentMarkingPolicy(orgId);
       if (!policy) return json(400, { error: "Classification markings are for government tenants." });
+      ceiling = policy.orgCeiling;
+      if (!markingAllowed(data.classification, policy.orgCeiling)) {
+        return json(400, { error: "That marking is above what this organization may hold." });
+      }
       markedInternal = markingForcesInternal(data.classification, policy.orgCeiling);
       if (markedInternal && official) {
         return json(400, { error: "A comment marked at this level stays internal, so it can't be the official response." });
@@ -111,6 +117,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }),
     );
 
+    if (data.classification) {
+      await logAudit({
+        orgId,
+        userId: ctx.userId,
+        action: "feedback.comment.marked",
+        entity: "comment",
+        entityId: comment.id,
+        metadata: { feedbackId, level: data.classification, ceiling, visibility },
+        ipAddress: getIpAddress(request),
+      }).catch(() => {});
+    }
     // The org-wide channel reaches everyone, so an internal note is never
     // announced on it: even ids would tell the rest that one was written.
     if (visibility === "PUBLIC") {
