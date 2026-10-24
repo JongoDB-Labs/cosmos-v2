@@ -23,7 +23,7 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string; interva
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, getInterval);
     const { params: { orgId, projectId, intervalId } } = await parseRequest(getInterval, request, params);
     await requireProjectRead(ctx, projectId, "SPRINT_READ");
 
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, updateInterval);
     const { params: { orgId, projectId, intervalId }, body: data } = await parseRequest(updateInterval, request, params);
     await requireProjectManage(ctx, projectId, Permission.SPRINT_UPDATE);
 

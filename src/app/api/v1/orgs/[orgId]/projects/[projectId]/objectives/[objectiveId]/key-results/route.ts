@@ -13,7 +13,7 @@ type RouteParams = {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, createKeyResult);
     const { params: { orgId, projectId, objectiveId }, body: data } = await parseRequest(createKeyResult, request, params);
 
     // Scope check: the objective must belong to this org + project.

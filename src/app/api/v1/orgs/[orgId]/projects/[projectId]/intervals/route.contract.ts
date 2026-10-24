@@ -32,7 +32,7 @@ export const createInterval = defineRoute({
     "Increment is always top-level.",
   tags: ["Intervals"],
   stability: "stable",
-  scopes: ["items:write"],
+  scopes: ["planning:write"],
   request: {
     params,
     body: z.object({

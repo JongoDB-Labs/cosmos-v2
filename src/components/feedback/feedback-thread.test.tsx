@@ -143,6 +143,13 @@ describe("FeedbackThread", () => {
     expect(screen.queryByLabelText("Comment")).toBeNull();
   });
 
+  it("stays closed for a merged request whose survivor was deleted (no pointer)", async () => {
+    thread = [];
+    renderThread({ status: "MERGED", mergedIntoId: null });
+    expect(await screen.findByText(/This request was merged/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Comment")).toBeNull();
+  });
+
   it("refetches when someone comments on this item, and only this item", async () => {
     thread = [];
     renderThread();

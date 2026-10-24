@@ -13,7 +13,7 @@ export const updateGoal = defineRoute({
   summary: "Update a goal",
   tags: ["Goals & KPIs"],
   stability: "stable",
-  scopes: ["items:write"],
+  scopes: ["planning:write"],
   request: {
     params,
     body: z.object({
@@ -38,7 +38,7 @@ export const deleteGoal = defineRoute({
   summary: "Delete a goal",
   tags: ["Goals & KPIs"],
   stability: "stable",
-  scopes: ["items:write"],
+  scopes: ["planning:write", "items:delete"],
   request: { params },
   responses: { 200: DeletedRef },
   errors: [400, 401, 403, 404],

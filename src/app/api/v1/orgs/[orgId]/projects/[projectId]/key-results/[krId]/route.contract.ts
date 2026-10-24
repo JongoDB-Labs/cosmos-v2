@@ -38,7 +38,7 @@ export const deleteKeyResult = defineRoute({
   summary: "Delete a key result",
   tags: ["OKRs"],
   stability: "stable",
-  scopes: ["items:write"],
+  scopes: ["items:delete"],
   request: { params },
   responses: { 200: DeletedRef },
   errors: [400, 401, 403, 404],
