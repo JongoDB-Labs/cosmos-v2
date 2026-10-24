@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.466.0",
+    date: "2026-10-24",
+    title: "Reinstall a rebuilt release from Admin \u203a Updates",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When the image for the version you already run has been rebuilt (for example a plugin-only release), Admin \u203a Updates now says so and offers Reinstall, with the same safety checks as an upgrade. Before, such a release stayed invisible until the next core version.",
+      },
+    ],
+  },
+  {
     version: "2.465.1",
     date: "2026-10-24",
     title: "Plugin versions recorded with each release",
