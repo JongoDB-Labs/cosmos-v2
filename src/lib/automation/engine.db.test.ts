@@ -14,7 +14,7 @@ import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { seedBoardColumns } from "@/lib/workflow/provision.server";
 import { processOutboxBatch } from "./outbox.server";
 import { runDueSchedules, runRulesForEvents, RULE_RUNS_PER_5_MIN, type RuleEvent } from "./engine.server";
-import { createRule, updateRule } from "./rules.server";
+import { createRule, ruleWarnings, updateRule } from "./rules.server";
 import { automationUserId } from "./principal.server";
 import type { AutomationSpec } from "./spec";
 
@@ -315,6 +315,20 @@ describe("scheduled rules", () => {
 });
 
 describe("saving a rule", () => {
+  it("warns, by name, when rules that allow chains can keep firing each other", async () => {
+    const p = await project();
+    const a = { trigger: { on: "item.updated", fields: ["priority"] }, actions: [{ kind: "transition", to: "doing" }] };
+    const b = { trigger: { on: "item.transitioned", to: ["doing"] }, actions: [{ kind: "setField", field: "priority", value: "HIGH" }] };
+    await rule(p, b, { name: "Bump priority", allowChain: true });
+    expect(await ruleWarnings(orgId, p, { name: "Start it", spec: a, allowChain: true })).toEqual([
+      expect.stringContaining("Start it → Bump priority → Start it"),
+    ]);
+    // Not if this one doesn't let changes fire it, nor if nothing it does fires the other.
+    expect(await ruleWarnings(orgId, p, { name: "Start it", spec: a, allowChain: false })).toEqual([]);
+    expect(await ruleWarnings(orgId, p, { name: "Comment", spec: { ...a, actions: [{ kind: "addComment", body: "x" }] }, allowChain: true })).toEqual([]);
+  });
+
+
   it("refuses what the project or org doesn't have, with every issue", async () => {
     const p = await project();
     const ctx = await aliceCtx();

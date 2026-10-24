@@ -8,7 +8,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { projectInOrg } from "@/lib/automation/route-auth.server";
-import { createRule, RULE_DTO_SELECT } from "@/lib/automation/rules.server";
+import { createRule, RULE_DTO_SELECT, ruleWarnings } from "@/lib/automation/rules.server";
 import { createAutomationRule, listAutomationRules } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       metadata: { projectId: rule.projectId, name: rule.name, trigger: (rule.spec as { trigger: { on: string } }).trigger.on },
       ipAddress: getIpAddress(request),
     });
-    return success(rule, 201);
+    return success({ ...rule, warnings: await ruleWarnings(p.orgId, rule.projectId, rule) }, 201);
   } catch (error) {
     return handleApiError(error, request);
   }

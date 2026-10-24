@@ -23,6 +23,7 @@
 import { randomUUID } from "crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { webhookEventsFor } from "@/lib/webhooks/events";
+import { recordOutboxLag } from "@/lib/observability/metrics";
 import { runRulesForEvents, type RuleEvent } from "./engine.server";
 
 interface EventRow {
@@ -74,6 +75,8 @@ export async function processOutboxBatch(
     `;
     if (rows.length === 0) return { events: 0, queued: 0, ruleRuns: 0 };
     const live = rows.filter((r) => r.source !== "MIGRATION");
+    const at = (opts.now ?? new Date()).getTime();
+    for (const r of live) recordOutboxLag(at - r.created_at.getTime());
     const category = await statusCategories(tx, live);
     const deliveries = await webhookDeliveries(tx, live, category, opts.now ?? new Date());
     const queued = deliveries.length

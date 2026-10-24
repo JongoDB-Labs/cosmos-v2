@@ -15,6 +15,8 @@
 //   cosmos.classifier.invocations -> cosmos_classifier_invocations_total
 //   cosmos.classifier.errors    -> cosmos_classifier_errors_total
 //   cosmos.classifier.latency   -> cosmos_classifier_latency_milliseconds (histogram)
+//   cosmos.automation.runs      -> cosmos_automation_runs_total{status}
+//   cosmos.outbox.lag           -> cosmos_outbox_lag_milliseconds (histogram)
 
 import { metrics, type Counter, type Histogram } from "@opentelemetry/api";
 
@@ -97,5 +99,32 @@ export function recordClassifierError(): void {
     classifierInvocations.add(1, { result: "error" });
   } catch {
     /* fire-and-forget */
+  }
+}
+
+// Workflow P4: automation runs by outcome, and how long a committed change waits
+// before the outbox worker hands it to webhooks and rules (the design's p95 < 5 s).
+// Counts and durations only: no rule, item or org names.
+const automationRuns: Counter = meter.createCounter("cosmos.automation.runs", {
+  description: "Automation rule runs, by status",
+});
+const outboxLag: Histogram = meter.createHistogram("cosmos.outbox.lag", {
+  description: "Time from a change committing to the outbox worker processing it",
+  unit: "ms",
+});
+
+export function recordAutomationRun(status: string): void {
+  try {
+    automationRuns.add(1, { status });
+  } catch {
+    // Observe-only: never let a metric break a run.
+  }
+}
+
+export function recordOutboxLag(ms: number): void {
+  try {
+    outboxLag.record(Math.max(0, ms));
+  } catch {
+    // Observe-only.
   }
 }

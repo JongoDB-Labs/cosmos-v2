@@ -25,6 +25,7 @@ import { randomUUID } from "crypto";
 import { Prisma, type AutomationRunStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { logAudit } from "@/lib/audit";
+import { recordAutomationRun } from "@/lib/observability/metrics";
 import { createNotification } from "@/lib/notifications/create";
 import { matchingItemIds } from "@/lib/query/execute.server";
 import { AUTOMATION_LIMITS, automationSpecSchema, type AutomationSpec } from "./spec";
@@ -218,6 +219,7 @@ async function finishRun(
     where: { id: runId },
     data: { status, itemsMatched: extra.itemsMatched ?? 0, actions: actions as unknown as Prisma.InputJsonValue, durationMs: Date.now() - started },
   });
+  recordAutomationRun(status);
   // The commonest outcomes, and nothing happened: the run row is enough.
   if (status === "NO_MATCH" || status === "SKIPPED_SELF") return;
   await logAudit({

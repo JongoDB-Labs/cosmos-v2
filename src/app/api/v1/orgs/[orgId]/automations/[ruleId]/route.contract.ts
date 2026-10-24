@@ -38,7 +38,7 @@ export const updateAutomationRule = defineRoute({
       allowChain: z.boolean().optional(),
     }),
   },
-  responses: { 200: AutomationRuleDto },
+  responses: { 200: AutomationRuleDto.extend({ warnings: z.array(z.string()) }) },
   errors: [400, 401, 403, 404, 409, 422],
 });
 

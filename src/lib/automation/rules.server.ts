@@ -20,7 +20,7 @@ import { CqlError } from "@/lib/query/errors";
 import { ProblemError } from "@/lib/openapi/problem";
 import { WorkflowEditError } from "@/lib/workflow/contract";
 import { assignableMembersWhere } from "@/lib/work-items/apply-change.server";
-import { automationSpecSchema, type AutomationSpec } from "./spec";
+import { AUTOMATION_LIMITS, automationSpecSchema, type AutomationSpec } from "./spec";
 import { unknownNames } from "./template";
 
 export interface RuleIssue {
@@ -141,4 +141,74 @@ export async function updateRule(
   });
   if (updated.count === 0) throw new ProblemError(409, "conflict", "Someone else changed this rule. Reload it and try again.");
   return prisma.automationRule.findUniqueOrThrow({ where: { id: rule.id }, select: RULE_DTO_SELECT });
+}
+
+/** The fields an action can change, as an "item.updated" trigger names them; "status" for a transition. */
+function changes(spec: AutomationSpec): { statuses: Set<string>; fields: Set<string> } {
+  const statuses = new Set<string>();
+  const fields = new Set<string>();
+  for (const a of spec.actions) {
+    if (a.kind === "transition") statuses.add(a.to);
+    else if (a.kind === "setField") fields.add(a.field);
+    else if (a.kind === "assign") fields.add("assigneeId");
+    else if (a.kind === "addLabels" || a.kind === "removeLabels") fields.add("tags");
+    else if (a.kind === "archive") fields.add("archivedAt");
+  }
+  return { statuses, fields };
+}
+
+/** Could `from`'s actions fire `to`'s trigger? Erring towards yes: this only warns. */
+function canFire(from: AutomationSpec, to: AutomationSpec): boolean {
+  const c = changes(from);
+  const t = to.trigger;
+  if (t.on === "item.transitioned") return c.statuses.size > 0 && (!t.to || t.to.some((k) => c.statuses.has(k)));
+  if (t.on === "item.updated") return c.fields.size > 0 && (!t.fields || t.fields.some((f) => c.fields.has(f)));
+  return false;
+}
+
+/**
+ * Rules that could keep firing each other through this one: a cycle of rules
+ * that each allow chains, where every rule's actions can fire the next one's
+ * trigger. A warning on save (the depth limit still stops it at run time), by
+ * name, in order. A rule never fires on its own changes, so it is no cycle alone.
+ */
+export async function chainCycle(
+  orgId: string,
+  projectId: string | null,
+  rule: { id?: string; name: string; spec: AutomationSpec; allowChain: boolean },
+): Promise<string[] | null> {
+  if (!rule.allowChain) return null;
+  const others = await prisma.automationRule.findMany({
+    where: { orgId, enabled: true, allowChain: true, ...(rule.id && { id: { not: rule.id } }), OR: [{ projectId: null }, ...(projectId ? [{ projectId }] : [])] },
+    select: { id: true, name: true, spec: true },
+  });
+  const nodes = [{ id: rule.id ?? "this", name: rule.name, spec: rule.spec }];
+  for (const o of others) {
+    const parsed = automationSpecSchema.safeParse(o.spec);
+    if (parsed.success) nodes.push({ id: o.id, name: o.name, spec: parsed.data });
+  }
+  // Depth-first from this rule, back to it.
+  const path: number[] = [0];
+  const seen = new Set<number>();
+  const walk = (at: number): boolean => {
+    for (let next = 0; next < nodes.length; next++) {
+      if (next === at || !canFire(nodes[at].spec, nodes[next].spec)) continue;
+      if (next === 0) return true;
+      if (seen.has(next)) continue;
+      seen.add(next);
+      path.push(next);
+      if (walk(next)) return true;
+      path.pop();
+    }
+    return false;
+  };
+  return walk(0) ? [...path.map((i) => nodes[i].name), nodes[0].name] : null;
+}
+
+/** The warnings to show on save: today, a chain cycle. */
+export async function ruleWarnings(orgId: string, projectId: string | null, rule: { id?: string; name: string; spec: unknown; allowChain: boolean }): Promise<string[]> {
+  const spec = automationSpecSchema.safeParse(rule.spec);
+  if (!spec.success) return [];
+  const cycle = await chainCycle(orgId, projectId, { ...rule, spec: spec.data });
+  return cycle ? [`These rules can keep firing each other: ${cycle.join(" → ")}. Each run stops after ${AUTOMATION_LIMITS.depth} in a row, and a rule that loops is switched off.`] : [];
 }

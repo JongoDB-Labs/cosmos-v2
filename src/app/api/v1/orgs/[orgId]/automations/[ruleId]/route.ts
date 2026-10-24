@@ -8,7 +8,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { ruleInOrg } from "@/lib/automation/route-auth.server";
-import { RULE_DTO_SELECT, updateRule } from "@/lib/automation/rules.server";
+import { RULE_DTO_SELECT, ruleWarnings, updateRule } from "@/lib/automation/rules.server";
 import { deleteAutomationRule, getAutomationRule, updateAutomationRule } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string; ruleId: string }> };
@@ -44,7 +44,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       metadata: { revision: updated.revision, fields: Object.keys(patch) },
       ipAddress: getIpAddress(request),
     });
-    return success(updated);
+    return success({ ...updated, warnings: await ruleWarnings(p.orgId, updated.projectId, updated) });
   } catch (error) {
     return handleApiError(error, request);
   }

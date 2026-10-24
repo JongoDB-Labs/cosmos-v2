@@ -53,6 +53,6 @@ export const createAutomationRule = defineRoute({
       templateKey: z.string().max(80).nullable().optional(),
     }),
   },
-  responses: { 201: AutomationRuleDto },
+  responses: { 201: AutomationRuleDto.extend({ warnings: z.array(z.string()) }) },
   errors: [400, 401, 403, 404, 422],
 });
