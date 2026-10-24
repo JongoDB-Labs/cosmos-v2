@@ -27,15 +27,21 @@ import { POST as promoteAction } from "@/app/api/v1/orgs/[orgId]/projects/[proje
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const NO_SUCH_USER = "9f8e7d6c-5b4a-4321-8fed-cba987654321";
-let orgId = "", projectId = "", typeId = "", owner = "", colleague = "", outsider = "", itemId = "";
+let orgId = "", projectId = "", typeId = "", owner = "", colleague = "", outsider = "", leaver = "", dormant = "", itemId = "";
 
 beforeAll(async () => {
   owner = (await prisma.user.create({ data: { email: `owner-${stamp}@assignee.test`, displayName: "Owner" } })).id;
   colleague = (await prisma.user.create({ data: { email: `colleague-${stamp}@assignee.test`, displayName: "Colleague" } })).id;
   outsider = (await prisma.user.create({ data: { email: `outsider-${stamp}@assignee.test`, displayName: "Outsider" } })).id;
+  leaver = (await prisma.user.create({ data: { email: `leaver-${stamp}@assignee.test`, displayName: "Leaver" } })).id;
+  dormant = (await prisma.user.create({ data: { email: `dormant-${stamp}@assignee.test`, displayName: "Dormant", deactivatedAt: new Date() } })).id;
   orgId = (await prisma.organization.create({ data: { name: `asg ${stamp}`, slug: `asg-${stamp}` } })).id;
   await prisma.orgMember.create({ data: { orgId, userId: owner, role: "OWNER", permissions: "0" } });
   await prisma.orgMember.create({ data: { orgId, userId: colleague, role: "MEMBER", permissions: "0" } });
+  // Left the org: the membership row is kept, with removedAt set.
+  await prisma.orgMember.create({ data: { orgId, userId: leaver, role: "MEMBER", permissions: "0", removedAt: new Date() } });
+  // Still a member, but the account is deactivated.
+  await prisma.orgMember.create({ data: { orgId, userId: dormant, role: "MEMBER", permissions: "0" } });
   projectId = (await prisma.project.create({ data: { orgId, name: "A", key: `AS${stamp.slice(0, 3).toUpperCase()}` } })).id;
   typeId = (await prisma.workItemType.findFirstOrThrow({ where: { orgId: null } })).id;
   itemId = (await createFixtureWorkItem({ orgId, projectId, workItemTypeId: typeId, createdById: owner, title: "t", columnKey: "todo" })).id;
@@ -43,7 +49,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma.organization.deleteMany({ where: { id: orgId } }).catch(() => undefined);
-  await prisma.user.deleteMany({ where: { id: { in: [owner, colleague, outsider] } } }).catch(() => undefined);
+  await prisma.user.deleteMany({ where: { id: { in: [owner, colleague, outsider, leaver, dormant] } } }).catch(() => undefined);
 });
 
 /** A response's status and problem body, minus the per-request id. */
@@ -65,6 +71,15 @@ describe("the change service holds every assignee to the org", () => {
     expect(foreign).toEqual(unknown);
     expect(unknown.body).toMatchObject({ code: "assignee_not_in_org", detail: "That person isn't a member of this organization." });
     expect((await prisma.workItem.findUniqueOrThrow({ where: { id: itemId } })).assigneeId).toBeNull();
+    expect(await prisma.workItemAssignee.count({ where: { workItemId: itemId } })).toBe(0);
+  });
+
+  it("someone who left the org, or whose account is deactivated, gets that same 422", async () => {
+    const unknown = await change({ assigneeId: NO_SUCH_USER });
+    for (const id of [leaver, dormant]) {
+      expect(await change({ assigneeId: id }), id).toEqual(unknown);
+      expect((await change({ assigneeIds: [colleague, id] })).status, id).toBe(422);
+    }
     expect(await prisma.workItemAssignee.count({ where: { workItemId: itemId } })).toBe(0);
   });
 
@@ -151,7 +166,7 @@ describe("retro action owners, who become assignees on promote", () => {
   it("editing an action can't make an outsider (or an unknown id) its owner", async () => {
     h.ctx = ownerSession();
     const a = await action(null);
-    for (const ownerId of [outsider, NO_SUCH_USER]) {
+    for (const ownerId of [outsider, NO_SUCH_USER, leaver, dormant]) {
       const res = await editAction(json("PATCH", { ownerId }), at(a.id));
       expect(res.status, ownerId).toBe(400);
     }
@@ -166,6 +181,16 @@ describe("retro action owners, who become assignees on promote", () => {
     expect(res.status).toBeLessThan(300);
     const { workItemId } = await prisma.retroActionItem.findUniqueOrThrow({ where: { id: a.id } });
     expect((await prisma.workItem.findUniqueOrThrow({ where: { id: workItemId! } })).assigneeId).toBeNull();
+  });
+
+  it("an owner who has since left, or been deactivated, isn't made the assignee either", async () => {
+    h.ctx = ownerSession();
+    for (const ownerId of [leaver, dormant]) {
+      const a = await action(ownerId);
+      expect((await promoteAction(new NextRequest("http://localhost/x", { method: "POST" }), at(a.id))).status, ownerId).toBeLessThan(300);
+      const { workItemId } = await prisma.retroActionItem.findUniqueOrThrow({ where: { id: a.id } });
+      expect((await prisma.workItem.findUniqueOrThrow({ where: { id: workItemId! } })).assigneeId, ownerId).toBeNull();
+    }
   });
 
   it("an owner in the org is still the assignee", async () => {

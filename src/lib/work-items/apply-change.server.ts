@@ -342,20 +342,22 @@ function updateKey(data: Prisma.WorkItemUncheckedUpdateManyInput): string {
 }
 
 
-/**
- * Hold the fields a transition added to a change to the rules the request
- * body met: the patch schema, a team of this project, assignees in this org,
- * an interval of this project. A value the caller sent unchanged was checked
- * by the route, so only what differs from `base` is looked up.
- */
 /** The message for an assignee who isn't in the org, whether or not the id exists. */
 const NOT_A_MEMBER = "That person isn't a member of this organization.";
 
-/** How many of these user ids are members of the org (each counted once). */
+/**
+ * The org's members who can be given work: still in the org (not removed) and
+ * with an account that isn't deactivated, as calendar invitees are chosen.
+ */
+export function assignableMembersWhere(orgId: string, userIds: readonly string[]): Prisma.OrgMemberWhereInput {
+  return { orgId, userId: { in: [...userIds] }, removedAt: null, user: { deactivatedAt: null } };
+}
+
+/** Whether every one of these user ids is an assignable member of the org. */
 async function membersAmong(tx: Prisma.TransactionClient, orgId: string, ids: readonly string[]): Promise<boolean> {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return true;
-  return (await tx.orgMember.count({ where: { orgId, userId: { in: unique } } })) === unique.length;
+  return (await tx.orgMember.count({ where: assignableMembersWhere(orgId, unique) })) === unique.length;
 }
 
 /**
@@ -375,6 +377,12 @@ export async function assertAssigneesInOrg(
   if (!(await membersAmong(tx, orgId, named))) throw new ProblemError(422, "assignee_not_in_org", NOT_A_MEMBER);
 }
 
+/**
+ * Hold the fields a transition added to a change to the rules the request
+ * body met: the patch schema, a team of this project, assignees in this org,
+ * an interval of this project. A value the caller sent unchanged was checked
+ * by the route, so only what differs from `base` is looked up.
+ */
 async function checkTransitionPatch(
   tx: Prisma.TransactionClient,
   args: { orgId: string; projectId: string; base: WorkItemPatch; patch: WorkItemPatch },
