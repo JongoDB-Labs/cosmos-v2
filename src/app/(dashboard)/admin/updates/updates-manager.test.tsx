@@ -513,6 +513,31 @@ describe("UpdatesManager — what the automatic installer last reported", () => 
     expect(line.getAttribute("data-tone")).toBe("muted");
     expect(line.textContent).not.toMatch(/Last checked/);
   });
+
+  it("shows a stalled event worker as an error line beside the installer's", async () => {
+    stubSettings({
+      reconcile: null,
+      reconcileHealth: { tone: "ok", headline: "Installed and up to date", detail: null },
+      eventBacklog: {
+        tone: "error",
+        headline: "7 change events are waiting; the oldest for 30 min.",
+        detail: "The event worker that runs webhooks and automations looks stopped.",
+      },
+    });
+    renderPanel();
+    const headline = await screen.findByText("7 change events are waiting; the oldest for 30 min.");
+    const line = headline.closest("[data-testid='event-worker-health']") as HTMLElement;
+    expect(line.getAttribute("data-tone")).toBe("error");
+    expect(headline.className).toMatch(/text-red-600/);
+    expect(line.textContent).toMatch(/looks stopped/);
+  });
+
+  it("shows nothing for it when the server doesn't report one", async () => {
+    stubSettings({ reconcile: null, reconcileHealth: { tone: "ok", headline: "Installed and up to date", detail: null } });
+    renderPanel();
+    await screen.findByText("Installed and up to date");
+    expect(document.querySelector("[data-testid='event-worker-health']")).toBeNull();
+  });
 });
 
 describe("UpdatesManager — registry settings", () => {

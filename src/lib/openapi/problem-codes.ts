@@ -23,6 +23,8 @@ export const PROBLEM_CODES = {
   workflow_invalid: "Workflow has errors",
   migration_map_required: "Items need a new status",
   workflow_in_use: "Workflow in use",
+  // An automation rule that names what its project or org doesn't have (src/lib/automation/rules.server.ts).
+  automation_invalid: "Automation rule has errors",
 } as const;
 
 export type ProblemCode = keyof typeof PROBLEM_CODES;

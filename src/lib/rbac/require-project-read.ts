@@ -60,3 +60,18 @@ export async function requireProjectVisible(ctx: AuthContext, projectId: string)
     throw new ForbiddenError("Access denied by policy");
   }
 }
+
+/**
+ * For a record that may belong to a project (a meeting, a contract, a time
+ * entry): true when it belongs to none, or to one the actor can see. A write by
+ * id answers a hidden record with the same 404 as a missing one, as its read
+ * does.
+ */
+export async function inVisibleProject(ctx: AuthContext, projectId: string | null | undefined): Promise<boolean> {
+  return !projectId || isProjectVisible(ctx, projectId);
+}
+
+/** `requireProjectVisible` for a project the caller may name (a body's `projectId`), when they name one. */
+export async function requireProjectVisibleIf(ctx: AuthContext, projectId: string | null | undefined): Promise<void> {
+  if (projectId) await requireProjectVisible(ctx, projectId);
+}

@@ -49,6 +49,50 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.478.2",
+    date: "2026-10-24",
+    title: "Team-limited projects: the remaining writes",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security: meetings, time entries, contracts and custom fields in a project limited to its team can no longer be created or changed by people outside the team. Before, these writes skipped the project's visibility check.",
+      },
+    ],
+  },
+  {
+    version: "2.478.1",
+    date: "2026-10-24",
+    title: "Event worker health in Admin",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Admin \u2192 Updates now shows whether the background worker that sends webhooks and runs automations is keeping up, and says so when it looks stopped.",
+      },
+    ],
+  },
+  {
+    version: "2.478.0",
+    date: "2026-10-24",
+    title: "Subscribe to a saved filter (beta)",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Subscribe to a saved filter (beta): get it by email weekdays, daily, weekly, monthly or on your own schedule, for yourself or your team. Everyone receives only the items they can open, and one click unsubscribes.",
+      },
+    ],
+  },
+  {
+    version: "2.477.0",
+    date: "2026-10-24",
+    title: "Automation rules (API)",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Automation rules (API, with the settings screen to follow). When an item is created, changed or moved, or on a schedule, and it matches a query, a rule can move it, set fields, assign it, label it, comment, notify people, send a webhook or archive it. Rules act with their owner's access, follow the project's workflow, and switch themselves off rather than loop.",
+      },
+    ],
+  },
+  {
     version: "2.476.1",
     date: "2026-10-24",
     title: "Org-wide permissions stop at team-limited projects",
