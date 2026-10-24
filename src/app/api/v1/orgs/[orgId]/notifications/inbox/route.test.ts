@@ -12,6 +12,7 @@ const { prisma, getAuthContext } = vi.hoisted(() => ({
       groupBy: vi.fn(),
       count: vi.fn(),
       updateMany: vi.fn(),
+      deleteMany: vi.fn(),
     },
   },
   getAuthContext: vi.fn(),
@@ -62,6 +63,7 @@ beforeEach(() => {
   ]);
   prisma.notification.count.mockResolvedValue(524);
   prisma.notification.updateMany.mockResolvedValue({ count: 431 });
+  prisma.notification.deleteMany.mockResolvedValue({ count: 7 });
 });
 
 describe("GET the inbox", () => {
@@ -135,5 +137,33 @@ describe("POST read-all", () => {
     getAuthContext.mockResolvedValue(ctx("ORG_READ"));
     expect((await POST(post({ action: "read-all" }), { params })).status).toBe(403);
     expect(prisma.notification.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST clear", () => {
+  it("deletes only this person's own, and says how many", async () => {
+    const res = await POST(post({ action: "clear" }), { params });
+    expect(await json(res)).toEqual({ cleared: 7 });
+    expect(prisma.notification.deleteMany.mock.calls[0][0].where).toEqual({
+      orgId: ORG_ID,
+      userId: ME,
+    });
+    expect(prisma.notification.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("clears exactly the view: one kind, unread only", async () => {
+    await POST(post({ action: "clear", type: "alerts.past_due", unreadOnly: true }), { params });
+    expect(prisma.notification.deleteMany.mock.calls[0][0].where).toEqual({
+      orgId: ORG_ID,
+      userId: ME,
+      type: "alerts.past_due",
+      read: false,
+    });
+  });
+
+  it("refuses somebody without the permission, before deleting anything", async () => {
+    getAuthContext.mockResolvedValue(ctx("ORG_READ"));
+    expect((await POST(post({ action: "clear" }), { params })).status).toBe(403);
+    expect(prisma.notification.deleteMany).not.toHaveBeenCalled();
   });
 });
