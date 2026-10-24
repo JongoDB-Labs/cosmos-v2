@@ -60,6 +60,16 @@ export const QueryDate = z
   .meta({ format: "date-time", example: "2026-11-01" });
 
 /**
+ * An id FILTER in a query string. Blank (`?assigneeId=`) means "no filter",
+ * as these routes read it before they had contracts; anything else must be an
+ * id (it used to reach Prisma and fail as a 500).
+ */
+export const QueryId = z
+  .string()
+  .refine((s) => s === "" || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s), "Not an id")
+  .meta({ format: "uuid" });
+
+/**
  * A query integer clamped into [min, max] rather than refused, as these routes
  * did before they had contracts: `?limit=1000` reads as the maximum. A value
  * that isn't a number at all is still a 400.

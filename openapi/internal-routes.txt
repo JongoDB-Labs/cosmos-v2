@@ -261,11 +261,7 @@ GET /orgs/{orgId}/projects/{projectId}/staffing
 GET /orgs/{orgId}/projects/{projectId}/teams
 GET /orgs/{orgId}/projects/{projectId}/vendors
 GET /orgs/{orgId}/projects/{projectId}/work-item-links
-GET /orgs/{orgId}/projects/{projectId}/work-items
-GET /orgs/{orgId}/projects/{projectId}/work-items/{itemId}
-GET /orgs/{orgId}/projects/{projectId}/work-items/{itemId}/activity
 GET /orgs/{orgId}/projects/{projectId}/work-items/{itemId}/attachments
-GET /orgs/{orgId}/projects/{projectId}/work-items/{itemId}/comments
 GET /orgs/{orgId}/projects/{projectId}/work-items/{itemId}/document-source
 GET /orgs/{orgId}/projects/{projectId}/work-items/{itemId}/watch
 GET /orgs/{orgId}/query-language
@@ -295,10 +291,7 @@ GET /orgs/{orgId}/webhooks/{webhookId}
 GET /orgs/{orgId}/webhooks/{webhookId}/deliveries
 GET /orgs/{orgId}/work-items
 GET /orgs/{orgId}/work-items/export
-GET /orgs/{orgId}/work-items/facets
 GET /orgs/{orgId}/work-items/search
-GET /orgs/{orgId}/work-items/{itemId}
-GET /orgs/{orgId}/work-items/{itemId}/comments
 GET /orgs/{orgId}/work-items/{itemId}/row
 GET /orgs/{orgId}/work-roles
 GET /orgs/{orgId}/work-roles/{roleId}
