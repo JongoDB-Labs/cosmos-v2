@@ -45,6 +45,8 @@ describe("Teams tab data (e2e DB)", () => {
     await item("Write the plan");
     await item("Ship it", { columnKey: "in_progress" });
     await item("Done already", { columnKey: "done", completedAt: new Date() });
+    await item("Done but never dated", { columnKey: "done" });
+    await item("Called off", { columnKey: "cancelled" });
     await item("Unassigned thing", { assigneeId: null, assignees: undefined });
     const as = async (u: { id: string }): Promise<TeamsUser> => ({
       orgId: org.id, slug: org.slug, userId: u.id, auth: { ...(await loadMemberAuthContext(org.id, u.id))!, isApiKey: false },
@@ -80,6 +82,16 @@ describe("Teams tab data (e2e DB)", () => {
     const restricted = v.groups.find((g) => g.status === "Restricted")!;
     expect(restricted.items).toEqual([{ ref: `${s.key}-1`, url: `${ORIGIN}/${s.org.slug}/issues?item=${s.key}-1`, restricted: true }]);
     expect(JSON.stringify(v)).not.toContain("payroll");
+  });
+
+  it("a guest (items but not projects) can't put a project on a channel tab", async () => {
+    const s = await setup();
+    const carol = await prisma.user.findFirstOrThrow({ where: { email: "carol@test.local" } });
+    const member = await prisma.orgMember.create({ data: { orgId: s.org.id, userId: carol.id, role: "GUEST" } });
+    await prisma.projectMember.create({ data: { projectId: s.project.id, orgMemberId: member.id } });
+    const u = await s.as(carol);
+    expect(await tabProjects(u)).toEqual([]);
+    expect(await projectWork(u, ORIGIN, s.key)).toBeNull();
   });
 
   it("a restricted project shows by key only, in the picker and as the tab title", async () => {

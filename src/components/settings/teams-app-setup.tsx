@@ -20,6 +20,7 @@ interface TeamsAppStatus {
   calendarReady: boolean;
   appId: string | null;
   messagingEndpoint: string;
+  appIdUri: string | null;
 }
 
 export function TeamsAppSetup({ orgId }: { orgId: string }) {
@@ -67,6 +68,17 @@ export function TeamsAppSetup({ orgId }: { orgId: string }) {
             "Configure the Microsoft sign-in app first (Admin, Sign-in providers). The bot uses the same app."
           )}
         </li>
+        {data.appIdUri && (
+          <li>
+            For the tabs&apos; sign-in, in the same Entra app registration, under Expose an API, set the Application ID URI to:
+            {code("Application ID URI", data.appIdUri)}
+            add a scope named <code className="rounded bg-muted px-1 text-xs">access_as_user</code> (admins and users can
+            consent), and pre-authorize the Teams clients
+            {code("Teams desktop and mobile client ID", "1fec8e78-bce4-4aaf-ab1b-5451cc387264")}
+            {code("Teams web client ID", "5e3ce6c0-2b1f-4285-8d4b-75ee78787346")}
+            for that scope.
+          </li>
+        )}
         <li>{data.installed ? "Cosmos for Teams is installed." : "Install \"Cosmos for Teams\" below."}</li>
         <li>
           Upload the app package in the Teams admin center (Teams apps, Manage apps, Upload new app).

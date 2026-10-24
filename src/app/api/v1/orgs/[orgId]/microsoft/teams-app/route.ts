@@ -33,6 +33,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       calendarReady: cal?.status === "ACTIVE" && typeof tenantId === "string" && !!tenantId.trim(),
       appId,
       messagingEndpoint: `${getPublicOrigin(request)}/api/teams/bot`,
+      appIdUri: appId ? `api://${new URL(getPublicOrigin(request)).host}/${appId}` : null,
     });
   } catch (error) {
     return handleApiError(error);

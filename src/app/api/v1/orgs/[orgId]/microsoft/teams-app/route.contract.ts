@@ -20,6 +20,7 @@ export const getTeamsAppSetup = defineRoute({
       calendarReady: z.boolean(),
       appId: z.string().nullable(),
       messagingEndpoint: z.string(),
+      appIdUri: z.string().nullable().describe("For tab sign-in: the Application ID URI to set under Expose an API."),
     }),
   },
   errors: [401, 403, 404],

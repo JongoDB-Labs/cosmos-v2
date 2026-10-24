@@ -3,8 +3,10 @@ import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { createClassificationResolver } from "@/lib/classification/resolver";
 import { entityUrl } from "@/lib/mentions/urls";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
+import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { runWorkItemQuery, type IssueRow } from "@/lib/work-items/query/project";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
+import { isWorkItemDone, type DoneStateColumn } from "@/lib/work-items/done-state";
 import { statusLabel } from "./cards";
 import type { TeamsUser } from "./identity.server";
 
@@ -41,7 +43,26 @@ async function rows(u: TeamsUser, filter: WorkItemFilter): Promise<{ rows: Issue
     orgId: u.orgId, allowedProjectIds: readable, filter: { archived: "active", ...filter },
     sort: { field: "updatedAt", direction: "desc" }, page: 1, pageSize: TAB_LIMIT,
   });
-  return { rows: r.data.filter((x) => !x.completedAt), total: r.total };
+  return { rows: await openOnly(r.data), total: r.total };
+}
+
+/**
+ * Open items only: not done (completed, or in a DONE lane of its board, the
+ * same rule as everywhere else) and not cancelled (a CANCELLED lane).
+ */
+async function openOnly(list: IssueRow[]): Promise<IssueRow[]> {
+  const projectIds = [...new Set(list.map((r) => r.project.id))];
+  const cols = projectIds.length
+    ? await prisma.boardColumn.findMany({ where: { board: { projectId: { in: projectIds } } }, select: { key: true, category: true, board: { select: { projectId: true } } } })
+    : [];
+  const byProject = new Map<string, DoneStateColumn[]>();
+  for (const c of cols) byProject.set(c.board.projectId, [...(byProject.get(c.board.projectId) ?? []), { key: c.key, category: c.category }]);
+  return list.filter((r) => {
+    const columns = byProject.get(r.project.id) ?? [];
+    const column = columns.find((c) => c.key === r.columnKey);
+    const cancelled = column ? column.category === "CANCELLED" : r.columnKey.toLowerCase() === "cancelled";
+    return !cancelled && !isWorkItemDone({ columnKey: r.columnKey, completedAt: r.completedAt }, columns);
+  });
 }
 
 /** Rows grouped by status, in the order statuses first appear. */
@@ -75,9 +96,20 @@ export async function myWork(u: TeamsUser, origin: string): Promise<TabView | nu
   return { title: "My work", groups: await grouped(u, r.rows, origin), truncated: r.total > TAB_LIMIT };
 }
 
+/**
+ * Projects a person may put on a tab: ones they can see (project visibility)
+ * AND read work items from (which folds in ITEM_READ policy denies).
+ */
+async function tabProjectIds(u: TeamsUser): Promise<string[]> {
+  if (!hasPermission(u.auth.permissions, Permission.ITEM_READ)) return [];
+  const readable = await getReadableProjectIds(u.auth);
+  const visible = await getVisibleProjectIds(u.auth, readable);
+  return readable.filter((id) => visible.has(id));
+}
+
 /** A project's open items, for a channel tab; null when the person can't read it. */
 export async function projectWork(u: TeamsUser, origin: string, projectKey: string): Promise<TabView | null> {
-  const readable = await getReadableProjectIds(u.auth);
+  const readable = await tabProjectIds(u);
   const project = await prisma.project.findFirst({
     where: { orgId: u.orgId, id: { in: readable }, key: { equals: projectKey, mode: "insensitive" }, archived: false },
     select: { id: true, name: true, key: true },
@@ -96,8 +128,7 @@ export async function projectWork(u: TeamsUser, origin: string, projectKey: stri
 
 /** Projects this person may pick for a channel tab. */
 export async function tabProjects(u: TeamsUser): Promise<{ key: string; label: string }[]> {
-  if (!hasPermission(u.auth.permissions, Permission.ITEM_READ)) return [];
-  const readable = await getReadableProjectIds(u.auth);
+  const readable = await tabProjectIds(u);
   if (!readable.length) return [];
   const cls = await createClassificationResolver(u.orgId);
   const projects = await prisma.project.findMany({

@@ -13,7 +13,10 @@ vi.mock("@/lib/query/json-fetcher", () => ({ jsonFetch: vi.fn() }));
 import { TeamsAppSetup } from "./teams-app-setup";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 
-const status = (over: object) => ({ installed: false, calendarReady: true, appId: "app-123", messagingEndpoint: "https://cosmos.example/api/teams/bot", ...over });
+const status = (over: object) => ({
+  installed: false, calendarReady: true, appId: "app-123", messagingEndpoint: "https://cosmos.example/api/teams/bot",
+  appIdUri: "api://cosmos.example/app-123", ...over,
+});
 function wrap(ui: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
@@ -38,6 +41,10 @@ describe("TeamsAppSetup", () => {
     expect(await screen.findByText("app-123")).toBeTruthy();
     expect(screen.getByText("https://cosmos.example/api/teams/bot")).toBeTruthy();
     expect(screen.getByText(/Install "Cosmos for Teams" below/)).toBeTruthy();
+    // Tab sign-in: the Expose an API step, with the URI and Teams' two client ids.
+    expect(screen.getByText("api://cosmos.example/app-123")).toBeTruthy();
+    expect(screen.getByText("1fec8e78-bce4-4aaf-ab1b-5451cc387264")).toBeTruthy();
+    expect(screen.getByText("5e3ce6c0-2b1f-4285-8d4b-75ee78787346")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Download app package" }).getAttribute("href")).toBe("/api/v1/orgs/o1/microsoft/teams-app/package");
   });
 
