@@ -7,7 +7,7 @@ import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { MS_CALENDAR, MS_CALENDAR_CALLBACK_PATH, calendarAdminConsentUrl } from "@/lib/integrations/microsoft/calendar-connect";
-import { removeCosmosCalendar } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { liveInvites, releaseInvitesOnDisconnect, removeCosmosCalendar } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { calendarConnection, disconnectCalendar, orgCalendarConfig } from "@/lib/integrations/microsoft/calendar-token.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -58,11 +58,26 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-/** Disconnect: the Outlook "Cosmos" calendar is removed if Microsoft allows, then our sealed token and links are deleted. */
+/**
+ * Disconnect: the Outlook "Cosmos" calendar is removed if Microsoft allows, then
+ * our sealed token and links are deleted. Someone who sends Outlook invitations
+ * for upcoming meetings must say what happens to them (?invites=keep|cancel);
+ * without it the answer is 409 with how many there are.
+ */
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const r = await resolve((await params).orgId);
     if (!r) return new Response("Unauthorized", { status: 401 });
+    const choice = request.nextUrl.searchParams.get("invites");
+    const live = (await liveInvites(r.org.id, r.ctx.userId)).length;
+    if (live > 0) {
+      if (choice !== "keep" && choice !== "cancel") {
+        return new Response(JSON.stringify({ error: "Choose what happens to your Outlook invitations.", liveInvites: live }), {
+          status: 409, headers: { "Content-Type": "application/json" },
+        });
+      }
+      await releaseInvitesOnDisconnect(r.org.id, r.ctx.userId, choice);
+    }
     const calendarRemoved = await removeCosmosCalendar(r.org.id, r.ctx.userId);
     const had = await disconnectCalendar(r.org.id, r.ctx.userId);
     if (had) {

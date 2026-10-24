@@ -18,6 +18,7 @@ const { prisma, tx } = vi.hoisted(() => {
     orgMember: { deleteMany: vi.fn() },
     federatedIdentity: { deleteMany: vi.fn() },
     pushSubscription: { deleteMany: vi.fn() },
+    teamsConversation: { deleteMany: vi.fn() },
     allowedEmail: { deleteMany: vi.fn() },
     invitation: { deleteMany: vi.fn() },
     user: { update: vi.fn() },
@@ -39,6 +40,7 @@ beforeEach(() => {
   tx.orgMember.deleteMany.mockResolvedValue({ count: 3 });
   tx.federatedIdentity.deleteMany.mockResolvedValue({ count: 1 });
   tx.pushSubscription.deleteMany.mockResolvedValue({ count: 4 });
+  tx.teamsConversation.deleteMany.mockResolvedValue({ count: 1 });
   tx.allowedEmail.deleteMany.mockResolvedValue({ count: 1 });
   tx.invitation.deleteMany.mockResolvedValue({ count: 2 });
   tx.user.update.mockResolvedValue({ id: USER_ID });
@@ -52,6 +54,8 @@ describe("deleteUserAccount — revokes every access + identity grant", () => {
     expect(tx.orgMember.deleteMany).toHaveBeenCalledWith({ where: { userId: USER_ID } });
     expect(tx.federatedIdentity.deleteMany).toHaveBeenCalledWith({ where: { userId: USER_ID } });
     expect(tx.pushSubscription.deleteMany).toHaveBeenCalledWith({ where: { userId: USER_ID } });
+    // Their Teams chats with the bot go too (COSMOS-202 T2).
+    expect(tx.teamsConversation.deleteMany).toHaveBeenCalledWith({ where: { userId: USER_ID } });
   });
 
   it("deletes allowlist rows + pending invitations for the email, case-insensitively", async () => {

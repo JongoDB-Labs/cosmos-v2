@@ -3,6 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { requirePermission } from "@/lib/rbac/check";
+import { Permission } from "@/lib/rbac/permissions";
 import { teamsAppEnabled } from "@/lib/integrations/microsoft/teams-app/identity.server";
 import { NOTIFY_TYPES } from "@/lib/integrations/microsoft/teams-app/outbox.server";
 
@@ -14,7 +16,12 @@ async function resolve(orgId: string) {
   const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { id: true, slug: true } });
   if (!org) return null;
   const ctx = await getAuthContext(org.slug);
-  return ctx ? { org, ctx } : null;
+  if (!ctx) return null;
+  // A person's own notification choices: never on an API key (they'd be the
+  // key owner's chat), and only for someone who gets notifications at all.
+  if (ctx.isApiKey) return "api_key" as const;
+  requirePermission(ctx, Permission.NOTIFICATION_READ);
+  return { org, ctx };
 }
 
 async function settings(orgId: string, userId: string) {
@@ -34,6 +41,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
     const r = await resolve((await params).orgId);
     if (!r) return new Response("Unauthorized", { status: 401 });
+    if (r === "api_key") return new Response("Forbidden", { status: 403 });
     return success(await settings(r.org.id, r.ctx.userId));
   } catch (error) {
     return handleApiError(error);
@@ -45,6 +53,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const r = await resolve((await params).orgId);
     if (!r) return new Response("Unauthorized", { status: 401 });
+    if (r === "api_key") return new Response("Forbidden", { status: 403 });
     const { notifyTypes } = bodySchema.parse(await request.json());
     const s = await settings(r.org.id, r.ctx.userId);
     if (!s.available || !s.chatReady) {

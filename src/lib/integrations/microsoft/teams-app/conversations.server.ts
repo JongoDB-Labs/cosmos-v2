@@ -136,6 +136,9 @@ export async function handleChannelMessage(a: InboundActivity, tenantId: string,
   }
 
   // link KEY
+  // SCOPING NOTE: not a listing. One key's projects, in the orgs this person is
+  // mapped in, each kept only if canAdministerProject(their own auth) passes
+  // below; one they can't administer reads the same as a missing key.
   const candidates = await prisma.project.findMany({
     where: { orgId: { in: users.map((u) => u.orgId) }, key: { equals: cmd.key, mode: "insensitive" }, archived: false },
     select: { id: true, orgId: true, key: true, name: true, teamScopedAccess: true },

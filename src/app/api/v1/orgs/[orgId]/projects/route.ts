@@ -20,7 +20,7 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, listProjects);
     const { params: p, query } = await parseRequest(listProjects, request, params);
     requirePermission(ctx, Permission.PROJECT_READ);
 
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, createProject);
     const { params: { orgId }, body: data } = await parseRequest(createProject, request, params);
     requirePermission(ctx, Permission.PROJECT_CREATE);
 

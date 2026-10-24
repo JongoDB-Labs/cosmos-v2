@@ -13,7 +13,7 @@ export const getTimeEntry = defineRoute({
   summary: "Get a time entry",
   tags: ["Time"],
   stability: "stable",
-  scopes: ["read"],
+  scopes: ["time:read"],
   request: { params },
   responses: { 200: TimeEntry },
   errors: [400, 401, 403, 404],
@@ -29,7 +29,7 @@ export const updateTimeEntry = defineRoute({
     "submitted, or when the new date falls in a submitted one. Every edit is kept as a revision.",
   tags: ["Time"],
   stability: "stable",
-  scopes: ["items:write"],
+  scopes: ["time:write"],
   request: {
     params,
     body: z.object({

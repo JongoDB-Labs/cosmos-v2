@@ -15,13 +15,15 @@ export const getTeamsNotifications = defineRoute({
   path: "/orgs/{orgId}/microsoft/teams-app/notifications",
   operationId: "getTeamsNotifications",
   summary: "My Teams notification choices",
-  description: "Which Cosmos notifications the signed-in person gets in their chat with the Cosmos bot in Teams (COSMOS-202 T2).",
+  description:
+    "Which Cosmos notifications the signed-in person gets in their chat with the Cosmos bot in Teams (COSMOS-202 T2). " +
+    "Needs NOTIFICATION_READ; never available to API keys (403).",
   tags: ["Integrations"],
   stability: "internal",
   scopes: [],
   request: { params: z.object({ orgId: Uuid }) },
   responses: { 200: Settings },
-  errors: [401, 404],
+  errors: [401, 403, 404],
 });
 
 export const putTeamsNotifications = defineRoute({
@@ -29,11 +31,13 @@ export const putTeamsNotifications = defineRoute({
   path: "/orgs/{orgId}/microsoft/teams-app/notifications",
   operationId: "putTeamsNotifications",
   summary: "Choose my Teams notifications",
-  description: "Set which Cosmos notifications go to the signed-in person's chat with the Cosmos bot. Needs that chat first (409 otherwise).",
+  description:
+    "Set which Cosmos notifications go to the signed-in person's chat with the Cosmos bot. Needs that chat first (409 otherwise). " +
+    "Needs NOTIFICATION_READ; never available to API keys (403).",
   tags: ["Integrations"],
   stability: "internal",
   scopes: [],
   request: { params: z.object({ orgId: Uuid }), body: z.object({ notifyTypes: z.array(NotifyType).max(3) }) },
   responses: { 200: Settings },
-  errors: [400, 401, 404, 409],
+  errors: [400, 401, 403, 404, 409],
 });

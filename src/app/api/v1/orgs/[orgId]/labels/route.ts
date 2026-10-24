@@ -11,6 +11,7 @@ import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { resolveLabels } from "@/lib/work-items/labels";
 import { z } from "zod";
+import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 
 const createLabelSchema = z.object({
   name: z.string().min(1).max(60),
@@ -29,20 +30,26 @@ type RouteParams = { params: Promise<{ orgId: string }> };
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, listLabels);
     const { params: { orgId }, query: { projectId } } = await parseRequest(listLabels, request, params);
-    requirePermission(ctx, Permission.ORG_READ);
+    // ORG_READ for a session; a key's `read` scope deliberately lacks it (see
+    // SCOPE_MASK in lib/auth/api-key.ts), so a key reads this with PROJECT_READ.
+    requirePermission(ctx, ctx.isApiKey ? Permission.PROJECT_READ : Permission.ORG_READ);
 
     const labels = await prisma.label.findMany({
       where: { orgId },
       orderBy: { name: "asc" },
     });
 
+    // A key counts only items in projects it can read (its projectScope and
+    // team scoping). A session keeps the org-wide counts it has always had.
+    const readable = ctx.isApiKey ? await getReadableProjectIds(ctx) : null;
+    const counted = readable ? (projectId ? readable.filter((id) => id === projectId) : readable) : null;
     const counts = await prisma.workItemLabel.groupBy({
       by: ["labelId"],
       where: {
         orgId,
-        ...(projectId ? { workItem: { projectId } } : {}),
+        ...(counted ? { workItem: { projectId: { in: counted } } } : projectId ? { workItem: { projectId } } : {}),
       },
       _count: { _all: true },
     });

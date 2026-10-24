@@ -23,6 +23,7 @@ const { getAuthContext, prisma, logAudit, publishToOrg } = vi.hoisted(() => ({
   prisma: {
     organization: { findUnique: vi.fn() },
     orgMember: { findUnique: vi.fn(), update: vi.fn() },
+    teamsConversation: { deleteMany: vi.fn() },
   },
   logAudit: vi.fn(),
   publishToOrg: vi.fn(),
@@ -36,7 +37,7 @@ vi.mock("@/lib/audit", () => ({ logAudit }));
 // rejected one.
 vi.mock("@/lib/realtime/broker", () => ({ publishToOrg }));
 
-import { PUT } from "./route";
+import { DELETE, PUT } from "./route";
 
 // --- ctx + fixture helpers ---------------------------------------------------
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
@@ -180,5 +181,22 @@ describe("PUT /orgs/[orgId]/members/[memberId] — OWNER-escalation guard", () =
       "member.updated",
       expect.objectContaining({ orgId: ORG_ID, memberId: MEMBER_ID, role: "ADMIN" }),
     );
+  });
+});
+
+// COSMOS-202 T2: a removed member gets nothing more in Teams from this org.
+describe("DELETE /members/[memberId]: Teams chat forgotten", () => {
+  it("soft-removes the member and deletes their Teams conversation in this org only", async () => {
+    vi.clearAllMocks();
+    prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
+    getAuthContext.mockResolvedValue(ctxWith({ permissions: manageMembers(), orgRole: OrgRole.ADMIN }));
+    prisma.orgMember.findUnique.mockResolvedValue({ id: MEMBER_ID, orgId: ORG_ID, userId: TARGET_USER_ID, role: "MEMBER" });
+    prisma.orgMember.update.mockResolvedValue({});
+    prisma.teamsConversation.deleteMany.mockResolvedValue({ count: 1 });
+    const res = await DELETE(new NextRequest("http://localhost/api/v1/orgs/o/members/m", { method: "DELETE" }), {
+      params: Promise.resolve({ orgId: ORG_ID, memberId: MEMBER_ID }),
+    });
+    expect(res.status).toBe(204);
+    expect(prisma.teamsConversation.deleteMany).toHaveBeenCalledWith({ where: { orgId: ORG_ID, userId: TARGET_USER_ID } });
   });
 });

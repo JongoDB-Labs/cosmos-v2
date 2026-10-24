@@ -123,7 +123,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 // `viewportFit: "cover"` activates safe-area-inset-* CSS env vars (iOS notch
 // and home-indicator) so the mobile bottom nav and dialog bottom-sheets can
-// respect them. `app/manifest.ts` supplies the manifest link automatically.
+// respect them. The manifest link is rendered by hand in <head> below.
 // Viewport stays STATIC (build-baked themeColor): `connection()` here forces a
 // fully-dynamic viewport, which Next disallows for prerendered routes (build
 // error). themeColor is a deferred one-image minor (cosmos accent on an alternate-brand
@@ -166,6 +166,13 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
+        {/* The manifest link must be in the STATIC <head>. Next adds one for
+            app/manifest.ts, but as metadata — and generateMetadata() above awaits
+            connection(), so all metadata streams into <body>, where Chrome and
+            Edge never look for a manifest: the app was not installable.
+            The URL is fixed; the brand is resolved inside the
+            route, so a static link loses nothing. */}
+        <link rel="manifest" href="/manifest.webmanifest" />
         <style dangerouslySetInnerHTML={{ __html: skinCss }} />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>

@@ -3418,12 +3418,12 @@
         "security": [
           {
             "bearerPat": [
-              "read"
+              "audit:read"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "read"
+          "audit:read"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -3609,6 +3609,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -3746,6 +3761,21 @@
           {
             "bearerPat": [
               "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
             ]
           }
         ],
@@ -3885,6 +3915,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -4002,6 +4047,24 @@
               }
             }
           },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not found, or not visible to this caller (`not_found`).",
             "headers": {
@@ -4035,6 +4098,21 @@
           {
             "bearerPat": [
               "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
             ]
           }
         ],
@@ -4211,6 +4289,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -4399,6 +4482,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -4535,6 +4633,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -4760,6 +4863,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -4889,12 +5007,22 @@
         "security": [
           {
             "bearerPat": [
+              "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
               "items:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "planning:write"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -5078,12 +5206,26 @@
         "security": [
           {
             "bearerPat": [
+              "planning:write",
+              "items:delete"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write",
+              "items:delete"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:delete",
               "items:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "planning:write",
+          "items:delete"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -5214,12 +5356,22 @@
         "security": [
           {
             "bearerPat": [
+              "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
               "items:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "planning:write"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -5417,6 +5569,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -5562,12 +5729,22 @@
         "security": [
           {
             "bearerPat": [
+              "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
               "items:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "planning:write"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -5752,6 +5929,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -5887,12 +6079,22 @@
         "security": [
           {
             "bearerPat": [
+              "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
               "items:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "planning:write"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -6095,12 +6297,12 @@
         "security": [
           {
             "bearerPat": [
-              "items:write"
+              "items:delete"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "items:delete"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -6233,6 +6435,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -6416,6 +6623,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -6555,6 +6777,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -6742,6 +6969,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -6871,12 +7113,22 @@
         "security": [
           {
             "bearerPat": [
+              "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
               "items:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "planning:write"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -7068,12 +7320,22 @@
         "security": [
           {
             "bearerPat": [
+              "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
               "items:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "planning:write"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -7204,12 +7466,22 @@
         "security": [
           {
             "bearerPat": [
+              "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
               "items:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "planning:write"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -7406,6 +7678,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -7544,12 +7831,22 @@
         "security": [
           {
             "bearerPat": [
+              "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
               "items:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "planning:write"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -7714,6 +8011,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -7844,12 +8156,22 @@
         "security": [
           {
             "bearerPat": [
+              "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
               "items:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "planning:write"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -8016,12 +8338,22 @@
         "security": [
           {
             "bearerPat": [
+              "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
               "items:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "planning:write"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -8152,12 +8484,22 @@
         "security": [
           {
             "bearerPat": [
+              "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
               "items:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "planning:write"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -8349,6 +8691,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -8480,6 +8837,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -8632,6 +8994,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -8822,12 +9189,12 @@
         "security": [
           {
             "bearerPat": [
-              "items:write"
+              "items:delete"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "items:delete"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -8959,6 +9326,21 @@
           {
             "bearerPat": [
               "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
             ]
           }
         ],
@@ -9096,6 +9478,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -9297,6 +9684,11 @@
             "bearerPat": [
               "items:write"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -9487,6 +9879,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -9646,6 +10053,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -9841,6 +10253,11 @@
             "bearerPat": [
               "items:write"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -9990,6 +10407,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -10166,12 +10588,17 @@
         "security": [
           {
             "bearerPat": [
-              "read"
+              "time:read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "time:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "read"
+          "time:read"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -10360,12 +10787,12 @@
         "security": [
           {
             "bearerPat": [
-              "items:write"
+              "time:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "time:write"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -10555,12 +10982,17 @@
         "security": [
           {
             "bearerPat": [
-              "read"
+              "time:read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "time:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "read"
+          "time:read"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -10684,12 +11116,12 @@
         "security": [
           {
             "bearerPat": [
-              "items:write"
+              "time:write"
             ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "time:write"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [
@@ -10906,6 +11338,21 @@
           {
             "bearerPat": [
               "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
             ]
           }
         ],

@@ -31,6 +31,8 @@ import {
   type FStatus,
 } from "./feedback-types";
 import { FeedbackThread } from "./feedback-thread";
+import { FeedbackFollowButton } from "./feedback-follow-button";
+import { MergeControls, MergedNotice } from "./feedback-merge-controls";
 
 /**
  * The full view of one feedback item (FR: "click on the FR and a modal pops up
@@ -48,6 +50,9 @@ export function FeedbackDetailDialog({
   onChangeStatus: changeStatus,
   onSaveEdit,
   onRequestDelete: setConfirmDeleteId,
+  candidates,
+  onOpenItem,
+  onMergeChanged,
 }: {
   orgId: string;
   item: FeedbackItem | null;
@@ -59,6 +64,12 @@ export function FeedbackDetailDialog({
   /** Resolves true when the edit was saved, so the dialog can leave edit mode. */
   onSaveEdit: (item: FeedbackItem, title: string, description: string) => Promise<boolean>;
   onRequestDelete: (id: string) => void;
+  /** The board's requests, offered as merge targets (staff). */
+  candidates: FeedbackItem[];
+  /** Open another request in this dialog (the one this was merged into). */
+  onOpenItem: (id: string) => void;
+  /** After a merge or an undo, so the board and this item refresh. */
+  onMergeChanged: (item: FeedbackItem) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
@@ -117,6 +128,7 @@ export function FeedbackDetailDialog({
               </DialogHeader>
 
               <div className="max-h-[55vh] space-y-4 overflow-y-auto">
+                <MergedNotice orgId={orgId} item={detailItem} onOpenItem={onOpenItem} />
                 {editing ? (
                   <div className="space-y-3">
                     <div className="space-y-1.5">
@@ -207,9 +219,10 @@ export function FeedbackDetailDialog({
               <FeedbackThread orgId={orgId} item={detailItem} />
 
               <DialogFooter className="sm:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  disabled={busyId === detailItem.id}
+                  disabled={busyId === detailItem.id || detailItem.status === "MERGED"}
                   onClick={() => toggleVote(detailItem)}
                   aria-pressed={detailItem.hasVoted}
                   className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors ${
@@ -221,6 +234,16 @@ export function FeedbackDetailDialog({
                   <ChevronUp className="h-4 w-4" />
                   {detailItem.hasVoted ? "Voted" : "Upvote"} · {detailItem.voteCount}
                 </button>
+                <FeedbackFollowButton orgId={orgId} itemId={detailItem.id} />
+                {canManage && (
+                  <MergeControls
+                    orgId={orgId}
+                    item={detailItem}
+                    candidates={candidates}
+                    onChanged={() => onMergeChanged(detailItem)}
+                  />
+                )}
+                </div>
                 {/* Content edits + delete are owned by the author OR a manager
                     (admins may edit/delete any FR/BR — COSMOS-49); status
                     triage is manager-only. Each control shows only for the
