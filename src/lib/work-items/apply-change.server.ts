@@ -19,6 +19,7 @@
  * Authorisation is the caller's: routes check `requireAccess`, the assistant
  * `assertPermission`. This function assumes the actor may make the change.
  */
+import { randomUUID } from "node:crypto";
 import { ColumnCategory, Priority, WorkCategory, type Prisma, type WorkItem } from "@prisma/client";
 import { z } from "zod";
 import { isDonePhase, isStartedPhase } from "@/lib/boards/column-phase";
@@ -30,11 +31,12 @@ import {
   cancelInputError,
   type CancelReason,
 } from "@/lib/work-items/cancel";
-import { ensureCancelledColumn } from "@/lib/work-items/cancel.server";
+import { ensureCancelledStatus } from "@/lib/workflow/statuses.server";
 import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
 import { setLabelsForMany, setWorkItemLabels } from "@/lib/work-items/labels";
 import { cascadeSchedule, type CascadedItem } from "@/lib/work-items/schedule-cascade-io";
-import { updateWorkItemsUnchecked } from "@/lib/work-items/write.server";
+import { changeEvents, snapshotItems, updateWorkItemsUnchecked } from "@/lib/work-items/write.server";
+import { RECORDED_BY_CALLER, recordEvents, type WriteMeta } from "@/lib/work-items/events.server";
 import type { AfterCommitEffects, ChangedItem } from "@/lib/work-items/after-commit";
 
 /** The body of `PUT …/work-items/[itemId]`: every field a person may change. */
@@ -116,6 +118,8 @@ export interface ApplyChangeInput {
   itemIds: readonly string[];
   patch: WorkItemPatch;
   source: ChangeSource;
+  /** Set when this change is part of a larger one (a merge), so their events share it. */
+  correlationId?: string;
 }
 
 export interface ApplyChangeResult {
@@ -326,6 +330,8 @@ export async function applyWorkItemChange(
   input: ApplyChangeInput,
 ): Promise<ApplyChangeResult> {
   const { actorId, orgId, projectId, source } = input;
+  // One correlation id for everything this change writes, the cascade included.
+  const meta: WriteMeta = { actorId, source, correlationId: input.correlationId ?? randomUUID() };
   const patch: WorkItemPatch = { ...input.patch };
   // `columnKey: null` names no status: no move (see computeItemChange).
   if (patch.columnKey === null) delete patch.columnKey;
@@ -338,7 +344,7 @@ export async function applyWorkItemChange(
   // A cancel names no column of its own: resolve (or create) the project's
   // Cancelled status first, so everything below treats it as a column move.
   if (patch.cancelReason) {
-    patch.columnKey = await ensureCancelledColumn(tx, projectId, patch.columnKey);
+    patch.columnKey = await ensureCancelledStatus(tx, projectId, patch.columnKey);
   }
 
   const effects: AfterCommitEffects = {
@@ -359,8 +365,8 @@ export async function applyWorkItemChange(
   // catalogue out of step — the label would filter but not exist to rename or
   // delete. The label helpers own both sides.
   if (patch.tags !== undefined) {
-    if (ids.length === 1) await setWorkItemLabels(tx, orgId, ids[0], patch.tags);
-    else await setLabelsForMany(tx, orgId, ids, patch.tags);
+    if (ids.length === 1) await setWorkItemLabels(tx, orgId, ids[0], patch.tags, RECORDED_BY_CALLER);
+    else await setLabelsForMany(tx, orgId, ids, patch.tags, RECORDED_BY_CALLER);
   }
 
   const destCategory = patch.columnKey
@@ -384,7 +390,7 @@ export async function applyWorkItemChange(
     group.ids.push(c.existing.id);
     groups.set(key, group);
   }
-  for (const group of groups.values()) await updateWorkItemsUnchecked(tx, group.ids, group.data);
+  for (const group of groups.values()) await updateWorkItemsUnchecked(tx, group.ids, group.data, RECORDED_BY_CALLER);
 
   const activity = changes.flatMap((c) =>
     c.trackFields.map((f) => ({
@@ -398,6 +404,15 @@ export async function applyWorkItemChange(
     })),
   );
   if (activity.length > 0) await tx.activity.createMany({ data: activity });
+
+  // The outbox: the row writes above were RECORDED_BY_CALLER, so this records
+  // one event per item from its row before and after, a transition when its
+  // status moved. Tags are read back because the label helpers resolve them.
+  const eventFields = [...new Set([...changes.flatMap((c) => Object.keys(c.updateData)), ...(patch.tags !== undefined ? ["tags"] : [])])];
+  if (eventFields.length > 0) {
+    const before = items as unknown as Parameters<typeof changeEvents>[0];
+    await recordEvents(tx, meta, changeEvents(before, await snapshotItems(tx, ids, eventFields), eventFields));
+  }
 
   // INTERDEPENDENT RESCHEDULING (COSMOS-154). A date edit is never about one
   // item: the epic above it claims a finish date its children no longer meet,
@@ -422,6 +437,7 @@ export async function applyWorkItemChange(
         dueShiftMs,
         userId: actorId,
         skipIds: patch.cascadeSkipIds,
+        meta,
       })),
     );
   }

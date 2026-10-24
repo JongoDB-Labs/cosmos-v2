@@ -1,5 +1,7 @@
 import { registerJob } from "./runner";
 import { runCalendarPulls } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { prisma } from "@/lib/db/client";
+import { pruneDomainEvents } from "@/lib/work-items/events.server";
 
 /**
  * Every periodic job the app runs, registered on the shared runner
@@ -16,5 +18,17 @@ registerJob({
   run: async ({ signal }) => {
     const r = await runCalendarPulls({ signal });
     return r.people || r.throttled || r.failed ? { ...r } : undefined;
+  },
+});
+
+// Workflow: the domain-event outbox keeps EVENT_RETENTION_DAYS of history.
+registerJob({
+  name: "domain-events-prune",
+  everyMs: 6 * 60 * 60_000,
+  jitterMs: 10 * 60_000,
+  timeoutMs: 10 * 60_000,
+  run: async ({ signal }) => {
+    const deleted = await pruneDomainEvents(prisma, { signal });
+    return deleted ? { deleted } : undefined;
   },
 });

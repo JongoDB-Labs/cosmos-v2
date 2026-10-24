@@ -26,6 +26,7 @@ vi.mock("@/lib/ai/egress", () => ({ runModelTurn }));
 vi.mock("@/lib/integrations/teams-notify", () => ({ teamsNotify: vi.fn(async () => {}) }));
 
 import { prisma } from "@/lib/db/client";
+import { ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
 import {
   heuristicTriage,
   mergeDuplicateFeedback,
@@ -144,7 +145,7 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
   }
 
   async function createProjectWithBoard(id: string, key: string) {
-    return prisma.project.create({
+    const project = await prisma.project.create({
       data: {
         orgId: id,
         key,
@@ -161,6 +162,8 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
       },
       select: { id: true, key: true },
     });
+    await ensureFixtureStatuses(project.id, ["todo"]);
+    return project;
   }
 
   async function setAutoRemediationConfig(cfg: {

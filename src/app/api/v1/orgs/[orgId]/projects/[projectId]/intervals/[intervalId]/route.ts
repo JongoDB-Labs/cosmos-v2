@@ -192,7 +192,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     await prisma.$transaction(async (tx) => {
       const members = await tx.workItem.findMany({ where: { intervalId }, select: { id: true } });
-      await updateWorkItems(tx, members.map((m) => m.id), { intervalId: null });
+      await updateWorkItems(tx, members.map((m) => m.id), { intervalId: null }, { actorId: ctx.userId, source: "API" });
       await tx.interval.delete({ where: { id: intervalId } });
     });
 

@@ -11,9 +11,11 @@ import * as c7 from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/ro
 import * as c8 from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/milestones/[milestoneId]/route.contract";
 import * as c9 from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/milestones/route.contract";
 import * as c10 from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/route.contract";
-import * as c11 from "@/app/api/v1/orgs/[orgId]/projects/route.contract";
-import * as c12 from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/favorite/route.contract";
-import * as c13 from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/route.contract";
-import * as c14 from "@/app/api/v1/orgs/[orgId]/work-item-types/route.contract";
+import * as c11 from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/statuses/[key]/route.contract";
+import * as c12 from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/statuses/route.contract";
+import * as c13 from "@/app/api/v1/orgs/[orgId]/projects/route.contract";
+import * as c14 from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/favorite/route.contract";
+import * as c15 from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/route.contract";
+import * as c16 from "@/app/api/v1/orgs/[orgId]/work-item-types/route.contract";
 
-export const contractModules: readonly Record<string, unknown>[] = [c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14];
+export const contractModules: readonly Record<string, unknown>[] = [c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16];
