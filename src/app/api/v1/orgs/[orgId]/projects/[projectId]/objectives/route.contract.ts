@@ -45,7 +45,8 @@ export const createObjective = defineRoute({
     }),
   },
   responses: { 200: Objective },
-  errors: [400, 401, 403, 404],
+  errors: [400, 401, 403, 404, 409, 422],
+  idempotency: true,
 });
 
 export const reorderObjectives = defineRoute({

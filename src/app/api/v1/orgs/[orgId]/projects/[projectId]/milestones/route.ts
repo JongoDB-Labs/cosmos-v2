@@ -9,6 +9,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createMilestone, listMilestones } from "./route.contract";
+import { idempotent } from "@/lib/openapi/idempotency";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -33,32 +34,34 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { ctx } = await orgContext((await params).orgId, createMilestone);
     const { params: { orgId, projectId }, body: data } = await parseRequest(createMilestone, request, params);
     await requireProjectVisible(ctx, projectId);
-    await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
+    return await idempotent({ request, ctx, orgId, body: data }, async () => {
+      await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
-    const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
-    if (!project) return problem(404, "not_found", undefined, { request });
+      const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
+      if (!project) return problem(404, "not_found", undefined, { request });
 
-    const maxSort = await prisma.milestone.aggregate({
-      where: { orgId, projectId },
-      _max: { sortOrder: true },
+      const maxSort = await prisma.milestone.aggregate({
+        where: { orgId, projectId },
+        _max: { sortOrder: true },
+      });
+      const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
+
+      const createdMilestone = await prisma.milestone.create({
+        data: {
+          orgId,
+          projectId,
+          title: data.title,
+          description: data.description ?? null,
+          dueDate: new Date(data.dueDate),
+          ownerId: data.ownerId ?? null,
+          autoStatus: data.autoStatus ?? true,
+          sortOrder,
+        },
+        include: { links: true },
+      });
+
+      return respond(createMilestone, 200, createdMilestone);
     });
-    const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
-
-    const createdMilestone = await prisma.milestone.create({
-      data: {
-        orgId,
-        projectId,
-        title: data.title,
-        description: data.description ?? null,
-        dueDate: new Date(data.dueDate),
-        ownerId: data.ownerId ?? null,
-        autoStatus: data.autoStatus ?? true,
-        sortOrder,
-      },
-      include: { links: true },
-    });
-
-    return respond(createMilestone, 200, createdMilestone);
   } catch (e) {
     return handleApiError(e, request);
   }

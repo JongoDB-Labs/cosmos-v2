@@ -25,6 +25,21 @@ export const API_KEY_SCOPES = [
 ] as const;
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 
+/** How Settings names each scope, next to its code. */
+export const API_KEY_SCOPE_LABELS: Record<ApiKeyScope, string> = {
+  read: "Read",
+  "items:write": "Write items",
+  "items:delete": "Delete items",
+  "planning:write": "Write plans (milestones, goals, KPIs, intervals)",
+  "documents:write": "Write documents",
+  "time:read": "Read time",
+  "time:write": "Log time",
+  "members:read": "Read members' email addresses",
+  "webhooks:manage": "Manage webhooks",
+  "audit:read": "Read the audit log",
+  "rules:run": "Run checks",
+};
+
 /**
  * Scopes a scope stands in for at the contract gate. Writing implies reading
  * what you write to; nothing implies a delete, and nothing implies time, member

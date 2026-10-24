@@ -31,6 +31,12 @@ export interface AuthContext {
   /** A token's scopes, as minted. Absent for a browser session. */
   scopes?: string[];
   /**
+   * Which credential this is, for a bearer context: the key's id (rate-limit
+   * bucket, Idempotency-Key namespace, audit) and whether it is a member's
+   * personal token or an org integration key.
+   */
+  credential?: { kind: "api_key"; keyId: string; personal: boolean };
+  /**
    * A hard ceiling on which projects this actor may touch, independent of role.
    *
    * `undefined` means unrestricted — every session has this, and nothing about

@@ -233,6 +233,7 @@ model Organization {
   members                OrgMember[]
   invitations            Invitation[]
   apiKeys                ApiKey[]
+  apiIdempotencyKeys     ApiIdempotencyKey[]
   projects               Project[]
   clients                Client[]
   teams                  Team[]
@@ -727,10 +728,10 @@ model EgressHandle {
 }
 
 model ApiKey {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String    @map("org_id") @db.Uuid
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String     @map("org_id") @db.Uuid
   name        String
-  keyHash     String    @map("key_hash")
+  keyHash     String     @map("key_hash")
   prefix      String
   scopes      String[]
   /// Projects this key may touch. EMPTY means org-wide — every project the
@@ -740,11 +741,18 @@ model ApiKey {
   /// A ceiling, not a grant: it only ever narrows the minting user's own
   /// access. Enforced in `getReadableProjectIds` and `isProjectVisible`, both
   /// BEFORE their role short-circuits, so it binds for an OWNER too.
-  projectIds  String[]  @map("project_ids")
-  createdById String?   @map("created_by_id") @db.Uuid
-  expiresAt   DateTime? @map("expires_at")
-  lastUsed    DateTime? @map("last_used")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  projectIds  String[]   @map("project_ids")
+  createdById String?    @map("created_by_id") @db.Uuid
+  expiresAt   DateTime?  @map("expires_at")
+  lastUsed    DateTime?  @map("last_used")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  /// ORG: minted by an admin in Settings → API keys, for an integration.
+  /// PERSONAL: a member's own token (`/api/v1/me/tokens`), which always expires.
+  /// Both act as `createdBy` ∩ their scopes; the kind decides who manages it.
+  kind        ApiKeyKind @default(ORG)
+  /// The `Cosmos-API-Version` this credential is pinned to when a request
+  /// names none (Stripe-style). Set at mint time to the then-current version.
+  apiVersion  String     @default("2026-11-01") @map("api_version")
 
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   createdBy User?        @relation("ApiKeyCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -752,6 +760,35 @@ model ApiKey {
   @@unique([orgId, prefix])
   @@index([createdById])
   @@map("api_keys")
+}
+
+enum ApiKeyKind {
+  ORG
+  PERSONAL
+}
+
+/// `Idempotency-Key` replay store for the public API's POSTs (design §3.5):
+/// the first response to (credential, key) is kept for 24 hours and replayed
+/// to a retry of the same request; the same key with a different body is a 422.
+/// The response is sealed at rest (it can hold anything the API returns).
+model ApiIdempotencyKey {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  /// `key:<apiKeyId>` for a token, `user:<userId>` for a browser session.
+  credential   String
+  key          String
+  /// sha256 of method, path and body: what makes a retry "the same request".
+  requestHash  String   @map("request_hash")
+  /// Null while the first request is still running.
+  status       Int?
+  responseBody String?  @map("response_body")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([credential, key])
+  @@index([createdAt])
+  @@map("api_idempotency_keys")
 }
 
 // ─────────────────────────────────────────────

@@ -51,7 +51,9 @@ describe("published spec lint", () => {
       for (const s of req.bearerPat) expect(API_KEY_SCOPES).toContain(s);
       const ctx = { userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes: req.bearerPat, isApiKey: true };
       const contract = { scopes: (op["x-cosmos-scopes"] ?? []) as RouteContract["scopes"] };
-      expect(() => assertScopes(ctx as never, contract)).not.toThrow();
+      // No scope named: a who-am-I operation, which userContext lets any token
+      // call without asking assertScopes (coverage.arch.test.ts pins which).
+      if (contract.scopes.length) expect(() => assertScopes(ctx as never, contract)).not.toThrow();
     }
   });
 

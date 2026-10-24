@@ -22,6 +22,7 @@ export const ChatBotToolScope = ["NONE","READONLY","FULL"] as const;
 export const BankAccountProvider = ["MANUAL_IMPORT","AKOYA"] as const;
 export const BankTxnStatus = ["IMPORTED","CATEGORIZED","MATCHED","POSTED","EXCLUDED"] as const;
 export const IdpProtocol = ["OIDC"] as const;
+export const ApiKeyKind = ["ORG","PERSONAL"] as const;
 export const ProjectStatus = ["DRAFT","ACTIVE","ON_HOLD","COMPLETE"] as const;
 export const AutomationRunStatus = ["SUCCESS","NO_MATCH","PARTIAL","FAILED","LOOP","THROTTLED","SKIPPED_SELF"] as const;
 export const WorkflowEnforcement = ["SHADOW","ENFORCE"] as const;

@@ -22,7 +22,7 @@ const ERROR_DESCRIPTIONS: Record<number, string> = {
   404: "Not found, or not visible to this caller (`not_found`).",
   409: "Conflicts with the current state (`conflict`).",
   410: "The requested API version is no longer supported.",
-  422: "The `Idempotency-Key` was reused with a different body.",
+  422: "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
   429: "Rate limited (`rate_limited`); wait `Retry-After` seconds.",
 };
 
@@ -85,6 +85,14 @@ function register(registry: OpenAPIRegistry, c: RouteContract) {
     request: {
       ...(c.request.params && { params: c.request.params }),
       ...(query && { query }),
+      ...(c.idempotency && {
+        headers: z.object({
+          "Idempotency-Key": z.string().min(1).max(255).optional().describe(
+            "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours " +
+            "returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`.",
+          ),
+        }),
+      }),
       ...(c.request.body && {
         body: { required: true, content: { "application/json": { schema: c.request.body } } },
       }),

@@ -11,6 +11,7 @@ import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createCheckin, listCheckins } from "./route.contract";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
+import { idempotent } from "@/lib/openapi/idempotency";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; krId: string }>;
@@ -69,61 +70,63 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { ctx } = await orgContext((await params).orgId, createCheckin);
     const { params: { orgId, projectId, krId }, body: data } = await parseRequest(createCheckin, request, params);
     await requireProjectVisible(ctx, projectId);
+    return await idempotent({ request, ctx, orgId, body: data }, async () => {
 
-    const kr = await loadScopedKr(orgId, projectId, krId);
-    if (!kr) return problem(404, "not_found", undefined, { request });
+      const kr = await loadScopedKr(orgId, projectId, krId);
+      if (!kr) return problem(404, "not_found", undefined, { request });
 
-    await requireAccess(ctx, "OKR_UPDATE", {
-      ownerId: kr.ownerId,
-      projectId: kr.objective.projectId,
-      objectiveId: kr.objectiveId,
+      await requireAccess(ctx, "OKR_UPDATE", {
+        ownerId: kr.ownerId,
+        projectId: kr.objective.projectId,
+        objectiveId: kr.objectiveId,
+      });
+
+      const checkin = await prisma.keyResultCheckin.create({
+        data: {
+          keyResultId: krId,
+          value: data.value,
+          confidence: data.confidence,
+          rag: data.rag,
+          note: data.note ?? null,
+          blockers: data.blockers ?? null,
+          checkedInById: ctx.userId,
+        },
+      });
+
+      // Fold the check-in into the KR's live snapshot (value + latest confidence/rag
+      // + a matching status), then recompute the parent objective's progress.
+      await prisma.keyResult.update({
+        where: { id: krId },
+        data: {
+          currentValue: data.value,
+          confidence: data.confidence,
+          rag: data.rag,
+          status: RAG_TO_STATUS[data.rag],
+        },
+      });
+
+      const siblings = await prisma.keyResult.findMany({
+        where: { objectiveId: kr.objectiveId },
+        select: { startValue: true, currentValue: true, targetValue: true, lowerIsBetter: true },
+      });
+      const progress =
+        siblings.length === 0
+          ? 0
+          : Math.round(
+              (siblings.reduce(
+                (sum, s) => sum + krFraction(s.startValue, s.currentValue, s.targetValue, s.lowerIsBetter),
+                0,
+              ) /
+                siblings.length) *
+                100,
+            );
+      await prisma.objective.update({
+        where: { id: kr.objectiveId },
+        data: { progress },
+      });
+
+      return respond(createCheckin, 201, checkin);
     });
-
-    const checkin = await prisma.keyResultCheckin.create({
-      data: {
-        keyResultId: krId,
-        value: data.value,
-        confidence: data.confidence,
-        rag: data.rag,
-        note: data.note ?? null,
-        blockers: data.blockers ?? null,
-        checkedInById: ctx.userId,
-      },
-    });
-
-    // Fold the check-in into the KR's live snapshot (value + latest confidence/rag
-    // + a matching status), then recompute the parent objective's progress.
-    await prisma.keyResult.update({
-      where: { id: krId },
-      data: {
-        currentValue: data.value,
-        confidence: data.confidence,
-        rag: data.rag,
-        status: RAG_TO_STATUS[data.rag],
-      },
-    });
-
-    const siblings = await prisma.keyResult.findMany({
-      where: { objectiveId: kr.objectiveId },
-      select: { startValue: true, currentValue: true, targetValue: true, lowerIsBetter: true },
-    });
-    const progress =
-      siblings.length === 0
-        ? 0
-        : Math.round(
-            (siblings.reduce(
-              (sum, s) => sum + krFraction(s.startValue, s.currentValue, s.targetValue, s.lowerIsBetter),
-              0,
-            ) /
-              siblings.length) *
-              100,
-          );
-    await prisma.objective.update({
-      where: { id: kr.objectiveId },
-      data: { progress },
-    });
-
-    return respond(createCheckin, 201, checkin);
   } catch (e) {
     return handleApiError(e, request);
   }

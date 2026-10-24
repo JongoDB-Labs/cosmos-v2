@@ -51,7 +51,7 @@ describe("the API-key path is wired into the auth entrypoint", () => {
     // A key must not be a way around an org's network restriction.
     const body = SESSION_SRC.slice(SESSION_SRC.indexOf("export const getAuthContext"));
     const keyBranch = body.slice(0, body.indexOf("await getCurrentUser()"));
-    expect(keyBranch).toContain("ipAllowed");
+    expect(keyBranch).toContain("bearerIpAllowed(");
   });
 });
 

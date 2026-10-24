@@ -9,6 +9,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createKpi, listKpis } from "./route.contract";
+import { idempotent } from "@/lib/openapi/idempotency";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -51,38 +52,40 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { ctx } = await orgContext((await params).orgId, createKpi);
     const { params: { orgId, projectId }, body: data } = await parseRequest(createKpi, request, params);
     await requireProjectVisible(ctx, projectId);
-    await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
+    return await idempotent({ request, ctx, orgId, body: data }, async () => {
+      await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
-    const project = await prisma.project.findFirst({
-      where: { id: projectId, orgId },
+      const project = await prisma.project.findFirst({
+        where: { id: projectId, orgId },
+      });
+      if (!project) return problem(404, "not_found", undefined, { request });
+
+      const last = await prisma.kpi.findFirst({
+        where: { orgId, projectId },
+        orderBy: { sortOrder: "desc" },
+        select: { sortOrder: true },
+      });
+      const sortOrder = (last?.sortOrder ?? -1) + 1;
+
+      const created = await prisma.kpi.create({
+        data: {
+          orgId,
+          projectId,
+          name: data.name,
+          description: data.description ?? null,
+          unit: data.unit,
+          targetValue: data.targetValue,
+          currentValue: data.currentValue,
+          direction: data.direction,
+          autoSource: data.autoSource,
+          autoWindowDays: data.autoWindowDays ?? null,
+          sortOrder,
+        },
+        include: { dataPoints: { orderBy: { recordedAt: "asc" } } },
+      });
+
+      return respond(createKpi, 200, created);
     });
-    if (!project) return problem(404, "not_found", undefined, { request });
-
-    const last = await prisma.kpi.findFirst({
-      where: { orgId, projectId },
-      orderBy: { sortOrder: "desc" },
-      select: { sortOrder: true },
-    });
-    const sortOrder = (last?.sortOrder ?? -1) + 1;
-
-    const created = await prisma.kpi.create({
-      data: {
-        orgId,
-        projectId,
-        name: data.name,
-        description: data.description ?? null,
-        unit: data.unit,
-        targetValue: data.targetValue,
-        currentValue: data.currentValue,
-        direction: data.direction,
-        autoSource: data.autoSource,
-        autoWindowDays: data.autoWindowDays ?? null,
-        sortOrder,
-      },
-      include: { dataPoints: { orderBy: { recordedAt: "asc" } } },
-    });
-
-    return respond(createKpi, 200, created);
   } catch (e) {
     return handleApiError(e, request);
   }

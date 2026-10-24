@@ -42,5 +42,6 @@ export const createKpiDataPoint = defineRoute({
     }),
   },
   responses: { 200: KpiDataPoint },
-  errors: [400, 401, 403, 404],
+  errors: [400, 401, 403, 404, 409, 422],
+  idempotency: true,
 });

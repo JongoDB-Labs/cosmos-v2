@@ -20,6 +20,226 @@
       }
     },
     "schemas": {
+      "Me": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "email": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "avatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "preferences": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "bgDarkUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bgLightUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "bgDarkUrl",
+              "bgLightUrl"
+            ]
+          },
+          "token": {
+            "type": "object",
+            "properties": {
+              "orgId": {
+                "type": "string",
+                "format": "uuid",
+                "example": "0b8f6c1e-6a52-4bd0-9b0e-3a4c2f6d1e7a",
+                "description": "The organization the token is bound to."
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ORG",
+                  "PERSONAL"
+                ]
+              },
+              "expiresAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "orgId",
+              "scopes",
+              "kind",
+              "expiresAt"
+            ],
+            "description": "Present when the request authenticated with a token."
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "displayName",
+          "avatarUrl",
+          "createdAt",
+          "preferences"
+        ]
+      },
+      "Uuid": {
+        "type": "string",
+        "format": "uuid",
+        "example": "0b8f6c1e-6a52-4bd0-9b0e-3a4c2f6d1e7a"
+      },
+      "IsoDateTime": {
+        "type": "string",
+        "format": "date-time",
+        "example": "2026-11-01T09:30:00.000Z"
+      },
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Relative URI of this code in the errors guide."
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "x-extensible-enum": [
+              "invalid_request",
+              "unauthorized",
+              "forbidden",
+              "insufficient_scope",
+              "not_found",
+              "conflict",
+              "model_not_connected",
+              "rate_limited",
+              "idempotency_key_reused",
+              "internal_error",
+              "transition_not_allowed",
+              "transition_ambiguous",
+              "transition_forbidden",
+              "transition_invalid",
+              "transition_input_required",
+              "type_change_needs_status",
+              "assignee_not_in_org",
+              "workflow_invalid",
+              "migration_map_required",
+              "workflow_in_use",
+              "automation_invalid"
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "description": "The `X-Request-Id` of the request. Quote it to support."
+          },
+          "issues": {
+            "type": "array",
+            "items": {},
+            "description": "Validation failures, on 400 `invalid_request`."
+          },
+          "error": {
+            "type": "string",
+            "description": "Deprecated: same text as `detail` (or `title`). Kept for existing clients."
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "error"
+        ],
+        "description": "RFC 9457 problem details (`application/problem+json`)."
+      },
+      "MyOrg": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string",
+            "enum": [
+              "BASIC",
+              "TEAM",
+              "ENTERPRISE"
+            ]
+          },
+          "logoUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "OWNER",
+              "ADMIN",
+              "BILLING_ADMIN",
+              "MEMBER",
+              "VIEWER",
+              "GUEST"
+            ],
+            "description": "Your role in it."
+          },
+          "joinedAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "plan",
+          "logoUrl",
+          "role",
+          "joinedAt"
+        ]
+      },
       "AuditLogPage": {
         "type": "object",
         "properties": {
@@ -101,80 +321,6 @@
           "ipAddress",
           "createdAt"
         ]
-      },
-      "Uuid": {
-        "type": "string",
-        "format": "uuid",
-        "example": "0b8f6c1e-6a52-4bd0-9b0e-3a4c2f6d1e7a"
-      },
-      "IsoDateTime": {
-        "type": "string",
-        "format": "date-time",
-        "example": "2026-11-01T09:30:00.000Z"
-      },
-      "Problem": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "description": "Relative URI of this code in the errors guide."
-          },
-          "title": {
-            "type": "string"
-          },
-          "status": {
-            "type": "integer"
-          },
-          "detail": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string",
-            "x-extensible-enum": [
-              "invalid_request",
-              "unauthorized",
-              "forbidden",
-              "insufficient_scope",
-              "not_found",
-              "conflict",
-              "model_not_connected",
-              "rate_limited",
-              "internal_error",
-              "transition_not_allowed",
-              "transition_ambiguous",
-              "transition_forbidden",
-              "transition_invalid",
-              "transition_input_required",
-              "type_change_needs_status",
-              "assignee_not_in_org",
-              "workflow_invalid",
-              "migration_map_required",
-              "workflow_in_use",
-              "automation_invalid"
-            ]
-          },
-          "requestId": {
-            "type": "string",
-            "description": "The `X-Request-Id` of the request. Quote it to support."
-          },
-          "issues": {
-            "type": "array",
-            "items": {},
-            "description": "Validation failures, on 400 `invalid_request`."
-          },
-          "error": {
-            "type": "string",
-            "description": "Deprecated: same text as `detail` (or `title`). Kept for existing clients."
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "error"
-        ],
-        "description": "RFC 9457 problem details (`application/problem+json`)."
       },
       "CustomField": {
         "type": "object",
@@ -6903,6 +7049,155 @@
     "parameters": {}
   },
   "paths": {
+    "/me": {
+      "get": {
+        "operationId": "getMe",
+        "summary": "Who am I",
+        "description": "The signed-in user, or the user a token acts as (with the token's org and scopes).",
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerPat": []
+          }
+        ],
+        "x-cosmos-scopes": [],
+        "x-cosmos-stability": "stable",
+        "responses": {
+          "200": {
+            "description": "Who am I",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs": {
+      "get": {
+        "operationId": "listMyOrgs",
+        "summary": "List my organizations",
+        "description": "Organizations you belong to. A token is bound to one, so it lists only that one. Use an `id` as `{orgId}`.",
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "bearerPat": []
+          }
+        ],
+        "x-cosmos-scopes": [],
+        "x-cosmos-stability": "stable",
+        "responses": {
+          "200": {
+            "description": "List my organizations",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MyOrg"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/orgs/{orgId}/audit-logs": {
       "get": {
         "operationId": "listAuditLogs",
@@ -7805,6 +8100,18 @@
             "required": true,
             "name": "orgId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`."
+            },
+            "required": false,
+            "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -7946,6 +8253,24 @@
           },
           "409": {
             "description": "Conflicts with the current state (`conflict`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
@@ -8537,6 +8862,18 @@
             "required": true,
             "name": "projectId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`."
+            },
+            "required": false,
+            "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -8673,6 +9010,42 @@
           },
           "404": {
             "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (`conflict`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
@@ -9259,6 +9632,18 @@
             "required": true,
             "name": "projectId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`."
+            },
+            "required": false,
+            "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -9393,6 +9778,42 @@
           },
           "404": {
             "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (`conflict`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
@@ -10309,6 +10730,18 @@
             "required": true,
             "name": "krId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`."
+            },
+            "required": false,
+            "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -10433,6 +10866,42 @@
           },
           "404": {
             "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (`conflict`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
@@ -10643,6 +11112,18 @@
             "required": true,
             "name": "projectId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`."
+            },
+            "required": false,
+            "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -10786,6 +11267,42 @@
           },
           "404": {
             "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (`conflict`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
@@ -11369,6 +11886,18 @@
             "required": true,
             "name": "kpiId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`."
+            },
+            "required": false,
+            "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -11475,6 +12004,42 @@
           },
           "404": {
             "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (`conflict`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
@@ -11686,6 +12251,18 @@
             "required": true,
             "name": "projectId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`."
+            },
+            "required": false,
+            "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -11804,6 +12381,42 @@
           },
           "404": {
             "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (`conflict`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
@@ -12518,6 +13131,18 @@
             "required": true,
             "name": "projectId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`."
+            },
+            "required": false,
+            "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -12655,6 +13280,42 @@
           },
           "404": {
             "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (`conflict`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
@@ -13215,6 +13876,18 @@
             "required": true,
             "name": "objectiveId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`."
+            },
+            "required": false,
+            "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -13343,6 +14016,42 @@
           },
           "404": {
             "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (`conflict`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
@@ -14961,7 +15670,7 @@
             }
           },
           "422": {
-            "description": "The `Idempotency-Key` was reused with a different body.",
+            "description": "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
@@ -15415,7 +16124,7 @@
             }
           },
           "422": {
-            "description": "The `Idempotency-Key` was reused with a different body.",
+            "description": "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
@@ -16164,7 +16873,7 @@
             }
           },
           "422": {
-            "description": "The `Idempotency-Key` was reused with a different body.",
+            "description": "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
@@ -16410,6 +17119,18 @@
             "required": true,
             "name": "orgId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`."
+            },
+            "required": false,
+            "description": "Any unique string (a UUID is ideal). Retrying with the same key and body within 24 hours returns the first success instead of doing it again; the replay carries `Idempotent-Replayed: true`.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -16560,6 +17281,42 @@
           },
           "404": {
             "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (`conflict`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
@@ -17972,7 +18729,7 @@
             }
           },
           "422": {
-            "description": "The `Idempotency-Key` was reused with a different body.",
+            "description": "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
@@ -18152,7 +18909,7 @@
             }
           },
           "422": {
-            "description": "The `Idempotency-Key` was reused with a different body.",
+            "description": "The `Idempotency-Key` was already used for a different request (`idempotency_key_reused`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",

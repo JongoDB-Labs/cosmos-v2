@@ -68,7 +68,7 @@ describe("AI tools honor the caller's API-key scope (e2e DB)", () => {
         orgId: org.id, name: `k-${scopes.join("+")}`, scopes, createdById: owner.id, projectIds,
       });
       const auth = await apiKeyAuthContext(org.id, {
-        createdById: owner.id, scopes: record.scopes, projectIds: record.projectIds,
+        id: record.id, kind: record.kind, createdById: owner.id, scopes: record.scopes, projectIds: record.projectIds,
       });
       if (!auth) throw new Error("key owner is not a member");
       return auth;

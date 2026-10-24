@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { ensureGeneralChannel, autoJoinGeneral } from "@/lib/chat/seed-general";
@@ -13,6 +13,10 @@ import "@/lib/plugins/registry/server";
 import { seedBuiltinWorkRoles } from "@/lib/rbac/builtin-work-roles-seed";
 import { isReservedSlug } from "@/lib/org/reserved-slugs";
 import { isInternalAdmin } from "@/lib/internal/access";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { userContext } from "@/lib/openapi/user-context";
+import { listMyOrgs } from "./route.contract";
 
 // NOTE: `plan` is intentionally NOT accepted here. New orgs take the schema
 // default (ENTERPRISE); changing a plan is a PLATFORM-ADMIN action only, via
@@ -22,21 +26,22 @@ const createOrgSchema = z.object({
   slug: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/),
 });
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const currentUser = await getCurrentUser();
-    if (!currentUser) return new Response("Unauthorized", { status: 401 });
+    await parseRequest(listMyOrgs, request);
+    const { userId, token } = await userContext(listMyOrgs);
 
     const user = await prisma.user.findUnique({
-      where: { id: currentUser.id },
+      where: { id: userId },
       include: {
         memberships: {
+          // A token is bound to one org; it sees that one.
+          ...(token && { where: { orgId: token.orgId } }),
           include: { org: true },
         },
       },
     });
-
-    if (!user) return new Response("User not found", { status: 404 });
+    if (!user) return problem(404, "not_found", "User not found", { request });
 
     const orgs = user.memberships.map((m) => ({
       id: m.org.id,
@@ -48,9 +53,9 @@ export async function GET() {
       joinedAt: m.joinedAt,
     }));
 
-    return success(orgs);
+    return respond(listMyOrgs, 200, orgs);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
