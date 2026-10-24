@@ -91,7 +91,8 @@ describe("an org member outside a team-scoped project can't write in it", () => 
     const a = await item(restricted);
     h.ctx = member(outsider);
     expect((await comment(req("POST", { content: "hi" }), onItem(restricted, a.id))).status).toBe(403);
-    expect((await commentById(req("POST", { content: "hi" }), byId(a.id))).status).toBe(403);
+    // By id, an item the caller can't read is the same 404 as a missing one.
+    expect((await commentById(req("POST", { content: "hi" }), byId(a.id))).status).toBe(404);
     expect(await prisma.comment.count({ where: { workItemId: a.id } })).toBe(0);
   });
 

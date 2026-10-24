@@ -53,6 +53,14 @@ const LOST_WITHOUT_READ: Record<string, string[]> = {
 };
 /** Exception 2: writes with no bit check that now need a write scope. */
 const SAVED_VIEW_WRITES = new Set(["starSavedView", "unstarSavedView", "updateSavedView"]);
+/**
+ * Not an exception, a gap in what this test reads: these handlers gate a key
+ * on COMMENT_CREATE (`ctx.isApiKey ? "COMMENT_CREATE" : "COMMENT_READ"`) since
+ * read-key-writes.test.ts closed read keys editing and erasing comments, before
+ * they had contracts. `bitsChecked` reads the session arm, so it credits `read`
+ * with them; no read key has reached them since that fix.
+ */
+const KEY_ARM_WRITES = new Set(["updateWorkItemComment", "deleteWorkItemComment"]);
 
 describe("pre-existing scopes keep their masks", () => {
   it.each(Object.keys(BEFORE))("%s", (scope) => {
@@ -97,6 +105,7 @@ describe("no pre-existing scope loses an operation its mask reached", () => {
       .filter((s) => (BEFORE[s] & need) === need) // the old mask reached it
       .filter((s) => !LOST_WITHOUT_READ[contract.operationId]?.includes(s)) // exception 1
       .filter((s) => !(SAVED_VIEW_WRITES.has(contract.operationId) && s === "read")) // exception 2
+      .filter((s) => !(KEY_ARM_WRITES.has(contract.operationId) && s === "read")) // key arm already needs a write
       .map((s) => [contract.operationId, s, contract] as const);
   });
 
@@ -119,6 +128,16 @@ describe("the named exceptions are exactly what they say", () => {
     const c = byId.get(op)!;
     expect(() => assertScopes(ctx(["read"]), c)).toThrow();
     expect(() => assertScopes(ctx(["items:write"]), c)).not.toThrow();
+  });
+
+  it.each([...KEY_ARM_WRITES])("%s needs items:write at the gate, as its key arm already did", (op) => {
+    const c = byId.get(op)!;
+    expect(c.scopes).toEqual(["items:write"]);
+    expect(() => assertScopes(ctx(["read"]), c)).toThrow();
+    expect(() => assertScopes(ctx(["items:write"]), c)).not.toThrow();
+    // The handler still gates a key on COMMENT_CREATE, which only items:write carries.
+    const src = readFileSync(path.join(process.cwd(), "src/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]/route.ts"), "utf8");
+    expect(src).toMatch(/ctx\.isApiKey \? "COMMENT_CREATE" : "COMMENT_READ"/);
   });
 
   it.each(Object.entries(LOST_WITHOUT_READ))("%s: each listed scope is refused", (op, scopes) => {

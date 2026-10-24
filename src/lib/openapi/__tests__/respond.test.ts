@@ -3,6 +3,7 @@ import { z, ZodError } from "zod";
 import { defineRoute } from "../contract";
 import { droppedKeys, parseRequest, respond, ResponseContractError, withoutPath } from "../respond";
 import { ProblemError } from "../problem";
+import { buildDocument } from "../registry";
 
 vi.mock("@/lib/telemetry/server", () => ({ serverReportError: vi.fn() }));
 import { handleApiError } from "@/lib/api-helpers";
@@ -24,6 +25,13 @@ const createThing = defineRoute({
   stability: "stable", scopes: ["items:write"],
   request: { body: z.object({ name: z.string().min(1) }) },
   responses: { 201: Thing, 204: null }, errors: [400],
+});
+
+const copyThing = defineRoute({
+  method: "post", path: "/things/{thingId}/copy", operationId: "copyThing", summary: "s", tags: ["T"],
+  stability: "stable", scopes: ["items:write"],
+  request: { params: z.object({ thingId: z.string() }), body: z.object({ deep: z.boolean().optional() }).optional() },
+  responses: { 201: Thing }, errors: [400],
 });
 
 const req = (url: string, init?: RequestInit) => new Request(`http://x${url}`, init);
@@ -64,6 +72,27 @@ describe("parseRequest", () => {
     const res = handleApiError(err);
     expect(res.status).toBe(400);
     expect((await res.json()).detail).toBe("Request body must be valid JSON");
+  });
+
+  it("an optional body may be left out; one that is sent is still parsed and still has to be JSON", async () => {
+    const at = { thingId: "a" };
+    expect((await parseRequest(copyThing, req("/things/a/copy", { method: "POST" }), at)).body).toBeUndefined();
+    expect((await parseRequest(copyThing, req("/things/a/copy", { method: "POST", body: '{"deep":true}' }), at)).body).toEqual({ deep: true });
+    await expect(parseRequest(copyThing, req("/things/a/copy", { method: "POST", body: "{nope" }), at)).rejects.toBeInstanceOf(ProblemError);
+    await expect(parseRequest(copyThing, req("/things/a/copy", { method: "POST", body: '{"deep":"yes"}' }), at)).rejects.toBeInstanceOf(ZodError);
+  });
+
+  it("a required body can't be left out", async () => {
+    const err = await parseRequest(createThing, req("/things", { method: "POST" })).catch((e) => e);
+    expect(err).toBeInstanceOf(ProblemError);
+  });
+
+  it("the spec marks an optional body not required, and a plain one required", () => {
+    const doc = buildDocument([createThing, copyThing], "public") as unknown as {
+      paths: Record<string, Record<string, { requestBody?: { required?: boolean } }>>;
+    };
+    expect(doc.paths["/things"].post.requestBody?.required).toBe(true);
+    expect(doc.paths["/things/{thingId}/copy"].post.requestBody?.required).toBe(false);
   });
 
   it("a contract without a query schema ignores query params too", async () => {
