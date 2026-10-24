@@ -49,6 +49,28 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.475.0",
+    date: "2026-10-24",
+    title: "Work-item writes in the API reference",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The API reference now documents creating, updating and deleting work items, one at a time or in bulk. API keys need items:write to create and update, and items:delete to delete.",
+      },
+    ],
+  },
+  {
+    version: "2.474.3",
+    date: "2026-10-24",
+    title: "Teams tabs load cleanly",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Cosmos tabs in Teams load without console errors. The tabs can now fetch Microsoft's current list of Teams hosts. Before, the browser blocked it and they fell back to the copy built into the Teams library.",
+      },
+    ],
+  },
+  {
     version: "2.474.2",
     date: "2026-10-24",
     title: "Comment moderation stays in its project",
