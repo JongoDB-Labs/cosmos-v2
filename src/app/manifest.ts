@@ -13,6 +13,11 @@ export default function manifest(): MetadataRoute.Manifest {
     name: brand.name,
     short_name: brand.name,
     description: brand.description,
+    // A stable app identity. Without `id`, Chromium derives it from start_url,
+    // so changing start_url later would make a second, separate app on every
+    // device that installed the first. "/" is what it derives today, so the
+    // existing installs keep their identity.
+    id: "/",
     start_url: "/",
     display: "standalone",
     background_color: brand.backgroundColor,

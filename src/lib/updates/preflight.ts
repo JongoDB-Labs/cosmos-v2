@@ -218,10 +218,7 @@ export function evaluatePreflights(f: PreflightFacts): PreflightResult[] {
 /**
  * Whether an upgrade may be offered as applyable.
  *
- * `unknown` on a blocking check counts against, not for. The app cannot observe
- * disk from inside a container, so a check run purely in-app will legitimately
- * report `false` here — that is the honest answer, and the reason actuation
- * belongs to the host-side runner that CAN see the missing facts.
+ * `unknown` on a blocking check counts against, not for.
  */
 export function canApply(results: readonly PreflightResult[]): boolean {
   return blockers(results).length === 0;

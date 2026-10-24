@@ -84,7 +84,7 @@ jobs:
 
       # OSV-Scanner over the lockfile.
       - name: OSV-Scanner (lockfile)
-        uses: google/osv-scanner-action/osv-scanner-action@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
+        uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
         continue-on-error: true # report captured below; HARD failure is Trivy's job
         with:
           scan-args: |-
@@ -234,7 +234,7 @@ jobs:
           output-file: evidence/${{ github.sha }}/hadolint.sarif
           no-fail: true
       - name: Checkov (compose + manifests)
-        uses: bridgecrewio/checkov-action@444c9db6fa75e2d9c19ebf1fde7322089be9009e # v12.3125.0
+        uses: bridgecrewio/checkov-action@c3e106d5f8f4253a6de5110efb41a080f83db294 # v12.3135.0
         continue-on-error: true # Info
         with:
           directory: .
@@ -476,7 +476,7 @@ jobs:
               | tee -a evidence/${{ github.sha }}/config-asserts.txt
           fi
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
