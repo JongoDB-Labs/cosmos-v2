@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Bell, Check } from "lucide-react";
+import { Bell, Check, Mail, MailOpen } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
@@ -39,26 +39,60 @@ interface NotificationDropdownProps {
   orgId: string;
 }
 
+/** What the bell shows of a notification; the inbox endpoint's row shape. */
+type BellItem = Pick<
+  Notification,
+  "id" | "title" | "body" | "read" | "url" | "createdAt"
+>;
+
+type InboxPage = {
+  data: BellItem[];
+  nextCursor: string | null;
+  counts: { unread: number };
+};
+
+/** One page per fetch. Enough to fill the panel and then some. */
+const PAGE_SIZE = 20;
+
 export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<BellItem[]>([]);
+  // Unread notifications the server counted that aren't loaded yet. The badge
+  // is these plus the loaded unread rows, so it shows the whole inbox's count
+  // from the first page rather than growing as older pages scroll in.
+  const [unreadNotLoaded, setUnreadNotLoaded] = useState(0);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const orgSlug = pathname.split("/")[1];
   const sseRef = useRef<EventSource | null>(null);
+  // State, not refs: the panel mounts inside the menu's own render, so only a
+  // state change tells this component the sentinel now exists to observe.
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const [sentinel, setSentinel] = useState<HTMLButtonElement | null>(null);
 
-  // Initial REST fetch for the unread list.
+  // First page, through the same paged endpoint the inbox reads, so scrolling
+  // can carry on from its cursor.
   useEffect(() => {
     if (!orgId) return;
     let cancelled = false;
     (async () => {
       try {
-        // The dropdown shows ten. Asking for the whole inbox and throwing all
-        // but ten away is how a 500-notice inbox becomes a slow page load; the
-        // full list lives at /inbox.
-        const r = await fetch(`/api/v1/orgs/${orgId}/notifications?limit=10`);
+        const r = await fetch(
+          `/api/v1/orgs/${orgId}/notifications/inbox?unreadOnly=false&limit=${PAGE_SIZE}`,
+        );
         if (!r.ok) return;
-        const data: Notification[] = await r.json();
-        if (!cancelled) setNotifications(data);
+        const page: InboxPage = await r.json();
+        if (cancelled) return;
+        setNotifications(page.data);
+        setCursor(page.nextCursor);
+        setUnreadNotLoaded(
+          Math.max(
+            0,
+            page.counts.unread - page.data.filter((n) => !n.read).length,
+          ),
+        );
       } catch {
         /* silently fail; SSE will deliver new ones anyway */
       }
@@ -68,6 +102,56 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     };
   }, [orgId]);
 
+  async function loadOlder() {
+    if (!cursor || loadingMore) return;
+    setLoadingMore(true);
+    setLoadFailed(false);
+    try {
+      const r = await fetch(
+        `/api/v1/orgs/${orgId}/notifications/inbox?unreadOnly=false&limit=${PAGE_SIZE}&cursor=${encodeURIComponent(cursor)}`,
+      );
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const page: InboxPage = await r.json();
+      setNotifications((prev) => {
+        const have = new Set(prev.map((n) => n.id));
+        return [...prev, ...page.data.filter((n) => !have.has(n.id))];
+      });
+      setCursor(page.nextCursor);
+      setUnreadNotLoaded((c) =>
+        Math.max(0, c - page.data.filter((n) => !n.read).length),
+      );
+    } catch {
+      // Shown in the panel; the button stays so the next try is one click.
+      setLoadFailed(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  // Reaching the foot of the list loads the next page. The sentinel is also a
+  // button, so a keyboard or a browser without observers can still ask.
+  // Re-armed on every render: while the sentinel stays in view (a short page
+  // that doesn't fill the panel) it keeps loading, and loadOlder's own guard
+  // keeps that to one request at a time.
+  const hasMore = cursor !== null;
+  useEffect(() => {
+    if (
+      !sentinel ||
+      !hasMore ||
+      loadFailed ||
+      typeof IntersectionObserver === "undefined"
+    )
+      return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) void loadOlder();
+      },
+      { root: scrollEl, rootMargin: "120px" },
+    );
+    io.observe(sentinel);
+    return () => io.disconnect();
+  });
+
   // Live SSE — prepend new notifications as they arrive.
   useEffect(() => {
     if (!orgId) return;
@@ -75,13 +159,10 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     sseRef.current = es;
     const handler = (ev: Event) => {
       try {
-        const data = JSON.parse((ev as MessageEvent).data) as Notification & {
-          url?: string | null;
-        };
-        setNotifications((prev) => {
-          if (prev.some((n) => n.id === data.id)) return prev;
-          return [data, ...prev];
-        });
+        const data = JSON.parse((ev as MessageEvent).data) as BellItem;
+        setNotifications((prev) =>
+          prev.some((n) => n.id === data.id) ? prev : [data, ...prev],
+        );
       } catch {
         /* malformed event — skip */
       }
@@ -94,8 +175,6 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     };
   }, [orgId]);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
-
   async function markAllRead() {
     try {
       const res = await fetch(`/api/v1/orgs/${orgId}/notifications`, {
@@ -103,35 +182,46 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      setUnreadNotLoaded(0);
     } catch (err) {
       console.error("Failed to mark all notifications read:", err);
       notifyError(err, "Couldn't mark all as read.");
     }
   }
 
-  async function markRead(id: string) {
+  // Read or unread, one notification. The row changes only once the server
+  // has it, so the badge never shows a state that didn't persist.
+  async function setRead(id: string, read: boolean, quiet = false) {
     try {
       const res = await fetch(`/api/v1/orgs/${orgId}/notifications/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ read: true }),
+        body: JSON.stringify({ read }),
       });
-      // Only reflect "read" in the UI if the server accepted it — otherwise the
-      // badge would lie. (No toast: marking one read is trivial and self-heals.)
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
+        prev.map((n) => (n.id === id ? { ...n, read } : n)),
       );
     } catch (err) {
-      // Deliberately silent: marking one notification read is trivial and
-      // self-heals on the next load; a toast here would just be noise.
-      // eslint-disable-next-line no-restricted-syntax
+      // Opening a notification marks it read on the way past; failing that is
+      // trivial and self-heals on the next load, so it stays quiet. Asking for
+      // read or unread outright and not getting it deserves to be told.
+      if (!quiet) {
+        notifyError(
+          err,
+          read ? "Couldn't mark that read." : "Couldn't mark that unread.",
+        );
+        return;
+      }
       console.error("Failed to mark notification read:", err);
     }
   }
 
-  function handleNotificationClick(n: Notification & { url?: string | null }) {
-    markRead(n.id);
+  const unreadCount =
+    unreadNotLoaded + notifications.filter((n) => !n.read).length;
+
+  function handleNotificationClick(n: BellItem) {
+    if (!n.read) void setRead(n.id, true, true);
     if (!orgSlug || !n.url) return;
     router.push(notificationHref(orgSlug, n.url));
   }
@@ -187,38 +277,96 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
             </p>
           </div>
         ) : (
-          notifications.slice(0, 10).map((notification) => (
-            <DropdownMenuItem
-              key={notification.id}
-              className={cn(
-                "flex-col items-start gap-1 py-2.5",
-                !notification.read && "bg-muted/50",
-              )}
-              onClick={() => handleNotificationClick(notification)}
-            >
-              <div className="flex items-start gap-2 w-full">
-                {!notification.read && (
-                  <div className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1" />
+          // Its own scroll region, so older notifications are a scroll away
+          // instead of cut off at ten.
+          <div
+            ref={setScrollEl}
+            className="max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain"
+            data-testid="notification-scroll"
+          >
+            {notifications.map((notification) => (
+              // The toggle sits beside the item, not inside it: a button
+              // nested in a menuitem is two controls in one, and using it
+              // would also open the notification.
+              <div
+                key={notification.id}
+                className={cn(
+                  "flex items-start",
+                  !notification.read && "bg-muted/50",
                 )}
-                <div className="flex-1 min-w-0">
-                  <p
-                    className={cn(
-                      "text-sm truncate",
-                      !notification.read && "font-medium",
+              >
+                <DropdownMenuItem
+                  className="min-w-0 flex-1 flex-col items-start gap-1 py-2.5"
+                  onClick={() => handleNotificationClick(notification)}
+                >
+                  <div className="flex items-start gap-2 w-full">
+                    {!notification.read && (
+                      <div className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1" />
                     )}
-                  >
-                    {notification.title}
-                  </p>
-                  <p className="text-xs text-muted-foreground line-clamp-2">
-                    {notification.body}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {timeAgo(notification.createdAt)}
-                  </p>
-                </div>
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className={cn(
+                          "text-sm truncate",
+                          !notification.read && "font-medium",
+                        )}
+                      >
+                        {notification.title}
+                      </p>
+                      <p className="text-xs text-muted-foreground line-clamp-2">
+                        {notification.body}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {timeAgo(notification.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                </DropdownMenuItem>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="mt-1.5 mr-1 shrink-0 text-muted-foreground"
+                  aria-label={
+                    notification.read
+                      ? `Mark "${notification.title}" unread`
+                      : `Mark "${notification.title}" read`
+                  }
+                  title={notification.read ? "Mark unread" : "Mark read"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void setRead(notification.id, !notification.read);
+                  }}
+                >
+                  {notification.read ? (
+                    <Mail className="size-4" />
+                  ) : (
+                    <MailOpen className="size-4" />
+                  )}
+                </Button>
               </div>
-            </DropdownMenuItem>
-          ))
+            ))}
+            {hasMore ? (
+              <button
+                ref={setSentinel}
+                type="button"
+                className="w-full px-3 py-2 text-center text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
+                disabled={loadingMore}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void loadOlder();
+                }}
+              >
+                {loadingMore
+                  ? "Loading older…"
+                  : loadFailed
+                    ? "Couldn't load older notifications. Try again"
+                    : "Load older"}
+              </button>
+            ) : (
+              <p className="px-3 py-2 text-center text-xs text-muted-foreground">
+                No older notifications
+              </p>
+            )}
+          </div>
         )}
         <div className="border-t border-[var(--border)] px-3 py-2">
           <Link

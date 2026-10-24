@@ -208,17 +208,28 @@ describe("the work-item outbox", () => {
 });
 
 describe("pruneDomainEvents", () => {
-  it("deletes events older than the retention window, in batches, and keeps the rest", async () => {
+  it("deletes processed events older than the retention window, in batches, and keeps the rest", async () => {
     await create();
     const id = await lastCreatedId();
     const now = new Date();
     const old = new Date(now.getTime() - (EVENT_RETENTION_DAYS + 1) * 86_400_000);
     await prisma.domainEvent.createMany({
-      data: [1, 2, 3].map(() => ({ orgId, projectId, type: "work_item.updated", subjectId: id, source: "SYSTEM", createdAt: old })),
+      data: [1, 2, 3].map(() => ({ orgId, projectId, type: "work_item.updated", subjectId: id, source: "SYSTEM", createdAt: old, processedAt: old })),
     });
     expect(await eventsFor(id)).toHaveLength(4);
     // Other specs' old events may be pruned too, so only a floor on the count.
-    expect(await pruneDomainEvents(prisma, { now, batchSize: 2 })).toBeGreaterThanOrEqual(3);
+    expect((await pruneDomainEvents(prisma, { now, batchSize: 2 })).deleted).toBeGreaterThanOrEqual(3);
     expect((await eventsFor(id)).map((e) => e.type)).toEqual(["work_item.created"]);
+  });
+
+  it("never deletes an event nothing has processed, however old, and counts it as stuck", async () => {
+    await create();
+    const id = await lastCreatedId();
+    const now = new Date();
+    const old = new Date(now.getTime() - (EVENT_RETENTION_DAYS + 1) * 86_400_000);
+    await prisma.domainEvent.create({ data: { orgId, projectId, type: "work_item.updated", subjectId: id, source: "SYSTEM", createdAt: old } });
+    const r = await pruneDomainEvents(prisma, { now });
+    expect((await eventsFor(id)).map((e) => e.type)).toEqual(["work_item.created", "work_item.updated"]);
+    expect(r.stuck).toBeGreaterThanOrEqual(1);
   });
 });

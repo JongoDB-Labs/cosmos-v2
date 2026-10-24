@@ -41,17 +41,11 @@ import {
   Clock,
 } from "lucide-react";
 import type { Webhook, WebhookDelivery } from "@/types/models";
+import { WEBHOOK_EVENTS } from "@/lib/webhooks/events";
 
-const AVAILABLE_EVENTS = [
-  "work_item.created",
-  "work_item.updated",
-  "work_item.completed",
-  "sprint.started",
-  "sprint.completed",
-  "comment.created",
-  "meeting.created",
-  "meeting.completed",
-];
+// Only events Cosmos sends (src/lib/webhooks/events.ts).
+const AVAILABLE_EVENTS: string[] = WEBHOOK_EVENTS.map((e) => e.name);
+const EVENT_LABEL = new Map<string, string>(WEBHOOK_EVENTS.map((e) => [e.name, e.label]));
 
 interface WebhooksManagerProps {
   orgId: string;
@@ -609,7 +603,7 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
                       onChange={() => toggleEvent(event)}
                       className="rounded border-input"
                     />
-                    {event}
+                    <span title={EVENT_LABEL.get(event)}>{event}</span>
                   </label>
                 ))}
               </div>
@@ -690,7 +684,7 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
                       onChange={() => toggleEvent(event)}
                       className="rounded border-input"
                     />
-                    {event}
+                    <span title={EVENT_LABEL.get(event)}>{event}</span>
                   </label>
                 ))}
               </div>

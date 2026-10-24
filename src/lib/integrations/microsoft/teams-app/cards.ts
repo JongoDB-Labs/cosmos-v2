@@ -78,6 +78,39 @@ export function restrictedCard(ref: string, url: string): Attachment {
   };
 }
 
+/** One line of a T2 update: an item's key, title and link; no title when it's restricted. */
+export interface UpdateLine {
+  ref: string;
+  url: string;
+  /** Absent for a restricted item, which then reads "Restricted". */
+  title?: string;
+  /** A fixed label of ours ("New", "Status changed"), never the item's text. */
+  note?: string;
+}
+
+/**
+ * COSMOS-202 T2: what the bot posts to a chat or channel. A heading of ours,
+ * then per item its key, title and a link, and nothing else: no description,
+ * comment, status, people or dates ever go to Teams this way.
+ */
+export function updateCard(heading: string, lines: UpdateLine[]): Attachment {
+  return {
+    contentType: ADAPTIVE,
+    content: base([
+      { type: "TextBlock", text: heading, weight: "Bolder", wrap: true },
+      ...lines.map((l) => ({
+        type: "Container",
+        separator: true,
+        selectAction: open("Open in Cosmos", l.url),
+        items: [
+          { type: "TextBlock", text: l.note ? `${l.ref} · ${l.note}` : l.ref, size: "Small", isSubtle: true, wrap: true },
+          { type: "TextBlock", text: l.title ?? "Restricted", wrap: true, ...(l.title ? {} : { isSubtle: true }) },
+        ],
+      })),
+    ], lines.length === 1 ? [open("Open in Cosmos", lines[0].url)] : []),
+  };
+}
+
 /** For a Teams user we can't match to a Cosmos account: how to fix that, and nothing else. */
 export function connectCard(preferencesUrl: string): Attachment {
   return {

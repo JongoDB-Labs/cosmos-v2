@@ -122,28 +122,37 @@ export function inTransaction<T>(
 export const EVENT_RETENTION_DAYS = 30;
 
 /**
- * Delete events older than the retention window, a batch at a time so a large
- * backlog never holds one long lock on the table. Returns how many went.
+ * Delete processed events older than the retention window, a batch at a time
+ * so a large backlog never holds one long lock on the table. Returns how many
+ * went, and how many events are still unprocessed an hour after they were
+ * written (the worker normally takes them within seconds, so that number is
+ * the one to watch).
  *
- * Nothing consumes events yet, so age alone decides. When the automation
- * worker (workflow P4) starts marking events processed, this must delete only
- * processed ones, or a backlog older than the window would be lost unread.
+ * An unprocessed event is never deleted, however old: dropping it would lose a
+ * change its consumers (webhooks, automations) never saw.
  */
 export async function pruneDomainEvents(
   db: PrismaClient,
   opts: { now?: Date; batchSize?: number; signal?: AbortSignal } = {},
-): Promise<number> {
-  const cutoff = new Date((opts.now ?? new Date()).getTime() - EVENT_RETENTION_DAYS * 86_400_000);
+): Promise<{ deleted: number; stuck: number }> {
+  const now = opts.now ?? new Date();
+  const cutoff = new Date(now.getTime() - EVENT_RETENTION_DAYS * 86_400_000);
   const batchSize = opts.batchSize ?? 5_000;
-  let total = 0;
+  let deleted = 0;
   while (!opts.signal?.aborted) {
-    const deleted = await db.$executeRaw`
+    const n = await db.$executeRaw`
       DELETE FROM domain_events WHERE id IN (
-        SELECT id FROM domain_events WHERE created_at < ${cutoff} ORDER BY id LIMIT ${batchSize}
+        SELECT id FROM domain_events
+        WHERE created_at < ${cutoff} AND processed_at IS NOT NULL
+        ORDER BY id LIMIT ${batchSize}
       )
     `;
-    total += deleted;
-    if (deleted < batchSize) break;
+    deleted += n;
+    if (n < batchSize) break;
   }
-  return total;
+  const [{ stuck }] = await db.$queryRaw<{ stuck: bigint }[]>`
+    SELECT count(*) AS stuck FROM domain_events
+    WHERE processed_at IS NULL AND created_at < ${new Date(now.getTime() - 3_600_000)}
+  `;
+  return { deleted, stuck: Number(stuck) };
 }
