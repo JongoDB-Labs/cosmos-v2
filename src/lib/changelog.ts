@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.460.4",
+    date: "2026-10-24",
+    title: "New boards start with columns",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A Kanban or Scrum board created from Issues' \"Save as board\" (or the board form) now starts with the project's columns, or the defaults, instead of empty.",
+      },
+    ],
+  },
+  {
     version: "2.460.3",
     date: "2026-10-24",
     title: "API keys can't act beyond their scopes",
