@@ -113,11 +113,12 @@ const DECLARATION =
 const VALUE_KINDS = new Set(["const", "let", "function", "class"]);
 
 /**
- * Exported values in `src/lib/pm` that still have no importer. Both live in
- * modules outside this sweep's scope, so they are recorded rather than fixed —
- * prune an entry when its module is cleaned, don't add one.
+ * Exported values in `src/lib/pm` that still have no importer. Empty since
+ * CLEANUP-21 un-exported the last two (`activity-log.ts: actVal`,
+ * `subjects.ts: PM_SUBJECT_TYPES`) — prune an entry when its module is cleaned,
+ * don't add one.
  */
-const KNOWN_UNIMPORTED = ["activity-log.ts: actVal", "subjects.ts: PM_SUBJECT_TYPES"];
+const KNOWN_UNIMPORTED: string[] = [];
 
 interface Decl {
   file: string;

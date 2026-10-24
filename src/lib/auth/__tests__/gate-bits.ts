@@ -19,7 +19,8 @@ import { Permission } from "@/lib/rbac/permissions";
 
 const GATE_WITH_BIT = /\b(?:requirePermission|requireProjectManage|canAdministerProject|assertPermission)\([^;]*?Permission\.([A-Z_]+)/g;
 const NEGATED_HAS = /!\s*hasPermission\([^)]*?Permission\.([A-Z_]+)/g;
-const GATE_WITH_ACTION = /\b(?:requireAccess|requireProjectRead|assertProjectRead)\([^;]*?"([A-Z_]+)"/g;
+// readableItemProjectId (lib/work-items/read.server) runs requireProjectRead with its action.
+const GATE_WITH_ACTION = /\b(?:requireAccess|requireProjectRead|assertProjectRead|readableItemProjectId)\([^;]*?"([A-Z_]+)"/g;
 /** `cond ? Permission.A : Permission.B` inside a gate: both sides are possible gates. */
 const TERNARY = /\?\s*(?:Permission\.|")([A-Z_]+)"?\s*:\s*(?:Permission\.|")([A-Z_]+)/g;
 
