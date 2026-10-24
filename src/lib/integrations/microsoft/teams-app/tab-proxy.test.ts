@@ -1,5 +1,5 @@
-// COSMOS-202 T1 d: only /teams/tab pages may be framed, and only by Microsoft's
-// Teams/Office hosts; everything else keeps frame-ancestors 'none' and
+// COSMOS-202 T1 d: only /teams/tab pages may be framed, and only by Microsoft
+// Teams' hosts; everything else keeps frame-ancestors 'none' and
 // X-Frame-Options DENY. The tab cookie authenticates nothing outside the tab:
 // on its own it gets a 401 from /api/v1.
 import { describe, it, expect, vi } from "vitest";
@@ -15,12 +15,12 @@ const req = (path: string, init: { method?: string; headers?: Record<string, str
 const frameAncestors = (res: Response) => /frame-ancestors ([^;]*)/.exec(res.headers.get("content-security-policy") ?? "")?.[1];
 
 describe("proxy: Teams tabs", () => {
-  it("lets Microsoft's Teams/Office hosts, and only them, frame a tab page", async () => {
+  it("lets Microsoft Teams' hosts, and only them, frame a tab page (not Outlook/Office: no tokens from those clients)", async () => {
     for (const path of ["/teams/tab", "/teams/tab/my-work", "/teams/tab/view?project=X", "/teams/tab/configure"]) {
       const res = await proxy(req(path));
       expect(res.status, path).toBe(200);
       expect(frameAncestors(res), path).toBe(
-        "'self' https://teams.microsoft.com https://*.teams.microsoft.com https://*.cloud.microsoft https://outlook.office.com https://outlook.office365.com https://*.office.com",
+        "'self' https://teams.microsoft.com https://*.teams.microsoft.com https://*.cloud.microsoft",
       );
       expect(res.headers.get("x-frame-options"), path).toBeNull();
       // Everything else in the policy is unchanged.

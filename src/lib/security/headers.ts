@@ -90,18 +90,16 @@ export function applySecurityHeaders(headers: Headers): void {
 }
 
 /**
- * Microsoft's hosts that frame Teams tabs (Teams, the new *.cloud.microsoft
- * Teams, and Outlook/Microsoft 365, where Teams apps also run), as Microsoft's
- * tab documentation lists them.
+ * Microsoft's hosts that frame Teams tabs: Teams and the new *.cloud.microsoft
+ * Teams. Teams only, matching the sign-in, which takes tokens from the Teams
+ * clients alone.
  */
+// Hosting the tabs in Outlook/Microsoft 365 would need both their client ids (teams-clients.ts) and their framing hosts here.
 export const TEAMS_TAB_FRAME_ANCESTORS = [
   "'self'",
   "https://teams.microsoft.com",
   "https://*.teams.microsoft.com",
   "https://*.cloud.microsoft",
-  "https://outlook.office.com",
-  "https://outlook.office365.com",
-  "https://*.office.com",
 ];
 
 /**

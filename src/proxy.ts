@@ -136,7 +136,7 @@ export async function proxy(request: NextRequest) {
   const res = await gate(request, next);
   res.headers.set(REQUEST_ID_HEADER, requestId);
   // Teams tabs (COSMOS-202 T1 d) are the only pages another site may frame,
-  // and only Microsoft's Teams/Office hosts. Everything else keeps 'none'.
+  // and only Microsoft Teams' hosts. Everything else keeps 'none'.
   if (isTabPath(request.nextUrl.pathname)) applyTeamsTabFraming(res.headers);
   return res;
 }
