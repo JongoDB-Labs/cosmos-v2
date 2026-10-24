@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 // Type-only: the module talks to the database, and a value import would pull it
 // into the client bundle.
 import type { ReconcileStatusDto } from "@/lib/updates/reconcile-status";
+import type { JobsReport } from "@/lib/jobs/report";
 
 type PreflightStatus = "pass" | "warn" | "fail" | "unknown";
 
@@ -334,6 +335,8 @@ type UpdateSettingsPayload = {
   reconcileHealth?: { tone: HealthTone; headline: string; detail: string | null };
   /** Whether the outbox worker (webhooks, automations) is keeping up. */
   eventBacklog?: { tone: HealthTone; headline: string; detail: string | null };
+  /** The background jobs on the instance that answered. */
+  jobs?: JobsReport;
   registry?: {
     imageRepo: RegistryField;
     tagSuffix: RegistryField;
@@ -416,6 +419,73 @@ function EventWorkerHealth({ data }: { data: UpdateSettingsPayload }) {
   );
 }
 
+const ago = (seconds: number) =>
+  seconds < 90 ? `${seconds} s` : seconds < 5400 ? `${Math.round(seconds / 60)} min` : `${Math.round(seconds / 3600)} h`;
+
+/**
+ * Each background job on the instance that answered: whether the runner is on
+ * here (and why not), whether this instance leads the job, its last run and
+ * success, and its last failure. A job stuck past its timeout, or failing, is
+ * the line to read when the event worker looks stopped.
+ */
+function JobsHealth({ data }: { data: UpdateSettingsPayload }) {
+  const jobs = data.jobs;
+  if (!jobs) return null;
+  const bad = jobs.jobs.filter((j) => j.stuck || j.consecutiveFailures > 0);
+  const tone: HealthTone = !jobs.enabled || bad.length ? "error" : "ok";
+  const Icon = HEALTH_ICON[tone];
+  const leading = jobs.jobs.filter((j) => j.leader).length;
+  const headline = !jobs.enabled
+    ? `Background jobs are off on this instance: ${jobs.reason}.`
+    : bad.length
+      ? `${bad.length} background ${bad.length === 1 ? "job is" : "jobs are"} stuck or failing.`
+      : `Background jobs are running: this instance leads ${leading} of ${jobs.jobs.length}.`;
+  return (
+    <div className="mt-3 border-t pt-3" data-testid="jobs-health" data-tone={tone}>
+      <div className="flex gap-3">
+        <Icon className={cn("mt-0.5 size-4 shrink-0", HEALTH_CLASS[tone])} aria-hidden />
+        <p className={cn("text-sm font-medium", HEALTH_CLASS[tone])}>{headline}</p>
+      </div>
+      {jobs.jobs.length > 0 && (
+        <table className="mt-2 w-full text-xs" aria-label="Background jobs">
+          <thead className="text-left text-muted-foreground">
+            <tr>
+              <th className="py-1 pr-2 font-normal">Job</th>
+              <th className="py-1 pr-2 font-normal">Here</th>
+              <th className="py-1 pr-2 font-normal">Last run</th>
+              <th className="py-1 pr-2 font-normal">Last success</th>
+              <th className="py-1 font-normal">State</th>
+            </tr>
+          </thead>
+          <tbody>
+            {jobs.jobs.map((j) => (
+              <tr key={j.name} className="border-t align-top">
+                <td className="py-1 pr-2 font-mono">{j.name}</td>
+                <td className="py-1 pr-2">{j.leader ? "leads" : "standby"}</td>
+                <td className="py-1 pr-2">
+                  <LocalTimestamp value={j.lastStartedAt} />
+                </td>
+                <td className="py-1 pr-2">
+                  <LocalTimestamp value={j.lastSucceededAt} />
+                </td>
+                <td className={cn("py-1", (j.stuck || j.consecutiveFailures > 0) && HEALTH_CLASS.error)}>
+                  {j.stuck
+                    ? `Stuck: running for ${ago(j.runningForSeconds ?? 0)}`
+                    : j.consecutiveFailures > 0
+                      ? `Failing (${j.consecutiveFailures}×): ${[j.lastErrorClass, j.lastErrorMessage].filter(Boolean).join(": ")}`
+                      : j.running
+                        ? "Running"
+                        : "OK"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 /**
  * Does this instance install a newer version by itself?
  *
@@ -483,6 +553,7 @@ function UpdateModeCard() {
           )}
           <InstallerHealth data={data} />
           <EventWorkerHealth data={data} />
+          <JobsHealth data={data} />
         </>
       )}
     </SectionCard>

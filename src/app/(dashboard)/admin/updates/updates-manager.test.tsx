@@ -538,6 +538,57 @@ describe("UpdatesManager — what the automatic installer last reported", () => 
     await screen.findByText("Installed and up to date");
     expect(document.querySelector("[data-testid='event-worker-health']")).toBeNull();
   });
+
+  const JOB = {
+    name: "outbox-worker", leader: true, running: false, stuck: false, runningForSeconds: null, lastStartedAt: "2026-10-24T23:29:59.000Z",
+    lastSucceededAt: "2026-10-24T23:29:59.500Z", consecutiveFailures: 0, lastErrorClass: null, lastErrorMessage: null, everySeconds: 1,
+  };
+
+  it("says the background jobs are off here, and why", async () => {
+    stubSettings({
+      reconcile: null,
+      reconcileHealth: { tone: "ok", headline: "Installed and up to date", detail: null },
+      jobs: { enabled: false, reason: "JOBS_DISABLED", jobs: [] },
+    });
+    renderPanel();
+    const line = (await screen.findByText("Background jobs are off on this instance: JOBS_DISABLED.")).closest("[data-testid='jobs-health']") as HTMLElement;
+    expect(line.getAttribute("data-tone")).toBe("error");
+    expect(screen.queryByRole("table", { name: "Background jobs" })).toBeNull();
+  });
+
+  it("lists each job: a stuck one and a failing one say so, the rest are OK", async () => {
+    stubSettings({
+      reconcile: null,
+      reconcileHealth: { tone: "ok", headline: "Installed and up to date", detail: null },
+      jobs: {
+        enabled: true,
+        reason: null,
+        jobs: [
+          { ...JOB, running: true, stuck: true, runningForSeconds: 3 * 3600 },
+          { ...JOB, name: "teams-outbox", leader: false, consecutiveFailures: 2, lastErrorClass: "TypeError", lastErrorMessage: "x is undefined" },
+          { ...JOB, name: "domain-events-prune" },
+        ],
+      },
+    });
+    renderPanel();
+    expect(await screen.findByText("2 background jobs are stuck or failing.")).toBeTruthy();
+    const table = screen.getByRole("table", { name: "Background jobs" });
+    const row = (name: string) => within(table).getByText(name).closest("tr") as HTMLElement;
+    expect(row("outbox-worker").textContent).toMatch(/leads.*Stuck: running for 3 h/);
+    expect(row("teams-outbox").textContent).toMatch(/standby.*Failing \(2×\): TypeError: x is undefined/);
+    expect(row("domain-events-prune").textContent).toMatch(/OK$/);
+  });
+
+  it("says the jobs are running, and how many this instance leads", async () => {
+    stubSettings({
+      reconcile: null,
+      reconcileHealth: { tone: "ok", headline: "Installed and up to date", detail: null },
+      jobs: { enabled: true, reason: null, jobs: [JOB, { ...JOB, name: "teams-outbox", leader: false }] },
+    });
+    renderPanel();
+    const line = (await screen.findByText("Background jobs are running: this instance leads 1 of 2.")).closest("[data-testid='jobs-health']") as HTMLElement;
+    expect(line.getAttribute("data-tone")).toBe("ok");
+  });
 });
 
 describe("UpdatesManager — registry settings", () => {

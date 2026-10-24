@@ -16,7 +16,7 @@ import { Client } from "pg";
  * failing, recovered) and once per run when the job returns a summary.
  *
  * JOBS_DISABLED=1 turns all of it off (CI and e2e set it). Nothing runs
- * outside the Node runtime or during `next build`.
+ * during `next build`, and only the Node runtime starts it (instrumentation.ts).
  */
 
 export interface JobContext {
@@ -53,9 +53,15 @@ export interface JobStatus {
   lastStartedAt: string | null;
   lastFinishedAt: string | null;
   lastOk: boolean | null;
+  /** When a run last finished without throwing. */
+  lastSucceededAt: string | null;
   lastError: string | null;
+  /** The last error's class (`TypeError`, `PrismaClientKnownRequestError P2002`), for the admin readout. */
+  lastErrorClass: string | null;
   consecutiveFailures: number;
   nextRunAt: string | null;
+  everyMs: number;
+  timeoutMs: number;
 }
 
 /** Lock namespace (first key of the two-int advisory lock). */
@@ -126,6 +132,32 @@ export interface RunnerOptions {
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 300);
 
+/** `TypeError`, or a Prisma error with its code. Never the message. */
+export function errorClass(e: unknown): string {
+  if (!(e instanceof Error)) return typeof e;
+  const code = (e as { code?: unknown }).code;
+  return typeof code === "string" && /^[A-Z0-9_]{2,20}$/.test(code) ? `${e.name} ${code}` : e.name;
+}
+
+/**
+ * An error message with what could be data taken out: URLs, emails, ids,
+ * addresses, host names, quoted values and long numbers become placeholders, and only the first line,
+ * cut to 160 characters, is kept. For a readout people without the logs see.
+ */
+export function redactMessage(text: string | null): string | null {
+  if (!text) return null;
+  return text
+    .split("\n")[0]
+    .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, "<url>")
+    .replace(/[^\s@,;:"'<>()]+@[^\s@,;:"'<>()]+\.[a-z]{2,}/gi, "<email>")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "<id>")
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g, "<address>")
+    .replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?\b/gi, "<host>")
+    .replace(/(["'`])(?:(?!\1).){0,200}\1/g, "<value>")
+    .replace(/\b\d{4,}\b/g, "<n>")
+    .slice(0, 160);
+}
+
 export class JobRunner {
   private jobs = new Map<string, Entry>();
   private started = false;
@@ -152,7 +184,8 @@ export class JobRunner {
       abort: null,
       status: {
         name: def.name, leader: false, running: false, lastStartedAt: null, lastFinishedAt: null,
-        lastOk: null, lastError: null, consecutiveFailures: 0, nextRunAt: null,
+        lastOk: null, lastSucceededAt: null, lastError: null, lastErrorClass: null, consecutiveFailures: 0, nextRunAt: null,
+        everyMs: def.everyMs, timeoutMs: def.timeoutMs ?? def.everyMs,
       },
     };
     this.jobs.set(def.name, entry);
@@ -176,6 +209,11 @@ export class JobRunner {
     }
     await Promise.all([...this.jobs.values()].map((e) => e.lock.release()));
     for (const e of this.jobs.values()) e.status.leader = false;
+  }
+
+  /** Has start() run in this process (and stop() not since)? */
+  isStarted(): boolean {
+    return this.started;
   }
 
   status(): JobStatus[] {
@@ -206,14 +244,22 @@ export class JobRunner {
     e.status.lastStartedAt = new Date(this.now()).toISOString();
     const abort = new AbortController();
     e.abort = abort;
-    const timeout = setTimeout(() => abort.abort(new Error("timed out")), e.def.timeoutMs ?? e.def.everyMs);
+    const timeoutMs = e.def.timeoutMs ?? e.def.everyMs;
+    const timeout = setTimeout(() => {
+      abort.abort(new Error("timed out"));
+      // The abort only asks: a run that ignores it keeps the job "running", and
+      // every later tick skips it. Say so, once, where the logs can show it.
+      this.log(`[jobs] ${name}: timed out after ${timeoutMs}ms; waiting for the run to stop`);
+    }, timeoutMs);
     const t0 = this.now();
     try {
       const summary = await e.def.run({ signal: abort.signal });
       if (e.status.consecutiveFailures > 0) this.log(`[jobs] ${name}: recovered after ${e.status.consecutiveFailures} failed run(s)`);
       e.status.consecutiveFailures = 0;
       e.status.lastOk = true;
+      e.status.lastSucceededAt = new Date(this.now()).toISOString();
       e.status.lastError = null;
+      e.status.lastErrorClass = null;
       if (summary) this.log(`[jobs] ${name}: ok in ${this.now() - t0}ms ${JSON.stringify(summary)}`);
     } catch (err) {
       e.status.consecutiveFailures++;
@@ -221,6 +267,7 @@ export class JobRunner {
       const msg = message(err);
       if (e.status.consecutiveFailures === 1 || msg !== e.status.lastError) this.log(`[jobs] ${name}: failed (${msg})`);
       e.status.lastError = msg;
+      e.status.lastErrorClass = errorClass(err);
     } finally {
       clearTimeout(timeout);
       e.abort = null;
@@ -269,10 +316,24 @@ export function registerJob(def: JobDefinition): void {
   appJobRunner().register(def);
 }
 
+/**
+ * Why the runner won't start in this process, or null when it will.
+ *
+ * NOT the runtime: its one caller (instrumentation.ts) already runs only in
+ * the Node runtime, and that check is `process.env.NEXT_RUNTIME === "nodejs"`
+ * written out, which the compiler inlines. Read here, through `env`, it is not
+ * inlined, and the standalone server (`node server.js`, what production runs)
+ * leaves NEXT_RUNTIME unset: this check alone kept every job off in production
+ * from the day the runner shipped, while `next dev`, which sets it, ran them.
+ */
+export function jobsDisabledReason(env: NodeJS.ProcessEnv = process.env): "JOBS_DISABLED" | "next build" | "no DATABASE_URL" | null {
+  if (env.JOBS_DISABLED === "1" || env.JOBS_DISABLED === "true") return "JOBS_DISABLED";
+  if (env.NEXT_PHASE === "phase-production-build") return "next build";
+  if (!env.DATABASE_URL) return "no DATABASE_URL";
+  return null;
+}
+
 /** Should the runner start in this process? */
 export function jobsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.JOBS_DISABLED === "1" || env.JOBS_DISABLED === "true") return false;
-  if (env.NEXT_RUNTIME !== "nodejs") return false;
-  if (env.NEXT_PHASE === "phase-production-build") return false;
-  return Boolean(env.DATABASE_URL);
+  return jobsDisabledReason(env) === null;
 }
