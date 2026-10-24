@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.462.0",
+    date: "2026-10-24",
+    title: "Work-item links in the public API",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The public API now documents the work-item links endpoints, with typed contracts, so integrations can list, create and remove links between items with the same permission checks as the app.",
+      },
+    ],
+  },
+  {
     version: "2.461.2",
     date: "2026-10-24",
     title: "The installed app keeps its identity",
