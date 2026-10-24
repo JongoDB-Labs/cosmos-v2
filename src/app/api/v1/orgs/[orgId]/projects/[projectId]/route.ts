@@ -84,7 +84,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // without org-wide grants.
     if (
       !hasPermission(ctx.permissions, Permission.PROJECT_UPDATE) &&
-      !(await canManageProject(ctx, projectId))
+      !(await canManageProject(ctx, projectId, Permission.PROJECT_UPDATE))
     ) {
       return problem(403, "forbidden", undefined, { request });
     }
@@ -102,7 +102,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // org-wide PROJECT_UPDATE holder, but this flag decides who can SEE the
     // project — flipping it on can hide a live project from everyone who is not
     // a member. Restrict it to the people who administer this project.
-    if (data.teamScopedAccess !== undefined && !(await canManageProject(ctx, projectId))) {
+    if (data.teamScopedAccess !== undefined && !(await canManageProject(ctx, projectId, Permission.PROJECT_MANAGE))) {
       return problem(403, "forbidden", "Only a project manager or org admin can change who this project is visible to.", { request });
     }
 

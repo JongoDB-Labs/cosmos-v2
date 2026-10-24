@@ -1,3 +1,4 @@
+import { Permission } from "@/lib/rbac/permissions";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
@@ -102,7 +103,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     const { orgId, projectId } = await params;
     const r = await resolve(orgId, projectId);
     if (!r.ok) return r.error;
-    if (!(await canManageProject(r.ctx, projectId))) {
+    if (!(await canManageProject(r.ctx, projectId, Permission.PROJECT_MANAGE))) {
       return new Response(JSON.stringify({ error: "Forbidden" }), {
         status: 403,
         headers: { "Content-Type": "application/json" },

@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.454.2",
+    date: "2026-10-24",
+    title: "API keys respect their scopes",
+    highlights: [
+      {
+        kind: "fix",
+        text: "API keys now respect their scopes for project planning changes, boards, team and member management, files and chat channel administration, whatever the role of the person who created the key.",
+      },
+    ],
+  },
+  {
     version: "2.454.1",
     date: "2026-10-24",
     title: "Safer web page reading in the assistant",
