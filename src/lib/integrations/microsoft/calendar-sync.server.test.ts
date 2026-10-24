@@ -10,17 +10,24 @@ import { prisma } from "@/lib/db/client";
 
 // Per-person invitation limits are in-process buckets keyed by user, and every
 // test here is alice: let them through, except in the test about the limits.
-const rl = vi.hoisted(() => ({ real: false }));
+// `denyOps` plays an organizer whose invitation budget is spent.
+const rl = vi.hoisted(() => ({ real: false, denyOps: false }));
 vi.mock("@/lib/rate-limit/bucket", async (orig) => {
   const actual = await orig<typeof import("@/lib/rate-limit/bucket")>();
-  return { ...actual, rateLimit: (k: string, o: Parameters<typeof actual.rateLimit>[1]) => (rl.real ? actual.rateLimit(k, o) : { allowed: true as const, remaining: 99 }) };
+  return {
+    ...actual,
+    rateLimit: (k: string, o: Parameters<typeof actual.rateLimit>[1]) =>
+      rl.denyOps && k.startsWith("ms.invite.ops:") ? { allowed: false as const, retryAfter: 60 }
+      : rl.real ? actual.rateLimit(k, o) : { allowed: true as const, remaining: 99 },
+  };
 });
 import { fakeGraph } from "@/lib/testing/fake-graph";
 import { MS_CALENDAR } from "./calendar-connect";
 import { _resetCalendarTokenCache, completeCalendarConnect, disconnectCalendar } from "./calendar-token.server";
 import {
   InviteRefused, ensureCosmosCalendar, invitePreview, liveInvites, offboardInvites, pool, pullChanges, pullSoonIfStale,
-  MAX_INVITEES, releaseInvitesOnDisconnect, removeCosmosCalendar, runCalendarPulls, setMeetingInvite, syncMeeting, syncUserNow,
+  MAX_INVITEES, releaseInvitesOnDisconnect, removeCosmosCalendar, runCalendarPulls, setMeetingInvite, syncInvitesAfterClassification,
+  syncMeeting, syncUserNow,
 } from "./calendar-sync.server";
 import { patchCalendarMeta } from "./calendar-token.server";
 
@@ -760,6 +767,9 @@ describe("Outlook meeting sync (e2e DB)", () => {
     await setMeetingInvite(org.id, meeting.id, alice.id, false, deps);
     expect(g.cancellations.map((c) => c.eventId)).toEqual([invite]);
     expect(g.cancellations[0].comment).toBe("This meeting was cancelled.");
+    // Scrubbed first on every stop, not only a classified one.
+    expect(g.cancellations[0].subject).toBe("Meeting cancelled");
+    expect(g.calls.filter((c) => c.path.includes(invite)).map((c) => c.method)).toEqual(["PATCH", "POST"]);
     // Mirror mode again: both have an ordinary copy, nobody lost the meeting.
     for (const u of [alice, bob]) {
       const l = (await linkOf(u.id, meeting.id))!;
@@ -894,6 +904,145 @@ describe("Outlook meeting sync (e2e DB)", () => {
     } finally {
       rl.real = false;
     }
+  });
+
+  // ── #1140 review ───────────────────────────────────────────────────────────
+
+  it("invites only active members who may see the meeting: not another org's user, a leaver, or someone without the project", async () => {
+    const { org, alice, bob, g, deps, meeting } = await setup();
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const [outsider, leaver, member] = await Promise.all(
+      ["outsider", "leaver", "member"].map((n) => prisma.user.create({ data: { email: `${n}-${stamp}@test.local`, displayName: n } })),
+    );
+    try {
+      const project = await prisma.project.create({ data: { orgId: org.id, name: "Locked", key: `LK${stamp.slice(-4).replace(/[^a-z0-9]/gi, "").toUpperCase()}`, teamScopedAccess: true } });
+      await prisma.orgMember.createMany({
+        data: [
+          { orgId: org.id, userId: leaver.id, role: "MEMBER", removedAt: new Date() },
+          { orgId: org.id, userId: member.id, role: "MEMBER" },
+        ],
+      });
+      // bob (VIEWER) and the member aren't on the team-scoped project; alice (ADMIN) sees it anyway.
+      const bobMember = await prisma.orgMember.findFirstOrThrow({ where: { orgId: org.id, userId: bob.id } });
+      await prisma.projectMember.create({ data: { projectId: project.id, orgMemberId: bobMember.id } });
+      await prisma.syncMeeting.update({ where: { id: meeting.id }, data: { projectId: project.id } });
+      await prisma.meetingAttendee.createMany({ data: [outsider, leaver, member].map((u) => ({ meetingId: meeting.id, userId: u.id })) });
+      expect((await invitePreview(org.id, meeting.id, alice.id))!.recipients.map((r) => r.email)).toEqual(["bob@test.local"]);
+      await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+      expect(attendeesOf(await aliceEvent(org.id, alice.id, meeting.id, g))).toEqual(["bob@test.local"]);
+    } finally {
+      await prisma.meetingAttendee.deleteMany({ where: { meetingId: meeting.id } });
+      await prisma.user.deleteMany({ where: { id: { in: [outsider.id, leaver.id, member.id] } } });
+    }
+  });
+
+  it("gives the invitation's addresses only to someone who can edit the meeting", async () => {
+    const { org, alice, bob, meeting } = await setup();
+    expect((await invitePreview(org.id, meeting.id, alice.id))!.recipients).toHaveLength(1);
+    expect((await invitePreview(org.id, meeting.id, bob.id))!.recipients).toEqual([]);
+  });
+
+  it("both copies of the edit check hold: a viewer can't turn it off, and the preview tells them why they can't turn it on", async () => {
+    const { org, alice, bob, deps, meeting } = await setup();
+    expect((await invitePreview(org.id, meeting.id, bob.id))!).toMatchObject({ canChange: false, reason: "cannot_edit" });
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+    await expect(setMeetingInvite(org.id, meeting.id, bob.id, false, deps)).rejects.toMatchObject({ reason: "cannot_edit" });
+    expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).inviteOrganizerId).toBe(alice.id);
+  });
+
+  it("a cancellation that can't be delivered stays pending: never patched into a mirror copy, retried once reconnected", async () => {
+    const { org, alice, bob, g, deps, meeting } = await setup();
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+    const invite = (await linkOf(alice.id, meeting.id))!.externalEventId;
+    const cred = await credOf(org.id, alice.id);
+    await patchCalendarMeta(cred.id, { status: "reconnect" });
+    const before = g.calls.length;
+    await setMeetingInvite(org.id, meeting.id, alice.id, false, deps);
+    expect(g.calls.slice(before)).toEqual([]); // nothing sent to Outlook, nothing turned into a copy
+    expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).inviteOrganizerId).toBe(alice.id);
+    expect((await invitePreview(org.id, meeting.id, alice.id))!).toMatchObject({ on: true, pendingCancel: true });
+    expect(await prisma.notification.count({ where: { orgId: org.id, userId: alice.id, type: "integration.outlook_invite_cancel_pending" } })).toBe(1);
+    // Syncs meanwhile change nothing, and nobody gets a mirror copy of it.
+    await syncMeeting(org.id, meeting.id, deps);
+    expect(g.calls.slice(before)).toEqual([]);
+    expect(await linkOf(bob.id, meeting.id)).toBeNull();
+    // Reconnected: the next sync delivers the cancellation, then mirroring resumes on a fresh event.
+    await patchCalendarMeta(cred.id, { status: "connected" });
+    await syncMeeting(org.id, meeting.id, deps);
+    expect(g.cancellations.map((c) => c.eventId)).toEqual([invite]);
+    expect(g.calls.filter((c) => c.method === "PATCH" && c.path.includes(invite)).map((c) => (c.body as { subject?: string }).subject)).toEqual(["Meeting cancelled"]);
+    expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).inviteOrganizerId).toBeNull();
+    const mirror = (await linkOf(alice.id, meeting.id))!;
+    expect(mirror.externalEventId).not.toBe(invite);
+    expect(attendeesOf(g.events.get(mirror.externalEventId))).toEqual([]);
+    expect(await linkOf(bob.id, meeting.id)).not.toBeNull();
+  });
+
+  it("an invitation is never patched into a mirror copy: it is cancelled and a fresh copy made", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+    const invite = (await linkOf(alice.id, meeting.id))!.externalEventId;
+    // Invite mode ends without its cancellation (as an offboard that couldn't reach Microsoft does).
+    await prisma.syncMeeting.update({ where: { id: meeting.id }, data: { inviteOrganizerId: null } });
+    const before = g.calls.length;
+    await syncMeeting(org.id, meeting.id, deps);
+    const toInvite = g.calls.slice(before).filter((c) => c.path.includes(invite));
+    expect(toInvite.map((c) => c.method)).toEqual(["PATCH", "POST"]); // scrub, cancel: never a mirror body
+    expect((toInvite[0].body as { subject: string }).subject).toBe("Meeting cancelled");
+    const mirror = (await linkOf(alice.id, meeting.id))!;
+    expect(mirror.externalEventId).not.toBe(invite);
+    expect(mirror.contentHash?.startsWith("invite:")).toBe(false);
+  });
+
+  it("an ignored Outlook edit re-sends the invitation only if it may still go out", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+    await pullChanges(org.id, alice.id, deps);
+    const id = (await linkOf(alice.id, meeting.id))!.externalEventId;
+    // She can no longer edit the meeting; her Outlook edit is ignored, and the invitation can't continue.
+    await prisma.orgMember.updateMany({ where: { orgId: org.id, userId: alice.id }, data: { role: "VIEWER" } });
+    g.outlookEdit(id, { subject: "Outlook title" });
+    const before = g.calls.length;
+    await pullChanges(org.id, alice.id, deps);
+    const patches = g.calls.slice(before).filter((c) => c.method === "PATCH" && c.path.includes(id));
+    expect(patches.every((c) => !(c.body as { attendees?: unknown }).attendees)).toBe(true);
+    expect(g.cancellations.map((c) => c.eventId)).toEqual([id]);
+    expect((await prisma.auditLog.findFirstOrThrow({ where: { orgId: org.id, action: "microsoft_calendar.invite_cancelled" } })).metadata).toMatchObject({ reason: "organizer_cannot_edit" });
+  });
+
+  it("two editors turning it on at once: one sends, the other is told it's already on", async () => {
+    const { org, alice, deps, meeting, stamp } = await setup();
+    const carol = await prisma.user.findFirstOrThrow({ where: { email: "carol@test.local" } });
+    await prisma.orgMember.create({ data: { orgId: org.id, userId: carol.id, role: "ADMIN" } });
+    await connect(org.id, carol, `${carol.id}-${stamp}`);
+    const r = await Promise.allSettled([alice, carol].map((u) => setMeetingInvite(org.id, meeting.id, u.id, true, deps)));
+    expect(r.filter((x) => x.status === "fulfilled")).toHaveLength(1);
+    expect(r.find((x) => x.status === "rejected")).toMatchObject({ reason: { reason: "already_on" } });
+  });
+
+  it("a cancellation is never held back by the organizer's invitation budget", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+    rl.denyOps = true;
+    try {
+      await prisma.dataClassification.create({ data: { orgId: org.id, level: "FOUO", appliedById: alice.id } });
+      await syncMeeting(org.id, meeting.id, deps);
+      expect(g.cancellations).toHaveLength(1);
+    } finally {
+      rl.denyOps = false;
+    }
+  });
+
+  it("raising a classification re-checks live invitations at once", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    const other = await setup(); // another org's invitation is left alone
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+    await setMeetingInvite(other.org.id, other.meeting.id, other.alice.id, true, other.deps);
+    await prisma.dataClassification.create({ data: { orgId: org.id, level: "FOUO", appliedById: alice.id } });
+    const n = await syncInvitesAfterClassification(org.id, null, (o, id) => syncMeeting(o, id, deps));
+    expect(n).toBe(1);
+    expect(g.cancellations).toHaveLength(1);
+    expect(other.g.cancellations).toEqual([]);
   });
 
 });

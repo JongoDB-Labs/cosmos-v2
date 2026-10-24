@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit";
 import { sweepMarkedComments } from "@/lib/feedback/comments.server";
 import { z } from "zod";
 import { ClassificationLevel } from "@prisma/client";
+import { syncInvitesAfterClassification } from "@/lib/integrations/microsoft/calendar-sync.server";
 
 const updateClassificationSchema = z.object({
   level: z.nativeEnum(ClassificationLevel).optional(),
@@ -77,6 +78,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
+    // Live Outlook invitations of a meeting this now classifies are cancelled at once.
+    await syncInvitesAfterClassification(orgId, updated.projectId).catch(
+      (e) => console.error("outlook invite re-check failed:", e instanceof Error ? e.message : "unknown error"),
+    );
     // Feedback comments marked above what the org now covers go internal.
     await sweepMarkedComments({ orgId, actorId: ctx.userId, reason: "ceiling_changed", ipAddress: getIpAddress(request) }).catch(
       (e) => console.error("feedback marking sweep failed:", e instanceof Error ? e.message : "unknown error"),
@@ -127,6 +132,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
+    // Live Outlook invitations of a meeting this now classifies are cancelled at once.
+    await syncInvitesAfterClassification(orgId, updated.projectId).catch(
+      (e) => console.error("outlook invite re-check failed:", e instanceof Error ? e.message : "unknown error"),
+    );
     // Feedback comments marked above what the org now covers go internal.
     await sweepMarkedComments({ orgId, actorId: ctx.userId, reason: "ceiling_changed", ipAddress: getIpAddress(request) }).catch(
       (e) => console.error("feedback marking sweep failed:", e instanceof Error ? e.message : "unknown error"),

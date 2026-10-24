@@ -283,6 +283,12 @@ async function meetingLink(orgId: string, meta: CalendarMeta, meetingId: string)
 // after the meeting itself is gone.
 
 const INVITE_PREFIX = "invite:";
+/**
+ * An invitation whose cancellation couldn't be delivered (the organizer must
+ * reconnect): it stays an invitation, invite mode stays on, and the next sync
+ * retries the cancellation. The reason follows the prefix.
+ */
+const PENDING_CANCEL = `${INVITE_PREFIX}cancel:`;
 export const MAX_INVITEES = 100;
 /** What a cancellation says. Never the meeting's own title, details or link. */
 const CANCELLED_SUBJECT = "Meeting cancelled";
@@ -299,16 +305,25 @@ async function withAttendees(m: SyncMeeting): Promise<MeetingWithAttendees> {
   return { ...m, attendees };
 }
 
-/** The meeting's attendees other than the organizer, with their addresses. */
+/**
+ * The meeting's attendees other than the organizer, with their addresses: only
+ * active members of the meeting's org who may see the meeting (the same rule a
+ * mirrored copy follows). Anyone else on the attendee list gets nothing.
+ */
 async function inviteesFor(m: MeetingWithAttendees): Promise<Invitee[]> {
   const ids = m.attendees.map((a) => a.userId).filter((id) => id !== m.inviteOrganizerId);
   if (!ids.length) return [];
   const users = await prisma.user.findMany({
-    where: { id: { in: ids }, deactivatedAt: null },
+    where: { id: { in: ids }, deactivatedAt: null, memberships: { some: { orgId: m.orgId, removedAt: null } } },
     select: { id: true, email: true, displayName: true },
     orderBy: { email: "asc" },
   });
-  return users.filter((u) => !!u.email).map((u) => ({ userId: u.id, email: u.email, name: u.displayName || u.email }));
+  const out: Invitee[] = [];
+  for (const u of users) {
+    if (!u.email || !(await (await viewerFor(m.orgId, u.id)).canSee(m))) continue;
+    out.push({ userId: u.id, email: u.email, name: u.displayName || u.email });
+  }
+  return out;
 }
 
 const domainOf = (email: string) => email.split("@").pop()?.toLowerCase() ?? "";
@@ -374,18 +389,17 @@ async function inviteAudit(
   });
 }
 
-/** Cancel the organizer's event. `scrub` first blanks it, so the cancellation carries nothing of the meeting. */
-async function cancelInviteEvent(
-  orgId: string, userId: string, link: { externalEventId: string }, scrub: boolean, deps: GraphDeps,
-) {
+/**
+ * Cancel the organizer's event, always blanking it first, so the cancellation
+ * carries nothing of the meeting. Not charged to the invitation budget: a
+ * cancellation (above all a classified one) must never wait behind edits.
+ */
+async function cancelInviteEvent(orgId: string, userId: string, link: { externalEventId: string }, deps: GraphDeps) {
   const path = `/me/events/${encodeURIComponent(link.externalEventId)}`;
   try {
-    chargeInviteOp(userId);
-    if (scrub) {
-      await graphRequest(orgId, userId, "PATCH", path, {
-        subject: CANCELLED_SUBJECT, body: { contentType: "text", content: "" }, location: { displayName: "" },
-      }, deps);
-    }
+    await graphRequest(orgId, userId, "PATCH", path, {
+      subject: CANCELLED_SUBJECT, body: { contentType: "text", content: "" }, location: { displayName: "" },
+    }, deps);
     await graphRequest(orgId, userId, "POST", `${path}/cancel`, { comment: CANCELLED_COMMENT }, deps);
   } catch (e) {
     if (!(e instanceof GraphError && e.status === 404)) throw e; // already gone
@@ -413,29 +427,44 @@ async function inviteBlocker(orgId: string, m: MeetingWithAttendees, cls: Classi
 }
 
 /**
- * Stop a meeting's invitations: cancel the organizer's event (scrubbed first
- * when the meeting is now classified), drop their link, turn invite mode off,
- * and record why. The caller re-syncs, which brings back mirrored copies.
+ * Stop a meeting's invitations: cancel the organizer's event (scrubbed first),
+ * drop their link, turn invite mode off, and record why. The caller re-syncs,
+ * which brings back mirrored copies.
+ *
+ * "pending": the cancellation couldn't be delivered (the organizer has to
+ * reconnect). Nothing else changes: invite mode stays on and the invitation is
+ * marked, so it is never turned into a mirror copy (its attendees would stay on
+ * it), and the next sync retries. The organizer is told to reconnect.
  */
 async function stopInvite(
   orgId: string, m: MeetingWithAttendees, reason: InviteStopReason, deps: GraphDeps, actorId: string,
-): Promise<void> {
+): Promise<"stopped" | "pending"> {
   const organizer = m.inviteOrganizerId!;
   const link = await prisma.externalEventLink.findUnique({ where: linkKey(orgId, organizer, m.id) });
   const invitees = await inviteesFor(m);
   if (link?.contentHash?.startsWith(INVITE_PREFIX)) {
     try {
-      await cancelInviteEvent(orgId, organizer, link, reason === "classified", deps);
-      await prisma.externalEventLink.delete({ where: { id: link.id } });
+      await cancelInviteEvent(orgId, organizer, link, deps);
     } catch (e) {
-      // No working token (not connected): nothing more we can send.
       if (!(e instanceof CalendarNotConnected || e instanceof CalendarReconnectNeeded)) throw e;
+      if (!link.contentHash.startsWith(PENDING_CANCEL)) {
+        await prisma.externalEventLink.update({ where: { id: link.id }, data: { contentHash: PENDING_CANCEL + reason } });
+        await createNotification({
+          orgId, userId: organizer, type: "integration.outlook_invite_cancel_pending",
+          title: "Reconnect Outlook to cancel invitations",
+          message: "Cosmos couldn't cancel an Outlook invitation you sent. Reconnect Outlook Calendar (Settings, Preferences) and it will be cancelled.",
+          relatedType: "meeting", relatedId: m.id, url: null,
+        }).catch(() => undefined);
+      }
+      return "pending";
     }
+    await prisma.externalEventLink.delete({ where: { id: link.id } });
   }
   await prisma.syncMeeting.updateMany({ where: { id: m.id, inviteOrganizerId: organizer }, data: { inviteOrganizerId: null } });
   await meetingActivity(orgId, actorId, m.id, "outlook_invite_cancelled", null, null, reason);
   const conn = await calendarConnection(orgId, organizer);
   await inviteAudit(orgId, actorId, m.id, "microsoft_calendar.invite_cancelled", invitees, conn?.meta, { organizerId: organizer, reason });
+  return "stopped";
 }
 
 export interface InvitePreview {
@@ -447,7 +476,10 @@ export interface InvitePreview {
   /** May this person turn it on (or off) now; if not, why. */
   canChange: boolean;
   reason: "classified" | "not_connected" | "reconnect" | "cannot_edit" | "too_many_attendees" | "cancelled" | null;
+  /** Who would get (or gets) the invitation. Only for someone who can edit the meeting; empty otherwise. */
   recipients: { name: string; email: string; outside: boolean }[];
+  /** Its cancellation is waiting for the organizer to reconnect Outlook. */
+  pendingCancel: boolean;
   domains: string[];
   /**
    * How invitations last ended, while off: "released" (left in Outlook, no
@@ -484,6 +516,9 @@ export async function invitePreview(orgId: string, meetingId: string, actorId: s
     select: { action: true, newValue: true, createdAt: true },
   });
   const how = last?.action === "outlook_invite_released" ? "released" : last?.action === "outlook_invite_cancelled" ? "cancelled" : null;
+  const own = m.inviteOrganizerId
+    ? await prisma.externalEventLink.findUnique({ where: linkKey(orgId, m.inviteOrganizerId, m.id), select: { contentHash: true } })
+    : null;
   return {
     available: !!cfg,
     on: !!m.inviteOrganizerId,
@@ -491,7 +526,9 @@ export async function invitePreview(orgId: string, meetingId: string, actorId: s
     // Turning it off needs only edit rights; turning it on needs everything.
     canChange: m.inviteOrganizerId ? canEdit : reason === null,
     reason,
-    recipients: invitees.map((i) => ({ name: i.name, email: i.email, outside: away.has(i.userId) })),
+    // Addresses are for whoever may send or stop the invitation, not every reader.
+    recipients: canEdit ? invitees.map((i) => ({ name: i.name, email: i.email, outside: away.has(i.userId) })) : [],
+    pendingCancel: !!own?.contentHash?.startsWith(PENDING_CANCEL),
     domains,
     ended: how && last ? { how, reason: last.newValue, at: last.createdAt.toISOString() } : null,
   };
@@ -521,8 +558,9 @@ export async function setMeetingInvite(orgId: string, meetingId: string, actorId
   if (!(await viewer.canEdit(m))) throw new InviteRefused("cannot_edit");
   if (!enabled) {
     if (!m.inviteOrganizerId) return;
-    await stopInvite(orgId, m, "turned_off", deps, actorId);
-    await syncMeeting(orgId, meetingId, deps); // mirrored copies come back
+    if ((await stopInvite(orgId, m, "turned_off", deps, actorId)) === "stopped") {
+      await syncMeeting(orgId, meetingId, deps); // mirrored copies come back
+    }
     return;
   }
   if (m.inviteOrganizerId) {
@@ -531,7 +569,9 @@ export async function setMeetingInvite(orgId: string, meetingId: string, actorId
   }
   const preview = await invitePreview(orgId, meetingId, actorId);
   if (!preview || preview.reason) throw new InviteRefused(preview?.reason ?? "not_found");
-  await prisma.syncMeeting.update({ where: { id: meetingId }, data: { inviteOrganizerId: actorId } });
+  // Atomic: of two people turning it on at once, one wins and the other is told.
+  const claimed = await prisma.syncMeeting.updateMany({ where: { id: meetingId, orgId, inviteOrganizerId: null }, data: { inviteOrganizerId: actorId } });
+  if (!claimed.count) throw new InviteRefused("already_on");
   await meetingActivity(orgId, actorId, meetingId, "outlook_invite_on", null, null, null);
   await syncMeeting(orgId, meetingId, deps);
 }
@@ -595,7 +635,11 @@ export async function offboardInvites(orgId: string, userId: string, reason: Off
   if (!meetings.length) return;
   for (const m of meetings) {
     try {
-      await stopInvite(orgId, m, reason, { ...deps, offboarding: true }, userId);
+      // No token to cancel with, and the connection (with its links) is going:
+      // end invite mode anyway, so nothing pretends to be managed.
+      if ((await stopInvite(orgId, m, reason, { ...deps, offboarding: true }, userId)) === "pending") {
+        await prisma.syncMeeting.updateMany({ where: { id: m.id, inviteOrganizerId: userId }, data: { inviteOrganizerId: null } });
+      }
     } catch (e) {
       // Couldn't reach Microsoft: still end invite mode, so nothing pretends to be managed.
       await prisma.syncMeeting.updateMany({ where: { id: m.id, inviteOrganizerId: userId }, data: { inviteOrganizerId: null } });
@@ -635,10 +679,21 @@ async function pushFor(
   const inviting = !!invitees && !restricted;
   const body = inviting ? inviteBody(base, invitees!) : base;
   const hash = inviting ? inviteHash(body as ReturnType<typeof inviteBody>) : bodyHash(body);
-  const existing = await prisma.externalEventLink.findUnique({ where: linkKey(orgId, userId, m.id) });
+  let existing = await prisma.externalEventLink.findUnique({ where: linkKey(orgId, userId, m.id) });
   if (existing && !force && existing.contentHash === hash && existing.externalCalendarId === calendarId) return;
   const wasInvite = !!existing?.contentHash?.startsWith(INVITE_PREFIX);
-  if (inviting || wasInvite) chargeInviteOp(userId); // this write notifies people
+  if (wasInvite && !inviting) {
+    // Never turn an invitation into a mirror copy: its attendees would stay on
+    // an event nothing manages. Cancel it (scrubbed); a fresh copy follows.
+    await cancelInviteEvent(orgId, userId, existing!, deps);
+    await prisma.externalEventLink.delete({ where: { id: existing!.id } });
+    await logAudit({
+      orgId, userId, action: "microsoft_calendar.invite_cancelled", entity: "sync_meeting", entityId: m.id,
+      metadata: { organizerId: userId, reason: restricted ? "classified" : "mirror_resumed" },
+    });
+    existing = null;
+  }
+  if (inviting) chargeInviteOp(userId); // this write notifies people
   let ev: GraphEvent | null = null;
   if (existing && existing.externalCalendarId === calendarId) {
     try {
@@ -694,7 +749,7 @@ async function removeFor(orgId: string, userId: string, meetingId: string, deps:
   if (link.contentHash?.startsWith(INVITE_PREFIX)) {
     // Their event is a meeting others were invited to: cancel it, so the
     // attendees get a cancellation (a plain delete may not tell them).
-    await cancelInviteEvent(orgId, userId, link, false, deps);
+    await cancelInviteEvent(orgId, userId, link, deps);
     await prisma.externalEventLink.delete({ where: { id: link.id } });
     await logAudit({
       orgId, userId, action: "microsoft_calendar.invite_cancelled", entity: "sync_meeting", entityId: meetingId,
@@ -740,10 +795,17 @@ export async function syncMeeting(orgId: string, meetingId: string, deps: GraphD
   // people) it is cancelled and the meeting goes back to mirroring.
   if (m && m.status !== "CANCELLED" && m.inviteOrganizerId) {
     const organizer = m.inviteOrganizerId;
+    // A cancellation that couldn't be delivered earlier: try it again first.
+    const own = await prisma.externalEventLink.findUnique({ where: linkKey(orgId, organizer, m.id) });
+    if (own?.contentHash?.startsWith(PENDING_CANCEL)) {
+      const reason = own.contentHash.slice(PENDING_CANCEL.length) as InviteStopReason;
+      if ((await stopInvite(orgId, m, reason, deps, organizer)) === "pending") return;
+      return syncMeeting(orgId, meetingId, deps, skipUserId);
+    }
     const blocked = await inviteBlocker(orgId, m, cls);
     if (blocked === "paused") return; // organizer must reconnect; nothing changes meanwhile
     if (blocked) {
-      await stopInvite(orgId, m, blocked, deps, organizer);
+      if ((await stopInvite(orgId, m, blocked, deps, organizer)) === "pending") return;
       return syncMeeting(orgId, meetingId, deps, skipUserId);
     }
     const invitees = await inviteesFor(m);
@@ -772,6 +834,22 @@ export function syncMeetingSoon(orgId: string, meetingId: string) {
   } catch {
     void run(); // outside a request (scripts, tests)
   }
+}
+
+/**
+ * A classification changed (org-wide, or one project's): re-check live
+ * invitations now, so one whose meeting became classified is cancelled at
+ * once rather than at the next reconcile. Fire-and-forget, like any push.
+ */
+export async function syncInvitesAfterClassification(
+  orgId: string, projectId: string | null, run: (orgId: string, meetingId: string) => unknown = syncMeetingSoon,
+): Promise<number> {
+  const meetings = await prisma.syncMeeting.findMany({
+    where: { orgId, inviteOrganizerId: { not: null }, status: { not: "CANCELLED" }, ...(projectId ? { projectId } : {}) },
+    select: { id: true },
+  });
+  for (const m of meetings) await run(orgId, m.id);
+  return meetings.length;
 }
 
 async function meetingActivity(orgId: string, userId: string, meetingId: string, action: string, field: string | null, oldValue: string | null, newValue: string | null) {
@@ -925,9 +1003,21 @@ async function applyOne(
       metadata: { reason: cosmosNewer ? "cosmos_newer" : "no_edit_rights", fields: trail.map((t) => t[0]).join(", ") },
     });
     await meetingActivity(orgId, userId, m.id, "outlook_change_ignored", trail.map((t) => t[0]).join(", "), null, cosmosNewer ? "cosmos_newer" : "no_edit_rights");
-    // Put the Cosmos version back (with its attendees, if it's an invitation).
-    await pushFor(orgId, userId, m, deps, cls, true, m.inviteOrganizerId === userId ? await inviteesFor(await withAttendees(m)) : undefined);
     out.ignored++;
+    if (m.inviteOrganizerId !== userId) {
+      await pushFor(orgId, userId, m, deps, cls, true); // put the Cosmos version back
+      return;
+    }
+    // Their copy is the invitation: re-send it (attendees and all) only if it
+    // may still go out, as any other send is checked.
+    const mw = await withAttendees(m);
+    const blocked = await inviteBlocker(orgId, mw, cls);
+    if (blocked === "paused") return;
+    if (blocked) {
+      if ((await stopInvite(orgId, mw, blocked, deps, userId)) === "stopped") await syncMeeting(orgId, m.id, deps);
+      return;
+    }
+    await pushFor(orgId, userId, m, deps, cls, true, await inviteesFor(mw));
     return;
   }
   const updated = await prisma.syncMeeting.update({ where: { id: m.id }, data: changes });

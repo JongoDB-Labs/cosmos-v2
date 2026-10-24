@@ -18,7 +18,7 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 const URL = "/api/v1/orgs/o1/meetings/m1/outlook-invite";
 const state = (over: object) => ({
   available: true, on: false, organizerId: null, organizerName: null, canChange: true, reason: null,
-  recipients: [{ name: "Bob", email: "bob@contoso.example", outside: false }], domains: ["contoso.example"], ended: null,
+  recipients: [{ name: "Bob", email: "bob@contoso.example", outside: false }], domains: ["contoso.example"], ended: null, pendingCancel: false,
   ...over,
 });
 function wrap(ui: React.ReactNode) {
@@ -114,4 +114,18 @@ describe("OutlookInvitePanel", () => {
     wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
     expect((await screen.findByRole("note")).textContent).toContain("cancelled because their organizer left the organization");
   });
+  it("a cancellation waiting on a reconnect says so, and offers no second stop", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true, pendingCancel: true }) as never);
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    expect((await screen.findByRole("alert")).textContent).toMatch(/couldn't be cancelled: reconnect your Outlook Calendar/);
+    expect(screen.queryByRole("button", { name: "Stop sending invitations" })).toBeNull();
+  });
+
+  it("a live invitation can be stopped by its organizer", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true }) as never);
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    expect(await screen.findByRole("button", { name: "Stop sending invitations" })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
 });

@@ -35,6 +35,8 @@ interface InviteState {
     | "cancelled"
     | null;
   recipients: { name: string; email: string; outside: boolean }[];
+  /** Its cancellation is waiting for the organizer to reconnect Outlook. */
+  pendingCancel: boolean;
   domains: string[];
   ended: {
     how: "released" | "cancelled";
@@ -100,8 +102,12 @@ export function OutlookInvitePanel({
         body: JSON.stringify({ enabled }),
       }),
     invalidate: [["outlook-invite", meetingId]],
-    onSuccess: (_d, enabled) => {
+    onSuccess: (d, enabled) => {
       setConfirming(null);
+      if (!enabled && d?.pendingCancel) {
+        toast.error("Reconnect Outlook Calendar to cancel the invitations.");
+        return;
+      }
       toast.success(
         enabled ? "Outlook invitations sent" : "Outlook invitations cancelled",
       );
@@ -147,7 +153,14 @@ export function OutlookInvitePanel({
               this meeting changes, instead of a copy in their
               &quot;Cosmos&quot; calendar.
             </p>
-            {mine && confirming !== "off" && (
+            {data.pendingCancel && (
+              <p role="alert" className="text-sm text-destructive">
+                {mine
+                  ? "These invitations couldn't be cancelled: reconnect your Outlook Calendar (Settings, Preferences) and they will be."
+                  : "These invitations are waiting to be cancelled until the organizer reconnects Outlook."}
+              </p>
+            )}
+            {mine && !data.pendingCancel && confirming !== "off" && (
               <div>
                 <Button
                   size="sm"
