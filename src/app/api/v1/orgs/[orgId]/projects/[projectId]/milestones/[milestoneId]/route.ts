@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
-import { z } from "zod";
-import { MilestoneStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { handleApiError } from "@/lib/api-helpers";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { deleteMilestone, updateMilestone } from "./route.contract";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; milestoneId: string }>;
@@ -18,31 +18,14 @@ function loadMilestone(orgId: string, projectId: string, milestoneId: string) {
   });
 }
 
-const updateSchema = z.object({
-  title: z.string().min(1).max(200).optional(),
-  description: z.string().nullish(),
-  dueDate: z.string().datetime().optional(),
-  status: z.nativeEnum(MilestoneStatus).optional(),
-  autoStatus: z.boolean().optional(),
-  completedAt: z.string().datetime().nullish(),
-  ownerId: z.string().uuid().nullish(),
-  sortOrder: z.number().int().optional(),
-});
-
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, milestoneId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, updateMilestone);
+    const { params: { orgId, projectId, milestoneId }, body: data } = await parseRequest(updateMilestone, request, params);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
     const existing = await loadMilestone(orgId, projectId, milestoneId);
-    if (!existing) return new Response("Not found", { status: 404 });
-
-    const data = updateSchema.parse(await request.json());
+    if (!existing) return problem(404, "not_found", undefined, { request });
 
     const updated = await prisma.milestone.update({
       where: { id: milestoneId },
@@ -61,30 +44,26 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       include: { links: true },
     });
 
-    return success(updated);
+    return respond(updateMilestone, 200, updated);
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, milestoneId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, deleteMilestone);
+    const { params: { orgId, projectId, milestoneId } } = await parseRequest(deleteMilestone, request, params);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
     const existing = await loadMilestone(orgId, projectId, milestoneId);
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing) return problem(404, "not_found", undefined, { request });
 
     // Links cascade-delete via the FK.
     await prisma.milestone.delete({ where: { id: milestoneId } });
 
-    return success({ id: milestoneId });
+    return respond(deleteMilestone, 200, { id: milestoneId });
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }

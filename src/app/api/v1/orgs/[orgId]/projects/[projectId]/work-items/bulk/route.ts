@@ -6,9 +6,10 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { createNotification } from "@/lib/notifications/create";
-import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
-import { setLabelsForMany } from "@/lib/work-items/labels";
+import { applyWorkItemChange } from "@/lib/work-items/apply-change.server";
+import { transitionRequestSchema } from "@/lib/workflow/transition-request";
+import type { BulkDenial } from "@/lib/workflow/contract";
+import { mergeEffects, runAfterCommit, type AfterCommitEffects } from "@/lib/work-items/after-commit";
 import { z } from "zod";
 import { Priority } from "@prisma/client";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -39,6 +40,8 @@ const bulkUpdateSchema = z.object({
     intervalId: z.string().uuid().nullable().optional(),
     tags: z.array(z.string()).optional(),
   }),
+  // The transition and its input, collected once for the whole selection.
+  transition: transitionRequestSchema.optional(),
 });
 
 const bulkDeleteSchema = z.object({
@@ -58,95 +61,49 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     await requireProjectManage(ctx, projectId, Permission.ITEM_BULK_EDIT);
 
     const body = await request.json();
-    const { ids, update } = bulkUpdateSchema.parse(body);
+    const { ids, update, transition } = bulkUpdateSchema.parse(body);
 
-    const updateData: Record<string, unknown> = {};
-    if (update.columnKey !== undefined) {
-      updateData.columnKey = update.columnKey;
-      updateData.columnEnteredAt = new Date();
-    }
-    if (update.assigneeId !== undefined) updateData.assigneeId = update.assigneeId;
-    if (update.priority !== undefined) updateData.priority = update.priority;
-    if (update.intervalId !== undefined) updateData.intervalId = update.intervalId;
-    // Labels are NOT put in updateData: the array is a mirror of
-    // work_item_labels now, so an updateMany would set the text without
-    // creating the rows — the label would show on every card and filter, yet be
-    // absent from the management screen and skipped by any later rename.
-    // Applied below instead, set-based so a 500-item batch stays 3 statements.
-
-    // Snapshot previous state so we can fan out per-item assignee-change
-    // notifications after the bulk update succeeds.
-    const previousItems: { id: string; title: string; assigneeId: string | null; projectId: string }[] = [];
+    // Each batch is one transaction through the same writer as a single edit,
+    // so a bulk move stamps dates, clears a cancel reason, records history and
+    // keeps the assignee set exactly as dragging each card would. Batches keep
+    // each transaction (and its IN lists) small; a later batch failing leaves
+    // the earlier ones applied, as before.
+    const parts: AfterCommitEffects[] = [];
+    const denied: BulkDenial[] = [];
+    let updatedCount = 0;
     for (const batch of chunk(ids, BULK_CHUNK)) {
-      previousItems.push(
-        ...(await prisma.workItem.findMany({
-          where: { id: { in: batch }, orgId, projectId },
-          select: { id: true, title: true, assigneeId: true, projectId: true },
+      const change = await prisma.$transaction((tx) =>
+        applyWorkItemChange(tx, {
+          actorId: ctx.userId,
+          orgId,
+          projectId,
+          itemIds: batch,
+          patch: update,
+          source: "BULK",
+          actor: ctx,
+          transition,
+        }),
+      );
+      updatedCount += change.itemIds.length;
+      parts.push(change.effects);
+      // The workflow refuses items one by one; the rest of the selection still
+      // moves, as a bulk transition does in Jira.
+      denied.push(
+        ...change.denied.map((d) => ({
+          id: d.itemId,
+          code: d.body.code,
+          message: d.body.error,
+          // What to ask for, so the selection's details are collected once and sent again.
+          ...(d.body.transition && { transition: d.body.transition }),
+          ...(d.body.fields && { fields: d.body.fields }),
         })),
       );
     }
 
-    let updatedCount = 0;
-    for (const batch of chunk(ids, BULK_CHUNK)) {
-      const r = await prisma.workItem.updateMany({
-        where: { id: { in: batch }, orgId, projectId },
-        data: updateData,
-      });
-      updatedCount += r.count;
-    }
-    if (update.tags !== undefined) {
-      for (const batch of chunk(ids, BULK_CHUNK)) {
-        await setLabelsForMany(prisma, orgId, batch, update.tags);
-      }
-    }
-    const result = { count: updatedCount };
+    const effects = mergeEffects(parts);
+    if (effects) await runAfterCommit(effects, { ipAddress: getIpAddress(request) });
 
-    // A bulk column move must carry linked feedback items with it (best-effort inside).
-    if (updateData.columnKey !== undefined) {
-      await syncFeedbackForWorkItems(ids);
-    }
-
-    await logAudit({
-      orgId,
-      userId: ctx.userId,
-      action: "work_item.bulk_updated",
-      entity: "work_item",
-      metadata: {
-        count: String(result.count),
-        fields: Object.keys(update).join(", "),
-      } as Record<string, string>,
-      ipAddress: getIpAddress(request),
-    });
-
-    // Notification fan-out for assignee changes
-    if (
-      update.assigneeId !== undefined &&
-      update.assigneeId !== null &&
-      update.assigneeId !== ctx.userId
-    ) {
-      const newAssignee = update.assigneeId;
-      for (const prev of previousItems) {
-        if (prev.assigneeId === newAssignee) continue;
-        await createNotification({
-          orgId,
-          userId: newAssignee,
-          type: "work_item.assigned",
-          title: `Assigned: ${prev.title}`,
-          message: `You've been assigned a work item`,
-          relatedId: prev.id,
-          relatedType: "work_item",
-          // Same dead route as COSMOS-191 — /[orgSlug]/issues?item= is the real one.
-          url: `/${org.slug}/issues?item=${prev.id}`,
-        }).catch(() => {
-          /* swallow */
-        });
-      }
-    }
-
-    // Live board updates (COSMOS-129): bulk edits must publish like single-item edits
-    // so kanban/backlog/issues reflect the change for every connected client.
-    publishToOrg(orgId, "work-item.updated", { ids });
-    return success({ updated: result.count });
+    return success({ updated: updatedCount, denied });
   } catch (error) {
     return handleApiError(error);
   }

@@ -1,16 +1,17 @@
 /**
  * Which team's work is this?
  *
- * Work items carry no team of their own — `Team` groups project MEMBERS, and a
- * board can belong to a team, but nothing attaches an ITEM to one. So a team's
- * tasking is derived: it is the work assigned to that team's people.
+ * An item can name its team outright (`WorkItem.teamId`, COSMOS-204), separate
+ * from who it is assigned to: a release train hands a story to a team before
+ * anyone on it picks it up. When it names one, that is the answer, whoever the
+ * assignee is.
  *
- * That choice is deliberate (no migration, works on existing data, nothing to
- * backfill) and it has consequences worth stating plainly, because they show up
- * on screen:
+ * Items that name no team fall back to the older derived rule: the team's work
+ * is what its people are assigned. That keeps every existing item where it
+ * was, and its consequences still apply to those items only:
  *
- *   - An unassigned item belongs to no team, however obviously it is "for" one.
- *   - Reassigning an item moves it between teams, silently.
+ *   - An unassigned item with no team belongs to no team.
+ *   - Reassigning it moves it between teams.
  *   - Someone on two teams has their work counted under both.
  *
  * The last one is why FILTERING and SWIMLANES behave differently here, and the
@@ -25,6 +26,14 @@
  *     deterministically, rather than duplicating the card into two rows where
  *     dragging it would be ambiguous.
  */
+
+import type { Prisma } from "@prisma/client";
+
+/** The two facts about an item that decide its team. */
+export interface TeamOwned {
+  assigneeId?: string | null;
+  teamId?: string | null;
+}
 
 export interface TeamLike {
   id: string;
@@ -48,31 +57,55 @@ export function teamsByUser(teams: TeamLike[]): Map<string, TeamLike[]> {
   return byUser;
 }
 
-/** The single lane an item sits in. `id: ""` is the "No team" bucket. */
+/**
+ * The single lane an item sits in. `id: ""` is the "No team" bucket. `teams`
+ * names the item's own team; one that is no longer on the roster falls back
+ * to the assignee's.
+ */
 export function teamLaneFor(
-  assigneeId: string | null | undefined,
+  item: TeamOwned,
   byUser: Map<string, TeamLike[]>,
+  teams: TeamLike[] = [],
 ): { id: string; label: string } {
-  if (!assigneeId) return { id: "", label: "No team" };
-  const teams = byUser.get(assigneeId);
-  if (!teams || teams.length === 0) return { id: "", label: "No team" };
+  const own = item.teamId ? teams.find((t) => t.id === item.teamId) : undefined;
+  if (own) return { id: own.id, label: own.name };
+  if (!item.assigneeId) return { id: "", label: "No team" };
+  const mine = byUser.get(item.assigneeId);
+  if (!mine || mine.length === 0) return { id: "", label: "No team" };
   // Alphabetically first — `teamsByUser` already sorted, so this is stable.
-  return { id: teams[0].id, label: teams[0].name };
+  return { id: mine[0].id, label: mine[0].name };
 }
 
 /**
  * Does this item count as the given team's work?
  *
- * Unlike the lane, this is a plain membership test: an item assigned to someone
- * on both Alpha and Bravo matches BOTH, because "show me Alpha's tasking" should
- * not hide work just because its owner also helps out elsewhere.
+ * An item that names a team is that team's work and no other's. Otherwise,
+ * unlike the lane, this is a plain membership test: an item assigned to
+ * someone on both Alpha and Bravo matches BOTH, because "show me Alpha's
+ * tasking" should not hide work just because its owner also helps out
+ * elsewhere.
  */
 export function itemMatchesTeam(
-  assigneeId: string | null | undefined,
+  item: TeamOwned,
   teamId: string | null,
   byUser: Map<string, TeamLike[]>,
 ): boolean {
   if (!teamId) return true; // "All teams" — the filter is inert
-  if (!assigneeId) return false;
-  return (byUser.get(assigneeId) ?? []).some((t) => t.id === teamId);
+  if (item.teamId) return item.teamId === teamId;
+  if (!item.assigneeId) return false;
+  return (byUser.get(item.assigneeId) ?? []).some((t) => t.id === teamId);
+}
+
+/**
+ * `itemMatchesTeam` as a query, for callers that ask the database rather than
+ * filter a list already in memory (the assistant's work-item tools). Same rule:
+ * an item naming this team, or a team-less item assigned to one of its people.
+ */
+export function teamWorkItemWhere(
+  teamId: string,
+  memberUserIds: string[],
+): Prisma.WorkItemWhereInput {
+  const own: Prisma.WorkItemWhereInput = { teamId };
+  if (memberUserIds.length === 0) return own;
+  return { OR: [own, { teamId: null, assigneeId: { in: memberUserIds } }] };
 }

@@ -557,7 +557,7 @@ function seedVendorLogs(
     if (invoiced === "" || invoiced === 0) return;
     const id = `V-${String(i + 1).padStart(3, "0")}`;
     invSheet.cell(invRow, invCol.id).value(id);
-    if (invCol.company) invSheet.cell(invRow, invCol.company).value(partnerName(row));
+    invSheet.cell(invRow, invCol.company).value(partnerName(row));
     invSheet.cell(invRow, invCol.amount).value(invoiced);
     invSheet.cell(invRow, invCol.status).value("Approved");
     invRow++;

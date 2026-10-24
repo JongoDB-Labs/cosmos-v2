@@ -3,14 +3,18 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requireAccess } from "@/lib/abac/require-access";
-import { canManageProject } from "@/lib/rbac/scope";
-import { success, created, handleApiError } from "@/lib/api-helpers";
+import { created, handleApiError } from "@/lib/api-helpers";
 import { createNotification } from "@/lib/notifications/create";
 import { mentionsToPlainText, userMentionLabels } from "@/lib/mentions/plain-text";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { parseMentions } from "@/lib/chat/mentions";
 import { syncReferences } from "@/lib/mentions/references";
 import { z } from "zod";
+import { loadWorkItemComments } from "@/lib/work-items/read.server";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { listWorkItemComments } from "./route.contract";
 
 const createCommentSchema = z.object({
   content: z.string().min(1).max(10000),
@@ -20,47 +24,15 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string; itemId:
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, itemId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, listWorkItemComments);
+    const { params: { orgId, projectId, itemId } } = await parseRequest(listWorkItemComments, request, params);
     await requireProjectRead(ctx, projectId, "COMMENT_READ");
 
-    const item = await prisma.workItem.findFirst({ where: { id: itemId, orgId, projectId } });
-    if (!item) return new Response("Not found", { status: 404 });
-
-    const comments = await prisma.comment.findMany({
-      where: { workItemId: itemId, orgId },
-      orderBy: { createdAt: "asc" },
-    });
-
-    // Resolve author display names (Comment has no User relation) + per-comment
-    // CRUD flags so the UI can show edit (author-only) / delete (author or a
-    // project manager) affordances. A side query keeps this migration-free and
-    // never touches OrgMember.permissions (BigInt).
-    const authorIds = [...new Set(comments.map((c) => c.authorId))];
-    const authors = authorIds.length
-      ? await prisma.user.findMany({
-          where: { id: { in: authorIds } },
-          select: { id: true, displayName: true, avatarUrl: true },
-        })
-      : [];
-    const authorById = new Map(authors.map((u) => [u.id, u]));
-    const isManager = await canManageProject(ctx, projectId);
-
-    return success(
-      comments.map((c) => ({
-        ...c,
-        authorName: authorById.get(c.authorId)?.displayName ?? null,
-        authorAvatarUrl: authorById.get(c.authorId)?.avatarUrl ?? null,
-        canEdit: c.authorId === ctx.userId,
-        canDelete: c.authorId === ctx.userId || isManager,
-      })),
-    );
+    const comments = await loadWorkItemComments(ctx, orgId, projectId, itemId);
+    if (!comments) return problem(404, "not_found", undefined, { request });
+    return respond(listWorkItemComments, 200, comments);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 

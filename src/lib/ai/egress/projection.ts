@@ -29,14 +29,19 @@ const _connectorEgress = connectorEgressMaps();
  */
 const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // listWorkItems/queryWorkItems return `id, ticketNumber, columnKey?, priority,
-  // assigneeId, intervalId, storyPoints, dueDate, workItemTypeId, completedAt?, tags`.
+  // assigneeId, intervalId, parentId, storyPoints, dueDate, workItemTypeId,
+  // completedAt?, tags`. `parentId` is a uuid like `intervalId`: structural, and
+  // what lets the agent walk an epic's children (COSMOS-177).
   // `columnKey` (FIX A) is unconstrained free text → dropped (orchestrate via id/status).
   // `title`/`description`/`tags` are content/arrays → never allowlisted/kept.
   work_item: [
     "id", "ticketNumber", "status", "priority", "storyPoints",
     "dueDate", "startDate", "completedAt", "assigneeId", "projectId",
-    "workItemTypeId", "intervalId", "createdAt", "updatedAt",
+    "workItemTypeId", "intervalId", "parentId", "teamId", "createdAt", "updatedAt",
   ],
+  // listTeams returns `id, projectId, name, key, memberCount, isMine`. `name`/`key`
+  // are name-derived (dropped, as for project); the rest is structural.
+  team: ["id", "projectId", "memberCount", "isMine"],
   // createNote/updateNote/deleteNote return `id, title, visibility`. The Note model
   // has NO projectId column (executor ignores the arg) → projectId removed (FIX C).
   // `title` is content → excluded. authorId/timestamps appear on richer shapes.
@@ -146,6 +151,11 @@ const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   work_item_link: [
     "id", "type", "sourceItemId", "targetItemId", "sourceTicketNumber", "targetTicketNumber", "createdAt",
   ],
+  // listTransitions returns { itemId, transitions: [{ id, name, to, toCategory, requiresInput,
+  // input }] }. `name` is a workflow author's label and `to` a status key (free text, like
+  // columnKey above), and an open workflow's `id` embeds that key → all three are handles,
+  // never readable. `toCategory` is the 4-value enum; `requiresInput` a boolean.
+  work_item_transition: ["toCategory", "requiresInput"],
   // listBoards returns id/projectId/type/sortOrder(+name). `name`/`slug` are content/url-ish → dropped.
   board: ["id", "projectId", "type", "sortOrder", "createdAt"],
   // listDocuments returns id/projectId/uploadedById/contentType/format/status/size/pageCount/
@@ -213,6 +223,8 @@ const NATIVE_HANDLEABLE_FIELDS: Record<string, readonly string[]> = {
   // so it is intentionally OMITTED — listing it would never mint (default-deny by
   // absence) and would misrepresent the shape contract.
   work_item: ["title"],
+  // transitions: the model passes `id` back to transition_item by reference.
+  work_item_transition: ["id", "name", "to"],
   // notes: create/update return `title` (CUI). `content` is NOT in the note return
   // shapes (only title + visibility), so it is omitted (default-deny by absence).
   note: ["title"],
@@ -239,6 +251,7 @@ export const HANDLEABLE_FIELDS: Record<string, readonly string[]> = {
 const NATIVE_TOOL_ENTITY: Record<string, string> = {
   query_work_items: "work_item", list_work_items: "work_item",
   create_work_item: "work_item", update_work_item: "work_item", delete_work_item: "work_item",
+  list_transitions: "work_item_transition", transition_item: "work_item",
   create_note: "note", update_note: "note", delete_note: "note",
   add_comment: "comment", list_comments: "comment", delete_comment: "comment",
   log_time: "time_entry", list_time_entries: "time_entry",
@@ -261,6 +274,7 @@ const NATIVE_TOOL_ENTITY: Record<string, string> = {
   create_key_result: "key_result", update_key_result: "key_result",
   add_kr_checkin: "kr_checkin", link_key_result_item: "key_result_link",
   // Milestones.
+  list_teams: "team",
   list_milestones: "milestone", create_milestone: "milestone",
   update_milestone: "milestone", delete_milestone: "milestone",
   // Feedback (title/description withheld for gov — see feedback exposable comment).

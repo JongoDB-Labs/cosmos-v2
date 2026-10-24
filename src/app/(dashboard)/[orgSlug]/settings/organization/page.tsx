@@ -15,6 +15,8 @@ import { OrgDangerZone } from "@/components/settings/org-danger-zone";
 import { OrgEmailDelivery } from "@/components/settings/org-email-delivery";
 import { hasSealedApiKey } from "@/lib/integrations/org-email-config";
 import { Separator } from "@/components/ui/separator";
+import { QueryLanguageOrgSwitch } from "@/components/settings/query-language-setting";
+import { WorkflowSettingsCard } from "@/components/settings/workflow-settings";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -34,6 +36,7 @@ export default async function OrganizationPage({ params }: PageParams) {
   const canUpdate = hasPermission(ctx.permissions, Permission.ORG_UPDATE);
   const canBrand = hasPermission(ctx.permissions, Permission.THEME_MANAGE);
   const canDelete = hasPermission(ctx.permissions, Permission.ORG_DELETE);
+  const canManageSettings = hasPermission(ctx.permissions, Permission.ORG_MANAGE_SETTINGS);
   // The tenant class is OWNER-only to change (and then only tighter). Everyone who can view
   // this page sees it read-only; only the OWNER gets the tighten control.
   const isOwner = ctx.orgRole === "OWNER";
@@ -122,6 +125,14 @@ export default async function OrganizationPage({ params }: PageParams) {
           </p>
           <OrgEmailDelivery orgId={ctx.orgId} isOwner={isOwner} initial={emailInitial} />
         </section>
+        {canManageSettings && (
+          <>
+            <Separator />
+            <QueryLanguageOrgSwitch orgId={ctx.orgId} />
+          </>
+        )}
+        {/* Shown to whoever holds WORKFLOW_MANAGE; renders nothing otherwise. */}
+        <WorkflowSettingsCard orgId={ctx.orgId} />
         {canBrand && (
           <>
             <Separator />

@@ -18,7 +18,7 @@ export type PmSubjectType =
   | "staff"
   | "clin";
 
-export const PM_SUBJECT_TYPES: PmSubjectType[] = [
+const PM_SUBJECT_TYPES: PmSubjectType[] = [
   "project",
   "risk",
   "change",

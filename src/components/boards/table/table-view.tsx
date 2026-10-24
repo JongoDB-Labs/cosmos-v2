@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useMemo, useCallback, type ReactNode } from "react";
+import { useState, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
 import { matchesFilters } from "@/lib/work-items/board-filters";
+import { boardScope, inBoardScope } from "@/lib/boards/saved-filter";
+import { BoardScopeNotice } from "@/components/boards/shared/board-scope-notice";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
@@ -13,6 +15,8 @@ import { archiveAction, copyLinkAction } from "@/lib/work-items/item-actions";
 import { useOrgSlug } from "@/lib/query/keys";
 import { highlightRowStyle } from "@/lib/work-items/highlights";
 import { notifyError } from "@/lib/errors/notify";
+import { sendItemChange, TransitionBackedOut, useTransitionPrompt } from "@/components/work-items/use-transition-prompt";
+import { announceBulkChange, sendBulkChange } from "@/components/work-items/bulk-change";
 import { toast } from "sonner";
 import {
   createColumnHelper,
@@ -22,7 +26,11 @@ import {
 } from "@tanstack/react-table";
 import { DataTable } from "@/components/ui/data-table";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
-import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
+import {
+  NewIssueButton,
+  type NewIssueHandle,
+} from "@/components/boards/shared/new-issue-button";
+import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -114,7 +122,10 @@ type EditingCell = {
 } | null;
 
 export function TableView({ orgId, projectId, projectKey, boardId }: TableViewProps) {
+  const newIssueRef = useRef<NewIssueHandle>(null);
   const qc = useQueryClient();
+  // A bulk move the workflow wants details for, asked once per transition.
+  const { ask: askTransition, dialog: transitionDialog } = useTransitionPrompt();
   const { can } = usePermissions();
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [grouping, setGrouping] = useState<GroupingState>([]);
@@ -202,9 +213,12 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   // filter (what I am looking at right now). The two compose.
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
   const projectStatuses = useProjectStatuses(orgId, projectId);
+  // A board saved from Issues is scoped by that query (lib/boards/saved-filter);
+  // like typeKeys it is configuration, and the filter bar narrows within it.
+  const scope = useMemo(() => boardScope(board?.config), [board]);
   const visibleItems = useMemo(
-    () => items.filter((it) => matchesFilters(it, filters)),
-    [items, filters],
+    () => items.filter((it) => inBoardScope(scope, it) && matchesFilters(it, filters)),
+    [items, filters, scope],
   );
 
   // Persist a change to the board's type filter (optimistic: patch the board
@@ -317,18 +331,17 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       );
 
       try {
-        await jsonFetch(`${basePath}/work-items/${rowId}`, {
-          method: "PUT",
-          body: JSON.stringify(payload),
-        });
+        await sendItemChange(`${basePath}/work-items/${rowId}`, payload, askTransition);
       } catch (err) {
-        console.error("Failed to update work item:", err);
-        notifyError(err, "Couldn't save your change.");
+        if (!(err instanceof TransitionBackedOut)) {
+          console.error("Failed to update work item:", err);
+          notifyError(err, "Couldn't save your change.");
+        }
         // Rollback by refetching
         qc.invalidateQueries({ queryKey: itemsKey });
       }
     },
-    [qc, itemsKey, basePath],
+    [qc, itemsKey, basePath, askTransition],
   );
 
   const selectedIds = useMemo(
@@ -351,10 +364,10 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       );
 
       try {
-        await jsonFetch(`${basePath}/work-items/bulk`, {
-          method: "PUT",
-          body: JSON.stringify({ ids: selectedIds, update }),
-        });
+        const result = await sendBulkChange({ basePath, ids: selectedIds, update, ask: askTransition });
+        announceBulkChange(result);
+        // The workflow may have kept some items back: show the server's truth.
+        if (result.denied.length > 0) qc.invalidateQueries({ queryKey: itemsKey });
         // Success: dismiss the floating bulk toolbar (matches bulkDelete). On
         // failure we keep the selection so the user can retry.
         setRowSelection({});
@@ -363,7 +376,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         qc.invalidateQueries({ queryKey: itemsKey });
       }
     },
-    [selectedIds, qc, itemsKey, basePath],
+    [selectedIds, qc, itemsKey, basePath, askTransition],
   );
 
   // Adding a tag must preserve each item's *own* existing tags — but the bulk
@@ -934,6 +947,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
 
   return (
     <div className="flex flex-col h-full">
+      {transitionDialog}
       {/* Toolbar */}
       <div className="flex items-center gap-3 px-4 py-2 border-b bg-background/50">
         <div className="flex items-center gap-1">
@@ -1004,6 +1018,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         {/* New issue + density toggle — pushed to the right edge of the toolbar */}
         <div className="ml-auto flex items-center gap-2">
           <NewIssueButton
+            ref={newIssueRef}
             orgId={orgId}
             projectId={projectId}
             projectKey={projectKey}
@@ -1036,7 +1051,9 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           boardColumns={projectStatuses}
         />
       </div>
+      <BoardScopeNotice scope={scope} />
 
+      <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       {/* Table */}
       <div
         className={cn(
@@ -1061,6 +1078,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           stickyHeader
         />
       </div>
+      </BoardCreateMenu>
 
       <BoardItemDetailSheet
         itemId={detailId}

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { allocateTicketNumber } from "@/lib/work-items/allocate";
+import { createWorkItemRow, updateWorkItems, updateWorkItemsUnchecked } from "@/lib/work-items/write.server";
 import { IntervalKind, SprintStatus } from "@prisma/client";
 import {
   IGNORE,
@@ -44,7 +45,7 @@ interface ValidSets {
 }
 
 async function loadValidSets(ctx: EngineCtx): Promise<ValidSets> {
-  const [members, types, project, intervals] = await Promise.all([
+  const [members, types, statuses, intervals] = await Promise.all([
     prisma.orgMember.findMany({
       where: { orgId: ctx.orgId },
       select: {
@@ -56,17 +57,19 @@ async function loadValidSets(ctx: EngineCtx): Promise<ValidSets> {
       where: { OR: [{ orgId: ctx.orgId }, { orgId: null, isBuiltIn: true }] },
       select: { id: true },
     }),
-    prisma.project.findUnique({
-      where: { id: ctx.projectId },
-      select: { boards: { select: { columns: { select: { key: true } } } } },
+    // The statuses an item may be put in: the project's live ones (a ceremony
+    // board's prompts are columns, not statuses, and an archived status is
+    // hidden from people, so an import should not fill it either).
+    prisma.workflowStatus.findMany({
+      where: { projectId: ctx.projectId, archivedAt: null },
+      select: { key: true },
     }),
     prisma.interval.findMany({
       where: { projectId: ctx.projectId },
       select: { id: true, name: true, number: true },
     }),
   ]);
-  const columnKeys = new Set<string>();
-  for (const b of project?.boards ?? []) for (const c of b.columns) columnKeys.add(c.key);
+  const columnKeys = new Set(statuses.map((st) => st.key));
 
   const memberByToken = new Map<string, string>();
   for (const m of members) {
@@ -247,7 +250,9 @@ function normalizeRows(req: ImportRequest, sets: ValidSets): NormalizedRow[] {
       ? "Missing title (Summary)"
       : !workItemTypeId
         ? "No valid work-item type"
-        : null;
+        : !sets.columnKeys.has(columnKey)
+          ? `No status "${columnKey}" in this project — map the status column or pick another default`
+          : null;
 
     return {
       rowNum,
@@ -442,7 +447,11 @@ export async function runImport(
     try {
       let id: string;
       if (n.externalId && done.has(n.externalId)) {
-        const up = await prisma.workItem.update({
+        // A re-import restores the source system's recorded state, status and
+        // dates included, so it writes them as given rather than as a
+        // transition (`updateWorkItemsUnchecked`; the import is one of the
+        // two callers allowed to).
+        const up = await prisma.workItem.findUniqueOrThrow({
           where: {
             orgId_externalSource_externalId: {
               orgId: ctx.orgId,
@@ -450,9 +459,9 @@ export async function runImport(
               externalId: n.externalId,
             },
           },
-          data: base,
           select: { id: true },
         });
+        await updateWorkItemsUnchecked(prisma, [up.id], base, { actorId: ctx.userId, source: "IMPORT" });
         id = up.id;
         updated++;
       } else {
@@ -461,7 +470,7 @@ export async function runImport(
             orgId: ctx.orgId,
             projectId: ctx.projectId,
           });
-          return tx.workItem.create({
+          return createWorkItemRow(tx, {
             data: {
               ...base,
               orgId: ctx.orgId,
@@ -472,7 +481,7 @@ export async function runImport(
               createdById: ctx.userId,
             },
             select: { id: true },
-          });
+          }, { actorId: ctx.userId, source: "IMPORT" });
         });
         id = cr.id;
         created++;
@@ -600,7 +609,7 @@ export async function runImport(
       if (!childId || !parentId || childId === parentId) continue;
       if (n.externalKey && createsCycle(n.externalKey, n.parentKey!)) continue;
       try {
-        await prisma.workItem.update({ where: { id: childId }, data: { parentId } });
+        await updateWorkItems(prisma, [childId], { parentId }, { actorId: ctx.userId, source: "IMPORT" });
       } catch {
         /* non-fatal: leave unparented if the link can't be set */
       }

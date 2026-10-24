@@ -29,6 +29,8 @@ import type {
 // index) so registry.ts doesn't pull egress/projection.ts → connectors/index.ts back
 // into itself (a runtime import interval). audit.ts / gate.ts have no ../connectors edge.
 import { logEgressDecision } from "../egress/audit";
+import { hasPermission, Permission } from "@/lib/rbac/permissions";
+import type { AuthContext } from "@/lib/rbac/check";
 import { sha256Hex } from "../egress/gate";
 
 /** Is this descriptor reachable by the given tenant class? (D5 gov-block axis.) */
@@ -208,6 +210,18 @@ export function connectorToolNames(
 }
 
 /**
+ * Is this connector tool a read or a write? `undefined` for a name no connector
+ * owns. An input-dependent tool decides from `input`; with none, it is a write.
+ */
+export function connectorToolAccess(name: string, input?: Record<string, unknown>): "read" | "write" | undefined {
+  const owner = toolNameOwner.get(name);
+  if (!owner) return undefined;
+  const a = owner.access[name];
+  if (typeof a === "function") return input ? a(input) : "write";
+  return a ?? "write";
+}
+
+/**
  * Route a tool call to its OWNING descriptor's executor. Throws if the name isn't a
  * registered connector tool — callers MUST gate on `connectorToolNames().has(name)`
  * first (the dispatcher does), so reaching here with an unknown name is a bug, not a
@@ -216,7 +230,7 @@ export function connectorToolNames(
 export function executeConnectorTool(
   name: string,
   input: Record<string, unknown>,
-  ctx: ConnectorToolContext,
+  ctx: ConnectorToolContext & { auth: AuthContext },
 ): Promise<unknown> {
   const owner = toolNameOwner.get(name);
   if (!owner) {
@@ -281,7 +295,71 @@ export function executeConnectorTool(
     );
   }
 
+  // ── OFFERED gate ─────────────────────────────────────────────────────────────
+  // Only a tool the model was offered this run may run: a bot's tool scope, a
+  // caller's own narrowed list (`tools: []`), or the tenant/config filters may all
+  // have withheld it, and a forged or hallucinated name must not get around that.
+  // No offered set at all ⇒ refuse (fail closed). Audited like the other refusals.
+  if (!ctx.offered || !ctx.offered.has(name)) {
+    logEgressDecision({
+      conversationId: ctx.conversationId ?? "n/a",
+      turn: -1,
+      valueKind: "tool_args",
+      toolName: name,
+      exposed: false,
+      withheldCount: 1,
+      contentHash: sha256Hex(JSON.stringify(input ?? {})),
+      decidedBy: "tool_not_offered_block",
+      tenantClass: ctx.tenantClass ?? "gov",
+      mode: "enforced",
+    });
+    return Promise.reject(
+      new Error(`[connector-registry] tool "${name}" was not offered in this run — refusing dispatch.`),
+    );
+  }
+
+  // ── PERMISSION gate (the caller's own AuthContext) ───────────────────────────
+  // Reading through a connector needs CHAT_USE, the right to use the assistant's
+  // tools at all. A write (send, post, create, update, delete; the Nango proxy
+  // unless GET/HEAD) needs CHAT_USE and a person: never an API key. A bot's tool
+  // scope already removed writes from what it was offered (gate above). No usable
+  // auth, or auth for someone else, refuses everything (fail closed). The model
+  // gets a plain refusal (not a thrown error), and the refusal is audited.
+  const denial = connectorPermissionDenial(name, input, ctx);
+  if (denial) {
+    logEgressDecision({
+      conversationId: ctx.conversationId ?? "n/a",
+      turn: -1,
+      valueKind: "tool_args",
+      toolName: name,
+      exposed: false,
+      withheldCount: 1,
+      contentHash: sha256Hex(JSON.stringify(input ?? {})),
+      decidedBy: "rbac",
+      tenantClass: ctx.tenantClass ?? "gov",
+      mode: "enforced",
+    });
+    return Promise.resolve({ error: denial });
+  }
+
   return owner.execute(name, input, ctx);
+}
+
+/** Why this caller may not run this connector tool, or null if they may. */
+export function connectorPermissionDenial(
+  name: string,
+  input: Record<string, unknown>,
+  ctx: ConnectorToolContext,
+): string | null {
+  const auth = ctx.auth;
+  if (!auth || typeof auth.permissions !== "bigint" || auth.orgId !== ctx.orgId || auth.userId !== ctx.userId) {
+    return `You don't have permission to use ${name}.`;
+  }
+  if (!hasPermission(auth.permissions, Permission.CHAT_USE)) return `You don't have permission to use ${name}.`;
+  if (connectorToolAccess(name, input) === "write" && auth.isApiKey) {
+    return `${name} changes data outside Cosmos and can't be used with an API key.`;
+  }
+  return null;
 }
 
 /**

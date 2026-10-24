@@ -27,6 +27,30 @@ describe("feedbackStatusForColumn", () => {
   });
 });
 
+describe("feedbackStatusForColumn with a category", () => {
+  it("follows the category over the key's spelling", () => {
+    // A team-named done lane, and a done-sounding key that is really in progress.
+    expect(feedbackStatusForColumn("released", "DONE")).toBe("DONE");
+    expect(feedbackStatusForColumn("closed-loop-testing", "IN_PROGRESS")).toBe("IN_PROGRESS");
+  });
+
+  it("does not trust TODO, the default every column gets: the key decides", () => {
+    // A "Completed" lane created without a category is stored as TODO. Its
+    // linked feedback must stay DONE, not drop back to PLANNED.
+    expect(feedbackStatusForColumn("completed", "TODO")).toBe("DONE");
+    expect(feedbackStatusForColumn("backlog", "TODO")).toBe("PLANNED");
+    expect(feedbackStatusForColumn("ideas", "TODO")).toBeNull();
+  });
+
+  it("keeps IN_REVIEW for a review-named in-progress status", () => {
+    expect(feedbackStatusForColumn("code-review", "IN_PROGRESS")).toBe("IN_REVIEW");
+  });
+
+  it("leaves feedback alone for a cancelled item", () => {
+    expect(feedbackStatusForColumn("done-not-needed", "CANCELLED")).toBeNull();
+  });
+});
+
 describe("syncFeedbackForWorkItems (e2e DB)", () => {
   const created: { workItemIds: string[]; feedbackIds: string[] } = { workItemIds: [], feedbackIds: [] };
 

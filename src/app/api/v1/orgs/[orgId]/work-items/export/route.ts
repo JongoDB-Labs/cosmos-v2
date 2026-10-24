@@ -11,6 +11,16 @@ import {
   unknownQueryParams,
 } from "@/lib/work-items/query";
 import { toCSV } from "@/lib/export/csv";
+import { classificationApplies } from "@/lib/compliance/classification";
+import { createClassificationResolver } from "@/lib/classification/resolver";
+import { rankOf } from "@/lib/classification/effective";
+import { classificationLabel, isMarkingLevel } from "@/lib/classification/levels";
+import { logAudit } from "@/lib/audit";
+import { cqlEnabled } from "@/lib/query/flag";
+import { exportCql } from "@/lib/query/execute.server";
+import { cqlErrorResponse, cqlTooLong } from "@/lib/query/route.server";
+import { savedFilterQuery } from "@/lib/query/saved-filters.server";
+import type { ClassificationLevel } from "@prisma/client";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -30,12 +40,33 @@ const day = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
  * type / project / assignee / parent names, not raw ids). The same scoping as
  * `/work-items/search` guarantees a user can never export items from a project
  * they can't read.
+ *
+ * `?cql=` (where the org has CQL on) exports what a CQL query matches, the same
+ * rows the Issues view shows for it; it replaces the other filter parameters.
+ * `?filter=<savedFilterId>` exports a saved filter's stored query.
+ *
+ * Classification (GOV tenants only; a COMMERCIAL export carries no marking at
+ * all, per `classificationApplies`). Each row gets a Classification column: its
+ * project's effective ceiling, raised to CUI when its own title or tags carry a
+ * marking (`createClassificationResolver`, the calendar feed's rule). The file
+ * as a whole is handled at the highest of those levels and the org ceiling.
+ * When that is a marking level the export:
+ *   - requires ORG_EXPORT, because a file of controlled data leaving the system
+ *     is a dissemination decision, not a read;
+ *   - carries the banner as its first and last line, so the marking travels
+ *     with the file wherever it is opened or forwarded;
+ *   - is audited (`work_items.export.classified`).
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return new Response("Not found", { status: 404 });
+
+    const sp = request.nextUrl.searchParams;
+    const cqlOn = cqlEnabled(org.settings);
+    // Without the query language `?cql=` doesn't exist here: 404, as on search.
+    if (!cqlOn && sp.has("cql")) return new Response("Not found", { status: 404 });
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
@@ -52,42 +83,77 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
     if (limited) return limited;
 
-    const allowedProjectIds = await getReadableProjectIds(ctx);
-    if (allowedProjectIds.length === 0) {
-      return new Response("", { status: 200, headers: csvHeaders(org.slug) });
+    const cql = cqlOn ? sp.get("cql") : null;
+    const filterId = cqlOn ? sp.get("filter") : null;
+    let data: Awaited<ReturnType<typeof runWorkItemQuery>>["data"];
+    if (cql !== null || filterId !== null) {
+      const others = [...new Set(sp.keys())].filter((k) => k !== "cql" && k !== "tz" && k !== "filter");
+      if (others.length > 0) {
+        return new Response(
+          JSON.stringify({ error: "`cql` replaces the other filter parameters", unknown: others }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (cql !== null) {
+        const tooLong = cqlTooLong(cql);
+        if (tooLong) return tooLong;
+      }
+      const stored = cql === null ? await savedFilterQuery(ctx, filterId!) : null;
+      if (cql === null && !stored) return new Response("Not found", { status: 404 });
+      // No early "nothing readable" answer: bad CQL is a 400 for everyone.
+      try {
+        ({ data } = await exportCql(ctx, cql !== null ? { cql } : { query: stored }, { tz: sp.get("tz") ?? undefined }));
+      } catch (e) {
+        return cqlErrorResponse(e);
+      }
+    } else {
+      const allowedProjectIds = await getReadableProjectIds(ctx);
+      if (allowedProjectIds.length === 0) {
+        return new Response("", { status: 200, headers: csvHeaders(org.slug) });
+      }
+
+      // Reject parameters nothing will read, rather than answering as if they
+      // had been applied. A filter that silently does not filter returns
+      // plausible WRONG answers, which costs the caller more than an error.
+      const unknown = unknownQueryParams(request.nextUrl.searchParams);
+      if (unknown.length > 0) {
+        return new Response(
+          JSON.stringify({
+            error: "Unknown query parameter",
+            unknown,
+            hint:
+              "Unrecognised parameters are not applied, so this request would have "
+              + "returned an unfiltered page. Check the spelling against the supported filters.",
+          }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        );
+      }
+
+      const { filter, sort } = parseSearchParams(request.nextUrl.searchParams);
+      // pageSize is passed straight to the query (the parse-time MAX cap doesn't
+      // apply here) so the export isn't silently truncated to one UI page.
+      ({ data } = await runWorkItemQuery({
+        orgId,
+        allowedProjectIds,
+        filter,
+        sort,
+        page: 1,
+        pageSize: 50_000,
+      }));
     }
 
-    // Reject parameters nothing will read, rather than answering as if they
-    // had been applied. A filter that silently does not filter returns
-    // plausible WRONG answers, which costs the caller more than an error.
-    const unknown = unknownQueryParams(request.nextUrl.searchParams);
-    if (unknown.length > 0) {
-      return new Response(
-        JSON.stringify({
-          error: "Unknown query parameter",
-          unknown,
-          hint:
-            "Unrecognised parameters are not applied, so this request would have "
-            + "returned an unfiltered page. Check the spelling against the supported filters.",
-        }),
-        { status: 400, headers: { "content-type": "application/json" } },
-      );
-    }
-
-    const { filter, sort } = parseSearchParams(request.nextUrl.searchParams);
-    // pageSize is passed straight to the query (the parse-time MAX cap doesn't
-    // apply here) so the export isn't silently truncated to one UI page.
-    const { data } = await runWorkItemQuery({
-      orgId,
-      allowedProjectIds,
-      filter,
-      sort,
-      page: 1,
-      pageSize: 50_000,
-    });
+    const marking = classificationApplies(org.tenantClass)
+      ? await createClassificationResolver(orgId)
+      : null;
+    const levels = marking
+      ? data.map((r) => marking.rowLevel(r.project.id, r.title, ...r.tags))
+      : [];
+    const fileLevel: ClassificationLevel | null = marking
+      ? levels.reduce((max, l) => (rankOf(l) > rankOf(max) ? l : max), marking.orgLevel)
+      : null;
 
     // Clean, common schema across the export (one row per work item).
-    const rows = data.map((r) => ({
+    const rows = data.map((r, i) => ({
       Ticket: r.ticketKey,
       Title: r.title,
       Type: r.type.name,
@@ -103,9 +169,36 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       Completed: day(r.completedAt),
       Created: day(r.createdAt),
       Updated: day(r.updatedAt),
+      ...(marking ? { Classification: classificationLabel(levels[i]) } : {}),
     }));
 
-    return new Response(toCSV(rows), { status: 200, headers: csvHeaders(org.slug) });
+    if (fileLevel === null || !isMarkingLevel(fileLevel)) {
+      return new Response(toCSV(rows), { status: 200, headers: csvHeaders(org.slug) });
+    }
+
+    if (!hasPermission(ctx.permissions, Permission.ORG_EXPORT)) {
+      // Plain text, not JSON: the Issues "Export CSV" button is a plain link,
+      // so a refusal is read in a browser tab as often as by an API client.
+      return new Response(
+        `This export contains ${classificationLabel(fileLevel)} information. `
+          + "Exporting it requires the Org export permission. "
+          + "Narrow the filter to unmarked projects, or ask an administrator.",
+        { status: 403, headers: { "content-type": "text/plain; charset=utf-8" } },
+      );
+    }
+
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "work_items.export.classified",
+      entity: "work_item",
+      metadata: { level: fileLevel, rows: rows.length },
+    });
+    const banner = classificationLabel(fileLevel).toUpperCase();
+    return new Response(`${banner}\n${toCSV(rows)}\n${banner}`, {
+      status: 200,
+      headers: { ...csvHeaders(org.slug), "X-Classification": banner },
+    });
   } catch (e) {
     return handleApiError(e);
   }

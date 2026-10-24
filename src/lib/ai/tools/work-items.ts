@@ -9,7 +9,7 @@ export const workItemTools: ToolDefinition[] = [
   {
     name: "list_work_items",
     description:
-      "List work items in a project with optional filters. Returns id, ticketNumber, title, columnKey, priority, assigneeId, assigneeName (the assignee's display name — use it when you name the person, never the id), intervalId, dueDate, storyPoints.",
+      "List work items in a project with optional filters. Returns id, ticketNumber, title, columnKey, priority, assigneeId, assigneeName (the assignee's display name — use it when you name the person, never the id), intervalId, parentId (the item it sits under, or null), teamId (the team that owns it, or null), dueDate, storyPoints.",
     input_schema: {
       type: "object",
       properties: {
@@ -22,6 +22,12 @@ export const workItemTools: ToolDefinition[] = [
             "Filter by work item type — pass the work item TYPE KEY (e.g. 'software.task') or work-item-type id.",
         },
         search: { type: "string", description: "Case-insensitive title contains" },
+        parentId: { type: "string", description: "Only the direct children of this work item (e.g. an epic's id)" },
+        teamId: {
+          type: "string",
+          description:
+            "Only this team's work (an id from list_teams): items the team owns, plus unowned items assigned to its members",
+        },
         limit: { type: "number", description: "Max results (default 50, cap 100)" },
       },
       required: ["projectId"],
@@ -37,6 +43,32 @@ export const workItemTools: ToolDefinition[] = [
         itemId: { type: "string", description: "Work item id to delete" },
       },
       required: ["itemId"],
+    },
+  },
+  {
+    name: "list_transitions",
+    description:
+      "List the status changes (transitions) the user may make on a work item, from its current status, and the fields each one asks for. Use before moving an item when a move is refused, or when the user asks what they can do next.",
+    input_schema: {
+      type: "object",
+      properties: {
+        itemId: { type: "string", description: "Work item ID" },
+      },
+      required: ["itemId"],
+    },
+  },
+  {
+    name: "transition_item",
+    description:
+      "Move a work item through one of its transitions (an id from list_transitions), with the input that transition asks for, keyed `system:<field>` or `custom:<key>`. A refusal says what is missing or which checks failed.",
+    input_schema: {
+      type: "object",
+      properties: {
+        itemId: { type: "string", description: "Work item ID" },
+        transitionId: { type: "string", description: "A transition id from list_transitions" },
+        input: { type: "object", description: "Values for the fields the transition asks for, e.g. { \"system:resolution\": \"Fixed\" }" },
+      },
+      required: ["itemId", "transitionId"],
     },
   },
   {

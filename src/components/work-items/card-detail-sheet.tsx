@@ -26,8 +26,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DeleteWorkItemDialog } from "./delete-work-item-dialog";
+import { TransitionDialog, type TransitionInput } from "./transition-dialog";
+import { refusalOf, sendItemChange, TransitionBackedOut, useTransitionPrompt } from "./use-transition-prompt";
+import type { TransitionInputField } from "@/lib/workflow/contract";
+import { MergeWorkItemDialog } from "./merge-work-item-dialog";
+import { cancelReasonLabel, type PickableCancelReason } from "@/lib/work-items/cancel";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
@@ -35,9 +40,6 @@ import { usePermissions } from "@/components/providers/permissions-provider";
 import { Permission } from "@/lib/rbac/permissions";
 import { useOrgMembers } from "@/components/chat/mention-typeahead";
 import { useRefResolver } from "@/components/mentions/hooks";
-import { MarkdownContent } from "@/components/chat/markdown-content";
-import { NoteRichTextEditor } from "@/components/notes/editor/rich-text-editor";
-import { COMMENT_EDITOR_SIZING } from "@/components/notes/editor/sizing";
 import { MentionedIn } from "@/components/mentions/mentioned-in";
 import { refKey, type ResolvedEntity } from "@/lib/mentions/refs";
 import { WorkItemLinksSection } from "@/components/work-items/links-section";
@@ -46,6 +48,7 @@ import { WorkItemDocumentSource } from "@/components/files/work-item-document-so
 import { WorkItemAttachments } from "@/components/files/work-item-attachments";
 import { PluginSlot } from "@/components/plugins/plugin-slot";
 import { useCustomFields, fieldAppliesToType } from "@/hooks/use-custom-fields";
+import { useItemTransitions } from "@/hooks/use-item-transitions";
 import { selectableTypes, useWorkItemTypes } from "@/hooks/use-work-item-types";
 import {
   CustomFieldInput,
@@ -54,13 +57,13 @@ import {
 import {
   MessageSquare,
   History,
-  Send,
   Loader2,
   Calendar,
   User,
   Layers,
   Shapes,
   Target,
+  Users,
   Hash,
   Wrench,
   Check,
@@ -71,10 +74,12 @@ import {
   CornerDownRight,
   GripVertical,
   Plus,
-  Pencil,
   Flag,
   Link2,
   Archive,
+  Ban,
+  Merge,
+  Split,
   ArchiveRestore,
   X,
 } from "lucide-react";
@@ -92,12 +97,14 @@ import {
   activityValueLabel,
 } from "@/lib/work-items/activity-label";
 import { formatDateStable } from "@/lib/format/stable-date";
-import { LocalTimestamp } from "@/components/ui/local-timestamp";
+import { CommentItem } from "@/components/comments/comment-item";
+import { CommentComposer } from "@/components/comments/comment-composer";
 import { isWorkItemDone } from "@/lib/work-items/done-state";
 import { memberPickerOptions } from "@/lib/org/member-picker";
 import { entityUrl } from "@/lib/mentions/urls";
 import { useOrgSlug } from "@/lib/query/keys";
 import { toast } from "sonner";
+import { datesFromInterval, plannedDayToIso } from "@/lib/intervals/fill-dates";
 import {
   WORK_ITEM_HIGHLIGHTS,
   WORK_ITEM_HIGHLIGHT_ORDER,
@@ -113,6 +120,12 @@ interface CardDetailSheetProps {
   projectId: string;
   members: OrgMember[];
   intervals: Interval[];
+  /**
+   * The project's teams, for the Team picker (COSMOS-204). Optional, and the
+   * picker hides without it, like Interval: a PROP for the same reason as
+   * `statusColumns` below, so the sheet needs no QueryClient of its own.
+   */
+  teams?: { id: string; name: string }[];
   columns: BoardColumn[];
   /**
    * The project's workflow statuses, unioned across its boards. Optional: a board
@@ -120,6 +133,13 @@ interface CardDetailSheetProps {
    */
   statusColumns?: { key: string; name: string }[];
   onUpdate: (updated: WorkItem) => void;
+  /**
+   * A cancel can ADD a status: the project's first one creates the Cancelled
+   * column (COSMOS-206). Views that hold their own copy of the columns reload
+   * them here so the card has somewhere to show. A merge (COSMOS-207) calls it
+   * too, since it moves sub-items and links between other cards.
+   */
+  onStatusesChanged?: () => void;
   /** Remove the item from the parent's local state after a successful delete. */
   onDelete?: (id: string) => void;
   /** Append a freshly-duplicated item to the parent's local state. */
@@ -138,6 +158,13 @@ interface CardDetailSheetProps {
 
 const priorityOptions = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 
+/** Cancelling (COSMOS-206) as a transition: its input is the reason and an optional note. */
+const CANCEL_TRANSITION = { id: "cancel", name: "Mark cancelled" };
+const CANCEL_FIELDS: TransitionInputField[] = [
+  { field: { system: "cancelReason" }, required: true, label: "Reason" },
+  { field: { system: "cancelNote" }, required: false, label: "Note" },
+];
+
 /**
  * Save state of one of the two free-text fields (title, description).
  *
@@ -154,9 +181,11 @@ export function CardDetailSheet({
   projectId,
   members,
   intervals,
+  teams: projectTeams = [],
   columns,
   statusColumns,
   onUpdate,
+  onStatusesChanged,
   onDelete,
   onDuplicate,
   projectItems,
@@ -168,7 +197,9 @@ export function CardDetailSheet({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dupPrompt, setDupPrompt] = useState(false);
   const [dragChildIdx, setDragChildIdx] = useState<number | null>(null);
-  const [actionPending, setActionPending] = useState<null | "delete" | "duplicate">(null);
+  const [actionPending, setActionPending] = useState<null | "delete" | "duplicate" | "split">(null);
+  // COSMOS-89: confirm before turning one shared item into one per assignee.
+  const [splitPrompt, setSplitPrompt] = useState(false);
   // Synchronous re-entrancy guard for duplication. `actionPending` (state) can't
   // fully guard the trigger: the on-item effect below resets it to null whenever
   // the `item` prop reference changes — which happens the instant a duplicate
@@ -206,6 +237,8 @@ export function CardDetailSheet({
   // mirrors the set's head so single-assignee displays stay consistent.
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [intervalId, setIntervalId] = useState<string | null>(null);
+  // COSMOS-204: the owning team, set apart from who the item is assigned to.
+  const [teamId, setTeamId] = useState<string | null>(null);
   const [columnKey, setColumnKey] = useState("");
   const [storyPoints, setStoryPoints] = useState<number | null>(null);
   const [startDate, setStartDate] = useState<string>("");
@@ -216,12 +249,16 @@ export function CardDetailSheet({
   const [highlight, setHighlight] = useState<string | null>(null);
   /** Archived timestamp, or null when the item is active. */
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
+  // COSMOS-206: the cancel-with-a-reason dialog, and its save in flight.
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelPending, setCancelPending] = useState(false);
+  // COSMOS-207: merge this item into the one that survives.
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergePending, setMergePending] = useState(false);
   const orgSlug = useOrgSlug();
 
   const [tab, setTab] = useState<"comments" | "activity">("comments");
   const [comments, setComments] = useState<Comment[]>([]);
-  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
-  const [editDraft, setEditDraft] = useState("");
   const [activities, setActivities] = useState<Activity[]>([]);
   const [newComment, setNewComment] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -285,10 +322,11 @@ export function CardDetailSheet({
     () => ({
       user: (id: string) => members.find((m) => m.userId === id)?.user?.displayName,
       interval: (id: string) => intervals.find((c) => c.id === id)?.name,
+      team: (id: string) => projectTeams.find((t) => t.id === id)?.name,
       type: (id: string) => allTypes.find((t) => t.id === id)?.name,
       column: (key: string) => statusOptions.find((c) => c.key === key)?.name,
     }),
-    [members, intervals, allTypes, statusOptions],
+    [members, intervals, projectTeams, allTypes, statusOptions],
   );
   // Assignee options: alphabetical, with the email carried as hidden search
   // text so the picker's filter matches it too (COSMOS-171).
@@ -296,6 +334,15 @@ export function CardDetailSheet({
   // Custom-field defs for this project (org-wide + project-scoped), narrowed to
   // the fields that apply to THIS item's work-item type (type bindings honored).
   const { fields: customFields } = useCustomFields(orgId, projectId);
+  const { ask: askTransition, dialog: transitionDialog } = useTransitionPrompt(customFields);
+  const reachable = useItemTransitions(orgId, projectId, item);
+  // The statuses this person may move the item to from here, by the project's
+  // workflow; one that asks for details first is marked "…".
+  const statusChoices = reachable
+    ? statusOptions.filter((c) => c.key === columnKey || reachable.has(c.key))
+    : statusOptions;
+  const statusLabel = (c: { key: string; name: string }) =>
+    `${c.name}${c.key !== columnKey && reachable?.get(c.key)?.input.some((f) => f.required) ? "…" : ""}`;
 
   /**
    * Labels, editable here.
@@ -394,6 +441,7 @@ export function CardDetailSheet({
             : [],
       );
       setIntervalId(item.intervalId);
+      setTeamId(item.teamId ?? null);
       setColumnKey(item.columnKey);
       setStoryPoints(item.storyPoints);
       setStartDate(item.startDate ? item.startDate.split("T")[0] : "");
@@ -414,12 +462,11 @@ export function CardDetailSheet({
       setActionPending(null);
       // Reset per-item interaction state too, so switching items (via duplicate,
       // a linked-item/sub-item click, or board navigation) never carries a draft
-      // comment, an open comment-edit, or the Activity tab over to the next item
+      // comment or the Activity tab over to the next item (an open comment-edit
+      // lives in its CommentItem, which unmounts with the old item's comments)
       // — a stale `newComment` could otherwise be posted to the WRONG work item.
       setNewComment("");
       setTab("comments");
-      setEditingCommentId(null);
-      setEditDraft("");
     }
     // Keyed on the ID, not the object. Every inline save PUTs one field and
     // feeds the server's full row back down as a NEW `item` reference — so a
@@ -533,17 +580,15 @@ export function CardDetailSheet({
 
   // Immediately persist a single field change via PUT and update parent cache.
   const patchField = useCallback(
-    async (field: string, value: unknown) => {
+    // `extra` rides in the SAME request: fields a change implies (an interval's
+    // dates, COSMOS-223) must not race the change itself as separate PUTs.
+    async (field: string, value: unknown, extra?: Record<string, unknown>) => {
       if (!item) return;
       const prevColumnKey = item.columnKey;
       try {
-        const res = await fetch(`${basePath}/${item.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ [field]: value }),
-        });
-        if (!res.ok) throw new Error("Failed to update");
-        const updated: WorkItem = await res.json();
+        // The workflow may ask for more (a resolution, a required field):
+        // sendItemChange asks, then sends the change again with it.
+        const updated = await sendItemChange<WorkItem>(`${basePath}/${item.id}`, { [field]: value, ...extra }, askTransition);
         onUpdate(updated);
 
         // Re-parenting also changes BOTH parents' `children` arrays, but the PUT
@@ -600,11 +645,12 @@ export function CardDetailSheet({
           }
         }
       } catch (err) {
-        console.error(`Failed to patch ${field}:`, err);
-        // Revert ONLY the field that failed back to the server value (`item` is
+        if (!(err instanceof TransitionBackedOut)) console.error(`Failed to patch ${field}:`, err);
+        // Revert ONLY the fields that failed back to the server value (`item` is
         // unchanged on failure since onUpdate runs only on success). Reverting
         // every field would clobber other concurrent/just-succeeded edits.
-        switch (field) {
+        for (const failed of [field, ...Object.keys(extra ?? {})])
+        switch (failed) {
           case "priority":
             setPriority(item.priority);
             break;
@@ -621,6 +667,9 @@ export function CardDetailSheet({
             break;
           case "intervalId":
             setIntervalId(item.intervalId);
+            break;
+          case "teamId":
+            setTeamId(item.teamId ?? null);
             break;
           case "columnKey":
             setColumnKey(item.columnKey);
@@ -650,10 +699,10 @@ export function CardDetailSheet({
             setArchivedAt(item.archivedAt ?? null);
             break;
         }
-        notifyError(err, "Couldn't save the change.");
+        if (!(err instanceof TransitionBackedOut)) notifyError(err, "Couldn't save the change.");
       }
     },
-    [item, basePath, onUpdate, projectItems]
+    [item, basePath, onUpdate, projectItems, askTransition]
   );
 
   // Replace the assignee set (multi-assign). Optimistic; the first member
@@ -736,6 +785,9 @@ export function CardDetailSheet({
         break;
       case "intervalId":
         setIntervalId(value as string | null);
+        break;
+      case "teamId":
+        setTeamId(value as string | null);
         break;
       case "columnKey":
         setColumnKey(value as string);
@@ -932,9 +984,8 @@ export function CardDetailSheet({
     });
   }
 
-  async function handleSaveCommentEdit(id: string) {
-    const content = editDraft.trim();
-    if (!content || !item) return;
+  async function handleSaveCommentEdit(id: string, content: string): Promise<boolean> {
+    if (!content || !item) return false;
     try {
       const res = await fetch(`${basePath}/${item.id}/comments/${id}`, {
         method: "PATCH",
@@ -946,10 +997,10 @@ export function CardDetailSheet({
       setComments((prev) =>
         prev.map((c) => (c.id === id ? { ...c, content: updated.content } : c)),
       );
-      setEditingCommentId(null);
-      setEditDraft("");
+      return true;
     } catch (err) {
       notifyError(err, "Couldn't save the edit.");
+      return false;
     }
   }
 
@@ -963,6 +1014,35 @@ export function CardDetailSheet({
       setComments((prev) => prev.filter((c) => c.id !== id));
     } catch (err) {
       notifyError(err, "Couldn't delete the comment.");
+    }
+  }
+
+  // Split per assignee (COSMOS-89): this item keeps its first assignee and each
+  // of the others gets their own copy. The new items reach every open board
+  // through the work-item.created events the route publishes.
+  async function handleSplit() {
+    if (!item || actionPending) return;
+    setActionPending("split");
+    try {
+      const res = await fetch(`${basePath}/${item.id}/split-assignees`, { method: "POST" });
+      if (!res.ok) throw new Error(`Failed to split (HTTP ${res.status})`);
+      const result: {
+        keptAssigneeId: string;
+        copies: { id: string; ticketNumber: number }[];
+      } = await res.json();
+      setAssigneeIds([result.keptAssigneeId]);
+      setAssigneeId(result.keptAssigneeId);
+      setSplitPrompt(false);
+      const fresh = await fetch(`${basePath}/${item.id}`);
+      if (fresh.ok) onUpdate((await fresh.json()) as WorkItem);
+      toast.success(
+        `Split into ${result.copies.length + 1} issues`,
+        { description: `New: ${result.copies.map((c) => `#${c.ticketNumber}`).join(", ")}` },
+      );
+    } catch (err) {
+      notifyError(err, "Couldn't split this item.");
+    } finally {
+      setActionPending(null);
     }
   }
 
@@ -1014,11 +1094,78 @@ export function CardDetailSheet({
   const canDuplicate = can(Permission.ITEM_CREATE);
   const canDelete = can(Permission.ITEM_DELETE);
   const canEditItem = can(Permission.ITEM_UPDATE);
+  // Cancelled = sitting in a CANCELLED-category status, with or without a
+  // reason (a drag onto the column records none). Read from the item's own
+  // column, so it follows a status change made anywhere.
+  const isCancelled =
+    Boolean(item?.cancelReason) ||
+    (statusOptions as { key: string; category?: string }[]).some(
+      (c) => c.key === columnKey && c.category === "CANCELLED",
+    );
+
+  // Editing an existing reason rather than cancelling. A merge's MERGED is not
+  // a reason anyone picks, so a merged item cancels afresh.
+  const editingCancelReason = Boolean(item?.cancelReason && item.cancelReason !== "MERGED");
+
+  async function submitMerge(intoId: string) {
+    if (!item) return;
+    setMergePending(true);
+    try {
+      const res = await fetch(`${basePath}/${item.id}/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ intoId }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Failed to merge");
+      }
+      const { merged, into } = (await res.json()) as { merged: WorkItem; into: WorkItem };
+      setColumnKey(merged.columnKey);
+      onUpdate(into);
+      onUpdate(merged);
+      setMergeOpen(false);
+      toast.success(`Merged into #${into.ticketNumber}`);
+      onStatusesChanged?.();
+    } catch (err) {
+      notifyError(err, "Couldn't merge it.");
+    } finally {
+      setMergePending(false);
+    }
+  }
+
+  async function submitCancel(input: TransitionInput) {
+    if (!item) return;
+    const reason = input["system:cancelReason"] as PickableCancelReason;
+    const note = typeof input["system:cancelNote"] === "string" ? input["system:cancelNote"] : "";
+    setCancelPending(true);
+    try {
+      const res = await fetch(`${basePath}/${item.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cancelReason: reason, cancelNote: note || null }),
+      });
+      if (!res.ok) throw (await refusalOf(res)).error;
+      const updated: WorkItem = await res.json();
+      setColumnKey(updated.columnKey);
+      onUpdate(updated);
+      setCancelOpen(false);
+      if (!statusOptions.some((c) => c.key === updated.columnKey)) onStatusesChanged?.();
+    } catch (err) {
+      notifyError(err, "Couldn't cancel it.");
+    } finally {
+      setCancelPending(false);
+    }
+  }
 
   // Candidate parents: every other item in the project, minus this item's own
   // direct children (a shallow guard against the most obvious parent/child
   // interval; the server still owns deeper integrity).
   const childIds = new Set(children.map((c) => c.id));
+  // Merge targets: open items in the project other than this one.
+  const mergeCandidates = (projectItems ?? []).filter(
+    (p) => p.id !== item.id && !p.cancelReason && !p.mergedIntoId,
+  );
   const parentCandidates = (projectItems ?? []).filter(
     (p) => p.id !== item.id && !childIds.has(p.id),
   );
@@ -1040,8 +1187,11 @@ export function CardDetailSheet({
         <SheetHeader>
           {/* Single identity line: "#1 · Task". The title is shown once, in the
               editable input below — not duplicated here. Item-level actions
-              (duplicate / delete) sit on the right, each permission-gated. */}
-          <div className="flex items-center justify-between gap-2 pr-10">
+              (duplicate / delete) sit on the right, each permission-gated.
+              Both rows WRAP: up to seven actions don't fit one line of a 672px
+              sheet, and the pane hides overflow-x, so a row that can't wrap
+              runs off the edge and takes Delete with it. */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pr-10">
             <SheetTitle className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
               <span className="font-mono">#{item.ticketNumber}</span>
               {item.workItemType && (
@@ -1050,7 +1200,10 @@ export function CardDetailSheet({
                 </span>
               )}
             </SheetTitle>
-            <div className="flex items-center gap-1">
+            <div
+              className="flex flex-wrap items-center justify-end gap-1"
+              data-testid="card-detail-actions"
+            >
               <Button
                 variant="ghost"
                 size="sm"
@@ -1127,6 +1280,30 @@ export function CardDetailSheet({
                     {archivedAt ? "Restore" : "Archive"}
                   </Button>
                 )}
+                {canEditItem && !isCancelled && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 text-muted-foreground"
+                    onClick={() => setCancelOpen(true)}
+                    disabled={actionPending !== null}
+                  >
+                    <Ban className="h-3.5 w-3.5" />
+                    Mark cancelled
+                  </Button>
+                )}
+                {canEditItem && !isCancelled && mergeCandidates.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 text-muted-foreground"
+                    onClick={() => setMergeOpen(true)}
+                    disabled={actionPending !== null}
+                  >
+                    <Merge className="h-3.5 w-3.5" />
+                    Merge into…
+                  </Button>
+                )}
                 {canDuplicate && (
                   <Button
                     variant="ghost"
@@ -1162,6 +1339,35 @@ export function CardDetailSheet({
         </SheetHeader>
 
         <div className="px-4 pb-4 space-y-4">
+          {isCancelled && (
+            <div
+              role="status"
+              aria-label="Cancelled"
+              className="flex items-start gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm"
+            >
+              <Ban className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">
+                  Cancelled · {cancelReasonLabel(item?.cancelReason) ?? "no reason given"}
+                </p>
+                {item?.cancelNote && (
+                  <p className="whitespace-pre-wrap text-muted-foreground">{item.cancelNote}</p>
+                )}
+              </div>
+              {item?.cancelReason === "MERGED" ? (
+                item.mergedIntoId &&
+                onOpenItem && (
+                  <Button variant="ghost" size="sm" onClick={() => onOpenItem(item.mergedIntoId!)}>
+                    Open it
+                  </Button>
+                )
+              ) : canEditItem && (
+                <Button variant="ghost" size="sm" onClick={() => setCancelOpen(true)}>
+                  {item?.cancelReason ? "Edit reason" : "Add reason"}
+                </Button>
+              )}
+            </div>
+          )}
           {/* Title — an auto-sizing textarea (not a single-line input) so long
               titles wrap across lines and stay fully visible instead of
               clipping to the scrolled tail. `field-sizing-content` grows the
@@ -1300,17 +1506,20 @@ export function CardDetailSheet({
 
             <MetadataField icon={Layers} label="Status">
               <Select
+                // Every status, not just the reachable ones: this is the label
+                // lookup, and a value that drops out of it is reset to nothing.
                 items={Object.fromEntries(statusOptions.map((c) => [c.key, c.name]))}
                 value={columnKey}
-                onValueChange={(v) => handleFieldChange("columnKey", v ?? "")}
+                // An emptied select is never a status to move to.
+                onValueChange={(v) => v && handleFieldChange("columnKey", v)}
               >
                 <SelectTrigger size="sm" aria-label="Status" className="w-full text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {statusOptions.map((c) => (
+                  {statusChoices.map((c) => (
                     <SelectItem key={c.key} value={c.key}>
-                      {c.name}
+                      {statusLabel(c)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1436,6 +1645,18 @@ export function CardDetailSheet({
                 onValueChange={(ids) => void patchAssignees(ids)}
                 options={assigneeOptions}
               />
+              {assigneeIds.length > 1 && canEditItem && canDuplicate && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 h-6 gap-1.5 px-1.5 text-xs text-muted-foreground"
+                  onClick={() => setSplitPrompt(true)}
+                  disabled={actionPending !== null}
+                >
+                  <Split className="h-3.5 w-3.5" />
+                  Split per assignee
+                </Button>
+              )}
             </MetadataField>
 
             <MetadataField icon={Hash} label="Points">
@@ -1529,12 +1750,21 @@ export function CardDetailSheet({
                     ...Object.fromEntries(intervals.map((s) => [s.id, s.name])),
                   }}
                   value={intervalId ?? "__none__"}
-                  onValueChange={(v) =>
-                    handleFieldChange(
-                      "intervalId",
-                      (v === "__none__" ? null : v) as string | null
-                    )
-                  }
+                  onValueChange={(v) => {
+                    const next = (v === "__none__" ? null : v) as string | null;
+                    setIntervalId(next);
+                    // Fill only the planned dates that are still empty (COSMOS-223).
+                    const fill = datesFromInterval(
+                      { startDate, dueDate },
+                      intervals.find((s) => s.id === next),
+                    );
+                    if (fill.startDate) setStartDate(fill.startDate);
+                    if (fill.dueDate) setDueDate(fill.dueDate);
+                    void patchField("intervalId", next, {
+                      ...(fill.startDate && { startDate: plannedDayToIso(fill.startDate) }),
+                      ...(fill.dueDate && { dueDate: plannedDayToIso(fill.dueDate) }),
+                    });
+                  }}
                 >
                   <SelectTrigger size="sm" aria-label="Interval" className="w-full text-xs">
                     <SelectValue />
@@ -1544,6 +1774,33 @@ export function CardDetailSheet({
                     {intervals.map((s) => (
                       <SelectItem key={s.id} value={s.id}>
                         {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </MetadataField>
+            )}
+
+            {projectTeams.length > 0 && (
+              <MetadataField icon={Users} label="Team">
+                <Select
+                  items={{
+                    __none__: "None",
+                    ...Object.fromEntries(projectTeams.map((t) => [t.id, t.name])),
+                  }}
+                  value={teamId ?? "__none__"}
+                  onValueChange={(v) =>
+                    handleFieldChange("teamId", (v === "__none__" ? null : v) as string | null)
+                  }
+                >
+                  <SelectTrigger size="sm" aria-label="Team" className="w-full text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {projectTeams.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1830,105 +2087,22 @@ export function CardDetailSheet({
                   No comments yet
                 </p>
               )}
-              {comments.map((c) => {
-                const name =
-                  c.authorName ?? c.author?.user?.displayName ?? "Unknown";
-                const isEditing = editingCommentId === c.id;
-                const edited =
-                  !!c.updatedAt && c.updatedAt !== c.createdAt;
-                return (
-                  <div key={c.id} className="group/comment flex gap-2">
-                    <Avatar size="sm">
-                      <AvatarFallback>
-                        {name.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium">{name}</span>
-                        {/* BR: "could you ensure there are timestamps on each
-                            comment as well rather than only the date itself."
-                            <LocalTimestamp> and not formatDateTimeStable: the
-                            stable formatters are all pinned to UTC, which is
-                            right for a coarse due date but tells a reader west
-                            of UTC the wrong hour for an instant. The component
-                            renders the pinned string for the first paint (so
-                            hydration matches) and swaps to the viewer's own
-                            zone after mount. */}
-                        <span className="text-[10px] text-muted-foreground">
-                          <LocalTimestamp value={c.createdAt} />
-                          {edited ? " · edited" : ""}
-                        </span>
-                        {!isEditing && (c.canEdit || c.canDelete) && (
-                          <span className="ml-auto flex items-center gap-1.5 opacity-0 transition-opacity group-hover/comment:opacity-100">
-                            {c.canEdit && (
-                              <button
-                                type="button"
-                                aria-label="Edit comment"
-                                className="text-muted-foreground hover:text-foreground"
-                                onClick={() => {
-                                  setEditingCommentId(c.id);
-                                  setEditDraft(c.content);
-                                }}
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </button>
-                            )}
-                            {c.canDelete && (
-                              <button
-                                type="button"
-                                aria-label="Delete comment"
-                                className="text-muted-foreground hover:text-destructive"
-                                onClick={() => void handleDeleteComment(c.id)}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            )}
-                          </span>
-                        )}
-                      </div>
-                      {isEditing ? (
-                        <div className="mt-1 space-y-1.5">
-                          <div className="rounded-lg border border-input px-2.5 py-1.5 text-sm">
-                            <NoteRichTextEditor
-                              key={`edit-${c.id}`}
-                              initialMarkdown={editDraft}
-                              orgId={orgId}
-                              mentionLabels={commentMentionLabels}
-                              onChange={setEditDraft}
-                              ariaLabel="Edit comment"
-                              sizing={COMMENT_EDITOR_SIZING}
-                            />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              size="xs"
-                              onClick={() => void handleSaveCommentEdit(c.id)}
-                              disabled={!editDraft.trim()}
-                            >
-                              Save
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="ghost"
-                              onClick={() => {
-                                setEditingCommentId(null);
-                                setEditDraft("");
-                              }}
-                            >
-                              Cancel
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-sm text-muted-foreground mt-0.5">
-                          <MarkdownContent content={c.content} refMap={commentRefMap} />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+              {comments.map((c) => (
+                <CommentItem
+                  key={c.id}
+                  authorName={c.authorName ?? c.author?.user?.displayName ?? "Unknown"}
+                  createdAt={c.createdAt}
+                  edited={!!c.updatedAt && c.updatedAt !== c.createdAt}
+                  content={c.content}
+                  refMap={commentRefMap}
+                  orgId={orgId}
+                  mentionLabels={commentMentionLabels}
+                  canEdit={!!c.canEdit}
+                  canDelete={!!c.canDelete}
+                  onSave={(content) => handleSaveCommentEdit(c.id, content)}
+                  onDelete={() => void handleDeleteComment(c.id)}
+                />
+              ))}
 
               {item && (
                 <MentionedIn
@@ -1939,29 +2113,15 @@ export function CardDetailSheet({
                 />
               )}
 
-              <div className="relative flex gap-2">
-                <div className="min-w-0 flex-1 rounded-lg border border-input px-2.5 py-1.5 text-sm focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50">
-                  <NoteRichTextEditor
-                    key={`comment-${commentEditorKey}`}
-                    initialMarkdown={newComment}
-                    orgId={orgId}
-                    mentionLabels={commentMentionLabels}
-                    onChange={setNewComment}
-                    placeholder="Write a comment… (@ to mention)"
-                    ariaLabel="Comment"
-                    sizing={COMMENT_EDITOR_SIZING}
-                  />
-                </div>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Add comment"
-                  onClick={handleAddComment}
-                  disabled={!newComment.trim() || isPending}
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
-              </div>
+              <CommentComposer
+                orgId={orgId}
+                value={newComment}
+                resetKey={commentEditorKey}
+                onChange={setNewComment}
+                onSubmit={handleAddComment}
+                mentionLabels={commentMentionLabels}
+                disabled={isPending}
+              />
             </div>
           )}
 
@@ -1983,7 +2143,21 @@ export function CardDetailSheet({
                     <span className="font-medium text-foreground">
                       {a.action}
                     </span>
-                    {a.field && (
+                    {/* COSMOS-207: a merge reads as a sentence, not a field change. */}
+                    {a.action === "merged" ? (
+                      <>
+                        {" "}
+                        {a.field === "mergedFrom" ? (
+                          <>
+                            <span className="font-medium">{a.newValue}</span> into this
+                          </>
+                        ) : (
+                          <>
+                            this into <span className="font-medium">{a.newValue}</span>
+                          </>
+                        )}
+                      </>
+                    ) : a.field && (
                       <>
                         {" "}
                         changed{" "}
@@ -2021,6 +2195,62 @@ export function CardDetailSheet({
         </div>
       </SheetContent>
 
+      <MergeWorkItemDialog
+        open={mergeOpen}
+        onClose={() => setMergeOpen(false)}
+        onConfirm={(intoId) => void submitMerge(intoId)}
+        pending={mergePending}
+        sourceLabel={`#${item.ticketNumber}`}
+        candidates={mergeCandidates}
+      />
+
+      {/* Cancelling is a transition into Cancelled whose input is the reason
+          and note: the same dialog as any other step that asks for details. */}
+      <TransitionDialog
+        open={cancelOpen}
+        transition={CANCEL_TRANSITION}
+        fields={CANCEL_FIELDS}
+        initial={
+          editingCancelReason
+            ? { "system:cancelReason": item.cancelReason, "system:cancelNote": item.cancelNote ?? "" }
+            : undefined
+        }
+        title={editingCancelReason ? "Why was this cancelled?" : "Cancel this work?"}
+        description="It moves to Cancelled: kept and searchable, but not counted as delivered."
+        submitLabel={editingCancelReason ? "Save reason" : "Mark cancelled"}
+        closeLabel={editingCancelReason ? "Close" : "Keep it"}
+        onClose={() => setCancelOpen(false)}
+        onSubmit={(input) => void submitCancel(input)}
+        pending={cancelPending}
+      />
+      {transitionDialog}
+
+      {/* Split per assignee (COSMOS-89): say exactly who ends up where. */}
+      <Dialog open={splitPrompt} onOpenChange={(o) => !o && setSplitPrompt(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Split into one issue per assignee?</DialogTitle>
+            <DialogDescription>
+              #{item.ticketNumber} stays with{" "}
+              {assigneeOptions.find((o) => o.value === assigneeIds[0])?.label ?? "its first assignee"}.{" "}
+              {assigneeIds
+                .slice(1)
+                .map((id) => assigneeOptions.find((o) => o.value === id)?.label ?? "a member")
+                .join(", ")}{" "}
+              each get their own copy, with the same fields and parent, linked back to this one.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSplitPrompt(false)} disabled={actionPending === "split"}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleSplit()} disabled={actionPending === "split"}>
+              {actionPending === "split" ? "Splitting…" : `Split into ${assigneeIds.length} issues`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Duplicate-with-children prompt (only when the item has sub-items). */}
       <Dialog open={dupPrompt} onOpenChange={(o) => !o && setDupPrompt(false)}>
         <DialogContent>
@@ -2052,39 +2282,14 @@ export function CardDetailSheet({
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <DeleteWorkItemDialog
         open={confirmDelete}
-        onOpenChange={(o) => {
-          if (!o) setConfirmDelete(false);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete work item?</DialogTitle>
-            <DialogDescription>
-              This will permanently delete #{item.ticketNumber}
-              {item.title ? ` "${item.title}"` : ""}. This action cannot be
-              undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setConfirmDelete(false)}
-              disabled={actionPending === "delete"}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={actionPending === "delete"}
-            >
-              {actionPending === "delete" ? "Deleting…" : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={handleDelete}
+        pending={actionPending === "delete"}
+        ticketLabel={`#${item.ticketNumber}`}
+        title={item.title}
+      />
     </Sheet>
   );
 }

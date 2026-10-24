@@ -4,12 +4,14 @@ import { fanOutChatMessage } from "@/lib/chat/notifications";
 import { formatAiContext } from "@/lib/chat/ai-context";
 import { parseMentions } from "@/lib/chat/mentions";
 import { runAgentLoop } from "@/lib/ai/agent-loop";
+import { isNoModelCredentialError } from "@/lib/ai/egress";
 import { cosmosTools } from "@/lib/ai/tools";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { ensureOrgBots, type BuiltInBotKey } from "@/lib/chat/ensure-bots";
 import { filterToolsByScope } from "@/lib/chat/tool-filter";
 import type { ChatBotToolScope } from "@prisma/client";
+import type { AuthContext } from "@/lib/rbac/check";
 
 /**
  * In-channel AI bots — config-driven by the `chat_bots` table, run through v2's
@@ -22,10 +24,11 @@ import type { ChatBotToolScope } from "@prisma/client";
  *  1. AUTHORSHIP — the reply is authored by the bot's SYNTHETIC USER
  *     (`User.isBot = true`, resolved via `ensureOrgBots`), NOT the invoking
  *     human. The bot is a first-class account so its messages attribute to it.
- *  2. CAPABILITY — every tool still executes AS THE INVOKING HUMAN
- *     (`runAgentLoop({ userId: invokerUserId })` → `executeTool(..., {userId})`,
- *     permission-checked against that human), so a bot can NEVER exceed the
- *     permissions of the person who summoned it. On top of that, the bot's
+ *  2. CAPABILITY — every tool still executes AS THE INVOKER, authorised
+ *     against the invoker's OWN AuthContext (`runAgentLoop({ auth:
+ *     invokerAuth })` → `executeTool(..., { auth })`), so a bot can NEVER exceed
+ *     the permissions of whoever summoned it — and when that was an API key,
+ *     the key's scope mask and project ceiling still bind. On top of that, the bot's
  *     `toolScope` (NONE/READONLY/FULL, from its chat_bots row) is a hard CEILING
  *     applied via `filterToolsByScope`; the note-taker additionally keeps its
  *     own allow-list.
@@ -110,12 +113,24 @@ function systemPromptFor(
  */
 export type ConversationalBotKind = Exclude<ChatBotKind, "standup">;
 
+/** The SYSTEM notice for a failed bot run. A missing Claude connection says so
+ *  (the org can fix that); anything else stays generic. */
+function aiFailureNotice(err: unknown): string {
+  return isNoModelCredentialError(err) ? `🤖 ${err.message}` : "🤖 AI is unavailable right now.";
+}
+
 export async function runChatBot(args: {
   bot: ConversationalBotKind;
   orgId: string;
   orgSlug: string;
   channelId: string;
   invokerUserId: string;
+  /**
+   * The invoker's AuthContext exactly as the triggering route authenticated it.
+   * The bot's tools are authorised against this, not rebuilt from
+   * `invokerUserId`; a mismatch between the two refuses every tool call.
+   */
+  invokerAuth: AuthContext;
   /** For @assistant/`/ai`/answerer: the user's question. Ignored by the note-taker. */
   prompt?: string;
   model?: string;
@@ -225,6 +240,7 @@ export async function runChatBot(args: {
       const result = await runAgentLoop({
         orgId: args.orgId,
         userId: args.invokerUserId,
+        auth: args.invokerAuth,
         tenantClass,
         conversationId: channel.id,
         systemPrompt,
@@ -248,6 +264,7 @@ export async function runChatBot(args: {
       const result = await runAgentLoop({
         orgId: args.orgId,
         userId: args.invokerUserId,
+        auth: args.invokerAuth,
         tenantClass,
         conversationId: channel.id,
         systemPrompt,
@@ -274,6 +291,7 @@ export async function runChatBot(args: {
         orgSlug: args.orgSlug,
         channel: channelLite,
         invokerUserId: args.invokerUserId,
+        invokerAuth: args.invokerAuth,
         botUserId,
         systemPrompt,
         initialPrompt,
@@ -282,14 +300,14 @@ export async function runChatBot(args: {
         tenantClass,
       });
     }
-  } catch {
+  } catch (err) {
     if (channelLite) {
       await postServerMessage({
         orgSlug: args.orgSlug,
         channel: channelLite,
         kind: "SYSTEM",
         authorId: botUserId ?? args.invokerUserId,
-        content: "🤖 AI is unavailable right now.",
+        content: aiFailureNotice(err),
       }).catch(() => {});
     }
   }
@@ -320,6 +338,8 @@ async function runStreamingAssistant(args: {
   channel: ChannelLite;
   /** The INVOKING human — tools execute as this identity (perm-scoped). */
   invokerUserId: string;
+  /** The invoker's own AuthContext — what the tools are authorised against. */
+  invokerAuth: AuthContext;
   /** The bot's synthetic user — authors the streamed reply. */
   botUserId: string;
   systemPrompt: string;
@@ -369,11 +389,12 @@ async function runStreamingAssistant(args: {
     return ph.id;
   };
 
-  let result: { text: string };
+  let result: { text: string; transcript: string };
   try {
     result = await runAgentLoop({
       orgId: args.orgId,
       userId: args.invokerUserId,
+      auth: args.invokerAuth,
       tenantClass: args.tenantClass,
       conversationId: channel.id,
       systemPrompt: args.systemPrompt,
@@ -398,7 +419,7 @@ async function runStreamingAssistant(args: {
         });
       },
     });
-  } catch {
+  } catch (err) {
     // Failed. If text had started streaming we created a placeholder — remove
     // it. Either way post a SYSTEM notice (a failure is a breadcrumb, not a bot
     // reply). Return so runChatBot's catch doesn't double-post.
@@ -417,7 +438,7 @@ async function runStreamingAssistant(args: {
       channel,
       kind: "SYSTEM",
       authorId: args.botUserId,
-      content: "🤖 AI is unavailable right now.",
+      content: aiFailureNotice(err),
     }).catch(() => {});
     return;
   }
@@ -431,7 +452,10 @@ async function runStreamingAssistant(args: {
     channel,
     messageId: finalId,
     authorId: args.botUserId,
-    content: result.text || "(no response)",
+    // The transcript, not the final turn alone: the bubble streamed every
+    // turn's text, so saving only the last one dropped the preamble the
+    // channel had just watched arrive.
+    content: result.transcript || "(no response)",
     notify: true,
   });
 }

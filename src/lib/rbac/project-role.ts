@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { type AuthContext } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 import { ProjectRole } from "@prisma/client";
 
 /**
@@ -71,9 +72,11 @@ export async function canManageBoardsInProject(
   ctx: AuthContext,
   projectId: string,
 ): Promise<boolean> {
-  if (inheritsAdmin(ctx)) return true;
+  // A key's role counts only when its scopes grant BOARD_CREATE (key-role.ts).
+  const byRole = roleCountsFor(ctx, Permission.BOARD_CREATE);
+  if (byRole && inheritsAdmin(ctx)) return true;
   const role = await roleOn(ctx, projectId);
-  if (role === ProjectRole.MANAGER || role === ProjectRole.LEAD) return true;
+  if (byRole && (role === ProjectRole.MANAGER || role === ProjectRole.LEAD)) return true;
   if (role === ProjectRole.VIEWER) return false;
   return hasPermission(ctx.permissions, Permission.BOARD_CREATE);
 }

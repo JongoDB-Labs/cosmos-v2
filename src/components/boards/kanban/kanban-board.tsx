@@ -12,7 +12,6 @@ import {
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   DndContext,
-  closestCorners,
   DragEndEvent,
   DragOverEvent,
   DragOverlay,
@@ -23,7 +22,12 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { KanbanColumn } from "./kanban-column";
-import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
+import {
+  NewIssueButton,
+  type NewIssueHandle,
+} from "@/components/boards/shared/new-issue-button";
+import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
+import { columnCollision } from "@/components/boards/shared/column-collision";
 import { KanbanCard } from "./kanban-card";
 import {
   FilterBar,
@@ -34,9 +38,12 @@ import {
   type BoardFilters,
 } from "@/components/boards/shared/filter-bar";
 import { useCustomFields } from "@/hooks/use-custom-fields";
+import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import { boardBaseline, matchesFilters } from "@/lib/work-items/board-filters";
+import { boardScope, inBoardScope } from "@/lib/boards/saved-filter";
+import { BoardScopeNotice } from "@/components/boards/shared/board-scope-notice";
 import { presentLabels } from "@/lib/work-items/label-filter";
 import {
   blockedItemIds,
@@ -63,6 +70,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useOrgSlug } from "@/lib/query/keys";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
+import { sendItemChange, TransitionBackedOut, useTransitionPrompt } from "@/components/work-items/use-transition-prompt";
+import { useWorkflowMoves } from "@/hooks/use-workflow-moves";
+import { announceBulkChange, sendBulkChange } from "@/components/work-items/bulk-change";
 import { toast } from "sonner";
 import {
   MoveDatesDialog,
@@ -212,6 +222,7 @@ function KanbanBoardInner({
   // Bulk-select mode: toggling it disables drag (the DndContext gets no sensors)
   // and turns cards into checkbox toggles, so selection never fights dnd-kit.
   const { can } = usePermissions();
+  const newIssueRef = useRef<NewIssueHandle>(null);
   const canBulkEdit = can(Permission.ITEM_BULK_EDIT);
   const canBulkDelete = can(Permission.ITEM_DELETE);
   const [selectMode, setSelectMode] = useState(false);
@@ -232,6 +243,17 @@ function KanbanBoardInner({
   // Custom-field defs for this project — drives the FilterBar's per-field
   // controls and the client-side custom-field predicate below.
   const { fields: projectCustomFields } = useCustomFields(orgId, projectId);
+  // A column whose status was archived stays on the board (its items are still
+  // there) and is marked; nothing about saving the board brings it back.
+  const liveStatuses = useProjectStatuses(orgId, projectId);
+  const liveStatusKeys = useMemo(
+    () => (liveStatuses.length > 0 ? new Set(liveStatuses.map((s) => s.key)) : null),
+    [liveStatuses],
+  );
+  // A move the workflow wants details for (a resolution, a required field).
+  const { ask: askTransition, dialog: transitionDialog } = useTransitionPrompt(projectCustomFields);
+  // Where the dragged card's workflow lets it go, to dim the other columns.
+  const allowedFrom = useWorkflowMoves(orgId, projectId);
 
   // Board data is cached in React Query (keyed per org/project) so switching
   // between a project's boards reuses it instead of refetching everything each
@@ -492,7 +514,11 @@ function KanbanBoardInner({
   // something different depending on which board you are looking at is worse
   // than no filter at all. A team's work is still a membership test, so an item
   // owned by someone on two teams matches both.
+  // The board's own scope (a board saved from Issues) comes first; the filter
+  // bar narrows within it. See lib/boards/saved-filter.
+  const scope = useMemo(() => boardScope(board?.config), [board]);
   const filteredItems = items.filter((item) =>
+    inBoardScope(scope, item) &&
     matchesFilters(item, filters, projectCustomFields, teamsByUserId, filterNow, {
       blocked: blockedIds,
       milestones: milestoneMap,
@@ -539,10 +565,10 @@ function KanbanBoardInner({
           label: memberName(item.assigneeId) ?? "Unassigned",
         };
       case "team":
-        // One lane per card: the assignee's alphabetically-first team. See
-        // lib/teams/item-teams for why filtering may match several but a lane
-        // cannot.
-        return teamLaneFor(item.assigneeId, teamsByUserId);
+        // One lane per card: the item's own team, else the assignee's
+        // alphabetically-first one. See lib/teams/item-teams for why filtering
+        // may match several but a lane cannot.
+        return teamLaneFor(item, teamsByUserId, teams);
       case "priority":
         return { id: item.priority, label: titleCase(item.priority) };
       case "type": {
@@ -627,6 +653,14 @@ function KanbanBoardInner({
     useSensor(TouchSensor, {
       activationConstraint: { delay: 250, tolerance: 5 },
     }),
+  );
+
+  const collisionDetection = useMemo(
+    () =>
+      columnCollision((id) =>
+        columns.some((c) => c.key === resolveColumnKey(id)),
+      ),
+    [columns],
   );
 
   function handleDragStart(event: DragStartEvent) {
@@ -825,15 +859,30 @@ function KanbanBoardInner({
       }
       void (async () => {
         try {
-          const results = await Promise.all(
-            updates.map((u) =>
-              fetch(`${basePath}/work-items/${u.id}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(u.body),
-              }),
-            ),
-          );
+          const put = (id: string, body: Record<string, unknown>) =>
+            fetch(`${basePath}/work-items/${id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+          // The card first, from this board (its hard WIP limits apply). If the
+          // workflow asks for details, sendItemChange asks and sends the move
+          // again; backing out puts the card back without a word.
+          const [first, ...siblings] = updates;
+          let moved: unknown;
+          try {
+            moved = await sendItemChange(
+              `${basePath}/work-items/${first.id}`,
+              { ...first.body, ...(board?.id && { boardId: board.id }) },
+              askTransition,
+            );
+          } catch (err) {
+            if (!(err instanceof TransitionBackedOut)) throw err;
+            applyItems(beforeDragItemsRef.current);
+            return;
+          }
+          // Only once the move stuck do the cards around it take their new order.
+          const results = await Promise.all(siblings.map((u) => put(u.id, u.body)));
           if (results.some((r) => !r.ok)) {
             throw new Error("Failed to persist the new order");
           }
@@ -841,8 +890,7 @@ function KanbanBoardInner({
           // item against the pre-drag snapshot: a field that was empty and now
           // holds a value was auto-captured, and "now" is only right if the board
           // is being updated the same day the work happened.
-          const moved = await results[0].json().catch(() => null);
-          const savedItem = (moved?.data ?? moved) as WorkItem | null;
+          const savedItem = ((moved as { data?: WorkItem } | null)?.data ?? moved) as WorkItem | null;
           // Ask about dates whenever a move STARTS or FINISHES work, and never
           // otherwise. Shuffling within the backlog says nothing about when
           // anything happened, so a prompt there is pure friction; those two
@@ -870,8 +918,14 @@ function KanbanBoardInner({
         }
       })();
     },
-    [items, columns, basePath, board, applyItems]
+    [items, columns, basePath, board, applyItems, askTransition]
   );
+
+  // A column the dragged card's workflow doesn't lead to from where it started
+  // (`activeItem` is the card as it was when the drag began).
+  const dragAllowed = activeItem ? allowedFrom(activeItem.workItemTypeId, activeItem.columnKey) : null;
+  const isUnavailable = (key: string) =>
+    dragAllowed !== null && key !== activeItem?.columnKey && !dragAllowed.has(key);
 
   function handleCardCreated(item: WorkItem) {
     applyItems((prev) => [...prev, item]);
@@ -934,13 +988,7 @@ function KanbanBoardInner({
       if (ids.length === 0) return;
       setBulkPending(true);
       try {
-        const res = await fetch(`${basePath}/work-items/bulk`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids, update }),
-        });
-        if (!res.ok) throw new Error("bulk update failed");
-        toast.success(`Updated ${ids.length} item${ids.length === 1 ? "" : "s"} — ${label}`);
+        announceBulkChange(await sendBulkChange({ basePath, ids, update, ask: askTransition }), label);
         setSelectedIds(new Set());
         await fetchData({ silent: true, fresh: true });
       } catch (err) {
@@ -949,7 +997,7 @@ function KanbanBoardInner({
         setBulkPending(false);
       }
     },
-    [basePath, fetchData],
+    [basePath, fetchData, askTransition],
   );
 
   const bulkDelete = useCallback(async (ids: string[]) => {
@@ -1012,6 +1060,7 @@ function KanbanBoardInner({
         baseFilters={baseFilters}
         showSwimlane
       />
+      <BoardScopeNotice scope={scope} />
 
       {/* Board toolbar: create, then bulk-select. "Select" enters a mode where
           drag is OFF and cards toggle; the action bar appears once something's
@@ -1021,6 +1070,7 @@ function KanbanBoardInner({
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-1.5">
         {!selectMode && (
           <NewIssueButton
+            ref={newIssueRef}
             orgId={orgId}
             projectId={projectId}
             projectKey={projectKey}
@@ -1176,11 +1226,18 @@ function KanbanBoardInner({
         // No sensors while selecting → drag is fully disabled, so toggling a
         // card can never start a drag.
         sensors={selectMode ? [] : sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={collisionDetection}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
+        {/* Right-click a column (or the space between) to create into it
+            (COSMOS-88). Off in select mode, which hides "New issue". */}
+        <BoardCreateMenu
+          columns={columns}
+          disabled={selectMode}
+          onCreate={(seed) => newIssueRef.current?.open(seed)}
+        >
         {columns.length === 0 ? (
           <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm p-4">
             This board has no columns configured.
@@ -1210,6 +1267,7 @@ function KanbanBoardInner({
                     <KanbanColumn
                       key={`${lane.id}${LANE_SEP}${col.id}`}
                       column={col}
+                      archived={liveStatusKeys !== null && !liveStatusKeys.has(col.key)}
                       droppableId={`${lane.id}${LANE_SEP}${col.key}`}
                       items={itemsForColumnInLane(col.key, lane.items)}
                       members={members}
@@ -1219,6 +1277,7 @@ function KanbanBoardInner({
                       onToggleSelect={toggleSelect}
                       onCtrlSelect={ctrlSelect}
                       onRangeSelect={handleRangeSelect}
+                      unavailable={isUnavailable(col.key)}
                     />
                   ))}
                 </div>
@@ -1239,6 +1298,7 @@ function KanbanBoardInner({
               <KanbanColumn
                 key={col.id}
                 column={col}
+                archived={liveStatusKeys !== null && !liveStatusKeys.has(col.key)}
                 items={itemsForColumn(col.key)}
                 members={members}
                 onCardClick={handleCardClick}
@@ -1247,10 +1307,12 @@ function KanbanBoardInner({
                 onToggleSelect={toggleSelect}
                 onCtrlSelect={ctrlSelect}
                 onRangeSelect={handleRangeSelect}
+                unavailable={isUnavailable(col.key)}
               />
             ))}
           </div>
         )}
+        </BoardCreateMenu>
 
         <DragOverlay>
           {activeItem && (
@@ -1289,6 +1351,7 @@ function KanbanBoardInner({
         }}
       />
 
+      {transitionDialog}
       <CardDetailSheet
         item={detailItem}
         open={detailOpen}
@@ -1297,8 +1360,10 @@ function KanbanBoardInner({
         projectId={projectId}
         members={members}
         intervals={intervals}
+        teams={teams}
         columns={columns}
         onUpdate={handleItemUpdate}
+        onStatusesChanged={() => void fetchData({ silent: true, fresh: true })}
         onDelete={handleItemDeleted}
         onDuplicate={handleItemDuplicated}
         projectItems={items}

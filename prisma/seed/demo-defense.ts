@@ -13,30 +13,14 @@
  */
 import { Prisma } from "@prisma/client";
 import { makePrismaClient } from "./shared/prisma-client";
-import { readFileSync } from "node:fs";
+import { DEFAULT_SEED_STATUSES, ensureSeedStatuses } from "./shared/statuses";
+import { loadEnvLocal } from "./shared/env-local";
 import { upsertRoadmapNodes } from "../../src/lib/roadmap/import";
 import { DEMO_APEX_ROADMAP } from "./demo-defense-roadmap";
 
-function loadEnv(): string | undefined {
-  let dbUrl: string | undefined;
-  try {
-    const txt = readFileSync(process.cwd() + "/.env.local", "utf8");
-    for (const line of txt.split("\n")) {
-      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
-      if (!m) continue;
-      let v = m[2];
-      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-      if (!process.env[m[1]]) process.env[m[1]] = v;
-      if (m[1] === "DATABASE_URL") dbUrl = v;
-    }
-  } catch {
-    /* ignore */
-  }
-  return dbUrl;
-}
 // Prefer .env.local's DATABASE_URL explicitly so host runs don't fall back to
 // .env's in-container `cosmos-postgres` hostname (importing @prisma/client auto-loads .env).
-const DB_URL = loadEnv();
+const DB_URL = loadEnvLocal();
 const prisma = makePrismaClient(DB_URL);
 
 const SLUG = "apex-defense";
@@ -231,6 +215,8 @@ async function main() {
       { t: "Author incident-response runbook for CUI spillage", pts: 3, col: "review", done: null, due: d(2), who: dana.id, pri: "MEDIUM", cui: true },
       { t: "Supply-chain risk assessment (NIST SP 800-161) for subcontractors", pts: 5, col: "todo", done: null, due: d(5), who: marcus.id, pri: "MEDIUM", cui: false },
     ];
+    // Items must be in one of the project's statuses (a foreign key).
+    await ensureSeedStatuses(prisma, projectId, DEFAULT_SEED_STATUSES);
     await prisma.workItem.createMany({
       data: items.map((it, i) => ({
         orgId: org.id,

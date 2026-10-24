@@ -102,3 +102,45 @@ describe("a scope grants what its name says", () => {
     expect(scopeMask(["read", "not-a-scope"])).toBe(read);
   });
 });
+
+describe("the public-API scopes grant what their names say, and no more", () => {
+  const has = (scope: string, bit: bigint) => hasPermission(scopeMask([scope]), bit);
+
+  it("items:delete deletes, and nothing else", () => {
+    expect(has("items:delete", Permission.ITEM_DELETE)).toBe(true);
+    expect(has("items:delete", Permission.OKR_DELETE)).toBe(true);
+    expect(has("items:delete", Permission.ITEM_UPDATE)).toBe(false);
+    expect(has("items:delete", Permission.PROJECT_DELETE)).toBe(false);
+  });
+
+  it("items:write still cannot delete", () => {
+    expect(has("items:write", Permission.ITEM_DELETE)).toBe(false);
+    expect(has("items:write", Permission.OKR_DELETE)).toBe(false);
+  });
+
+  it("planning:write plans, but cannot delete or edit work items", () => {
+    expect(has("planning:write", Permission.SPRINT_UPDATE)).toBe(true);
+    expect(has("planning:write", Permission.OKR_UPDATE)).toBe(true);
+    expect(has("planning:write", Permission.ITEM_UPDATE)).toBe(false);
+    expect(has("planning:write", Permission.ITEM_DELETE)).toBe(false);
+  });
+
+  it("time:write logs time without seeing other people's money or anyone else's rows", () => {
+    expect(has("time:write", Permission.TIME_CREATE)).toBe(true);
+    expect(has("time:write", Permission.FINANCE_READ)).toBe(false);
+    expect(has("time:write", Permission.TIME_READ_ALL)).toBe(false);
+    expect(has("time:write", Permission.TIME_APPROVE)).toBe(false);
+  });
+
+  it("audit:read and webhooks:manage are one bit each", () => {
+    expect(scopeMask(["audit:read"])).toBe(Permission.AUDIT_LOG_READ);
+    expect(scopeMask(["webhooks:manage"])).toBe(Permission.WEBHOOK_MANAGE);
+  });
+
+  it("read carries no org-level or analytics bit (they would reach every existing key)", () => {
+    expect(has("read", Permission.ORG_READ)).toBe(false);
+    expect(has("read", Permission.ANALYTICS_READ)).toBe(false);
+    expect(has("read", Permission.AUDIT_LOG_READ)).toBe(false);
+    expect(has("read", Permission.TIME_READ)).toBe(false);
+  });
+});

@@ -36,18 +36,27 @@ vi.mock("@/lib/rbac/effective-permissions", () => ({ loadEffectivePermissions })
 vi.mock("@/lib/rbac/require-project-read", () => ({ requireProjectRead }));
 
 import { listRisks, listBlockers, listDeliverables, listChanges } from "./pm-register";
+import type { AuthContext } from "@/lib/rbac/check";
+import type { ToolContext } from "@/lib/ai/executors/_ctx";
+import { stubAuth, stubToolCtx } from "@/lib/testing/tool-auth";
 
 const ORG = "org-1";
 const ME = "11111111-1111-4111-a111-111111111111";
 /** A project the actor may NOT see — team-scoped, and they are not a member. */
 const HIDDEN = "22222222-2222-4222-a222-222222222222";
 
-const ctx = { orgId: ORG, userId: ME };
+const ctx: ToolContext = stubToolCtx(ORG, ME);
+/** The caller's AuthContext for the next call — replaces the mocked
+ *  `loadEffectivePermissions` these specs used to drive: tools are now
+ *  authorised against the caller's own context, not a lookup by user id. */
+const setActor = (actor: Partial<Omit<AuthContext, "orgId" | "userId">>) => {
+  ctx.auth = stubAuth(ctx.orgId, ctx.userId, actor);
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
   // An ordinary member: holds the weak read bits, nothing else.
-  loadEffectivePermissions.mockResolvedValue({
+  setActor({
     orgRole: "MEMBER",
     permissions:
       Permission.ANALYTICS_READ | Permission.ITEM_READ | Permission.OKR_READ,

@@ -1,20 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
+import { teamProjectError } from "@/lib/teams/item-team.server";
+import { intervalRequirementError } from "@/lib/work-items/interval-required.server";
 import {
   allocateTicketNumber,
   allocateSortOrder,
 } from "@/lib/work-items/allocate";
 import { z } from "zod";
 import { Priority, Prisma } from "@prisma/client";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { listProjectWorkItems } from "./route.contract";
 
 const createItemSchema = z.object({
   workItemTypeId: z.string().uuid().nullish(),
@@ -28,6 +35,8 @@ const createItemSchema = z.object({
   assigneeIds: z.array(z.string().uuid()).max(50).optional(),
   priority: z.nativeEnum(Priority).default(Priority.MEDIUM),
   intervalId: z.string().uuid().nullable().optional(),
+  // COSMOS-204: the owning team, independent of the assignee.
+  teamId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
   storyPoints: z.number().int().min(0).nullable().optional(),
   dueDate: z.string().datetime().nullable().optional(),
@@ -50,12 +59,8 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, listProjectWorkItems);
+    const { params: { orgId, projectId }, query } = await parseRequest(listProjectWorkItems, request, params);
     // Resource-aware, matching the POST below. This used to be a bare
     // requirePermission(ITEM_READ) — a pure bitmask test that never consults
     // ctx.abacRules — so an `in_project` ITEM_READ deny was honoured by the
@@ -65,9 +70,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     await requireProjectRead(ctx, projectId, "ITEM_READ");
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
-    if (!project) return new Response("Not found", { status: 404 });
+    if (!project) return problem(404, "not_found", undefined, { request });
 
-    const sp = request.nextUrl.searchParams;
     const where: Record<string, unknown> = { orgId, projectId };
 
     // Archived items are out of the way by default. This route feeds the BOARD
@@ -78,24 +82,26 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // Same vocabulary as the shared builder: `?archived=only` selects them,
     // `?archived=all` (or the `?includeArchived=1` alias that shipped first)
     // shows both, anything else means active.
-    const archivedMode = sp.get("archived");
-    if (archivedMode === "only") where.archivedAt = { not: null };
-    else if (archivedMode !== "all" && sp.get("includeArchived") !== "1")
+    if (query.archived === "only") where.archivedAt = { not: null };
+    else if (query.archived !== "all" && query.includeArchived !== "1")
       where.archivedAt = null;
 
-    if (sp.get("workItemTypeId")) where.workItemTypeId = sp.get("workItemTypeId");
-    if (sp.get("priority")) where.priority = sp.get("priority");
-    if (sp.get("columnKey")) where.columnKey = sp.get("columnKey");
-    if (sp.get("assigneeId")) where.assigneeId = sp.get("assigneeId");
-    if (sp.get("intervalId")) where.intervalId = sp.get("intervalId");
-    if (sp.get("parentId")) where.parentId = sp.get("parentId");
+    // A blank filter is no filter, as before contracts.
+    if (query.workItemTypeId) where.workItemTypeId = query.workItemTypeId;
+    if (query.priority) where.priority = query.priority;
+    if (query.columnKey) where.columnKey = query.columnKey;
+    if (query.assigneeId) where.assigneeId = query.assigneeId;
+    if (query.intervalId) where.intervalId = query.intervalId;
+    if (query.parentId) where.parentId = query.parentId;
 
-    if (sp.get("search")) {
-      where.title = { contains: sp.get("search"), mode: "insensitive" };
+    if (query.search) {
+      where.title = { contains: query.search, mode: "insensitive" };
     }
 
     const items = await prisma.workItem.findMany({
       where,
+      // Full-text index internals, never part of the response (schemas.test).
+      omit: { searchVector: true },
       include: {
         parent: { select: { id: true, title: true, ticketNumber: true, workItemTypeId: true } },
         children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true, completedAt: true } },
@@ -114,9 +120,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
     });
 
-    return success(items);
+    return respond(listProjectWorkItems, 200, items);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
@@ -184,6 +190,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    const teamError = await teamProjectError({ projectId, teamId: data.teamId });
+    if (teamError) return NextResponse.json({ error: teamError }, { status: 400 });
+
+    // A Story or Feature needs an interval in a project that has any (COSMOS-205).
+    const needsInterval = await intervalRequirementError({
+      projectId,
+      workItemTypeId: resolvedTypeId!,
+      intervalId: data.intervalId,
+    });
+    if (needsInterval) {
+      return NextResponse.json({ error: needsInterval }, { status: 400 });
+    }
+
     const item = await prisma.$transaction(async (tx) => {
       const ticketNumber = await allocateTicketNumber(tx, { orgId, projectId });
       const sortOrder = await allocateSortOrder(tx, {
@@ -197,7 +216,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const assigneeIds =
         data.assigneeIds ?? (data.assigneeId ? [data.assigneeId] : []);
 
-      const created = await tx.workItem.create({
+      const created = await createWorkItemRow(tx, {
         data: {
           orgId,
           projectId,
@@ -211,6 +230,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           },
           priority: data.priority,
           intervalId: data.intervalId ?? null,
+          teamId: data.teamId ?? null,
           parentId: data.parentId ?? null,
           ticketNumber,
           storyPoints: data.storyPoints ?? null,
@@ -243,7 +263,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           },
           _count: { select: { comments: true, activities: true } },
         },
-      });
+      }, { actorId: ctx.userId, source: "API" });
 
       // Labels go through the catalogue, so a ticket created with one produces a
       // real Label row rather than a string only this item knows about. The
@@ -251,7 +271,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // differ from what the caller sent — asking for "security" when the org's
       // label is "Security" stores, and should return, "Security".
       if (data.tags !== undefined && data.tags.length > 0) {
-        const labels = await setWorkItemLabels(tx, orgId, created.id, data.tags);
+        const labels = await setWorkItemLabels(tx, orgId, created.id, data.tags, { actorId: ctx.userId, source: "API" });
         created.tags = labels.map((l) => l.name);
       }
 

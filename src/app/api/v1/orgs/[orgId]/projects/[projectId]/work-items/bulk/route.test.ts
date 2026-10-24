@@ -17,6 +17,12 @@ const { getAuthContext, prisma, logAudit, createNotification } = vi.hoisted(() =
     organization: { findUnique: vi.fn() },
     project: { findUnique: vi.fn() },
     workItem: { deleteMany: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
+    activity: { createMany: vi.fn() },
+    // The workflow engine: no workflow assigned, no statuses, nobody assigned.
+    workflowAssignment: { findMany: vi.fn(async () => []) },
+    workflowStatus: { findMany: vi.fn(async () => []) },
+    workItemAssignee: { findMany: vi.fn(async () => []) },
+    $transaction: vi.fn(),
   },
   logAudit: vi.fn(),
   createNotification: vi.fn(),
@@ -76,7 +82,12 @@ beforeEach(() => {
   getAuthContext.mockResolvedValue(ctx());
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
   prisma.project.findUnique.mockResolvedValue({ key: "ACME" });
-  prisma.workItem.findMany.mockResolvedValue([]);
+  // The change service reads each batch's rows inside its transaction.
+  prisma.$transaction.mockImplementation(async (cb: (tx: typeof prisma) => unknown) => cb(prisma));
+  prisma.workItem.findMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) =>
+    where.id.in.map((id) => ({ id, ticketNumber: 1, title: "t", columnKey: "todo", priority: "MEDIUM", assigneeId: null, completedAt: null })),
+  );
+  prisma.activity.createMany.mockResolvedValue({ count: 0 });
   prisma.workItem.deleteMany.mockImplementation(async ({ where }) => ({
     count: where.id.in.length,
   }));

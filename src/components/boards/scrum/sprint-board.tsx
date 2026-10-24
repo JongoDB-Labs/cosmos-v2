@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { KanbanBoard } from "@/components/boards/kanban/kanban-board";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Target, CalendarDays, Plus, ListChecks } from "lucide-react";
+import { Target, CalendarDays, Plus, ListChecks, ChevronRight, History } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import {
   Sheet,
@@ -18,6 +18,7 @@ import { IntervalsWorkspace } from "@/components/intervals/intervals-workspace";
 import { cn } from "@/lib/utils";
 import type { Interval } from "@/types/models";
 import { formatDateShortStable } from "@/lib/format/stable-date";
+import { buildIntervalTree, isPastProgramIncrement } from "@/lib/intervals/interval-tree";
 
 interface SprintBoardProps {
   orgId: string;
@@ -118,62 +119,12 @@ export function SprintBoard({
           sprints didn't move the board at all; the details they showed now live
           in the header above, which follows the selection. */}
       {intervals && intervals.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--border)] px-6 py-2">
-          <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
-            Sprints
-          </span>
-          <button
-            type="button"
-            onClick={() => setManageOpen(true)}
-            className="mr-1 inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-0.5 text-xs text-[var(--text-muted)] transition-colors hover:bg-[var(--primary-tint)] hover:text-[var(--primary)]"
-            title="Create, start, and complete sprints"
-          >
-            <ListChecks className="h-3 w-3" /> Manage
-          </button>
-          {(intervals.some((c) => c.intervalKind === "SPRINT")
-            ? intervals.filter((c) => c.intervalKind === "SPRINT")
-            : intervals
-          )
-            .slice()
-            .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
-            .map((c) => {
-              const isShown = c.id === shown?.id;
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  aria-pressed={isShown}
-                  onClick={() => setSelectedId(c.id)}
-                  className={cn(
-                    "rounded-full border px-2.5 py-0.5 text-xs transition-colors hover:bg-[var(--primary-tint)]",
-                    isShown
-                      ? "border-[var(--primary)] bg-[var(--primary-tint)] font-medium text-[var(--primary)]"
-                      : "border-[var(--border)] text-[var(--text-muted)]",
-                  )}
-                  title={`Show ${c.name || `Sprint ${c.number}`}`}
-                >
-                  {c.name || `Sprint ${c.number}`}
-                </button>
-              );
-            })}
-          {/* Escape hatch back to every item, matching the filter bar's "all
-              intervals" state — otherwise, once a pill is picked there is no way
-              back to the unscoped board from this row. */}
-          <button
-            type="button"
-            aria-pressed={shown == null}
-            onClick={() => setSelectedId(null)}
-            className={cn(
-              "rounded-full border px-2.5 py-0.5 text-xs transition-colors hover:bg-[var(--primary-tint)]",
-              shown == null
-                ? "border-[var(--primary)] bg-[var(--primary-tint)] font-medium text-[var(--primary)]"
-                : "border-[var(--border)] text-[var(--text-muted)]",
-            )}
-            title="Show every item, regardless of sprint"
-          >
-            All items
-          </button>
-        </div>
+        <SprintPicker
+          intervals={intervals}
+          shownId={shown?.id ?? null}
+          onSelect={setSelectedId}
+          onManage={() => setManageOpen(true)}
+        />
       )}
 
       <div className="min-h-0 flex-1">
@@ -222,6 +173,156 @@ export function SprintBoard({
         </SheetContent>
       </Sheet>
 
+    </div>
+  );
+}
+
+function pillClass(selected: boolean) {
+  return cn(
+    "rounded-full border px-2.5 py-0.5 text-xs transition-colors hover:bg-[var(--primary-tint)]",
+    selected
+      ? "border-[var(--primary)] bg-[var(--primary-tint)] font-medium text-[var(--primary)]"
+      : "border-[var(--border)] text-[var(--text-muted)]",
+  );
+}
+
+/**
+ * The sprint row at the top of the board, grouped under each Program Increment
+ * (COSMOS-203). Past PIs start collapsed so the row stays about the work in
+ * front of you, but each is one click from expanding, so nothing is out of
+ * reach. The PI holding the sprint on screen always opens, and a sprint picked
+ * from a past PI says so, so nobody edits old work by mistake. A project with
+ * no PIs keeps the plain list.
+ */
+export function SprintPicker({
+  intervals,
+  shownId,
+  onSelect,
+  onManage,
+  now: nowProp,
+}: {
+  intervals: Interval[];
+  shownId: string | null;
+  onSelect: (id: string | null) => void;
+  onManage: () => void;
+  now?: number;
+}) {
+  // "Past" is judged once, when the board opens; a test can pin it.
+  const [openedAt] = useState(() => Date.now());
+  const now = nowProp ?? openedAt;
+  const tree = useMemo(() => buildIntervalTree(intervals), [intervals]);
+  // Explicit toggles only; everything else follows the default below.
+  const [toggled, setToggled] = useState<Record<string, boolean>>({});
+
+  const sprintPill = (c: Interval) => (
+    <button
+      key={c.id}
+      type="button"
+      aria-pressed={c.id === shownId}
+      onClick={() => onSelect(c.id)}
+      className={pillClass(c.id === shownId)}
+      title={`Show ${c.name || `Sprint ${c.number}`}`}
+    >
+      {c.name || `Sprint ${c.number}`}
+    </button>
+  );
+
+  const shownPi = tree.pis.find((g) => g.children.some((c) => c.id === shownId));
+  const viewingPast = shownPi && isPastProgramIncrement(shownPi.interval, now);
+
+  // Without PIs: the original flat list (sprints only, unless there are none).
+  const flat = (intervals.some((c) => c.intervalKind === "SPRINT")
+    ? intervals.filter((c) => c.intervalKind === "SPRINT")
+    : intervals
+  )
+    .slice()
+    .sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
+
+  return (
+    <div className="border-b border-[var(--border)] px-6 py-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
+          Sprints
+        </span>
+        <button
+          type="button"
+          onClick={onManage}
+          className="mr-1 inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-0.5 text-xs text-[var(--text-muted)] transition-colors hover:bg-[var(--primary-tint)] hover:text-[var(--primary)]"
+          title="Create, start, and complete sprints"
+        >
+          <ListChecks className="h-3 w-3" /> Manage
+        </button>
+
+        {tree.pis.length === 0
+          ? flat.map(sprintPill)
+          : (
+            <>
+              {tree.pis.map(({ interval: pi, children }) => {
+                const past = isPastProgramIncrement(pi, now);
+                const holdsShown = children.some((c) => c.id === shownId);
+                const open = toggled[pi.id] ?? (!past || holdsShown);
+                const label = pi.name || `PI ${pi.number}`;
+                return (
+                  <div
+                    key={pi.id}
+                    role="group"
+                    aria-label={label}
+                    className={cn(
+                      "inline-flex flex-wrap items-center gap-1 rounded-full border border-dashed px-1 py-0.5",
+                      past ? "border-[var(--border)] opacity-80" : "border-[var(--primary)]/40",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      onClick={() => setToggled((t) => ({ ...t, [pi.id]: !open }))}
+                      className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-medium text-[var(--text)] hover:bg-[var(--primary-tint)]"
+                      title={`${open ? "Collapse" : "Expand"} ${label}`}
+                    >
+                      <ChevronRight
+                        className={cn("h-3 w-3 transition-transform", open && "rotate-90")}
+                        aria-hidden
+                      />
+                      {label}
+                      {past && (
+                        <span className="rounded bg-muted px-1 text-[10px] font-normal uppercase text-[var(--text-muted)]">
+                          Past
+                        </span>
+                      )}
+                      {!open && (
+                        <span className="text-[10px] font-normal text-[var(--text-muted)]">
+                          {children.length} sprint{children.length === 1 ? "" : "s"}
+                        </span>
+                      )}
+                    </button>
+                    {open && children.map(sprintPill)}
+                  </div>
+                );
+              })}
+              {tree.standalone.map(sprintPill)}
+            </>
+          )}
+
+        {/* Escape hatch back to every item, matching the filter bar's "all
+            intervals" state — otherwise, once a pill is picked there is no way
+            back to the unscoped board from this row. */}
+        <button
+          type="button"
+          aria-pressed={shownId == null}
+          onClick={() => onSelect(null)}
+          className={pillClass(shownId == null)}
+          title="Show every item, regardless of sprint"
+        >
+          All items
+        </button>
+      </div>
+      {viewingPast && (
+        <p role="status" className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+          <History className="h-3.5 w-3.5" aria-hidden />
+          You&apos;re viewing {shownPi.interval.name || `PI ${shownPi.interval.number}`}, a past
+          Program Increment. Changes here edit past work.
+        </p>
+      )}
     </div>
   );
 }
