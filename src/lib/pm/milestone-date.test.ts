@@ -62,8 +62,7 @@ describe("deriveMilestoneDueDate", () => {
     );
   });
 
-  it("returns the stored instance unchanged when the derived date equals it", () => {
-    // So a caller can compare by identity/time and skip a pointless write.
+  it("derives the stored date when the linked item carries the same one", () => {
     const same = [{ dueDate: new Date(STORED.getTime()) }];
     expect(deriveMilestoneDueDate(STORED, true, same)?.getTime()).toBe(STORED.getTime());
   });

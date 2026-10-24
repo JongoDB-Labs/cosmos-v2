@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.463.2",
+    date: "2026-10-24",
+    title: "Internal: tidy project-management exports",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal: removes unused exports from the project-management code, and staffing no longer loads more member data than it shows. No visible change.",
+      },
+    ],
+  },
+  {
     version: "2.463.1",
     date: "2026-10-24",
     title: "Internal: tidy the update checker",
