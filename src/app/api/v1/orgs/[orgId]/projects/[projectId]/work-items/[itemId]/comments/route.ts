@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { requireAccess } from "@/lib/abac/require-access";
 import { created, handleApiError } from "@/lib/api-helpers";
 import { createNotification } from "@/lib/notifications/create";
@@ -44,6 +44,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    await requireProjectVisible(ctx, projectId);
 
     // Resource-aware authz: COMMENT_CREATE in the bitfield AND any deny policy
     // referencing it. The actor authors the comment, so map author→createdById;

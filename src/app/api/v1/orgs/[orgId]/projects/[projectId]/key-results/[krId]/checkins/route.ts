@@ -10,6 +10,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createCheckin, listCheckins } from "./route.contract";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; krId: string }>;
@@ -67,6 +68,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, createCheckin);
     const { params: { orgId, projectId, krId }, body: data } = await parseRequest(createCheckin, request, params);
+    await requireProjectVisible(ctx, projectId);
 
     const kr = await loadScopedKr(orgId, projectId, krId);
     if (!kr) return problem(404, "not_found", undefined, { request });

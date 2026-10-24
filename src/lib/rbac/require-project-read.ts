@@ -35,6 +35,24 @@ export async function requireProjectRead(
   action: PermissionKey,
 ): Promise<void> {
   await requireAccess(ctx, action, { orgId: ctx.orgId, projectId });
+  await requireProjectVisible(ctx, projectId);
+}
+
+/**
+ * The visibility half of `requireProjectRead`, for a WRITE under a project.
+ *
+ * Writes gate on their own action through `requireAccess` with the resource's
+ * attributes (creator, assignee, owner), which `requireProjectRead` would drop,
+ * so they call this beside it. Without it a project that opted into
+ * `teamScopedAccess` hid its items from non-members while still letting them
+ * create, delete, duplicate, merge and comment on them by id: the visibility
+ * question decides whether a non-member may act at all (project-role.ts).
+ *
+ * Call it right after authentication, before the resource is looked up, so a
+ * non-member can't tell a real id from a missing one by 404 versus 403.
+ * Names no permission bit: it narrows, it never adds a requirement.
+ */
+export async function requireProjectVisible(ctx: AuthContext, projectId: string): Promise<void> {
   if (!(await isProjectVisible(ctx, projectId))) {
     // Same message shape as a permission denial: whether a project exists but
     // is not visible, versus does not exist, is not something an actor without
