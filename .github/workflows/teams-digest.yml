@@ -37,6 +37,12 @@ jobs:
             -H "Authorization: Bearer $API_KEY" \
             -H "Content-Type: application/json" -d '{}')
           echo "HTTP $code"; cat /tmp/resp.json; echo
+          if [ "$code" = "403" ]; then
+            echo "::error::COSMOS_API_KEY needs the rules:run and read scopes; re-mint it in Settings -> API keys (HTTP 403)"; exit 1
+          fi
+          if [ "$code" = "429" ]; then
+            echo "::notice::teams digest already posted this hour (HTTP 429): skipping"; exit 0
+          fi
           if [ "$code" -ge 300 ]; then
             echo "::error::teams digest failed (HTTP $code)"; exit 1
           fi

@@ -121,10 +121,16 @@ export async function semanticSearch(
   }
 
   // ── Work items ────────────────────────────────────────────────────────
-  // RBAC preserved EXACTLY: scope to projects the user is a member of, OR all
-  // projects in the org if they're a privileged role (OWNER/ADMIN). Mirrors the
-  // boards UI: project membership is the visibility gate. Non-members see none.
+  // Scope to projects the user is a member of, OR all projects in the org if
+  // they're a privileged role (OWNER/ADMIN) — and then to what the CALLER's
+  // context can read (getReadableProjectIds): a project-scoped API key's
+  // ceiling and team-scoped projects. Those come from the request, not the DB
+  // role, so without the intersection a key scoped to one project searched
+  // every project its minter could. Narrowing only: nobody gains a project.
   if (enabledTypes.has("work_item")) {
+    const workItemAuth = await loadAuthContext(ctx);
+    if (!workItemAuth) return { error: "Insufficient permissions" };
+    const readable = await getReadableProjectIds(workItemAuth);
     const member = await prisma.orgMember.findUnique({
       where: { orgId_userId: { orgId: ctx.orgId, userId: ctx.userId } },
       select: { id: true, role: true },
@@ -142,42 +148,27 @@ export async function semanticSearch(
       projectIds = [];
     }
 
-    // Identical gate to the prior executor: null = all org projects; empty = none.
-    if (projectIds === null || projectIds.length > 0) {
-      let rows: VectorRow[];
-      if (projectIds === null) {
-        // Privileged: all projects in the org.
-        rows = await prisma.$queryRawUnsafe<VectorRow[]>(
-          `SELECT "id", "title", "description", "project_id" AS "projectId",
-                  "ticket_number" AS "ticketNumber",
-                  1 - ("embedding" <=> $1::vector) AS similarity
-             FROM "work_items"
-            WHERE "org_id" = $2::uuid
-              AND "embedding" IS NOT NULL
-            ORDER BY "embedding" <=> $1::vector
-            LIMIT $3`,
-          qv,
-          ctx.orgId,
-          cap
-        );
-      } else {
-        // Member: only their project ids (bound as a uuid[] param).
-        rows = await prisma.$queryRawUnsafe<VectorRow[]>(
-          `SELECT "id", "title", "description", "project_id" AS "projectId",
-                  "ticket_number" AS "ticketNumber",
-                  1 - ("embedding" <=> $1::vector) AS similarity
-             FROM "work_items"
-            WHERE "org_id" = $2::uuid
-              AND "embedding" IS NOT NULL
-              AND "project_id" = ANY($3::uuid[])
-            ORDER BY "embedding" <=> $1::vector
-            LIMIT $4`,
-          qv,
-          ctx.orgId,
-          projectIds,
-          cap
-        );
-      }
+    // null meant "all org projects": that is now exactly the readable set.
+    const readableSet = new Set(readable);
+    projectIds = projectIds === null ? readable : projectIds.filter((id) => readableSet.has(id));
+
+    if (projectIds.length > 0) {
+      // Only the readable project ids (bound as a uuid[] param).
+      const rows = await prisma.$queryRawUnsafe<VectorRow[]>(
+        `SELECT "id", "title", "description", "project_id" AS "projectId",
+                "ticket_number" AS "ticketNumber",
+                1 - ("embedding" <=> $1::vector) AS similarity
+           FROM "work_items"
+          WHERE "org_id" = $2::uuid
+            AND "embedding" IS NOT NULL
+            AND "project_id" = ANY($3::uuid[])
+          ORDER BY "embedding" <=> $1::vector
+          LIMIT $4`,
+        qv,
+        ctx.orgId,
+        projectIds,
+        cap
+      );
       for (const row of rows) {
         hits.push({
           type: "work_item",

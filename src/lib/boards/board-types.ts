@@ -12,6 +12,13 @@ export interface BoardTypeDef {
    */
   savableFromView: boolean;
   /**
+   * Whether the board's columns are the project's STATUSES (a view onto
+   * `workflow_statuses`). False only for the ceremony boards, whose columns are
+   * prompts (Start / Stop / Continue) that retro notes sit under: they must
+   * never become statuses an item could be moved to.
+   */
+  columnsAreStatuses: boolean;
+  /**
    * Columns to create with the board.
    *
    * Only for types whose columns ARE the board's structure rather than a team's
@@ -44,72 +51,86 @@ export const BOARD_TYPE_REGISTRY: Record<BoardType, BoardTypeDef> = {
     label: "Kanban",
     description: "Drag-drop columns with WIP limits & swimlanes.",
     savableFromView: true,
+    columnsAreStatuses: true,
   },
   SCRUM: {
     label: "Scrum / Sprint",
     description: "Active-sprint board with the Kanban scoped to it.",
     savableFromView: false,
+    columnsAreStatuses: true,
   },
   BACKLOG: {
     label: "Backlog",
     description: "Ranked product backlog with sprint assignment.",
     savableFromView: false,
+    columnsAreStatuses: true,
   },
   TABLE: {
     label: "Table",
     description: "Sortable, filterable spreadsheet-style grid.",
     savableFromView: true,
+    columnsAreStatuses: true,
   },
   CALENDAR: {
     label: "Calendar",
     description: "Due dates & ceremonies on a month/week view.",
     savableFromView: false,
+    columnsAreStatuses: true,
   },
   TIMELINE: {
     label: "Timeline / Gantt",
     description:
       "Interactive schedule with dependencies (or a static Release Timeline).",
     savableFromView: false,
+    columnsAreStatuses: true,
   },
   ROADMAP: {
     label: "Roadmap",
     description: "Strategic epic swimlanes across increments.",
     savableFromView: false,
+    columnsAreStatuses: true,
   },
   OKR: {
     label: "OKRs",
     description: "Objectives & key results.",
     savableFromView: false,
+    columnsAreStatuses: true,
   },
   DASHBOARD: {
     label: "Dashboard",
     description: "Rollup widgets & metrics.",
     savableFromView: false,
+    columnsAreStatuses: true,
   },
   PORTFOLIO: {
     label: "Portfolio",
     description: "Cross-project rollup dashboard.",
     savableFromView: false,
+    columnsAreStatuses: true,
   },
   PROGRAM: {
     label: "Program",
     description: "Program-level rollup dashboard.",
     savableFromView: false,
+    columnsAreStatuses: true,
   },
   RAID: {
     label: "RAID Log",
     description: "Risks, assumptions, issues & dependencies.",
     savableFromView: false,
+    columnsAreStatuses: true,
   },
   CFD: {
     label: "Cumulative Flow",
     description: "Cumulative-flow diagram of work over time.",
     savableFromView: false,
+    columnsAreStatuses: true,
   },
   SPRINT_PLANNING: {
     label: "Sprint Planning",
     description: "Capacity, commitment & the goal for the sprint ahead.",
     savableFromView: false,
+    columnsAreStatuses: false,
     // Planning captures a different conversation from a retro: what could stop
     // us, what we do not know yet, and what we settled.
     defaultColumns: [
@@ -123,6 +144,7 @@ export const BOARD_TYPE_REGISTRY: Record<BoardType, BoardTypeDef> = {
     description:
       "What shipped, what carried, Start/Stop/Continue & action items.",
     savableFromView: false,
+    columnsAreStatuses: false,
     // Start / Stop / Continue by default. These are ordinary BoardColumn rows,
     // so a team that prefers Went well / Didn't / Try next just renames them.
     defaultColumns: [

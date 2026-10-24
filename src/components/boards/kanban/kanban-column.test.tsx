@@ -105,3 +105,49 @@ describe("KanbanColumn empty-state placeholder (COSMOS-133)", () => {
     expect(screen.getByText("Test card")).toBeInTheDocument();
   });
 });
+
+describe("KanbanColumn for an archived status", () => {
+  afterEach(() => cleanup());
+
+  const renderWith = (archived?: boolean) =>
+    render(
+      <DndContext>
+        <KanbanColumn column={makeColumn()} items={[makeItem()]} members={[]} onCardClick={() => {}} archived={archived} />
+      </DndContext>,
+    );
+
+  it("marks the column and keeps its items", () => {
+    renderWith(true);
+    expect(screen.getByText("Archived")).toBeTruthy();
+    expect(screen.getByText("Test card")).toBeTruthy();
+  });
+
+  it("is unmarked for a live status", () => {
+    renderWith();
+    expect(screen.queryByText("Archived")).toBeNull();
+  });
+});
+
+describe("KanbanColumn while a card that can't move here is dragged", () => {
+  afterEach(() => cleanup());
+
+  it("is dimmed and says why, and is otherwise left alone", () => {
+    const { container, rerender } = render(
+      <DndContext>
+        <KanbanColumn column={makeColumn()} items={[]} members={[]} onCardClick={() => {}} unavailable />
+      </DndContext>,
+    );
+    const col = container.querySelector("[data-board-column='todo']")!;
+    expect(col.getAttribute("data-unavailable")).toBe("true");
+    expect(col.className).toContain("opacity-40");
+    expect(col.getAttribute("title")).toMatch(/workflow doesn't allow/);
+
+    rerender(
+      <DndContext>
+        <KanbanColumn column={makeColumn()} items={[]} members={[]} onCardClick={() => {}} />
+      </DndContext>,
+    );
+    expect(col.hasAttribute("data-unavailable")).toBe(false);
+    expect(col.className).not.toContain("opacity-40");
+  });
+});

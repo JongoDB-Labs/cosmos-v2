@@ -1,39 +1,27 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
-import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { revalidateOrgProjects } from "@/lib/cache/queries";
 import { getEntitlements, isSectorEnabled } from "@/lib/entitlements";
 import { seedSectorFields } from "@/lib/custom-fields/seed-sector-fields";
-import { z } from "zod";
 import { DEFAULT_COLUMNS } from "@/lib/boards/default-columns";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { cursorPage } from "@/lib/openapi/paginate";
 import { problem } from "@/lib/openapi/problem";
-import { listProjects } from "./route.contract";
-
-const createProjectSchema = z.object({
-  name: z.string().min(1).max(100),
-  key: z.string().min(2).max(10).regex(/^[A-Z][A-Z0-9]*$/, "Key must be uppercase alphanumeric"),
-  description: z.string().nullish(),
-  templateId: z.string().uuid().nullish(),
-  sector: z.string().nullish(),
-});
+import { orgContext } from "@/lib/openapi/org-context";
+import { createProject, listProjects } from "./route.contract";
+import { seedBoardColumns } from "@/lib/workflow/provision.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId, listProjects);
     const { params: p, query } = await parseRequest(listProjects, request, params);
-    const org = await prisma.organization.findUnique({ where: { id: p.orgId } });
-    if (!org) return problem(404, "not_found", "Organization not found", { request });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return problem(401, "unauthorized", undefined, { request });
     requirePermission(ctx, Permission.PROJECT_READ);
 
     // `1`/`0` as well as `true`/`false`: callers used to be able to send either.
@@ -98,25 +86,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, createProject);
+    const { params: { orgId }, body: data } = await parseRequest(createProject, request, params);
     requirePermission(ctx, Permission.PROJECT_CREATE);
-
-    const body = await request.json();
-    const data = createProjectSchema.parse(body);
 
     const existing = await prisma.project.findUnique({
       where: { orgId_key: { orgId, key: data.key } },
     });
     if (existing) {
-      return new Response(
-        JSON.stringify({ error: "Project key already exists" }),
-        { status: 409, headers: { "Content-Type": "application/json" } }
-      );
+      return problem(409, "conflict", "Project key already exists", { request });
     }
 
     // Optionally load the template
@@ -136,17 +114,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         include: { boardTemplates: true },
       });
       if (!tpl) {
-        return new Response(
-          JSON.stringify({ error: "Template not found" }),
-          { status: 404, headers: { "Content-Type": "application/json" } }
-        );
+        return problem(404, "not_found", "Template not found", { request });
       }
       // Allow built-in templates or org-owned templates
       if (!tpl.isBuiltIn && tpl.orgId !== orgId) {
-        return new Response(
-          JSON.stringify({ error: "Template not found" }),
-          { status: 404, headers: { "Content-Type": "application/json" } }
-        );
+        return problem(404, "not_found", "Template not found", { request });
       }
       // Sector entitlement boundary: a tenant restricted to certain sectors
       // (e.g. an example vertical → AEC only) cannot instantiate a template from a disabled
@@ -154,10 +126,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // without this. 404 (not 403) to avoid revealing the template exists.
       const ent = await getEntitlements(orgId);
       if (!isSectorEnabled(ent, tpl.sector)) {
-        return new Response(
-          JSON.stringify({ error: "Template not found" }),
-          { status: 404, headers: { "Content-Type": "application/json" } }
-        );
+        return problem(404, "not_found", "Template not found", { request });
       }
       template = tpl;
     }
@@ -201,25 +170,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             },
           });
 
-          if (columns && columns.length > 0) {
-            await tx.boardColumn.createMany({
-              data: columns.map((col, idx) => ({
-                boardId: board.id,
-                name: col.name,
-                key: col.key,
-                color: col.color ?? "#7dd3fc",
-                sortOrder: col.sortOrder ?? idx,
-                category: (col.category as import("@prisma/client").ColumnCategory) ?? "TODO",
-              })),
-            });
-          } else {
-            await tx.boardColumn.createMany({
-              data: DEFAULT_COLUMNS.map((col) => ({
-                boardId: board.id,
-                ...col,
-              })),
-            });
-          }
+          await seedBoardColumns(
+            tx,
+            board,
+            columns && columns.length > 0
+              ? columns.map((col, idx) => ({
+                  name: col.name,
+                  key: col.key,
+                  color: col.color,
+                  sortOrder: col.sortOrder ?? idx,
+                  category: col.category as import("@prisma/client").ColumnCategory | undefined,
+                }))
+              : DEFAULT_COLUMNS,
+          );
         }
       } else {
         // Default single board with default columns
@@ -233,12 +196,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           },
         });
 
-        await tx.boardColumn.createMany({
-          data: DEFAULT_COLUMNS.map((col) => ({
-            boardId: board.id,
-            ...col,
-          })),
-        });
+        await seedBoardColumns(tx, board, DEFAULT_COLUMNS);
       }
 
       const orgMember = await tx.orgMember.findUnique({
@@ -284,8 +242,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     revalidateOrgProjects(orgId);
 
-    return created(project);
+    return respond(createProject, 201, project);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

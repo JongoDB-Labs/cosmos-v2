@@ -46,6 +46,8 @@ vi.mock("@/hooks/use-custom-fields", () => ({
   useCustomFields: () => ({ fields: [] }),
   fieldAppliesToType: () => false,
 }));
+// The workflow's transitions: unknown here, so every status is offered.
+vi.mock("@/hooks/use-item-transitions", () => ({ useItemTransitions: () => null }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 vi.mock("@/lib/query/json-fetcher", () => ({ jsonFetch: () => Promise.resolve([]) }));
 

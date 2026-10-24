@@ -1,5 +1,8 @@
 import { registerJob } from "./runner";
 import { runCalendarPulls } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { prisma } from "@/lib/db/client";
+import { pruneDomainEvents } from "@/lib/work-items/events.server";
+import { sweepAllMarkedComments } from "@/lib/feedback/comments.server";
 
 /**
  * Every periodic job the app runs, registered on the shared runner
@@ -16,5 +19,31 @@ registerJob({
   run: async ({ signal }) => {
     const r = await runCalendarPulls({ signal });
     return r.people || r.throttled || r.failed ? { ...r } : undefined;
+  },
+});
+
+// Workflow: the domain-event outbox keeps EVENT_RETENTION_DAYS of history.
+registerJob({
+  name: "domain-events-prune",
+  everyMs: 6 * 60 * 60_000,
+  jitterMs: 10 * 60_000,
+  timeoutMs: 10 * 60_000,
+  run: async ({ signal }) => {
+    const deleted = await pruneDomainEvents(prisma, { signal });
+    return deleted ? { deleted } : undefined;
+  },
+});
+
+// Feedback comment markings: a ceiling change sweeps in its own request, and a
+// failure there is only logged. This catches it, so withdrawn notifications
+// and internal replies don't wait for the next ceiling write.
+registerJob({
+  name: "feedback-marking-sweep",
+  everyMs: 15 * 60_000,
+  jitterMs: 60_000,
+  timeoutMs: 10 * 60_000,
+  run: async ({ signal }) => {
+    const r = await sweepAllMarkedComments({ signal });
+    return r.comments ? { ...r } : undefined;
   },
 });

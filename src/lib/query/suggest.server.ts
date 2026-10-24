@@ -168,9 +168,11 @@ async function refSuggestions(
         .map((r) => ({ label: r.name, insert: asValue(r.name), detail: r.key, kind: "type" as const }));
     }
     case "status": {
-      const rows = await prisma.boardColumn.findMany({
-        where: { board: { projectId: { in: readable } }, ...(prefix ? { OR: [{ name: where }, { key: where }] } : {}) },
-        select: { name: true, key: true, board: { select: { project: { select: { key: true } } } } },
+      // The project's statuses, not board columns (a ceremony board's prompts
+      // are not statuses). Archived ones are not offered.
+      const rows = await prisma.workflowStatus.findMany({
+        where: { projectId: { in: readable }, archivedAt: null, ...(prefix ? { OR: [{ name: where }, { key: where }] } : {}) },
+        select: { name: true, key: true, project: { select: { key: true } } },
         take: 200,
         orderBy: { sortOrder: "asc" },
       });
@@ -178,7 +180,7 @@ async function refSuggestions(
       for (const r of rows) {
         const k = r.name.toLowerCase();
         const e = byName.get(k) ?? { label: r.name, projects: new Set<string>() };
-        e.projects.add(r.board.project.key);
+        e.projects.add(r.project.key);
         byName.set(k, e);
       }
       return [...byName.values()].slice(0, limit).map((e) => ({

@@ -38,6 +38,7 @@ import {
   type BoardFilters,
 } from "@/components/boards/shared/filter-bar";
 import { useCustomFields } from "@/hooks/use-custom-fields";
+import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import { boardBaseline, matchesFilters } from "@/lib/work-items/board-filters";
@@ -69,6 +70,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useOrgSlug } from "@/lib/query/keys";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
+import { sendItemChange, TransitionBackedOut, useTransitionPrompt } from "@/components/work-items/use-transition-prompt";
+import { useWorkflowMoves } from "@/hooks/use-workflow-moves";
+import { announceBulkChange, sendBulkChange } from "@/components/work-items/bulk-change";
 import { toast } from "sonner";
 import {
   MoveDatesDialog,
@@ -239,6 +243,17 @@ function KanbanBoardInner({
   // Custom-field defs for this project — drives the FilterBar's per-field
   // controls and the client-side custom-field predicate below.
   const { fields: projectCustomFields } = useCustomFields(orgId, projectId);
+  // A column whose status was archived stays on the board (its items are still
+  // there) and is marked; nothing about saving the board brings it back.
+  const liveStatuses = useProjectStatuses(orgId, projectId);
+  const liveStatusKeys = useMemo(
+    () => (liveStatuses.length > 0 ? new Set(liveStatuses.map((s) => s.key)) : null),
+    [liveStatuses],
+  );
+  // A move the workflow wants details for (a resolution, a required field).
+  const { ask: askTransition, dialog: transitionDialog } = useTransitionPrompt(projectCustomFields);
+  // Where the dragged card's workflow lets it go, to dim the other columns.
+  const allowedFrom = useWorkflowMoves(orgId, projectId);
 
   // Board data is cached in React Query (keyed per org/project) so switching
   // between a project's boards reuses it instead of refetching everything each
@@ -844,15 +859,30 @@ function KanbanBoardInner({
       }
       void (async () => {
         try {
-          const results = await Promise.all(
-            updates.map((u) =>
-              fetch(`${basePath}/work-items/${u.id}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(u.body),
-              }),
-            ),
-          );
+          const put = (id: string, body: Record<string, unknown>) =>
+            fetch(`${basePath}/work-items/${id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+          // The card first, from this board (its hard WIP limits apply). If the
+          // workflow asks for details, sendItemChange asks and sends the move
+          // again; backing out puts the card back without a word.
+          const [first, ...siblings] = updates;
+          let moved: unknown;
+          try {
+            moved = await sendItemChange(
+              `${basePath}/work-items/${first.id}`,
+              { ...first.body, ...(board?.id && { boardId: board.id }) },
+              askTransition,
+            );
+          } catch (err) {
+            if (!(err instanceof TransitionBackedOut)) throw err;
+            applyItems(beforeDragItemsRef.current);
+            return;
+          }
+          // Only once the move stuck do the cards around it take their new order.
+          const results = await Promise.all(siblings.map((u) => put(u.id, u.body)));
           if (results.some((r) => !r.ok)) {
             throw new Error("Failed to persist the new order");
           }
@@ -860,8 +890,7 @@ function KanbanBoardInner({
           // item against the pre-drag snapshot: a field that was empty and now
           // holds a value was auto-captured, and "now" is only right if the board
           // is being updated the same day the work happened.
-          const moved = await results[0].json().catch(() => null);
-          const savedItem = (moved?.data ?? moved) as WorkItem | null;
+          const savedItem = ((moved as { data?: WorkItem } | null)?.data ?? moved) as WorkItem | null;
           // Ask about dates whenever a move STARTS or FINISHES work, and never
           // otherwise. Shuffling within the backlog says nothing about when
           // anything happened, so a prompt there is pure friction; those two
@@ -889,8 +918,14 @@ function KanbanBoardInner({
         }
       })();
     },
-    [items, columns, basePath, board, applyItems]
+    [items, columns, basePath, board, applyItems, askTransition]
   );
+
+  // A column the dragged card's workflow doesn't lead to from where it started
+  // (`activeItem` is the card as it was when the drag began).
+  const dragAllowed = activeItem ? allowedFrom(activeItem.workItemTypeId, activeItem.columnKey) : null;
+  const isUnavailable = (key: string) =>
+    dragAllowed !== null && key !== activeItem?.columnKey && !dragAllowed.has(key);
 
   function handleCardCreated(item: WorkItem) {
     applyItems((prev) => [...prev, item]);
@@ -953,13 +988,7 @@ function KanbanBoardInner({
       if (ids.length === 0) return;
       setBulkPending(true);
       try {
-        const res = await fetch(`${basePath}/work-items/bulk`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids, update }),
-        });
-        if (!res.ok) throw new Error("bulk update failed");
-        toast.success(`Updated ${ids.length} item${ids.length === 1 ? "" : "s"} — ${label}`);
+        announceBulkChange(await sendBulkChange({ basePath, ids, update, ask: askTransition }), label);
         setSelectedIds(new Set());
         await fetchData({ silent: true, fresh: true });
       } catch (err) {
@@ -968,7 +997,7 @@ function KanbanBoardInner({
         setBulkPending(false);
       }
     },
-    [basePath, fetchData],
+    [basePath, fetchData, askTransition],
   );
 
   const bulkDelete = useCallback(async (ids: string[]) => {
@@ -1238,6 +1267,7 @@ function KanbanBoardInner({
                     <KanbanColumn
                       key={`${lane.id}${LANE_SEP}${col.id}`}
                       column={col}
+                      archived={liveStatusKeys !== null && !liveStatusKeys.has(col.key)}
                       droppableId={`${lane.id}${LANE_SEP}${col.key}`}
                       items={itemsForColumnInLane(col.key, lane.items)}
                       members={members}
@@ -1247,6 +1277,7 @@ function KanbanBoardInner({
                       onToggleSelect={toggleSelect}
                       onCtrlSelect={ctrlSelect}
                       onRangeSelect={handleRangeSelect}
+                      unavailable={isUnavailable(col.key)}
                     />
                   ))}
                 </div>
@@ -1267,6 +1298,7 @@ function KanbanBoardInner({
               <KanbanColumn
                 key={col.id}
                 column={col}
+                archived={liveStatusKeys !== null && !liveStatusKeys.has(col.key)}
                 items={itemsForColumn(col.key)}
                 members={members}
                 onCardClick={handleCardClick}
@@ -1275,6 +1307,7 @@ function KanbanBoardInner({
                 onToggleSelect={toggleSelect}
                 onCtrlSelect={ctrlSelect}
                 onRangeSelect={handleRangeSelect}
+                unavailable={isUnavailable(col.key)}
               />
             ))}
           </div>
@@ -1318,6 +1351,7 @@ function KanbanBoardInner({
         }}
       />
 
+      {transitionDialog}
       <CardDetailSheet
         item={detailItem}
         open={detailOpen}

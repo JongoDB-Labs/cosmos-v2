@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { applyWorkItemChange } from "@/lib/work-items/apply-change.server";
+import type { WriteMeta } from "@/lib/work-items/events.server";
 import { updateWorkItems } from "@/lib/work-items/write.server";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
 
@@ -48,6 +50,8 @@ export async function mergeWorkItems(
   args: { orgId: string; projectId: string; duplicateId: string; survivorId: string; userId: string },
 ): Promise<MergeResult> {
   const { orgId, projectId, duplicateId: aId, survivorId: bId, userId } = args;
+  // The same source as the cancel below, so the merge's events read as one change.
+  const meta: WriteMeta = { actorId: userId, source: "SYSTEM", correlationId: randomUUID() };
   if (aId === bId) throw new MergeError("An item can't be merged into itself.");
 
   const [a, b] = await Promise.all([
@@ -96,9 +100,9 @@ export async function mergeWorkItems(
   const tags = [...new Set([...b.tags, ...a.tags])];
   if (tags.length !== b.tags.length) {
     fill.tags = tags;
-    await setWorkItemLabels(tx, orgId, bId, tags);
+    await setWorkItemLabels(tx, orgId, bId, tags, meta);
   }
-  if (Object.keys(fill).length) await updateWorkItems(tx, [bId], fill);
+  if (Object.keys(fill).length) await updateWorkItems(tx, [bId], fill, meta);
 
   // ── Tracked work moves to the survivor ─────────────────────────────────────
   const comments = await tx.comment.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
@@ -113,11 +117,11 @@ export async function mergeWorkItems(
     where: { parentId: aId, id: { notIn: onPath } },
     select: { id: true },
   });
-  const children = { count: await updateWorkItems(tx, movedChildren.map((c) => c.id), { parentId: bId }) };
+  const children = { count: await updateWorkItems(tx, movedChildren.map((c) => c.id), { parentId: bId }, meta) };
   const lifted = await tx.workItem.findFirst({ where: { parentId: aId, id: { in: onPath } }, select: { id: true } });
   if (lifted) {
     const safeParent = a.parentId && !aLine.includes(lifted.id) && !aLine.includes(bId) ? a.parentId : null;
-    await updateWorkItems(tx, [lifted.id], { parentId: safeParent });
+    await updateWorkItems(tx, [lifted.id], { parentId: safeParent }, meta);
   }
   const attachments = await tx.document.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
   await tx.retroActionItem.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
@@ -188,6 +192,9 @@ export async function mergeWorkItems(
     itemIds: [aId],
     patch: { cancelReason: "MERGED", cancelNote: `Merged into ${ref(b.ticketNumber)}`, mergedIntoId: bId },
     source: "SYSTEM",
+    correlationId: meta.correlationId,
+    // The system's own cancel: held to the workflow's structure, not a person's rights.
+    actor: null,
   });
   await tx.activity.createMany({
     data: [
