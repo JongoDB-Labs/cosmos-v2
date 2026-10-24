@@ -130,3 +130,13 @@ describe("InboxWorkspace preview", () => {
     expect(popup).toHaveTextContent("Past due");
   });
 });
+
+describe("InboxWorkspace kind chips", () => {
+  it("counts what the toggle shows on Everything too", async () => {
+    renderInbox();
+    // Unread view: 12 unread, not the 40 all-time.
+    expect(await screen.findByRole("button", { name: /^Everything\s*12$/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Showing unread" }));
+    expect(await screen.findByRole("button", { name: /^Everything\s*40$/ })).toBeInTheDocument();
+  });
+});
