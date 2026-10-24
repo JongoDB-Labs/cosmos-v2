@@ -8,10 +8,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 vi.mock("next/navigation", () => ({ usePathname: () => "/alpha/settings/preferences", useParams: () => ({ orgSlug: "alpha" }) }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
-vi.mock("@/lib/query/json-fetcher", () => ({ jsonFetch: vi.fn() }));
+vi.mock("@/lib/query/json-fetcher", async (orig) => ({
+  ...(await orig<typeof import("@/lib/query/json-fetcher")>()),
+  jsonFetch: vi.fn(),
+}));
 
 import { OutlookCalendarAdminSetup, OutlookCalendarSection } from "./outlook-calendar";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
 
 const status = (over: object) => ({ enabled: true, canManage: false, admin: null, connection: null, ...over });
 function wrap(ui: React.ReactNode) {
@@ -49,6 +52,46 @@ describe("OutlookCalendarSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
     await waitFor(() =>
       expect(jsonFetch).toHaveBeenCalledWith("/api/v1/orgs/o1/microsoft/calendar", expect.objectContaining({ method: "DELETE" })),
+    );
+  });
+
+  it("asks what happens to sent invitations before disconnecting, and says plainly what Keep means", async () => {
+    const conn = status({ connection: { account: "a@contoso.example", status: "connected", connectedAt: "2026-10-23T00:00:00Z", lastSyncAt: null } });
+    vi.mocked(jsonFetch).mockImplementation(async (url, init) => {
+      if (init?.method !== "DELETE") return conn as never;
+      if (String(url).endsWith("/calendar")) throw new FetchError(409, { error: "Choose", liveInvites: 2 }, "Choose");
+      return {} as never;
+    });
+    wrap(<OutlookCalendarSection orgId="o1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    const choice = await screen.findByRole("group", { name: "Your Outlook invitations" });
+    expect(choice.textContent).toContain("2 upcoming meetings");
+    expect(choice.textContent).toContain("the invitations stay in Outlook, but Cosmos will no longer update them");
+    const { notifyError } = await import("@/lib/errors/notify");
+    expect(notifyError).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Keep invitations and disconnect" }));
+    await waitFor(() =>
+      expect(jsonFetch).toHaveBeenCalledWith("/api/v1/orgs/o1/microsoft/calendar?invites=keep", expect.objectContaining({ method: "DELETE" })),
+    );
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Your Outlook invitations" })).toBeNull());
+  });
+
+  it("cancels sent invitations when asked to, and can back out", async () => {
+    const conn = status({ connection: { account: "a@contoso.example", status: "connected", connectedAt: "2026-10-23T00:00:00Z", lastSyncAt: null } });
+    vi.mocked(jsonFetch).mockImplementation(async (url, init) => {
+      if (init?.method !== "DELETE") return conn as never;
+      if (String(url).endsWith("/calendar")) throw new FetchError(409, { error: "Choose", liveInvites: 1 }, "Choose");
+      return {} as never;
+    });
+    wrap(<OutlookCalendarSection orgId="o1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    expect((await screen.findByRole("group", { name: "Your Outlook invitations" })).textContent).toContain("1 upcoming meeting.");
+    fireEvent.click(screen.getByRole("button", { name: "Don't disconnect" }));
+    expect(screen.queryByRole("group", { name: "Your Outlook invitations" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel invitations and disconnect" }));
+    await waitFor(() =>
+      expect(jsonFetch).toHaveBeenCalledWith("/api/v1/orgs/o1/microsoft/calendar?invites=cancel", expect.objectContaining({ method: "DELETE" })),
     );
   });
 

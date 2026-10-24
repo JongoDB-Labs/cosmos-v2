@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.461.0",
+    date: "2026-10-24",
+    title: "Send real Outlook invitations from a meeting",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A meeting's organizer can now send real Outlook invitations from their own mailbox. Cosmos keeps them up to date when the meeting changes and cancels them when it's stopped, cancelled or becomes restricted. Attendees outside your organization's domains are flagged before anything is sent.",
+      },
+    ],
+  },
+  {
     version: "2.460.7",
     date: "2026-10-24",
     title: "Issues search updates the address bar instantly",
