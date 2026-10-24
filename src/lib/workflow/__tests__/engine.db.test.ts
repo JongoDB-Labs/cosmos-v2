@@ -32,6 +32,7 @@ import { seedBoardColumns } from "../provision.server";
 import { listTransitionsForItem, transitionItem } from "@/lib/ai/executors/work-items";
 import { stubToolCtx } from "@/lib/testing/tool-auth";
 import { applyWorkItemChange } from "@/lib/work-items/apply-change.server";
+import { mergeWorkItems } from "@/lib/work-items/merge.server";
 
 let orgId = "";
 let aliceId = "";
@@ -842,6 +843,26 @@ describe("concurrent moves", () => {
       expect(results.filter((r) => r.status === "rejected").map((r) => String((r as PromiseRejectedResult).reason))).toEqual([]);
     }
     expect(new Set(await Promise.all(ids.map(columnOf)))).toEqual(new Set(["todo"]));
+  });
+
+  it("a merge and a bulk move of the same two items, in the other order, both finish", async () => {
+    const w = await world({ boardConfig: { wipHardEnforce: true }, wipLimit: 50 });
+    for (let round = 0; round < 6; round++) {
+      // The duplicate sorts first, so a bulk move locks it before the survivor,
+      // while the merge writes the survivor (its description) before the duplicate.
+      const pair = [await item(w.projectId, { description: "from the duplicate" }), await item(w.projectId)].sort();
+      const [dup, survivor] = pair;
+      await prisma.workItem.update({ where: { id: survivor }, data: { description: "" } });
+      await prisma.workItem.update({ where: { id: dup }, data: { description: "from the duplicate" } });
+      const results = await Promise.allSettled([
+        prisma.$transaction((tx) => mergeWorkItems(tx, { orgId, projectId: w.projectId, duplicateId: dup, survivorId: survivor, userId: aliceId })),
+        prisma.$transaction((tx) =>
+          applyWorkItemChange(tx, { actorId: aliceId, orgId, projectId: w.projectId, itemIds: [dup, survivor], patch: { columnKey: "doing" }, source: "BULK", actor: calls.ctx as AuthContext }),
+        ),
+      ]);
+      expect(results.filter((r) => r.status === "rejected").map((r) => String((r as PromiseRejectedResult).reason)), `round ${round}`).toEqual([]);
+      expect((await prisma.workItem.findUniqueOrThrow({ where: { id: dup } })).mergedIntoId).toBe(survivor);
+    }
   });
 
   it("finishing a parent waits for a sub-item being reopened, and then sees it open", async () => {

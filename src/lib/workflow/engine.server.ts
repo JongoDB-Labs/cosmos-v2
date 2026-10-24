@@ -184,13 +184,34 @@ async function lockMoves(tx: Tx, projectId: string, patch: WorkItemPatch, items:
   const to = patch.columnKey ?? undefined;
   const changed = items.filter((i) => (to !== undefined && i.columnKey !== to) || (patch.teamId !== undefined && i.teamId !== patch.teamId));
   if (changed.length === 0) return;
-  const columns = [...new Set(changed.map((i) => to ?? i.columnKey))].sort();
-  for (const column of columns) {
-    if ((await wip.boardsFor(column)).length === 0) continue;
+  const columns: string[] = [];
+  for (const column of new Set(changed.map((i) => to ?? i.columnKey))) {
+    if ((await wip.boardsFor(column)).length > 0) columns.push(column);
+  }
+  await lockInOrder(tx, projectId, columns, changed.flatMap((i) => (to !== undefined && i.parentId ? [i.id, i.parentId] : [i.id])));
+}
+
+/**
+ * The one lock order every work-item change follows (see lockMoves): the
+ * advisory locks of the hard-WIP `columns`, sorted, then the `rowIds`, sorted,
+ * in one statement. A writer that touches items before its own change runs
+ * (a merge fills the survivor before cancelling the duplicate) takes them all
+ * here first, so its later locks are ones it already holds.
+ */
+export async function lockInOrder(tx: Tx, projectId: string, columns: readonly string[], rowIds: readonly string[]) {
+  for (const column of [...new Set(columns)].sort()) {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WIP_LOCK_NAMESPACE}::int, hashtext(${`${projectId}:${column}`}))`;
   }
-  const ids = [...new Set(changed.flatMap((i) => (to !== undefined && i.parentId ? [i.id, i.parentId] : [i.id])))].sort();
-  await tx.$queryRaw`SELECT id FROM work_items WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE`;
+  const ids = [...new Set(rowIds)].sort();
+  if (ids.length > 0) await tx.$queryRaw`SELECT id FROM work_items WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE`;
+}
+
+/** The columns among `columns` that a board holds to a hard WIP limit. */
+export async function hardWipColumns(tx: Tx, projectId: string, columns: readonly string[]): Promise<string[]> {
+  const ledger = wipLedger(tx, projectId);
+  const out: string[] = [];
+  for (const c of columns) if ((await ledger.boardsFor(c)).length > 0) out.push(c);
+  return out;
 }
 
 /** Does the workflow hold moves into `column` to the boards' WIP limits? */
