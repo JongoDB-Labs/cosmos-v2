@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.462.1",
+    date: "2026-10-24",
+    title: "Notices show on every page",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Pop-up notices, including the one asking you to reload after an update, now appear on every page, not only inside the main workspace.",
+      },
+    ],
+  },
+  {
     version: "2.462.0",
     date: "2026-10-24",
     title: "Work-item links in the public API",
