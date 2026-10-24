@@ -542,6 +542,7 @@ describe("UpdatesManager — what the automatic installer last reported", () => 
   const JOB = {
     name: "outbox-worker", leader: true, running: false, stuck: false, runningForSeconds: null, lastStartedAt: "2026-10-24T23:29:59.000Z",
     lastSucceededAt: "2026-10-24T23:29:59.500Z", consecutiveFailures: 0, lastErrorClass: null, lastErrorMessage: null, everySeconds: 1,
+    lastCounts: null, totals: {} as Record<string, number>,
   };
 
   it("says the background jobs are off here, and why", async () => {
@@ -566,7 +567,7 @@ describe("UpdatesManager — what the automatic installer last reported", () => 
         jobs: [
           { ...JOB, running: true, stuck: true, runningForSeconds: 3 * 3600 },
           { ...JOB, name: "teams-outbox", leader: false, consecutiveFailures: 2, lastErrorClass: "TypeError", lastErrorMessage: "x is undefined" },
-          { ...JOB, name: "domain-events-prune" },
+          { ...JOB, name: "domain-events-prune", totals: { events: 532, late: 12 } },
         ],
       },
     });
@@ -576,7 +577,8 @@ describe("UpdatesManager — what the automatic installer last reported", () => 
     const row = (name: string) => within(table).getByText(name).closest("tr") as HTMLElement;
     expect(row("outbox-worker").textContent).toMatch(/leads.*Stuck: running for 3 h/);
     expect(row("teams-outbox").textContent).toMatch(/standby.*Failing \(2×\): TypeError: x is undefined/);
-    expect(row("domain-events-prune").textContent).toMatch(/OK$/);
+    // What it did since this instance started, the late messages it skipped included.
+    expect(row("domain-events-prune").textContent).toMatch(/OKevents 532 · late 12$/);
   });
 
   it("says the jobs are running, and how many this instance leads", async () => {

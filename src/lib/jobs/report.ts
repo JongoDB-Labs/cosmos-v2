@@ -26,6 +26,9 @@ export interface JobReport {
   consecutiveFailures: number;
   lastErrorClass: string | null;
   lastErrorMessage: string | null;
+  /** What its last run that did something reported (events, sent, late…), and the sum since this instance started. */
+  lastCounts: Record<string, number> | null;
+  totals: Record<string, number>;
   everySeconds: number;
 }
 
@@ -59,6 +62,8 @@ export function describeJobs(
         // A lock failure is the runner's own, and says which: keep its prefix.
         lastErrorClass: s.lastError?.startsWith("lock: ") ? "lock unavailable" : s.lastErrorClass,
         lastErrorMessage: redactMessage(s.lastError),
+        lastCounts: s.lastCounts,
+        totals: s.totals,
         everySeconds: Math.round(s.everyMs / 1000),
       };
     }),

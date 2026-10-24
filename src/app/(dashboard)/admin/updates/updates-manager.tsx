@@ -476,6 +476,13 @@ function JobsHealth({ data }: { data: UpdateSettingsPayload }) {
                       : j.running
                         ? "Running"
                         : "OK"}
+                  {Object.keys(j.totals).length > 0 && (
+                    <span className="block text-muted-foreground">
+                      {Object.entries(j.totals)
+                        .map(([k, v]) => `${k} ${v}`)
+                        .join(" · ")}
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}

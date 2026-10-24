@@ -60,6 +60,9 @@ export interface JobStatus {
   lastErrorClass: string | null;
   consecutiveFailures: number;
   nextRunAt: string | null;
+  /** The numbers in the last run's summary (events, sent, late…), and their sum since this process started. */
+  lastCounts: Record<string, number> | null;
+  totals: Record<string, number>;
   everyMs: number;
   timeoutMs: number;
 }
@@ -184,7 +187,7 @@ export class JobRunner {
       abort: null,
       status: {
         name: def.name, leader: false, running: false, lastStartedAt: null, lastFinishedAt: null,
-        lastOk: null, lastSucceededAt: null, lastError: null, lastErrorClass: null, consecutiveFailures: 0, nextRunAt: null,
+        lastOk: null, lastSucceededAt: null, lastError: null, lastErrorClass: null, consecutiveFailures: 0, nextRunAt: null, lastCounts: null, totals: {},
         everyMs: def.everyMs, timeoutMs: def.timeoutMs ?? def.everyMs,
       },
     };
@@ -217,7 +220,7 @@ export class JobRunner {
   }
 
   status(): JobStatus[] {
-    return [...this.jobs.values()].map((e) => ({ ...e.status }));
+    return [...this.jobs.values()].map((e) => ({ ...e.status, totals: { ...e.status.totals } }));
   }
 
   /**
@@ -261,6 +264,10 @@ export class JobRunner {
       e.status.lastError = null;
       e.status.lastErrorClass = null;
       if (summary) this.log(`[jobs] ${name}: ok in ${this.now() - t0}ms ${JSON.stringify(summary)}`);
+      // Numbers only: counts are what the admin readout may show.
+      const counts = summary ? Object.fromEntries(Object.entries(summary).filter((kv): kv is [string, number] => typeof kv[1] === "number")) : null;
+      e.status.lastCounts = counts;
+      for (const [k, v] of Object.entries(counts ?? {})) e.status.totals[k] = (e.status.totals[k] ?? 0) + v;
     } catch (err) {
       e.status.consecutiveFailures++;
       e.status.lastOk = false;

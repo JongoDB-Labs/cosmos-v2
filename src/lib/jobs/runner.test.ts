@@ -109,6 +109,16 @@ describe("what the admin readout reads", () => {
     expect(r.isStarted()).toBe(false);
   });
 
+  it("keeps the numbers of each run's summary, and their sum, and nothing else", async () => {
+    const r = new JobRunner(quiet);
+    let n = 0;
+    r.register({ name: "c", everyMs: 1000, run: async () => ({ events: ++n, late: 1, note: "text is not a count" }) });
+    await r.tick("c");
+    await r.tick("c");
+    expect(r.status()[0]).toMatchObject({ lastCounts: { events: 2, late: 1 }, totals: { events: 3, late: 2 } });
+    expect(r.status()[0].lastCounts).not.toHaveProperty("note");
+  });
+
   it("says so when a run outlives its timeout without returning", async () => {
     const lines: string[] = [];
     const r = new JobRunner({ ...quiet, log: (l) => lines.push(l) });

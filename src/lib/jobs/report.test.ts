@@ -6,7 +6,7 @@ const NOW = new Date("2026-10-24T23:30:00.000Z");
 const job = (over: Partial<JobStatus> = {}): JobStatus => ({
   name: "outbox-worker", leader: true, running: false, lastStartedAt: "2026-10-24T23:29:59.000Z", lastFinishedAt: "2026-10-24T23:29:59.500Z",
   lastOk: true, lastSucceededAt: "2026-10-24T23:29:59.500Z", lastError: null, lastErrorClass: null, consecutiveFailures: 0, nextRunAt: null,
-  everyMs: 1000, timeoutMs: 30_000, ...over,
+  lastCounts: null, totals: {}, everyMs: 1000, timeoutMs: 30_000, ...over,
 });
 
 describe("describeJobs", () => {

@@ -24,6 +24,7 @@ import { randomUUID } from "crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { webhookEventsFor } from "@/lib/webhooks/events";
 import { recordOutboxLag } from "@/lib/observability/metrics";
+import { tooLateToSend } from "@/lib/jobs/side-effect-window";
 import { runRulesForEvents, type RuleEvent } from "./engine.server";
 
 interface EventRow {
@@ -46,6 +47,8 @@ export interface OutboxRun {
   events: number;
   /** Webhook deliveries queued. */
   queued: number;
+  /** Deliveries not queued: their event was older than SIDE_EFFECT_WINDOW_MS (the worker was behind). */
+  late: number;
   /** Automation rule runs recorded. */
   ruleRuns: number;
 }
@@ -73,12 +76,17 @@ export async function processOutboxBatch(
       LIMIT ${batchSize}
       FOR UPDATE SKIP LOCKED
     `;
-    if (rows.length === 0) return { events: 0, queued: 0, ruleRuns: 0 };
+    if (rows.length === 0) return { events: 0, queued: 0, late: 0, ruleRuns: 0 };
     const live = rows.filter((r) => r.source !== "MIGRATION");
     const at = (opts.now ?? new Date()).getTime();
     for (const r of live) recordOutboxLag(at - r.created_at.getTime());
     const category = await statusCategories(tx, live);
-    const deliveries = await webhookDeliveries(tx, live, category, opts.now ?? new Date());
+    const now = opts.now ?? new Date();
+    const all = await webhookDeliveries(tx, live, category, now);
+    // A receiver told about an hour-old change after an outage, in a burst, is
+    // worse off than not told: the event is still processed, and counted.
+    const lateIds = new Set(live.filter((r) => tooLateToSend(r.created_at, now)).map((r) => r.id));
+    const deliveries = all.filter((d) => !lateIds.has(d.eventId as bigint));
     const queued = deliveries.length
       ? (await tx.webhookDelivery.createMany({ data: deliveries, skipDuplicates: true })).count
       : 0;
@@ -97,10 +105,11 @@ export async function processOutboxBatch(
         causedByRuleId: e.caused_by_rule_id,
         fromCategory: category.get(`${e.project_id}:${e.payload.from}`) ?? null,
         toCategory: category.get(`${e.project_id}:${e.payload.to}`) ?? null,
+        occurredAt: e.created_at,
       })),
     );
     await tx.domainEvent.updateMany({ where: { id: { in: rows.map((r) => r.id) } }, data: { processedAt: opts.now ?? new Date() } });
-    return { events: rows.length, queued, ruleRuns };
+    return { events: rows.length, queued, late: all.length - deliveries.length, ruleRuns };
   }, { timeout: 120_000 });
 }
 
@@ -116,12 +125,13 @@ async function statusCategories(tx: Prisma.TransactionClient, events: EventRow[]
 
 /** Process batches until the outbox is empty, the signal aborts, or `maxBatches` ran. */
 export async function drainOutbox(db: PrismaClient, opts: { signal?: AbortSignal; maxBatches?: number; batchSize?: number } = {}): Promise<OutboxRun> {
-  const total: OutboxRun = { events: 0, queued: 0, ruleRuns: 0 };
+  const total: OutboxRun = { events: 0, queued: 0, late: 0, ruleRuns: 0 };
   const batchSize = opts.batchSize ?? 50;
   for (let i = 0; i < (opts.maxBatches ?? 50) && !opts.signal?.aborted; i++) {
     const r = await processOutboxBatch(db, { batchSize });
     total.events += r.events;
     total.queued += r.queued;
+    total.late += r.late;
     total.ruleRuns += r.ruleRuns;
     if (r.events < batchSize) break;
   }
