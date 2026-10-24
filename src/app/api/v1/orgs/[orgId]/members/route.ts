@@ -4,6 +4,7 @@ import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { cursorPage } from "@/lib/openapi/paginate";
 import { listMembers } from "./route.contract";
+import { scopedRosterUserIds } from "@/lib/members/scoped-roster.server";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
@@ -33,8 +34,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       ],
     });
 
+    // A project-scoped key sees only the people on its projects (scopes narrow).
+    const roster = await scopedRosterUserIds(ctx);
     const fetched = await prisma.orgMember.findMany({
-      where: { AND: [{ orgId }, page.where] },
+      where: { AND: [{ orgId }, page.where, ...(roster ? [{ userId: { in: roster } }] : [])] },
       select: {
         id: true,
         orgId: true,

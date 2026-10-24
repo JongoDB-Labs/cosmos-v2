@@ -6,6 +6,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { listWorkItemActivity } from "./route.contract";
+import { projectActivityValues } from "@/lib/work-items/read.server";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; itemId: string }> };
 
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       take: 100,
     });
 
-    return respond(listWorkItemActivity, 200, activities);
+    return respond(listWorkItemActivity, 200, projectActivityValues(activities));
   } catch (error) {
     return handleApiError(error, request);
   }

@@ -4163,13 +4163,15 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The value before, for the item fields the history shows values for (title, status, priority, assignee, dates, …); null for any other field."
           },
           "newValue": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The value after; null like `oldValue`."
           },
           "createdAt": {
             "$ref": "#/components/schemas/IsoDateTime"
@@ -5463,7 +5465,7 @@
       "get": {
         "operationId": "listMembers",
         "summary": "List members",
-        "description": "Everyone in the organization, longest-standing first. A token sees `user.email` only when it holds `members:read`; a browser session always does.",
+        "description": "Everyone in the organization, longest-standing first. For a project-scoped key, limited to people on the scoped projects: their project members, and the assignees, creators and commenters of their work items. A token sees `user.email` only when it holds `members:read`; a browser session always does.",
         "tags": [
           "Members"
         ],
@@ -14676,7 +14678,7 @@
       "get": {
         "operationId": "getWorkItemFacets",
         "summary": "Get work-item filter options",
-        "description": "The values the work-item filters can take across the projects the caller can read: projects, types, statuses (also per project), members, labels in use and intervals. A caller who can read no project gets empty lists.",
+        "description": "The values the work-item filters can take across the projects the caller can read: projects, types, statuses (also per project), members, labels in use and intervals. A caller who can read no project gets empty lists. `members` is the whole organization, except for a project-scoped key: limited to people on the scoped projects (their project members, and the assignees, creators and commenters of their work items).",
         "tags": [
           "Work items"
         ],

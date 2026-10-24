@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.468.1",
+    date: "2026-10-24",
+    title: "Tighter API key visibility",
+    highlights: [
+      {
+        kind: "fix",
+        text: "API keys limited to some projects now see only the people on those projects in the member list and the work-item filters. A work item's change history in the API shows before-and-after values only for the item's own reviewed fields.",
+      },
+    ],
+  },
+  {
     version: "2.468.0",
     date: "2026-10-24",
     title: "Query language: history, hierarchy and richer sorting",
