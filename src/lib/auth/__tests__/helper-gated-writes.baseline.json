@@ -133,6 +133,9 @@
   "DELETE v1/orgs/[orgId]/saved-views/[viewId]/favorite": [
     "viewerScope"
   ],
+  "DELETE v1/orgs/[orgId]/saved-views/[viewId]/subscriptions/[subId]": [
+    "viewerScope"
+  ],
   "DELETE v1/orgs/[orgId]/time-entries/[entryId]": [
     "orgRole",
     "role literal",
@@ -202,6 +205,9 @@
     "canEdit",
     "viewerScope",
     "isAdmin*"
+  ],
+  "PATCH v1/orgs/[orgId]/saved-views/[viewId]/subscriptions/[subId]": [
+    "viewerScope"
   ],
   "PATCH v1/orgs/[orgId]/tenant-class": [
     "orgRole",
@@ -365,6 +371,9 @@
     "requireProjectManage"
   ],
   "POST v1/orgs/[orgId]/saved-views": [
+    "viewerScope"
+  ],
+  "POST v1/orgs/[orgId]/saved-views/[viewId]/subscriptions": [
     "viewerScope"
   ],
   "POST v1/orgs/[orgId]/timesheets/[timesheetId]": [
