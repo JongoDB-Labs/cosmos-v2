@@ -18,16 +18,18 @@ import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
 
 // --- I/O boundary mocks ------------------------------------------------------
-const { getAuthContext, prisma, logAudit, publishToOrg } = vi.hoisted(() => ({
-  getAuthContext: vi.fn(),
-  prisma: {
+const { getAuthContext, prisma, logAudit, publishToOrg } = vi.hoisted(() => {
+  const prisma = {
     organization: { findUnique: vi.fn() },
-    orgMember: { findUnique: vi.fn(), update: vi.fn() },
+    // `count` answers the last-owner check: another owner exists unless a test says not.
+    orgMember: { findUnique: vi.fn(), update: vi.fn(), count: vi.fn(async () => 1) },
     teamsConversation: { deleteMany: vi.fn() },
-  },
-  logAudit: vi.fn(),
-  publishToOrg: vi.fn(),
-}));
+    $queryRaw: vi.fn(async () => []),
+    // The role change runs in a transaction; the mock runs it on this same client.
+    $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
+  };
+  return { getAuthContext: vi.fn(), prisma, logAudit: vi.fn(), publishToOrg: vi.fn() };
+});
 
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));

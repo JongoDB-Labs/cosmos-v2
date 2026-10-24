@@ -4,6 +4,7 @@ import { requirePermission, type AuthContext } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { isFeedbackStaff } from "./access";
 import { markingCeiling, type CommentViewer } from "./comments.server";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 export interface FeedbackRouteContext {
   org: { id: string; slug: string };
@@ -40,9 +41,11 @@ export async function loadFeedbackRoute(
 
   const item = await prisma.feedbackItem.findFirst({
     where: { id: feedbackId, orgId },
-    select: { id: true, title: true, authorId: true, status: true, lockedAt: true, mergedIntoId: true },
+    select: { id: true, title: true, authorId: true, status: true, lockedAt: true, mergedIntoId: true, projectId: true },
   });
-  if (!item) return new Response("Not found", { status: 404 });
+  // A team-scoped project's feedback is the same 404 as a missing one to anyone
+  // who can't see the project.
+  if (!item || !(await inVisibleProject(ctx, item.projectId))) return new Response("Not found", { status: 404 });
 
   return {
     org,

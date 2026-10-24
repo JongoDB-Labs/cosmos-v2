@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { updateWorkItems } from "@/lib/work-items/write.server";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -55,6 +55,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, updateInterval);
     const { params: { orgId, projectId, intervalId }, body: data } = await parseRequest(updateInterval, request, params);
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.SPRINT_UPDATE);
 
     const existing = await prisma.interval.findFirst({ where: { id: intervalId, projectId, orgId } });
@@ -181,6 +182,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return problem(401, "unauthorized", undefined, { request });
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.SPRINT_UPDATE);
 
     const existing = await prisma.interval.findFirst({ where: { id: intervalId, projectId, orgId } });

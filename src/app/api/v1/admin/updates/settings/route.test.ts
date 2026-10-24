@@ -20,6 +20,8 @@ const { requireSystemAdmin, listTags, prisma } = vi.hoisted(() => ({
   prisma: {
     updateSettings: { findUnique: vi.fn(), upsert: vi.fn() },
     updateReconcileStatus: { findUnique: vi.fn() },
+    // The event backlog: [domain_events], then [webhook_deliveries].
+    $queryRaw: vi.fn(),
   },
 }));
 vi.mock("@/lib/internal/require-system-admin", () => ({ requireSystemAdmin }));
@@ -108,6 +110,20 @@ describe("GET", () => {
     expect(body.autoUpdate).toBe(true);
     expect(body.reconcile).toMatchObject({ outcome: "failing", runningVersion: "2.427.0" });
     expect(body.reconcileHealth.tone).toBe("error");
+  });
+
+  it("says whether the event worker is keeping up, and stays up if that read fails", async () => {
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ unprocessed: BigInt(7), oldest: new Date(Date.now() - 30 * 60_000) }])
+      .mockResolvedValueOnce([{ pending: BigInt(0), failed: BigInt(0) }]);
+    const stalled = await (await GET()).json();
+    expect(stalled.eventBacklog).toMatchObject({ tone: "error", backlog: { unprocessed: 7, oldestAgeSeconds: expect.any(Number) } });
+    expect(stalled.eventBacklog.headline).toMatch(/^7 change events are waiting/);
+
+    prisma.$queryRaw.mockRejectedValueOnce(new Error("relation does not exist"));
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect((await res.json()).eventBacklog).toMatchObject({ tone: "muted", backlog: null });
   });
 
   it("reports reconcile: null when the installer has never reported", async () => {

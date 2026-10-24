@@ -17,11 +17,13 @@ import {
 import { listTags } from "@/lib/updates/registry";
 import { versionsFromTags } from "@/lib/updates/versions";
 import { openField } from "@/lib/crypto/field-seal";
+import { prisma } from "@/lib/db/client";
+import { eventBacklogHealth } from "@/lib/automation/backlog.server";
 
 /**
  * The instance's update settings: the "install updates by yourself?" switch,
  * the registry the update check reads, and — read-only — what the host-side
- * installer last reported.
+ * installer last reported and whether the event worker is keeping up.
  *
  * Same SYSTEM-admin gate as the sibling update routes: an image upgrade is
  * instance-wide, so "owner of any org" is the wrong tier — self-service org
@@ -42,10 +44,11 @@ import { openField } from "@/lib/crypto/field-seal";
  * docker-compose.override.yml.
  */
 async function currentView() {
-  const [settings, reconcile, overrides] = await Promise.all([
+  const [settings, reconcile, overrides, eventBacklog] = await Promise.all([
     getUpdateSettings(),
     getReconcileStatus(),
     readRegistryOverrides(),
+    eventBacklogHealth(prisma),
   ]);
   return {
     ...settings,
@@ -55,6 +58,9 @@ async function currentView() {
     // one the daemon's checkedAt was written against — no client skew.
     reconcileHealth: describeReconcileHealth(reconcile, settings.autoUpdate, new Date()),
     registry: registrySettingsView(process.env, overrides),
+    // Is the outbox worker (webhooks, automations) keeping up? Counts and ages
+    // only; the one place anyone without the logs or the database can tell.
+    eventBacklog,
   };
 }
 

@@ -21,9 +21,9 @@ import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 
-// Every non-OWNER OrgRole is assignable here (ownership transfer is a separate,
-// deliberate flow). Keep in sync with the OrgRole enum so a member's current
-// role — e.g. GUEST — is always representable in the tier select.
+// Every non-OWNER OrgRole is assignable here. Keep in sync with the OrgRole
+// enum so a member's current role — e.g. GUEST — is always representable in
+// the tier select.
 const ASSIGNABLE_ROLES: Record<string, string> = {
   ADMIN: "Admin",
   BILLING_ADMIN: "Billing Admin",
@@ -31,6 +31,10 @@ const ASSIGNABLE_ROLES: Record<string, string> = {
   VIEWER: "Viewer",
   GUEST: "Guest",
 };
+
+// An owner may make someone else an owner too (the API allows only owners to).
+// It's offered only to them, and asks for confirmation by name before saving.
+const ROLES_FOR_OWNERS: Record<string, string> = { OWNER: "Owner", ...ASSIGNABLE_ROLES };
 
 export type TeamRoleDialogMember = {
   id: string;
@@ -49,6 +53,8 @@ interface TeamRoleDialogProps {
   workRoleOptions: { id: string; name: string; isBuiltIn: boolean }[];
   /** Ids of `workRoleOptions` the actor may grant (subset-checked server-side). */
   grantableRoleIds: string[];
+  /** The viewer is an owner of the org: only they may make someone an owner. */
+  viewerIsOwner: boolean;
   onClose: () => void;
 }
 
@@ -92,10 +98,14 @@ export function TeamRoleDialog({
   member,
   workRoleOptions,
   grantableRoleIds,
+  viewerIsOwner,
   onClose,
 }: TeamRoleDialogProps) {
   const router = useRouter();
   const isOwner = member.role === "OWNER";
+  const tierRoles = viewerIsOwner ? ROLES_FOR_OWNERS : ASSIGNABLE_ROLES;
+  // Making someone an owner is confirmed by name before anything is saved.
+  const [confirmingOwner, setConfirmingOwner] = useState(false);
 
   const [tier, setTier] = useState(member.role);
   const [roleIds, setRoleIds] = useState<string[]>(member.workRoleIds);
@@ -126,6 +136,10 @@ export function TeamRoleDialog({
       onClose();
       return;
     }
+    if (tierChanged && tier === "OWNER" && !confirmingOwner) {
+      setConfirmingOwner(true);
+      return;
+    }
     setSaving(true);
     setError(null);
     let tierSaved = false;
@@ -138,6 +152,7 @@ export function TeamRoleDialog({
         });
         if (!res.ok) {
           setError(await readError(res, `Couldn't update the tier (HTTP ${res.status}).`));
+          setConfirmingOwner(false);
           setSaving(false);
           return;
         }
@@ -192,15 +207,19 @@ export function TeamRoleDialog({
               </p>
             ) : (
               <Select
-                items={ASSIGNABLE_ROLES}
+                items={tierRoles}
                 value={tier}
-                onValueChange={(v) => v && setTier(v)}
+                onValueChange={(v) => {
+                  if (!v) return;
+                  setTier(v);
+                  setConfirmingOwner(false);
+                }}
               >
                 <SelectTrigger className="w-full" aria-label="Primary tier">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(ASSIGNABLE_ROLES).map(([value, label]) => (
+                  {Object.entries(tierRoles).map(([value, label]) => (
                     <SelectItem key={value} value={value}>
                       {label}
                     </SelectItem>
@@ -236,14 +255,32 @@ export function TeamRoleDialog({
           </p>
         </div>
 
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Saving…" : "Save"}
-          </Button>
-        </DialogFooter>
+        {confirmingOwner ? (
+          <div role="alertdialog" aria-label={`Make ${member.name} an owner`} className="space-y-3 rounded-md border border-[var(--border)] p-3">
+            <p className="text-sm font-medium">Make {member.name} an owner?</p>
+            <p className="text-sm text-[var(--text-muted)]">
+              Owners have full control of the organization, including billing and deleting it. Only an owner can
+              change another owner&apos;s role, and an organization always keeps at least one owner.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setConfirmingOwner(false)} disabled={saving}>
+                Back
+              </Button>
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? "Saving…" : `Make ${member.name} an owner`}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <DialogFooter>
+            <Button variant="ghost" onClick={onClose} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -59,6 +59,7 @@
   "POST v1/orgs/[orgId]/projects/[projectId]/import",
   "POST v1/orgs/[orgId]/projects/[projectId]/teams",
   "POST v1/orgs/[orgId]/projects/[projectId]/teams/[teamId]",
+  "POST v1/unsubscribe/filter/[token]",
   "PUT admin/auth-providers",
   "PUT v1/admin/updates/settings",
   "PUT v1/orgs/[orgId]/employees/[employeeId]/supervisors",

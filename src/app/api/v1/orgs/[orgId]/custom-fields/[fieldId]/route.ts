@@ -7,6 +7,7 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 const updateFieldSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -51,7 +52,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const field = await prisma.customField.findFirst({
       where: { id: fieldId, orgId },
     });
-    if (!field) return new Response("Not found", { status: 404 });
+    if (!field || !(await inVisibleProject(ctx, field.projectId))) return new Response("Not found", { status: 404 });
 
     const body = await request.json();
     const data = updateFieldSchema.parse(body);
@@ -97,7 +98,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const field = await prisma.customField.findFirst({
       where: { id: fieldId, orgId },
     });
-    if (!field) return new Response("Not found", { status: 404 });
+    if (!field || !(await inVisibleProject(ctx, field.projectId))) return new Response("Not found", { status: 404 });
 
     await prisma.customField.delete({ where: { id: fieldId } });
 

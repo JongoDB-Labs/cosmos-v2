@@ -2,14 +2,18 @@
  * The outbox worker: reads committed `domain_events` in order and hands each
  * one to its consumers, then marks it processed.
  *
- * Today the one consumer is webhooks: an event becomes one queued
- * `webhook_deliveries` row per active webhook subscribed to it, written in the
- * same transaction that marks the event processed. So an event is queued once
- * or not at all: a worker that dies mid-batch leaves the batch unprocessed and
- * the next run redoes it, and unique(webhook_id, event_id, event) absorbs a repeat.
- * Sending is separate (src/lib/webhooks/deliver.server.ts), so a slow
- * endpoint never holds up the outbox. Automation rules join as a second
- * consumer in workflow P4b.
+ * Two consumers:
+ *   - webhooks: an event becomes one queued `webhook_deliveries` row per
+ *     active webhook subscribed to it, written in the same transaction that
+ *     marks the event processed, so it's queued once or not at all. A worker
+ *     that dies mid-batch leaves the batch unprocessed and the next run redoes
+ *     it; unique(webhook_id, event_id, event) absorbs the repeat. Sending is
+ *     separate (src/lib/webhooks/deliver.server.ts), so a slow endpoint never
+ *     holds up the outbox.
+ *   - automation rules (engine.server.ts), run while the batch is held and
+ *     before it's marked processed. Each rule's actions are their own
+ *     transactions; a redone event finds each rule's run row already claimed
+ *     and doesn't run it again.
  *
  * Rows are claimed FOR UPDATE SKIP LOCKED, so two workers never take the same
  * event. MIGRATION events (a workflow publish moving items between statuses)
@@ -19,6 +23,8 @@
 import { randomUUID } from "crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { webhookEventsFor } from "@/lib/webhooks/events";
+import { recordOutboxLag } from "@/lib/observability/metrics";
+import { runRulesForEvents, type RuleEvent } from "./engine.server";
 
 interface EventRow {
   id: bigint;
@@ -30,6 +36,8 @@ interface EventRow {
   actor_id: string | null;
   source: string;
   correlation_id: string;
+  depth: number;
+  caused_by_rule_id: string | null;
   created_at: Date;
 }
 
@@ -38,63 +46,100 @@ export interface OutboxRun {
   events: number;
   /** Webhook deliveries queued. */
   queued: number;
+  /** Automation rule runs recorded. */
+  ruleRuns: number;
 }
 
 /** Process one batch. Returns what it did; `events < batchSize` means the outbox is drained. */
 export async function processOutboxBatch(
   db: PrismaClient,
-  opts: { batchSize?: number; now?: Date; /** Tests only: one org's events, so parallel spec files don't take each other's. */ orgId?: string } = {},
+  opts: {
+    batchSize?: number;
+    now?: Date;
+    /** Tests only: one org's events, so parallel spec files don't take each other's. */
+    orgId?: string;
+    /** The rules consumer; injectable for tests. */
+    rules?: (events: RuleEvent[]) => Promise<number>;
+  } = {},
 ): Promise<OutboxRun> {
-  const batchSize = opts.batchSize ?? 100;
+  const batchSize = opts.batchSize ?? 50;
+  const rules = opts.rules ?? ((events: RuleEvent[]) => runRulesForEvents(events));
   return db.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<EventRow[]>`
-      SELECT id, org_id, project_id, type, subject_id, payload, actor_id, source, correlation_id, created_at
+      SELECT id, org_id, project_id, type, subject_id, payload, actor_id, source, correlation_id, depth, caused_by_rule_id, created_at
       FROM domain_events
       WHERE processed_at IS NULL ${opts.orgId ? Prisma.sql`AND org_id = ${opts.orgId}::uuid` : Prisma.empty}
       ORDER BY id
       LIMIT ${batchSize}
       FOR UPDATE SKIP LOCKED
     `;
-    if (rows.length === 0) return { events: 0, queued: 0 };
+    if (rows.length === 0) return { events: 0, queued: 0, ruleRuns: 0 };
     const live = rows.filter((r) => r.source !== "MIGRATION");
-    const deliveries = await webhookDeliveries(tx, live, opts.now ?? new Date());
+    const at = (opts.now ?? new Date()).getTime();
+    for (const r of live) recordOutboxLag(at - r.created_at.getTime());
+    const category = await statusCategories(tx, live);
+    const deliveries = await webhookDeliveries(tx, live, category, opts.now ?? new Date());
     const queued = deliveries.length
       ? (await tx.webhookDelivery.createMany({ data: deliveries, skipDuplicates: true })).count
       : 0;
+    const ruleRuns = await rules(
+      live.map((e) => ({
+        id: e.id,
+        orgId: e.org_id,
+        projectId: e.project_id,
+        type: e.type,
+        subjectId: e.subject_id,
+        payload: e.payload,
+        actorId: e.actor_id,
+        source: e.source,
+        correlationId: e.correlation_id,
+        depth: e.depth,
+        causedByRuleId: e.caused_by_rule_id,
+        fromCategory: category.get(`${e.project_id}:${e.payload.from}`) ?? null,
+        toCategory: category.get(`${e.project_id}:${e.payload.to}`) ?? null,
+      })),
+    );
     await tx.domainEvent.updateMany({ where: { id: { in: rows.map((r) => r.id) } }, data: { processedAt: opts.now ?? new Date() } });
-    return { events: rows.length, queued };
-  }, { timeout: 30_000 });
+    return { events: rows.length, queued, ruleRuns };
+  }, { timeout: 120_000 });
+}
+
+/** The category of each status a batch's transitions left or entered, by "projectId:key". Read now. */
+async function statusCategories(tx: Prisma.TransactionClient, events: EventRow[]): Promise<Map<string, string>> {
+  const statusKeys = events
+    .filter((e) => e.type === "work_item.transitioned" && e.project_id)
+    .flatMap((e) => [e.payload.from, e.payload.to].filter((k): k is string => typeof k === "string").map((key) => ({ projectId: e.project_id!, key })));
+  if (statusKeys.length === 0) return new Map();
+  const statuses = await tx.workflowStatus.findMany({ where: { OR: statusKeys }, select: { projectId: true, key: true, category: true } });
+  return new Map(statuses.map((s) => [`${s.projectId}:${s.key}`, s.category as string]));
 }
 
 /** Process batches until the outbox is empty, the signal aborts, or `maxBatches` ran. */
 export async function drainOutbox(db: PrismaClient, opts: { signal?: AbortSignal; maxBatches?: number; batchSize?: number } = {}): Promise<OutboxRun> {
-  const total: OutboxRun = { events: 0, queued: 0 };
-  const batchSize = opts.batchSize ?? 100;
+  const total: OutboxRun = { events: 0, queued: 0, ruleRuns: 0 };
+  const batchSize = opts.batchSize ?? 50;
   for (let i = 0; i < (opts.maxBatches ?? 50) && !opts.signal?.aborted; i++) {
     const r = await processOutboxBatch(db, { batchSize });
     total.events += r.events;
     total.queued += r.queued;
+    total.ruleRuns += r.ruleRuns;
     if (r.events < batchSize) break;
   }
   return total;
 }
 
-async function webhookDeliveries(tx: Prisma.TransactionClient, events: EventRow[], now: Date): Promise<Prisma.WebhookDeliveryCreateManyInput[]> {
+async function webhookDeliveries(
+  tx: Prisma.TransactionClient,
+  events: EventRow[],
+  category: Map<string, string>,
+  now: Date,
+): Promise<Prisma.WebhookDeliveryCreateManyInput[]> {
   if (events.length === 0) return [];
   const hooks = await tx.webhook.findMany({
     where: { orgId: { in: [...new Set(events.map((e) => e.org_id))] }, active: true },
     select: { id: true, orgId: true, events: true },
   });
   if (hooks.length === 0) return [];
-
-  // A transition's categories, read now: completed means "into a Done status".
-  const statusKeys = events
-    .filter((e) => e.type === "work_item.transitioned" && e.project_id)
-    .flatMap((e) => [e.payload.from, e.payload.to].filter((k): k is string => typeof k === "string").map((key) => ({ projectId: e.project_id!, key })));
-  const statuses = statusKeys.length
-    ? await tx.workflowStatus.findMany({ where: { OR: statusKeys }, select: { projectId: true, key: true, category: true } })
-    : [];
-  const category = new Map(statuses.map((s) => [`${s.projectId}:${s.key}`, s.category as string]));
 
   // Item keys ("ENG-12"): an id alone means nothing to whoever reads the payload.
   const items = await tx.workItem.findMany({

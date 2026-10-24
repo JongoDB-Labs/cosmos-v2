@@ -2,7 +2,8 @@ import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import { Prisma, RevenueType } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, type ToolContext } from "./_ctx";
+import { assertPermission, loadAuthContext, type ToolContext } from "./_ctx";
+import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
 import { sumMoney, multiplyMoney, moneyToNumber } from "@/lib/money";
 import { safeAutoPost, postRevenueToLedger } from "@/lib/ledger/auto-post";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
@@ -125,12 +126,18 @@ export async function getFinanceSummary(
   };
   const hasDateFilter = Object.keys(dateFilter).length > 0;
 
+  // A team-scoped project's expenses and time count only for those who can see
+  // it, as on the finance page this mirrors.
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
+  const visible = await visibleProjectRecordsWhere(auth);
+
   const revWhere: Record<string, unknown> = { orgId: ctx.orgId };
-  const expWhere: Record<string, unknown> = { orgId: ctx.orgId };
+  const expWhere: Record<string, unknown> = { orgId: ctx.orgId, AND: [visible] };
   // No status here: RECORDED_TIME is spread over this clause at the query and
   // owns the answer. Leaving the old APPROVED behind would read as a second,
   // contradicting rule that happens to lose on spread order.
-  const timeWhere: Record<string, unknown> = { orgId: ctx.orgId };
+  const timeWhere: Record<string, unknown> = { orgId: ctx.orgId, AND: [visible] };
   if (hasDateFilter) {
     revWhere.date = dateFilter;
     expWhere.date = dateFilter;

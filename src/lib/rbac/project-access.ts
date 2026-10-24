@@ -49,8 +49,9 @@ export function isOrgAdministrator(role: OrgRole | string): boolean {
  * Manager" saw every restricted project in the org, which was reported from the
  * running app. A project manager typically manages one project; org-wide reach
  * is what the owner/admin roles are for, and those cannot be granted by a work
- * role. Writing inside a project still follows the permission (see
- * `project-role.ts`) — this governs only who may SEE a project at all.
+ * role. What a member may write inside a project follows the permission (see
+ * `project-role.ts`), but nobody writes in a project they can't see: every
+ * project write runs requireProjectVisible first, whatever bit it gates on.
  *
  * This governs project-level visibility. Narrowing *within* a project (which of
  * a project's boards a given team sees) builds on the Team rows this ships and
@@ -166,6 +167,40 @@ export async function getVisibleProjectIds(
 
   const memberOf = await memberProjectIds(ctx);
   return new Set([...unrestricted, ...restricted.filter((id) => memberOf.has(id))]);
+}
+
+/**
+ * The org's projects the actor can NOT see: outside a key's scope, or
+ * team-scoped without them on the team (org owners and admins see every
+ * project). `isProjectVisible`'s rule in set form, for lists and aggregates of
+ * records that may belong to a project (feedback, expenses), so one query
+ * drops what a by-id read would answer as missing.
+ *
+ * Deliberately asks no permission bit, as `isProjectVisible` doesn't: a record
+ * under an unrestricted project stays visible to anyone the module lets in.
+ */
+export async function hiddenProjectIds(ctx: AuthContext): Promise<string[]> {
+  const projects = await prisma.project.findMany({
+    where: { orgId: ctx.orgId },
+    select: { id: true, teamScopedAccess: true },
+  });
+  const outOfScope = projects.filter((p) => !inKeyProjectScope(ctx, p.id)).map((p) => p.id);
+  const restricted = projects.filter((p) => p.teamScopedAccess && inKeyProjectScope(ctx, p.id)).map((p) => p.id);
+  if (restricted.length === 0 || isOrgAdministrator(ctx.orgRole)) return outOfScope;
+  const memberOf = await memberProjectIds(ctx);
+  return [...outOfScope, ...restricted.filter((id) => !memberOf.has(id))];
+}
+
+/**
+ * A `where` fragment for records that may belong to a project: those under no
+ * project, or under one the actor can see. Empty when nothing is hidden.
+ */
+export async function visibleProjectRecordsWhere(
+  ctx: AuthContext,
+): Promise<{ OR?: ({ projectId: null } | { projectId: { notIn: string[] } })[] }> {
+  const hidden = await hiddenProjectIds(ctx);
+  // `notIn` alone would drop the NULLs too (SQL's NOT IN), hence the first arm.
+  return hidden.length ? { OR: [{ projectId: null }, { projectId: { notIn: hidden } }] } : {};
 }
 
 /** ProjectMember.orgMemberId is an OrgMember.id, NOT a User.id. */
