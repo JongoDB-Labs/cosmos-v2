@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { sweepMarkedComments } from "@/lib/feedback/comments.server";
 import { z } from "zod";
 import { ClassificationLevel } from "@prisma/client";
 
@@ -76,6 +77,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
+    // Feedback comments marked above what the org now covers go internal.
+    await sweepMarkedComments({ orgId, actorId: ctx.userId, reason: "ceiling_changed", ipAddress: getIpAddress(request) }).catch(
+      (e) => console.error("feedback marking sweep failed:", e instanceof Error ? e.message : "unknown error"),
+    );
     return success(updated);
   } catch (error) {
     return handleApiError(error);
@@ -122,6 +127,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
+    // Feedback comments marked above what the org now covers go internal.
+    await sweepMarkedComments({ orgId, actorId: ctx.userId, reason: "ceiling_changed", ipAddress: getIpAddress(request) }).catch(
+      (e) => console.error("feedback marking sweep failed:", e instanceof Error ? e.message : "unknown error"),
+    );
     return success(updated);
   } catch (error) {
     return handleApiError(error);
@@ -155,6 +164,10 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
+    // Feedback comments marked above what the org now covers go internal.
+    await sweepMarkedComments({ orgId, actorId: ctx.userId, reason: "ceiling_changed", ipAddress: getIpAddress(request) }).catch(
+      (e) => console.error("feedback marking sweep failed:", e instanceof Error ? e.message : "unknown error"),
+    );
     return noContent();
   } catch (error) {
     return handleApiError(error);
