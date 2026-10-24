@@ -68,4 +68,16 @@ describe("project-scoped reads go through the team-aware gate", () => {
     // and a `toContain("requireProjectRead")` passed against the reverted bug.
     expect(workItems).toMatch(/await\s+requireProjectRead\(\s*ctx\s*,/);
   });
+
+  it("the org-scoped work-item reads gate on the item's project too", () => {
+    // `/work-items/{itemId}` and its comments live outside projects/[projectId],
+    // so the scan above can't see them. They resolve the item's project and
+    // gate on it through readableItemProjectId, which runs requireProjectRead.
+    for (const f of ["work-items/[itemId]/route.ts", "work-items/[itemId]/comments/route.ts"]) {
+      const src = readFileSync(join("src/app/api/v1/orgs/[orgId]", f), "utf8");
+      const get = src.slice(src.indexOf("export async function GET"));
+      expect(get, f).toMatch(/readableItemProjectId\(\s*ctx\s*,/);
+    }
+    expect(readFileSync("src/lib/work-items/read.server.ts", "utf8")).toMatch(/requireProjectRead\(ctx, projectId, action\)/);
+  });
 });

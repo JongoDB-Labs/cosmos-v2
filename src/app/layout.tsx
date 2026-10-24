@@ -5,6 +5,7 @@ import localFont from "next/font/local";
 import { CosmosMotionConfig } from "@/components/ui/motion-config";
 import { WebVitalsReporter } from "@/components/telemetry/web-vitals";
 import { ChunkReloadGuard } from "@/components/telemetry/chunk-reload-guard";
+import { Toaster } from "@/components/ui/sonner";
 import { getBrand } from "@/lib/brand";
 import { allSkinsCss, getSkinPreset } from "@/lib/theme/skins";
 import { RootBrandProvider } from "@/components/providers/root-brand-provider";
@@ -179,6 +180,12 @@ export default function RootLayout({
       <body className="min-h-screen bg-[var(--bg)] text-[var(--text)] antialiased">
         <WebVitalsReporter />
         <ChunkReloadGuard />
+        {/* The ONE toaster, mounted beside the guard: when a deploy lands while
+            someone is typing, the guard skips the reload and shows a toast
+            instead, on every route (the sign-in pages too). sonner drops a
+            toast that has no mounted toaster, so without this one there the
+            tab would sit on a dead chunk with no notice. Mount no other. */}
+        <Toaster position="top-right" richColors />
         <CosmosMotionConfig>
           {/* fallback=null (NOT {children}): connection() defers with no I/O so
               the branded subtree resolves same-tick; rendering {children} in both
