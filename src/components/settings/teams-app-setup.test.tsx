@@ -15,7 +15,7 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 
 const status = (over: object) => ({
   installed: false, calendarReady: true, appId: "app-123", messagingEndpoint: "https://cosmos.example/api/teams/bot",
-  appIdUri: "api://cosmos.example/app-123", ...over,
+  publicUrlConfigured: true, appIdUri: "api://cosmos.example/app-123", ...over,
 });
 function wrap(ui: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -46,6 +46,13 @@ describe("TeamsAppSetup", () => {
     expect(screen.getByText("1fec8e78-bce4-4aaf-ab1b-5451cc387264")).toBeTruthy();
     expect(screen.getByText("5e3ce6c0-2b1f-4285-8d4b-75ee78787346")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Download app package" }).getAttribute("href")).toBe("/api/v1/orgs/o1/microsoft/teams-app/package");
+  });
+
+  it("without COSMOS_PUBLIC_URL, says the tabs need it, and offers no App ID URI", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue(status({ publicUrlConfigured: false, appIdUri: null }) as never);
+    wrap(<TeamsAppSetup orgId="o1" />);
+    expect(await screen.findByText("COSMOS_PUBLIC_URL")).toBeTruthy();
+    expect(screen.queryByText(/^api:\/\//)).toBeNull();
   });
 
   it("without the Microsoft sign-in app, says to configure it first and offers no package", async () => {

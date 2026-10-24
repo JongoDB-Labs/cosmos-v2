@@ -9,11 +9,12 @@ import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 export function fakeEntra(opts: { origin?: string; tid: string; jwksOrigin?: string }) {
   const origin = opts.origin ?? "https://login.microsoftonline.com";
   const mk = (kid: string) => ({ kid, ...generateKeyPairSync("rsa", { modulusLength: 2048 }) });
-  const state = { keys: [mk("e1")], fetches: 0, metadataFetches: 0, down: false };
+  const state = { keys: [mk("e1")], fetches: 0, metadataFetches: 0, down: false, redirects: [] as (string | undefined)[] };
   const jwks = `${opts.jwksOrigin ?? origin}/${opts.tid}/discovery/v2.0/keys`;
 
-  const fetch = (async (input: RequestInfo | URL) => {
+  const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    state.redirects.push(init?.redirect);
     if (state.down) throw new TypeError("fetch failed");
     if (url.endsWith("/v2.0/.well-known/openid-configuration")) {
       state.metadataFetches++;
@@ -34,6 +35,7 @@ export function fakeEntra(opts: { origin?: string; tid: string; jwksOrigin?: str
     const head = enc({ alg: o.alg ?? "RS256", typ: "JWT", kid: o.kid ?? k.kid });
     const body = enc({
       iss: `https://login.microsoftonline.com/${opts.tid}/v2.0`, tid: opts.tid, scp: "access_as_user", oid: "oid-1",
+      azp: "1fec8e78-bce4-4aaf-ab1b-5451cc387264", // Teams desktop
       nbf: now - 10, exp: now + 3600, ...claims,
     });
     return `${head}.${body}.${sign("RSA-SHA256", Buffer.from(`${head}.${body}`), o.key ?? k.privateKey).toString("base64url")}`;

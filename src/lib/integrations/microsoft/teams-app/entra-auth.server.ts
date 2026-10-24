@@ -1,5 +1,6 @@
 import { createPublicKey, verify, type KeyObject } from "node:crypto";
 import { microsoftLoginOrigin } from "../hosts";
+import { TEAMS_CLIENT_IDS } from "./teams-clients";
 
 /**
  * COSMOS-202 T1 d: is this a Teams single sign-on token for our tab?
@@ -15,12 +16,20 @@ import { microsoftLoginOrigin } from "../hosts";
  *  - tid is the org's configured tenant, and iss is that tenant's (v1 or v2);
  *  - aud is our App ID URI, api://{host}/{appId};
  *  - scp includes access_as_user;
+ *  - the client (azp in v2, appid in v1) is Microsoft Teams;
  *  - inside its validity window, with five minutes' skew;
  *  - oid present (the caller maps it to a Cosmos user).
  * There is no switch to turn any of it off.
  */
 
 export const TAB_SCOPE = "access_as_user";
+
+/**
+ * Only Microsoft Teams may be the client a tab token was issued to: any other
+ * app a user consents to in the same tenant could otherwise mint a token for
+ * us and trade it for a tab session.
+ */
+export { TEAMS_CLIENT_IDS };
 const SKEW_S = 5 * 60;
 const MAX_KEY_AGE_MS = 24 * 3600_000;
 const MIN_REFETCH_MS = 5 * 60_000;
@@ -61,11 +70,12 @@ async function load(tid: string, f: FetchFn, now: number) {
   const login = microsoftLoginOrigin();
   const meta = (await (await f(`${login}/${tid}/v2.0/.well-known/openid-configuration`, {
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    redirect: "error",
   })).json()) as { jwks_uri?: unknown; issuer?: unknown };
   const jwksUri = typeof meta.jwks_uri === "string" ? new URL(meta.jwks_uri) : null;
   if (!jwksUri || jwksUri.origin !== new URL(login).origin) throw new EntraAuthError("bad_metadata");
   if (typeof meta.issuer !== "string") throw new EntraAuthError("bad_metadata");
-  const set = (await (await f(jwksUri.toString(), { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })).json()) as {
+  const set = (await (await f(jwksUri.toString(), { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: "error" })).json()) as {
     keys?: { kid?: string; kty?: string }[];
   };
   const byKid = new Map<string, KeyObject>();
@@ -146,6 +156,8 @@ export async function verifyTabToken(
   if (typeof claims.iss !== "string" || !issuers.includes(claims.iss)) throw new EntraAuthError("bad_issuer");
   const scopes = typeof claims.scp === "string" ? claims.scp.split(" ") : [];
   if (!scopes.includes(TAB_SCOPE)) throw new EntraAuthError("bad_scope");
+  const client = claims.azp ?? claims.appid;
+  if (!(TEAMS_CLIENT_IDS as readonly unknown[]).includes(client)) throw new EntraAuthError("not_teams_client");
   const now = Math.floor((deps.now ?? Date.now)() / 1000);
   if (typeof claims.exp !== "number" || claims.exp + SKEW_S < now) throw new EntraAuthError("expired");
   if (typeof claims.nbf === "number" && claims.nbf - SKEW_S > now) throw new EntraAuthError("not_yet_valid");

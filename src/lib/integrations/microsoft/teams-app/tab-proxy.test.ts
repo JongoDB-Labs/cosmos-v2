@@ -43,6 +43,15 @@ describe("proxy: Teams tabs", () => {
     }
   });
 
+  it("the tab sign-in route is public but not CSRF-exempt: a cross-origin POST is refused, a same-origin one goes through", async () => {
+    const cross = await proxy(req("/api/teams/tab/session", { method: "POST", headers: { origin: "https://evil-teams-app.example" } }));
+    expect(cross.status).toBe(403);
+    expect(await cross.json()).toEqual({ error: "csrf_blocked" });
+    const same = await proxy(req("/api/teams/tab/session", { method: "POST", headers: { origin: "http://localhost:3000" } }));
+    expect(same.status).toBe(200);
+    expect(same.headers.get("x-middleware-next")).toBe("1");
+  });
+
   it("tab pages take GET only: any other method is refused before it reaches them", async () => {
     for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
       const res = await proxy(req("/teams/tab/my-work", { method, headers: { cookie: "teams_tab=x", origin: "https://teams.microsoft.com" } }));

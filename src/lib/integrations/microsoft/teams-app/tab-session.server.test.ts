@@ -1,6 +1,7 @@
 // COSMOS-202 T1 d (e2e DB): the Teams tab's own session. A sealed cookie, an
-// hour at most, accepted only for a GET under /teams/tab, and only while the
-// person it names is still who they were: member, active, still connected.
+// hour at most, valid only while the person it names is still who they were:
+// member, active, still connected. (That only a GET under /teams/tab ever
+// reads it is the proxy's and the cookie Path's job: tab-proxy.test.ts.)
 import crypto from "node:crypto";
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
 import { prisma } from "@/lib/db/client";
@@ -36,22 +37,13 @@ describe("Teams tab session (e2e DB)", () => {
     const oid = `oid-${stamp}`;
     await prisma.connectorCredential.create({ data: { orgId: org.id, provider: MS_CALENDAR, userId: alice.id, secretEnc: "sealed", meta: { tid, oid, status: "connected" } } });
     const cookie = sealTabSession({ orgId: org.id, userId: alice.id, tid, oid });
-    const read = (over: Partial<{ method: string; pathname: string; cookie: string | undefined }> = {}, now?: number) =>
-      readTabSession({ method: "GET", pathname: "/teams/tab/my-work", cookie, ...over }, now);
+    const read = (over: { cookie?: string } = {}, now?: number) => readTabSession("cookie" in over ? over.cookie : cookie, now);
     return { org, alice, app, tid, oid, cookie, read };
   }
 
-  it("names the person on a GET under /teams/tab", async () => {
+  it("names the person it was issued for", async () => {
     const s = await setup();
     expect(await s.read()).toMatchObject({ orgId: s.org.id, userId: s.alice.id, slug: s.org.slug });
-  });
-
-  it("is refused on anything but a GET, and anywhere but under /teams/tab: never /api/v1, never a longer name", async () => {
-    const s = await setup();
-    for (const method of ["POST", "PUT", "PATCH", "DELETE", "HEAD"]) expect(await s.read({ method }), method).toBeNull();
-    for (const pathname of ["/api/v1/me", "/api/v1/orgs/x/work-items", "/api/teams/tab/session", "/teams/tabX", "/teams", "/"]) {
-      expect(await s.read({ pathname }), pathname).toBeNull();
-    }
   });
 
   it("is refused tampered, foreign, missing or expired", async () => {

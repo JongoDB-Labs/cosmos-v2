@@ -5,6 +5,8 @@ import { getPublicOrigin } from "@/lib/auth/public-url";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { MS_CALENDAR } from "@/lib/integrations/microsoft/calendar-connect";
+import { configuredPublicOrigin } from "@/lib/integrations/microsoft/hosts";
+import { tabAppIdUri } from "@/lib/integrations/microsoft/teams-app/entra-auth.server";
 import { MS_TEAMS_APP, teamsBotAppId } from "@/lib/integrations/microsoft/teams-app/identity.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -28,12 +30,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       teamsBotAppId(),
     ]);
     const tenantId = (cal?.config as { tenantId?: unknown } | null)?.tenantId;
+    // The tabs' sign-in trusts only the configured public URL, never the request's Host.
+    const configured = configuredPublicOrigin();
     return success({
       installed: app?.status === "ACTIVE",
       calendarReady: cal?.status === "ACTIVE" && typeof tenantId === "string" && !!tenantId.trim(),
       appId,
-      messagingEndpoint: `${getPublicOrigin(request)}/api/teams/bot`,
-      appIdUri: appId ? `api://${new URL(getPublicOrigin(request)).host}/${appId}` : null,
+      messagingEndpoint: `${configured ?? getPublicOrigin(request)}/api/teams/bot`,
+      publicUrlConfigured: !!configured,
+      appIdUri: appId && configured ? tabAppIdUri(configured, appId) : null,
     });
   } catch (error) {
     return handleApiError(error);

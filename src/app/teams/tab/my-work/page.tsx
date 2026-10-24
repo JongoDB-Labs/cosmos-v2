@@ -17,7 +17,7 @@ export default function MyWorkTab({ searchParams }: Props) {
 
 async function Content({ searchParams }: Props) {
   const { org } = await searchParams;
-  const u = await tabUser("/teams/tab/my-work");
+  const u = await tabUser();
   if (!u || (org && org !== u.slug)) return <TabSignIn org={org ?? null} />;
   const view = await myWork(u, await tabOrigin());
   return view ? <TabViewList view={view} /> : <p className="p-6 text-sm">You can&apos;t see work items in Cosmos.</p>;

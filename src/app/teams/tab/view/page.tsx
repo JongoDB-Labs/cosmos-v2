@@ -17,7 +17,7 @@ export default function ProjectTab({ searchParams }: Props) {
 
 async function Content({ searchParams }: Props) {
   const { org, project } = await searchParams;
-  const u = await tabUser("/teams/tab/view");
+  const u = await tabUser();
   if (!u || (org && org !== u.slug)) return <TabSignIn org={org ?? null} />;
   const view = project ? await projectWork(u, await tabOrigin(), project) : null;
   // Not found and not allowed read the same.

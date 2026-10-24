@@ -60,11 +60,25 @@ describe("verifyTabToken", () => {
     expect(await reason(good({ oid: undefined }))).toBe("no_oid");
   });
 
+  it("only from Microsoft Teams as the client app (azp in v2, appid in v1)", async () => {
+    expect(await reason(good({ azp: "5e3ce6c0-2b1f-4285-8d4b-75ee78787346" }))).toBe("ok:oid-1"); // Teams web
+    expect(await reason(good({ azp: undefined, appid: "1fec8e78-bce4-4aaf-ab1b-5451cc387264", iss: `https://sts.windows.net/${TID}/` }))).toBe("ok:oid-1");
+    // Another app the user consented to in the same tenant.
+    expect(await reason(good({ azp: "22222222-3333-4444-5555-666666666666" }))).toBe("not_teams_client");
+    expect(await reason(good({ azp: undefined }))).toBe("not_teams_client");
+    expect(await reason(good({ azp: undefined, appid: "22222222-3333-4444-5555-666666666666" }))).toBe("not_teams_client");
+  });
+
   it("allows five minutes of clock skew, no more", async () => {
     const t = Math.floor(now / 1000);
     expect(await reason(good({ exp: t - 299 }))).toBe("ok:oid-1");
     expect(await reason(good({ exp: t - 301 }))).toBe("expired");
     expect(await reason(good({ nbf: t + 301 }))).toBe("not_yet_valid");
+  });
+
+  it("never follows a redirect when fetching metadata or keys", async () => {
+    expect(await reason(good())).toBe("ok:oid-1");
+    expect(e.state.redirects).toEqual(["error", "error"]);
   });
 
   it("takes the key set only from the Microsoft login host the metadata is on", async () => {

@@ -2,13 +2,13 @@ import { cookies } from "next/headers";
 import { readTabSession, TAB_COOKIE } from "@/lib/integrations/microsoft/teams-app/tab-session.server";
 
 /**
- * The person a tab PAGE is for. The proxy lets only GET and HEAD reach
- * /teams/tab (405 otherwise), so a page render is a GET; `path` is the page's
- * own route. readTabSession enforces the GET-under-/teams/tab rule itself.
+ * The person a tab PAGE is for. Only GET and HEAD reach /teams/tab (the
+ * proxy answers 405 to anything else), and the cookie's Path keeps it under
+ * /teams/tab, so this is only ever a GET of a tab page.
  */
-export async function tabUser(path: string) {
+export async function tabUser() {
   const jar = await cookies();
-  return readTabSession({ method: "GET", pathname: path, cookie: jar.get(TAB_COOKIE)?.value });
+  return readTabSession(jar.get(TAB_COOKIE)?.value);
 }
 
 /** Cosmos's public origin, for links out of the tab (behind the proxy). */

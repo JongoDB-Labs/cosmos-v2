@@ -35,10 +35,6 @@ const CSRF_EXEMPT_PREFIXES = [
   // Cosmos for Teams bot (COSMOS-202 T1): the Bot Connector POSTs with its own
   // signed bearer JWT, which the route verifies; no browser, no cookie.
   "/api/teams/bot",
-  // Teams tab sign-in (T1 d): posted from inside Teams' iframe, so its Origin
-  // is the tab's own; its credential is the Teams SSO token in the body, which
-  // the route verifies, never a cookie.
-  "/api/teams/tab/session",
 ];
 // NOTE: "/api/v1/orgs/" was previously exempted wholesale ("sub-routes do their
 // own auth") — but auth is not CSRF defense, and that silently disabled the

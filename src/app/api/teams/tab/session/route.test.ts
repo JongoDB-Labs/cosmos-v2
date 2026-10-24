@@ -50,6 +50,7 @@ const alice = { orgId: "org-1", slug: "acme", userId: "u-1" };
 describe("POST /api/teams/tab/session", () => {
   beforeEach(() => {
     _resetEntraKeys();
+    process.env.COSMOS_PUBLIC_URL = "https://cosmos.example";
     e = fakeEntra({ tid: TID });
     vi.stubGlobal("fetch", e.fetch);
     m.appIdLookups = 0;
@@ -57,7 +58,10 @@ describe("POST /api/teams/tab/session", () => {
     m.users = [alice];
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.COSMOS_PUBLIC_URL;
+  });
 
   it("a good token starts an hour's tab session for that person, in a partitioned cookie scoped to the tab", async () => {
     const res = await POST(req({ token: e.token({ aud: URI }) }));
@@ -91,7 +95,8 @@ describe("POST /api/teams/tab/session", () => {
     m.users = [];
     const res = await POST(req({ token: e.token({ aud: URI }) }));
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "not_connected", connectUrl: "https://cosmos.example/acme/settings/preferences" });
+    // The front door, not the org: no org slug to someone Cosmos can't match.
+    expect(await res.json()).toEqual({ error: "not_connected", connectUrl: "https://cosmos.example/" });
     expect(res.headers.get("set-cookie")).toBeNull();
   });
 
@@ -103,6 +108,16 @@ describe("POST /api/teams/tab/session", () => {
     const beta = await POST(req({ token: e.token({ aud: URI }), org: "beta" }));
     expect(await beta.json()).toEqual({ org: "beta" });
     expect((await POST(req({ token: e.token({ aud: URI }), org: "gamma" }))).status).toBe(409);
+  });
+
+  it("expects our App ID URI from the configured public URL, whatever Host the request claims", async () => {
+    const forged = new NextRequest("http://localhost:3000/api/teams/tab/session", {
+      method: "POST", body: JSON.stringify({ token: e.token({ aud: `api://evil.example/${APP}` }) }),
+      headers: { "x-forwarded-for": `10.4.0.${++ipN}`, "x-forwarded-host": "evil.example", "x-forwarded-proto": "https" },
+    });
+    expect((await POST(forged)).status).toBe(401);
+    delete process.env.COSMOS_PUBLIC_URL;
+    expect((await POST(req({ token: e.token({ aud: URI }) }))).status).toBe(503); // not configured: no tab sign-in at all
   });
 
   it("caps the body, rejects non-JSON, and never logs the token", async () => {

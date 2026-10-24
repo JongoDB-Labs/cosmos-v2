@@ -17,7 +17,7 @@ export default function ConfigureTab({ searchParams }: Props) {
 
 async function Content({ searchParams }: Props) {
   const { org } = await searchParams;
-  const u = await tabUser("/teams/tab/configure");
+  const u = await tabUser();
   if (!u || (org && org !== u.slug)) return <TabSignIn org={org ?? null} />;
   return <TabConfigure origin={await tabOrigin()} org={u.slug} projects={await tabProjects(u)} />;
 }

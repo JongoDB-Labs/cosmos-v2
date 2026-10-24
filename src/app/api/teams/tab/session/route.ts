@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getPublicOrigin } from "@/lib/auth/public-url";
+import { configuredPublicOrigin } from "@/lib/integrations/microsoft/hosts";
 import { getRateLimitKey, rateLimit } from "@/lib/rate-limit/bucket";
 import { EntraAuthError, tabAppIdUri, verifyTabToken } from "@/lib/integrations/microsoft/teams-app/entra-auth.server";
 import { teamsAppTenants, teamsBotAppId, teamsOrgsForTenant, teamsUsers } from "@/lib/integrations/microsoft/teams-app/identity.server";
@@ -8,8 +8,10 @@ import { sealTabSession, tabCookieHeader } from "@/lib/integrations/microsoft/te
 
 /**
  * COSMOS-202 T1 d: a Teams tab signs in. Body: { token, org? }, where token is
- * the Teams SSO token (TeamsJS getAuthToken). Public and CSRF-exempt (it is
- * posted from inside Teams' iframe); its only credential is that token,
+ * the Teams SSO token (TeamsJS getAuthToken). Public (no Cosmos session), but
+ * NOT CSRF-exempt: the tab posts same-origin from its own frame, so a page of
+ * any other origin, another Teams app in the same partition included, can't
+ * sign a victim's tab in to the attacker's account. Its only credential is that token,
  * verified in full before anything is decided. It SETS the tab session and
  * never reads one. Rate limited per IP before verification and per tenant
  * after; the token is never logged.
@@ -48,7 +50,9 @@ export async function POST(request: NextRequest) {
   const tid = claimedTenant(token);
   if (!tid || !(await teamsAppTenants()).has(tid)) return json(401, { error: "not_signed_in" });
 
-  const origin = getPublicOrigin(request);
+  // Our App ID URI comes from configuration, never the request's Host.
+  const origin = configuredPublicOrigin();
+  if (!origin) return new Response(null, { status: 503 });
   let id: { tid: string; oid: string };
   try {
     // The app id (a DB read and a decrypt) only once the signature checks out.
@@ -71,7 +75,8 @@ export async function POST(request: NextRequest) {
   const orgs = await teamsOrgsForTenant(id.tid);
   const users = await teamsUsers(orgs, id.tid, id.oid);
   if (!users.length) {
-    return json(403, { error: "not_connected", connectUrl: orgs.length === 1 ? `${origin}/${orgs[0].slug}/settings/preferences` : `${origin}/` });
+    // Cosmos's front door only: naming the org would tell anyone with a token which orgs the tenant has.
+    return json(403, { error: "not_connected", connectUrl: `${origin}/` });
   }
   const u = wantOrg ? users.find((x) => x.slug === wantOrg) : users.length === 1 ? users[0] : null;
   if (!u) return json(409, { error: "choose_org", orgs: users.map((x) => x.slug) });

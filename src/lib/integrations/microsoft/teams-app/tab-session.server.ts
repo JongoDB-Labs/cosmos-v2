@@ -1,8 +1,6 @@
 import { openSecret, sealSecret } from "@/lib/crypto/vault";
 import { teamsOrgsForTenant, teamsUsers, type TeamsUser } from "./identity.server";
-import { TAB_PATH, isTabPath } from "./tab-paths";
-
-export { TAB_PATH, isTabPath };
+import { TAB_PATH } from "./tab-paths";
 
 /**
  * COSMOS-202 T1 d: the Teams tab's own short session.
@@ -14,9 +12,10 @@ export { TAB_PATH, isTabPath };
  *  - bound to org, user, tenant and Microsoft object id;
  *  - an hour at most and never extended (the tab silently signs in again);
  *  - HttpOnly; Secure; SameSite=None; Partitioned (CHIPS); Path=/teams/tab;
- *  - accepted ONLY for a GET under /teams/tab, enforced here and not left to
- *    the cookie's Path: nothing under /api, and nothing that writes, ever
- *    reads it;
+ *  - accepted ONLY for a GET under /teams/tab. Two things enforce that: the
+ *    cookie's Path, and the proxy, which answers 405 to any other method on
+ *    /teams/tab. Only the tab pages call readTabSession; nothing under /api,
+ *    and nothing that writes, ever reads this cookie;
  *  - re-checked on every read: the Teams app still on, the person still a
  *    member, not deactivated, and still the one who connected that Microsoft
  *    account in that tenant.
@@ -60,17 +59,10 @@ function open(sealed: string, now: number): Payload | null {
   }
 }
 
-/**
- * The person a tab request is for, or null. `method` and `pathname` are the
- * request's own: anything but a GET under /teams/tab is refused before the
- * cookie is even opened.
- */
-export async function readTabSession(
-  req: { method: string; pathname: string; cookie: string | undefined },
-  now = Date.now(),
-): Promise<TeamsUser | null> {
-  if (req.method !== "GET" || !isTabPath(req.pathname) || !req.cookie) return null;
-  const s = open(req.cookie, now);
+/** The person a tab page's request is for, from its `teams_tab` cookie, or null. */
+export async function readTabSession(cookie: string | undefined, now = Date.now()): Promise<TeamsUser | null> {
+  if (!cookie) return null;
+  const s = open(cookie, now);
   if (!s) return null;
   const orgs = (await teamsOrgsForTenant(s.tid)).filter((o) => o.orgId === s.o);
   const users = await teamsUsers(orgs, s.tid, s.oid);
