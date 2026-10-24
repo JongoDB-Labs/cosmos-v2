@@ -1,5 +1,7 @@
 "use client";
 
+import { useBoardQuery } from "@/components/boards/shared/use-board-query";
+import { BoardQueryBar } from "@/components/boards/shared/board-query-bar";
 import { useMemo, useState, useCallback, useRef } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import {
@@ -203,9 +205,11 @@ export function BacklogView({
     currentUserId && filters.assigneeId === currentUserId,
   );
 
+  // With the query language on, the bar and the board's scope are one CQL query (boards/shared/use-board-query).
+  const boardQuery = useBoardQuery({ orgId, projectId, config: board?.config, rows: items as unknown as Record<string, unknown>[] });
   const barFiltered = useMemo(
-    () => items.filter((it) => matchesFilters(it, filters)),
-    [items, filters],
+    () => items.filter((it) => (boardQuery.enabled ? boardQuery.keep(it) : matchesFilters(it, filters))),
+    [items, filters, boardQuery],
   );
   const members: OrgMember[] = useMemo(() => membersQ.data ?? [], [membersQ.data]);
   const intervals: Interval[] = useMemo(() => intervalsQ.data ?? [], [intervalsQ.data]);
@@ -566,15 +570,19 @@ export function BacklogView({
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-[var(--border)] px-4 py-2">
-        <FilterBar
-          filters={filters}
-          onFilterChange={setFilters}
-          members={membersQ.data ?? []}
-          intervals={[]}
-          teams={[]}
-          orgId={orgId}
-          boardColumns={projectStatuses}
-        />
+        {boardQuery.enabled ? (
+          <BoardQueryBar orgId={orgId} q={boardQuery} />
+        ) : (
+          <FilterBar
+            filters={filters}
+            onFilterChange={setFilters}
+            members={membersQ.data ?? []}
+            intervals={[]}
+            teams={[]}
+            orgId={orgId}
+            boardColumns={projectStatuses}
+          />
+        )}
       </div>
       {/* Toolbar */}
       <div className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)]/50 px-4 py-2">

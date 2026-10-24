@@ -16,7 +16,7 @@ vi.mock("@/lib/realtime/broker", () => ({ publishToOrg: vi.fn() }));
 vi.mock("@/lib/notifications/create", () => ({ createNotification: vi.fn() }));
 
 import { GET as listWorkflows, POST as createWorkflowRoute } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/workflows/route";
-import { GET as getWorkflowRoute } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]/route";
+import { GET as getWorkflowRoute, DELETE as deleteWorkflowRoute } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]/route";
 import { PUT as saveDraftRoute } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]/draft/route";
 import { GET as previewRoute, POST as publishRoute } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]/publish/route";
 import { PUT as assignRoute } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/workflow/assignments/route";
@@ -155,6 +155,35 @@ describe("who may read and change workflows", () => {
     const other = await project();
     const id = await newWorkflow(other);
     expect((await call(getWorkflowRoute, { orgId, projectId: p, workflowId: id })).status).toBe(404);
+  });
+});
+
+describe("deleting a workflow", () => {
+  it("refuses one in use, as the project default or by a type, with a 409, and deletes an unused one", async () => {
+    const p = await project();
+    const id = await newWorkflow(p);
+    expect((await call(publishRoute, { orgId, projectId: p, workflowId: id }, "POST", {})).status).toBe(200);
+    const del = () => call(deleteWorkflowRoute, { orgId, projectId: p, workflowId: id }, "DELETE");
+
+    // The project default.
+    expect((await call(assignRoute, { orgId, projectId: p }, "PUT", { workItemTypeId: null, workflowId: id })).status).toBe(200);
+    expect(await del()).toMatchObject({ status: 409, body: { code: "workflow_in_use" } });
+
+    // One type, with the default back on the open workflow.
+    expect((await call(assignRoute, { orgId, projectId: p }, "PUT", { workItemTypeId: null, workflowId: null })).status).toBe(200);
+    expect((await call(assignRoute, { orgId, projectId: p }, "PUT", { workItemTypeId: typeId, workflowId: id })).status).toBe(200);
+    expect(await del()).toMatchObject({ status: 409, body: { code: "workflow_in_use" } });
+    expect(await prisma.workflow.count({ where: { id } })).toBe(1);
+
+    // A member without workflow-manage can't delete even an unused one.
+    expect((await call(assignRoute, { orgId, projectId: p }, "PUT", { workItemTypeId: typeId, workflowId: null })).status).toBe(200);
+    actAs(bobId, MEMBER, { role: OrgRole.MEMBER });
+    expect((await del()).status).toBe(403);
+    actAs(aliceId, ALL);
+
+    expect((await del()).status).toBe(200);
+    expect(calls.audit.at(-1)).toMatchObject({ action: "workflow.deleted", entityId: id });
+    expect(await prisma.workflow.count({ where: { id } })).toBe(0);
   });
 });
 

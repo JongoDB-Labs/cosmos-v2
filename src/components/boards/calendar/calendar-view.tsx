@@ -1,5 +1,7 @@
 "use client";
 
+import { useBoardQuery } from "@/components/boards/shared/use-board-query";
+import { BoardQueryBar } from "@/components/boards/shared/board-query-bar";
 import { useState, useMemo, useRef } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -108,9 +110,11 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
   // board that does not filter at all.
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
   const projectStatuses = useProjectStatuses(orgId, projectId);
+  // With the query language on, the bar and the board's scope are one CQL query (boards/shared/use-board-query).
+  const boardQuery = useBoardQuery({ orgId, projectId, config: undefined, rows: items as unknown as Record<string, unknown>[] });
   const visibleItems = useMemo(
-    () => items.filter((it) => matchesFilters(it, filters)),
-    [items, filters],
+    () => items.filter((it) => (boardQuery.enabled ? boardQuery.keep(it) : matchesFilters(it, filters))),
+    [items, filters, boardQuery],
   );
   const members: OrgMember[] = membersQ.data ?? [];
   const loading = itemsQ.isLoading || membersQ.isLoading;
@@ -189,15 +193,19 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
   return (
     <div className="flex flex-col h-full">
       <div className="border-b px-4 py-2">
-        <FilterBar
-          filters={filters}
-          onFilterChange={setFilters}
-          members={members}
-          intervals={[]}
-          teams={[]}
-          orgId={orgId}
-          boardColumns={projectStatuses}
-        />
+        {boardQuery.enabled ? (
+          <BoardQueryBar orgId={orgId} q={boardQuery} />
+        ) : (
+          <FilterBar
+            filters={filters}
+            onFilterChange={setFilters}
+            members={members}
+            intervals={[]}
+            teams={[]}
+            orgId={orgId}
+            boardColumns={projectStatuses}
+          />
+        )}
       </div>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b bg-background/50">

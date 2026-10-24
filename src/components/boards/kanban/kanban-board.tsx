@@ -31,8 +31,10 @@ import { columnCollision } from "@/components/boards/shared/column-collision";
 import { KanbanCard } from "./kanban-card";
 import {
   FilterBar,
+  SwimlaneSelect,
   parseFilters,
   serializeFilters,
+  withFilterParams,
   bareTypeKey,
   customFieldHasValue,
   type BoardFilters,
@@ -44,6 +46,8 @@ import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import { boardBaseline, matchesFilters } from "@/lib/work-items/board-filters";
 import { boardScope, inBoardScope } from "@/lib/boards/saved-filter";
 import { BoardScopeNotice } from "@/components/boards/shared/board-scope-notice";
+import { BoardQueryBar } from "@/components/boards/shared/board-query-bar";
+import { useBoardQuery } from "@/components/boards/shared/use-board-query";
 import { presentLabels } from "@/lib/work-items/label-filter";
 import {
   blockedItemIds,
@@ -458,12 +462,11 @@ function KanbanBoardInner({
   // no server-side dynamic read.
   useEffect(() => {
     const handle = setTimeout(() => {
-      const qs = serializeFilters(filters);
-      const next = qs ? `${pathname}?${qs}` : pathname;
-      const current = serializeFilters(parseFilters(searchParams));
       // Avoid a redundant replace (e.g. on mount when URL already matches).
-      if (current === qs) return;
-      router.replace(next, { scroll: false });
+      if (serializeFilters(parseFilters(searchParams)) === serializeFilters(filters)) return;
+      // Only the filter params: the query language's `?cql=` / `&mode=` stay.
+      const qs = withFilterParams(new URLSearchParams(searchParams.toString()), filters);
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     }, 200);
     return () => clearTimeout(handle);
   }, [filters, pathname, router, searchParams]);
@@ -517,12 +520,24 @@ function KanbanBoardInner({
   // The board's own scope (a board saved from Issues) comes first; the filter
   // bar narrows within it. See lib/boards/saved-filter.
   const scope = useMemo(() => boardScope(board?.config), [board]);
+  // With the query language on, the board's scope and the bar are one CQL
+  // query, decided in the browser (see boards/shared/use-board-query).
+  const sprintName = intervals.find((i) => i.id === filters.intervalId)?.name;
+  const boardQuery = useBoardQuery({
+    orgId,
+    projectId,
+    config: board?.config,
+    sprint: filters.intervalId ? { id: filters.intervalId, name: sprintName } : null,
+    rows: items as unknown as Record<string, unknown>[],
+  });
   const filteredItems = items.filter((item) =>
-    inBoardScope(scope, item) &&
-    matchesFilters(item, filters, projectCustomFields, teamsByUserId, filterNow, {
-      blocked: blockedIds,
-      milestones: milestoneMap,
-    }),
+    boardQuery.enabled
+      ? boardQuery.keep(item)
+      : inBoardScope(scope, item) &&
+        matchesFilters(item, filters, projectCustomFields, teamsByUserId, filterNow, {
+          blocked: blockedIds,
+          milestones: milestoneMap,
+        }),
   );
 
   // Selection narrowed to what's actually on screen under the current filters.
@@ -1042,25 +1057,33 @@ function KanbanBoardInner({
 
   return (
     <div className="flex flex-col h-full">
-      <FilterBar
-        filters={filters}
-        onFilterChange={setFilters}
-        members={members}
-        intervals={intervals}
-        teams={teams}
-        presentLabelNames={presentLabelNames}
-        boardColumns={columns}
-        milestoneOptions={showMilestoneFilter ? milestones : []}
-        presentPointValues={presentPointValues}
-        showEstimate={showEstimate}
-        orgId={orgId}
-        customFields={projectCustomFields}
-        presentTypeKeys={presentTypeKeys}
-        presentCustomFieldKeys={presentCustomFieldKeys}
-        baseFilters={baseFilters}
-        showSwimlane
-      />
-      <BoardScopeNotice scope={scope} />
+      {boardQuery.enabled ? (
+        <BoardQueryBar orgId={orgId} q={boardQuery}>
+          <SwimlaneSelect value={filters.swimlaneBy} onChange={(swimlaneBy) => setFilters((f) => ({ ...f, swimlaneBy }))} />
+        </BoardQueryBar>
+      ) : (
+        <>
+          <FilterBar
+            filters={filters}
+            onFilterChange={setFilters}
+            members={members}
+            intervals={intervals}
+            teams={teams}
+            presentLabelNames={presentLabelNames}
+            boardColumns={columns}
+            milestoneOptions={showMilestoneFilter ? milestones : []}
+            presentPointValues={presentPointValues}
+            showEstimate={showEstimate}
+            orgId={orgId}
+            customFields={projectCustomFields}
+            presentTypeKeys={presentTypeKeys}
+            presentCustomFieldKeys={presentCustomFieldKeys}
+            baseFilters={baseFilters}
+            showSwimlane
+          />
+          <BoardScopeNotice scope={scope} />
+        </>
+      )}
 
       {/* Board toolbar: create, then bulk-select. "Select" enters a mode where
           drag is OFF and cards toggle; the action bar appears once something's

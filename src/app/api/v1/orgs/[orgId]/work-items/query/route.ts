@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { success } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
-import { executeCql } from "@/lib/query/execute.server";
+import { executeCql, idsCql } from "@/lib/query/execute.server";
 import { cqlErrorResponse, cqlGate } from "@/lib/query/route.server";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "@/lib/work-items/query/filter";
 
@@ -19,6 +19,8 @@ const bodySchema = z.strictObject({
   /** Dashboard variables; null (or absent) = unset, which leaves its conditions inert. */
   vars: z.record(z.string().regex(/^[A-Za-z_]\w{0,40}$/), z.union([scalar, z.null(), z.array(scalar).max(200)])).optional(),
   contextProjectId: z.string().uuid().optional(),
+  /** Just the matching ids (at most 5,000), for a board that can't evaluate the query itself. */
+  idsOnly: z.boolean().optional(),
 });
 
 /**
@@ -28,6 +30,9 @@ const bodySchema = z.strictObject({
  *
  *   { cql: "assignee = me AND statusCategory != done ORDER BY due", tz: "America/Chicago" }
  *   → { data: IssueRow[], total, totalCapped, query, cql, diagnostics }
+ *
+ * `idsOnly: true` → { ids } (at most 5,000; more is a 422 CQL_TOO_BROAD), for a
+ * board whose rows can't decide the query themselves (lib/query/evaluate.ts).
  *
  * Invalid CQL → 400 { error: { code: "CQL_INVALID", diagnostics } } with exact
  * positions; a query over budget → 422 CQL_TIMEOUT.
@@ -42,6 +47,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (limited) return limited;
 
     const body = bodySchema.parse(await request.json().catch(() => ({})));
+    if (body.idsOnly) {
+      return success(
+        await idsCql(gate.ctx, { cql: body.cql, query: body.query }, { tz: body.tz, vars: body.vars, contextProjectId: body.contextProjectId }),
+      );
+    }
     const result = await executeCql(
       gate.ctx,
       { cql: body.cql, query: body.query },
