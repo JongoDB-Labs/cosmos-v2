@@ -22,12 +22,19 @@ import {
 } from "@/components/ui/dialog";
 import { CommentItem } from "@/components/comments/comment-item";
 import { CommentComposer } from "@/components/comments/comment-composer";
+import {
+  CLASSIFICATION_BADGE_COLORS,
+  classificationLabel,
+  type ClassificationLevel,
+} from "@/lib/classification/levels";
+import { COMMENT_MARKINGS, markingForcesInternal } from "@/lib/feedback/marking";
 
 export interface FeedbackComment {
   id: string;
   parentId: string | null;
   kind: string;
   visibility: "PUBLIC" | "INTERNAL";
+  classification: ClassificationLevel | null;
   content: string | null;
   deleted: boolean;
   author: { id: string; displayName: string | null; avatarUrl: string | null } | null;
@@ -111,6 +118,19 @@ export function FeedbackThread({
   });
   const refresh = () => void qc.invalidateQueries({ queryKey: key });
 
+  // Staff on a gov tenant can mark what they post; null everywhere else.
+  const policyKey = useOrgQueryKey("feedback-comment-policy");
+  const { data: policy } = useQuery({
+    queryKey: policyKey,
+    queryFn: () =>
+      jsonFetch<{ marking: { orgCeiling: ClassificationLevel } | null }>(
+        `/api/v1/orgs/${orgId}/feedback/comment-policy`,
+      ),
+    enabled: isStaff,
+    staleTime: 5 * 60_000,
+  });
+  const markingPolicy = isStaff ? (policy?.marking ?? null) : null;
+
   // Someone else's comment arrives without a refresh. Events carry ids only;
   // the refetch goes through the permission-checked GET.
   const mine = (d: unknown) => (d as { feedbackId?: string })?.feedbackId === item.id;
@@ -160,13 +180,20 @@ export function FeedbackThread({
     if (isStaff) setTab(readTab());
   }, [isStaff]);
   const [asOfficial, setAsOfficial] = useState(false);
+  const [marking, setMarking] = useState<ClassificationLevel | "">("");
   const [show, setShow] = useState<ShowFilter>("all");
-  const internal = isStaff && tab === "INTERNAL";
+  // A marking above what the whole org may read keeps the post internal.
+  const markedInternal = !!marking && !!markingPolicy && markingForcesInternal(marking, markingPolicy.orgCeiling);
+  const internal = isStaff && (tab === "INTERNAL" || markedInternal);
 
   const closed = !!item.mergedIntoId || (!!item.lockedAt && !isStaff);
   const canComment = !closed && (can(Permission.COMMENT_CREATE) || !!item.isMine);
 
-  async function send(content: string, parentId?: string, opts: { visibility?: Audience; official?: boolean } = {}) {
+  async function send(
+    content: string,
+    parentId?: string,
+    opts: { visibility?: Audience; official?: boolean; classification?: ClassificationLevel } = {},
+  ) {
     setBusy(true);
     try {
       await jsonFetch(base, {
@@ -176,6 +203,7 @@ export function FeedbackThread({
           ...(parentId ? { parentId } : {}),
           ...(opts.visibility === "INTERNAL" ? { visibility: "INTERNAL" } : {}),
           ...(opts.official ? { kind: "OFFICIAL" } : {}),
+          ...(opts.classification ? { classification: opts.classification } : {}),
         }),
       });
       refresh();
@@ -253,17 +281,27 @@ export function FeedbackThread({
         onDelete={() => void remove(c.id)}
         highlighted={highlight === c.id}
         badge={
-          c.kind === "OFFICIAL" ? (
-            <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
-              <Pin className="h-2.5 w-2.5" aria-hidden />
-              Official response
-            </span>
-          ) : c.visibility === "INTERNAL" ? (
-            <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
-              <Lock className="h-2.5 w-2.5" aria-hidden />
-              Internal
-            </span>
-          ) : undefined
+          <>
+            {c.classification && (
+              <span
+                className={`rounded px-1.5 text-[10px] font-semibold ${CLASSIFICATION_BADGE_COLORS[c.classification]}`}
+                aria-label={`Marked ${classificationLabel(c.classification)}`}
+              >
+                {classificationLabel(c.classification).toUpperCase()}
+              </span>
+            )}
+            {c.kind === "OFFICIAL" ? (
+              <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
+                <Pin className="h-2.5 w-2.5" aria-hidden />
+                Official response
+              </span>
+            ) : c.visibility === "INTERNAL" ? (
+              <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+                <Lock className="h-2.5 w-2.5" aria-hidden />
+                Internal
+              </span>
+            ) : null}
+          </>
         }
         actions={
           (!isReply && canComment) || isStaff ? (
@@ -388,10 +426,27 @@ export function FeedbackThread({
                   </button>
                 ))}
               </div>
+              {markingPolicy && (
+                <select
+                  aria-label="Marking"
+                  value={marking}
+                  onChange={(e) => setMarking(e.target.value as ClassificationLevel | "")}
+                  className="rounded-md border bg-background px-1.5 py-0.5 text-[11px]"
+                >
+                  <option value="">No marking</option>
+                  {COMMENT_MARKINGS.map((l) => (
+                    <option key={l.value} value={l.value}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              )}
               {internal ? (
                 <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400">
                   <Lock className="h-3 w-3" aria-hidden />
-                  Only the feedback team will see this
+                  {markedInternal && tab !== "INTERNAL"
+                    ? `Marked ${classificationLabel(marking as ClassificationLevel)}: only the feedback team will see this`
+                    : "Only the feedback team will see this"}
                 </span>
               ) : (
                 <label className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -407,11 +462,15 @@ export function FeedbackThread({
             resetKey={draftKey}
             onChange={setDraft}
             onSubmit={async () => {
-              const opts = internal ? { visibility: "INTERNAL" as const } : { official: isStaff && asOfficial };
+              const opts = {
+                ...(internal ? { visibility: "INTERNAL" as const } : { official: isStaff && asOfficial }),
+                ...(markingPolicy && marking ? { classification: marking } : {}),
+              };
               if (await send(draft.trim(), undefined, opts)) {
                 setDraft("");
                 setDraftKey((k) => k + 1);
                 setAsOfficial(false);
+                setMarking("");
               }
             }}
             mentionLabels={mentionLabels}

@@ -9,7 +9,7 @@
  * so visibility is decided once: internal notes never reach someone who is not
  * on the feedback team, whatever surface asks.
  */
-import type { CommentKind, CommentVisibility, Prisma } from "@prisma/client";
+import type { ClassificationLevel, CommentKind, CommentVisibility, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { uploadersByIds, FORMER_MEMBER, type Uploader } from "@/lib/files/uploader";
 import { parseMentions } from "@/lib/chat/mentions";
@@ -18,6 +18,8 @@ import { createNotification } from "@/lib/notifications/create";
 import { feedbackItemUrl } from "./urls";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { isFeedbackStaff } from "./access";
+import { effectiveCeiling } from "@/lib/classification/effective";
+import { markingForcesInternal } from "./marking";
 
 import { FEEDBACK_SUBJECT } from "./subject";
 
@@ -63,6 +65,7 @@ export const FEEDBACK_COMMENT_SELECT = {
   content: true,
   kind: true,
   visibility: true,
+  classification: true,
   meta: true,
   createdAt: true,
   editedAt: true,
@@ -78,6 +81,8 @@ export interface FeedbackCommentDto {
   parentId: string | null;
   kind: CommentKind;
   visibility: CommentVisibility;
+  /** Opt-in marking (gov tenants); null when unmarked. */
+  classification: ClassificationLevel | null;
   /** Null once deleted: the tombstone never carries the words. */
   content: string | null;
   deleted: boolean;
@@ -106,6 +111,7 @@ function toDto(
     parentId: row.parentId,
     kind: row.kind,
     visibility: row.visibility,
+    classification: row.classification,
     content: deleted ? null : row.content,
     deleted,
     author: deleted && !viewer.isStaff ? null : author,
@@ -227,6 +233,7 @@ export async function insertFeedbackComment(
     parentId: string | null;
     visibility?: CommentVisibility;
     kind?: "COMMENT" | "OFFICIAL";
+    classification?: ClassificationLevel | null;
   },
 ) {
   const visibility = input.visibility ?? "PUBLIC";
@@ -241,6 +248,7 @@ export async function insertFeedbackComment(
       parentId: input.parentId,
       visibility,
       kind,
+      classification: input.classification ?? null,
     },
     select: FEEDBACK_COMMENT_SELECT,
   });
@@ -265,6 +273,16 @@ async function pinOfficial(tx: Prisma.TransactionClient, feedbackItemId: string,
   }
   await tx.comment.update({ where: { id: commentId }, data: { kind: "OFFICIAL" } });
   await tx.feedbackItem.update({ where: { id: feedbackItemId }, data: { officialCommentId: commentId } });
+}
+
+/**
+ * Whether this org's staff can mark comments, and the org ceiling the marking
+ * is weighed against. Null outside gov tenants: markings are a gov control.
+ */
+export async function commentMarkingPolicy(orgId: string): Promise<{ orgCeiling: ClassificationLevel } | null> {
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { tenantClass: true } });
+  if (org?.tenantClass !== "GOV") return null;
+  return { orgCeiling: await effectiveCeiling(orgId) };
 }
 
 export class CommentChangeError extends Error {
@@ -316,12 +334,17 @@ export async function setVisibility(
 ) {
   const c = await tx.comment.findUniqueOrThrow({
     where: { id: input.commentId },
-    select: { visibility: true, kind: true, deletedAt: true, parentId: true },
+    select: { visibility: true, kind: true, deletedAt: true, parentId: true, classification: true },
   });
   if (c.visibility === input.visibility) return;
   const live = (deleted: Date | null) => (deleted ? 0 : 1);
 
   if (input.visibility === "PUBLIC") {
+    // Weighed against the ceiling now, whatever the tenant is today: a marking
+    // stays a marking.
+    if (c.classification && markingForcesInternal(c.classification, await effectiveCeiling(input.orgId))) {
+      throw new CommentChangeError("This note is marked above what the whole org may read, so it stays internal.");
+    }
     if (c.parentId) {
       const parent = await tx.comment.findUniqueOrThrow({ where: { id: c.parentId }, select: { visibility: true } });
       if (parent.visibility !== "PUBLIC") {

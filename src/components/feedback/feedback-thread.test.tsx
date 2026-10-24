@@ -40,6 +40,7 @@ const c = (over: Partial<FeedbackComment>): FeedbackComment => ({
   parentId: null,
   kind: "COMMENT",
   visibility: "PUBLIC",
+  classification: null,
   content: "Would love this",
   deleted: false,
   author: { id: "u1", displayName: "Carol", avatarUrl: null },
@@ -53,7 +54,9 @@ const c = (over: Partial<FeedbackComment>): FeedbackComment => ({
 });
 
 let thread: FeedbackComment[] = [];
+let marking: { orgCeiling: string } | null = null;
 const BASE = "/api/v1/orgs/o1/feedback/f1/comments";
+const POLICY = "/api/v1/orgs/o1/feedback/comment-policy";
 
 function renderThread(item: Record<string, unknown> = {}) {
   return render(
@@ -67,9 +70,11 @@ const gets = () => h.jsonFetch.mock.calls.filter(([u, init]) => u === BASE && !i
 beforeEach(() => {
   h.can.mockImplementation(() => true);
   h.handlers = {};
+  marking = null;
   h.jsonFetch.mockReset();
   h.jsonFetch.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url === BASE && !init) return thread;
+    if (url === POLICY) return { marking };
     if (url.endsWith("/revisions")) return [{ id: "r1", content: "Would like this", redacted: false, editedBy: { displayName: "Carol" }, createdAt: "2026-10-23T09:00:00.000Z" }];
     return {};
   });
@@ -254,6 +259,59 @@ describe("FeedbackThread", () => {
       expect(confirm.mock.calls[0][0]).toMatch(/can't be recalled/);
       expect(patched()).toEqual([]);
       confirm.mockRestore();
+    });
+
+    describe("markings (gov tenant)", () => {
+      it("keeps a CUI post internal when the org isn't cleared for CUI, and says so", async () => {
+        marking = { orgCeiling: "UNCLASSIFIED" };
+        thread = [];
+        renderThread();
+        const picker = await screen.findByLabelText("Marking");
+        expect(screen.getByLabelText("Post as the official response")).toBeInTheDocument();
+        fireEvent.change(picker, { target: { value: "CUI" } });
+        expect(screen.getByText("Marked CUI: only the feedback team will see this")).toBeInTheDocument();
+        expect(screen.queryByLabelText("Post as the official response")).toBeNull();
+        fireEvent.change(screen.getByLabelText("Internal note"), { target: { value: "Unit 4 affected" } });
+        fireEvent.click(screen.getByRole("button", { name: "Post internal note" }));
+        await waitFor(() =>
+          expect(posted()).toEqual([{ content: "Unit 4 affected", visibility: "INTERNAL", classification: "CUI" }]),
+        );
+        await waitFor(() => expect(screen.getByLabelText("Marking")).toHaveValue(""));
+      });
+
+      it("lets a CUI comment stay public once the org ceiling covers it", async () => {
+        marking = { orgCeiling: "CUI" };
+        thread = [];
+        renderThread();
+        fireEvent.change(await screen.findByLabelText("Marking"), { target: { value: "CUI" } });
+        expect(screen.queryByText(/only the feedback team will see this/)).toBeNull();
+        fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Fixed in the CUI enclave" } });
+        fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
+        await waitFor(() => expect(posted()).toEqual([{ content: "Fixed in the CUI enclave", classification: "CUI" }]));
+      });
+
+      it("shows a comment's marking", async () => {
+        thread = [c({ id: "m", content: "marked one", classification: "CUI" })];
+        renderThread();
+        await screen.findByText("marked one");
+        expect(within(document.getElementById("c-m")!).getByLabelText("Marked CUI")).toHaveTextContent("CUI");
+      });
+
+      it("offers no picker outside a gov tenant, and never asks for members", async () => {
+        thread = [];
+        renderThread();
+        await screen.findByLabelText("Comment");
+        expect(screen.queryByLabelText("Marking")).toBeNull();
+
+        cleanup();
+        h.jsonFetch.mockClear();
+        marking = { orgCeiling: "UNCLASSIFIED" };
+        h.can.mockImplementation((p: bigint) => p !== Permission.ORG_UPDATE);
+        renderThread();
+        await screen.findByLabelText("Comment");
+        expect(screen.queryByLabelText("Marking")).toBeNull();
+        expect(h.jsonFetch.mock.calls.some(([u]) => u === POLICY)).toBe(false);
+      });
     });
 
     it("shows none of it to members", async () => {

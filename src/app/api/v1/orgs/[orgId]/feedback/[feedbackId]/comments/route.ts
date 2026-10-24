@@ -6,7 +6,9 @@ import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { syncReferences } from "@/lib/mentions/references";
 import { canCommentOnFeedback } from "@/lib/feedback/access";
+import { markingForcesInternal } from "@/lib/feedback/marking";
 import {
+  commentMarkingPolicy,
   feedbackCommentDto,
   insertFeedbackComment,
   listFeedbackComments,
@@ -42,6 +44,8 @@ const createSchema = z.object({
   visibility: z.enum(["PUBLIC", "INTERNAL"]).optional(),
   /** Staff only: the team's official response, pinned and always public. */
   kind: z.enum(["COMMENT", "OFFICIAL"]).optional(),
+  /** Staff on a gov tenant only: a classification marking (FOUO is retired). */
+  classification: z.enum(["PUBLIC", "UNCLASSIFIED", "CUI", "CONFIDENTIAL"]).optional(),
 });
 
 /** Post a comment, or a reply (one level: a reply to a reply joins its thread). */
@@ -78,9 +82,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (official && (wantsInternal || parent)) {
       return json(400, { error: "An official response is a public, top-level comment." });
     }
+    let markedInternal = false;
+    if (data.classification) {
+      if (!viewer.isStaff) return json(403, { error: "Only the feedback team can mark a comment." });
+      const policy = await commentMarkingPolicy(orgId);
+      if (!policy) return json(400, { error: "Classification markings are for government tenants." });
+      markedInternal = markingForcesInternal(data.classification, policy.orgCeiling);
+      if (markedInternal && official) {
+        return json(400, { error: "A comment marked at this level stays internal, so it can't be the official response." });
+      }
+    }
     // A reply to an internal note is internal too: its context is invisible
-    // to anyone outside the team.
-    const visibility = wantsInternal || parent?.visibility === "INTERNAL" ? "INTERNAL" : "PUBLIC";
+    // to anyone outside the team. So is a comment marked above what the whole
+    // org may read.
+    const visibility =
+      wantsInternal || markedInternal || parent?.visibility === "INTERNAL" ? "INTERNAL" : "PUBLIC";
 
     const comment = await prisma.$transaction((tx) =>
       insertFeedbackComment(tx, {
@@ -91,6 +107,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         parentId: parent?.id ?? null,
         visibility,
         kind: official ? "OFFICIAL" : "COMMENT",
+        classification: data.classification ?? null,
       }),
     );
 
