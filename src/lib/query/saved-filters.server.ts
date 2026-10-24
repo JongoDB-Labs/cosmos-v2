@@ -31,6 +31,7 @@ import { prepareCql } from "./execute.server";
 import { validateAst } from "./normalize";
 import { printCql, type LabelFor } from "./print";
 import { loadSchemaCustomFields } from "./resolve.server";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 
 export const RESTRICTED = "‹restricted›";
 
@@ -52,7 +53,9 @@ export async function viewerScope(ctx: AuthContext): Promise<ViewerScope> {
     ctx,
     readable,
     teams: new Map(rows.map((r) => [r.team.id, r.team.projectId])),
-    isAdmin: isOrgAdministrator(ctx.orgRole),
+    // An admin edits and deletes anyone's saved filter. A key never does: no
+    // scope grants FILTER_SHARE_ORG (lib/rbac/key-role.ts).
+    isAdmin: isOrgAdministrator(ctx.orgRole) && roleCountsFor(ctx, Permission.FILTER_SHARE_ORG),
   };
 }
 
@@ -139,7 +142,7 @@ export async function visibilityProblem(
       if (!target.teamId) return "Pick the team to share it with.";
       const team = await prisma.team.findFirst({ where: { id: target.teamId, orgId: s.ctx.orgId }, select: { projectId: true } });
       if (!team || !s.readable.has(team.projectId)) return "That team isn't one you can see.";
-      if (s.teams.has(target.teamId) || (await canManageProject(s.ctx, team.projectId))) return null;
+      if (s.teams.has(target.teamId) || (await canManageProject(s.ctx, team.projectId, Permission.PROJECT_MANAGE))) return null;
       return "Only members of that team, or managers of its project, can share with it.";
     }
   }

@@ -49,13 +49,24 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
-    version: "2.455.0",
+    version: "2.454.2",
     date: "2026-10-24",
-    title: "CUI markings on feedback comments",
+    title: "API keys respect their scopes",
     highlights: [
       {
-        kind: "feature",
-        text: "For government organizations, staff can mark a feedback comment CUI. Marked comments stay internal unless the organization is cleared for them, and lowering the clearance hides them again automatically.",
+        kind: "fix",
+        text: "API keys now respect their scopes for project planning changes, boards, team and member management, files and chat channel administration, whatever the role of the person who created the key.",
+      },
+    ],
+  },
+  {
+    version: "2.454.1",
+    date: "2026-10-24",
+    title: "Safer web page reading in the assistant",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When the assistant reads a web page, encoded markup is now cleaned out properly instead of being turned back into tags.",
       },
     ],
   },
