@@ -1506,9 +1506,12 @@ export function CardDetailSheet({
 
             <MetadataField icon={Layers} label="Status">
               <Select
-                items={Object.fromEntries(statusChoices.map((c) => [c.key, statusLabel(c)]))}
+                // Every status, not just the reachable ones: this is the label
+                // lookup, and a value that drops out of it is reset to nothing.
+                items={Object.fromEntries(statusOptions.map((c) => [c.key, c.name]))}
                 value={columnKey}
-                onValueChange={(v) => handleFieldChange("columnKey", v ?? "")}
+                // An emptied select is never a status to move to.
+                onValueChange={(v) => v && handleFieldChange("columnKey", v)}
               >
                 <SelectTrigger size="sm" aria-label="Status" className="w-full text-xs">
                   <SelectValue />

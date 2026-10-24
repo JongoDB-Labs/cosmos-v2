@@ -54,31 +54,33 @@ vi.mock("@/components/files/work-item-attachments", () => ({
 // field as a controlled input. `data-options` makes the Type control findable
 // among the sheet's several selects.
 vi.mock("@/components/ui/select", () => ({
+  // Options come from the SelectItem children, as in the real component; the
+  // `items` map is only its label lookup.
   Select: ({
     items,
     value,
     onValueChange,
+    children,
   }: {
     items: Record<string, string>;
     value: string;
     onValueChange: (v: string) => void;
+    children?: React.ReactNode;
   }) => (
     <select
       data-options={Object.values(items).join(",")}
       value={value}
       onChange={(e) => onValueChange(e.target.value)}
     >
-      {Object.entries(items).map(([id, label]) => (
-        <option key={id} value={id}>
-          {label}
-        </option>
-      ))}
+      {children}
     </select>
   ),
   SelectTrigger: () => null,
   SelectValue: () => null,
-  SelectContent: () => null,
-  SelectItem: () => null,
+  SelectContent: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children?: React.ReactNode }) => (
+    <option value={value}>{children}</option>
+  ),
 }));
 
 vi.mock("@/hooks/use-work-item-types", () => ({
@@ -289,6 +291,22 @@ describe("the Status dropdown under a workflow", () => {
       { columnKey: "done" },
       { columnKey: "done", transition: { id: "resolve", input: { "system:resolution": "Fixed" } } },
     ]);
+  });
+
+  it("never saves an emptied status (the select resets its value when the options change)", async () => {
+    const puts: unknown[] = [];
+    global.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") puts.push(JSON.parse(init.body as string));
+      return new Response("[]", { status: 200 });
+    }) as unknown as typeof fetch;
+    render(<CardDetailSheet {...SHEET_PROPS} statusColumns={STATUSES} item={itemFixture()} />);
+    const select = statusSelect();
+    const empty = document.createElement("option");
+    empty.value = "";
+    select.appendChild(empty);
+    fireEvent.change(select, { target: { value: "" } });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(puts).toEqual([]);
   });
 
   it("puts the status back, without an error, when the person backs out", async () => {
