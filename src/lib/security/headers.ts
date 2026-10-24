@@ -103,17 +103,28 @@ export const TEAMS_TAB_FRAME_ANCESTORS = [
 ];
 
 /**
+ * What the tab pages' teams-js fetches on start: Microsoft's list of the hosts
+ * that may host a tab. Blocked, it logged two console errors on every tab load
+ * and teams-js fell back to the copy bundled with it, which goes stale. Exact
+ * origin, tab pages only: no other page loads teams-js.
+ */
+export const TEAMS_TAB_CONNECT_ORIGINS = ["https://res.cdn.office.net"];
+
+/**
  * COSMOS-202 T1 d: let Teams frame a tab page, and nothing else frame it.
  * Called for /teams/tab responses ONLY (proxy.ts), after
  * applySecurityHeaders: replaces `frame-ancestors 'none'` with Microsoft's
  * hosts and drops X-Frame-Options (DENY would win in older browsers, and
- * ALLOW-FROM can't name several hosts). Every other directive stays.
+ * ALLOW-FROM can't name several hosts). It also adds teams-js's origin-list
+ * host to `connect-src`. Every other directive stays.
  */
 export function applyTeamsTabFraming(headers: Headers): void {
   const csp = headers.get("Content-Security-Policy") ?? "";
   headers.set(
     "Content-Security-Policy",
-    csp.replace(/frame-ancestors [^;]*/, `frame-ancestors ${TEAMS_TAB_FRAME_ANCESTORS.join(" ")}`),
+    csp
+      .replace(/frame-ancestors [^;]*/, `frame-ancestors ${TEAMS_TAB_FRAME_ANCESTORS.join(" ")}`)
+      .replace(/connect-src [^;]*/, (d) => `${d} ${TEAMS_TAB_CONNECT_ORIGINS.join(" ")}`),
   );
   headers.delete("X-Frame-Options");
 }

@@ -1,11 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { assertAssigneesInOrg } from "@/lib/work-items/apply-change.server";
-import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
-import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
@@ -17,36 +16,11 @@ import {
   allocateTicketNumber,
   allocateSortOrder,
 } from "@/lib/work-items/allocate";
-import { z } from "zod";
-import { Priority, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
-import { listProjectWorkItems } from "./route.contract";
-
-const createItemSchema = z.object({
-  workItemTypeId: z.string().uuid().nullish(),
-  type: z.string().nullish(),
-  title: z.string().min(1).max(500),
-  description: z.string().nullish(),
-  columnKey: z.string(),
-  assigneeId: z.string().uuid().nullable().optional(),
-  // Multi-assign (FR 1d38496a): full assignee set; first entry becomes the
-  // primary `assigneeId`. When present it wins over the legacy single field.
-  assigneeIds: z.array(z.string().uuid()).max(50).optional(),
-  priority: z.nativeEnum(Priority).default(Priority.MEDIUM),
-  intervalId: z.string().uuid().nullable().optional(),
-  // COSMOS-204: the owning team, independent of the assignee.
-  teamId: z.string().uuid().nullable().optional(),
-  parentId: z.string().uuid().nullable().optional(),
-  storyPoints: z.number().int().min(0).nullable().optional(),
-  dueDate: z.string().datetime().nullable().optional(),
-  startDate: z.string().datetime().nullable().optional(),
-  actualStart: z.string().datetime().nullable().optional(),
-  completedAt: z.string().datetime().nullable().optional(),
-  tags: z.array(z.string()).optional(),
-  customFields: z.record(z.string(), z.unknown()).optional(),
-});
+import { createWorkItem, listProjectWorkItems } from "./route.contract";
 
 const TYPE_NAME_MAP: Record<string, string> = {
   TASK: "task",
@@ -129,18 +103,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, createWorkItem);
+    const { params: { orgId, projectId }, body: data } = await parseRequest(createWorkItem, request, params);
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
-    if (!project) return new Response("Not found", { status: 404 });
-
-    const body = await request.json();
-    const data = createItemSchema.parse(body);
+    if (!project) return problem(404, "not_found", undefined, { request });
 
     // Resource-aware authz: checks ITEM_CREATE in the bitfield AND applies any
     // deny policy that references it. On create the actor is the creator, so
@@ -180,10 +147,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           select: { id: true },
         });
         if (!fallback) {
-          return NextResponse.json(
-            { error: `No work item type found for "${data.type ?? "TASK"}"` },
-            { status: 400 },
-          );
+          return problem(400, "invalid_request", `No work item type found for "${data.type ?? "TASK"}"`, { request });
         }
         resolvedTypeId = fallback.id;
       } else {
@@ -192,7 +156,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const teamError = await teamProjectError({ projectId, teamId: data.teamId });
-    if (teamError) return NextResponse.json({ error: teamError }, { status: 400 });
+    if (teamError) return problem(400, "invalid_request", teamError, { request });
 
     // A Story or Feature needs an interval in a project that has any (COSMOS-205).
     const needsInterval = await intervalRequirementError({
@@ -200,9 +164,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       workItemTypeId: resolvedTypeId!,
       intervalId: data.intervalId,
     });
-    if (needsInterval) {
-      return NextResponse.json({ error: needsInterval }, { status: 400 });
-    }
+    if (needsInterval) return problem(400, "invalid_request", needsInterval, { request });
 
     const item = await prisma.$transaction(async (tx) => {
       const ticketNumber = await allocateTicketNumber(tx, { orgId, projectId });
@@ -221,6 +183,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       await assertAssigneesInOrg(tx, orgId, assigneeIds);
 
       const created = await createWorkItemRow(tx, {
+        // An internal search index, not part of the item.
+        omit: { searchVector: true },
         data: {
           orgId,
           projectId,
@@ -333,8 +297,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       `\u{1F195} <b>${project.key}-${item.ticketNumber}</b> ${escapeHtmlBasic(item.title)} created (${item.priority})`,
     );
 
-    return created(item);
+    return respond(createWorkItem, 201, item);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
