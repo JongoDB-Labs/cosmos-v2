@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { z, ZodError } from "zod";
 import { defineRoute } from "../contract";
-import { droppedKeys, parseRequest, respond, ResponseContractError } from "../respond";
+import { droppedKeys, parseRequest, respond, ResponseContractError, withoutPath } from "../respond";
 import { ProblemError } from "../problem";
 
 vi.mock("@/lib/telemetry/server", () => ({ serverReportError: vi.fn() }));
@@ -123,3 +123,44 @@ describe("droppedKeys", () => {
       .toEqual(["$.b.d", "$.e[0].g"]);
   });
 });
+
+describe("respond: scopedFields (email behind members:read)", () => {
+  const Person = z.object({
+    id: z.string(),
+    user: z.object({ email: z.string().optional(), name: z.string() }),
+    // Same key name, different field: an exact path must never touch it.
+    settings: z.object({ email: z.string() }),
+  });
+  const getPeople = defineRoute({
+    method: "get", path: "/people", operationId: "getPeople", summary: "s", tags: ["T"], stability: "stable",
+    scopes: ["read"], request: {}, responses: { 200: z.array(Person) }, errors: [],
+    scopedFields: [{ scope: "members:read", paths: ["[].user.email"] }],
+  });
+  const rows = [{ id: "1", user: { email: "a@x.gov", name: "A" }, settings: { email: "alerts@x.gov" } }];
+  const body = async (ctx: object) => (await respond(getPeople, 200, rows, { ctx }).json()) as typeof rows;
+
+  it("a browser session gets them", async () => {
+    expect((await body({}))[0].user.email).toBe("a@x.gov");
+  });
+
+  it("a token with the scope gets them", async () => {
+    expect((await body({ isApiKey: true, scopes: ["read", "members:read"] }))[0].user.email).toBe("a@x.gov");
+  });
+
+  it("a token without it loses exactly that path, nothing else", async () => {
+    const [p] = await body({ isApiKey: true, scopes: ["read"] });
+    expect(p.user).toEqual({ name: "A" });
+    expect(p.settings.email).toBe("alerts@x.gov");
+  });
+
+  it("withoutPath walks objects and arrays, and ignores what isn't there", () => {
+    const v = { members: [{ orgMember: { user: { email: "x", id: 1 } } }, { orgMember: null }] };
+    withoutPath(v, ["members", "[]", "orgMember", "user", "email"]);
+    expect(v).toEqual({ members: [{ orgMember: { user: { id: 1 } } }, { orgMember: null }] });
+  });
+
+  it("refuses to answer without knowing the caller", () => {
+    expect(() => respond(getPeople, 200, rows)).toThrow(/scopedFields needs the caller's ctx/);
+  });
+});
+
