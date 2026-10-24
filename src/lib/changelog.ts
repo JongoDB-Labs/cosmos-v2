@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.454.0",
+    date: "2026-10-24",
+    title: "More of the API on contracts",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "For API clients: projects, intervals, milestones, labels, custom fields and members now return standard problem+json errors, the members list can be paged (send limit or cursor), and member email addresses are returned only to API keys with the new members:read scope.",
+      },
+    ],
+  },
+  {
     version: "2.453.0",
     date: "2026-10-24",
     title: "Team voice in feedback",
