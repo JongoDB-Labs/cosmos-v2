@@ -5,7 +5,7 @@ import { ForbiddenError, NotFoundError, ConflictError } from "./rbac/check";
 import { serverReportError } from "./telemetry/server";
 import { problem, problemBody, ProblemError, PROBLEM_CONTENT_TYPE } from "./openapi/problem";
 import { isNoModelCredentialError } from "./ai/egress/types";
-import { TransitionError } from "@/lib/workflow/contract";
+import { TransitionError, WorkflowEditError } from "@/lib/workflow/contract";
 
 export function success<T>(data: T, status = 200) {
   return NextResponse.json(data, { status });
@@ -36,6 +36,12 @@ export function handleApiError(error: unknown, request?: Request) {
     const { error: detail, code, ...extensions } = error.body;
     return NextResponse.json(
       { ...problemBody(error.status, code, detail, opts), ...extensions },
+      { status: error.status, headers: { "Content-Type": PROBLEM_CONTENT_TYPE } },
+    );
+  }
+  if (error instanceof WorkflowEditError) {
+    return NextResponse.json(
+      { ...problemBody(error.status, error.code, error.message, opts), ...error.extensions },
       { status: error.status, headers: { "Content-Type": PROBLEM_CONTENT_TYPE } },
     );
   }

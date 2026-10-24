@@ -44,9 +44,11 @@ type Tx = Prisma.TransactionClient;
  *   ask, so restrictions and requested input are skipped and hidden
  *   transitions are open; the checks still run, so the parent guard and hard
  *   WIP limits hold on every path (owner decision).
- * - `structural`: the transition must exist, nothing more (import, migration).
+ * - `structural`: the transition must exist, nothing more (import).
+ * - `none`: no check at all. Only a workflow migration uses it: it moves items
+ *   out of statuses the workflow no longer has, so no transition can apply.
  */
-export type EnforcementLevel = "full" | "system" | "structural";
+export type EnforcementLevel = "full" | "system" | "structural" | "none";
 
 export interface TransitionRequest {
   /** Name the transition; otherwise the one between the two statuses is used. */
@@ -443,6 +445,10 @@ export async function gateChange(
     });
     if (ok === 0) throw new NotFoundError("Work item type not found");
   }
+  if (args.level === "none") {
+    for (const item of args.items) result.gates.push({ itemId: item.id, patch: args.patch, transitionId: null, comments: [], watchers: [] });
+    return result;
+  }
   const governing = workflowResolver(tx, args.orgId, args.projectId);
   const force = args.transition?.force === true;
   if (force && !(args.actor && hasPermission(args.actor.permissions, Permission.WORKFLOW_OVERRIDE))) {
@@ -721,4 +727,85 @@ export async function allowedMoves(
     if (a.workItemTypeId) byType[a.workItemTypeId] = await movesOf(await governing(a.workItemTypeId));
   }
   return { default: await movesOf(await governing(null)), byType };
+}
+
+/** What the simulate panel says about one transition out of an item's status. */
+export interface SimulatedTransition {
+  id: string;
+  name: string;
+  to: string;
+  toCategory: ColumnCategory | null;
+  /**
+   * available: the actor could take it now. needs_input: they could, once they
+   * fill in what it asks for. blocked: its checks fail on the item as it is.
+   * restricted: the actor may not take it. hidden: only the system may.
+   */
+  outcome: "available" | "needs_input" | "blocked" | "restricted" | "hidden";
+  reasons: string[];
+  input: TransitionInputField[];
+}
+
+/**
+ * "Simulate": every transition out of an item's current status and what would
+ * happen if `actor` took it, under the governing workflow or under `definition`
+ * (a draft, to try before publishing). The same restrictions, input and checks
+ * the server applies on a move; nothing is written.
+ */
+export async function simulateTransitions(
+  tx: Tx,
+  args: { orgId: string; projectId: string; actor: AuthContext; item: WorkItem; definition?: WorkflowDefinition },
+): Promise<{ status: string; inWorkflow: boolean; transitions: SimulatedTransition[] }> {
+  const governing = workflowResolver(tx, args.orgId, args.projectId);
+  const live = await governing(args.item.workItemTypeId);
+  const wf: GoverningWorkflow = args.definition
+    ? { compiled: compileWorkflow(args.definition), workflowId: null, versionId: null, shadow: false, categories: live.categories }
+    : live;
+  const def = wf.compiled.definition;
+  const assigneeIds = (
+    await tx.workItemAssignee.findMany({ where: { workItemId: args.item.id }, orderBy: { sortOrder: "asc" }, select: { userId: true } })
+  ).map((a) => a.userId);
+  const ctx: ConditionContext = {
+    actor: await conditionActor(tx, args.actor, args.projectId, usesKind(def, ["actorProjectRole", "actorInTeam"])),
+    item: conditionItem(args.item, assigneeIds),
+    ...(usesKind(def, ["previousStatus", "actorIsNot"]) && { history: await conditionHistory(tx, args.item.id) }),
+  };
+  const settings = await governing.settings();
+  const out: SimulatedTransition[] = [];
+  for (const t of wf.compiled.from(args.item.columnKey)) {
+    if (t.to === args.item.columnKey) continue;
+    const category = wf.categories.get(t.to) ?? null;
+    const asked = await inputFields(tx, t, category ?? undefined, args.item.workItemTypeId, settings);
+    const input = asked.map((a) => ({ field: a.field, required: a.required, ...(a.label && { label: a.label }), ...(a.options && { options: a.options }) }));
+    const base = { id: t.id, name: t.name, to: t.to, toCategory: category, input };
+    if (t.hidden) {
+      out.push({ ...base, outcome: "hidden", reasons: ["Hidden: only the system and automations take it."] });
+      continue;
+    }
+    if (t.restrict && !restrictionAllows(t.restrict, ctx)) {
+      out.push({ ...base, outcome: "restricted", reasons: ["The actor doesn't meet this transition's restriction."] });
+      continue;
+    }
+    const patch: WorkItemPatch = { columnKey: t.to };
+    const proposed = conditionItem(args.item, assigneeIds, patch);
+    const dest = def.statuses.find((s) => s.key === t.to);
+    const required = (dest?.fieldRules ?? []).filter((r) => r.rule === "required").map((r) => r.field);
+    const validators: ValidatorSpec[] = [...(t.validate ?? []), ...(required.length > 0 ? [{ kind: "fieldsRequired" as const, fields: required }] : [])];
+    // A check on a field the transition asks for is the dialog's job, not a block.
+    const askedKeys = new Set(asked.map((a) => JSON.stringify(a.field)));
+    const failures = validators.length > 0
+      ? runValidators(validators, proposed, await validationFacts(tx, { validators, item: args.item, patch, to: t.to, wf }))
+          .filter((f) => !f.fields?.length || !f.fields.every((field) => askedKeys.has(JSON.stringify(field))))
+      : [];
+    if (failures.length > 0) {
+      out.push({ ...base, outcome: "blocked", reasons: failures.map((f) => f.message) });
+      continue;
+    }
+    const missing = asked.filter((a) => a.required && isEmpty(fieldOf(proposed, a.field)));
+    out.push(
+      missing.length > 0
+        ? { ...base, outcome: "needs_input", reasons: missing.map((m) => `Asks for ${m.label ?? label(m.field)}.`) }
+        : { ...base, outcome: "available", reasons: [] },
+    );
+  }
+  return { status: args.item.columnKey, inWorkflow: wf.compiled.statusKeys.has(args.item.columnKey), transitions: out };
 }
