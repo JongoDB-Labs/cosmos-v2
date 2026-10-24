@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.452.0",
+    date: "2026-10-23",
+    title: "Shared saved filters",
+    highlights: [
+      {
+        kind: "feature",
+        text: "With the query language on, share a saved filter with a team, a project or the whole organization, add co-editors, star filters into the sidebar, and see when you've changed the filter you loaded. Shared filters never reveal projects or people you can't see.",
+      },
+    ],
+  },
+  {
     version: "2.451.0",
     date: "2026-10-23",
     title: "Cosmos for Teams",

@@ -6,7 +6,8 @@ import { requirePermission } from "@/lib/rbac/check";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { cqlEnabled, withCqlEnabled } from "@/lib/query/flag";
+import { cqlEnabled } from "@/lib/query/flag";
+import { patchCqlSettings } from "@/lib/query/route.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -44,8 +45,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     requirePermission(ctx, Permission.ORG_MANAGE_SETTINGS);
 
     const { enabled } = z.strictObject({ enabled: z.boolean() }).parse(await request.json());
-    const before = cqlEnabled(org.settings);
-    await prisma.organization.update({ where: { id: org.id }, data: { settings: withCqlEnabled(org.settings, enabled) as object } });
+    const before = cqlEnabled({ cql: await patchCqlSettings(org.id, { enabled }) });
     if (before !== enabled) {
       await logAudit({
         orgId: org.id, userId: ctx.userId, action: enabled ? "cql.enabled" : "cql.disabled",
