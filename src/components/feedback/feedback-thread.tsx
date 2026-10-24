@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquare } from "lucide-react";
+import { Lock, MessageSquare, Pin } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
@@ -49,6 +49,38 @@ interface Revision {
 
 const countAll = (list: FeedbackComment[]) =>
   list.reduce((n, c) => n + (c.deleted ? 0 : 1) + c.replies.length, 0);
+
+type Audience = "PUBLIC" | "INTERNAL";
+type ShowFilter = "all" | "public" | "internal";
+const TAB_KEY = "cosmos:feedback-composer-tab";
+
+/** The staff composer's last tab, remembered per browser as a convenience. */
+function readTab(): Audience {
+  try {
+    return window.localStorage.getItem(TAB_KEY) === "INTERNAL" ? "INTERNAL" : "PUBLIC";
+  } catch {
+    return "PUBLIC";
+  }
+}
+function writeTab(tab: Audience) {
+  try {
+    window.localStorage.setItem(TAB_KEY, tab);
+  } catch {
+    /* a convenience only */
+  }
+}
+
+/** The official response first, the rest in order. */
+const pinned = (list: FeedbackComment[]) =>
+  [...list].sort((a, b) => Number(b.kind === "OFFICIAL") - Number(a.kind === "OFFICIAL"));
+
+function keep(list: FeedbackComment[], show: ShowFilter): FeedbackComment[] {
+  if (show === "all") return list;
+  const want: Audience = show === "public" ? "PUBLIC" : "INTERNAL";
+  return list
+    .map((c) => ({ ...c, replies: c.replies.filter((r) => r.visibility === want) }))
+    .filter((c) => c.visibility === want || c.replies.length > 0);
+}
 
 /**
  * The discussion on one feedback item ("chat about a given bug fix or feature
@@ -117,14 +149,31 @@ export function FeedbackThread({
   const [replyDraft, setReplyDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [historyFor, setHistoryFor] = useState<string | null>(null);
+  // Staff only: which audience the composer posts to, and which comments show.
+  const [tab, setTab] = useState<Audience>("PUBLIC");
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (isStaff) setTab(readTab());
+  }, [isStaff]);
+  const [asOfficial, setAsOfficial] = useState(false);
+  const [show, setShow] = useState<ShowFilter>("all");
+  const internal = isStaff && tab === "INTERNAL";
 
   const closed = !!item.mergedIntoId || (!!item.lockedAt && !isStaff);
   const canComment = !closed && (can(Permission.COMMENT_CREATE) || !!item.isMine);
 
-  async function send(content: string, parentId?: string) {
+  async function send(content: string, parentId?: string, opts: { visibility?: Audience; official?: boolean } = {}) {
     setBusy(true);
     try {
-      await jsonFetch(base, { method: "POST", body: JSON.stringify({ content, ...(parentId ? { parentId } : {}) }) });
+      await jsonFetch(base, {
+        method: "POST",
+        body: JSON.stringify({
+          content,
+          ...(parentId ? { parentId } : {}),
+          ...(opts.visibility === "INTERNAL" ? { visibility: "INTERNAL" } : {}),
+          ...(opts.official ? { kind: "OFFICIAL" } : {}),
+        }),
+      });
       refresh();
       return true;
     } catch (err) {
@@ -143,6 +192,15 @@ export function FeedbackThread({
     } catch (err) {
       notifyError(err, "Couldn't save the edit.");
       return false;
+    }
+  }
+
+  async function moderate(id: string, change: { visibility: Audience } | { official: boolean }, failure: string) {
+    try {
+      await jsonFetch(`${base}/${id}`, { method: "PATCH", body: JSON.stringify(change) });
+      refresh();
+    } catch (err) {
+      notifyError(err, failure);
     }
   }
 
@@ -190,18 +248,61 @@ export function FeedbackThread({
         onSave={(content) => save(c.id, content)}
         onDelete={() => void remove(c.id)}
         highlighted={highlight === c.id}
+        badge={
+          c.kind === "OFFICIAL" ? (
+            <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
+              <Pin className="h-2.5 w-2.5" aria-hidden />
+              Official response
+            </span>
+          ) : c.visibility === "INTERNAL" ? (
+            <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+              <Lock className="h-2.5 w-2.5" aria-hidden />
+              Internal
+            </span>
+          ) : undefined
+        }
         actions={
-          !isReply && canComment ? (
-            <button
-              type="button"
-              className="mt-1 text-[11px] text-muted-foreground hover:text-foreground"
-              onClick={() => {
-                setReplyTo(replyTo === c.id ? null : c.id);
-                setReplyDraft("");
-              }}
-            >
-              Reply
-            </button>
+          (!isReply && canComment) || isStaff ? (
+            <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+              {!isReply && canComment && (
+                <button
+                  type="button"
+                  className="hover:text-foreground"
+                  onClick={() => {
+                    setReplyTo(replyTo === c.id ? null : c.id);
+                    setReplyDraft("");
+                  }}
+                >
+                  Reply
+                </button>
+              )}
+              {isStaff && !isReply && c.visibility === "PUBLIC" && (
+                <button
+                  type="button"
+                  className="hover:text-foreground"
+                  onClick={() =>
+                    void moderate(c.id, { official: c.kind !== "OFFICIAL" }, "Couldn't change the official response.")
+                  }
+                >
+                  {c.kind === "OFFICIAL" ? "Unpin official response" : "Mark as official response"}
+                </button>
+              )}
+              {isStaff && c.kind !== "OFFICIAL" && (
+                <button
+                  type="button"
+                  className="hover:text-foreground"
+                  onClick={() =>
+                    void moderate(
+                      c.id,
+                      { visibility: c.visibility === "INTERNAL" ? "PUBLIC" : "INTERNAL" },
+                      "Couldn't change who can see this comment.",
+                    )
+                  }
+                >
+                  {c.visibility === "INTERNAL" ? "Make public" : "Make internal"}
+                </button>
+              )}
+            </div>
           ) : null
         }
       >
@@ -231,33 +332,88 @@ export function FeedbackThread({
 
   return (
     <section aria-label="Discussion" className="space-y-3 border-t pt-3">
-      <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-        <MessageSquare className="h-3.5 w-3.5" />
-        Discussion{comments.length > 0 ? ` (${countAll(comments)})` : ""}
-      </h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <MessageSquare className="h-3.5 w-3.5" />
+          Discussion{comments.length > 0 ? ` (${countAll(comments)})` : ""}
+        </h3>
+        {isStaff && (
+          <div role="group" aria-label="Show comments" className="flex gap-1 text-[11px]">
+            {(["all", "public", "internal"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                aria-pressed={show === f}
+                className={`rounded px-1.5 ${show === f ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => setShow(f)}
+              >
+                {f === "all" ? "All" : f === "public" ? "Public" : "Internal"}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       {isLoading ? (
         <p className="text-xs text-muted-foreground">Loading…</p>
       ) : comments.length === 0 ? (
         <p className="text-xs text-muted-foreground">No comments yet. Ask a question or add context.</p>
       ) : (
-        <div className="space-y-3">{comments.map((c) => render(c, false))}</div>
+        <div className="space-y-3">{pinned(keep(comments, show)).map((c) => render(c, false))}</div>
       )}
       {canComment ? (
-        <CommentComposer
-          orgId={orgId}
-          value={draft}
-          resetKey={draftKey}
-          onChange={setDraft}
-          onSubmit={async () => {
-            if (await send(draft.trim())) {
-              setDraft("");
-              setDraftKey((k) => k + 1);
-            }
-          }}
-          mentionLabels={mentionLabels}
-          disabled={busy}
-          submitLabel="Post comment"
-        />
+        <div className={internal ? "space-y-2 rounded-lg bg-amber-500/10 p-2" : "space-y-2"}>
+          {isStaff && (
+            <div className="flex flex-wrap items-center gap-3">
+              <div role="tablist" aria-label="Post as" className="flex gap-1 text-xs">
+                {(["PUBLIC", "INTERNAL"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === t}
+                    className={`rounded-md px-2 py-0.5 ${tab === t ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                    onClick={() => {
+                      setTab(t);
+                      writeTab(t);
+                    }}
+                  >
+                    {t === "PUBLIC" ? "Comment" : "Internal note"}
+                  </button>
+                ))}
+              </div>
+              {internal ? (
+                <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400">
+                  <Lock className="h-3 w-3" aria-hidden />
+                  Only the feedback team will see this
+                </span>
+              ) : (
+                <label className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <input type="checkbox" checked={asOfficial} onChange={(e) => setAsOfficial(e.target.checked)} />
+                  Post as the official response
+                </label>
+              )}
+            </div>
+          )}
+          <CommentComposer
+            orgId={orgId}
+            value={draft}
+            resetKey={draftKey}
+            onChange={setDraft}
+            onSubmit={async () => {
+              const opts = internal ? { visibility: "INTERNAL" as const } : { official: isStaff && asOfficial };
+              if (await send(draft.trim(), undefined, opts)) {
+                setDraft("");
+                setDraftKey((k) => k + 1);
+                setAsOfficial(false);
+              }
+            }}
+            mentionLabels={mentionLabels}
+            disabled={busy}
+            placeholder={internal ? "Write an internal note… (@ to mention)" : undefined}
+            ariaLabel={internal ? "Internal note" : "Comment"}
+            submitLabel={internal ? "Post internal note" : "Post comment"}
+          />
+        </div>
       ) : item.mergedIntoId ? (
         <p className="text-xs text-muted-foreground">This request was merged; the discussion continues there.</p>
       ) : item.lockedAt ? (

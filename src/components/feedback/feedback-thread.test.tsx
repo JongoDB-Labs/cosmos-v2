@@ -165,4 +165,91 @@ describe("FeedbackThread", () => {
     await waitFor(() => expect(document.getElementById("c-c9")?.className).toContain("ring-amber"));
     expect(document.getElementById("c-c1")?.className).not.toContain("ring-amber");
   });
+
+  describe("team voice", () => {
+    const posted = () =>
+      h.jsonFetch.mock.calls
+        .filter(([u, init]) => u === BASE && init?.method === "POST")
+        .map(([, init]) => JSON.parse(String(init.body)));
+    const patched = () =>
+      h.jsonFetch.mock.calls
+        .filter(([, init]) => init?.method === "PATCH")
+        .map(([u, init]) => [u, JSON.parse(String(init.body))]);
+    beforeEach(() => {
+      try {
+        window.localStorage.removeItem("cosmos:feedback-composer-tab");
+      } catch {
+        /* jsdom */
+      }
+    });
+
+    it("lets staff post an internal note, says who will see it, and remembers the tab", async () => {
+      thread = [];
+      renderThread();
+      fireEvent.click(await screen.findByRole("tab", { name: "Internal note" }));
+      expect(screen.getByText("Only the feedback team will see this")).toBeInTheDocument();
+      fireEvent.change(screen.getByLabelText("Internal note"), { target: { value: "Check with eng" } });
+      fireEvent.click(screen.getByRole("button", { name: "Post internal note" }));
+      await waitFor(() => expect(posted()).toEqual([{ content: "Check with eng", visibility: "INTERNAL" }]));
+
+      cleanup();
+      renderThread();
+      expect(await screen.findByRole("tab", { name: "Internal note" })).toHaveAttribute("aria-selected", "true");
+    });
+
+    it("lets staff post the official response", async () => {
+      thread = [];
+      renderThread();
+      fireEvent.click(await screen.findByLabelText("Post as the official response"));
+      fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Planned for Q1" } });
+      fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
+      await waitFor(() => expect(posted()).toEqual([{ content: "Planned for Q1", kind: "OFFICIAL" }]));
+    });
+
+    it("pins the official response first and marks internal notes", async () => {
+      thread = [
+        c({ id: "a", content: "first" }),
+        c({ id: "n", content: "a note", visibility: "INTERNAL" }),
+        c({ id: "o", content: "the answer", kind: "OFFICIAL" }),
+      ];
+      renderThread();
+      await screen.findByText("the answer");
+      const order = [...document.querySelectorAll('[id^="c-"]')].map((e) => e.id);
+      expect(order).toEqual(["c-o", "c-a", "c-n"]);
+      expect(within(document.getElementById("c-o")!).getByText("Official response")).toBeInTheDocument();
+      expect(within(document.getElementById("c-n")!).getByText("Internal")).toBeInTheDocument();
+      expect(within(document.getElementById("c-a")!).queryByText("Internal")).toBeNull();
+    });
+
+    it("lets staff pin a comment, move it between public and internal, and filter", async () => {
+      thread = [c({ id: "a", content: "public one" }), c({ id: "n", content: "a note", visibility: "INTERNAL" })];
+      renderThread();
+      await screen.findByText("public one");
+      fireEvent.click(screen.getAllByRole("button", { name: "Mark as official response" })[0]);
+      fireEvent.click(screen.getAllByRole("button", { name: "Make internal" })[0]);
+      fireEvent.click(screen.getByRole("button", { name: "Make public" }));
+      await waitFor(() =>
+        expect(patched()).toEqual([
+          [`${BASE}/a`, { official: true }],
+          [`${BASE}/a`, { visibility: "INTERNAL" }],
+          [`${BASE}/n`, { visibility: "PUBLIC" }],
+        ]),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Internal" }));
+      expect(screen.queryByText("public one")).toBeNull();
+      expect(screen.getByText("a note")).toBeInTheDocument();
+    });
+
+    it("shows none of it to members", async () => {
+      h.can.mockImplementation((p: bigint) => p !== Permission.ORG_UPDATE);
+      thread = [c({ id: "a", content: "public one" })];
+      renderThread();
+      await screen.findByText("public one");
+      expect(screen.queryByRole("tab", { name: "Internal note" })).toBeNull();
+      expect(screen.queryByLabelText("Post as the official response")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Mark as official response" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Make internal" })).toBeNull();
+      expect(screen.queryByRole("group", { name: "Show comments" })).toBeNull();
+    });
+  });
 });
