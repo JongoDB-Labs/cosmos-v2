@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.478.0",
+    date: "2026-10-24",
+    title: "Subscribe to a saved filter (beta)",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Subscribe to a saved filter (beta): get it by email weekdays, daily, weekly, monthly or on your own schedule, for yourself or your team. Everyone receives only the items they can open, and one click unsubscribes.",
+      },
+    ],
+  },
+  {
     version: "2.477.0",
     date: "2026-10-24",
     title: "Automation rules (API)",
