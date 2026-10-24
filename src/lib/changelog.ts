@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.464.1",
+    date: "2026-10-24",
+    title: "Dependency updates",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Routine updates to 46 libraries the app is built on, including the text editor, the dialog and menu components, and the AI client. No visible change is expected.",
+      },
+    ],
+  },
+  {
     version: "2.464.0",
     date: "2026-10-24",
     title: "Workflow transitions",
