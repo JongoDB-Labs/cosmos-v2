@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.455.0",
+    date: "2026-10-24",
+    title: "CUI markings on feedback comments",
+    highlights: [
+      {
+        kind: "feature",
+        text: "For government organizations, staff can mark a feedback comment CUI. Marked comments stay internal unless the organization is cleared for them, and lowering the clearance hides them again automatically.",
+      },
+    ],
+  },
+  {
     version: "2.454.0",
     date: "2026-10-24",
     title: "More of the API on contracts",
