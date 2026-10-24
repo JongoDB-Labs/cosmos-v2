@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.475.1",
+    date: "2026-10-24",
+    title: "Team-limited projects block outside writes",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security: on a project limited to its team, people outside the team can no longer create, change or delete anything in it. Before, they couldn't see the project's work but could still write to it.",
+      },
+    ],
+  },
+  {
     version: "2.475.0",
     date: "2026-10-24",
     title: "Work-item writes in the API reference",

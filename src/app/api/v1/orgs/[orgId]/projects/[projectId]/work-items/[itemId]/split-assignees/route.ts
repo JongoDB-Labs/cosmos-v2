@@ -11,6 +11,7 @@ import { allocateTicketNumber } from "@/lib/work-items/allocate";
 import { copyFields } from "@/lib/work-items/copy-fields";
 import { planSplit } from "@/lib/work-items/split-assignees";
 import { createWorkItemRow, updateWorkItems } from "@/lib/work-items/write.server";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; itemId: string }>;
@@ -34,6 +35,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    await requireProjectVisible(ctx, projectId);
 
     const source = await prisma.workItem.findFirst({
       where: { id: itemId, orgId, projectId },

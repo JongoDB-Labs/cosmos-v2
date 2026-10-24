@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { assertAssigneesInOrg } from "@/lib/work-items/apply-change.server";
 import { requireAccess } from "@/lib/abac/require-access";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -105,6 +105,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, createWorkItem);
     const { params: { orgId, projectId }, body: data } = await parseRequest(createWorkItem, request, params);
+    await requireProjectVisible(ctx, projectId);
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return problem(404, "not_found", undefined, { request });

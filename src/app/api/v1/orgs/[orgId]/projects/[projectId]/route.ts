@@ -3,7 +3,7 @@ import { withStatusCategories } from "@/lib/workflow/column-categories.server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { inKeyProjectScope, requirePermission } from "@/lib/rbac/check";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
 import { noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
@@ -167,6 +167,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return problem(401, "unauthorized", undefined, { request });
+    await requireProjectVisible(ctx, projectId);
     requirePermission(ctx, Permission.PROJECT_DELETE);
     // A project-scoped key can't delete a project outside its scope.
     if (!inKeyProjectScope(ctx, projectId)) return problem(403, "forbidden", "Access denied by policy", { request });
