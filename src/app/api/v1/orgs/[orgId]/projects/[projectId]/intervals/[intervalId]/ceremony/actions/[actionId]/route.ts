@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { assignableMembersWhere } from "@/lib/work-items/apply-change.server";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { z } from "zod";
 import {
@@ -62,6 +63,17 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
 
     const data = patchSchema.parse(await request.json());
+    // Same rule as creating one: an owner must be a member of this org (the
+    // owner becomes the assignee when the action is promoted to a work item).
+    if (data.ownerId) {
+      const member = await prisma.orgMember.findFirst({ where: assignableMembersWhere(orgId, [data.ownerId]), select: { id: true } });
+      if (!member) {
+        return new Response(
+          JSON.stringify({ error: "That owner is not a member of this organization" }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        );
+      }
+    }
     const updated = await prisma.retroActionItem.update({
       where: { id: action.id },
       data: {

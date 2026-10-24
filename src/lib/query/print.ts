@@ -9,7 +9,7 @@
  * `labelFor` can also redact: a viewer who cannot see a ref gets `‹restricted›`
  * (saved filters shared beyond their owner, query phase 3).
  */
-import type { CqlNode, CqlQuery, CqlSort, CqlValue, FieldRef, HistoryPreds } from "./ast";
+import type { CqlNode, CqlQuery, CqlSort, CqlValue, FieldRef, HistoryPreds, PredValue } from "./ast";
 import { cqlLexer, Identifier, KEYWORDS } from "./lexer";
 
 export type LabelFor = (v: Extract<CqlValue, { t: "ref" }>) => string | undefined;
@@ -74,9 +74,10 @@ function printList(values: CqlValue[], labelFor?: LabelFor): string {
 function printPreds(p: HistoryPreds | undefined, labelFor?: LabelFor): string {
   if (!p) return "";
   const parts: string[] = [];
-  if (p.from) parts.push(`FROM ${printValue(p.from, labelFor)}`);
-  if (p.to) parts.push(`TO ${printValue(p.to, labelFor)}`);
-  if (p.by) parts.push(`BY ${printValue(p.by, labelFor)}`);
+  const one = (v: PredValue) => (Array.isArray(v) ? (v.length === 1 ? printValue(v[0], labelFor) : printList(v, labelFor)) : printValue(v, labelFor));
+  if (p.from) parts.push(`FROM ${one(p.from)}`);
+  if (p.to) parts.push(`TO ${one(p.to)}`);
+  if (p.by) parts.push(`BY ${one(p.by)}`);
   if (p.after) parts.push(`AFTER ${printValue(p.after, labelFor)}`);
   if (p.before) parts.push(`BEFORE ${printValue(p.before, labelFor)}`);
   if (p.on) parts.push(`ON ${printValue(p.on, labelFor)}`);

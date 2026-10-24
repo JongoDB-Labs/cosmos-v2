@@ -8,6 +8,8 @@ import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { ColumnCategory } from "@prisma/client";
+import { ConflictError } from "@/lib/rbac/check";
+import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { boardShowsStatuses, ensureStatuses, renameStatusIfUnshared } from "@/lib/workflow/statuses.server";
 
 const columnSchema = z.object({
@@ -61,12 +63,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       // every column must name one. A key edited on an existing column renames
       // its status when no other board still shows the old key, so the items
       // follow instead of being left on a key nothing shows; then each column's
-      // status is made sure of, and a category set here is the status's
-      // category (the column keeps a mirror of it). Deleting a column only
-      // removes the view: its status and items stay. Ceremony boards are
-      // prompts, not statuses, and are left out of all of this.
-      // The keys of the columns this save changes: new, re-keyed, or given a
-      // new category.
+      // status is made sure of. Deleting a column only removes the view: its
+      // status and items stay. Ceremony boards are prompts, not statuses, and
+      // are left out of all of this.
+      //
+      // A column's category is its status's (design §6.4): it is set on the
+      // status, in Settings → Workflows. Here it only names the category of a
+      // status the column creates, or brings back from the archive.
+      // The keys of the columns that start showing a status in this save.
       const touchedKeys: string[] = [];
       if (board && boardShowsStatuses(board.type)) {
         for (const col of columns) {
@@ -75,29 +79,38 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             await renameStatusIfUnshared(tx, { projectId, from: before.key, to: col.key, columnId: before.id });
           }
         }
+        const known = new Map(
+          (
+            await tx.workflowStatus.findMany({
+              where: { projectId, key: { in: columns.map((c) => c.key) } },
+              select: { key: true, category: true, archivedAt: true },
+            })
+          ).map((st) => [st.key, st]),
+        );
+        for (const c of columns) {
+          const status = known.get(c.key);
+          const before = existingColumns.find((e) => e.id === c.id);
+          // Sent back as it was (even where a conflicted board's lane disagrees
+          // with its status) is fine; a new category is the workflow editor's.
+          if (status && !status.archivedAt && c.category && c.category !== status.category && c.category !== before?.category) {
+            throw new ConflictError(`A column's category is its status's: change "${c.key}" in Settings → Workflows.`);
+          }
+        }
+        // A new status in a project on a custom workflow is a workflow change.
+        if (columns.some((c) => !known.has(c.key)) && (await tx.workflowAssignment.count({ where: { projectId } })) > 0) {
+          await requireProjectManage(ctx, projectId, Permission.WORKFLOW_MANAGE);
+        }
         await ensureStatuses(
           tx,
           { orgId, projectId },
           columns.map((c) => {
             const before = existingColumns.find((e) => e.id === c.id);
             // A save sends every column. Only a column that starts showing a
-            // status here (new, or re-keyed) may restore it from the archive;
-            // only a category this request changes is written, so a column
-            // sent back as it was, or without a category, leaves its status
-            // alone.
+            // status here (new, or re-keyed) may restore it from the archive.
             const shows = !before || before.key !== c.key;
-            const categoryChanged = c.category !== undefined && (shows || c.category !== before?.category);
-            if (shows || categoryChanged) touchedKeys.push(c.key);
-            return {
-              key: c.key,
-              name: c.name,
-              color: c.color,
-              category: categoryChanged ? c.category : undefined,
-              sortOrder: c.sortOrder,
-              restore: shows,
-            };
+            if (shows) touchedKeys.push(c.key);
+            return { key: c.key, name: c.name, color: c.color, category: c.category, sortOrder: c.sortOrder, restore: shows };
           }),
-          { writeCategory: true },
         );
       }
 
@@ -118,7 +131,6 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
               color: col.color ?? undefined,
               wipLimit: col.wipLimit ?? null,
               sortOrder: col.sortOrder,
-              category: col.category,
             },
           });
         } else {
@@ -137,8 +149,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
 
       // Each column mirrors its status's category (deprecated, kept in step for
-      // the readers not yet moved to statuses), but only for the columns this
-      // save changes. A column sent back as it was keeps its category even
+      // the readers not yet moved to statuses), but only for the columns that
+      // start showing a status here. A column sent back as it was keeps its category even
       // where it disagrees with the status: those are the boards the backfill
       // recorded as conflicting (workflow.backfill_conflict), and an unrelated
       // reorder must not quietly change what "done" means on them.

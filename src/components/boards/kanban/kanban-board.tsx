@@ -1269,6 +1269,7 @@ function KanbanBoardInner({
                       column={col}
                       archived={liveStatusKeys !== null && !liveStatusKeys.has(col.key)}
                       droppableId={`${lane.id}${LANE_SEP}${col.key}`}
+                      headingLevel={3}
                       items={itemsForColumnInLane(col.key, lane.items)}
                       members={members}
                       onCardClick={handleCardClick}

@@ -49,6 +49,116 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.468.0",
+    date: "2026-10-24",
+    title: "Query language: history, hierarchy and richer sorting",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Query language (beta): search history with WAS and CHANGED (for example: status CHANGED FROM Review TO \"In Progress\" AFTER -14d), filter by everything under an epic (ancestor = ACME-1), by milestone, and by empty or matching custom fields, and sort by assignee, status, project or a custom field.",
+      },
+    ],
+  },
+  {
+    version: "2.467.0",
+    date: "2026-10-24",
+    title: "Edit a client after it is created",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A client's name, legal name, contact details, website, notes and active status can now be corrected after the client is created. Anyone with permission to update CRM records can make the change, and it is recorded in the audit log.",
+      },
+    ],
+  },
+  {
+    version: "2.466.0",
+    date: "2026-10-24",
+    title: "Reinstall a rebuilt release from Admin \u203a Updates",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When the image for the version you already run has been rebuilt (for example a plugin-only release), Admin \u203a Updates now says so and offers Reinstall, with the same safety checks as an upgrade. Before, such a release stayed invisible until the next core version.",
+      },
+    ],
+  },
+  {
+    version: "2.465.1",
+    date: "2026-10-24",
+    title: "Plugin versions recorded with each release",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Each release now records the exact released version of every bundled plugin alongside its pinned commit, so it is clear which plugin versions a Cosmos release contains.",
+      },
+    ],
+  },
+  {
+    version: "2.465.0",
+    date: "2026-10-24",
+    title: "Workflows you can design per project",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each project can now have its own workflows: choose which moves are allowed, who may make them, what a move asks for, what it checks and what it does (Project settings \u2192 Workflows). Workflows are edited as drafts with a live diagram and a simulator, published as versions you can restore, and can be saved as organization templates. When a new version drops a status, Cosmos asks where its items go and moves them in the background. A full column with a hard WIP limit now refuses moves from anywhere: the detail panel, bulk edits, the API and the assistant.",
+      },
+    ],
+  },
+  {
+    version: "2.464.6",
+    date: "2026-10-24",
+    title: "Clearer structure for screen readers",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The notification badge is easier to read in both themes. Settings pages and project boards use heading levels in order, and the navigation areas have names, so screen-reader users can move around the app more easily.",
+      },
+    ],
+  },
+  {
+    version: "2.464.5",
+    date: "2026-10-24",
+    title: "Security: assignees must be in your organization",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Work items can no longer be assigned to people outside their organization, or to people who have left it or been deactivated. Assigning an unknown person now gives a clear error instead of a server error.",
+      },
+    ],
+  },
+  {
+    version: "2.464.4",
+    date: "2026-10-24",
+    title: "Updates reach the deployed app again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The build that produces the deployed app was failing after the new status model landed. It builds again, so the releases since 2.455.0 can now be installed from Admin > Updates.",
+      },
+    ],
+  },
+  {
+    version: "2.464.3",
+    date: "2026-10-24",
+    title: "Internal: faster type checking",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal: type checking uses about 0.6 GB less memory and runs about 15 seconds faster. No visible change.",
+      },
+    ],
+  },
+  {
+    version: "2.464.2",
+    date: "2026-10-24",
+    title: "Easier to use with a keyboard and screen reader",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On the Outlook invitations panel and the Outlook disconnect choice, keyboard focus now lands on the right place after each step instead of jumping to the top of the page. Alerts there, and the text of pop-up notices everywhere, now meet contrast standards in light and dark themes. The Teams sign-in tab has proper page structure for screen readers.",
+      },
+    ],
+  },
+  {
     version: "2.464.1",
     date: "2026-10-24",
     title: "Dependency updates",

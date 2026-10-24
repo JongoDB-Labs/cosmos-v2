@@ -32,6 +32,7 @@ import { seedBoardColumns } from "../provision.server";
 import { listTransitionsForItem, transitionItem } from "@/lib/ai/executors/work-items";
 import { stubToolCtx } from "@/lib/testing/tool-auth";
 import { applyWorkItemChange } from "@/lib/work-items/apply-change.server";
+import { mergeWorkItems } from "@/lib/work-items/merge.server";
 
 let orgId = "";
 let aliceId = "";
@@ -184,15 +185,80 @@ describe("the open workflow", () => {
     }
   });
 
-  it("holds a board's hard WIP limit when the move comes from that board", async () => {
+  it("holds a board's hard WIP limit from every surface, not only that board", async () => {
     const w = await world({ boardConfig: { wipHardEnforce: true }, wipLimit: 1 });
     await item(w.projectId, { columnKey: "doing" });
     const b = await item(w.projectId);
-    const refused = await put(w.projectId, b, { columnKey: "doing", boardId: w.boardId });
-    expect(refused.status).toBe(422);
-    expect(refused.body).toMatchObject({ code: "transition_invalid", reasons: [{ validator: "wipLimit" }] });
-    // Not from that board (the detail sheet, the API): the board's limit is the board's.
-    expect((await put(w.projectId, b, { columnKey: "doing" })).status).toBe(200);
+    for (const body of [{ columnKey: "doing", boardId: w.boardId }, { columnKey: "doing" }]) {
+      const refused = await put(w.projectId, b, body);
+      expect(refused.status).toBe(422);
+      // Named as the board names it, with the board: the move may not have come from it.
+      expect(refused.body).toMatchObject({
+        code: "transition_invalid",
+        reasons: [{ validator: "wipLimit", message: '"Doing" on Board is at its WIP limit (1) — move blocked.' }],
+      });
+    }
+    expect(await columnOf(b)).toBe("todo");
+  });
+
+  it("holds a team board's limit only for that team's items", async () => {
+    const w = await world();
+    const team = await prisma.team.create({ data: { orgId, projectId: w.projectId, name: "Platform" } });
+    await prisma.board.update({ where: { id: w.boardId }, data: { teamId: team.id, config: { wipHardEnforce: true } } });
+    await prisma.boardColumn.updateMany({ where: { boardId: w.boardId, key: "doing" }, data: { wipLimit: 1 } });
+    await item(w.projectId, { columnKey: "doing", teamId: team.id });
+    const theirs = await item(w.projectId, { teamId: team.id });
+    const nobodys = await item(w.projectId);
+    expect((await put(w.projectId, theirs, { columnKey: "doing" })).status).toBe(422);
+    expect((await put(w.projectId, nobodys, { columnKey: "doing" })).status).toBe(200);
+  });
+
+  it("admits a bulk move only up to the places left, and refuses the rest", async () => {
+    const w = await world({ boardConfig: { wipHardEnforce: true }, wipLimit: 3 });
+    await item(w.projectId, { columnKey: "doing" });
+    await item(w.projectId, { columnKey: "doing" });
+    const ids = await Promise.all(Array.from({ length: 10 }, () => item(w.projectId)));
+    const res = await bulkPut(
+      new NextRequest("http://localhost/x", { method: "PUT", body: JSON.stringify({ ids, update: { columnKey: "doing" } }) }),
+      { params: Promise.resolve({ orgId, projectId: w.projectId }) },
+    );
+    const body = await res.json();
+    // In the order given: the first takes the one place left, each of the rest is refused for the limit.
+    expect(body.updated).toBe(1);
+    expect(body.denied).toHaveLength(9);
+    expect(new Set(body.denied.map((d: { code: string }) => d.code))).toEqual(new Set(["transition_invalid"]));
+    expect(await prisma.workItem.count({ where: { projectId: w.projectId, columnKey: "doing" } })).toBe(3);
+    expect(await columnOf(ids[0])).toBe("doing");
+  });
+
+  it("holds a team board's limit when only the team changes, or an action sets it", async () => {
+    const w = await world();
+    const team = await prisma.team.create({ data: { orgId, projectId: w.projectId, name: "Platform" } });
+    await prisma.board.update({ where: { id: w.boardId }, data: { teamId: team.id, config: { wipHardEnforce: true } } });
+    await prisma.boardColumn.updateMany({ where: { boardId: w.boardId, key: "doing" }, data: { wipLimit: 1 } });
+    await item(w.projectId, { columnKey: "doing", teamId: team.id });
+
+    // Already in Doing, off the team: joining the team would put it on that full board.
+    const joining = await item(w.projectId, { columnKey: "doing" });
+    const r = await put(w.projectId, joining, { teamId: team.id });
+    expect(r.status).toBe(422);
+    expect(r.body).toMatchObject({ code: "transition_invalid", reasons: [{ validator: "wipLimit" }] });
+    expect((await prisma.workItem.findUniqueOrThrow({ where: { id: joining } })).teamId).toBeNull();
+
+    // A transition whose action sets the team: the team it ends up in is the one counted.
+    await customWorkflow(w.projectId, {
+      ...GOVERNED,
+      transitions: [{
+        id: "pick-up", name: "Pick up", from: ["todo"], to: "doing",
+        validate: [{ kind: "wipLimit", scope: "board", hard: true }],
+        actions: [{ kind: "setField", field: { system: "teamId" }, value: { literal: team.id } }],
+      }],
+    });
+    const picked = await item(w.projectId);
+    const moved = await put(w.projectId, picked, { columnKey: "doing" });
+    expect(moved.status).toBe(422);
+    expect(moved.body).toMatchObject({ code: "transition_invalid", reasons: [{ validator: "wipLimit" }] });
+    expect(await columnOf(picked)).toBe("todo");
   });
 
   it("does not hold a soft WIP limit", async () => {
@@ -724,5 +790,92 @@ describe("a stored definition that doesn't parse", () => {
     } finally {
       log.mockRestore();
     }
+  });
+});
+
+describe("concurrent moves", () => {
+  /** A change held open until `release` is called, so another can run against it. */
+  function held(projectId: string, itemId: string, patch: Record<string, unknown>) {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let applied!: () => void;
+    const ready = new Promise<void>((r) => (applied = r));
+    const done = prisma.$transaction(async (tx) => {
+      await applyWorkItemChange(tx, { actorId: aliceId, orgId, projectId, itemIds: [itemId], patch, source: "API", actor: calls.ctx as AuthContext });
+      applied();
+      await gate;
+    }, { timeout: 15_000 });
+    return { ready, release, done };
+  }
+  const settledWithin = async (p: Promise<unknown>, ms: number) =>
+    Promise.race([p.then(() => true, () => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))]);
+  const move = (projectId: string, itemId: string, columnKey: string) =>
+    prisma.$transaction((tx) =>
+      applyWorkItemChange(tx, { actorId: aliceId, orgId, projectId, itemIds: [itemId], patch: { columnKey }, source: "API", actor: calls.ctx as AuthContext }),
+    );
+
+  it("take turns into a hard-WIP column, so two can't both fill its last place", async () => {
+    const w = await world({ boardConfig: { wipHardEnforce: true }, wipLimit: 1 });
+    const a = await item(w.projectId);
+    const b = await item(w.projectId);
+    const first = held(w.projectId, a, { columnKey: "doing" });
+    await first.ready;
+    const second = move(w.projectId, b, "doing");
+    expect(await settledWithin(second, 400)).toBe(false);
+    first.release();
+    await first.done;
+    await expect(second).rejects.toMatchObject({ body: { code: "transition_invalid" } });
+    expect([await columnOf(a), await columnOf(b)]).toEqual(["doing", "todo"]);
+  });
+
+  it("two bulk moves of the same items in opposite orders both finish, without a deadlock", async () => {
+    const w = await world({ boardConfig: { wipHardEnforce: true }, wipLimit: 50 });
+    const p1 = await item(w.projectId);
+    const p2 = await item(w.projectId);
+    const ids = [await item(w.projectId, { parentId: p1 }), await item(w.projectId, { parentId: p2 }), await item(w.projectId), await item(w.projectId)];
+    const bulk = (itemIds: string[], columnKey: string) =>
+      prisma.$transaction((tx) =>
+        applyWorkItemChange(tx, { actorId: aliceId, orgId, projectId: w.projectId, itemIds, patch: { columnKey }, source: "BULK", actor: calls.ctx as AuthContext }),
+      );
+    for (let round = 0; round < 8; round++) {
+      const to = round % 2 === 0 ? "doing" : "todo";
+      const results = await Promise.allSettled([bulk(ids, to), bulk([...ids].reverse(), to), bulk([ids[1], ids[3], ids[0], ids[2]], to)]);
+      expect(results.filter((r) => r.status === "rejected").map((r) => String((r as PromiseRejectedResult).reason))).toEqual([]);
+    }
+    expect(new Set(await Promise.all(ids.map(columnOf)))).toEqual(new Set(["todo"]));
+  });
+
+  it("a merge and a bulk move of the same two items, in the other order, both finish", async () => {
+    const w = await world({ boardConfig: { wipHardEnforce: true }, wipLimit: 50 });
+    for (let round = 0; round < 6; round++) {
+      // The duplicate sorts first, so a bulk move locks it before the survivor,
+      // while the merge writes the survivor (its description) before the duplicate.
+      const pair = [await item(w.projectId, { description: "from the duplicate" }), await item(w.projectId)].sort();
+      const [dup, survivor] = pair;
+      await prisma.workItem.update({ where: { id: survivor }, data: { description: "" } });
+      await prisma.workItem.update({ where: { id: dup }, data: { description: "from the duplicate" } });
+      const results = await Promise.allSettled([
+        prisma.$transaction((tx) => mergeWorkItems(tx, { orgId, projectId: w.projectId, duplicateId: dup, survivorId: survivor, userId: aliceId })),
+        prisma.$transaction((tx) =>
+          applyWorkItemChange(tx, { actorId: aliceId, orgId, projectId: w.projectId, itemIds: [dup, survivor], patch: { columnKey: "doing" }, source: "BULK", actor: calls.ctx as AuthContext }),
+        ),
+      ]);
+      expect(results.filter((r) => r.status === "rejected").map((r) => String((r as PromiseRejectedResult).reason)), `round ${round}`).toEqual([]);
+      expect((await prisma.workItem.findUniqueOrThrow({ where: { id: dup } })).mergedIntoId).toBe(survivor);
+    }
+  });
+
+  it("finishing a parent waits for a sub-item being reopened, and then sees it open", async () => {
+    const w = await world();
+    const parent = await item(w.projectId);
+    const child = await item(w.projectId, { parentId: parent, columnKey: "done" });
+    const reopen = held(w.projectId, child, { columnKey: "todo" });
+    await reopen.ready;
+    const finish = move(w.projectId, parent, "done");
+    expect(await settledWithin(finish, 400)).toBe(false);
+    reopen.release();
+    await reopen.done;
+    await expect(finish).rejects.toMatchObject({ body: { code: "transition_invalid" } });
+    expect(await columnOf(parent)).toBe("todo");
   });
 });

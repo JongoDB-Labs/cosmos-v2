@@ -324,8 +324,7 @@ function AdvancedMode({
   );
 }
 
-// Every example is checked to parse and typecheck (query-builder.test). History
-// (WAS / CHANGED) joins with query phase 4, with its "recorded since" caveat.
+// Every example is checked to parse and typecheck (query-builder.test).
 const EXAMPLES: { q: string; says: string }[] = [
   { q: "assignee = me AND statusCategory != DONE ORDER BY priority, due", says: "My open work, most urgent first" },
   { q: "priority IN (HIGH, CRITICAL) AND due < now()", says: "Urgent and overdue" },
@@ -333,6 +332,10 @@ const EXAMPLES: { q: string; says: string }[] = [
   { q: "assignee IN membersOf(\"Platform\") AND updated >= -3wd", says: "The Platform team's work touched in the last 3 working days" },
   { q: 'text ~ "login" AND type = Bug', says: "Bugs that mention login (title, description or comments)" },
   { q: "labels IN ALL (auth, security)", says: "Has both labels" },
+  { q: 'status CHANGED FROM Review TO "In Progress" AFTER -14d', says: "Sent back from review in the last two weeks" },
+  { q: "status WAS Done AND statusCategory != DONE", says: "Reopened after being done" },
+  { q: "assignee WAS me AND assignee != me", says: "Handed off by me (or to someone else)" },
+  { q: "priority CHANGED BY me DURING (startOfWeek(), now())", says: "Priorities I changed this week" },
 ];
 
 function SyntaxHelp({ onPick }: { onPick: (q: string) => void }) {
@@ -343,6 +346,12 @@ function SyntaxHelp({ onPick }: { onPick: (q: string) => void }) {
         Operators: <code>= != &lt; &lt;= &gt; &gt;= IN NOT IN ~ !~ IS EMPTY</code>. Dates: <code>2026-01-31</code>,{" "}
         <code>-7d</code>, <code>-3wd</code> (working days), <code>startOfWeek()</code>. <code>me</code> is you. Ctrl+Space
         suggests what fits.
+      </p>
+      <p className="mb-2 text-[var(--text-muted)]">
+        History: <code>WAS</code>, <code>WAS NOT</code>, <code>WAS IN</code> and <code>CHANGED</code>, with{" "}
+        <code>FROM</code> / <code>TO</code> / <code>BY</code> / <code>AFTER</code> / <code>BEFORE</code> / <code>ON</code> /{" "}
+        <code>DURING (a, b)</code>, for status, priority, assignee, sprint, team, type, due, start and completed. It
+        covers changes recorded since history tracking began, and for assignee only the primary assignee.
       </p>
       <ul className="space-y-1">
         {EXAMPLES.map((e) => (
