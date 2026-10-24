@@ -38,6 +38,11 @@ vi.mock("@/lib/db/client", () => ({
 
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { isProjectVisible } from "@/lib/rbac/project-access";
+import { canManageProject, getManagedProjectIds } from "@/lib/rbac/scope";
+import { canManageBoardsInProject, canWriteInProject } from "@/lib/rbac/project-role";
+import { canAdministerProject } from "@/lib/rbac/require-project-manage";
+import { requireAccess } from "@/lib/abac/require-access";
+import { inKeyProjectScope } from "@/lib/rbac/check";
 
 const owner = (projectScope?: string[]): AuthContext =>
   ({
@@ -102,5 +107,43 @@ describe("empty vs absent — the distinction that protects existing keys", () =
     // Documents the hazard rather than endorsing it: if `[]` were ever passed
     // through as a ceiling, every pre-existing key would reach nothing at all.
     await expect(getReadableProjectIds(owner([]))).resolves.toEqual([]);
+  });
+});
+
+describe("the write-side gates hold the same ceiling", () => {
+  // An OWNER's key: every one of these says yes to the person, so a "no" here
+  // is the ceiling and nothing else.
+  it("manages, administers, writes and makes boards only inside the ceiling", async () => {
+    for (const [name, gate] of [
+      ["canManageProject", (c: AuthContext, p: string) => canManageProject(c, p)],
+      ["canAdministerProject", (c: AuthContext, p: string) => canAdministerProject(c, p)],
+      ["canWriteInProject", (c: AuthContext, p: string) => canWriteInProject(c, p)],
+      ["canManageBoardsInProject", (c: AuthContext, p: string) => canManageBoardsInProject(c, p)],
+    ] as const) {
+      expect(await gate(owner(["p2"]), "p2"), `${name} inside`).toBe(true);
+      expect(await gate(owner(["p2"]), "p1"), `${name} outside`).toBe(false);
+      expect(await gate(owner(), "p1"), `${name} unscoped`).toBe(true);
+    }
+  });
+
+  it("lists as managed only the projects inside the ceiling", async () => {
+    expect([...(await getManagedProjectIds(owner(["p2"]), ["p1", "p2", "p3"]))]).toEqual(["p2"]);
+    expect([...(await getManagedProjectIds(owner(), ["p1", "p2"]))]).toEqual(["p1", "p2"]);
+  });
+});
+
+describe("an unresolved project fails closed for a scoped key", () => {
+  it("inKeyProjectScope: no project id is outside any ceiling, and inside none", () => {
+    expect(inKeyProjectScope(owner(["p2"]), null)).toBe(false);
+    expect(inKeyProjectScope(owner(["p2"]), "")).toBe(false);
+    expect(inKeyProjectScope(owner(), null)).toBe(true);
+  });
+
+  it("requireAccess refuses a resource whose project couldn't be resolved, for a scoped key only", async () => {
+    await expect(requireAccess(owner(["p2"]), "ITEM_UPDATE", { projectId: null })).rejects.toThrow("Access denied by policy");
+    await expect(requireAccess(owner(["p2"]), "ITEM_UPDATE", { projectId: undefined })).rejects.toThrow("Access denied by policy");
+    await expect(requireAccess(owner(), "ITEM_UPDATE", { projectId: null })).resolves.toBeUndefined();
+    // An action that names no project at all (an org-level one) is not a project route.
+    await expect(requireAccess(owner(["p2"]), "ITEM_UPDATE", { createdById: "u1" })).resolves.toBeUndefined();
   });
 });

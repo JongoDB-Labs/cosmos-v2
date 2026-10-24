@@ -10,7 +10,7 @@
  * filters, subscriptions, the assistant, API keys) goes through here, and an
  * arch test asserts nothing else imports compile.ts.
  */
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { buildScopedWhere } from "@/lib/work-items/query/build-where";
@@ -293,3 +293,55 @@ async function pageOfRows(
 }
 
 const HYDRATE_CHUNK = 5_000;
+
+/**
+ * A query's full scoped where (envelope + predicate) in a form that survives
+ * JSON, for the board's in-memory interpreter (evaluate.ts). Dates become ISO
+ * strings; Prisma's JSON-null sentinels become `{ $null: … }` markers.
+ */
+export async function predicateCql(ctx: AuthContext, input: CqlInput, opts: CqlRunOptions = {}) {
+  const prepared = await prepareCql(ctx, input, opts);
+  const where = buildScopedWhere({
+    orgId: prepared.orgId,
+    allowedProjectIds: prepared.readable,
+    archived: prepared.compiled.archived,
+    user: prepared.compiled.where,
+  });
+  return { where: portableWhere(where), query: prepared.query, cql: prepared.cql, diagnostics: prepared.diagnostics };
+}
+
+export function portableWhere(where: unknown): unknown {
+  const nulls = new Map<unknown, string>([
+    [Prisma.AnyNull, "AnyNull"],
+    [Prisma.DbNull, "DbNull"],
+    [Prisma.JsonNull, "JsonNull"],
+  ]);
+  return JSON.parse(JSON.stringify(where, (_k, v) => (nulls.has(v) ? { $null: nulls.get(v) } : v)));
+}
+
+/** A board's fallback (query design §12.1): ids only, at most this many. */
+export const IDS_ONLY_MAX = 5_000;
+
+/**
+ * Just the ids a query matches, for a board whose rows can't decide the
+ * predicate themselves (comments, watchers, history…). Same scope and budget as
+ * search; past IDS_ONLY_MAX it is refused, never truncated (a truncated id set
+ * would hide cards silently).
+ */
+export async function idsCql(ctx: AuthContext, input: CqlInput, opts: CqlRunOptions = {}): Promise<{ ids: string[] }> {
+  const prepared = await prepareCql(ctx, input, opts);
+  if (prepared.readable.length === 0) return { ids: [] };
+  const where = buildScopedWhere({
+    orgId: prepared.orgId,
+    allowedProjectIds: prepared.readable,
+    archived: prepared.compiled.archived,
+    user: prepared.compiled.where,
+  });
+  const rows = await withStatementTimeout(opts.timeoutMs ?? 3_000, (tx) =>
+    tx.workItem.findMany({ where, select: { id: true }, take: IDS_ONLY_MAX + 1 }),
+  );
+  if (rows.length > IDS_ONLY_MAX) {
+    throw new CqlError([diag("", "CQL_TOO_BROAD", `This query matches more than ${IDS_ONLY_MAX.toLocaleString("en-US")} items. Narrow it with a project or a sprint.`)], 422);
+  }
+  return { ids: rows.map((r) => r.id) };
+}

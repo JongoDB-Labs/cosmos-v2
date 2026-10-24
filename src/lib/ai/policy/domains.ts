@@ -56,6 +56,8 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   // ── work_items ──────────────────────────────────────────────────────────────
   query_work_items: "work_items",
   list_work_items: "work_items",
+  search_work_items: "work_items",
+  describe_cql: "work_items",
   create_work_item: "work_items",
   update_work_item: "work_items",
   delete_work_item: "work_items",

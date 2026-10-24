@@ -49,7 +49,7 @@ export function TeamsAppSetup({ orgId }: { orgId: string }) {
     <SectionCard
       icon={MessagesSquare}
       title="Cosmos for Teams setup"
-      description="Item link cards, Create Cosmos item from a message, and item search, inside Microsoft Teams."
+      description="Item link cards, Create Cosmos item from a message, item search, tabs, notifications and channel updates, inside Microsoft Teams."
     >
       <ol className="list-decimal space-y-2 pl-5 text-sm">
         <li>
@@ -87,6 +87,11 @@ export function TeamsAppSetup({ orgId }: { orgId: string }) {
             for that scope. Tokens from any other app are refused.
           </li>
         )}
+        <li>
+          For notifications in chats and project updates in channels, the bot only talks to Microsoft&apos;s commercial
+          cloud. Government clouds (GCC High, DoD) aren&apos;t supported yet: Cosmos refuses their chats rather than half
+          working.
+        </li>
         <li>{data.installed ? "Cosmos for Teams is installed." : "Install \"Cosmos for Teams\" below."}</li>
         <li>
           Upload the app package in the Teams admin center (Teams apps, Manage apps, Upload new app).

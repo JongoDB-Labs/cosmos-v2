@@ -1,4 +1,4 @@
-import { ForbiddenError, type AuthContext } from "@/lib/rbac/check";
+import { ForbiddenError, inKeyProjectScope, type AuthContext } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
 
@@ -32,6 +32,8 @@ export async function requireProjectManage(
   projectId: string,
   orgWideBit: bigint = Permission.PROJECT_UPDATE,
 ): Promise<void> {
+  // A project-scoped key manages nothing outside its projects, org-wide bit or not.
+  if (!inKeyProjectScope(ctx, projectId)) throw new ForbiddenError("Access denied by policy");
   if (hasPermission(ctx.permissions, orgWideBit)) return;
   if (await canManageProject(ctx, projectId, orgWideBit)) return;
   throw new ForbiddenError(
@@ -49,6 +51,7 @@ export async function canAdministerProject(
   projectId: string,
   orgWideBit: bigint = Permission.PROJECT_UPDATE,
 ): Promise<boolean> {
+  if (!inKeyProjectScope(ctx, projectId)) return false;
   if (hasPermission(ctx.permissions, orgWideBit)) return true;
   return canManageProject(ctx, projectId, orgWideBit);
 }
