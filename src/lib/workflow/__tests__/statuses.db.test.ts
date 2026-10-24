@@ -413,6 +413,25 @@ describe("board column editor", () => {
     expect((await statusesOf(p.id)).find((s) => s.key === "doing")).toMatchObject({ archived: true, category: "IN_PROGRESS" });
   });
 
+  it("keeps a conflicted board's DONE lane DONE through an unrelated reorder", async () => {
+    const p = await project();
+    await board(p.id, "KANBAN");
+    // As the backfill leaves a conflict: the status says IN_PROGRESS (the first
+    // board's), this board's lane says DONE.
+    const scrum = await board(p.id, "SCRUM", [
+      { key: "todo", name: "To Do", category: "TODO" },
+      { key: "doing", name: "Shipped", category: "IN_PROGRESS" },
+    ]);
+    await prisma.boardColumn.updateMany({ where: { boardId: scrum.id, key: "doing" }, data: { category: "DONE" } });
+    const cols = await prisma.boardColumn.findMany({ where: { boardId: scrum.id }, orderBy: { sortOrder: "asc" } });
+    const res = await save(p.id, scrum.id, [...cols].reverse().map((c, i) => ({
+      id: c.id, name: c.name, key: c.key, sortOrder: i, category: c.category,
+    })));
+    expect(res.status).toBe(200);
+    expect((await columnsOf(scrum.id)).find((c) => c.key === "doing")?.category).toBe("DONE");
+    expect((await statusesOf(p.id)).find((s) => s.key === "doing")?.category).toBe("IN_PROGRESS");
+  });
+
   it("leaves an existing status's category alone when a save gives none", async () => {
     const p = await project();
     const kanban = await board(p.id, "KANBAN");

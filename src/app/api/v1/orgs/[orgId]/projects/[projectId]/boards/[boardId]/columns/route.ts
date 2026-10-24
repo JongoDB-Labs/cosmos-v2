@@ -65,6 +65,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       // category (the column keeps a mirror of it). Deleting a column only
       // removes the view: its status and items stay. Ceremony boards are
       // prompts, not statuses, and are left out of all of this.
+      // The keys of the columns this save changes: new, re-keyed, or given a
+      // new category.
+      const touchedKeys: string[] = [];
       if (board && boardShowsStatuses(board.type)) {
         for (const col of columns) {
           const before = existingColumns.find((c) => c.id === col.id);
@@ -84,6 +87,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             // alone.
             const shows = !before || before.key !== c.key;
             const categoryChanged = c.category !== undefined && (shows || c.category !== before?.category);
+            if (shows || categoryChanged) touchedKeys.push(c.key);
             return {
               key: c.key,
               name: c.name,
@@ -133,13 +137,18 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
 
       // Each column mirrors its status's category (deprecated, kept in step for
-      // the readers not yet moved to statuses).
-      if (board && boardShowsStatuses(board.type)) {
+      // the readers not yet moved to statuses), but only for the columns this
+      // save changes. A column sent back as it was keeps its category even
+      // where it disagrees with the status: those are the boards the backfill
+      // recorded as conflicting (workflow.backfill_conflict), and an unrelated
+      // reorder must not quietly change what "done" means on them.
+      if (board && boardShowsStatuses(board.type) && touchedKeys.length > 0) {
         await tx.$executeRaw`
           UPDATE board_columns bc SET category = s.category
           FROM workflow_statuses s
           WHERE bc.board_id = ${boardId}::uuid AND s.project_id = ${projectId}::uuid
             AND s.key = bc.key AND bc.category <> s.category
+            AND bc.key = ANY(${touchedKeys}::text[])
         `;
       }
 
