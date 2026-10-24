@@ -6,6 +6,7 @@ import { isInternalAdmin } from "@/lib/internal/access";
 import { applyGovGuardrails } from "@/lib/runtime-config/guardrails";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { sweepMarkedComments } from "@/lib/feedback/comments.server";
 
 // The GOV designation is a PLATFORM-OWNER decision (design §8): only an internal admin
 // (isInternalAdmin against INTERNAL_ADMINS) may flip an org's tenantClass. A tenant-admin
@@ -85,6 +86,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
+    // Feedback comments marked above what the org now covers go internal.
+    await sweepMarkedComments({ orgId, actorId: user.id, reason: "tenant_class_changed", ipAddress: getIpAddress(request) }).catch(
+      (e) => console.error("feedback marking sweep failed:", e instanceof Error ? e.message : "unknown error"),
+    );
     return success({ orgId, tenantClass });
   } catch (error) {
     return handleApiError(error);

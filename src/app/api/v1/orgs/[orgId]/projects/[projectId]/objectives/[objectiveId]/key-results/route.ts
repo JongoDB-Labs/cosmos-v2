@@ -1,39 +1,26 @@
 import { NextRequest } from "next/server";
-import { z } from "zod";
-import { KeyResultStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
-import { created, handleApiError } from "@/lib/api-helpers";
+import { handleApiError } from "@/lib/api-helpers";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { createKeyResult } from "./route.contract";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; objectiveId: string }>;
 };
 
-const createSchema = z.object({
-  title: z.string().min(1).max(200),
-  startValue: z.number().default(0),
-  currentValue: z.number().default(0),
-  targetValue: z.number().default(100),
-  unit: z.string().max(40).optional(),
-  lowerIsBetter: z.boolean().default(false),
-  status: z.nativeEnum(KeyResultStatus).default(KeyResultStatus.IN_PROGRESS),
-});
-
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, objectiveId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, createKeyResult);
+    const { params: { orgId, projectId, objectiveId }, body: data } = await parseRequest(createKeyResult, request, params);
 
     // Scope check: the objective must belong to this org + project.
     const objective = await prisma.objective.findFirst({
       where: { id: objectiveId, orgId, projectId },
     });
-    if (!objective) return new Response("Not found", { status: 404 });
+    if (!objective) return problem(404, "not_found", undefined, { request });
 
     // Resource-aware authz (OKR_CREATE + any narrowing deny policy) on the
     // parent objective. Identical to requirePermission until a policy references
@@ -43,8 +30,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       projectId: objective.projectId,
       objectiveId,
     });
-
-    const data = createSchema.parse(await request.json());
 
     // Append to the end of the existing key results.
     const last = await prisma.keyResult.findFirst({
@@ -68,8 +53,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    return created(createdKr);
+    return respond(createKeyResult, 201, createdKr);
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }

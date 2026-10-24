@@ -7,6 +7,7 @@ vi.mock("@/lib/telemetry/server", () => ({ serverReportError: vi.fn() }));
 import { handleApiError } from "@/lib/api-helpers";
 import { ConflictError, ForbiddenError, NotFoundError } from "@/lib/rbac/check";
 import { NoModelCredentialError } from "@/lib/ai/egress/types";
+import { TransitionError } from "@/lib/workflow/contract";
 import { problem, PROBLEM_CONTENT_TYPE } from "../problem";
 import { REQUEST_ID_HEADER, requestIdFor } from "../request-id";
 
@@ -58,6 +59,8 @@ describe("handleApiError keeps every legacy body", () => {
     ["Conflict", new ConflictError("payment exceeds balance"), 409, "conflict", "payment exceeds balance"],
     ["NoModelCredential", new NoModelCredentialError(), 409, "model_not_connected", new NoModelCredentialError().message],
     ["P2002", p2002, 409, "conflict", "Conflicting concurrent request — please retry"],
+    ["deadlock", new Prisma.PrismaClientKnownRequestError("deadlock", { code: "P2010", clientVersion: "x", meta: { code: "40P01" } }), 409, "conflict", "Conflicting concurrent request — please retry"],
+    ["write conflict", new Prisma.PrismaClientKnownRequestError("conflict", { code: "P2034", clientVersion: "x" }), 409, "conflict", "Conflicting concurrent request — please retry"],
     ["unknown", new Error("db exploded: password=hunter2"), 500, "internal_error", "Internal server error"],
   ] as const)("%s keeps its status, code and legacy text", async (_n, err, status, code, legacy) => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -70,6 +73,31 @@ describe("handleApiError keeps every legacy body", () => {
     expect(body.status).toBe(status);
     // A 500 never echoes the thrown message.
     expect(JSON.stringify(body)).not.toContain("hunter2");
+  });
+
+  it("a workflow refusal is a problem with its code and what to ask for beside it", async () => {
+    const res = handleApiError(
+      new TransitionError({
+        error: "Resolve needs a resolution.",
+        code: "transition_input_required",
+        transition: { id: "t1", name: "Resolve", to: "done" },
+        fields: [{ field: { system: "resolution" }, required: true }],
+      }),
+      withId("req-9"),
+    );
+    expect(res.status).toBe(422);
+    expect(res.headers.get("content-type")).toBe(PROBLEM_CONTENT_TYPE);
+    expect(await res.json()).toEqual({
+      type: "/developers/guides/errors#transition_input_required",
+      title: "Transition needs input",
+      status: 422,
+      detail: "Resolve needs a resolution.",
+      code: "transition_input_required",
+      requestId: "req-9",
+      error: "Resolve needs a resolution.",
+      transition: { id: "t1", name: "Resolve", to: "done" },
+      fields: [{ field: { system: "resolution" }, required: true }],
+    });
   });
 
   it("Zod → 400 with the issues still at body.issues", async () => {

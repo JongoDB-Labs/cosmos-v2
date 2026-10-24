@@ -22,12 +22,21 @@ interface KanbanColumnProps {
    * the column key, so a drop still only changes the card's columnKey/status.
    */
   droppableId?: string;
+  /** The column's status is archived: still shown, with its items, and marked. */
+  archived?: boolean;
   /** Bulk-select mode (threaded to each card). */
   selectMode?: boolean;
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
   onCtrlSelect?: (id: string) => void;
   onRangeSelect?: (id: string) => void;
+  /**
+   * The column title's heading level: 2 on a flat board (directly under the
+   * page's h1), 3 inside a swimlane, whose lane label is the h2.
+   */
+  headingLevel?: 2 | 3;
+  /** The card being dragged can't move here under the project's workflow: dimmed, still droppable (the server decides). */
+  unavailable?: boolean;
 }
 
 export function KanbanColumn({
@@ -36,12 +45,16 @@ export function KanbanColumn({
   members,
   onCardClick,
   droppableId,
+  archived = false,
   selectMode = false,
   selectedIds,
   onToggleSelect,
   onCtrlSelect,
   onRangeSelect,
+  headingLevel = 2,
+  unavailable = false,
 }: KanbanColumnProps) {
+  const Heading = headingLevel === 3 ? "h3" : "h2";
   const { setNodeRef, isOver } = useDroppable({ id: droppableId ?? column.key });
 
   const count = items.length;
@@ -55,7 +68,10 @@ export function KanbanColumn({
     <div
       // A right-click anywhere in the column creates into it (COSMOS-88).
       data-board-column={column.key}
+      data-unavailable={unavailable || undefined}
+      title={unavailable ? "This card's workflow doesn't allow a move here" : undefined}
       className={cn(
+        unavailable && "opacity-40",
         // Near-full-width columns on phones (with a peek of the next), w-72 at
         // sm+. Avoids the 288px-on-375px unusable horizontal scroll.
         "flex w-[84vw] max-w-[19rem] shrink-0 flex-col rounded-lg bg-muted/30 border sm:w-72",
@@ -72,7 +88,15 @@ export function KanbanColumn({
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-medium">{column.name}</h3>
+          <Heading className="text-sm font-medium">{column.name}</Heading>
+          {archived && (
+            <span
+              title="This status is archived. Pickers no longer offer it; its items stay here until they are moved."
+              className="rounded border px-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+            >
+              Archived
+            </span>
+          )}
           <span
             title={
               column.wipLimit != null
@@ -116,6 +140,7 @@ export function KanbanColumn({
               onToggleSelect={onToggleSelect}
               onCtrlSelect={onCtrlSelect}
               onRangeSelect={onRangeSelect}
+              headingLevel={headingLevel === 3 ? 4 : 3}
             />
           ))}
         </SortableContext>

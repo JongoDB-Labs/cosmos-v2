@@ -27,4 +27,15 @@ describe("history prefilters", () => {
     expect(sql.text).not.toContain("DROP TABLE");
     expect(sql.text).not.toContain("2026-");
   });
+
+  it("BEFORE alone never scans the org's whole history of the field", () => {
+    // specs[1] has only an end. Its prefilter reads the activity since the
+    // end and finds "first change" by anti-join; no DISTINCT ON over all time.
+    const sql = historySql(specs[1], ORG, READABLE).text;
+    expect(sql).not.toMatch(/DISTINCT ON/);
+    expect(sql).toMatch(/a\.created_at >= /);
+    expect(sql).toMatch(/NOT EXISTS/);
+    // With a start, the window form (bounded by the start) is used.
+    expect(historySql(specs[0], ORG, READABLE).text).toMatch(/a\.created_at > /);
+  });
 });

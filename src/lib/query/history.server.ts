@@ -35,13 +35,14 @@ function matches(v: Prisma.Sql, set: HistoryValueSet): Prisma.Sql {
  * to one by a recorded change inside the window. Its value when the window
  * opened is the old value of its first recorded change after that (the change
  * started from it). Both halves scan only Activity rows from the window on,
- * by (org, field, time) and (org, field, value, time), so the set is bounded
+ * by (org, field, time), so the set is bounded
  * by the window's activity, not by the number of items.
  */
 export function historySql(spec: HistorySpec, orgId: string, readable: string[]): Prisma.Sql {
   const field = HISTORY[spec.field].activity;
   // activities.created_at and work_items.created_at are UTC timestamps without a zone.
   const naive = (iso: string) => Prisma.sql`(${iso}::timestamptz AT TIME ZONE 'UTC')`;
+  if (!spec.from && spec.to) return firstChangeSql(spec, field, orgId, readable, naive(spec.to));
   const after = spec.from ? Prisma.sql`a.created_at > ${naive(spec.from)}` : Prisma.sql`TRUE`;
   const inWindow = Prisma.join(
     [
@@ -70,6 +71,29 @@ export function historySql(spec: HistorySpec, orgId: string, readable: string[])
       FROM hits h
       JOIN work_items w ON w.id = h.id
      WHERE w.org_id = ${orgId}::uuid AND w.project_id = ANY(${readable}::uuid[]) AND ${born}
+     LIMIT ${ID_SET_MAX + 1}`;
+}
+
+/**
+ * BEFORE with no lower bound (compile.ts covers changes before the window
+ * closed itself): the items whose FIRST recorded change of the field came at
+ * or after `closed` and started from a value in the set, so they held it from
+ * before the window closed. Scans only the activity since `closed`; "first"
+ * is an anti-join on (work_item_id, field, created_at), not a sort of the
+ * org's history.
+ */
+function firstChangeSql(spec: HistorySpec, field: string, orgId: string, readable: string[], closed: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`
+    SELECT w.id::text AS id
+      FROM activities a
+      JOIN work_items w ON w.id = a.work_item_id
+     WHERE a.org_id = ${orgId}::uuid AND a.field = ${field} AND a.action = 'updated' AND a.created_at >= ${closed}
+       AND ${matches(Prisma.sql`a.old_value`, spec.set)}
+       AND NOT EXISTS (
+         SELECT 1 FROM activities b
+          WHERE b.work_item_id = a.work_item_id AND b.field = a.field AND b.action = 'updated'
+            AND (b.created_at, b.id) < (a.created_at, a.id))
+       AND w.org_id = ${orgId}::uuid AND w.project_id = ANY(${readable}::uuid[]) AND w.created_at < ${closed}
      LIMIT ${ID_SET_MAX + 1}`;
 }
 

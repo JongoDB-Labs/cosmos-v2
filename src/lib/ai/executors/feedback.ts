@@ -85,6 +85,8 @@ export async function createFeedback(input: Record<string, unknown>, ctx: ToolCo
       type: data.type,
       title: data.title,
       description: data.description,
+      // The author follows their own request, in the same write.
+      subscriptions: { create: { orgId: ctx.orgId, userId: ctx.userId, reason: "author" } },
     },
     select: FEEDBACK_SELECT,
   });

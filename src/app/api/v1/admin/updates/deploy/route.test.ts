@@ -153,6 +153,29 @@ beforeEach(() => {
   );
 });
 
+describe("POST /admin/updates/deploy — reinstalling a rebuilt image", () => {
+  const REBUILT: UpdateCheck = {
+    ...READY,
+    status: { current: VERSION, latest: VERSION, newer: [], updateAvailable: false, ahead: false },
+    rebuildAvailable: true,
+  };
+
+  it("records an install of the RUNNING version when the fresh check found it rebuilt (202)", async () => {
+    checkForUpdates.mockResolvedValue(REBUILT);
+    const res = await post();
+    expect(res.status).toBe(202);
+    expect(db.rows.find((r) => r.id === "new")).toMatchObject({ version: VERSION, status: "PENDING" });
+  });
+
+  it("refuses the running version when nothing was rebuilt (422), and records nothing", async () => {
+    checkForUpdates.mockResolvedValue({ ...REBUILT, rebuildAvailable: false });
+    const res = await post();
+    expect(res.status).toBe(422);
+    expect((await res.json()).reason).toBe("no-update");
+    expect(db.rows).toEqual([]);
+  });
+});
+
 describe("POST /admin/updates/deploy — dead claims", () => {
   it("abandons a RUNNING row with a stale heartbeat and records the new install (202)", async () => {
     db.rows.push(runningRow({ heartbeatAt: ago(DEPLOY_HEARTBEAT_STALE_MS + MIN) }));

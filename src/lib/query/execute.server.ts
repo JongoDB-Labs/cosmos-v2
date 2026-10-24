@@ -11,7 +11,6 @@
  * arch test asserts nothing else imports compile.ts.
  */
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { buildScopedWhere } from "@/lib/work-items/query/build-where";
@@ -24,6 +23,7 @@ import { typecheck } from "./typecheck";
 import { loadSchemaCustomFields, resolveQuery, type VarInput } from "./resolve.server";
 import { compileQuery, historySpecs, type Compiled } from "./compile";
 import { runHistoryPrefilters } from "./history.server";
+import { withStatementTimeout } from "./timeout.server";
 import { inOrder, sortedIds } from "./sort.server";
 import type { CompileEnv } from "./env";
 import { printCql } from "./print";
@@ -120,6 +120,7 @@ export async function prepareCql(ctx: AuthContext, input: CqlInput, opts: CqlRun
     now: opts.now ?? new Date(),
     tz,
     vars: opts.vars,
+    timeoutMs: opts.timeoutMs,
     contextProjectId: opts.contextProjectId ?? raw.context?.projectId,
     sinceLastStandup: opts.sinceLastStandup,
     mode: opts.mode === "warn" ? "warn" : "strict",
@@ -173,30 +174,8 @@ export function listValues(where: unknown): number {
   return n;
 }
 
-const TIMEOUT_RE = /statement timeout|canceling statement|57014/i;
-
-/** Run `fn` in a transaction whose statements are cancelled after `ms`. */
-export async function withStatementTimeout<T>(ms: number, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
-  try {
-    return await prisma.$transaction(
-      async (tx) => {
-        // set_config(..., true) is SET LOCAL: it ends with this transaction.
-        // A bound parameter, so no SQL is ever built from a string.
-        await tx.$queryRaw`SELECT set_config('statement_timeout', ${String(Math.round(ms))}, true)`;
-        return fn(tx);
-      },
-      { timeout: ms + 5_000, maxWait: 5_000 },
-    );
-  } catch (e) {
-    if (TIMEOUT_RE.test(String((e as Error)?.message ?? ""))) {
-      throw new CqlError(
-        [diag("", "CQL_TIMEOUT", "This query took too long. Narrow it with a project, a sprint or a date range.")],
-        422,
-      );
-    }
-    throw e;
-  }
-}
+// Re-exported: callers and tests import it from here.
+export { withStatementTimeout } from "./timeout.server";
 
 export async function executeCql(ctx: AuthContext, input: CqlInput, opts: CqlRunOptions = {}): Promise<CqlResult> {
   const prepared = await prepareCql(ctx, input, opts);
@@ -254,7 +233,7 @@ export async function exportCql(ctx: AuthContext, input: CqlInput, opts: Omit<Cq
     user: prepared.compiled.where,
   });
   const data = await withStatementTimeout(opts.timeoutMs ?? 10_000, (tx) =>
-    pageOfRows(tx, prepared, where, { skip: 0, take: EXPORT_MAX_ROWS }),
+    pageOfRows(tx, prepared, where, { skip: 0, take: EXPORT_MAX_ROWS }, EXPORT_MAX_ROWS),
   );
   return { data, query: prepared.query, cql: prepared.cql };
 }
@@ -265,17 +244,27 @@ async function pageOfRows(
   prepared: PreparedCql,
   where: Prisma.WorkItemWhereInput,
   page: { skip: number; take: number },
+  /** The SQL sort's cap: an export sorts as many items as it may return. */
+  sortMax?: number,
 ): Promise<IssueRow[]> {
   const base = { orgId: prepared.orgId, allowedProjectIds: prepared.readable };
   if (!prepared.compiled.sqlSort) {
     return fetchIssueRows(tx, { ...base, where, orderBy: prepared.compiled.orderBy, ...page });
   }
-  const ids = await sortedIds(tx, where, prepared.compiled.sqlSort, page);
+  const ids = await sortedIds(tx, where, prepared.compiled.sqlSort, page, sortMax);
   if (ids.length === 0) return [];
   // Still inside the envelope: the ids came from it, and the hydrate re-checks.
-  const rows = await fetchIssueRows(tx, { ...base, where: { AND: [where, { id: { in: ids } }] }, orderBy: [{ id: "desc" }], skip: 0, take: ids.length });
+  // In chunks: Prisma binds one parameter per id, and an export's 50k would
+  // pass the driver's 32,766-parameter limit.
+  const rows: IssueRow[] = [];
+  for (let i = 0; i < ids.length; i += HYDRATE_CHUNK) {
+    const chunk = ids.slice(i, i + HYDRATE_CHUNK);
+    rows.push(...(await fetchIssueRows(tx, { ...base, where: { AND: [where, { id: { in: chunk } }] }, orderBy: [{ id: "desc" }], skip: 0, take: chunk.length })));
+  }
   return inOrder(ids, rows);
 }
+
+const HYDRATE_CHUNK = 5_000;
 
 /**
  * A query's full scoped where (envelope + predicate) in a form that survives

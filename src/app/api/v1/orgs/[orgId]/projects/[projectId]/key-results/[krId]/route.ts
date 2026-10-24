@@ -1,41 +1,28 @@
 import { NextRequest } from "next/server";
-import { z } from "zod";
-import { KeyResultStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { handleApiError } from "@/lib/api-helpers";
 import { krFraction } from "@/lib/okr/progress";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { deleteKeyResult, updateKeyResult } from "./route.contract";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; krId: string }>;
 };
 
-const updateSchema = z.object({
-  currentValue: z.number().optional(),
-  targetValue: z.number().optional(),
-  startValue: z.number().optional(),
-  title: z.string().min(1).max(200).optional(),
-  unit: z.string().max(40).optional(),
-  lowerIsBetter: z.boolean().optional(),
-  status: z.nativeEnum(KeyResultStatus).optional(),
-});
-
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, krId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, updateKeyResult);
+    const { params: { orgId, projectId, krId }, body: data } = await parseRequest(updateKeyResult, request, params);
 
     // Scope check: the KR's objective must belong to this org + project.
     const kr = await prisma.keyResult.findFirst({
       where: { id: krId, objective: { orgId, projectId } },
       include: { objective: { select: { projectId: true } } },
     });
-    if (!kr) return new Response("Not found", { status: 404 });
+    if (!kr) return problem(404, "not_found", undefined, { request });
 
     // Resource-aware authz (OKR_UPDATE + any narrowing deny policy). The KR's
     // project comes from the parent objective. Identical to requirePermission
@@ -45,8 +32,6 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       projectId: kr.objective.projectId,
       objectiveId: kr.objectiveId,
     });
-
-    const data = updateSchema.parse(await request.json());
 
     const updated = await prisma.keyResult.update({
       where: { id: krId },
@@ -82,26 +67,22 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       data: { progress },
     });
 
-    return success(updated);
+    return respond(updateKeyResult, 200, updated);
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, krId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, deleteKeyResult);
+    const { params: { orgId, projectId, krId } } = await parseRequest(deleteKeyResult, request, params);
 
     const kr = await prisma.keyResult.findFirst({
       where: { id: krId, objective: { orgId, projectId } },
       include: { objective: { select: { projectId: true } } },
     });
-    if (!kr) return new Response("Not found", { status: 404 });
+    if (!kr) return problem(404, "not_found", undefined, { request });
 
     // Resource-aware authz (OKR_DELETE + any narrowing deny policy). Deleting a
     // KR requires OKR_DELETE, matching the sibling objective DELETE — a MEMBER
@@ -114,8 +95,8 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
 
     await prisma.keyResult.delete({ where: { id: krId } });
 
-    return success({ id: krId });
+    return respond(deleteKeyResult, 200, { id: krId });
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }

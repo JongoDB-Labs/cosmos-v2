@@ -1,32 +1,28 @@
 import { NextRequest } from "next/server";
-import { z } from "zod";
-import { ObjectiveStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { handleApiError } from "@/lib/api-helpers";
 import { krProgressPercent, objectiveProgressPercent } from "@/lib/okr/progress";
 import { objectiveHealth } from "@/lib/okr/health";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { createObjective, listObjectives, reorderObjectives } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, listObjectives);
+    const { params: { orgId, projectId } } = await parseRequest(listObjectives, request, params);
     await requireProjectRead(ctx, projectId, "OKR_READ");
 
     const project = await prisma.project.findFirst({
       where: { id: projectId, orgId },
     });
-    if (!project) return new Response("Not found", { status: 404 });
+    if (!project) return problem(404, "not_found", undefined, { request });
 
     const objectives = await prisma.objective.findMany({
       where: { orgId, projectId },
@@ -112,41 +108,22 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       };
     });
 
-    return success(shaped);
+    return respond(listObjectives, 200, shaped);
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }
 
-const createSchema = z.object({
-  title: z.string().min(1).max(200),
-  description: z.string().nullish(),
-  period: z.string().nullish(),
-  status: z.nativeEnum(ObjectiveStatus).default(ObjectiveStatus.ACTIVE),
-  parentId: z.string().uuid().nullish(),
-  // The timebox this objective belongs to — a PI for a PI Objective, a sprint
-  // for a sprint-level one. Validated below to be an interval of THIS project.
-  intervalId: z.string().uuid().nullish(),
-  // SAFe committed vs uncommitted (stretch). Defaults to committed.
-  committed: z.boolean().default(true),
-});
-
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, createObjective);
+    const { params: { orgId, projectId }, body: data } = await parseRequest(createObjective, request, params);
     await requireProjectManage(ctx, projectId, Permission.OKR_CREATE);
 
     const project = await prisma.project.findFirst({
       where: { id: projectId, orgId },
     });
-    if (!project) return new Response("Not found", { status: 404 });
-
-    const data = createSchema.parse(await request.json());
+    if (!project) return problem(404, "not_found", undefined, { request });
 
     // An interval from ANOTHER project would silently mis-file the objective
     // under a timebox its team never plans against, so it is rejected rather
@@ -157,9 +134,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         select: { id: true },
       });
       if (!interval) {
-        return new Response("intervalId must be an interval of this project", {
-          status: 400,
-        });
+        return problem(400, "invalid_request", "intervalId must be an interval of this project", { request });
       }
     }
 
@@ -188,35 +163,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       include: { keyResults: { orderBy: { sortOrder: "asc" } } },
     });
 
-    return success(created);
+    return respond(createObjective, 200, created);
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }
 
-// Persist a manual reorder of the project's objectives. Body: an ordered list of
-// objective IDs; each one's sort_order is set to its index. Scoped to this
-// org+project so a stray/foreign id can't be renumbered.
-const reorderSchema = z.object({
-  orderedIds: z.array(z.string().uuid()).min(1),
-});
-
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, reorderObjectives);
+    const { params: { orgId, projectId }, body: { orderedIds } } = await parseRequest(reorderObjectives, request, params);
     await requireProjectManage(ctx, projectId, Permission.OKR_UPDATE);
 
     const project = await prisma.project.findFirst({
       where: { id: projectId, orgId },
     });
-    if (!project) return new Response("Not found", { status: 404 });
-
-    const { orderedIds } = reorderSchema.parse(await request.json());
+    if (!project) return problem(404, "not_found", undefined, { request });
 
     // Only renumber ids that genuinely belong to this project.
     const owned = await prisma.objective.findMany({
@@ -233,8 +195,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ),
     );
 
-    return success({ reordered: ownedSet.size });
+    return respond(reorderObjectives, 200, { reordered: ownedSet.size });
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }

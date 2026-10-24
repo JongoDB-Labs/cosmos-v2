@@ -61,6 +61,9 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   create_work_item: "work_items",
   update_work_item: "work_items",
   delete_work_item: "work_items",
+  // A transition is a status change under the project's workflow.
+  list_transitions: "work_items",
+  transition_item: "work_items",
   // Work-item dependency links are work-item edges — same coarse domain.
   list_item_links: "work_items",
   link_items: "work_items",

@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { SESSION_COOKIE } from "@/lib/auth/client";
-import { applySecurityHeaders } from "@/lib/security/headers";
+import { applySecurityHeaders, applyTeamsTabFraming } from "@/lib/security/headers";
+import { isTabPath } from "@/lib/integrations/microsoft/teams-app/tab-paths";
 import { classifyBearer } from "@/lib/auth/bearer";
 import { REQUEST_ID_HEADER, requestIdFor } from "@/lib/openapi/request-id";
 import { problem } from "@/lib/openapi/problem";
@@ -31,6 +32,9 @@ const CSRF_EXEMPT_PREFIXES = [
   // route itself enforces (503 unset / 401 mismatch), so it cannot be
   // CSRF-forged by a browser. Same rationale as the `cosmos_` bearer skip.
   "/api/foreman/alert",
+  // Cosmos for Teams bot (COSMOS-202 T1): the Bot Connector POSTs with its own
+  // signed bearer JWT, which the route verifies; no browser, no cookie.
+  "/api/teams/bot",
 ];
 // NOTE: "/api/v1/orgs/" was previously exempted wholesale ("sub-routes do their
 // own auth") — but auth is not CSRF defense, and that silently disabled the
@@ -40,7 +44,9 @@ const CSRF_EXEMPT_PREFIXES = [
 // like any other API surface now.
 
 function isCsrfExempt(pathname: string): boolean {
-  return CSRF_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p));
+  // The path itself or below it, never a longer name that shares its prefix
+  // ("/api/teams/botX" is not "/api/teams/bot"). Same rule as isPublic.
+  return CSRF_EXEMPT_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
 function isSameOrigin(request: NextRequest): boolean {
@@ -92,6 +98,13 @@ const PUBLIC_PATH_PREFIXES = [
   // Watchdog down-alert — no browser session by definition (the daemon is
   // down); the route enforces its own bearer token.
   "/api/foreman/alert",
+  // Cosmos for Teams bot (COSMOS-202 T1): the Bot Connector has no session;
+  // the route verifies its signed token before anything else.
+  "/api/teams/bot",
+  // Teams tabs (T1 d): framed by Teams with no Cosmos session; the pages and
+  // the sign-in route do their own auth (the tab session).
+  "/api/teams/tab/session",
+  "/teams/tab",
   "/manifest.webmanifest",
   // Test-only routes — only active when E2E_TEST_AUTH=1; session check is
   // moot because these routes create/look up sessions themselves.
@@ -122,11 +135,20 @@ export async function proxy(request: NextRequest) {
   };
   const res = await gate(request, next);
   res.headers.set(REQUEST_ID_HEADER, requestId);
+  // Teams tabs (COSMOS-202 T1 d) are the only pages another site may frame,
+  // and only Microsoft Teams' hosts. Everything else keeps 'none'.
+  if (isTabPath(request.nextUrl.pathname)) applyTeamsTabFraming(res.headers);
   return res;
 }
 
 async function gate(request: NextRequest, next: () => NextResponse): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
+
+  // Teams tabs (COSMOS-202 T1 d) are read-only pages, and their session is
+  // honoured only for a GET: anything else never reaches them.
+  if (isTabPath(pathname) && request.method !== "GET" && request.method !== "HEAD") {
+    return withSecurityHeaders(new NextResponse(null, { status: 405, headers: { Allow: "GET, HEAD" } }));
+  }
 
   // CSRF: refuse cross-origin mutating verbs. The session cookie is
   // SameSite=Lax so the common case is already covered; this catches

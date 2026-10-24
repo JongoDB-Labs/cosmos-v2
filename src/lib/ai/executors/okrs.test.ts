@@ -11,6 +11,7 @@ import {
   linkKeyResultItem,
 } from "./okrs";
 import { memberToolCtx } from "@/lib/testing/tool-auth";
+import { ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
 
 const NON_MEMBER = "00000000-0000-0000-0000-000000000000";
 
@@ -37,6 +38,7 @@ describe("okr executors (e2e DB)", () => {
   }
 
   async function makeWorkItem(orgId: string, projectId: string, createdById: string) {
+    await ensureFixtureStatuses(projectId, ["todo"]);
     const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null } });
     return prisma.workItem.create({
       data: {

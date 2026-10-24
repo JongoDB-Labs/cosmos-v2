@@ -13,6 +13,7 @@ import { NextRequest } from "next/server";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
+import { projectRow } from "@/lib/openapi/testing/rows";
 
 const { getAuthContext, prisma } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
@@ -46,18 +47,6 @@ function ctx(over: Partial<AuthContext> = {}): AuthContext {
 
 const params = Promise.resolve({ orgId: ORG_ID });
 
-/** A whole row, as Prisma returns it: the route answers through a response
- *  contract, and a partial row is (correctly) a contract violation. */
-function projectRow(over: { id: string; teamScopedAccess: boolean; name: string; key: string }) {
-  return {
-    orgId: ORG_ID, description: null, settings: {}, status: "ACTIVE", archived: false,
-    projectTemplateId: null, projectTemplate: null, enabledFeatures: [], clientId: null, externalRef: null,
-    krLinkTypeId: null, objectiveLinkTypeId: null,
-    createdAt: new Date("2026-10-01T00:00:00Z"), updatedAt: new Date("2026-10-01T00:00:00Z"),
-    _count: { boards: 1, intervals: 0, members: 2 },
-    ...over,
-  };
-}
 const listReq = () => new NextRequest(`http://localhost/api/v1/orgs/${ORG_ID}/projects`);
 
 async function listedIds(res: Response): Promise<string[]> {
@@ -72,8 +61,8 @@ beforeEach(() => {
   // The org has one ordinary project and one limited to its members.
   prisma.project.findMany.mockImplementation(() => {
     const rows = [
-      projectRow({ id: OPEN, teamScopedAccess: false, name: "Open", key: "OPN" }),
-      projectRow({ id: RESTRICTED, teamScopedAccess: true, name: "Secret", key: "SEC" }),
+      projectRow({ orgId: ORG_ID, projectTemplate: null, id: OPEN, teamScopedAccess: false, name: "Open", key: "OPN" }),
+      projectRow({ orgId: ORG_ID, projectTemplate: null, id: RESTRICTED, teamScopedAccess: true, name: "Secret", key: "SEC" }),
     ];
     return Promise.resolve(rows);
   });
@@ -128,7 +117,7 @@ describe("GET projects — team-scoped projects stay out of the list", () => {
     // The no-opt-in case is every existing org; it must not lose a project or
     // pay for a membership lookup.
     prisma.project.findMany.mockResolvedValue([
-      projectRow({ id: OPEN, teamScopedAccess: false, name: "Open", key: "OPN" }),
+      projectRow({ orgId: ORG_ID, projectTemplate: null, id: OPEN, teamScopedAccess: false, name: "Open", key: "OPN" }),
     ]);
     getAuthContext.mockResolvedValue(ctx());
     const ids = await listedIds(await GET(listReq(), { params }));
@@ -195,9 +184,9 @@ describe("GET projects — a hidden project never reaches the cursor", () => {
   // the very caller it is hidden from.
   const HIDDEN_AT = new Date("2026-10-03T00:00:00Z");
   const rows = [
-    projectRow({ id: RESTRICTED, teamScopedAccess: true, name: "Secret", key: "SEC" }),
-    projectRow({ id: OPEN, teamScopedAccess: false, name: "Open", key: "OPN" }),
-    projectRow({ id: "55555555-5555-4555-8555-555555555555", teamScopedAccess: false, name: "Older", key: "OLD" }),
+    projectRow({ id: RESTRICTED, orgId: ORG_ID, teamScopedAccess: true, name: "Secret", key: "SEC" }),
+    projectRow({ id: OPEN, orgId: ORG_ID, teamScopedAccess: false, name: "Open", key: "OPN" }),
+    projectRow({ id: "55555555-5555-4555-8555-555555555555", orgId: ORG_ID, teamScopedAccess: false, name: "Older", key: "OLD" }),
   ];
   rows[0].createdAt = HIDDEN_AT; // newest: it would end page 1 of size 1
   rows[1].createdAt = new Date("2026-10-02T00:00:00Z");
@@ -225,7 +214,7 @@ describe("GET projects — a hidden project never reaches the cursor", () => {
     const out = rows
       .filter((r) => !allowed || allowed.includes(r.id))
       .filter((r) => !keyset || keyset.some((c) => holds(r, c)))
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .sort((a, b) => (b.createdAt as Date).getTime() - (a.createdAt as Date).getTime())
       .slice(0, args.take ?? rows.length);
     const select = args.select;
     return Promise.resolve(select

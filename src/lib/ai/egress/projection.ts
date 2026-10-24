@@ -151,6 +151,11 @@ const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   work_item_link: [
     "id", "type", "sourceItemId", "targetItemId", "sourceTicketNumber", "targetTicketNumber", "createdAt",
   ],
+  // listTransitions returns { itemId, transitions: [{ id, name, to, toCategory, requiresInput,
+  // input }] }. `name` is a workflow author's label and `to` a status key (free text, like
+  // columnKey above), and an open workflow's `id` embeds that key → all three are handles,
+  // never readable. `toCategory` is the 4-value enum; `requiresInput` a boolean.
+  work_item_transition: ["toCategory", "requiresInput"],
   // listBoards returns id/projectId/type/sortOrder(+name). `name`/`slug` are content/url-ish → dropped.
   board: ["id", "projectId", "type", "sortOrder", "createdAt"],
   // listDocuments returns id/projectId/uploadedById/contentType/format/status/size/pageCount/
@@ -218,6 +223,8 @@ const NATIVE_HANDLEABLE_FIELDS: Record<string, readonly string[]> = {
   // so it is intentionally OMITTED — listing it would never mint (default-deny by
   // absence) and would misrepresent the shape contract.
   work_item: ["title"],
+  // transitions: the model passes `id` back to transition_item by reference.
+  work_item_transition: ["id", "name", "to"],
   // notes: create/update return `title` (CUI). `content` is NOT in the note return
   // shapes (only title + visibility), so it is omitted (default-deny by absence).
   note: ["title"],
@@ -248,6 +255,7 @@ const NATIVE_TOOL_ENTITY: Record<string, string> = {
   // values it lists are names, so a withheld result is withheld whole.
   search_work_items: "work_item",
   create_work_item: "work_item", update_work_item: "work_item", delete_work_item: "work_item",
+  list_transitions: "work_item_transition", transition_item: "work_item",
   create_note: "note", update_note: "note", delete_note: "note",
   add_comment: "comment", list_comments: "comment", delete_comment: "comment",
   log_time: "time_entry", list_time_entries: "time_entry",

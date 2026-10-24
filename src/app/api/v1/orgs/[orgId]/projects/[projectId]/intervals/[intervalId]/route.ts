@@ -2,14 +2,11 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { updateWorkItems } from "@/lib/work-items/write.server";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { z } from "zod";
-import { SprintStatus } from "@prisma/client";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import {
   activationBlocker,
@@ -17,34 +14,26 @@ import {
   programIncrementBlockers,
   userMaySetStatus,
 } from "@/lib/intervals/pi-lifecycle";
-
-const updateIntervalSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  goal: z.string().nullish(),
-  startDate: z.string().datetime().nullish(),
-  endDate: z.string().datetime().nullish(),
-  status: z.nativeEnum(SprintStatus).optional(),
-  // Program Increment to nest this sprint under (a PI interval id), or null to
-  // detach it back to top level. Validated same-project + must be a PI.
-  parentId: z.string().uuid().nullable().optional(),
-});
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { getInterval, updateInterval } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; intervalId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, intervalId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, getInterval);
+    const { params: { orgId, projectId, intervalId } } = await parseRequest(getInterval, request, params);
     await requireProjectRead(ctx, projectId, "SPRINT_READ");
 
     const interval = await prisma.interval.findFirst({
       where: { id: intervalId, projectId, orgId },
       include: {
         workItems: {
+          // Full-text index internals: never part of the WorkItem contract, so
+          // not fetched (respond() would otherwise reject the row outside prod).
+          omit: { searchVector: true },
           include: {
             _count: { select: { comments: true } },
           },
@@ -54,48 +43,35 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    if (!interval) return new Response("Not found", { status: 404 });
+    if (!interval) return problem(404, "not_found", undefined, { request });
 
-    return success(interval);
+    return respond(getInterval, 200, interval);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, intervalId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, updateInterval);
+    const { params: { orgId, projectId, intervalId }, body: data } = await parseRequest(updateInterval, request, params);
     await requireProjectManage(ctx, projectId, Permission.SPRINT_UPDATE);
 
     const existing = await prisma.interval.findFirst({ where: { id: intervalId, projectId, orgId } });
-    if (!existing) return new Response("Not found", { status: 404 });
-
-    const body = await request.json();
-    const data = updateIntervalSchema.parse(body);
+    if (!existing) return problem(404, "not_found", undefined, { request });
 
     // Validate a PI re-parent: target must be a PROGRAM_INCREMENT in this
     // project, and an interval can't be its own parent (no 1-level self-nesting).
     if (data.parentId !== undefined && data.parentId !== null) {
       if (data.parentId === intervalId) {
-        return new Response(JSON.stringify({ error: "An interval can't be its own Program Increment" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
+        return problem(400, "invalid_request", "An interval can't be its own Program Increment", { request });
       }
       const parent = await prisma.interval.findFirst({
         where: { id: data.parentId, projectId },
         select: { intervalKind: true },
       });
       if (!parent || parent.intervalKind !== "PROGRAM_INCREMENT") {
-        return new Response(
-          JSON.stringify({ error: "A sprint can only be nested under a Program Increment" }),
-          { status: 400, headers: { "Content-Type": "application/json" } },
-        );
+        return problem(400, "invalid_request", "A sprint can only be nested under a Program Increment", { request });
       }
     }
 
@@ -105,13 +81,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       data.status !== undefined &&
       !userMaySetStatus(existing.intervalKind, data.status)
     ) {
-      return new Response(
-        JSON.stringify({
-          error:
-            "A Program Increment starts when its first sprint starts — it is not started directly.",
-        }),
-        { status: 409, headers: { "Content-Type": "application/json" } }
-      );
+      return problem(409, "conflict", "A Program Increment starts when its first sprint starts — it is not started directly.", { request });
     }
 
     if (data.status === "ACTIVE") {
@@ -124,12 +94,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       // could never happen, since a PI finishes when its sprints do.
       const blocker = activationBlocker({ id: intervalId }, others);
       if (blocker) {
-        return new Response(
-          JSON.stringify({
-            error: `${blocker.name} is still active — complete it first.`,
-          }),
-          { status: 409, headers: { "Content-Type": "application/json" } }
-        );
+        return problem(409, "conflict", `${blocker.name} is still active — complete it first.`, { request });
       }
     }
 
@@ -142,14 +107,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       });
       const open = programIncrementBlockers(children);
       if (open.length > 0) {
-        return new Response(
-          JSON.stringify({
-            error: `This Program Increment still has unfinished iterations: ${open
+        return problem(409, "conflict", `This Program Increment still has unfinished iterations: ${open
               .map((i) => i.name)
-              .join(", ")}.`,
-          }),
-          { status: 409, headers: { "Content-Type": "application/json" } }
-        );
+              .join(", ")}.`, { request });
       }
     }
 
@@ -207,9 +167,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
-    return success(updated);
+    return respond(updateInterval, 200, updated);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
@@ -217,25 +177,22 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, projectId, intervalId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
+    if (!org) return problem(404, "not_found", undefined, { request });
 
     const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!ctx) return problem(401, "unauthorized", undefined, { request });
     await requireProjectManage(ctx, projectId, Permission.SPRINT_UPDATE);
 
     const existing = await prisma.interval.findFirst({ where: { id: intervalId, projectId, orgId } });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing) return problem(404, "not_found", undefined, { request });
 
     if (existing.status === "ACTIVE") {
-      return new Response(
-        JSON.stringify({ error: "Cannot delete an active interval. Complete it first." }),
-        { status: 409, headers: { "Content-Type": "application/json" } }
-      );
+      return problem(409, "conflict", "Cannot delete an active interval. Complete it first.", { request });
     }
 
     await prisma.$transaction(async (tx) => {
       const members = await tx.workItem.findMany({ where: { intervalId }, select: { id: true } });
-      await updateWorkItems(tx, members.map((m) => m.id), { intervalId: null });
+      await updateWorkItems(tx, members.map((m) => m.id), { intervalId: null }, { actorId: ctx.userId, source: "API" });
       await tx.interval.delete({ where: { id: intervalId } });
     });
 
@@ -251,6 +208,6 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     return noContent();
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

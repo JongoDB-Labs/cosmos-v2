@@ -111,11 +111,11 @@ describe("the board route filters archived too", () => {
 
   it("selects archived on ?archived=only, the same word the shared builder uses", () => {
     expect(BOARD_ROUTE).toContain('where.archivedAt = { not: null }');
-    expect(BOARD_ROUTE).toMatch(/archivedMode === "only"/);
+    expect(BOARD_ROUTE).toMatch(/query\.archived === "only"/);
   });
 
   it("still honours the ?includeArchived=1 alias that shipped first", () => {
-    expect(BOARD_ROUTE).toMatch(/includeArchived["']?\)\s*!==\s*["']1["']/);
+    expect(BOARD_ROUTE).toMatch(/query\.includeArchived\s*!==\s*["']1["']/);
   });
 
   it("the assertions above would have caught an unfiltered route", () => {

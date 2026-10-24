@@ -212,13 +212,20 @@ describe("compile — field by field", () => {
     const act = (w: object) => ({ activities: { some: { action: "updated", field: "columnKey", ...w } } });
     expect(where(q14, e)).toEqual({ OR: [{ id: { in: ["i1", "i2"] } }, { columnKey: { in: ["done"] } }] });
     expect(where(`NOT (${q14})`, e)).toMatchObject({ NOT: { OR: expect.any(Array) } });
-    // With an end: born before it, and quiet since.
+    // BEFORE only: a change before the end entered or left it (a per-item
+    // EXISTS, never a scan of the org's history), or the prefilter's "first
+    // change at or after the end started from it", or born before the end,
+    // holding it, and quiet since.
     const qB = 'status WAS "ref:status:done" BEFORE 2026-10-01';
     const eB = env();
-    eB.history.set(historyKey(historySpecs(q(qB).where, eB)[0]), []);
+    eB.history.set(historyKey(historySpecs(q(qB).where, eB)[0]), ["i3"]);
     const end = new Date("2026-10-01T00:00:00Z");
-    expect((where(qB, eB) as { OR: unknown[] }).OR[1]).toEqual({
-      AND: [{ columnKey: { in: ["done"] } }, { createdAt: { lt: end } }, { NOT: act({ createdAt: { gte: end } }) }],
+    expect(where(qB, eB)).toEqual({
+      OR: [
+        act({ OR: [{ oldValue: { in: ["done"] } }, { newValue: { in: ["done"] } }], createdAt: { lt: end } }),
+        { id: { in: ["i3"] } },
+        { AND: [{ columnKey: { in: ["done"] } }, { createdAt: { lt: end } }, { NOT: act({ createdAt: { gte: end } }) }] },
+      ],
     });
     // Without its prefilter the compiler refuses rather than guessing.
     expect(() => where(q14)).toThrow(/prefilter/);
