@@ -7,6 +7,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { deleteKeyResult, updateKeyResult } from "./route.contract";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; krId: string }>;
@@ -16,6 +17,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, updateKeyResult);
     const { params: { orgId, projectId, krId }, body: data } = await parseRequest(updateKeyResult, request, params);
+    await requireProjectVisible(ctx, projectId);
 
     // Scope check: the KR's objective must belong to this org + project.
     const kr = await prisma.keyResult.findFirst({
@@ -77,6 +79,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, deleteKeyResult);
     const { params: { orgId, projectId, krId } } = await parseRequest(deleteKeyResult, request, params);
+    await requireProjectVisible(ctx, projectId);
 
     const kr = await prisma.keyResult.findFirst({
       where: { id: krId, objective: { orgId, projectId } },

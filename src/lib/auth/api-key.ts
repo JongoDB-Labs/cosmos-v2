@@ -131,6 +131,33 @@ export async function verifyApiKey(req: Request, orgId: string): Promise<AuthCon
 }
 
 /**
+ * The org's key an `Authorization` header names, when its secret matches and it
+ * hasn't expired; null otherwise. The one test of "is this a valid key", shared
+ * by authentication and by audit attribution so the two can't disagree.
+ */
+async function matchedKey(authorization: string | null, orgId: string) {
+  const parsed = parseKeyToken(authorization);
+  if (!parsed) return null;
+  const key = await prisma.apiKey.findUnique({
+    where: { orgId_prefix: { orgId, prefix: parsed.prefix } },
+    select: {
+      id: true, keyHash: true, scopes: true, projectIds: true,
+      expiresAt: true, createdById: true,
+    },
+  });
+  if (!key) return null;
+  const a = Buffer.from(sha256(parsed.secret)); const b = Buffer.from(key.keyHash);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  if (key.expiresAt && key.expiresAt.getTime() < Date.now()) return null;
+  return key;
+}
+
+/** The id of the valid key this header carries, or null (no key, wrong secret, expired). */
+export async function verifiedApiKeyId(authorization: string | null, orgId: string): Promise<string | null> {
+  return (await matchedKey(authorization, orgId))?.id ?? null;
+}
+
+/**
  * The same verification, from the `Authorization` header alone.
  *
  * `getAuthContext` is the single place every org-scoped route authenticates,
@@ -144,19 +171,8 @@ export async function verifyApiKeyHeader(
   authorization: string | null,
   orgId: string,
 ): Promise<AuthContext | null> {
-  const parsed = parseKeyToken(authorization);
-  if (!parsed) return null;
-  const key = await prisma.apiKey.findUnique({
-    where: { orgId_prefix: { orgId, prefix: parsed.prefix } },
-    select: {
-      id: true, keyHash: true, scopes: true, projectIds: true,
-      expiresAt: true, createdById: true,
-    },
-  });
+  const key = await matchedKey(authorization, orgId);
   if (!key || !key.createdById) return null;
-  const a = Buffer.from(sha256(parsed.secret)); const b = Buffer.from(key.keyHash);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  if (key.expiresAt && key.expiresAt.getTime() < Date.now()) return null;
   const ctx = await apiKeyAuthContext(orgId, {
     createdById: key.createdById, scopes: key.scopes, projectIds: key.projectIds,
   });

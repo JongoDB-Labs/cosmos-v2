@@ -73,8 +73,6 @@ DELETE /orgs/{orgId}/projects/{projectId}/roadmap-nodes/{nodeId}
 DELETE /orgs/{orgId}/projects/{projectId}/schedule/{milestoneId}
 DELETE /orgs/{orgId}/projects/{projectId}/teams/{teamId}
 DELETE /orgs/{orgId}/projects/{projectId}/vendors/{vendorId}
-DELETE /orgs/{orgId}/projects/{projectId}/work-items/bulk
-DELETE /orgs/{orgId}/projects/{projectId}/work-items/{itemId}
 DELETE /orgs/{orgId}/projects/{projectId}/work-items/{itemId}/attachments/{docId}
 DELETE /orgs/{orgId}/projects/{projectId}/work-items/{itemId}/comments/{commentId}
 DELETE /orgs/{orgId}/projects/{projectId}/work-items/{itemId}/watch
@@ -87,7 +85,6 @@ DELETE /orgs/{orgId}/themes/{themeId}
 DELETE /orgs/{orgId}/time-entries/{entryId}
 DELETE /orgs/{orgId}/webhooks/{webhookId}
 DELETE /orgs/{orgId}/work-item-types/{typeId}
-DELETE /orgs/{orgId}/work-items/{itemId}
 DELETE /orgs/{orgId}/work-roles/{roleId}
 GET /admin/allowed-emails
 GET /admin/updates
@@ -330,7 +327,6 @@ PATCH /orgs/{orgId}/themes/{themeId}
 PATCH /orgs/{orgId}/time-off/{requestId}
 PATCH /orgs/{orgId}/webhooks/{webhookId}
 PATCH /orgs/{orgId}/work-item-types/{typeId}
-PATCH /orgs/{orgId}/work-items/{itemId}
 POST /admin/allowed-emails
 POST /admin/updates/deploy
 POST /admin/updates/plugins
@@ -477,7 +473,6 @@ POST /orgs/{orgId}/projects/{projectId}/schedule
 POST /orgs/{orgId}/projects/{projectId}/teams
 POST /orgs/{orgId}/projects/{projectId}/teams/{teamId}
 POST /orgs/{orgId}/projects/{projectId}/vendors
-POST /orgs/{orgId}/projects/{projectId}/work-items
 POST /orgs/{orgId}/projects/{projectId}/work-items/import
 POST /orgs/{orgId}/projects/{projectId}/work-items/{itemId}/attachments
 POST /orgs/{orgId}/projects/{projectId}/work-items/{itemId}/comments
@@ -543,8 +538,6 @@ PUT /orgs/{orgId}/projects/{projectId}/boards/{boardId}/dashboard-widgets/{widge
 PUT /orgs/{orgId}/projects/{projectId}/intervals/{intervalId}/capacity
 PUT /orgs/{orgId}/projects/{projectId}/members
 PUT /orgs/{orgId}/projects/{projectId}/tab-prefs
-PUT /orgs/{orgId}/projects/{projectId}/work-items/bulk
-PUT /orgs/{orgId}/projects/{projectId}/work-items/{itemId}
 PUT /orgs/{orgId}/query-language
 PUT /orgs/{orgId}/saved-views/{viewId}
 PUT /orgs/{orgId}/security/ip-allowlist/{entryId}
@@ -556,6 +549,5 @@ PUT /orgs/{orgId}/templates/{templateId}/widgets
 PUT /orgs/{orgId}/themes/{themeId}
 PUT /orgs/{orgId}/time-entries/{entryId}/billed
 PUT /orgs/{orgId}/webhooks/{webhookId}
-PUT /orgs/{orgId}/work-items/{itemId}
 PUT /orgs/{orgId}/work-roles/{roleId}
 PUT /orgs/{orgId}/work-roles/{roleId}/members

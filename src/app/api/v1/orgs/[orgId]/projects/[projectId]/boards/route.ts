@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { withStatusCategories } from "@/lib/workflow/column-categories.server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { narrowBoards } from "@/lib/rbac/board-access";
 
 import { canManageBoardsInProject } from "@/lib/rbac/project-role";
@@ -70,6 +70,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    await requireProjectVisible(ctx, projectId);
     // Inheriting authority, now including the PROJECT role: an org-wide
     // BOARD_CREATE holder, or a MANAGER/LEAD of this project. A project VIEWER
     // is refused even holding the org bit — that is what the label promises.

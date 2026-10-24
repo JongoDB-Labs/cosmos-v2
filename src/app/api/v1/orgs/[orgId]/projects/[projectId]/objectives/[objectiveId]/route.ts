@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { requireAccess } from "@/lib/abac/require-access";
 import { handleApiError } from "@/lib/api-helpers";
 import { parseRequest, respond } from "@/lib/openapi/respond";
@@ -40,6 +40,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, updateObjective);
     const { params: { orgId, projectId, objectiveId }, body: data } = await parseRequest(updateObjective, request, params);
+    await requireProjectVisible(ctx, projectId);
 
     const existing = await loadObjective(orgId, projectId, objectiveId);
     if (!existing) return problem(404, "not_found", undefined, { request });
@@ -117,6 +118,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, deleteObjective);
     const { params: { orgId, projectId, objectiveId } } = await parseRequest(deleteObjective, request, params);
+    await requireProjectVisible(ctx, projectId);
 
     const existing = await loadObjective(orgId, projectId, objectiveId);
     if (!existing) return problem(404, "not_found", undefined, { request });

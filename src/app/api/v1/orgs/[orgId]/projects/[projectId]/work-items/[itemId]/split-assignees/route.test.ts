@@ -36,6 +36,11 @@ const { prisma, tx, getAuthContext, requireAccess } = vi.hoisted(() => {
     requireAccess: vi.fn(),
   };
 });
+// Visibility is covered against a real database (lib/rbac/team-scope-writes.db.test.ts).
+vi.mock("@/lib/rbac/require-project-read", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rbac/require-project-read")>()),
+  requireProjectVisible: vi.fn(async () => undefined),
+}));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/abac/require-access", () => ({ requireAccess }));
