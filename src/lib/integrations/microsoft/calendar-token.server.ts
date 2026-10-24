@@ -83,9 +83,9 @@ export interface OrgCalendarConfig {
  * calendars: integration not installed or not ACTIVE, no tenant pinned, or the
  * instance's Microsoft app not configured.
  */
-export async function orgCalendarConfig(orgId: string): Promise<OrgCalendarConfig | null> {
+export async function orgCalendarConfig(orgId: string, opts: { anyStatus?: boolean } = {}): Promise<OrgCalendarConfig | null> {
   const integration = await prisma.integration.findFirst({
-    where: { orgId, provider: MS_CALENDAR, status: "ACTIVE" },
+    where: { orgId, provider: MS_CALENDAR, ...(opts.anyStatus ? {} : { status: "ACTIVE" as const }) },
     select: { config: true },
   });
   const tenantId = (integration?.config as { tenantId?: unknown } | null)?.tenantId;
@@ -256,7 +256,16 @@ export async function purgeOrgCalendarConnections(orgId: string): Promise<number
  * Should this connection still exist? If not, it is deleted here, so a person
  * who left, or an org that switched the integration off, keeps no token.
  */
-async function ensureStillAllowed(orgId: string, userId: string): Promise<{ cfg: OrgCalendarConfig; meta: CalendarMeta }> {
+export type OffboardReason = "integration_disabled" | "organizer_left" | "organizer_deactivated" | "tenant_changed";
+type OffboardHook = (orgId: string, userId: string, reason: OffboardReason, deps: Deps) => Promise<void>;
+const offboardHooks: OffboardHook[] = [];
+
+/** Run `hook` just before a connection is removed because it may no longer exist. */
+export function onCalendarOffboard(hook: OffboardHook) {
+  if (!offboardHooks.includes(hook)) offboardHooks.push(hook);
+}
+
+async function ensureStillAllowed(orgId: string, userId: string, deps: Deps): Promise<{ cfg: OrgCalendarConfig; meta: CalendarMeta }> {
   const conn = await calendarConnection(orgId, userId);
   if (!conn) throw new CalendarNotConnected("Outlook Calendar isn't connected.");
   const [cfg, user, eff] = await Promise.all([
@@ -266,6 +275,10 @@ async function ensureStillAllowed(orgId: string, userId: string): Promise<{ cfg:
   ]);
   const tenantMoved = cfg && conn.meta.tid?.toLowerCase() !== cfg.tenantId.toLowerCase();
   if (!cfg || !user || user.deactivatedAt || !eff || tenantMoved) {
+    const reason: OffboardReason = !cfg ? "integration_disabled" : !user || !eff ? "organizer_left" : user.deactivatedAt ? "organizer_deactivated" : "tenant_changed";
+    // Last chance to act in their mailbox (cancel the invitations they send),
+    // while the token still exists. Never blocks the removal.
+    for (const hook of offboardHooks) await hook(orgId, userId, reason, deps).catch(() => undefined);
     await disconnectCalendar(orgId, userId);
     throw new CalendarNotConnected("Outlook Calendar is no longer connected.");
   }
@@ -277,9 +290,18 @@ async function ensureStillAllowed(orgId: string, userId: string): Promise<{ cfg:
  * A Graph access token for this person, refreshing if needed.
  * Throws CalendarNotConnected or CalendarReconnectNeeded; never loops.
  */
-export async function calendarAccessToken(orgId: string, userId: string, deps: Deps = {}): Promise<string> {
+export async function calendarAccessToken(orgId: string, userId: string, deps: Deps & { offboarding?: boolean } = {}): Promise<string> {
   const now = deps.now ?? Date.now;
-  const { cfg } = await ensureStillAllowed(orgId, userId);
+  // Offboarding (an offboard hook cleaning up as the connection goes): the
+  // connection must still exist, but the allowed-checks are what removed it.
+  let cfg: OrgCalendarConfig | null;
+  if (deps.offboarding) {
+    const conn = await calendarConnection(orgId, userId);
+    cfg = conn && conn.meta.status === "connected" ? await orgCalendarConfig(orgId, { anyStatus: true }) : null;
+    if (!cfg) throw new CalendarNotConnected("Outlook Calendar isn't connected.");
+  } else {
+    ({ cfg } = await ensureStillAllowed(orgId, userId, deps));
+  }
   const k = key(orgId, userId);
   const hit = cache.get(k);
   if (hit && hit.exp - EARLY_MS > now()) return hit.token;

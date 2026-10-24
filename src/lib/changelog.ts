@@ -49,6 +49,61 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.461.2",
+    date: "2026-10-24",
+    title: "The installed app keeps its identity",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The web-app manifest now has a stable id, so an installed Cosmos app is recognised as the same app after an update instead of looking like a new one.",
+      },
+    ],
+  },
+  {
+    version: "2.461.1",
+    date: "2026-10-24",
+    title: "Time tracking always opens on your own week",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The time tracker's first load now asks only for your own entries and timesheet, even when the people list is slow or fails to load. Before, someone allowed to see everyone's time could briefly get the whole organization's entries in their week view and in Export CSV.",
+      },
+    ],
+  },
+  {
+    version: "2.461.0",
+    date: "2026-10-24",
+    title: "Send real Outlook invitations from a meeting",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A meeting's organizer can now send real Outlook invitations from their own mailbox. Cosmos keeps them up to date when the meeting changes and cancels them when it's stopped, cancelled or becomes restricted. Attendees outside your organization's domains are flagged before anything is sent.",
+      },
+    ],
+  },
+  {
+    version: "2.460.7",
+    date: "2026-10-24",
+    title: "Issues search updates the address bar instantly",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Running a query on the Issues page updates the URL and results immediately instead of waiting on a server round trip.",
+      },
+    ],
+  },
+  {
+    version: "2.460.6",
+    date: "2026-10-24",
+    title: "API keys stay within their projects in the document library",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An API key limited to certain projects now lists and downloads documents only from those projects.",
+      },
+    ],
+  },
+  {
     version: "2.460.5",
     date: "2026-10-24",
     title: "Install Cosmos as an app in Edge and Chrome",
