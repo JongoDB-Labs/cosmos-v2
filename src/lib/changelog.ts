@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.463.0",
+    date: "2026-10-24",
+    title: "Work-item reads in the public API",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The public API now documents reading work items: listing a project's items, an item's detail, its comments and its filter facets, with typed contracts. An item you can't read answers the same as one that doesn't exist, and only comments everyone may read are returned.",
+      },
+    ],
+  },
+  {
     version: "2.462.1",
     date: "2026-10-24",
     title: "Notices show on every page",
