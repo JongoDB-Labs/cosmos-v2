@@ -34,6 +34,12 @@ const SCOPE_MASK: Record<ApiKeyScope, bigint> = {
     Permission.COMMENT_CREATE | Permission.COMMENT_READ |
     Permission.OKR_READ | Permission.OKR_CREATE |
     Permission.SPRINT_READ | Permission.SPRINT_CREATE,
+  // A disclosure scope, not a permission: it adds no bits. A token sees
+  // members' email addresses (member list, project members) only when it holds
+  // it, because integrations match people by email and the key's owner should
+  // opt into handing a script everyone's address. Contracts name the fields
+  // (`scopedFields`); respond() removes them for tokens without it.
+  "members:read": 0n,
   "documents:write":
     Permission.PROJECT_READ | Permission.PROJECT_UPDATE | Permission.ITEM_READ | Permission.ITEM_CREATE,
   // Exactly one permission, and deliberately no read: a scheduler needs to
@@ -162,6 +168,7 @@ export async function apiKeyAuthContext(
     // evaluateAccess. Without it the mask two lines above is computed and then
     // ignored for any key an owner minted.
     isApiKey: true,
+    scopes: key.scopes,
     abacRules: eff.abacRules,
     // Empty means org-wide, so it must stay UNDEFINED rather than become an
     // empty allowlist — `[]` as a ceiling would deny everything, turning every

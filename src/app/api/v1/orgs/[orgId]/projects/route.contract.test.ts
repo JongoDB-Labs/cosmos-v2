@@ -7,6 +7,7 @@ import { NextRequest } from "next/server";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
+import { projectRow } from "@/lib/openapi/testing/rows";
 
 const { getAuthContext, prisma } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
@@ -31,13 +32,10 @@ function ctx(over: Partial<AuthContext> = {}): AuthContext {
   };
 }
 
-const row = (i: number) => ({
+const row = (i: number) => projectRow({
   id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, orgId: ORG_ID, name: `P${i}`, key: `P${i}`,
-  description: null, settings: {}, status: "ACTIVE", archived: false, projectTemplateId: null,
-  projectTemplate: { sector: "software" }, enabledFeatures: ["risk"], teamScopedAccess: false, clientId: null, externalRef: null,
-  krLinkTypeId: null, objectiveLinkTypeId: null,
+  projectTemplate: { sector: "software" }, enabledFeatures: ["risk"],
   createdAt: new Date(Date.UTC(2026, 9, 30 - i)), updatedAt: new Date(Date.UTC(2026, 9, 30)),
-  _count: { boards: 1, intervals: 0, members: 1 },
 });
 
 const pagingCalls = () =>
