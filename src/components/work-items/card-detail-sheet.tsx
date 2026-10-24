@@ -335,7 +335,7 @@ export function CardDetailSheet({
   // the fields that apply to THIS item's work-item type (type bindings honored).
   const { fields: customFields } = useCustomFields(orgId, projectId);
   const { ask: askTransition, dialog: transitionDialog } = useTransitionPrompt(customFields);
-  const reachable = useItemTransitions(orgId, projectId, item?.id, item?.columnKey);
+  const reachable = useItemTransitions(orgId, projectId, item);
   // The statuses this person may move the item to from here, by the project's
   // workflow; one that asks for details first is marked "…".
   const statusChoices = reachable

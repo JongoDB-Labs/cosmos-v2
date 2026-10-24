@@ -20,7 +20,7 @@
  * workflow in SHADOW mode computes them and lets the change through.
  */
 import type { ColumnCategory, Prisma, WorkItem } from "@prisma/client";
-import type { AuthContext } from "@/lib/rbac/check";
+import { NotFoundError, type AuthContext } from "@/lib/rbac/check";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import type { WorkItemPatch } from "@/lib/work-items/apply-change.server";
 import { loadStatuses } from "@/lib/workflow/statuses.server";
@@ -183,7 +183,14 @@ export function workflowResolver(tx: Tx, orgId: string, projectId: string) {
       const row = assignments.find((a) => a.workItemTypeId !== null) ?? assignments.find((a) => a.workItemTypeId === null);
       const version = row?.workflow.publishedVersion;
       if (!row || !version) return openFor();
-      const def = workflowDefinitionSchema.parse(version.definition);
+      const parsed = workflowDefinitionSchema.safeParse(version.definition);
+      if (!parsed.success) {
+        // One corrupt row must not block every edit in the project: it runs
+        // the open workflow until someone republishes, and says so in the log.
+        console.error(`[workflow] version ${version.id} of workflow ${row.workflow.id} does not parse; running the open workflow`, parsed.error.issues.slice(0, 3));
+        return openFor();
+      }
+      const def = parsed.data;
       return {
         compiled: compiledVersion(version.id, def),
         workflowId: row.workflow.id,
@@ -237,7 +244,10 @@ async function conditionActor(tx: Tx, ctx: AuthContext, projectId: string, needs
       where: { projectId, orgMember: { orgId: ctx.orgId, userId: ctx.userId } },
       select: { role: true },
     }),
-    tx.teamMember.findMany({ where: { userId: ctx.userId, team: { projectId } }, select: { teamId: true } }),
+    tx.teamMember.findMany({
+      where: { team: { projectId }, projectMember: { projectId, orgMember: { orgId: ctx.orgId, userId: ctx.userId } } },
+      select: { teamId: true },
+    }),
   ]);
   return {
     userId: ctx.userId,
@@ -245,6 +255,22 @@ async function conditionActor(tx: Tx, ctx: AuthContext, projectId: string, needs
     permissions: ctx.permissions,
     projectRole: member?.role ?? null,
     teamIds: teams.map((t) => t.teamId),
+  };
+}
+
+/**
+ * The actor's facts, loaded once per call and only as deep as a workflow needs.
+ * A bulk edit or a moves map spans types, and one type's workflow may ask about
+ * project roles or teams when the first one's did not.
+ */
+function actorLoader(tx: Tx, actor: AuthContext, projectId: string) {
+  let loaded: { full: boolean; facts: ConditionActor } | null = null;
+  return async (def: WorkflowDefinition): Promise<ConditionActor> => {
+    const needsProject = usesKind(def, ["actorProjectRole", "actorInTeam"]);
+    if (!loaded || (needsProject && !loaded.full)) {
+      loaded = { full: needsProject, facts: await conditionActor(tx, actor, projectId, needsProject) };
+    }
+    return loaded.facts;
   };
 }
 
@@ -409,6 +435,14 @@ export async function gateChange(
   },
 ): Promise<GateResult> {
   const result: GateResult = { gates: [], denials: [], shadow: [], forced: [] };
+  // A type named in the patch comes from the request: it must be this org's
+  // own or a built-in one before its workflow or its required fields are read.
+  if (args.patch.workItemTypeId) {
+    const ok = await tx.workItemType.count({
+      where: { id: args.patch.workItemTypeId, OR: [{ orgId: args.orgId }, { orgId: null }] },
+    });
+    if (ok === 0) throw new NotFoundError("Work item type not found");
+  }
   const governing = workflowResolver(tx, args.orgId, args.projectId);
   const force = args.transition?.force === true;
   if (force && !(args.actor && hasPermission(args.actor.permissions, Permission.WORKFLOW_OVERRIDE))) {
@@ -430,7 +464,7 @@ export async function gateChange(
     });
     for (const r of rows) assignees.set(r.workItemId, [...(assignees.get(r.workItemId) ?? []), r.userId]);
   }
-  let actorFacts: ConditionActor | null = null;
+  const actorFor = args.actor ? actorLoader(tx, args.actor, args.projectId) : null;
 
   for (const item of args.items) {
     const typeId = args.patch.workItemTypeId ?? item.workItemTypeId;
@@ -511,9 +545,8 @@ export async function gateChange(
     if (t.hidden && person) {
       if (refuse({ error: "That transition isn't available.", code: "transition_not_allowed", transition: transitionRef })) continue;
     } else if (t.restrict && args.actor && person) {
-      actorFacts ??= await conditionActor(tx, args.actor, args.projectId, usesKind(wf.compiled.definition, ["actorProjectRole", "actorInTeam"]));
       const ctx: ConditionContext = {
-        actor: actorFacts,
+        actor: await actorFor!(wf.compiled.definition),
         item: conditionItem(item, assignees.get(item.id) ?? []),
         ...(usesKind(wf.compiled.definition, ["previousStatus", "actorIsNot"]) && { history: await conditionHistory(tx, item.id) }),
       };
@@ -668,16 +701,15 @@ export async function allowedMoves(
   });
   if (assignments.length === 0) return { default: null, byType: {} };
   const governing = workflowResolver(tx, args.orgId, args.projectId);
-  let actor: ConditionActor | null = null;
+  const actorFor = actorLoader(tx, args.actor, args.projectId);
   const movesOf = async (wf: GoverningWorkflow): Promise<MoveMap | null> => {
     if (wf.workflowId === null) return null;
-    const def = wf.compiled.definition;
-    actor ??= await conditionActor(tx, args.actor, args.projectId, usesKind(def, ["actorProjectRole", "actorInTeam"]));
+    const actor = await actorFor(wf.compiled.definition);
     const map: MoveMap = {};
     for (const status of wf.compiled.statusKeys) {
       const to = wf.compiled
         .from(status)
-        .filter((t) => !t.hidden && t.to !== status && restrictionMayAllow(t.restrict, actor!))
+        .filter((t) => !t.hidden && t.to !== status && restrictionMayAllow(t.restrict, actor))
         .map((t) => t.to);
       map[status] = [...new Set(to)];
     }

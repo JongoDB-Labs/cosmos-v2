@@ -14,11 +14,13 @@ import type { AvailableTransition } from "@/lib/workflow/contract";
 export function useItemTransitions(
   orgId: string,
   projectId: string,
-  itemId: string | undefined,
-  columnKey: string | undefined,
+  item: { id: string; columnKey: string; workItemTypeId: string | null; assigneeId: string | null } | null | undefined,
 ): ReadonlyMap<string, AvailableTransition> | null {
-  // Keyed on the status too: a move changes what comes next.
-  const key = useOrgQueryKey("work-item-transitions", itemId, columnKey);
+  // Keyed on what the answer depends on: the status (a move changes what comes
+  // next), the type (it picks the workflow and its required fields) and the
+  // assignee (a restriction may name them).
+  const itemId = item?.id;
+  const key = useOrgQueryKey("work-item-transitions", itemId, item?.columnKey, item?.workItemTypeId ?? null, item?.assigneeId ?? null);
   const { data } = useQuery({
     queryKey: key,
     queryFn: () =>

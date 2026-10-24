@@ -34,6 +34,8 @@ import {
 } from "@/lib/work-items/cancel";
 import { ensureCancelledStatus } from "@/lib/workflow/statuses.server";
 import { gateChange, throwIfDenied, type Denial, type EnforcementLevel, type TransitionRequest } from "@/lib/workflow/engine.server";
+import { TransitionError } from "@/lib/workflow/contract";
+import type { FieldRef } from "@/lib/workflow/definition";
 import type { AuthContext } from "@/lib/rbac/check";
 import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
 import { setLabelsForMany, setWorkItemLabels } from "@/lib/work-items/labels";
@@ -338,6 +340,52 @@ function updateKey(data: Prisma.WorkItemUncheckedUpdateManyInput): string {
   return JSON.stringify(Object.entries(data).sort(([a], [b]) => a.localeCompare(b)));
 }
 
+
+/**
+ * Hold the fields a transition added to a change to the rules the request
+ * body met: the patch schema, a team of this project, assignees in this org,
+ * an interval of this project. A value the caller sent unchanged was checked
+ * by the route, so only what differs from `base` is looked up.
+ */
+async function checkTransitionPatch(
+  tx: Prisma.TransactionClient,
+  args: { orgId: string; projectId: string; base: WorkItemPatch; patch: WorkItemPatch },
+): Promise<void> {
+  const refuse = (message: string, field: FieldRef): never => {
+    throw new TransitionError({
+      error: message,
+      code: "transition_invalid",
+      reasons: [{ validator: "input", message, fields: [field] }],
+    });
+  };
+  const p = args.patch;
+  const changed = (k: keyof WorkItemPatch) => p[k] !== undefined && JSON.stringify(p[k]) !== JSON.stringify(args.base[k]);
+  const added = Object.fromEntries((Object.keys(p) as (keyof WorkItemPatch)[]).filter(changed).map((k) => [k, p[k]]));
+  const parsed = workItemPatchSchema.safeParse(added);
+  if (!parsed.success) {
+    const key = String(parsed.error.issues[0]?.path[0] ?? "");
+    const message = "A value for this step isn't valid.";
+    throw new TransitionError({ error: message, code: "transition_invalid", reasons: [{ validator: "input", message, ...(key && { fields: [{ system: key } as FieldRef] }) }] });
+  }
+
+  if (changed("teamId") && p.teamId) {
+    const team = await tx.team.count({ where: { id: p.teamId, projectId: args.projectId } });
+    if (team === 0) refuse("That team isn't part of this project.", { system: "teamId" });
+  }
+  if (changed("intervalId") && p.intervalId) {
+    const interval = await tx.interval.count({ where: { id: p.intervalId, projectId: args.projectId } });
+    if (interval === 0) refuse("That interval isn't part of this project.", { system: "intervalId" });
+  }
+  const assignees = [
+    ...(changed("assigneeId") && p.assigneeId ? [p.assigneeId] : []),
+    ...(changed("assigneeIds") ? (p.assigneeIds ?? []) : []),
+  ];
+  if (assignees.length > 0) {
+    const unique = [...new Set(assignees)];
+    const members = await tx.orgMember.count({ where: { orgId: args.orgId, userId: { in: unique } } });
+    if (members !== unique.length) refuse("That person isn't a member of this organization.", { system: "assigneeId" });
+  }
+}
 /**
  * Sync the assignee SET with the patch, before the rows are read back:
  * - `assigneeIds` replaces each item's set wholesale (order = payload);
@@ -410,6 +458,14 @@ export async function applyWorkItemChange(
     now,
   });
   if (source !== "BULK") throwIfDenied(gate);
+  // What a transition folded in (its input, its actions) skipped the route's
+  // checks on the request body: hold it to them here, before anything is written.
+  const checked = new Set<WorkItemPatch>([patch]);
+  for (const g of gate.gates) {
+    if (checked.has(g.patch)) continue;
+    checked.add(g.patch);
+    await checkTransitionPatch(tx, { orgId, projectId, base: patch, patch: g.patch });
+  }
   const passed = new Map(gate.gates.map((g) => [g.itemId, g]));
   const allowed = items.filter((i) => passed.has(i.id));
   const ids = allowed.map((i) => i.id);

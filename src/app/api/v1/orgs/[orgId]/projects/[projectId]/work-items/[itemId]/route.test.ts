@@ -29,6 +29,8 @@ const { getAuthContext, prisma, logAudit } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   prisma: {
     organization: { findUnique: vi.fn() },
+    // The project gate (requireProjectRead): a project with no team scoping.
+    project: { findFirst: vi.fn(async () => ({ id: "p1", teamScopedAccess: false })) },
     workItem: {
       findFirst: vi.fn(),
       findMany: vi.fn(),

@@ -50,6 +50,18 @@ describe("workflowDefinitionSchema", () => {
     const bad = { ...def(), transitons: [] };
     expect(workflowDefinitionSchema.safeParse(bad).success).toBe(false);
   });
+
+  it("caps condition nesting on every parse, not only at publish", () => {
+    const nested = (depth: number) => {
+      let node: object = { kind: "actorIsAssignee" };
+      for (let i = 1; i < depth; i++) node = { not: node };
+      return def({ transitions: [{ id: "t", name: "T", from: "*", to: "done", restrict: node as never }] });
+    };
+    expect(workflowDefinitionSchema.safeParse(nested(8)).success).toBe(true);
+    const deep = workflowDefinitionSchema.safeParse(nested(9));
+    expect(deep.success).toBe(false);
+    expect(deep.error?.issues[0].path).toEqual(["transitions", 0, "restrict"]);
+  });
 });
 
 describe("validateDefinition", () => {

@@ -100,3 +100,7 @@ ALTER TABLE "workflow_assignments" ADD CONSTRAINT "workflow_assignments_org_id_f
 -- One project default per project: the composite unique above treats NULL
 -- type ids as distinct.
 CREATE UNIQUE INDEX "workflow_assignments_project_default_key" ON "workflow_assignments"("project_id") WHERE "work_item_type_id" IS NULL;
+
+-- One org template per name: (project_id, name) above treats the NULL project
+-- id of a template as distinct, so two templates could share a name.
+CREATE UNIQUE INDEX "workflows_org_template_name_key" ON "workflows"("org_id", "name") WHERE "project_id" IS NULL;

@@ -1087,6 +1087,8 @@ model Workflow {
   assignments      WorkflowAssignment[]
 
   @@unique([projectId, name])
+  // Plus a partial unique index on (org_id, name) WHERE project_id IS NULL
+  // (migration SQL): one org template per name.
   @@index([orgId])
   @@map("workflows")
 }

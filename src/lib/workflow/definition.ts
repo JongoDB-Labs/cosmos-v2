@@ -159,7 +159,13 @@ export const transitionSchema = z
     /** Not offered to people: system and automation only (e.g. "Merge"). */
     hidden: z.boolean().optional(),
   })
-  .strict();
+  .strict()
+  // Enforced on every parse, not only at publish, so a stored or posted
+  // definition can't carry a condition tree deeper than the evaluator allows.
+  .refine((t) => !t.restrict || conditionDepth(t.restrict) <= LIMITS.conditionDepth, {
+    message: `Conditions nest more than ${LIMITS.conditionDepth} deep.`,
+    path: ["restrict"],
+  });
 export type TransitionSpec = z.infer<typeof transitionSchema>;
 
 export const workflowDefinitionSchema = z

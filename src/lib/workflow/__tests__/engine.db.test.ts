@@ -16,7 +16,7 @@ const calls = vi.hoisted(() => ({ ctx: null as unknown, audit: [] as Array<Recor
 vi.mock("@/lib/auth/session", () => ({ getAuthContext: vi.fn(async () => calls.ctx) }));
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn(async (e: Record<string, unknown>) => void calls.audit.push(e)) }));
 vi.mock("@/lib/realtime/broker", () => ({ publishToOrg: vi.fn() }));
-vi.mock("@/lib/notifications/create", () => ({ createNotification: vi.fn() }));
+vi.mock("@/lib/notifications/create", () => ({ createNotification: vi.fn(async () => undefined) }));
 vi.mock("@/lib/integrations/teams-notify", async (orig) => ({
   ...(await orig<typeof import("@/lib/integrations/teams-notify")>()),
   teamsNotify: vi.fn(),
@@ -553,5 +553,176 @@ describe("the moves map a board dims columns with", () => {
       default: { todo: ["doing"], doing: ["done"], done: ["todo"], cancelled: [] },
       byType: { [otherTypeId]: { todo: [], doing: [], done: [], cancelled: [] } },
     });
+  });
+});
+
+describe("what a caller who can't see the project gets", () => {
+  const list = async (projectId: string, itemId: string) =>
+    (await getTransitions(new NextRequest("http://localhost/x"), { params: Promise.resolve({ orgId, projectId, itemId }) })).status;
+
+  it("is refused for a key scoped to another project, and can't tell a real item from a missing one", async () => {
+    const w = await world();
+    const elsewhere = await world();
+    const a = await item(w.projectId);
+    actAs(aliceId);
+    calls.ctx = { ...(calls.ctx as AuthContext), isApiKey: true, scopes: ["items:write"], projectScope: [elsewhere.projectId] };
+    expect(await list(w.projectId, a)).toBe(403);
+    expect(await list(w.projectId, "00000000-0000-4000-8000-000000000000")).toBe(403);
+    expect((await put(w.projectId, a, { columnKey: "doing" })).status).toBe(403);
+    expect(await columnOf(a)).toBe("todo");
+    // The same key scoped to this project gets the list.
+    calls.ctx = { ...(calls.ctx as AuthContext), projectScope: [w.projectId] };
+    expect(await list(w.projectId, a)).toBe(200);
+  });
+
+  it("is refused for a member outside a team-scoped project", async () => {
+    const w = await world();
+    await prisma.project.update({ where: { id: w.projectId }, data: { teamScopedAccess: true } });
+    const a = await item(w.projectId);
+    calls.ctx = { userId: bobId, orgId, orgRole: OrgRole.MEMBER, permissions: ADMIN, basePermissions: ADMIN, abacRules: [] } satisfies AuthContext;
+    expect(await list(w.projectId, a)).toBe(403);
+    expect((await put(w.projectId, a, { columnKey: "doing" })).status).toBe(403);
+    expect(await columnOf(a)).toBe("todo");
+  });
+});
+
+describe("another org's things named in a change", () => {
+  let foreignOrgId = "";
+  let foreignTypeId = "";
+  let foreignFieldKey = "";
+  beforeAll(async () => {
+    const stamp = Math.random().toString(36).slice(2, 8);
+    foreignOrgId = (await prisma.organization.create({ data: { name: `wfe-foreign ${stamp}`, slug: `wfe-foreign-${stamp}` } })).id;
+    foreignTypeId = (await prisma.workItemType.create({ data: { orgId: foreignOrgId, key: `secret-${stamp}`, name: "Secret" } })).id;
+    foreignFieldKey = `foreign_secret_${stamp}`;
+    const field = await prisma.customField.create({
+      data: { orgId: foreignOrgId, name: "Foreign secret", key: foreignFieldKey, fieldType: "SELECT", options: ["classified"] },
+    });
+    await prisma.workItemTypeField.create({ data: { workItemTypeId: foreignTypeId, customFieldId: field.id, required: true } });
+  });
+  afterAll(async () => {
+    await prisma.organization.deleteMany({ where: { id: foreignOrgId } }).catch(() => undefined);
+  });
+
+  it("a type of another org is not found, and its required fields are never listed", async () => {
+    const w = await world();
+    const a = await item(w.projectId);
+    const r = await put(w.projectId, a, { workItemTypeId: foreignTypeId, columnKey: "doing" });
+    expect(r.status).toBe(404);
+    expect(JSON.stringify(r.body)).not.toContain(foreignFieldKey);
+    expect(await prisma.workItem.findUniqueOrThrow({ where: { id: a } })).toMatchObject({ columnKey: "todo", workItemTypeId: typeId });
+  });
+});
+
+describe("what a transition writes", () => {
+  /** todo -> doing asks for a team, an interval, an assignee and a priority. */
+  const ASKS: WorkflowDefinition = {
+    schemaVersion: 1,
+    statuses: GOVERNED.statuses,
+    transitions: [
+      {
+        id: "start", name: "Start", from: ["todo"], to: "doing",
+        input: (["teamId", "intervalId", "assigneeId", "priority"] as const).map((system) => ({ field: { system }, required: false })),
+      },
+      { id: "hand-off", name: "Hand off", from: ["doing"], to: "done", actions: [{ kind: "assign", to: "creator" }] },
+    ],
+  };
+  let outsiderId = "";
+  beforeAll(async () => {
+    outsiderId = (await prisma.user.create({ data: { email: `outsider-${Math.random().toString(36).slice(2, 8)}@test.local`, displayName: "Outsider" } })).id;
+  });
+  afterAll(async () => {
+    await prisma.user.deleteMany({ where: { id: outsiderId } }).catch(() => undefined);
+  });
+
+  const start = (projectId: string, itemId: string, input: Record<string, unknown>) =>
+    put(projectId, itemId, { columnKey: "doing", transition: { input } });
+
+  it("is held to the project's teams and intervals, the org's people and the patch schema", async () => {
+    const w = await world();
+    const elsewhere = await world();
+    await customWorkflow(w.projectId, ASKS);
+    const foreignTeam = await prisma.team.create({ data: { orgId, projectId: elsewhere.projectId, name: "Elsewhere" } });
+    const foreignInterval = await prisma.interval.create({
+      data: { orgId, projectId: elsewhere.projectId, number: 1, name: "S1", startDate: new Date(), endDate: new Date() },
+    });
+    const a = await item(w.projectId);
+
+    for (const [input, field] of [
+      [{ "system:teamId": foreignTeam.id }, "teamId"],
+      [{ "system:intervalId": foreignInterval.id }, "intervalId"],
+      [{ "system:assigneeId": outsiderId }, "assigneeId"],
+      [{ "system:priority": "NOT_A_PRIORITY" }, "priority"],
+    ] as const) {
+      const r = await start(w.projectId, a, input);
+      expect(r.status, field).toBe(422);
+      expect(r.body, field).toMatchObject({ code: "transition_invalid", reasons: [{ validator: "input", fields: [{ system: field }] }] });
+    }
+    expect(await prisma.workItem.findUniqueOrThrow({ where: { id: a } })).toMatchObject({
+      columnKey: "todo", teamId: null, intervalId: null, assigneeId: null,
+    });
+
+    // The project's own, and a member of the org, go through.
+    const team = await prisma.team.create({ data: { orgId, projectId: w.projectId, name: "Here" } });
+    const ok = await start(w.projectId, a, { "system:teamId": team.id, "system:assigneeId": bobId, "system:priority": "HIGH" });
+    expect(ok.status).toBe(200);
+    expect(await prisma.workItem.findUniqueOrThrow({ where: { id: a } })).toMatchObject({ columnKey: "doing", teamId: team.id, assigneeId: bobId });
+  });
+
+  it("refuses an action that assigns someone outside the org", async () => {
+    const w = await world();
+    await customWorkflow(w.projectId, {
+      ...ASKS,
+      transitions: ASKS.transitions.map((t) => (t.id === "hand-off" ? { ...t, actions: [{ kind: "assign" as const, to: { userId: outsiderId } }] } : t)),
+    });
+    const a = await item(w.projectId, { columnKey: "doing" });
+    const r = await put(w.projectId, a, { columnKey: "done" });
+    expect(r.status).toBe(422);
+    expect(r.body).toMatchObject({ code: "transition_invalid", reasons: [{ fields: [{ system: "assigneeId" }] }] });
+    expect(await prisma.workItem.findUniqueOrThrow({ where: { id: a } })).toMatchObject({ columnKey: "doing", assigneeId: null });
+  });
+});
+
+describe("a bulk edit across types", () => {
+  it("loads the actor's project role when a later type's workflow needs it", async () => {
+    const w = await world();
+    const member = await prisma.orgMember.findUniqueOrThrow({ where: { orgId_userId: { orgId, userId: aliceId } } });
+    await prisma.projectMember.create({ data: { projectId: w.projectId, orgMemberId: member.id, role: "LEAD" } });
+    const only = (restrict: NonNullable<WorkflowDefinition["transitions"][number]["restrict"]>): WorkflowDefinition => ({
+      ...GOVERNED,
+      transitions: [{ id: "start", name: "Start", from: ["todo"], to: "doing", restrict }],
+    });
+    // The first item's workflow asks nothing of the project; the second's does.
+    await customWorkflow(w.projectId, only({ kind: "actorOrgRole", in: ["ADMIN"] }), { workItemTypeId: typeId });
+    await customWorkflow(w.projectId, only({ kind: "actorProjectRole", in: ["LEAD"] }), { workItemTypeId: otherTypeId });
+    const a = await item(w.projectId);
+    const b = await item(w.projectId, { workItemTypeId: otherTypeId });
+    const res = await bulkPut(
+      new NextRequest("http://localhost/x", { method: "PUT", body: JSON.stringify({ ids: [a, b], update: { columnKey: "doing" } }) }),
+      { params: Promise.resolve({ orgId, projectId: w.projectId }) },
+    );
+    const body = await res.json();
+    expect(body).toMatchObject({ updated: 2, denied: [] });
+    expect([await columnOf(a), await columnOf(b)]).toEqual(["doing", "doing"]);
+  });
+});
+
+describe("a stored definition that doesn't parse", () => {
+  it("runs the open workflow instead of blocking every edit", async () => {
+    const w = await world();
+    const wf = await prisma.workflow.create({ data: { orgId, projectId: w.projectId, name: "corrupt", createdById: aliceId } });
+    const version = await prisma.workflowVersion.create({
+      data: { orgId, workflowId: wf.id, version: 1, state: "PUBLISHED", definition: { schemaVersion: 1, statuses: "garbled" }, checksum: "x" },
+    });
+    await prisma.workflow.update({ where: { id: wf.id }, data: { publishedVersionId: version.id } });
+    await prisma.workflowAssignment.create({ data: { orgId, projectId: w.projectId, workItemTypeId: null, workflowId: wf.id } });
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const a = await item(w.projectId);
+      expect((await put(w.projectId, a, { columnKey: "done" })).status).toBe(200);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining(version.id), expect.anything());
+    } finally {
+      log.mockRestore();
+    }
   });
 });
