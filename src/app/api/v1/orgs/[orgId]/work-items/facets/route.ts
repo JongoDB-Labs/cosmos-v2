@@ -6,6 +6,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { getWorkItemFacets } from "./route.contract";
+import { scopedRosterUserIds } from "@/lib/members/scoped-roster.server";
 import { getReadableProjectIds } from "@/lib/work-items/query";
 import { getManagedProjectIds } from "@/lib/rbac/scope";
 import { groupStatusesByProject } from "@/lib/work-items/status-facets";
@@ -42,6 +43,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // manager whose ORG role lacks BOARD_CREATE — the board POST already accepts
     // the project-manager path, the affordance just wasn't gated to match.
     const managedProjectIds = await getManagedProjectIds(ctx, allowedProjectIds);
+    // A project-scoped key sees only the people on its projects (scopes narrow).
+    const roster = await scopedRosterUserIds(ctx);
 
     const [projects, types, columns, members, intervals, tagRows] = await Promise.all([
       prisma.project.findMany({
@@ -71,7 +74,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         orderBy: { sortOrder: "asc" },
       }),
       prisma.orgMember.findMany({
-        where: { orgId },
+        where: { orgId, ...(roster ? { userId: { in: roster } } : {}) },
         select: {
           userId: true,
           user: { select: { id: true, displayName: true, avatarUrl: true } },
