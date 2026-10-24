@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.479.1",
+    date: "2026-10-24",
+    title: "Feedback and expenses follow team-limited projects",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security: feedback and expenses filed under a project limited to its team are now visible only to that team, including in the feedback inbox counts, finance totals and data exports. Feedback and expenses under no project stay visible to the whole organization.",
+      },
+    ],
+  },
+  {
     version: "2.479.0",
     date: "2026-10-24",
     title: "Make someone else an owner",
