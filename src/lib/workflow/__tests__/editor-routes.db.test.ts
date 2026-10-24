@@ -35,10 +35,10 @@ let ticket = 0;
 const ALL = Object.values(Permission).reduce((acc, bit) => acc | bit, 0n);
 const MEMBER = Permission.ITEM_READ | Permission.ITEM_UPDATE | Permission.ITEM_CREATE | Permission.PROJECT_READ;
 
-function actAs(userId: string, permissions: bigint, opts: { role?: OrgRole; apiKey?: boolean } = {}) {
+function actAs(userId: string, permissions: bigint, opts: { role?: OrgRole; apiKey?: boolean; scopes?: string[] } = {}) {
   calls.ctx = {
     userId, orgId, orgRole: opts.role ?? OrgRole.ADMIN, permissions, basePermissions: permissions, abacRules: [],
-    ...(opts.apiKey && { isApiKey: true, scopes: ["read", "items:write"] }),
+    ...(opts.apiKey && { isApiKey: true, scopes: opts.scopes ?? ["read", "items:write"] }),
   } satisfies AuthContext;
 }
 
@@ -127,6 +127,14 @@ describe("who may read and change workflows", () => {
     actAs(aliceId, MEMBER, { apiKey: true });
     expect((await call(listWorkflows, { orgId, projectId: p })).status).toBe(200);
     expect((await call(createWorkflowRoute, { orgId, projectId: p }, "POST", { name: "Key", from: { kind: "open" } })).status).toBe(403);
+  });
+
+  it("holds an API key to its scopes", async () => {
+    const p = await project();
+    actAs(aliceId, ALL, { apiKey: true, scopes: ["members:read"] });
+    const r = await call(listWorkflows, { orgId, projectId: p });
+    expect(r.status).toBe(403);
+    expect(r.body.code).toBe("insufficient_scope");
   });
 
   it("answers 404 for a project of another org, under this org's id", async () => {
