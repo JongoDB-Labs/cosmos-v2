@@ -15,7 +15,9 @@ export const starSavedView = defineRoute({
   description: "Star a filter the caller can see, optionally at a position in their sidebar list.",
   tags: ["Saved filters"],
   stability: "internal",
-  scopes: ["items:write"],
+  // A key's owner's own saved views, which handlers check no bit for: any key
+  // could edit them before scopes were enforced, so `read` keeps that.
+  scopes: ["read"],
   request: { params, body: z.object({ sortOrder: z.number().int().min(0).max(10_000).optional() }) },
   responses: { 200: z.object({ favorite: z.literal(true), sortOrder: z.number().int() }) },
   errors: [400, 401, 404],
@@ -28,7 +30,9 @@ export const unstarSavedView = defineRoute({
   summary: "Unstar a saved filter",
   tags: ["Saved filters"],
   stability: "internal",
-  scopes: ["items:write"],
+  // A key's owner's own saved views, which handlers check no bit for: any key
+  // could edit them before scopes were enforced, so `read` keeps that.
+  scopes: ["read"],
   request: { params },
   responses: { 204: null },
   errors: [401, 404],

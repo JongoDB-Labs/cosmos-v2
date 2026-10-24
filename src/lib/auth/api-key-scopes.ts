@@ -31,7 +31,7 @@ export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
  * or audit access. The mask stays the real limit: an implied `read` passes the
  * gate, and the read itself still needs the bits.
  *
- * `items:write` implies `planning:write` because keys minted before the split
+ * `items:write` (and `documents:write`, below) implies `planning:write` because keys minted before the split
  * already create, edit and delete milestones and KPIs (they gate on
  * PROJECT_UPDATE, which items:write carries). Passing the gate gives such a key
  * nothing new: its mask still decides, exactly as before. The split still buys
@@ -40,7 +40,10 @@ export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 const IMPLIES: Partial<Record<ApiKeyScope, ApiKeyScope[]>> = {
   "items:write": ["read", "planning:write"],
   "planning:write": ["read"],
-  "documents:write": ["read"],
+  // documents:write carries PROJECT_UPDATE and ITEM_CREATE, so keys minted
+  // with it already reach milestone, KPI and project edits and work-item
+  // creation; the same no-loss rule as items:write (the mask still decides).
+  "documents:write": ["read", "items:write", "planning:write"],
   "time:write": ["time:read"],
 };
 
