@@ -74,3 +74,12 @@ export function asTransitionError(body: unknown): TransitionErrorBody | null {
   const b = body as Partial<TransitionErrorBody>;
   return typeof b.error === "string" && typeof b.code === "string" && b.code in STATUS ? (b as TransitionErrorBody) : null;
 }
+
+/** One item a bulk change left alone, with why; for missing input, what to ask for. */
+export interface BulkDenial {
+  id: string;
+  code: TransitionErrorCode;
+  message: string;
+  transition?: { id: string; name: string; to: string };
+  fields?: TransitionInputField[];
+}
