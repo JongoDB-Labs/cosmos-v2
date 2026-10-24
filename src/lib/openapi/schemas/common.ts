@@ -34,7 +34,10 @@ export const Problem = z.object({
   title: z.string(),
   status: z.number().int(),
   detail: z.string().optional(),
-  code: z.enum(Object.keys(PROBLEM_CODES) as [keyof typeof PROBLEM_CODES, ...(keyof typeof PROBLEM_CODES)[]]),
+  // An extensible enum: the set of codes grows as features add refusals of
+  // their own, and a client must treat an unknown code by its `status`. As a
+  // closed `enum`, every new code was a breaking change to every operation.
+  code: z.string().meta({ "x-extensible-enum": Object.keys(PROBLEM_CODES) }),
   requestId: z.string().optional().describe("The `X-Request-Id` of the request. Quote it to support."),
   issues: z.array(z.unknown()).optional().describe("Validation failures, on 400 `invalid_request`."),
   error: z.string().describe("Deprecated: same text as `detail` (or `title`). Kept for existing clients."),

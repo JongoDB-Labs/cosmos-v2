@@ -4,6 +4,7 @@ import { buildDocument, collectContracts } from "../registry";
 import { API_KEY_SCOPES } from "@/lib/auth/api-key-scopes";
 import { assertScopes } from "../org-context";
 import type { RouteContract } from "../contract";
+import { PROBLEM_CODES } from "../problem-codes";
 
 /**
  * House rules for the published spec, checked on the generated document
@@ -27,6 +28,13 @@ const ops = Object.entries(doc.paths).flatMap(([p, methods]) =>
 describe("published spec lint", () => {
   it("has operations", () => {
     expect(ops.length).toBeGreaterThan(0);
+  });
+
+  it("declares a problem's code as an extensible enum, so a new code is not a breaking change", () => {
+    const code = (doc as unknown as { components: { schemas: Record<string, { properties: Record<string, Record<string, unknown>> }> } })
+      .components.schemas.Problem.properties.code;
+    expect(code.enum).toBeUndefined();
+    expect(code["x-extensible-enum"]).toEqual(Object.keys(PROBLEM_CODES));
   });
 
   it.each(ops)("$where: id, summary, tag, stability", ({ op }) => {
