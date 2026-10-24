@@ -5,6 +5,8 @@ import { logAudit } from "@/lib/audit";
 import { parseRequest } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { workflowProjectContext } from "@/lib/workflow/route-auth.server";
+import { requireProjectManage } from "@/lib/rbac/require-project-manage";
+import { Permission } from "@/lib/rbac/permissions";
 import { assignWorkflow } from "@/lib/workflow/versions.server";
 import { startMigrations } from "@/lib/workflow/migrate.server";
 import { assignProjectWorkflow } from "./route.contract";
@@ -14,8 +16,8 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: p, body } = await parseRequest(assignProjectWorkflow, request, params);
-    const auth = await workflowProjectContext(request, p, "manage");
-    if ("response" in auth) return auth.response;
+    const ctx = await workflowProjectContext(p, assignProjectWorkflow);
+    await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     if (body.workItemTypeId) {
       const type = await prisma.workItemType.findFirst({
         where: { id: body.workItemTypeId, OR: [{ orgId: p.orgId }, { orgId: null }] },
@@ -26,7 +28,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const result = await prisma.$transaction((tx) => assignWorkflow(tx, { orgId: p.orgId, projectId: p.projectId, ...body }));
     await logAudit({
       orgId: p.orgId,
-      userId: auth.ctx.userId,
+      userId: ctx.userId,
       action: "workflow.assigned",
       entity: "project",
       entityId: p.projectId,
