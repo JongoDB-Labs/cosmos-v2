@@ -160,7 +160,9 @@ export function evaluatePreflights(f: PreflightFacts): PreflightResult[] {
     status: f.ahead ? "fail" : "pass",
     detail: f.ahead
       ? `This instance runs ${f.currentVersion}, which is newer than anything the registry offers. Applying the newest tag would be a DOWNGRADE, and downgrading across a schema migration corrupts data.`
-      : "The candidate is newer than the running version.",
+      : f.candidateVersion === f.currentVersion
+        ? "The candidate is a rebuild of the version this instance runs, not an older one."
+        : "The candidate is newer than the running version.",
     blocking: true,
   });
 
