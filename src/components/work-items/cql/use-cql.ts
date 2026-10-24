@@ -12,7 +12,7 @@
  *                  params (`?item=` deep links) are left alone.
  */
 import { useCallback, useMemo } from "react";
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useSearchParams, usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { jsonFetch, FetchError } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -91,7 +91,6 @@ export function useCqlUrlState(): {
   /** Several params in one navigation (two replaces in a row race). */
   update: (patch: Record<string, string | null>) => void;
 } {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const cql = searchParams.get("cql") ?? "";
@@ -107,9 +106,15 @@ export function useCqlUrlState(): {
         else next.set(k, v);
       }
       const qs = next.toString();
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      // Shallow, through the History API (which the App Router syncs into
+      // useSearchParams): the query is client state, read by IssuesView and by
+      // nothing on the server. router.replace re-rendered the page on the
+      // server first and changed the URL only when that returned, so under
+      // load the query, and the results with it, lagged a running query by
+      // seconds.
+      window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
     },
-    [router, pathname, searchParams],
+    [pathname, searchParams],
   );
 
   return useMemo(
