@@ -9,6 +9,13 @@ export const PROBLEM_CODES = {
   model_not_connected: "Claude isn't connected",
   rate_limited: "Too many requests",
   internal_error: "Internal server error",
+  // A status change the project's workflow refused (src/lib/workflow/contract.ts).
+  transition_not_allowed: "Transition not allowed",
+  transition_ambiguous: "Transition ambiguous",
+  transition_forbidden: "Transition not permitted",
+  transition_invalid: "Transition checks failed",
+  transition_input_required: "Transition needs input",
+  type_change_needs_status: "New type needs a status",
 } as const;
 
 export type ProblemCode = keyof typeof PROBLEM_CODES;

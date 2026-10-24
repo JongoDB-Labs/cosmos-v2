@@ -187,7 +187,7 @@ describe("the work-item outbox", () => {
     const b = await lastCreatedId();
     await prisma.$transaction((tx) =>
       applyWorkItemChange(tx, {
-        actorId: userId, orgId, projectId, itemIds: [a, b], patch: { columnKey: "done", tags: [] }, source: "BULK",
+        actorId: userId, orgId, projectId, itemIds: [a, b], patch: { columnKey: "done", tags: [] }, source: "BULK", actor: null,
       }),
     );
     const [ea, eb] = [(await eventsFor(a)).at(-1)!, (await eventsFor(b)).at(-1)!];

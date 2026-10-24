@@ -28,6 +28,13 @@
 //   - statuses (P1): "move to a key that is not a status is refused": a key must
 //     name one of the project's statuses, so a 400 and no change, where the item
 //     used to land on a key no board showed and drop out of every view.
+//   - workflow engine (P2): that move is now the workflow's refusal, a 409
+//     `transition_not_allowed` problem, before anything is written. A cancel
+//     records its reason as the item's resolution ("cancel with OBE…", "cancel
+//     with OTHER…", "cancel naming an existing Cancelled column…", "cancelling
+//     an item already cancelled…"), a merge records "Duplicate" ("merge a
+//     duplicate"), and a bulk response lists the items the workflow refused
+//     (`denied`, empty in "bulk move into Done", "bulk assignee change", "bulk tags").
 //
 // Ids and "now" are normalised (see `norm`), so a snapshot shows names, not
 // uuids, and `<now>` for any timestamp taken during the scenario.
