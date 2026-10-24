@@ -51,6 +51,10 @@ describe("PrismaClient instantiation", () => {
     const offenders = ROOTS.flatMap(walk).filter((p) =>
       /new PrismaClient\s*(?!<\s*Prisma\.PrismaClientOptions\s*>)[(<]/.test(code(p)),
     );
-    expect(offenders).toEqual([]);
+    expect(
+      offenders,
+      "Write `new PrismaClient<Prisma.PrismaClientOptions>({...})`. Each inferred client " +
+        "instantiation costs ~0.7 GB of tsc memory (see the header of this file).",
+    ).toEqual([]);
   });
 });
