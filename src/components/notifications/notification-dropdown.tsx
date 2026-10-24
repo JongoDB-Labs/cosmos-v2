@@ -10,12 +10,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Bell, Check, Mail, MailOpen } from "lucide-react";
+import { Bell, Check, Mail, MailOpen, X } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
 import type { Notification } from "@/types/models";
 import { notificationHref } from "@/lib/notifications/href";
+import { NotificationPreview } from "./notification-preview";
+import { kindLabel } from "@/lib/notifications/kind";
+import {
+  announceNotificationsChanged,
+  onNotificationsChanged,
+} from "@/lib/notifications/changed";
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -42,13 +48,21 @@ interface NotificationDropdownProps {
 /** What the bell shows of a notification; the inbox endpoint's row shape. */
 type BellItem = Pick<
   Notification,
-  "id" | "title" | "body" | "read" | "url" | "createdAt"
+  | "id"
+  | "type"
+  | "title"
+  | "body"
+  | "read"
+  | "url"
+  | "refType"
+  | "refId"
+  | "createdAt"
 >;
 
 type InboxPage = {
   data: BellItem[];
   nextCursor: string | null;
-  counts: { unread: number };
+  counts: { unread: number; byType?: { type: string; count: number }[] };
 };
 
 /** One page per fetch. Enough to fill the panel and then some. */
@@ -71,6 +85,22 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
   // state change tells this component the sentinel now exists to observe.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
   const [sentinel, setSentinel] = useState<HTMLButtonElement | null>(null);
+  // Bumped when the Inbox page changes notifications under the bell.
+  const [reloads, setReloads] = useState(0);
+  // One kind at a time, or everything. The kinds come from the server's counts,
+  // which describe the whole inbox whatever is picked, so the chips never hide
+  // the way back.
+  const [kind, setKind] = useState<string | null>(null);
+  const [kinds, setKinds] = useState<{ type: string; count: number }[]>([]);
+  const kindRef = useRef<string | null>(null);
+  useEffect(() => {
+    kindRef.current = kind;
+  }, [kind]);
+  const kindParam = kind ? `&type=${encodeURIComponent(kind)}` : "";
+  useEffect(
+    () => onNotificationsChanged("bell", () => setReloads((n) => n + 1)),
+    [],
+  );
 
   // First page, through the same paged endpoint the inbox reads, so scrolling
   // can carry on from its cursor.
@@ -80,13 +110,15 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     (async () => {
       try {
         const r = await fetch(
-          `/api/v1/orgs/${orgId}/notifications/inbox?unreadOnly=false&limit=${PAGE_SIZE}`,
+          `/api/v1/orgs/${orgId}/notifications/inbox?unreadOnly=false&limit=${PAGE_SIZE}${kindParam}`,
         );
         if (!r.ok) return;
         const page: InboxPage = await r.json();
         if (cancelled) return;
         setNotifications(page.data);
         setCursor(page.nextCursor);
+        setLoadFailed(false);
+        setKinds(page.counts.byType ?? []);
         setUnreadNotLoaded(
           Math.max(
             0,
@@ -100,7 +132,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     return () => {
       cancelled = true;
     };
-  }, [orgId]);
+  }, [orgId, reloads, kindParam]);
 
   async function loadOlder() {
     if (!cursor || loadingMore) return;
@@ -108,7 +140,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     setLoadFailed(false);
     try {
       const r = await fetch(
-        `/api/v1/orgs/${orgId}/notifications/inbox?unreadOnly=false&limit=${PAGE_SIZE}&cursor=${encodeURIComponent(cursor)}`,
+        `/api/v1/orgs/${orgId}/notifications/inbox?unreadOnly=false&limit=${PAGE_SIZE}${kindParam}&cursor=${encodeURIComponent(cursor)}`,
       );
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const page: InboxPage = await r.json();
@@ -160,6 +192,11 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     const handler = (ev: Event) => {
       try {
         const data = JSON.parse((ev as MessageEvent).data) as BellItem;
+        // Another kind than the one showing: not listed, but still unread.
+        if (kindRef.current && data.type !== kindRef.current) {
+          if (!data.read) setUnreadNotLoaded((c) => c + 1);
+          return;
+        }
         setNotifications((prev) =>
           prev.some((n) => n.id === data.id) ? prev : [data, ...prev],
         );
@@ -183,9 +220,47 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
       setUnreadNotLoaded(0);
+      announceNotificationsChanged("bell");
     } catch (err) {
       console.error("Failed to mark all notifications read:", err);
       notifyError(err, "Couldn't mark all as read.");
+    }
+  }
+
+  // Clearing deletes. Like read/unread, the list changes only once the server
+  // has done it.
+  async function clearOne(id: string) {
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/notifications/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      announceNotificationsChanged("bell");
+    } catch (err) {
+      notifyError(err, "Couldn't clear that notification.");
+    }
+  }
+
+  // Two steps, in place: a dialog opened from inside a dropdown menu would
+  // close the menu under it, and this can't be undone.
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  async function clearAll() {
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/notifications/inbox`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear" }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setNotifications([]);
+      setUnreadNotLoaded(0);
+      setCursor(null);
+      announceNotificationsChanged("bell");
+    } catch (err) {
+      notifyError(err, "Couldn't clear your notifications.");
+    } finally {
+      setConfirmingClear(false);
     }
   }
 
@@ -202,6 +277,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, read } : n)),
       );
+      announceNotificationsChanged("bell");
     } catch (err) {
       // Opening a notification marks it read on the way past; failing that is
       // trivial and self-heals on the next load, so it stays quiet. Asking for
@@ -252,22 +328,111 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
       <DropdownMenuContent align="end" className="w-80">
         <div className="flex items-center justify-between px-3 py-2">
           <p className="text-sm font-medium">Notifications</p>
-          {unreadCount > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs gap-1 h-7"
-              onClick={(e) => {
-                e.stopPropagation();
-                markAllRead();
-              }}
-            >
-              <Check className="h-3 w-3" />
-              Mark all read
-            </Button>
+          {confirmingClear ? (
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground">Clear all?</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmingClear(false);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void clearAll();
+                }}
+              >
+                Clear
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              {unreadCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs gap-1 h-7"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    markAllRead();
+                  }}
+                >
+                  <Check className="h-3 w-3" />
+                  Mark all read
+                </Button>
+              )}
+              {notifications.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmingClear(true);
+                  }}
+                >
+                  Clear all…
+                </Button>
+              )}
+            </div>
           )}
         </div>
         <DropdownMenuSeparator />
+        {kinds.length > 1 && (
+          <div
+            role="group"
+            aria-label="Show"
+            className="flex gap-1 overflow-x-auto px-3 py-2"
+          >
+            {[
+              {
+                type: null as string | null,
+                label: "All",
+                count: undefined as number | undefined,
+              },
+              ...kinds.map((k) => ({
+                type: k.type as string | null,
+                label: kindLabel(k.type),
+                count: k.count as number | undefined,
+              })),
+            ].map((c) => (
+              <button
+                key={c.type ?? "all"}
+                type="button"
+                aria-pressed={kind === c.type}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Drop the old kind's cursor first, so nothing loads "older"
+                  // from the wrong list before the new first page lands.
+                  setCursor(null);
+                  setKind(c.type);
+                }}
+                className={cn(
+                  "shrink-0 rounded-full border px-2 py-0.5 text-xs",
+                  kind === c.type
+                    ? "border-transparent bg-[var(--primary)] text-[var(--primary-foreground)]"
+                    : "border-[var(--border)] text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {c.label}
+                {c.count !== undefined && (
+                  <span className="ml-1 tabular-nums opacity-70">
+                    {c.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
         {notifications.length === 0 ? (
           <div className="py-8 text-center">
@@ -288,61 +453,79 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
               // The toggle sits beside the item, not inside it: a button
               // nested in a menuitem is two controls in one, and using it
               // would also open the notification.
-              <div
+              <NotificationPreview
                 key={notification.id}
-                className={cn(
-                  "flex items-start",
-                  !notification.read && "bg-muted/50",
-                )}
+                orgId={orgId}
+                notification={notification}
               >
-                <DropdownMenuItem
-                  className="min-w-0 flex-1 flex-col items-start gap-1 py-2.5"
-                  onClick={() => handleNotificationClick(notification)}
-                >
-                  <div className="flex items-start gap-2 w-full">
-                    {!notification.read && (
-                      <div className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p
-                        className={cn(
-                          "text-sm truncate",
-                          !notification.read && "font-medium",
-                        )}
-                      >
-                        {notification.title}
-                      </p>
-                      <p className="text-xs text-muted-foreground line-clamp-2">
-                        {notification.body}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        {timeAgo(notification.createdAt)}
-                      </p>
-                    </div>
-                  </div>
-                </DropdownMenuItem>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="mt-1.5 mr-1 shrink-0 text-muted-foreground"
-                  aria-label={
-                    notification.read
-                      ? `Mark "${notification.title}" unread`
-                      : `Mark "${notification.title}" read`
-                  }
-                  title={notification.read ? "Mark unread" : "Mark read"}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void setRead(notification.id, !notification.read);
-                  }}
-                >
-                  {notification.read ? (
-                    <Mail className="size-4" />
-                  ) : (
-                    <MailOpen className="size-4" />
+                <div
+                  className={cn(
+                    "flex items-start",
+                    !notification.read && "bg-muted/50",
                   )}
-                </Button>
-              </div>
+                >
+                  <DropdownMenuItem
+                    className="min-w-0 flex-1 flex-col items-start gap-1 py-2.5"
+                    onClick={() => handleNotificationClick(notification)}
+                  >
+                    <div className="flex items-start gap-2 w-full">
+                      {!notification.read && (
+                        <div className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className={cn(
+                            "text-sm truncate",
+                            !notification.read && "font-medium",
+                          )}
+                        >
+                          {notification.title}
+                        </p>
+                        <p className="text-xs text-muted-foreground line-clamp-2">
+                          {notification.body}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          {timeAgo(notification.createdAt)}
+                        </p>
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="mt-1.5 mr-1 shrink-0 text-muted-foreground"
+                    aria-label={
+                      notification.read
+                        ? `Mark "${notification.title}" unread`
+                        : `Mark "${notification.title}" read`
+                    }
+                    title={notification.read ? "Mark unread" : "Mark read"}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void setRead(notification.id, !notification.read);
+                    }}
+                  >
+                    {notification.read ? (
+                      <Mail className="size-4" />
+                    ) : (
+                      <MailOpen className="size-4" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="mt-1.5 mr-1 shrink-0 text-muted-foreground"
+                    aria-label={`Clear "${notification.title}"`}
+                    title="Clear"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void clearOne(notification.id);
+                    }}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              </NotificationPreview>
             ))}
             {hasMore ? (
               <button

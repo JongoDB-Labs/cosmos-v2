@@ -96,7 +96,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 /**
- * Mark everything read, or everything of one kind.
+ * Mark everything read, or everything of one kind — or clear (delete) them.
  *
  * Scoped by the same `mine` clause as the read path: a bulk write that could
  * reach another person's inbox is the one mistake this endpoint must not make.
@@ -117,7 +117,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const body = (await request.json().catch(() => ({}))) as {
       action?: string;
       type?: string;
+      unreadOnly?: boolean;
     };
+
+    // Clearing deletes exactly what the view lists: this person's own, of one
+    // kind if one is picked, unread only if that is what is showing. Anything
+    // wider would remove notifications the person never saw counted.
+    if (body.action === "clear") {
+      const cleared = await prisma.notification.deleteMany({
+        where: {
+          orgId,
+          userId: ctx.userId,
+          ...(body.type ? { type: body.type } : {}),
+          ...(body.unreadOnly === true ? { read: false } : {}),
+        },
+      });
+      return success({ cleared: cleared.count });
+    }
+
     if (body.action !== "read-all") {
       return new Response("Unknown action", { status: 400 });
     }
