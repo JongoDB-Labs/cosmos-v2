@@ -26,7 +26,7 @@ export const createMilestone = defineRoute({
   description: "With `autoStatus` (the default), status and date follow the work items linked to it.",
   tags: ["Milestones"],
   stability: "stable",
-  scopes: ["items:write"],
+  scopes: ["planning:write"],
   request: {
     params,
     body: z.object({

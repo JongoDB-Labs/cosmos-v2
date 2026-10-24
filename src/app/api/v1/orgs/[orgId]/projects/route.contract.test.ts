@@ -57,7 +57,7 @@ beforeEach(() => {
 describe("GET projects: the contract", () => {
   it.each([
     ["a browser (cookie) caller", {}],
-    ["an API key that sends no paging params (existing clients)", { isApiKey: true }],
+    ["an API key that sends no paging params (existing clients)", { isApiKey: true, scopes: ["read"] }],
   ])("%s still gets every project in one array", async (_n, over) => {
     getAuthContext.mockResolvedValue(ctx(over));
     const res = await get();
@@ -77,7 +77,7 @@ describe("GET projects: the contract", () => {
   });
 
   it("a caller that asks for pages gets them, with a Link to the rest on the public origin", async () => {
-    getAuthContext.mockResolvedValue(ctx({ isApiKey: true }));
+    getAuthContext.mockResolvedValue(ctx({ isApiKey: true, scopes: ["read"] }));
     const res = await get("?limit=50", { "x-forwarded-host": "cosmos.example.gov", "x-forwarded-proto": "https" });
     expect(await res.json()).toHaveLength(50);
     expect(pagingCalls()[0].take).toBe(51);
@@ -85,7 +85,7 @@ describe("GET projects: the contract", () => {
   });
 
   it("follows a cursor with a keyset WHERE, keeping the org and archived filter", async () => {
-    getAuthContext.mockResolvedValue(ctx({ isApiKey: true }));
+    getAuthContext.mockResolvedValue(ctx({ isApiKey: true, scopes: ["read"] }));
     const cursor = (await get("?limit=2")).headers.get("cosmos-next-cursor")!;
     const second = await get(`?limit=2&cursor=${cursor}`);
     expect(second.status, JSON.stringify(await second.clone().json())).toBe(200);
@@ -135,5 +135,21 @@ describe("GET projects: the contract", () => {
     const res = await get();
     expect(res.status).toBe(401);
     expect(res.headers.get("content-type")).toBe("application/problem+json");
+  });
+});
+
+describe("GET projects: the scope gate", () => {
+  it("a token without `read` (or a write scope implying it) is refused 403 with a step-up challenge", async () => {
+    getAuthContext.mockResolvedValue(ctx({ isApiKey: true, scopes: ["time:write"] }));
+    const res = await get();
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("insufficient_scope");
+    expect(res.headers.get("www-authenticate")).toContain('error="insufficient_scope"');
+    expect(prisma.project.findMany).not.toHaveBeenCalled();
+  });
+
+  it("an items:write token passes the gate (write implies read)", async () => {
+    getAuthContext.mockResolvedValue(ctx({ isApiKey: true, scopes: ["items:write"] }));
+    expect((await get()).status).toBe(200);
   });
 });

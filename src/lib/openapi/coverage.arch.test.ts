@@ -65,7 +65,7 @@ describe("contracts", () => {
     expect(bad).toEqual([]);
   });
 
-  it("a stable or beta operation's handler validates with parseRequest and answers with respond", () => {
+  it("a stable or beta operation's handler validates with parseRequest, checks scopes via orgContext and answers with respond", () => {
     const missing: string[] = [];
     for (const c of contracts.filter((x) => x.stability !== "internal")) {
       const key = operationKey(c.method, c.path);
@@ -74,8 +74,15 @@ describe("contracts", () => {
       const src = readFileSync(file, "utf8");
       if (!new RegExp(`parseRequest\\(\\s*${c.operationId}\\b`).test(src)) missing.push(`${key}: parseRequest(${c.operationId}, …)`);
       if (!new RegExp(`respond\\(\\s*${c.operationId}\\b`).test(src)) missing.push(`${key}: respond(${c.operationId}, …)`);
+      // The scope gate lives in orgContext, so the handler must hand it the contract.
+      if (!new RegExp(`orgContext\\((?:[^()]|\\([^()]*\\))*\\b${c.operationId}\\b`).test(src)) missing.push(`${key}: orgContext(…, ${c.operationId})`);
     }
     expect(missing).toEqual([]);
+  });
+
+  it("a stable or beta operation names at least one scope (empty refuses every key)", () => {
+    const empty = contracts.filter((c) => c.stability !== "internal" && c.scopes.length === 0).map((c) => c.operationId);
+    expect(empty).toEqual([]);
   });
 });
 

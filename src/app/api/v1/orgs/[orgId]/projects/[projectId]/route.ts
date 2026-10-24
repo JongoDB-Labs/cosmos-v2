@@ -38,7 +38,7 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, getProject);
     const { params: { orgId, projectId } } = await parseRequest(getProject, request, params);
     await requireProjectRead(ctx, projectId, "PROJECT_READ");
 
@@ -77,7 +77,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, updateProject);
     const { params: { orgId, projectId }, body } = await parseRequest(updateProject, request, params);
     // Inheriting authority: an org-wide PROJECT_UPDATE holder OR a MANAGER of
     // THIS project may edit it — so a project-admin can run their own project

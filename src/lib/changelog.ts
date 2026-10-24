@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.459.0",
+    date: "2026-10-24",
+    title: "Per-operation API key scopes",
+    highlights: [
+      {
+        kind: "feature",
+        text: "API keys are now checked against the scopes each operation needs, and new scopes let you mint narrower keys (time, audit, planning, deletes). Keys with only rules:run or members:read can no longer list members or edit saved views, and read-only keys can no longer save, star or unstar saved views; re-mint with items:write if you relied on that.",
+      },
+    ],
+  },
+  {
     version: "2.458.0",
     date: "2026-10-24",
     title: "Cosmos tabs in Microsoft Teams",

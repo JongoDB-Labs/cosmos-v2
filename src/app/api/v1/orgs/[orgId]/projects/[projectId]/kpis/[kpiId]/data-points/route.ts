@@ -19,9 +19,11 @@ async function loadKpi(orgId: string, projectId: string, kpiId: string) {
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, listKpiDataPoints);
     const { params: { orgId, projectId, kpiId } } = await parseRequest(listKpiDataPoints, request, params);
-    await requireProjectRead(ctx, projectId, "ANALYTICS_READ");
+    // ANALYTICS_READ for a session. No key scope carries it (it reaches every
+    // analytics and PM-register route), so a key reads KPIs with PROJECT_READ.
+    await requireProjectRead(ctx, projectId, ctx.isApiKey ? "PROJECT_READ" : "ANALYTICS_READ");
 
     const kpi = await loadKpi(orgId, projectId, kpiId);
     if (!kpi) return problem(404, "not_found", undefined, { request });
@@ -39,7 +41,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, createKpiDataPoint);
     const { params: { orgId, projectId, kpiId }, body: data } = await parseRequest(createKpiDataPoint, request, params);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 

@@ -11,7 +11,7 @@ export const listAuditLogs = defineRoute({
   description: "Newest first, a page at a time. Needs audit-log access (org admins by default).",
   tags: ["Audit"],
   stability: "stable",
-  scopes: ["read"],
+  scopes: ["audit:read"],
   request: {
     params: z.object({ orgId: Uuid }),
     query: z.object({

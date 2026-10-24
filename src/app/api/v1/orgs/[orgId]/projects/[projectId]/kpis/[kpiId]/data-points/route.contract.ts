@@ -27,7 +27,7 @@ export const createKpiDataPoint = defineRoute({
   description: "The KPI's current value becomes its most recent data point's.",
   tags: ["Goals & KPIs"],
   stability: "stable",
-  scopes: ["items:write"],
+  scopes: ["planning:write"],
   request: {
     params,
     body: z.object({

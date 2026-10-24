@@ -21,7 +21,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.ORG_READ);
+    // ORG_READ for a session; a key's `read` scope deliberately lacks it (see
+    // SCOPE_MASK in lib/auth/api-key.ts), so a key reads this with PROJECT_READ.
+    requirePermission(ctx, ctx.isApiKey ? Permission.PROJECT_READ : Permission.ORG_READ);
 
     return success({ marking: isFeedbackStaff(ctx) ? await commentMarkingPolicy(orgId) : null });
   } catch (e) {

@@ -15,7 +15,7 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, listGoals);
     const { params: { orgId, projectId } } = await parseRequest(listGoals, request, params);
     await requireProjectRead(ctx, projectId, "OKR_READ");
 
@@ -88,7 +88,7 @@ async function applyAutoProgress(orgId: string, goals: GoalWithLinks[]) {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, createGoal);
     const { params: { orgId, projectId }, body: data } = await parseRequest(createGoal, request, params);
     await requireProjectManage(ctx, projectId, Permission.OKR_CREATE);
 
