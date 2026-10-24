@@ -16,6 +16,8 @@ import { parseMentions } from "@/lib/chat/mentions";
 import { mentionsToPlainText, userMentionLabels } from "@/lib/mentions/plain-text";
 import { createNotification } from "@/lib/notifications/create";
 import { feedbackItemUrl } from "./urls";
+import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
+import { isFeedbackStaff } from "./access";
 
 import { FEEDBACK_SUBJECT } from "./subject";
 
@@ -30,6 +32,28 @@ export interface CommentViewer {
 /** Which comments a viewer may see at all. Internal notes are staff-only. */
 export function visibleTo(viewer: CommentViewer): Prisma.CommentWhereInput {
   return viewer.isStaff ? {} : { visibility: "PUBLIC" };
+}
+
+/** Staff can narrow the thread to one audience; everyone else sees public. */
+export type ThreadFilter = "all" | "public" | "internal";
+
+function filterWhere(viewer: CommentViewer, filter: ThreadFilter): Prisma.CommentWhereInput {
+  if (!viewer.isStaff || filter === "public") return { visibility: "PUBLIC" };
+  return filter === "internal" ? { visibility: "INTERNAL" } : {};
+}
+
+/**
+ * Which of these people are on the feedback team right now. Read fresh, never
+ * from the comment: an internal note must not reach someone who has since
+ * lost the role.
+ */
+export async function currentStaff(orgId: string, userIds: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const id of new Set(userIds)) {
+    const eff = await loadEffectivePermissions(orgId, id);
+    if (eff && isFeedbackStaff(eff)) out.add(id);
+  }
+  return out;
 }
 
 export const FEEDBACK_COMMENT_SELECT = {
@@ -89,7 +113,7 @@ function toDto(
     editedAt: row.editedAt,
     revisionCount: row._count.revisions,
     originSubjectId: row.originSubjectId,
-    canEdit: !deleted && mine && row.kind === "COMMENT",
+    canEdit: !deleted && mine && (row.kind === "COMMENT" || row.kind === "OFFICIAL"),
     canDelete: !deleted && (mine || viewer.isStaff) && row.kind !== "STATUS_CHANGE",
     replies: [],
   };
@@ -129,9 +153,10 @@ export async function listFeedbackComments(
   orgId: string,
   feedbackItemId: string,
   viewer: CommentViewer,
+  filter: ThreadFilter = "all",
 ): Promise<FeedbackCommentDto[]> {
   const rows = await prisma.comment.findMany({
-    where: { orgId, subjectType: FEEDBACK_SUBJECT, subjectId: feedbackItemId, ...visibleTo(viewer) },
+    where: { orgId, subjectType: FEEDBACK_SUBJECT, subjectId: feedbackItemId, ...filterWhere(viewer, filter) },
     orderBy: { createdAt: "asc" },
     select: FEEDBACK_COMMENT_SELECT,
   });
@@ -167,17 +192,22 @@ export async function resolveReplyParent(
   feedbackItemId: string,
   parentId: string,
   viewer: CommentViewer,
-): Promise<{ id: string; authorId: string } | null> {
+): Promise<{ id: string; authorId: string; visibility: CommentVisibility } | null> {
   const parent = await getFeedbackComment(orgId, feedbackItemId, parentId, viewer);
   if (!parent || parent.deletedAt) return null;
-  if (!parent.parentId) return { id: parent.id, authorId: parent.authorId };
+  if (!parent.parentId) return { id: parent.id, authorId: parent.authorId, visibility: parent.visibility };
   const top = await getFeedbackComment(orgId, feedbackItemId, parent.parentId, viewer);
   return top && !top.deletedAt
-    ? { id: top.id, authorId: parent.authorId }
-    : { id: parent.id, authorId: parent.authorId };
+    ? { id: top.id, authorId: parent.authorId, visibility: top.visibility }
+    : { id: parent.id, authorId: parent.authorId, visibility: parent.visibility };
 }
 
-/** Write a public comment and keep the item's counters in step. */
+/**
+ * Write a comment and keep the item in step. Only PUBLIC comments count or
+ * move "last activity": an internal note must not show up as a number or a
+ * timestamp to people who can't read it. An OFFICIAL response becomes the
+ * item's pinned answer, replacing any earlier one.
+ */
 export async function insertFeedbackComment(
   tx: Prisma.TransactionClient,
   input: {
@@ -186,8 +216,12 @@ export async function insertFeedbackComment(
     authorId: string;
     content: string;
     parentId: string | null;
+    visibility?: CommentVisibility;
+    kind?: "COMMENT" | "OFFICIAL";
   },
 ) {
+  const visibility = input.visibility ?? "PUBLIC";
+  const kind = input.kind ?? "COMMENT";
   const comment = await tx.comment.create({
     data: {
       orgId: input.orgId,
@@ -196,16 +230,120 @@ export async function insertFeedbackComment(
       authorId: input.authorId,
       content: input.content,
       parentId: input.parentId,
-      visibility: "PUBLIC",
-      kind: "COMMENT",
+      visibility,
+      kind,
     },
     select: FEEDBACK_COMMENT_SELECT,
   });
-  await tx.feedbackItem.update({
-    where: { id: input.feedbackItemId },
-    data: { commentCount: { increment: 1 }, lastActivityAt: comment.createdAt },
-  });
+  if (visibility === "PUBLIC") {
+    await tx.feedbackItem.update({
+      where: { id: input.feedbackItemId },
+      data: { commentCount: { increment: 1 }, lastActivityAt: comment.createdAt },
+    });
+  }
+  if (kind === "OFFICIAL") await pinOfficial(tx, input.feedbackItemId, comment.id);
   return comment;
+}
+
+/** Make this comment the item's official response; the previous one steps down. */
+async function pinOfficial(tx: Prisma.TransactionClient, feedbackItemId: string, commentId: string) {
+  const item = await tx.feedbackItem.findUniqueOrThrow({
+    where: { id: feedbackItemId },
+    select: { officialCommentId: true },
+  });
+  if (item.officialCommentId && item.officialCommentId !== commentId) {
+    await tx.comment.update({ where: { id: item.officialCommentId }, data: { kind: "COMMENT" } });
+  }
+  await tx.comment.update({ where: { id: commentId }, data: { kind: "OFFICIAL" } });
+  await tx.feedbackItem.update({ where: { id: feedbackItemId }, data: { officialCommentId: commentId } });
+}
+
+export class CommentChangeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CommentChangeError";
+  }
+}
+
+/**
+ * Staff: pin a public top-level comment as the official response, or unpin
+ * the current one.
+ */
+export async function setOfficial(
+  tx: Prisma.TransactionClient,
+  input: { feedbackItemId: string; commentId: string; official: boolean },
+) {
+  const c = await tx.comment.findUniqueOrThrow({
+    where: { id: input.commentId },
+    select: { parentId: true, visibility: true, deletedAt: true, kind: true },
+  });
+  if (input.official) {
+    if (c.deletedAt || c.parentId || c.visibility !== "PUBLIC" || (c.kind !== "COMMENT" && c.kind !== "OFFICIAL")) {
+      throw new CommentChangeError("Only a public top-level comment can be the official response.");
+    }
+    await pinOfficial(tx, input.feedbackItemId, input.commentId);
+    return;
+  }
+  if (c.kind === "OFFICIAL") {
+    await tx.comment.update({ where: { id: input.commentId }, data: { kind: "COMMENT" } });
+    await tx.feedbackItem.updateMany({
+      where: { id: input.feedbackItemId, officialCommentId: input.commentId },
+      data: { officialCommentId: null },
+    });
+  }
+}
+
+/**
+ * Staff: move a comment between the public thread and internal notes.
+ * Internal → public is always allowed. Public → internal is refused once a
+ * non-staff person has replied (it would take their words out of their own
+ * sight) and for the official response; staff replies under it go internal
+ * with it, so none is left dangling in the public view. The public count
+ * follows.
+ */
+export async function setVisibility(
+  tx: Prisma.TransactionClient,
+  input: { orgId: string; feedbackItemId: string; commentId: string; visibility: CommentVisibility },
+) {
+  const c = await tx.comment.findUniqueOrThrow({
+    where: { id: input.commentId },
+    select: { visibility: true, kind: true, deletedAt: true, parentId: true },
+  });
+  if (c.visibility === input.visibility) return;
+  const live = (deleted: Date | null) => (deleted ? 0 : 1);
+
+  if (input.visibility === "PUBLIC") {
+    if (c.parentId) {
+      const parent = await tx.comment.findUniqueOrThrow({ where: { id: c.parentId }, select: { visibility: true } });
+      if (parent.visibility !== "PUBLIC") {
+        throw new CommentChangeError("Make the note it replies to public first.");
+      }
+    }
+    await tx.comment.update({ where: { id: input.commentId }, data: { visibility: "PUBLIC" } });
+    const n = live(c.deletedAt);
+    if (n) {
+      await tx.feedbackItem.update({ where: { id: input.feedbackItemId }, data: { commentCount: { increment: n } } });
+    }
+    return;
+  }
+
+  if (c.kind === "OFFICIAL") throw new CommentChangeError("Unpin the official response before making it internal.");
+  const replies = await tx.comment.findMany({
+    where: { parentId: input.commentId, visibility: "PUBLIC" },
+    select: { id: true, authorId: true, deletedAt: true },
+  });
+  const staff = await currentStaff(input.orgId, replies.filter((r) => !r.deletedAt).map((r) => r.authorId));
+  if (replies.some((r) => !r.deletedAt && !staff.has(r.authorId))) {
+    throw new CommentChangeError("Someone outside the feedback team has replied, so this stays public.");
+  }
+  const ids = [input.commentId, ...replies.map((r) => r.id)];
+  await tx.comment.updateMany({ where: { id: { in: ids } }, data: { visibility: "INTERNAL" } });
+  const n = live(c.deletedAt) + replies.filter((r) => !r.deletedAt).length;
+  if (n) {
+    await tx.feedbackItem.update({ where: { id: input.feedbackItemId }, data: { commentCount: { decrement: n } } });
+  }
+  // References from internal notes are never shown as backlinks, so drop them.
+  await tx.reference.deleteMany({ where: { orgId: input.orgId, sourceType: "comment", sourceId: { in: ids } } });
 }
 
 /**
@@ -220,10 +358,18 @@ export async function notifyCommentAudience(input: {
   /** Only these mention ids are new (an edit notifies only who it added). */
   mentionIds?: string[];
   repliedToUserId?: string | null;
+  /** An internal note only ever notifies people currently on the team. */
+  visibility?: CommentVisibility;
 }): Promise<void> {
   const { org, item, comment } = input;
   const url = `${feedbackItemUrl(org.slug, item.id)}#c-${comment.id}`;
-  const wanted = input.mentionIds ?? parseMentions(comment.content);
+  let wanted = input.mentionIds ?? parseMentions(comment.content);
+  let repliedTo = input.repliedToUserId ?? null;
+  if (input.visibility === "INTERNAL") {
+    const staff = await currentStaff(org.id, [...wanted, ...(repliedTo ? [repliedTo] : [])]);
+    wanted = wanted.filter((id) => staff.has(id));
+    if (repliedTo && !staff.has(repliedTo)) repliedTo = null;
+  }
   const members = wanted.length
     ? await prisma.orgMember.findMany({
         where: { orgId: org.id, userId: { in: wanted } },
@@ -253,7 +399,6 @@ export async function notifyCommentAudience(input: {
     }).catch(() => {});
   }
 
-  const repliedTo = input.repliedToUserId;
   if (repliedTo && !notified.has(repliedTo)) {
     await createNotification({
       orgId: org.id,
