@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeLock } from "./lock-merge.mjs";
+import { mergeLock, publicOnly, PUBLIC_PLUGINS } from "./lock-merge.mjs";
 
 /**
  * `lock.mjs --write` used to rebuild the lockfile from whatever plugin checkouts
@@ -58,9 +58,35 @@ describe("mergeLock", () => {
     expect(next.delta).toEqual({ ref: "main" });
   });
 
+  it("records the release tag of a checkout whose HEAD is tagged", () => {
+    const next = mergeLock({ alpha: SHA_A }, {}, { versions: { alpha: "v1.2.3" } });
+    expect(next.alpha).toEqual({ ref: SHA_A, version: "v1.2.3" });
+  });
+
+  it("drops a stale version when a checkout moves to an untagged commit", () => {
+    const next = mergeLock({ alpha: SHA_B }, { alpha: { ref: SHA_A, version: "v1.2.3" } });
+    expect(next.alpha).toEqual({ ref: SHA_B });
+  });
+
+  it("keeps an absent plugin's version along with its pin", () => {
+    const next = mergeLock({}, { alpha: { ref: SHA_A, version: "v1.2.3" } });
+    expect(next.alpha).toEqual({ ref: SHA_A, version: "v1.2.3" });
+  });
+
   it("reports which pins it kept, so the caller can say so out loud", () => {
     const kept = [];
     mergeLock({ gamma: SHA_C }, { alpha: { ref: SHA_A } }, { onKept: (slug) => kept.push(slug) });
     expect(kept).toEqual(["alpha"]);
+  });
+});
+
+describe("publicOnly", () => {
+  it("keeps the public plugins and drops every other slug", () => {
+    const map = { foreman: { ref: SHA_A }, "acme-private": { ref: SHA_B }, whiteboard: { ref: SHA_C }, alpha: { ref: SHA_A } };
+    expect(Object.keys(publicOnly(map))).toEqual(["foreman", "whiteboard"]);
+  });
+
+  it("names exactly the three public plugins", () => {
+    expect([...PUBLIC_PLUGINS].sort()).toEqual(["foreman", "pi-planning", "whiteboard"]);
   });
 });

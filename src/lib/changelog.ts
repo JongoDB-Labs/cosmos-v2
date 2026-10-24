@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.465.1",
+    date: "2026-10-24",
+    title: "Plugin versions recorded with each release",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Each release now records the exact released version of every bundled plugin alongside its pinned commit, so it is clear which plugin versions a Cosmos release contains.",
+      },
+    ],
+  },
+  {
     version: "2.465.0",
     date: "2026-10-24",
     title: "Workflows you can design per project",
