@@ -5,6 +5,8 @@ import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import { BoardQueryBar } from "@/components/boards/shared/board-query-bar";
+import { useBoardQuery } from "@/components/boards/shared/use-board-query";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { boardScope, inBoardScope } from "@/lib/boards/saved-filter";
 import { BoardScopeNotice } from "@/components/boards/shared/board-scope-notice";
@@ -216,9 +218,14 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   // A board saved from Issues is scoped by that query (lib/boards/saved-filter);
   // like typeKeys it is configuration, and the filter bar narrows within it.
   const scope = useMemo(() => boardScope(board?.config), [board]);
+  // With the query language on, scope and bar are one CQL query (boards/shared/use-board-query).
+  const boardQuery = useBoardQuery({ orgId, projectId, config: board?.config, rows: items as unknown as Record<string, unknown>[] });
   const visibleItems = useMemo(
-    () => items.filter((it) => inBoardScope(scope, it) && matchesFilters(it, filters)),
-    [items, filters, scope],
+    () =>
+      items.filter((it) =>
+        boardQuery.enabled ? boardQuery.keep(it) : inBoardScope(scope, it) && matchesFilters(it, filters),
+      ),
+    [items, filters, scope, boardQuery],
   );
 
   // Persist a change to the board's type filter (optimistic: patch the board
@@ -1041,17 +1048,21 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       </div>
 
       <div className="border-b border-[var(--border)] px-4 py-2">
-        <FilterBar
-          filters={filters}
-          onFilterChange={setFilters}
-          members={members}
-          intervals={intervals}
-          teams={[]}
-          orgId={orgId}
-          boardColumns={projectStatuses}
-        />
+        {boardQuery.enabled ? (
+          <BoardQueryBar orgId={orgId} q={boardQuery} />
+        ) : (
+          <FilterBar
+            filters={filters}
+            onFilterChange={setFilters}
+            members={members}
+            intervals={intervals}
+            teams={[]}
+            orgId={orgId}
+            boardColumns={projectStatuses}
+          />
+        )}
       </div>
-      <BoardScopeNotice scope={scope} />
+      {!boardQuery.enabled && <BoardScopeNotice scope={scope} />}
 
       <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       {/* Table */}

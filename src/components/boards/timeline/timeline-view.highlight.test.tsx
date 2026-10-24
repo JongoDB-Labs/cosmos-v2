@@ -13,7 +13,12 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/acme/projects/FSC/boards/b1" }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/acme/projects/FSC/boards/b1",
+  // The board's query bar (boards/shared/use-board-query) reads the URL too.
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 vi.mock("@/components/boards/shared/new-issue-button", () => ({ NewIssueButton: () => null }));

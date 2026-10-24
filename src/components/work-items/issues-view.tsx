@@ -37,6 +37,7 @@ import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { WorkItemTypeIcon } from "@/components/work-items/work-item-type-icon";
 import type { WorkItem, OrgMember, Interval, BoardColumn } from "@/types/models";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
+import { CQL_VERSION, type CqlQuery } from "@/lib/query/ast";
 import { planTagAddition, type TagRowInfo } from "@/lib/work-items/bulk-tags";
 import { summarizeBulkDelete } from "@/lib/work-items/bulk-delete";
 import { ListFilter, Save, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Highlighter, Plus, Check, Download, Star, Archive, UserPlus, CheckCircle2, CalendarRange } from "lucide-react";
@@ -221,10 +222,20 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     const v = cqlValidation.data;
     return v?.valid && v.query ? cqlToWorkItemFilter(legacyText(v.query), cfTypes) : null;
   }, [cqlOn, cqlText, cqlValidation.data, cfTypes]);
-  const cqlFilterUnavailable = cqlOn && !cqlFilter
-    ? cqlValidation.isFetching
-      ? "Checking the query…"
-      : "This query uses more than saved views and boards can store yet. Simplify it, or save it once saved filters support CQL."
+  // A board stores the resolved query itself (config.query), so any valid query
+  // can become one.
+  const boardQuery = useMemo((): CqlQuery | undefined => {
+    if (!cqlOn) return undefined;
+    if (!cqlText.trim()) return { v: CQL_VERSION, where: null };
+    const v = cqlValidation.data;
+    return v?.valid && v.query ? v.query : undefined;
+  }, [cqlOn, cqlText, cqlValidation.data]);
+  const boardUnavailable = cqlOn && !boardQuery
+    ? restrictedFilter
+      ? "This filter names things you can't see, so it can't become a board. Save it as a new filter first."
+      : cqlValidation.isFetching
+        ? "Checking the query…"
+        : "Fix the query first."
     : undefined;
 
   // Deep-link: `/issues?watching=1` pre-applies the Watching filter (the "My
@@ -1213,8 +1224,8 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
                   variant="outline"
                   size="sm"
                   className="gap-1.5"
-                  disabled={!!cqlFilterUnavailable}
-                  title={cqlFilterUnavailable}
+                  disabled={!!boardUnavailable}
+                  title={boardUnavailable}
                   onClick={() => setSaveBoardOpen(true)}
                 >
                   <Save className="h-3.5 w-3.5" aria-hidden />
@@ -1476,7 +1487,8 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
           onOpenChange={setSaveBoardOpen}
           orgId={orgId}
           orgSlug={orgSlug}
-          filter={cqlOn ? { ...(cqlFilter ?? {}), projectIds: undefined } : toWorkItemFilter(filters)}
+          filter={cqlOn ? (cqlFilter ? { ...cqlFilter, projectIds: undefined } : null) : toWorkItemFilter(filters)}
+          query={boardQuery}
           projects={
             // A project manager without org-wide BOARD_CREATE may only target the
             // projects they manage — don't offer one whose POST would 403.

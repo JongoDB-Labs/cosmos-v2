@@ -1,5 +1,7 @@
 "use client";
 
+import { useBoardQuery } from "@/components/boards/shared/use-board-query";
+import { BoardQueryBar } from "@/components/boards/shared/board-query-bar";
 import { useMemo, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { GridLayout, verticalCompactor } from "react-grid-layout";
@@ -234,10 +236,12 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
 
   // One instant for the whole pass, so a due-date filter cannot classify two
   // items differently because the clock ticked between them.
+  // With the query language on, the bar and the board's scope are one CQL query (boards/shared/use-board-query).
+  const boardQuery = useBoardQuery({ orgId, projectId, config: board?.config, rows: items as unknown as Record<string, unknown>[] });
   const filteredItems = useMemo(() => {
     const now = new Date();
-    return items.filter((i) => matchesFilters(i, filters, [], new Map(), now));
-  }, [items, filters]);
+    return items.filter((i) => (boardQuery.enabled ? boardQuery.keep(i) : matchesFilters(i, filters, [], new Map(), now)));
+  }, [items, filters, boardQuery]);
 
   const columnCategoryMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -549,14 +553,18 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
           the burndown charts filtered items, so "my team's burndown" is the same
           question asked once. */}
       <div className="border-b border-[var(--border)] px-3 py-2">
-        <FilterBar
-          filters={filters}
-          onFilterChange={setFilters}
-          members={members}
-          intervals={intervals}
-          orgId={orgId}
-          boardColumns={columns.map((c) => ({ key: c.key, name: c.name }))}
-        />
+        {boardQuery.enabled ? (
+          <BoardQueryBar orgId={orgId} q={boardQuery} />
+        ) : (
+          <FilterBar
+            filters={filters}
+            onFilterChange={setFilters}
+            members={members}
+            intervals={intervals}
+            orgId={orgId}
+            boardColumns={columns.map((c) => ({ key: c.key, name: c.name }))}
+          />
+        )}
       </div>
 
       {healthView !== "current" ? (

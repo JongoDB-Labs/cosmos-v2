@@ -42,6 +42,7 @@ vi.mock("@/lib/query/json-fetcher", async (importActual) => {
 });
 
 import { QueryBuilder } from "./query-builder";
+import { jsonFetch, FetchError } from "@/lib/query/json-fetcher";
 import { FIELDS } from "@/lib/query/fields";
 import { lineCol } from "@/lib/query/errors";
 import { parseCql } from "@/lib/query/parser";
@@ -199,6 +200,33 @@ describe("QueryBuilder — Advanced", () => {
     fireEvent.click(screen.getByRole("button", { name: "Format" }));
     expect((editor as HTMLTextAreaElement).value).toBe("assignee = me AND priority IN (high, critical)");
     expect(onCqlChange).not.toHaveBeenCalled();
+  });
+
+  it("Ask AI fills the editor with the query and never runs it", async () => {
+    vi.mocked(jsonFetch).mockImplementation((async (url: string) =>
+      String(url).endsWith("/cql/ai") ? { cql: "assignee = me AND type = Bug", diagnostics: [] } : { items: [] }) as never);
+    renderBar("assignee = me", "advanced");
+    fireEvent.click(screen.getByRole("button", { name: "Ask AI" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Describe the filter" }), { target: { value: "my bugs" } });
+    fireEvent.click(screen.getByRole("button", { name: "Build query" }));
+    expect(await screen.findByText(/Check the query in the editor, then Run query/)).toBeTruthy();
+    expect((screen.getByRole("textbox", { name: "Query" }) as HTMLTextAreaElement).value).toBe("assignee = me AND type = Bug");
+    const call = vi.mocked(jsonFetch).mock.calls.find(([u]) => String(u).endsWith("/cql/ai"))!;
+    expect(JSON.parse(String((call[1] as RequestInit).body)).prompt).toBe("my bugs");
+    expect(onCqlChange).not.toHaveBeenCalled();
+  });
+
+  it("Ask AI says why when the assistant can't help, and leaves the draft alone", async () => {
+    vi.mocked(jsonFetch).mockImplementation((async (url: string) => {
+      if (String(url).endsWith("/cql/ai")) throw new FetchError(503, { error: { code: "AI_UNAVAILABLE", message: "The assistant couldn't build a query just now." } }, "x");
+      return { items: [] };
+    }) as never);
+    renderBar("assignee = me", "advanced");
+    fireEvent.click(screen.getByRole("button", { name: "Ask AI" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Describe the filter" }), { target: { value: "my bugs" } });
+    fireEvent.click(screen.getByRole("button", { name: "Build query" }));
+    expect(await screen.findByText("The assistant couldn't build a query just now.")).toBeTruthy();
+    expect((screen.getByRole("textbox", { name: "Query" }) as HTMLTextAreaElement).value).toBe("assignee = me");
   });
 
   it("Clear empties the query", () => {

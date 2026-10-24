@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
+import { CQL_VERSION, type CqlNode, type CqlQuery } from "@/lib/query/ast";
 import {
   BOARD_TYPE_REGISTRY,
   savableFromViewTypes,
@@ -56,8 +57,13 @@ export interface SaveAsBoardDialogProps {
   orgId: string;
   orgSlug: string;
   /** The filter currently active in the Issues view (already RBAC-scoped on
-   *  read; stored verbatim, minus any project pin, on the new board). */
-  filter: WorkItemFilter;
+   *  read; stored verbatim, minus any project pin, on the new board). Null
+   *  when the query language is on and the query is more than this shape
+   *  can say: the board then has only `query`. */
+  filter: WorkItemFilter | null;
+  /** With the query language on: the resolved query, stored as the board's
+   *  `config.query` (its baseline), minus top-level project clauses. */
+  query?: CqlQuery;
   /** Readable, non-archived projects the board may be created in. */
   projects: ProjectOption[];
   /** Pre-select this project (e.g. the one the Issues view is filtered to). */
@@ -78,6 +84,7 @@ export function SaveAsBoardDialog({
   orgId,
   orgSlug,
   filter,
+  query,
   projects,
   defaultProjectId,
 }: SaveAsBoardDialogProps) {
@@ -99,11 +106,15 @@ export function SaveAsBoardDialog({
   // project, and the server re-pins scope to it on every read. (`projectIds`
   // here would only narrow further, but it's misleading to persist a foreign
   // project on a board pinned to another, so drop it.)
-  const savedFilter = useMemo<WorkItemFilter>(() => {
+  const savedFilter = useMemo<WorkItemFilter | null>(() => {
+    if (!filter) return null;
     const rest = { ...filter };
     delete rest.projectIds;
     return rest;
   }, [filter]);
+  // Same for the query: the board pins its own project, so a top-level
+  // `project = X` would only empty a board created in another project.
+  const boardQuery = useMemo(() => (query ? withoutProjectClauses(query) : undefined), [query]);
 
   const createMutation = useOrgMutation<CreatedBoard, Error, void>({
     mutationFn: () =>
@@ -114,7 +125,10 @@ export function SaveAsBoardDialog({
           body: JSON.stringify({
             name: name.trim(),
             type: boardType,
-            config: { savedFilter },
+            config: {
+              ...(boardQuery ? { query: boardQuery } : {}),
+              ...(savedFilter ? { savedFilter } : {}),
+            },
           }),
         },
       ),
@@ -233,4 +247,18 @@ export function SaveAsBoardDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+const isProjectClause = (n: CqlNode) => (n.op === "cmp" || n.op === "in") && n.field.kind === "sys" && n.field.id === "project";
+
+/** A query without its top-level project clauses (`project = X AND …`). */
+export function withoutProjectClauses(q: CqlQuery): CqlQuery {
+  const w = q.where;
+  let where: CqlNode | null = w;
+  if (w && isProjectClause(w)) where = null;
+  else if (w?.op === "and") {
+    const args = w.args.filter((a) => !isProjectClause(a));
+    where = args.length === 0 ? null : args.length === 1 ? args[0] : { op: "and", args };
+  }
+  return { v: CQL_VERSION, where, ...(q.orderBy ? { orderBy: q.orderBy } : {}) };
 }

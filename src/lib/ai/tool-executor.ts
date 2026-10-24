@@ -13,6 +13,7 @@ import {
   linkItems,
   unlinkItems,
 } from "./executors/work-items";
+import { searchWorkItems, describeCql } from "./executors/cql";
 import { createNote, updateNote, deleteNote } from "./executors/notes";
 import { addComment, listComments, deleteComment } from "./executors/comments";
 import { logTime, listTimeEntries } from "./executors/time";
@@ -350,6 +351,10 @@ async function dispatchTool(
       return deleteWorkItem(input, ctx);
     case "list_work_items":
       return listWorkItems(input, ctx);
+    case "search_work_items":
+      return searchWorkItems(input, ctx);
+    case "describe_cql":
+      return describeCql(input, ctx);
 
     case "create_note":
       return createNote(input, ctx);
