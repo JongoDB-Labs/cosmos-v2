@@ -23,7 +23,7 @@ export const LIMITS = {
   conditionDepth: 8,
 } as const;
 
-const SYSTEM_FIELDS = [
+export const SYSTEM_FIELDS = [
   "assigneeId",
   "priority",
   "storyPoints",
@@ -55,7 +55,7 @@ const permissionKeySchema = z
   .string()
   .refine((k): k is PermissionKey => Object.prototype.hasOwnProperty.call(Permission, k), "Unknown permission");
 
-const LINK_TYPES = ["BLOCKS", "BLOCKED_BY", "RELATES", "DUPLICATES", "PREDECESSOR", "SUCCESSOR", "CLONES"] as const;
+export const LINK_TYPES = ["BLOCKS", "BLOCKED_BY", "RELATES", "DUPLICATES", "PREDECESSOR", "SUCCESSOR", "CLONES"] as const;
 
 const conditionValue = z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.union([z.string(), z.number()]))]);
 
@@ -292,4 +292,16 @@ export function validateDefinition(def: WorkflowDefinition, statuses: readonly S
   }
 
   return issues;
+}
+
+/** {from status key: to status key}, for items in statuses a change drops. */
+export type MigrationMap = Record<string, string>;
+
+/**
+ * Editor-only data kept with a version (never read by the engine): node
+ * positions, and on a template the statuses it brings into a project.
+ */
+export interface VersionLayout {
+  nodes?: Record<string, { x: number; y: number }>;
+  statusCatalog?: { key: string; name: string; color: string; category: StatusRef["category"] }[];
 }
