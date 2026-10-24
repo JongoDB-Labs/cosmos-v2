@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.474.0",
+    date: "2026-10-24",
+    title: "Webhooks are delivered",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Webhooks now fire: subscribed endpoints receive signed work-item events, delivered in the background with retries. Each delivery re-checks its address at send time and refuses private or internal destinations.",
+      },
+    ],
+  },
+  {
     version: "2.473.0",
     date: "2026-10-24",
     title: "Mark notifications read or unread from the bell",
