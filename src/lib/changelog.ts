@@ -51,11 +51,11 @@ const RELEASES: Release[] = [
   {
     version: "2.471.2",
     date: "2026-10-24",
-    title: "No stray error when the query language is off",
+    title: "The bell shows all your notifications",
     highlights: [
       {
         kind: "fix",
-        text: "Pages no longer log a failed request when the Cosmos Query Language (beta) is switched off for the organization.",
+        text: "The notification bell now scrolls through all your notifications, loading older ones as you go, and its badge shows your real unread count instead of the unread among the latest ten.",
       },
     ],
   },
