@@ -63,6 +63,21 @@ test.describe("journey — workflow editor", () => {
     await cell.uncheck();
     await expect(page.getByRole("status").filter({ hasText: "Draft saved" })).toBeVisible({ timeout: 15_000 });
 
+    // The diagram shows the same draft: every status, the "any" node, laid out by ELK.
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    page.on("console", (m) => m.type() === "error" && /elk|worker|layout/i.test(m.text()) && errors.push(m.text()));
+    await page.getByRole("tab", { name: "Diagram" }).click();
+    const diagram = page.getByRole("region", { name: /Workflow diagram/ });
+    await expect(diagram.locator(".react-flow__node")).toHaveCount(7, { timeout: 20_000 });
+    await expect(diagram.getByTestId("rf__node-in-progress")).toContainText("In Progress");
+    // Laid out: the nodes are not all stacked at the origin.
+    await expect
+      .poll(async () => new Set(await diagram.locator(".react-flow__node").evaluateAll((els) => els.map((e) => (e as HTMLElement).style.transform))).size, { timeout: 20_000 })
+      .toBeGreaterThan(1);
+    expect(errors).toEqual([]);
+    await page.getByRole("tab", { name: "Transitions" }).click();
+
     await page.getByRole("button", { name: "Publish…" }).click();
     const publish = page.getByRole("dialog");
     await expect(publish.getByRole("heading", { name: /Publish version 1/ })).toBeVisible({ timeout: 15_000 });
