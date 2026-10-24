@@ -11,6 +11,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { simulateTransitions } from "@/lib/workflow/engine.server";
 import { parseDefinition } from "@/lib/workflow/versions.server";
 import { simulateWorkflow } from "./route.contract";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -18,6 +19,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: p, body } = await parseRequest(simulateWorkflow, request, params);
     const ctx = await workflowProjectContext(p, simulateWorkflow);
+    await requireProjectVisible(ctx, p.projectId);
     // A workflow manager's debugging tool: it shows another member's view of an item.
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     const item = await prisma.workItem.findFirst({ where: { id: body.itemId, orgId: p.orgId, projectId: p.projectId } });

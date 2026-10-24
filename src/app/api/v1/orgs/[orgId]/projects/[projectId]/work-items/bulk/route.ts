@@ -1,27 +1,26 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { applyWorkItemChange } from "@/lib/work-items/apply-change.server";
-import { transitionRequestSchema } from "@/lib/workflow/transition-request";
 import type { BulkDenial } from "@/lib/workflow/contract";
 import { mergeEffects, runAfterCommit, type AfterCommitEffects } from "@/lib/work-items/after-commit";
-import { z } from "zod";
-import { Priority } from "@prisma/client";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { orgContext } from "@/lib/openapi/org-context";
+import { bulkDeleteWorkItems, bulkUpdateWorkItems } from "./route.contract";
 import { publishToOrg } from "@/lib/realtime/broker";
 
 // Bulk ops accept a large selection: "select all N matching" (v2.128.0) spans
 // the ENTIRE result set, not just the visible page, so a project with hundreds
 // or thousands of items must still delete/edit them in one action. The old
 // `.max(100)` cap rejected exactly that selection with a 400 ("Too big"), which
-// surfaced to the user as "Couldn't delete the selected items." The cap here is
-// only a sanity/DoS bound — the DB writes below chunk the ids so a large IN list
-// stays cheap and never becomes one giant statement.
-const BULK_MAX = 10_000;
+// surfaced to the user as "Couldn't delete the selected items." The cap
+// (BULK_MAX, in the contract's body schema) is only a sanity/DoS bound — the
+// DB writes below chunk the ids so a large IN list stays cheap and never
+// becomes one giant statement.
 const BULK_CHUNK = 500;
 
 /** Split ids into fixed-size batches (keeps each deleteMany/updateMany small). */
@@ -31,37 +30,15 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
-const bulkUpdateSchema = z.object({
-  ids: z.array(z.string().uuid()).min(1).max(BULK_MAX),
-  update: z.object({
-    columnKey: z.string().nullish(),
-    assigneeId: z.string().uuid().nullable().optional(),
-    priority: z.nativeEnum(Priority).optional(),
-    intervalId: z.string().uuid().nullable().optional(),
-    tags: z.array(z.string()).optional(),
-  }),
-  // The transition and its input, collected once for the whole selection.
-  transition: transitionRequestSchema.optional(),
-});
-
-const bulkDeleteSchema = z.object({
-  ids: z.array(z.string().uuid()).min(1).max(BULK_MAX),
-});
-
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, bulkUpdateWorkItems);
+    const { params: { orgId, projectId }, body: { ids, update, transition } } =
+      await parseRequest(bulkUpdateWorkItems, request, params);
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.ITEM_BULK_EDIT);
-
-    const body = await request.json();
-    const { ids, update, transition } = bulkUpdateSchema.parse(body);
 
     // Each batch is one transaction through the same writer as a single edit,
     // so a bulk move stamps dates, clears a cancel reason, records history and
@@ -103,24 +80,18 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const effects = mergeEffects(parts);
     if (effects) await runAfterCommit(effects, { ipAddress: getIpAddress(request) });
 
-    return success({ updated: updatedCount, denied });
+    return respond(bulkUpdateWorkItems, 200, { updated: updatedCount, denied });
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, bulkDeleteWorkItems);
+    const { params: { orgId, projectId }, body: { ids } } = await parseRequest(bulkDeleteWorkItems, request, params);
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.ITEM_DELETE);
-
-    const body = await request.json();
-    const { ids } = bulkDeleteSchema.parse(body);
 
     let deletedCount = 0;
     for (const batch of chunk(ids, BULK_CHUNK)) {
@@ -141,8 +112,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     });
 
     publishToOrg(orgId, "work-item.deleted", { ids });
-    return noContent();
+    return respond(bulkDeleteWorkItems, 204, undefined);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

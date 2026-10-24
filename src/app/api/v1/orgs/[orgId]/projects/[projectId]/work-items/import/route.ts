@@ -7,6 +7,7 @@ import { success, handleApiError } from "@/lib/api-helpers";
 import { runImport } from "@/lib/import/import-engine";
 import type { ImportRequest } from "@/lib/import/work-item-fields";
 import { publishToOrg } from "@/lib/realtime/broker";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 const MAX_ROWS = 5000;
 const MAX_CELL = 20_000; // chars per cell — bounds the verbatim sourceRecord
@@ -49,6 +50,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    await requireProjectVisible(ctx, projectId);
 
     // Bulk import is bulk create — gate on the same ITEM_CREATE access the
     // single-item POST uses (plus any in_project deny policy).

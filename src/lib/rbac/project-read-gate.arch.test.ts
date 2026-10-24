@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { handlerCode } from "@/lib/auth/__tests__/gate-bits";
 
 /**
  * Every project-scoped READ must ask whether the actor may see THAT project.
@@ -79,5 +80,56 @@ describe("project-scoped reads go through the team-aware gate", () => {
       expect(get, f).toMatch(/readableItemProjectId\(\s*ctx\s*,/);
     }
     expect(readFileSync("src/lib/work-items/read.server.ts", "utf8")).toMatch(/requireProjectRead\(ctx, projectId, action\)/);
+  });
+});
+
+/**
+ * Every project-scoped WRITE must ask the same question.
+ *
+ * Visibility decides whether a non-member may act in a project at all
+ * (project-role.ts). The reads were held to that above; the writes were not,
+ * and on a project that opted into `teamScopedAccess` a non-member who could
+ * see none of it could still write there by id:
+ *
+ *   - 32 writes gated on the action's org bit alone, or on
+ *     `requireProjectManage` with a bit every MEMBER holds (which passes before
+ *     the manager check), so any member could create, delete, merge, duplicate
+ *     (echoing the source) and comment on its items.
+ *   - 61 more passed `requireProjectManage` on an org-wide elevated bit
+ *     (PROJECT_UPDATE, WORKFLOW_MANAGE, SPRINT_*, …), so a work role holding one
+ *     managed projects it could not see.
+ *
+ * The rule now has no exception: a write handler, with the helpers it calls,
+ * runs a visibility check, whatever bit it gates on. Org owners and admins lose
+ * nothing by it, because `isProjectVisible` lets them see every project.
+ */
+const VISIBLE = /\b(?:requireProjectRead|requireProjectVisible|isProjectVisible|canReadProject|readableItemProjectId|assertProjectRead|canManageProject|getManagedProjectIds|readableDocument)\(/;
+const WRITES = ["POST", "PUT", "PATCH", "DELETE"];
+
+describe("project-scoped writes go through the team-aware gate", () => {
+  const handlers = routeFiles(ROOT).flatMap((f) => {
+    const src = readFileSync(f, "utf8");
+    return WRITES.flatMap((m) => {
+      const code = handlerCode(src, m, f);
+      return code ? [{ at: `${m} ${f.slice(ROOT.length)}`, code }] : [];
+    });
+  });
+
+  it("scanned the real write handlers", () => {
+    expect(handlers.length).toBeGreaterThan(100);
+    expect(handlers.map((h) => h.at)).toContain("POST /work-items/route.ts");
+  });
+
+  it("every write checks the project is visible, whatever bit it gates on", () => {
+    expect(handlers.filter((h) => !VISIBLE.test(h.code)).map((h) => h.at)).toEqual([]);
+  });
+
+  it("the org-scoped item writes reach the project handlers that check", () => {
+    // They resolve the item's project and hand off to the project route, so
+    // the scan above covers them only through that delegation.
+    const byId = readFileSync("src/app/api/v1/orgs/[orgId]/work-items/[itemId]/route.ts", "utf8");
+    const comments = readFileSync("src/app/api/v1/orgs/[orgId]/work-items/[itemId]/comments/route.ts", "utf8");
+    expect(byId).toMatch(/from "\.\.\/\.\.\/projects\/\[projectId\]\/work-items\/\[itemId\]\/route"/);
+    expect(comments).toMatch(/from "\.\.\/\.\.\/\.\.\/projects\/\[projectId\]\/work-items\/\[itemId\]\/comments\/route"/);
   });
 });

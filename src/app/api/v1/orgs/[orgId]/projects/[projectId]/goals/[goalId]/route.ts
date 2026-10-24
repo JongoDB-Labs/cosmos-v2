@@ -7,6 +7,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { deleteGoal, updateGoal } from "./route.contract";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; goalId: string }>;
@@ -16,6 +17,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, updateGoal);
     const { params: { orgId, projectId, goalId }, body: data } = await parseRequest(updateGoal, request, params);
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.OKR_UPDATE);
 
     const existing = await prisma.goal.findFirst({
@@ -50,6 +52,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, deleteGoal);
     const { params: { orgId, projectId, goalId } } = await parseRequest(deleteGoal, request, params);
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.OKR_DELETE);
 
     const existing = await prisma.goal.findFirst({
