@@ -9,7 +9,7 @@ import RootLayout from "./layout";
 describe("root layout <head>", () => {
   // Chromium reads rel=manifest only from <head>. Streamed metadata lands in
   // <body>, so a manifest link that only comes from metadata leaves the app
-  // uninstallable (COSMOS-230).
+  // uninstallable.
   // Next's own (streamed) copy lands in <body>, which Chromium ignores, so
   // the one in <head> is the only one it sees.
   it("carries exactly one web-app manifest link", () => {

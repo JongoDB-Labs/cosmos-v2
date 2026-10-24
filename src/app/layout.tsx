@@ -169,8 +169,8 @@ export default function RootLayout({
         {/* The manifest link must be in the STATIC <head>. Next adds one for
             app/manifest.ts, but as metadata — and generateMetadata() above awaits
             connection(), so all metadata streams into <body>, where Chrome and
-            Edge never look for a manifest: the app was not installable
-            (COSMOS-230). The URL is fixed; the brand is resolved inside the
+            Edge never look for a manifest: the app was not installable.
+            The URL is fixed; the brand is resolved inside the
             route, so a static link loses nothing. */}
         <link rel="manifest" href="/manifest.webmanifest" />
         <style dangerouslySetInnerHTML={{ __html: skinCss }} />
