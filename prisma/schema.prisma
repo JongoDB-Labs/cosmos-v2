@@ -886,11 +886,11 @@ model Team {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  members   TeamMember[]
-  boards    Board[]
-  workItems WorkItem[]
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project    Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  members    TeamMember[]
+  boards     Board[]
+  workItems  WorkItem[]
   savedViews SavedView[]
   // @plugin-backrel:Team
 
@@ -1135,11 +1135,16 @@ model WorkflowVersion {
 /// Which workflow governs (project x type). workItemTypeId null = the project
 /// default, for every type without a row of its own.
 model WorkflowAssignment {
-  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId          String  @map("org_id") @db.Uuid
-  projectId      String  @map("project_id") @db.Uuid
-  workItemTypeId String? @map("work_item_type_id") @db.Uuid
-  workflowId     String  @map("workflow_id") @db.Uuid
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String   @map("org_id") @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  workItemTypeId String?  @map("work_item_type_id") @db.Uuid
+  workflowId     String   @map("workflow_id") @db.Uuid
+  /// The status map {fromKey: toKey} given when this assignment was set, for
+  /// the items whose status the new workflow does not use. Kept: the
+  /// migration job moves stranded items with it until none are left.
+  migrationMap   Json?    @map("migration_map")
+  assignedAt     DateTime @default(now()) @map("assigned_at")
 
   org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
