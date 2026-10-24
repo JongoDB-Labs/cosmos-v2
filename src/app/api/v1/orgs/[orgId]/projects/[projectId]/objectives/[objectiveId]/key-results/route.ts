@@ -6,6 +6,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createKeyResult } from "./route.contract";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; objectiveId: string }>;
@@ -15,6 +16,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, createKeyResult);
     const { params: { orgId, projectId, objectiveId }, body: data } = await parseRequest(createKeyResult, request, params);
+    await requireProjectVisible(ctx, projectId);
 
     // Scope check: the objective must belong to this org + project.
     const objective = await prisma.objective.findFirst({

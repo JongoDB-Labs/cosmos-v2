@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { orgContext } from "@/lib/openapi/org-context";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError, getIpAddress } from "@/lib/api-helpers";
@@ -36,6 +36,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Authenticate (and hold a key to the contract's scopes) before validating.
     const { ctx } = await orgContext((await params).orgId, createStatus);
     const { params: p, body } = await parseRequest(createStatus, request, params);
+    await requireProjectVisible(ctx, p.projectId);
 
     const project = await prisma.project.findFirst({ where: { id: p.projectId, orgId: p.orgId }, select: { id: true } });
     if (!project) return problem(404, "not_found", "Project not found", { request });

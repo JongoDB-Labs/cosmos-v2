@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { requireAccess } from "@/lib/abac/require-access";
 import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -135,6 +135,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 /** Delete one item. Shared with the by-id route. */
 export async function deleteItem(request: NextRequest, ctx: AuthContext, ids: ItemIds) {
   const { orgId, projectId, itemId } = ids;
+  await requireProjectVisible(ctx, projectId);
   const existing = await prisma.workItem.findFirst({ where: { id: itemId, orgId, projectId } });
   if (!existing) throw new ProblemError(404, "not_found");
 

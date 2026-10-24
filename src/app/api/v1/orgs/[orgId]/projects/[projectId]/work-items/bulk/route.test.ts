@@ -29,6 +29,11 @@ const { getAuthContext, prisma, logAudit, createNotification } = vi.hoisted(() =
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
+// Visibility is covered against a real database (lib/rbac/team-scope-writes.db.test.ts).
+vi.mock("@/lib/rbac/require-project-read", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rbac/require-project-read")>()),
+  requireProjectVisible: vi.fn(async () => undefined),
+}));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/audit", () => ({ logAudit }));
 vi.mock("@/lib/notifications/create", () => ({ createNotification }));

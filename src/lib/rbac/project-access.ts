@@ -49,8 +49,9 @@ export function isOrgAdministrator(role: OrgRole | string): boolean {
  * Manager" saw every restricted project in the org, which was reported from the
  * running app. A project manager typically manages one project; org-wide reach
  * is what the owner/admin roles are for, and those cannot be granted by a work
- * role. Writing inside a project still follows the permission (see
- * `project-role.ts`) — this governs only who may SEE a project at all.
+ * role. What a member may write inside a project follows the permission (see
+ * `project-role.ts`), but nobody writes in a project they can't see: every
+ * project write runs requireProjectVisible first, whatever bit it gates on.
  *
  * This governs project-level visibility. Narrowing *within* a project (which of
  * a project's boards a given team sees) builds on the Team rows this ships and

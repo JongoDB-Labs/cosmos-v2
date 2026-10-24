@@ -10,6 +10,7 @@ import { success, handleApiError } from "@/lib/api-helpers";
 import { logPmFieldChanges } from "@/lib/pm/activity-log";
 import { classificationOmit } from "@/lib/compliance/classification";
 import { assertOrgMember } from "@/lib/rbac/assert-org-member";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; deliverableId: string }>;
@@ -46,6 +47,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
     const existing = await prisma.deliverable.findFirst({ where: { id: deliverableId, orgId, projectId } });
@@ -125,6 +127,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
     const existing = await prisma.deliverable.findFirst({ where: { id: deliverableId, orgId, projectId } });
