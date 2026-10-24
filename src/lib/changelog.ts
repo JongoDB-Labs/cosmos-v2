@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.464.6",
+    date: "2026-10-24",
+    title: "Clearer structure for screen readers",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The notification badge is easier to read in both themes. Settings pages and project boards use heading levels in order, and the navigation areas have names, so screen-reader users can move around the app more easily.",
+      },
+    ],
+  },
+  {
     version: "2.464.5",
     date: "2026-10-24",
     title: "Security: assignees must be in your organization",
