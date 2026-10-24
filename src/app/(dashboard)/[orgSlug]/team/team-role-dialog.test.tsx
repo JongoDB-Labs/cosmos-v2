@@ -9,6 +9,8 @@
 //   (d) a changed tier + changed roles save as two PUTs, in order, right bodies
 //   (e) a roles-PUT 403 after a successful tier save shows the exact partial-
 //       failure message and keeps the dialog open
+//   (f) "Owner" is offered only to a viewer who is an owner, and making someone
+//       an owner asks for confirmation by name before anything is sent
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -51,7 +53,7 @@ const GRANTABLE = ["wr-analyst", "wr-lead"];
 type FetchCall = { url: string; method: string; body: unknown };
 let calls: FetchCall[] = [];
 
-function mockFetch(overrides?: { rolesStatus?: number; rolesError?: string }) {
+function mockFetch(overrides?: { rolesStatus?: number; rolesError?: string; tierStatus?: number; tierError?: string }) {
   calls = [];
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
@@ -75,6 +77,13 @@ function mockFetch(overrides?: { rolesStatus?: number; rolesError?: string }) {
         headers: { "Content-Type": "application/json" },
       });
     }
+    // tier PUT (…/members/[id]) — optionally forced to fail.
+    if (/\/members\/[^/]+$/.test(u) && method === "PUT" && overrides?.tierStatus) {
+      return new Response(JSON.stringify({ error: overrides.tierError ?? "denied" }), {
+        status: overrides.tierStatus,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     // tier PUT (…/members/[id]) + anything else — succeeds.
     return new Response(JSON.stringify({ id: "m1" }), {
       status: 200,
@@ -85,7 +94,7 @@ function mockFetch(overrides?: { rolesStatus?: number; rolesError?: string }) {
 
 type Member = { id: string; name: string; role: string; workRoleIds: string[] };
 
-function renderDialog(member: Member) {
+function renderDialog(member: Member, viewerIsOwner = false) {
   const onClose = vi.fn();
   render(
     <TeamRoleDialog
@@ -93,6 +102,7 @@ function renderDialog(member: Member) {
       member={member}
       workRoleOptions={WORK_ROLE_OPTIONS}
       grantableRoleIds={GRANTABLE}
+      viewerIsOwner={viewerIsOwner}
       onClose={onClose}
     />,
   );
@@ -221,6 +231,68 @@ describe("TeamRoleDialog — unified tier + work-role assignment", () => {
     ).toBeInTheDocument();
     // The tier PUT landed; the dialog stays open (never closes) on the roles error.
     expect(puts().some((c) => /\/members\/m1$/.test(c.url) && (c.body as { role?: string }).role === "ADMIN")).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("TeamRoleDialog — making someone an owner (f)", () => {
+  const ada = { id: "m1", name: "Ada", role: "MEMBER", workRoleIds: [] };
+
+  it("isn't offered to a viewer who isn't an owner", async () => {
+    mockFetch();
+    const user = userEvent.setup();
+    renderDialog(ada, false);
+    await user.click(screen.getByLabelText("Primary tier"));
+    await screen.findByRole("option", { name: "Admin" });
+    expect(screen.queryByRole("option", { name: "Owner" })).toBeNull();
+  });
+
+  it("an owner picks it, confirms by name, and only then is it sent", async () => {
+    mockFetch();
+    const user = userEvent.setup();
+    const { onClose } = renderDialog(ada, true);
+    await user.click(screen.getByLabelText("Primary tier"));
+    await user.click(await screen.findByRole("option", { name: "Owner" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    // The confirmation names the person, and nothing has been sent yet.
+    expect(screen.getByRole("alertdialog", { name: "Make Ada an owner" })).toBeInTheDocument();
+    expect(screen.getByText("Make Ada an owner?")).toBeInTheDocument();
+    expect(puts()).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: "Make Ada an owner" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(puts()).toEqual([expect.objectContaining({ url: expect.stringMatching(/\/members\/m1$/), body: { role: "OWNER" } })]);
+  });
+
+  it("Back sends nothing, and changing the tier again drops the confirmation", async () => {
+    mockFetch();
+    const user = userEvent.setup();
+    const { onClose } = renderDialog(ada, true);
+    await user.click(screen.getByLabelText("Primary tier"));
+    await user.click(await screen.findByRole("option", { name: "Owner" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    await user.click(screen.getByLabelText("Primary tier"));
+    await user.click(await screen.findByRole("option", { name: "Admin" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(puts()).toHaveLength(0);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("a refusal from the server shows its message and keeps the dialog open", async () => {
+    mockFetch({ tierStatus: 403, tierError: "Only an owner can grant the owner role" });
+    const user = userEvent.setup();
+    const { onClose } = renderDialog(ada, true);
+    await user.click(screen.getByLabelText("Primary tier"));
+    await user.click(await screen.findByRole("option", { name: "Owner" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Make Ada an owner" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Only an owner can grant the owner role");
     expect(onClose).not.toHaveBeenCalled();
   });
 });

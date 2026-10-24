@@ -53,6 +53,8 @@ interface TeamTableProps {
   /** The viewer's own User id — used to hide "Delete account" on their own row
    *  (the API also blocks self-deletion). */
   currentUserId?: string;
+  /** The viewer is an owner of the org: the role dialog offers "Owner" only then. */
+  viewerIsOwner: boolean;
 }
 
 const ROLE_VARIANT = {
@@ -68,6 +70,7 @@ export function TeamTable({
   grantableRoleIds,
   isPlatformAdmin = false,
   currentUserId,
+  viewerIsOwner,
 }: TeamTableProps) {
   const { can, orgId } = usePermissions();
   const router = useRouter();
@@ -433,6 +436,7 @@ export function TeamTable({
           member={roleDialogTarget}
           workRoleOptions={workRoleOptions}
           grantableRoleIds={grantableRoleIds}
+          viewerIsOwner={viewerIsOwner}
           onClose={() => setRoleDialogTarget(null)}
         />
       )}
