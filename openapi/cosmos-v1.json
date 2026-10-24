@@ -3123,6 +3123,1275 @@
           "archived"
         ]
       },
+      "WorkItemLinkRow": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "sourceItemId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "targetItemId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "BLOCKS",
+              "BLOCKED_BY",
+              "RELATES",
+              "DUPLICATES",
+              "PREDECESSOR",
+              "SUCCESSOR",
+              "CLONES"
+            ],
+            "description": "BLOCKS, PREDECESSOR and their inverses are directed; RELATES, DUPLICATES and CLONES are not."
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "sourceTicketNumber": {
+            "type": "integer"
+          },
+          "sourceTitle": {
+            "type": "string"
+          },
+          "targetTicketNumber": {
+            "type": "integer"
+          },
+          "targetTitle": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sourceItemId",
+          "targetItemId",
+          "type",
+          "createdAt",
+          "sourceTicketNumber",
+          "sourceTitle",
+          "targetTicketNumber",
+          "targetTitle"
+        ]
+      },
+      "CreatedWorkItemLink": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "sourceItemId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "targetItemId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "BLOCKS",
+              "BLOCKED_BY",
+              "RELATES",
+              "DUPLICATES",
+              "PREDECESSOR",
+              "SUCCESSOR",
+              "CLONES"
+            ],
+            "description": "BLOCKS, PREDECESSOR and their inverses are directed; RELATES, DUPLICATES and CLONES are not."
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          }
+        },
+        "required": [
+          "id",
+          "sourceItemId",
+          "targetItemId",
+          "type",
+          "createdAt"
+        ]
+      },
+      "WorkItemListRow": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "projectId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "title": {
+            "type": "string",
+            "description": "User-authored text."
+          },
+          "description": {
+            "type": "string",
+            "description": "User-authored text (rich text as markdown)."
+          },
+          "columnKey": {
+            "type": "string",
+            "description": "The board column (status) it sits in."
+          },
+          "assigneeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "CRITICAL",
+              "HIGH",
+              "MEDIUM",
+              "LOW"
+            ]
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "ticketNumber": {
+            "type": "integer",
+            "description": "`<project key>-<ticketNumber>`."
+          },
+          "storyPoints": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "startDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "actualStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "columnEnteredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "workCategory": {
+            "type": "string",
+            "enum": [
+              "BUSINESS",
+              "ENABLER"
+            ]
+          },
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "cancelReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "OBE",
+              "OTHER",
+              "MERGED",
+              null
+            ]
+          },
+          "cancelNote": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mergedIntoId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "highlight": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customFields": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "createdById": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "workItemTypeId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "intervalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "externalSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolution": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "originalEstimate": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "remainingEstimate": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "timeSpent": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sourceRecord": {
+            "description": "The record an import or sync created this item from, as the source system sent it; null otherwise."
+          },
+          "parent": {
+            "$ref": "#/components/schemas/WorkItemParentRef"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkItemChildRef"
+            }
+          },
+          "workItemType": {
+            "$ref": "#/components/schemas/WorkItemTypeRef"
+          },
+          "assignees": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkItemAssignee"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "projectId",
+          "title",
+          "description",
+          "columnKey",
+          "assigneeId",
+          "priority",
+          "parentId",
+          "ticketNumber",
+          "storyPoints",
+          "sortOrder",
+          "dueDate",
+          "startDate",
+          "actualStart",
+          "completedAt",
+          "columnEnteredAt",
+          "workCategory",
+          "archivedAt",
+          "cancelReason",
+          "cancelNote",
+          "mergedIntoId",
+          "tags",
+          "highlight",
+          "customFields",
+          "createdById",
+          "createdAt",
+          "updatedAt",
+          "workItemTypeId",
+          "intervalId",
+          "teamId",
+          "externalSource",
+          "externalId",
+          "externalKey",
+          "sourceStatus",
+          "resolution",
+          "originalEstimate",
+          "remainingEstimate",
+          "timeSpent",
+          "parent",
+          "children",
+          "workItemType",
+          "assignees"
+        ]
+      },
+      "WorkItemParentRef": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "ticketNumber": {
+            "type": "integer"
+          },
+          "workItemTypeId": {
+            "$ref": "#/components/schemas/Uuid"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "ticketNumber",
+          "workItemTypeId"
+        ]
+      },
+      "WorkItemChildRef": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "columnKey": {
+            "type": "string"
+          },
+          "ticketNumber": {
+            "type": "integer"
+          },
+          "workItemTypeId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "columnKey",
+          "ticketNumber",
+          "workItemTypeId",
+          "completedAt"
+        ]
+      },
+      "WorkItemTypeRef": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "key": {
+            "type": "string",
+            "description": "Stable key, e.g. `software.bug`."
+          },
+          "name": {
+            "type": "string"
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "name",
+          "icon",
+          "color"
+        ]
+      },
+      "WorkItemAssignee": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "avatarUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "displayName",
+              "avatarUrl"
+            ]
+          }
+        },
+        "required": [
+          "userId",
+          "user"
+        ]
+      },
+      "WorkItemDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "projectId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "title": {
+            "type": "string",
+            "description": "User-authored text."
+          },
+          "description": {
+            "type": "string",
+            "description": "User-authored text (rich text as markdown)."
+          },
+          "columnKey": {
+            "type": "string",
+            "description": "The board column (status) it sits in."
+          },
+          "assigneeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "CRITICAL",
+              "HIGH",
+              "MEDIUM",
+              "LOW"
+            ]
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "ticketNumber": {
+            "type": "integer",
+            "description": "`<project key>-<ticketNumber>`."
+          },
+          "storyPoints": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "startDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "actualStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "columnEnteredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "workCategory": {
+            "type": "string",
+            "enum": [
+              "BUSINESS",
+              "ENABLER"
+            ]
+          },
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "cancelReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "OBE",
+              "OTHER",
+              "MERGED",
+              null
+            ]
+          },
+          "cancelNote": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mergedIntoId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "highlight": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customFields": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "createdById": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "workItemTypeId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "intervalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "externalSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolution": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "originalEstimate": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "remainingEstimate": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "timeSpent": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sourceRecord": {
+            "description": "The record an import or sync created this item from, as the source system sent it; null otherwise."
+          },
+          "parent": {
+            "$ref": "#/components/schemas/WorkItemParentRef"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkItemChildRef"
+            }
+          },
+          "workItemType": {
+            "$ref": "#/components/schemas/WorkItemTypeRef"
+          },
+          "assignees": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkItemAssignee"
+            }
+          },
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Comment"
+            },
+            "description": "Oldest first, at most 50. The full thread is `listWorkItemComments`."
+          },
+          "activities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Activity"
+            },
+            "description": "Newest first, at most 50."
+          },
+          "interval": {
+            "$ref": "#/components/schemas/WorkItemIntervalRef"
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "projectId",
+          "title",
+          "description",
+          "columnKey",
+          "assigneeId",
+          "priority",
+          "parentId",
+          "ticketNumber",
+          "storyPoints",
+          "sortOrder",
+          "dueDate",
+          "startDate",
+          "actualStart",
+          "completedAt",
+          "columnEnteredAt",
+          "workCategory",
+          "archivedAt",
+          "cancelReason",
+          "cancelNote",
+          "mergedIntoId",
+          "tags",
+          "highlight",
+          "customFields",
+          "createdById",
+          "createdAt",
+          "updatedAt",
+          "workItemTypeId",
+          "intervalId",
+          "teamId",
+          "externalSource",
+          "externalId",
+          "externalKey",
+          "sourceStatus",
+          "resolution",
+          "originalEstimate",
+          "remainingEstimate",
+          "timeSpent",
+          "parent",
+          "children",
+          "workItemType",
+          "assignees",
+          "comments",
+          "activities",
+          "interval"
+        ]
+      },
+      "Comment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "workItemId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "subjectType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What a non-work-item comment is on (a PM register entry, a document, …)."
+          },
+          "subjectId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "authorId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "content": {
+            "type": "string",
+            "description": "User-authored text."
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The top-level comment this replies to."
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "PUBLIC",
+              "INTERNAL"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "COMMENT",
+              "OFFICIAL",
+              "STATUS_CHANGE",
+              "MERGE",
+              "SYSTEM"
+            ]
+          },
+          "meta": {
+            "description": "Kind-specific detail: a status change's from/to, a merge's source."
+          },
+          "editedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deletedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deletedById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "hiddenAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "hiddenById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "hiddenReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "originSubjectId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Set when a merge moved the comment here."
+          },
+          "classification": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "PUBLIC",
+              "UNCLASSIFIED",
+              "FOUO",
+              "CUI",
+              "CONFIDENTIAL",
+              null
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "workItemId",
+          "subjectType",
+          "subjectId",
+          "authorId",
+          "content",
+          "createdAt",
+          "updatedAt",
+          "parentId",
+          "visibility",
+          "kind",
+          "editedAt",
+          "deletedAt",
+          "deletedById",
+          "hiddenAt",
+          "hiddenById",
+          "hiddenReason",
+          "originSubjectId",
+          "classification"
+        ]
+      },
+      "Activity": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "workItemId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "subjectType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subjectId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "example": "0b8f6c1e-6a52-4bd0-9b0e-3a4c2f6d1e7a",
+            "description": "Who made the change."
+          },
+          "action": {
+            "type": "string",
+            "description": "e.g. `created`, `updated`, `moved`."
+          },
+          "field": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "oldValue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "newValue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "workItemId",
+          "subjectType",
+          "subjectId",
+          "userId",
+          "action",
+          "field",
+          "oldValue",
+          "newValue",
+          "createdAt"
+        ]
+      },
+      "WorkItemIntervalRef": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PLANNED",
+              "ACTIVE",
+              "COMPLETED"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "number",
+          "status"
+        ]
+      },
+      "WorkItemComment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "workItemId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "subjectType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What a non-work-item comment is on (a PM register entry, a document, …)."
+          },
+          "subjectId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "authorId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "content": {
+            "type": "string",
+            "description": "User-authored text."
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The top-level comment this replies to."
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "PUBLIC",
+              "INTERNAL"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "COMMENT",
+              "OFFICIAL",
+              "STATUS_CHANGE",
+              "MERGE",
+              "SYSTEM"
+            ]
+          },
+          "meta": {
+            "description": "Kind-specific detail: a status change's from/to, a merge's source."
+          },
+          "editedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deletedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deletedById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "hiddenAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "hiddenById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "hiddenReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "originSubjectId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Set when a merge moved the comment here."
+          },
+          "classification": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "PUBLIC",
+              "UNCLASSIFIED",
+              "FOUO",
+              "CUI",
+              "CONFIDENTIAL",
+              null
+            ]
+          },
+          "authorName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "authorAvatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canEdit": {
+            "type": "boolean",
+            "description": "The caller wrote it."
+          },
+          "canDelete": {
+            "type": "boolean",
+            "description": "The caller wrote it, or manages the project."
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "workItemId",
+          "subjectType",
+          "subjectId",
+          "authorId",
+          "content",
+          "createdAt",
+          "updatedAt",
+          "parentId",
+          "visibility",
+          "kind",
+          "editedAt",
+          "deletedAt",
+          "deletedById",
+          "hiddenAt",
+          "hiddenById",
+          "hiddenReason",
+          "originSubjectId",
+          "classification",
+          "authorName",
+          "authorAvatarUrl",
+          "canEdit",
+          "canDelete"
+        ]
+      },
       "TimeEntryList": {
         "type": "object",
         "properties": {
@@ -3401,6 +4670,183 @@
           "defaultParentTypeKey",
           "celebrateOnComplete",
           "createdAt"
+        ]
+      },
+      "WorkItemFacets": {
+        "type": "object",
+        "properties": {
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$ref": "#/components/schemas/Uuid"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "archived": {
+                  "type": "boolean"
+                },
+                "sector": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "key",
+                "name",
+                "archived",
+                "sector"
+              ]
+            }
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkItemTypeRef"
+            }
+          },
+          "statuses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "name",
+                "category"
+              ]
+            },
+            "description": "Every status key across those projects, first name seen."
+          },
+          "statusesByProject": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "category": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key",
+                  "name",
+                  "category"
+                ]
+              }
+            },
+            "description": "Per project: the statuses its own boards have, keyed by project id."
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$ref": "#/components/schemas/Uuid"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "avatarUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "displayName",
+                "avatarUrl"
+              ]
+            }
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Labels in use, sorted."
+          },
+          "intervals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$ref": "#/components/schemas/Uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "integer"
+                },
+                "projectId": {
+                  "$ref": "#/components/schemas/Uuid"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "PLANNED",
+                    "ACTIVE",
+                    "COMPLETED"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "number",
+                "projectId",
+                "status"
+              ]
+            }
+          },
+          "managedProjectIds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "description": "The projects the caller manages."
+          }
+        },
+        "required": [
+          "projects",
+          "types",
+          "statuses",
+          "statusesByProject",
+          "members",
+          "labels",
+          "intervals",
+          "managedProjectIds"
         ]
       }
     },
@@ -10577,6 +12023,1220 @@
         }
       }
     },
+    "/orgs/{orgId}/projects/{projectId}/work-item-links": {
+      "get": {
+        "operationId": "listWorkItemLinks",
+        "summary": "List a project's work-item links",
+        "description": "Every link between the project's work items, oldest first. `item` narrows to the links one item is on, at either end.",
+        "tags": [
+          "Work items"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Uuid"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    ""
+                  ]
+                }
+              ],
+              "description": "A work item id: only the links it is the source or target of."
+            },
+            "required": false,
+            "description": "A work item id: only the links it is the source or target of.",
+            "name": "item",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List a project's work-item links",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkItemLinkRow"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createWorkItemLink",
+        "summary": "Link two work items",
+        "description": "Both items must be in this project, and an item can't link to itself. A 409 means the same link already exists, or a directed link (BLOCKS, PREDECESSOR, …) would make a dependency cycle.",
+        "tags": [
+          "Work items"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sourceItemId": {
+                    "$ref": "#/components/schemas/Uuid"
+                  },
+                  "targetItemId": {
+                    "$ref": "#/components/schemas/Uuid"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "BLOCKS",
+                      "BLOCKED_BY",
+                      "RELATES",
+                      "DUPLICATES",
+                      "PREDECESSOR",
+                      "SUCCESSOR",
+                      "CLONES"
+                    ]
+                  }
+                },
+                "required": [
+                  "sourceItemId",
+                  "targetItemId",
+                  "type"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Link two work items",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedWorkItemLink"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (`conflict`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/projects/{projectId}/work-item-links/{linkId}": {
+      "delete": {
+        "operationId": "deleteWorkItemLink",
+        "summary": "Remove a work-item link",
+        "description": "Unlinks the two items; neither item changes.",
+        "tags": [
+          "Work items"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "linkId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Remove a work-item link",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/projects/{projectId}/work-items": {
+      "get": {
+        "operationId": "listProjectWorkItems",
+        "summary": "List a project's work items",
+        "description": "Every work item in the project, in board order (the board, backlog and timeline read this). Archived items are left out unless `archived` asks for them. The filters combine with AND. For search across projects, paging and sorting, use the org-wide work-item search.",
+        "tags": [
+          "Work items"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "`only`: just archived items; `all`: archived and active. Anything else, or none: active only."
+            },
+            "required": false,
+            "description": "`only`: just archived items; `all`: archived and active. Anything else, or none: active only.",
+            "name": "archived",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "`1`: the same as `archived=all` (the alias that shipped first)."
+            },
+            "required": false,
+            "description": "`1`: the same as `archived=all` (the alias that shipped first).",
+            "name": "includeArchived",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "workItemTypeId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "CRITICAL",
+                    "HIGH",
+                    "MEDIUM",
+                    "LOW"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    ""
+                  ]
+                }
+              ],
+              "description": "Blank means no filter."
+            },
+            "required": false,
+            "description": "Blank means no filter.",
+            "name": "priority",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "A board column (status) key."
+            },
+            "required": false,
+            "description": "A board column (status) key.",
+            "name": "columnKey",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "The primary assignee."
+            },
+            "required": false,
+            "description": "The primary assignee.",
+            "name": "assigneeId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "intervalId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "parentId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Case-insensitive match on the title."
+            },
+            "required": false,
+            "description": "Case-insensitive match on the title.",
+            "name": "search",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List a project's work items",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkItemListRow"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/projects/{projectId}/work-items/{itemId}": {
+      "get": {
+        "operationId": "getWorkItem",
+        "summary": "Get a work item",
+        "description": "The item with its type, parent, children, assignees and interval, its first 50 comments and its 50 latest changes. `getWorkItemById` reads the same item without its project id.",
+        "tags": [
+          "Work items"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "itemId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Get a work item",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkItemDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/projects/{projectId}/work-items/{itemId}/activity": {
+      "get": {
+        "operationId": "listWorkItemActivity",
+        "summary": "List a work item's changes",
+        "description": "Its 100 latest changes, newest first: who changed which field, from what, to what.",
+        "tags": [
+          "Work items"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "itemId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List a work item's changes",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Activity"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/projects/{projectId}/work-items/{itemId}/comments": {
+      "get": {
+        "operationId": "listWorkItemComments",
+        "summary": "List a work item's comments",
+        "description": "The whole thread, oldest first, with each author's name and whether the caller may edit or delete each comment. `listWorkItemCommentsById` reads the same thread without the project id.",
+        "tags": [
+          "Work items"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "itemId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List a work item's comments",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkItemComment"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/orgs/{orgId}/time-entries": {
       "get": {
         "operationId": "listTimeEntries",
@@ -11388,6 +14048,439 @@
                   "items": {
                     "$ref": "#/components/schemas/WorkItemType"
                   }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/work-items/{itemId}": {
+      "get": {
+        "operationId": "getWorkItemById",
+        "summary": "Get a work item by its id",
+        "description": "The same as `getWorkItem`, without the project in the path: an item's id is unique in the org. The caller still needs to be able to read the item's project.",
+        "tags": [
+          "Work items"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "itemId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Get a work item by its id",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkItemDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/work-items/{itemId}/comments": {
+      "get": {
+        "operationId": "listWorkItemCommentsById",
+        "summary": "List a work item's comments by its id",
+        "description": "The same as `listWorkItemComments`, without the project in the path.",
+        "tags": [
+          "Work items"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "itemId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List a work item's comments by its id",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkItemComment"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/work-items/facets": {
+      "get": {
+        "operationId": "getWorkItemFacets",
+        "summary": "Get work-item filter options",
+        "description": "The values the work-item filters can take across the projects the caller can read: projects, types, statuses (also per project), members, labels in use and intervals. A caller who can read no project gets empty lists.",
+        "tags": [
+          "Work items"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Get work-item filter options",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkItemFacets"
                 }
               }
             }
