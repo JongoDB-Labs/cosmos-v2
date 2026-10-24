@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.470.1",
+    date: "2026-10-24",
+    title: "Inbox links open the right item",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Clicking a notification in the Inbox now opens the item it is about. Before, every Inbox link pointed to a page that did not exist.",
+      },
+    ],
+  },
+  {
     version: "2.470.0",
     date: "2026-10-24",
     title: "One category per status",
