@@ -10,27 +10,9 @@
  * a no-op if the demo org is already gone. Run "npm run seed:demo" to recreate it.
  */
 import { makePrismaClient } from "./shared/prisma-client";
-import { readFileSync } from "node:fs";
+import { loadEnvLocal } from "./shared/env-local";
 
 const SLUG = "apex-defense";
-
-function loadEnvLocal(): string | undefined {
-  let dbUrl: string | undefined;
-  try {
-    const txt = readFileSync(process.cwd() + "/.env.local", "utf8");
-    for (const line of txt.split("\n")) {
-      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
-      if (!m) continue;
-      let v = m[2];
-      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-      if (!process.env[m[1]]) process.env[m[1]] = v;
-      if (m[1] === "DATABASE_URL") dbUrl = v;
-    }
-  } catch {
-    /* ignore */
-  }
-  return dbUrl;
-}
 
 async function main() {
   const dryRun = process.argv.includes("--dry-run");
