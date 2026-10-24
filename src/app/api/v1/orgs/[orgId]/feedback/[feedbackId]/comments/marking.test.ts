@@ -350,6 +350,21 @@ describe("comment markings (e2e DB)", () => {
       expect(entry?.userId).toBeUndefined(); // nobody did it
     });
 
+    it("stops before the next org once the job is cancelled", async () => {
+      inOrg(govOrg, govItem);
+      await setCeiling("CUI");
+      const { c } = await markedWithReply();
+      await prisma.dataClassification.deleteMany({ where: { orgId: govOrg, projectId: null } });
+      const cancelled = new AbortController();
+      cancelled.abort();
+      const r = await sweepAllMarkedComments({ signal: cancelled.signal });
+      expect(r).toMatchObject({ comments: 0, replies: 0 });
+      expect((await prisma.comment.findUniqueOrThrow({ where: { id: c.id } })).visibility).toBe("PUBLIC");
+      // The next tick picks it up.
+      await sweepAllMarkedComments();
+      expect((await prisma.comment.findUniqueOrThrow({ where: { id: c.id } })).visibility).toBe("INTERNAL");
+    });
+
     it("runs the scheduled sweep as a registered job", async () => {
       await import("@/lib/jobs/jobs");
       expect(appJobRunner().status().map((j) => j.name)).toContain("feedback-marking-sweep");
