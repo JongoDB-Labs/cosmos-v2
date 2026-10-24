@@ -137,7 +137,10 @@ export interface ApplyChangeInput {
   transition?: TransitionRequest;
   /** The board the move was made on, for its hard WIP limits. */
   boardId?: string;
-  /** Defaults to "structural" for SYSTEM changes and "full" otherwise. */
+  /**
+   * Defaults to "system" for a SYSTEM change or one with no `actor` (a
+   * composed plugin's call), and "full" otherwise.
+   */
   level?: EnforcementLevel;
 }
 
@@ -399,7 +402,7 @@ export async function applyWorkItemChange(
     projectId,
     actor: input.actor ?? null,
     actorId,
-    level: input.level ?? (source === "SYSTEM" || input.actor === undefined ? "structural" : "full"),
+    level: input.level ?? (source === "SYSTEM" || input.actor === undefined ? "system" : "full"),
     items,
     patch,
     transition: input.transition,
