@@ -24,10 +24,14 @@ const GATE_WITH_ACTION = /\b(?:requireAccess|requireProjectRead|assertProjectRea
 /** `cond ? Permission.A : Permission.B` inside a gate: both sides are possible gates. */
 const TERNARY = /\?\s*(?:Permission\.|")([A-Z_]+)"?\s*:\s*(?:Permission\.|")([A-Z_]+)/g;
 
+/** cqlGate (lib/query/route.server) refuses a caller without the raw ITEM_READ bit. */
+const CQL_GATE = /\bcqlGate\(/;
+
 /** Bits named by the gates in `code`. For a ternary gate both arms count. */
 export function gateKeys(code: string): Set<string> {
   const keys = new Set<string>();
   for (const re of [GATE_WITH_BIT, NEGATED_HAS, GATE_WITH_ACTION]) for (const m of code.matchAll(re)) keys.add(m[1]);
+  if (CQL_GATE.test(code)) keys.add("ITEM_READ");
   for (const gate of code.matchAll(/\b(?:requirePermission|requireProjectRead|requireAccess)\([^;]*?\?[^;]*?:[^;]*?\)/g)) {
     for (const m of gate[0].matchAll(TERNARY)) { keys.add(m[1]); keys.add(m[2]); }
   }
