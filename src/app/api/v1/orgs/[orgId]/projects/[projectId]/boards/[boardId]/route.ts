@@ -64,7 +64,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // project that owns this board (a project-admin runs their own boards).
     if (
       !hasPermission(ctx.permissions, Permission.BOARD_UPDATE) &&
-      !(await canManageProject(ctx, projectId))
+      !(await canManageProject(ctx, projectId, Permission.BOARD_UPDATE))
     ) {
       return new Response("Forbidden", { status: 403 });
     }
@@ -130,7 +130,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // Inheriting authority: org-wide BOARD_DELETE holder OR project MANAGER.
     if (
       !hasPermission(ctx.permissions, Permission.BOARD_DELETE) &&
-      !(await canManageProject(ctx, projectId))
+      !(await canManageProject(ctx, projectId, Permission.BOARD_DELETE))
     ) {
       return new Response("Forbidden", { status: 403 });
     }

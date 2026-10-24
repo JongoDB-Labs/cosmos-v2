@@ -5,6 +5,8 @@ import { success, noContent, handleApiError } from "@/lib/api-helpers";
 import { canSeeChannelGiven, canManageChannelGiven, loadChannelAndMembership } from "@/lib/chat/access";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
+import { roleCountsFor } from "@/lib/rbac/key-role";
+import { Permission } from "@/lib/rbac/permissions";
 
 type RouteParams = { params: Promise<{ orgId: string; channelId: string }> };
 
@@ -70,7 +72,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
     if (!channel) return new Response("Not found", { status: 404 });
-    if (!canManageChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole })) {
+    if (!canManageChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole, roleCounts: roleCountsFor(ctx, Permission.CHAT_USE) })) {
       return new Response("Forbidden", { status: 403 });
     }
 
@@ -119,7 +121,8 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
 
-    if (ctx.orgRole !== "OWNER" && ctx.orgRole !== "ADMIN") {
+    // A key never deletes a channel by role: no scope grants CHAT_USE (lib/rbac/key-role.ts).
+    if (!roleCountsFor(ctx, Permission.CHAT_USE) || (ctx.orgRole !== "OWNER" && ctx.orgRole !== "ADMIN")) {
       return new Response("Forbidden", { status: 403 });
     }
     const channel = await prisma.chatChannel.findUnique({

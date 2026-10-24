@@ -13,6 +13,7 @@ import {
   feedbackCommentDto,
   getFeedbackComment,
   notifyCommentAudience,
+  setMarking,
   setOfficial,
   setVisibility,
 } from "@/lib/feedback/comments.server";
@@ -25,6 +26,7 @@ const editSchema = z.object({ content: z.string().trim().min(1).max(10000) });
 const staffSchema = z.union([
   z.object({ visibility: z.enum(["PUBLIC", "INTERNAL"]) }).strict(),
   z.object({ official: z.boolean() }).strict(),
+  z.object({ classification: z.enum(["PUBLIC", "UNCLASSIFIED", "CUI", "CONFIDENTIAL"]).nullable() }).strict(),
 ]);
 
 /**
@@ -48,31 +50,55 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const staffChange = staffSchema.safeParse(body);
     if (staffChange.success) {
       if (!viewer.isStaff) return json(403, { error: "Only the feedback team can do that." });
+      const change = staffChange.data;
+      type MarkingChange = Awaited<ReturnType<typeof setMarking>> & { to: string | null };
+      let marking: MarkingChange | null = null;
       try {
-        await prisma.$transaction((tx) =>
-          "visibility" in staffChange.data
-            ? setVisibility(tx, { orgId, feedbackItemId: feedbackId, commentId, visibility: staffChange.data.visibility })
-            : setOfficial(tx, { feedbackItemId: feedbackId, commentId, official: staffChange.data.official }),
-        );
+        await prisma.$transaction(async (tx) => {
+          if ("visibility" in change) {
+            await setVisibility(tx, { orgId, feedbackItemId: feedbackId, commentId, visibility: change.visibility });
+          } else if ("official" in change) {
+            await setOfficial(tx, { orgId, feedbackItemId: feedbackId, commentId, official: change.official });
+          } else {
+            const result = await setMarking(tx, {
+              orgId,
+              feedbackItemId: feedbackId,
+              commentId,
+              classification: change.classification,
+            });
+            marking = { ...result, to: change.classification };
+          }
+        });
       } catch (e) {
         if (e instanceof CommentChangeError) return json(409, { error: e.message });
         throw e;
       }
+      // Assigned inside the transaction callback, which TypeScript can't follow.
+      const m = marking as MarkingChange | null;
       await logAudit({
         orgId,
         userId: ctx.userId,
-        action: "visibility" in staffChange.data ? "feedback.comment.visibility_changed" : "feedback.comment.official_changed",
+        action:
+          "visibility" in change
+            ? "feedback.comment.visibility_changed"
+            : "official" in change
+              ? "feedback.comment.official_changed"
+              : "feedback.comment.marking_changed",
         entity: "comment",
         entityId: commentId,
-        metadata: { feedbackId, ...staffChange.data },
+        metadata: m
+          ? { feedbackId, from: m.from, to: m.to, ceiling: m.ceiling, tookInternal: m.tookInternal }
+          : { feedbackId, ...change },
         ipAddress: getIpAddress(request),
       }).catch(() => {});
-      // Every staff change touches a comment that is or was public, so the
-      // whole org's view has to follow it.
-      try {
-        publishToOrg(orgId, "feedback.comment.updated", { feedbackId, commentId });
-      } catch {
-        /* realtime is best-effort */
+      // Pinning and converting touch a comment that is or was public, so the
+      // whole org's view has to follow; a marking change only when it was.
+      if (!("classification" in change) || existing.visibility === "PUBLIC") {
+        try {
+          publishToOrg(orgId, "feedback.comment.updated", { feedbackId, commentId });
+        } catch {
+          /* realtime is best-effort */
+        }
       }
       const after = await reload(commentId);
       if ("visibility" in staffChange.data && staffChange.data.visibility === "PUBLIC") {

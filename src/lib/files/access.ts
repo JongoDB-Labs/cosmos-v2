@@ -4,6 +4,7 @@ import type { DocumentVisibility } from "@prisma/client";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { isProjectVisible, isOrgAdministrator } from "@/lib/rbac/project-access";
 import { canAdministerProject } from "@/lib/rbac/require-project-manage";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 
 /**
  * Who may see and who may change a stored file.
@@ -94,6 +95,10 @@ export async function canManageDocument(
   ctx: AuthContext,
 ): Promise<boolean> {
   if (doc.uploadedById === ctx.userId) return true;
+  // Changing or deleting someone else's file is a delete-grade decision, so an
+  // API key does it only when its scopes grant ITEM_DELETE (lib/rbac/key-role.ts);
+  // otherwise it manages the files its owner uploaded, and no others.
+  if (!roleCountsFor(ctx, Permission.ITEM_DELETE)) return false;
   if (doc.projectId === null) return hasPermission(ctx.permissions, Permission.ORG_UPDATE);
   return canAdministerProject(ctx, doc.projectId);
 }
@@ -112,6 +117,10 @@ export async function withManageFlags<T extends { projectId: string | null; uplo
   docs: readonly T[],
   ctx: AuthContext,
 ): Promise<Array<T & { canManage: boolean }>> {
+  // The same rule as canManageDocument: a key without ITEM_DELETE manages only its owner's uploads.
+  if (!roleCountsFor(ctx, Permission.ITEM_DELETE)) {
+    return docs.map((d) => ({ ...d, canManage: d.uploadedById === ctx.userId }));
+  }
   const projectIds = [...new Set(docs.map((d) => d.projectId).filter((p): p is string => !!p))];
   const manageable = new Set<string>();
   await Promise.all(
