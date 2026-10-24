@@ -26,10 +26,12 @@ const replaceSpy = vi.fn((url: string) => {
   params = new URLSearchParams(url.split("?")[1] ?? "");
 });
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: replaceSpy }),
+  // The query is written with history.replaceState (below), never router.replace.
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => params,
   usePathname: () => "/acme/issues",
 }));
+vi.spyOn(window.history, "replaceState").mockImplementation((_state, _title, url) => replaceSpy(String(url)));
 vi.mock("next/dynamic", () => ({ default: () => () => <textarea aria-label="Query" /> }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
