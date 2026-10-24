@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.461.2",
+    date: "2026-10-24",
+    title: "The installed app keeps its identity",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The web-app manifest now has a stable id, so an installed Cosmos app is recognised as the same app after an update instead of looking like a new one.",
+      },
+    ],
+  },
+  {
     version: "2.461.1",
     date: "2026-10-24",
     title: "Time tracking always opens on your own week",
