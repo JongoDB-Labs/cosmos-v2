@@ -11,6 +11,7 @@ import { ColumnCategory } from "@prisma/client";
 import { ConflictError } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { boardShowsStatuses, ensureStatuses, renameStatusIfUnshared } from "@/lib/workflow/statuses.server";
+import { withStatusCategories } from "@/lib/workflow/column-categories.server";
 
 const columnSchema = z.object({
   id: z.string().uuid().nullish(),
@@ -148,12 +149,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         }
       }
 
-      // Each column mirrors its status's category (deprecated, kept in step for
-      // the readers not yet moved to statuses), but only for the columns that
-      // start showing a status here. A column sent back as it was keeps its category even
-      // where it disagrees with the status: those are the boards the backfill
-      // recorded as conflicting (workflow.backfill_conflict), and an unrelated
-      // reorder must not quietly change what "done" means on them.
+      // A column that starts showing a status here stores the status's
+      // category, so it is never mistaken for a lane the backfill found
+      // conflicting (column-categories.server.ts). Columns sent back as they
+      // were keep theirs: a conflicted lane's counts until it is resolved.
       if (board && boardShowsStatuses(board.type) && touchedKeys.length > 0) {
         await tx.$executeRaw`
           UPDATE board_columns bc SET category = s.category
@@ -164,10 +163,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         `;
       }
 
-      return tx.boardColumn.findMany({
-        where: { boardId },
-        orderBy: { sortOrder: "asc" },
-      });
+      const saved = await tx.boardColumn.findMany({ where: { boardId }, orderBy: { sortOrder: "asc" } });
+      return board ? (await withStatusCategories(tx, projectId, [{ type: board.type, columns: saved }]))[0].columns : saved;
     });
 
     await logAudit({

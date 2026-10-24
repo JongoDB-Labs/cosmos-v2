@@ -49,6 +49,39 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.470.0",
+    date: "2026-10-24",
+    title: "One category per status",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Every board, report and filter now reads a status column's category from the status itself, so a status means the same thing everywhere. Settings \u2192 Workflows \u2192 Statuses lists any status whose boards disagreed on its category and lets an admin keep the status's category or adopt a board's.",
+      },
+    ],
+  },
+  {
+    version: "2.469.0",
+    date: "2026-10-24",
+    title: "Search work items across projects in the API",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The API reference now documents searching work items across projects: GET /work-items, GET /work-items/search, and POST /work-items/search with a JSON filter. API keys need the read scope for them.",
+      },
+    ],
+  },
+  {
+    version: "2.468.1",
+    date: "2026-10-24",
+    title: "Tighter API key visibility",
+    highlights: [
+      {
+        kind: "fix",
+        text: "API keys limited to some projects now see only the people on those projects in the member list and the work-item filters. A work item's change history in the API shows before-and-after values only for the item's own reviewed fields.",
+      },
+    ],
+  },
+  {
     version: "2.468.0",
     date: "2026-10-24",
     title: "Query language: history, hierarchy and richer sorting",

@@ -95,8 +95,8 @@ export const Activity = z.object({
   userId: Uuid.describe("Who made the change."),
   action: z.string().describe("e.g. `created`, `updated`, `moved`."),
   field: z.string().nullable(),
-  oldValue: z.string().nullable(),
-  newValue: z.string().nullable(),
+  oldValue: z.string().nullable().describe("The value before, for the item fields the history shows values for (title, status, priority, assignee, dates, …); null for any other field."),
+  newValue: z.string().nullable().describe("The value after; null like `oldValue`."),
   createdAt: IsoDateTime,
 }).meta({ id: "Activity" });
 
