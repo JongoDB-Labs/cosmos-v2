@@ -4,6 +4,7 @@ import { resolveAuth } from "@/lib/auth/api-key";
 import { requireAccess } from "@/lib/abac/require-access";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; itemId: string; docId: string }>;
@@ -25,6 +26,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await resolveAuth(req, org);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    await requireProjectVisible(ctx, projectId);
 
     const item = await prisma.workItem.findFirst({
       where: { id: itemId, orgId, projectId },

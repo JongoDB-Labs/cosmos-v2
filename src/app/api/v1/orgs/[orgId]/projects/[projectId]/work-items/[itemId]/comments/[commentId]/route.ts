@@ -40,7 +40,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     await requireProjectRead(ctx, projectId, ctx.isApiKey ? "COMMENT_CREATE" : "COMMENT_READ");
 
     const existing = await prisma.comment.findFirst({
-      where: { id: commentId, orgId, workItemId: itemId },
+      // The item must be in the path's project: the gates above judge that
+      // project, so a comment on another project's item is not this route's.
+      where: { id: commentId, orgId, workItemId: itemId, workItem: { projectId } },
     });
     if (!existing) return new Response("Not found", { status: 404 });
     // Editing is author-only — you can only change your own words.
@@ -73,7 +75,9 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     await requireProjectRead(ctx, projectId, ctx.isApiKey ? "COMMENT_CREATE" : "COMMENT_READ");
 
     const existing = await prisma.comment.findFirst({
-      where: { id: commentId, orgId, workItemId: itemId },
+      // The item must be in the path's project: the gates above judge that
+      // project, so a comment on another project's item is not this route's.
+      where: { id: commentId, orgId, workItemId: itemId, workItem: { projectId } },
     });
     if (!existing) return new Response("Not found", { status: 404 });
 

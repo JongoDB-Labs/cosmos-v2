@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { handlerCode } from "@/lib/auth/__tests__/gate-bits";
+import { Permission, RolePermissions } from "@/lib/rbac/permissions";
 
 /**
  * Every project-scoped READ must ask whether the actor may see THAT project.
@@ -79,5 +81,73 @@ describe("project-scoped reads go through the team-aware gate", () => {
       expect(get, f).toMatch(/readableItemProjectId\(\s*ctx\s*,/);
     }
     expect(readFileSync("src/lib/work-items/read.server.ts", "utf8")).toMatch(/requireProjectRead\(ctx, projectId, action\)/);
+  });
+});
+
+/**
+ * Every project-scoped WRITE must ask the same question.
+ *
+ * Visibility decides whether a non-member may act in a project at all
+ * (project-role.ts). The reads were held to that above; 32 writes were not.
+ * They gated on the action's org bit alone (`requireAccess(ctx, "ITEM_CREATE",
+ * …)`), or on `requireProjectManage` with a bit every MEMBER holds, which
+ * passes before the manager check is reached. So on a project that opted into
+ * `teamScopedAccess`, a non-member who could see none of it could still create
+ * items there, and delete, merge, duplicate (which echoes the source) and
+ * comment on its items by id.
+ *
+ * The rule: a write handler, with the helpers it calls, runs a visibility
+ * check. The one exception is a write gated by `requireProjectManage` /
+ * `canAdministerProject` on a bit no MEMBER holds (PROJECT_UPDATE,
+ * WORKFLOW_MANAGE, …): its org-wide holders keep their reach by design
+ * (project-access.ts, "Writing inside a project still follows the
+ * permission"). A MEMBER bit there is no exception, because that gate passes
+ * every member.
+ */
+const VISIBLE = /\b(?:requireProjectRead|requireProjectVisible|isProjectVisible|canReadProject|readableItemProjectId|assertProjectRead|canManageProject|getManagedProjectIds|readableDocument)\(/;
+const MANAGE_GATE = /\b(?:requireProjectManage|canAdministerProject)\(\s*ctx\s*,\s*[^,)]+(?:,\s*Permission\.([A-Z_]+))?/g;
+const WRITES = ["POST", "PUT", "PATCH", "DELETE"];
+
+/** Why this handler may write without a visibility check, or null if it may not. */
+function exemptBy(code: string): string | null {
+  const bits = [...code.matchAll(MANAGE_GATE)].map((m) => (m[1] ?? "PROJECT_UPDATE") as keyof typeof Permission);
+  if (bits.length === 0) return null;
+  return bits.every((b) => (RolePermissions.MEMBER & Permission[b]) === 0n) ? bits.join(",") : null;
+}
+
+describe("project-scoped writes go through the team-aware gate", () => {
+  const handlers = routeFiles(ROOT).flatMap((f) => {
+    const src = readFileSync(f, "utf8");
+    return WRITES.flatMap((m) => {
+      const code = handlerCode(src, m, f);
+      return code ? [{ at: `${m} ${f.slice(ROOT.length)}`, code }] : [];
+    });
+  });
+
+  it("scanned the real write handlers", () => {
+    expect(handlers.length).toBeGreaterThan(100);
+    expect(handlers.map((h) => h.at)).toContain("POST /work-items/route.ts");
+  });
+
+  it("every write checks the project is visible, unless only elevated managers pass its gate", () => {
+    const offenders = handlers.filter((h) => !VISIBLE.test(h.code) && !exemptBy(h.code)).map((h) => h.at);
+    expect(offenders).toEqual([]);
+  });
+
+  it("a MEMBER bit never exempts a write", () => {
+    // Pins the exemption's reasoning: these gates pass every member, so they
+    // must not count as an elevated-manager gate.
+    expect(exemptBy("await requireProjectManage(ctx, projectId, Permission.OKR_UPDATE);")).toBeNull();
+    expect(exemptBy("await requireProjectManage(ctx, projectId, Permission.ITEM_CREATE);")).toBeNull();
+    expect(exemptBy("await requireProjectManage(ctx, projectId);")).toBe("PROJECT_UPDATE");
+  });
+
+  it("the org-scoped item writes reach the project handlers that check", () => {
+    // They resolve the item's project and hand off to the project route, so
+    // the scan above covers them only through that delegation.
+    const byId = readFileSync("src/app/api/v1/orgs/[orgId]/work-items/[itemId]/route.ts", "utf8");
+    const comments = readFileSync("src/app/api/v1/orgs/[orgId]/work-items/[itemId]/comments/route.ts", "utf8");
+    expect(byId).toMatch(/from "\.\.\/\.\.\/projects\/\[projectId\]\/work-items\/\[itemId\]\/route"/);
+    expect(comments).toMatch(/from "\.\.\/\.\.\/\.\.\/projects\/\[projectId\]\/work-items\/\[itemId\]\/comments\/route"/);
   });
 });

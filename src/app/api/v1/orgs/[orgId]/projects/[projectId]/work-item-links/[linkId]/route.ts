@@ -9,6 +9,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { deleteWorkItemLink } from "./route.contract";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; linkId: string }> };
 
@@ -17,6 +18,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, deleteWorkItemLink);
     const { params: { orgId, projectId, linkId } } = await parseRequest(deleteWorkItemLink, request, params);
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.ITEM_UPDATE);
 
     // Scope the delete to a link in THIS org whose source item is in THIS

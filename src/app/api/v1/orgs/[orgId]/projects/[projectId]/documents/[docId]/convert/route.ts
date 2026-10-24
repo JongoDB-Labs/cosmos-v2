@@ -7,6 +7,7 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { convertBlockToItem, convertTableToWorkItems } from "@/lib/files/convert";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; docId: string }>;
@@ -33,6 +34,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await resolveAuth(req, org);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.ITEM_CREATE);
 
     const doc = await prisma.document.findFirst({
