@@ -95,6 +95,11 @@ const PUBLIC_PATH_PREFIXES = [
   // Apple Calendar servers, which have no session. The path token is the
   // credential; the route checks it, the org switch and the person's access.
   "/api/v1/calendar/feeds",
+  // Filter-email unsubscribe links (query design §11.2): opened from a mail
+  // client, often signed out. The path token, MAC'd per subscription, is the
+  // credential; GET only shows a confirmation, and the same-origin form POST
+  // it sends is what unsubscribes.
+  "/api/v1/unsubscribe/filter",
   // Watchdog down-alert — no browser session by definition (the daemon is
   // down); the route enforces its own bearer token.
   "/api/foreman/alert",

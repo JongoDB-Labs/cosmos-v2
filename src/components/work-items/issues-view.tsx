@@ -74,6 +74,7 @@ import { QueryBuilder, withClause } from "@/components/work-items/cql/query-buil
 import { useCqlSchema, useCqlUrlState, useCqlValidate, viewerTimeZone } from "@/components/work-items/cql/use-cql";
 import { FiltersMenu } from "@/components/work-items/cql/filters-menu";
 import { SaveFilterDialog } from "@/components/work-items/cql/save-filter-dialog";
+import { SubscribeDialog } from "@/components/work-items/cql/subscribe-dialog";
 import { FilterChangedBar, filterChanged } from "@/components/work-items/cql/filter-changed-bar";
 import { rememberFilter, useSavedFilter, type SavedFilter } from "@/components/work-items/cql/use-saved-filters";
 import { toWorkItemFilter as cqlToWorkItemFilter } from "@/lib/query/adapters";
@@ -193,6 +194,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const restrictedFilter = runById && !!loadedFilter.data?.partiallyRestricted;
   const cqlValidation = useCqlValidate(orgId, cqlText, cqlOn && !restrictedFilter);
   const [saveDialog, setSaveDialog] = useState<{ cql: string } | { filter: SavedFilter } | null>(null);
+  const [subscribeTo, setSubscribeTo] = useState<SavedFilter | null>(null);
   const cqlQuery = useMemo(() => parseCql(cqlText).query, [cqlText]);
   const applyCql = useCallback(
     (text: string) => {
@@ -1058,6 +1060,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
               activeId={cqlUrl.filterId}
               onRun={runSavedFilter}
               onEdit={(f) => setSaveDialog({ filter: f })}
+              onSubscribe={setSubscribeTo}
             />
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setSaveDialog({ cql: cqlText })}>
               <Save className="h-3.5 w-3.5" aria-hidden />
@@ -1465,6 +1468,9 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         </DialogContent>
       </Dialog>
 
+      {cqlOn && (
+        <SubscribeDialog orgId={orgId} filter={subscribeTo} open={subscribeTo !== null} onOpenChange={(o) => !o && setSubscribeTo(null)} />
+      )}
       {cqlOn && (
         <SaveFilterDialog
           orgId={orgId}
