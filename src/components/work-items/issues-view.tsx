@@ -69,10 +69,13 @@ import {
 } from "@/components/work-items/issues-filter-bar";
 import { QueryBuilder, withClause } from "@/components/work-items/cql/query-builder";
 import { useCqlSchema, useCqlUrlState, useCqlValidate, viewerTimeZone } from "@/components/work-items/cql/use-cql";
-import { fromWorkItemFilter, toWorkItemFilter as cqlToWorkItemFilter } from "@/lib/query/adapters";
-import { ARCHIVED_ONLY, WATCHING, hasClause, legacyText, simplifyLegacyText, toggleClause } from "@/lib/query/chip-ops";
+import { FiltersMenu } from "@/components/work-items/cql/filters-menu";
+import { SaveFilterDialog } from "@/components/work-items/cql/save-filter-dialog";
+import { FilterChangedBar, filterChanged } from "@/components/work-items/cql/filter-changed-bar";
+import { rememberFilter, useSavedFilter, type SavedFilter } from "@/components/work-items/cql/use-saved-filters";
+import { toWorkItemFilter as cqlToWorkItemFilter } from "@/lib/query/adapters";
+import { ARCHIVED_ONLY, WATCHING, hasClause, legacyText, toggleClause } from "@/lib/query/chip-ops";
 import { parseCql } from "@/lib/query/parser";
-import { printCql, type LabelFor } from "@/lib/query/print";
 
 /** Best-effort human reason from a rejected bulk request — the server message
  *  carried by a jsonFetch FetchError, or a network error's own message. */
@@ -175,13 +178,30 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const cqlSchema = useCqlSchema(orgId);
   const cqlOn = cqlSchema.enabled;
   const cqlUrl = useCqlUrlState();
-  const cqlText = cqlOn ? cqlUrl.cql : "";
-  const cqlValidation = useCqlValidate(orgId, cqlText, cqlOn);
+  // A saved filter loaded with `?filter=<id>` runs BY ID until its text is
+  // changed: the server runs the stored query, narrowed to what this viewer
+  // can see, so even a filter with ‹restricted› parts runs correctly.
+  const loadedFilter = useSavedFilter(orgId, cqlOn ? cqlUrl.filterId : null);
+  const typed = cqlOn ? cqlUrl.cql : "";
+  const runById = cqlOn && !!cqlUrl.filterId && !typed.trim();
+  const cqlText = typed.trim() ? typed : runById ? (loadedFilter.data?.cql ?? "") : "";
+  const restrictedFilter = runById && !!loadedFilter.data?.partiallyRestricted;
+  const cqlValidation = useCqlValidate(orgId, cqlText, cqlOn && !restrictedFilter);
+  const [saveDialog, setSaveDialog] = useState<{ cql: string } | { filter: SavedFilter } | null>(null);
   const cqlQuery = useMemo(() => parseCql(cqlText).query, [cqlText]);
   const applyCql = useCallback(
     (text: string) => {
       setPage(1);
-      cqlUrl.setCql(text);
+      // Emptying the query also lets go of a loaded filter.
+      cqlUrl.update(text.trim() ? { cql: text } : { cql: null, filter: null });
+    },
+    [cqlUrl],
+  );
+  const runSavedFilter = useCallback(
+    (f: { id: string }) => {
+      setPage(1);
+      rememberFilter(f.id);
+      cqlUrl.update({ filter: f.id, cql: null });
     },
     [cqlUrl],
   );
@@ -299,10 +319,9 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const searchQs = (p: number, size: number): string => {
     if (!cqlOn) return toQueryString(filters, p, size);
     const sp = new URLSearchParams();
-    if (cqlText.trim()) {
-      sp.set("cql", cqlText);
-      sp.set("tz", viewerTimeZone());
-    }
+    if (typed.trim()) sp.set("cql", typed);
+    else if (runById) sp.set("filter", cqlUrl.filterId!);
+    if (sp.size) sp.set("tz", viewerTimeZone());
     sp.set("page", String(p));
     sp.set("pageSize", String(size));
     return sp.toString();
@@ -350,29 +369,6 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
 
   const facets = facetsQuery.data;
 
-  // Applying a saved view prints its ids as the names the viewer knows, when
-  // a name is unambiguous here; otherwise the id, which resolves the same.
-  const labelFor = useMemo((): LabelFor => {
-    const unique = <T,>(rows: T[], id: (r: T) => string, name: (r: T) => string) => {
-      const n = new Map<string, number>();
-      for (const r of rows) n.set(name(r).toLowerCase(), (n.get(name(r).toLowerCase()) ?? 0) + 1);
-      return new Map(rows.filter((r) => n.get(name(r).toLowerCase()) === 1).map((r) => [id(r), name(r)]));
-    };
-    const projects = new Map((facets?.projects ?? []).map((p) => [p.id, p.key]));
-    const types = unique(facets?.types ?? [], (t) => t.id, (t) => t.name);
-    const users = unique(facets?.members ?? [], (m) => m.id, (m) => m.displayName);
-    const intervals = unique(facets?.intervals ?? [], (iv) => iv.id, (iv) => iv.name);
-    return (v) =>
-      v.entity === "project"
-        ? projects.get(v.id)
-        : v.entity === "type"
-          ? types.get(v.id)
-          : v.entity === "user"
-            ? users.get(v.id)
-            : v.entity === "interval"
-              ? intervals.get(v.id)
-              : undefined;
-  }, [facets]);
 
   // The rows in this table are SUMMARIES; the editing sheet needs the whole work
   // item (children, custom fields, assignees…). Fetch it when a row is opened.
@@ -1017,7 +1013,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
 
   const watching = cqlOn ? hasClause(cqlQuery, WATCHING) : filters.watchedByMe;
   const archivedOnly = cqlOn ? hasClause(cqlQuery, ARCHIVED_ONLY) : filters.showArchived;
-  const filtering = cqlOn ? cqlText.trim() !== "" : activeCount > 0;
+  const filtering = cqlOn ? cqlText.trim() !== "" || runById : activeCount > 0;
   // A query the server refused (400) is the query's fault, not the network's.
   const queryRejected = cqlOn && resultsError instanceof FetchError && resultsError.status === 400;
   // The project the view is pinned to, if exactly one: new issues and boards default to it.
@@ -1031,10 +1027,9 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const exportQs = (() => {
     if (!cqlOn) return qs;
     const sp = new URLSearchParams();
-    if (cqlText.trim()) {
-      sp.set("cql", cqlText);
-      sp.set("tz", viewerTimeZone());
-    }
+    if (typed.trim()) sp.set("cql", typed);
+    else if (runById) sp.set("filter", cqlUrl.filterId!);
+    if (sp.size) sp.set("tz", viewerTimeZone());
     return sp.toString();
   })();
 
@@ -1042,20 +1037,31 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
         {/* Saved views (FR 2b36c2b8) — named, reusable filters. */}
+        {cqlOn ? (
+          <>
+            <FiltersMenu
+              orgId={orgId}
+              orgSlug={orgSlug}
+              activeId={cqlUrl.filterId}
+              onRun={runSavedFilter}
+              onEdit={(f) => setSaveDialog({ filter: f })}
+            />
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setSaveDialog({ cql: cqlText })}>
+              <Save className="h-3.5 w-3.5" aria-hidden />
+              Save filter
+            </Button>
+          </>
+        ) : (
         <SavedViewsPicker
           orgId={orgId}
-          currentFilter={cqlOn ? (cqlFilter ?? {}) : filterStateToSavedFilter(filters)}
-          saveDisabledReason={cqlFilterUnavailable}
+          currentFilter={filterStateToSavedFilter(filters)}
           onApply={(wf) => {
-            if (cqlOn) {
-              applyCql(printCql(simplifyLegacyText(fromWorkItemFilter(wf)), labelFor));
-              return;
-            }
             setFilters(savedFilterToFilterState(wf));
             setTextDraft(wf.text ?? "");
             setPage(1);
           }}
         />
+        )}
         {/* Watching quick-filter (FR 8702c9b8) — restricts to items the current
             user follows (the ★ on a ticket's detail panel). */}
         <button
@@ -1134,6 +1140,22 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         facetsError={facetsQuery.isError}
         onRetryFacets={() => void facetsQuery.refetch()}
       />
+      )}
+      {cqlOn && loadedFilter.data && filterChanged(typed, loadedFilter.data) && (
+        <FilterChangedBar
+          orgId={orgId}
+          loaded={loadedFilter.data}
+          cql={typed}
+          onSaveAs={() => setSaveDialog({ cql: typed })}
+          onDiscard={() => cqlUrl.update({ cql: null })}
+        />
+      )}
+      {runById && (loadedFilter.isError || loadedFilter.data?.partiallyRestricted) && (
+        <p role="status" className="text-xs text-[var(--text-muted)]">
+          {loadedFilter.isError
+            ? "That saved filter doesn't exist, or isn't shared with you."
+            : (loadedFilter.data?.broken ?? `Parts of “${loadedFilter.data?.name}” refer to things you can't see. They're left out of the results.`)}
+        </p>
       )}
 
       {isError ? (
@@ -1429,6 +1451,22 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {cqlOn && (
+        <SaveFilterDialog
+          orgId={orgId}
+          open={saveDialog !== null}
+          onOpenChange={(o) => !o && setSaveDialog(null)}
+          filter={saveDialog && "filter" in saveDialog ? saveDialog.filter : undefined}
+          cql={saveDialog && "cql" in saveDialog ? saveDialog.cql : undefined}
+          projects={(facets?.projects ?? []).filter((p) => !p.archived)}
+          members={facets?.members ?? []}
+          onSaved={(f) => {
+            // A new filter is loaded, so the "changed" bar tracks it from now on.
+            if (saveDialog && "cql" in saveDialog) runSavedFilter(f);
+          }}
+        />
+      )}
 
       {canCreateBoard && facets && (
         <SaveAsBoardDialog

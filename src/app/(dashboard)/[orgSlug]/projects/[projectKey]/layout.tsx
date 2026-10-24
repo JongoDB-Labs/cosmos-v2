@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 import { Settings, Upload, CalendarClock } from "lucide-react";
 import { ProjectBoardTabs } from "./board-tabs";
+import { cqlEnabled } from "@/lib/query/flag";
 import { ClassificationBanner } from "@/components/security/classification-banner";
 
 type LayoutParams = {
@@ -58,6 +59,12 @@ export default async function ProjectLayout({
   // notFound() rather than a forbidden screen: whether a restricted project
   // exists is not something a non-member should be able to confirm.
   if (!(await canReadProject(ctx, project.id))) notFound();
+
+  // The "Filters" tab (saved filters shared with this project) comes with the
+  // query language, an org switch rather than a per-project feature.
+  const queryLanguage = cqlEnabled(
+    (await prisma.organization.findUnique({ where: { id: ctx.orgId }, select: { settings: true } }))?.settings,
+  );
 
   // Board create/delete inherit like everything else: an org grant holder OR a
   // manager of THIS project. Computed server-side and passed to the tabs so a
@@ -207,7 +214,7 @@ export default async function ProjectLayout({
         orgId={ctx.orgId}
         projectId={project.id}
         boards={boards}
-        enabledFeatures={project.enabledFeatures}
+        enabledFeatures={queryLanguage ? [...project.enabledFeatures, "filters"] : project.enabledFeatures}
         canManageBoards={canManageBoards}
         canCreateBoards={canCreateBoards}
         canSetProjectDefault={canSetProjectDefault}

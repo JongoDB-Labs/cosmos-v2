@@ -20,6 +20,268 @@
       }
     },
     "schemas": {
+      "CustomField": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "projectId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Null for an org-wide field."
+          },
+          "name": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "fieldType": {
+            "type": "string",
+            "enum": [
+              "TEXT",
+              "NUMBER",
+              "DATE",
+              "SELECT",
+              "MULTI_SELECT",
+              "CHECKBOX",
+              "URL",
+              "EMAIL",
+              "USER"
+            ]
+          },
+          "options": {
+            "description": "Choices for SELECT / MULTI_SELECT."
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "typeBindings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$ref": "#/components/schemas/Uuid"
+                },
+                "workItemTypeId": {
+                  "$ref": "#/components/schemas/Uuid"
+                },
+                "customFieldId": {
+                  "$ref": "#/components/schemas/Uuid"
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "sortOrder": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "workItemTypeId",
+                "customFieldId",
+                "required",
+                "sortOrder"
+              ]
+            },
+            "description": "Work-item types it applies to; empty means every type."
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "projectId",
+          "name",
+          "key",
+          "fieldType",
+          "required",
+          "sortOrder",
+          "createdAt",
+          "typeBindings"
+        ]
+      },
+      "Uuid": {
+        "type": "string",
+        "format": "uuid",
+        "example": "0b8f6c1e-6a52-4bd0-9b0e-3a4c2f6d1e7a"
+      },
+      "IsoDateTime": {
+        "type": "string",
+        "format": "date-time",
+        "example": "2026-11-01T09:30:00.000Z"
+      },
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Relative URI of this code in the errors guide."
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "invalid_request",
+              "unauthorized",
+              "forbidden",
+              "insufficient_scope",
+              "not_found",
+              "conflict",
+              "model_not_connected",
+              "rate_limited",
+              "internal_error"
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "description": "The `X-Request-Id` of the request. Quote it to support."
+          },
+          "issues": {
+            "type": "array",
+            "items": {},
+            "description": "Validation failures, on 400 `invalid_request`."
+          },
+          "error": {
+            "type": "string",
+            "description": "Deprecated: same text as `detail` (or `title`). Kept for existing clients."
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "error"
+        ],
+        "description": "RFC 9457 problem details (`application/problem+json`)."
+      },
+      "Label": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "itemCount": {
+            "type": "integer",
+            "description": "Work items carrying it (in `projectId`, when given)."
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "name",
+          "color",
+          "createdAt",
+          "itemCount"
+        ]
+      },
+      "Member": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "userId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "OWNER",
+              "ADMIN",
+              "BILLING_ADMIN",
+              "MEMBER",
+              "VIEWER",
+              "GUEST"
+            ]
+          },
+          "joinedAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              "email": {
+                "type": "string",
+                "description": "Returned to browser sessions, and to API tokens that hold `members:read`."
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "avatarUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lastActiveAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "id",
+              "displayName",
+              "avatarUrl",
+              "lastActiveAt"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "userId",
+          "role",
+          "joinedAt",
+          "user"
+        ]
+      },
       "Project": {
         "type": "object",
         "properties": {
@@ -159,73 +421,2137 @@
           "_count"
         ]
       },
-      "Uuid": {
-        "type": "string",
-        "format": "uuid",
-        "example": "0b8f6c1e-6a52-4bd0-9b0e-3a4c2f6d1e7a"
-      },
-      "IsoDateTime": {
-        "type": "string",
-        "format": "date-time",
-        "example": "2026-11-01T09:30:00.000Z"
-      },
-      "Problem": {
+      "ProjectWithBoards": {
         "type": "object",
         "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "Short uppercase key; ticket ids are `<key>-<number>`."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "ACTIVE",
+              "ON_HOLD",
+              "COMPLETE"
+            ]
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Board and display settings."
+          },
+          "projectTemplateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "enabledFeatures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional board tabs this project has switched on."
+          },
+          "teamScopedAccess": {
+            "type": "boolean",
+            "description": "Only project members (and org admins) can see it."
+          },
+          "clientId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "externalRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "krLinkTypeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "objectiveLinkTypeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "_count": {
+            "type": "object",
+            "properties": {
+              "boards": {
+                "type": "integer"
+              },
+              "intervals": {
+                "type": "integer"
+              },
+              "members": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "boards",
+              "intervals",
+              "members"
+            ]
+          },
+          "boards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Board"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "name",
+          "key",
+          "description",
+          "status",
+          "archived",
+          "settings",
+          "projectTemplateId",
+          "enabledFeatures",
+          "teamScopedAccess",
+          "clientId",
+          "externalRef",
+          "krLinkTypeId",
+          "objectiveLinkTypeId",
+          "createdAt",
+          "updatedAt",
+          "_count",
+          "boards"
+        ]
+      },
+      "Board": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "projectId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "type": {
             "type": "string",
-            "description": "Relative URI of this code in the errors guide."
+            "enum": [
+              "KANBAN",
+              "SCRUM",
+              "BACKLOG",
+              "TABLE",
+              "CALENDAR",
+              "TIMELINE",
+              "OKR",
+              "DASHBOARD",
+              "PORTFOLIO",
+              "RAID",
+              "ROADMAP",
+              "CFD",
+              "PROGRAM",
+              "SPRINT_PLANNING",
+              "SPRINT_REVIEW"
+            ]
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BoardColumn"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "projectId",
+          "teamId",
+          "name",
+          "slug",
+          "type",
+          "config",
+          "sortOrder",
+          "createdAt",
+          "columns"
+        ]
+      },
+      "BoardColumn": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "boardId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "Stable key work items reference as their `columnKey`."
+          },
+          "color": {
+            "type": "string"
+          },
+          "wipLimit": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "TODO",
+              "IN_PROGRESS",
+              "DONE",
+              "CANCELLED"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "boardId",
+          "name",
+          "key",
+          "color",
+          "wipLimit",
+          "sortOrder",
+          "category"
+        ]
+      },
+      "ProjectDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "Short uppercase key; ticket ids are `<key>-<number>`."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "ACTIVE",
+              "ON_HOLD",
+              "COMPLETE"
+            ]
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Board and display settings."
+          },
+          "projectTemplateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "enabledFeatures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional board tabs this project has switched on."
+          },
+          "teamScopedAccess": {
+            "type": "boolean",
+            "description": "Only project members (and org admins) can see it."
+          },
+          "clientId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "externalRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "krLinkTypeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "objectiveLinkTypeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "_count": {
+            "type": "object",
+            "properties": {
+              "boards": {
+                "type": "integer"
+              },
+              "intervals": {
+                "type": "integer"
+              },
+              "members": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "boards",
+              "intervals",
+              "members"
+            ]
+          },
+          "boards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Board"
+            }
+          },
+          "intervals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Interval"
+            }
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectMember"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "name",
+          "key",
+          "description",
+          "status",
+          "archived",
+          "settings",
+          "projectTemplateId",
+          "enabledFeatures",
+          "teamScopedAccess",
+          "clientId",
+          "externalRef",
+          "krLinkTypeId",
+          "objectiveLinkTypeId",
+          "createdAt",
+          "updatedAt",
+          "_count",
+          "boards",
+          "intervals",
+          "members"
+        ]
+      },
+      "Interval": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "projectId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "intervalKind": {
+            "type": "string",
+            "enum": [
+              "SPRINT",
+              "PHASE",
+              "MODULE",
+              "RUN",
+              "EVENT_DAY",
+              "RELEASE",
+              "ITERATION",
+              "PROGRAM_INCREMENT"
+            ],
+            "description": "Sprint, phase, Program Increment, …"
+          },
+          "number": {
+            "type": "integer",
+            "description": "Sequence within the project."
+          },
+          "name": {
+            "type": "string"
+          },
+          "sectorLabel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "goal": {
+            "type": "string"
+          },
+          "startDate": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "endDate": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PLANNED",
+              "ACTIVE",
+              "COMPLETED"
+            ]
+          },
+          "report": {
+            "description": "Completion report, set when the interval is completed."
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The Program Increment this interval sits in."
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "projectId",
+          "intervalKind",
+          "number",
+          "name",
+          "sectorLabel",
+          "goal",
+          "startDate",
+          "endDate",
+          "status",
+          "createdAt",
+          "parentId"
+        ]
+      },
+      "ProjectMember": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "projectId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgMemberId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "MANAGER",
+              "LEAD",
+              "MEMBER",
+              "VIEWER"
+            ]
+          },
+          "allocationPercent": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "onContract": {
+            "type": "boolean"
+          },
+          "cacStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cacExpiry": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "trainingStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "accessStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ndaStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "complianceNotes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "orgMember": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "OWNER",
+                  "ADMIN",
+                  "BILLING_ADMIN",
+                  "MEMBER",
+                  "VIEWER",
+                  "GUEST"
+                ]
+              },
+              "user": {
+                "$ref": "#/components/schemas/UserSummary"
+              }
+            },
+            "required": [
+              "id",
+              "role",
+              "user"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "orgMemberId",
+          "role",
+          "allocationPercent",
+          "onContract",
+          "cacStatus",
+          "cacExpiry",
+          "trainingStatus",
+          "accessStatus",
+          "ndaStatus",
+          "complianceNotes",
+          "orgMember"
+        ]
+      },
+      "UserSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "email": {
+            "type": "string",
+            "description": "Returned to browser sessions, and to API tokens that hold `members:read`."
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "avatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "avatarUrl"
+        ]
+      },
+      "ProjectUpdate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "Short uppercase key; ticket ids are `<key>-<number>`."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "ACTIVE",
+              "ON_HOLD",
+              "COMPLETE"
+            ]
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Board and display settings."
+          },
+          "projectTemplateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "enabledFeatures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional board tabs this project has switched on."
+          },
+          "teamScopedAccess": {
+            "type": "boolean",
+            "description": "Only project members (and org admins) can see it."
+          },
+          "clientId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "externalRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "krLinkTypeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "objectiveLinkTypeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "_count": {
+            "type": "object",
+            "properties": {
+              "boards": {
+                "type": "integer"
+              },
+              "intervals": {
+                "type": "integer"
+              },
+              "members": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "boards",
+              "intervals",
+              "members"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "name",
+          "key",
+          "description",
+          "status",
+          "archived",
+          "settings",
+          "projectTemplateId",
+          "enabledFeatures",
+          "teamScopedAccess",
+          "clientId",
+          "externalRef",
+          "krLinkTypeId",
+          "objectiveLinkTypeId",
+          "createdAt",
+          "updatedAt",
+          "_count"
+        ]
+      },
+      "IntervalSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "projectId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "intervalKind": {
+            "type": "string",
+            "enum": [
+              "SPRINT",
+              "PHASE",
+              "MODULE",
+              "RUN",
+              "EVENT_DAY",
+              "RELEASE",
+              "ITERATION",
+              "PROGRAM_INCREMENT"
+            ],
+            "description": "Sprint, phase, Program Increment, …"
+          },
+          "number": {
+            "type": "integer",
+            "description": "Sequence within the project."
+          },
+          "name": {
+            "type": "string"
+          },
+          "sectorLabel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "goal": {
+            "type": "string"
+          },
+          "startDate": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "endDate": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PLANNED",
+              "ACTIVE",
+              "COMPLETED"
+            ]
+          },
+          "report": {
+            "description": "Completion report, set when the interval is completed."
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The Program Increment this interval sits in."
+          },
+          "_count": {
+            "type": "object",
+            "properties": {
+              "workItems": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "workItems"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "projectId",
+          "intervalKind",
+          "number",
+          "name",
+          "sectorLabel",
+          "goal",
+          "startDate",
+          "endDate",
+          "status",
+          "createdAt",
+          "parentId",
+          "_count"
+        ]
+      },
+      "IntervalDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "projectId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "intervalKind": {
+            "type": "string",
+            "enum": [
+              "SPRINT",
+              "PHASE",
+              "MODULE",
+              "RUN",
+              "EVENT_DAY",
+              "RELEASE",
+              "ITERATION",
+              "PROGRAM_INCREMENT"
+            ],
+            "description": "Sprint, phase, Program Increment, …"
+          },
+          "number": {
+            "type": "integer",
+            "description": "Sequence within the project."
+          },
+          "name": {
+            "type": "string"
+          },
+          "sectorLabel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "goal": {
+            "type": "string"
+          },
+          "startDate": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "endDate": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PLANNED",
+              "ACTIVE",
+              "COMPLETED"
+            ]
+          },
+          "report": {
+            "description": "Completion report, set when the interval is completed."
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The Program Increment this interval sits in."
+          },
+          "_count": {
+            "type": "object",
+            "properties": {
+              "workItems": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "workItems"
+            ]
+          },
+          "workItems": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$ref": "#/components/schemas/Uuid"
+                },
+                "orgId": {
+                  "$ref": "#/components/schemas/Uuid"
+                },
+                "projectId": {
+                  "$ref": "#/components/schemas/Uuid"
+                },
+                "title": {
+                  "type": "string",
+                  "description": "User-authored text."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "User-authored text (rich text as markdown)."
+                },
+                "columnKey": {
+                  "type": "string",
+                  "description": "The board column (status) it sits in."
+                },
+                "assigneeId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "priority": {
+                  "type": "string",
+                  "enum": [
+                    "CRITICAL",
+                    "HIGH",
+                    "MEDIUM",
+                    "LOW"
+                  ]
+                },
+                "parentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "ticketNumber": {
+                  "type": "integer",
+                  "description": "`<project key>-<ticketNumber>`."
+                },
+                "storyPoints": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "sortOrder": {
+                  "type": "integer"
+                },
+                "dueDate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "startDate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "actualStart": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "completedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "columnEnteredAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "workCategory": {
+                  "type": "string",
+                  "enum": [
+                    "BUSINESS",
+                    "ENABLER"
+                  ]
+                },
+                "archivedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "cancelReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "OBE",
+                    "OTHER",
+                    "MERGED",
+                    null
+                  ]
+                },
+                "cancelNote": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mergedIntoId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "highlight": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "customFields": {
+                  "type": "object",
+                  "additionalProperties": {}
+                },
+                "createdById": {
+                  "$ref": "#/components/schemas/Uuid"
+                },
+                "createdAt": {
+                  "$ref": "#/components/schemas/IsoDateTime"
+                },
+                "updatedAt": {
+                  "$ref": "#/components/schemas/IsoDateTime"
+                },
+                "workItemTypeId": {
+                  "$ref": "#/components/schemas/Uuid"
+                },
+                "intervalId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "teamId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "externalSource": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "externalId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "externalKey": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sourceStatus": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "resolution": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "originalEstimate": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "remainingEstimate": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "timeSpent": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "sourceRecord": {
+                  "description": "The record an import or sync created this item from, as the source system sent it; null otherwise."
+                },
+                "_count": {
+                  "type": "object",
+                  "properties": {
+                    "comments": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "comments"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "orgId",
+                "projectId",
+                "title",
+                "description",
+                "columnKey",
+                "assigneeId",
+                "priority",
+                "parentId",
+                "ticketNumber",
+                "storyPoints",
+                "sortOrder",
+                "dueDate",
+                "startDate",
+                "actualStart",
+                "completedAt",
+                "columnEnteredAt",
+                "workCategory",
+                "archivedAt",
+                "cancelReason",
+                "cancelNote",
+                "mergedIntoId",
+                "tags",
+                "highlight",
+                "customFields",
+                "createdById",
+                "createdAt",
+                "updatedAt",
+                "workItemTypeId",
+                "intervalId",
+                "teamId",
+                "externalSource",
+                "externalId",
+                "externalKey",
+                "sourceStatus",
+                "resolution",
+                "originalEstimate",
+                "remainingEstimate",
+                "timeSpent",
+                "_count"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "projectId",
+          "intervalKind",
+          "number",
+          "name",
+          "sectorLabel",
+          "goal",
+          "startDate",
+          "endDate",
+          "status",
+          "createdAt",
+          "parentId",
+          "_count",
+          "workItems"
+        ]
+      },
+      "MilestoneWithProgress": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "projectId": {
+            "$ref": "#/components/schemas/Uuid"
           },
           "title": {
             "type": "string"
           },
-          "status": {
-            "type": "integer"
-          },
-          "detail": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string",
-            "enum": [
-              "invalid_request",
-              "unauthorized",
-              "forbidden",
-              "insufficient_scope",
-              "not_found",
-              "conflict",
-              "model_not_connected",
-              "rate_limited",
-              "internal_error"
+          "description": {
+            "type": [
+              "string",
+              "null"
             ]
           },
-          "requestId": {
-            "type": "string",
-            "description": "The `X-Request-Id` of the request. Quote it to support."
+          "dueDate": {
+            "$ref": "#/components/schemas/IsoDateTime"
           },
-          "issues": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "UPCOMING",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "MISSED"
+            ]
+          },
+          "autoStatus": {
+            "type": "boolean",
+            "description": "Status and date follow the linked work items."
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "ownerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "intervalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "actualDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "rootCause": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recoveryPlan": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recoveryTarget": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "scheduleEscalate": {
+            "type": "boolean"
+          },
+          "downstreamImpact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "links": {
             "type": "array",
-            "items": {},
-            "description": "Validation failures, on 400 `invalid_request`."
+            "items": {
+              "$ref": "#/components/schemas/MilestoneLink"
+            }
           },
-          "error": {
-            "type": "string",
-            "description": "Deprecated: same text as `detail` (or `title`). Kept for existing clients."
+          "interval": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              "number": {
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              },
+              "startDate": {
+                "$ref": "#/components/schemas/IsoDateTime"
+              },
+              "endDate": {
+                "$ref": "#/components/schemas/IsoDateTime"
+              }
+            },
+            "required": [
+              "id",
+              "number",
+              "name",
+              "startDate",
+              "endDate"
+            ]
+          },
+          "linkedTotal": {
+            "type": "integer",
+            "description": "Linked work items that still exist."
+          },
+          "linkedDone": {
+            "type": "integer"
+          },
+          "completionPercent": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Share of linked items done; null with no links."
           }
         },
         "required": [
-          "type",
+          "id",
+          "orgId",
+          "projectId",
           "title",
+          "description",
+          "dueDate",
           "status",
-          "code",
-          "error"
+          "autoStatus",
+          "completedAt",
+          "ownerId",
+          "sortOrder",
+          "createdAt",
+          "updatedAt",
+          "intervalId",
+          "actualDate",
+          "rootCause",
+          "recoveryPlan",
+          "recoveryTarget",
+          "scheduleEscalate",
+          "downstreamImpact",
+          "notes",
+          "links",
+          "interval",
+          "linkedTotal",
+          "linkedDone",
+          "completionPercent"
         ],
-        "description": "RFC 9457 problem details (`application/problem+json`)."
+        "description": "With `autoStatus`, `status`, `dueDate` and `completedAt` are derived from the linked items on read."
+      },
+      "MilestoneLink": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "milestoneId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "workItemId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          }
+        },
+        "required": [
+          "id",
+          "milestoneId",
+          "workItemId",
+          "createdAt"
+        ]
+      },
+      "Milestone": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "projectId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dueDate": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "UPCOMING",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "MISSED"
+            ]
+          },
+          "autoStatus": {
+            "type": "boolean",
+            "description": "Status and date follow the linked work items."
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "ownerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "intervalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "actualDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "rootCause": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recoveryPlan": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recoveryTarget": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "scheduleEscalate": {
+            "type": "boolean"
+          },
+          "downstreamImpact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MilestoneLink"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "projectId",
+          "title",
+          "description",
+          "dueDate",
+          "status",
+          "autoStatus",
+          "completedAt",
+          "ownerId",
+          "sortOrder",
+          "createdAt",
+          "updatedAt",
+          "intervalId",
+          "actualDate",
+          "rootCause",
+          "recoveryPlan",
+          "recoveryTarget",
+          "scheduleEscalate",
+          "downstreamImpact",
+          "notes",
+          "links"
+        ]
+      },
+      "DeletedRef": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "WorkItemType": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Null for built-in types shared by every organization."
+          },
+          "projectTemplateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pluralName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isBuiltIn": {
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "defaultParentTypeKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "celebrateOnComplete": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "projectTemplateId",
+          "key",
+          "name",
+          "pluralName",
+          "icon",
+          "color",
+          "isBuiltIn",
+          "sortOrder",
+          "defaultParentTypeKey",
+          "celebrateOnComplete",
+          "createdAt"
+        ]
       }
     },
     "parameters": {}
   },
   "paths": {
+    "/orgs/{orgId}/custom-fields": {
+      "get": {
+        "operationId": "listCustomFields",
+        "summary": "List custom fields",
+        "description": "Field definitions; a work item stores its values in `customFields` by `key`.",
+        "tags": [
+          "Configuration"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "example": "0b8f6c1e-6a52-4bd0-9b0e-3a4c2f6d1e7a",
+              "description": "Only this project's fields."
+            },
+            "required": false,
+            "description": "Only this project's fields.",
+            "name": "projectId",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List custom fields",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CustomField"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/labels": {
+      "get": {
+        "operationId": "listLabels",
+        "summary": "List labels",
+        "description": "The organization's labels by name, each with how many work items carry it.",
+        "tags": [
+          "Configuration"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "example": "0b8f6c1e-6a52-4bd0-9b0e-3a4c2f6d1e7a",
+              "description": "Count only this project's items."
+            },
+            "required": false,
+            "description": "Count only this project's items.",
+            "name": "projectId",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List labels",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Label"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/members": {
+      "get": {
+        "operationId": "listMembers",
+        "summary": "List members",
+        "description": "Everyone in the organization, longest-standing first. A token sees `user.email` only when it holds `members:read`; a browser session always does.",
+        "tags": [
+          "Members"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "x-cosmos-scoped-fields": [
+          {
+            "scope": "members:read",
+            "paths": [
+              "[].user.email"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Page size, 1–200. Paging is opt-in: send `limit` (or a `cursor`, which pages by 50) to get pages; send neither to get the whole list."
+            },
+            "required": false,
+            "description": "Page size, 1–200. Paging is opt-in: send `limit` (or a `cursor`, which pages by 50) to get pages; send neither to get the whole list.",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 1024,
+              "description": "Opaque cursor from the previous page's `Link: rel=\"next\"` (or `Cosmos-Next-Cursor`)."
+            },
+            "required": false,
+            "description": "Opaque cursor from the previous page's `Link: rel=\"next\"` (or `Cosmos-Next-Cursor`).",
+            "name": "cursor",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List members",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Link": {
+                "description": "The next page, as `<url>; rel=\"next\"`. Absent on the last page.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cosmos-Next-Cursor": {
+                "description": "The next page's cursor, for clients that don't parse `Link`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Member"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/orgs/{orgId}/projects": {
       "get": {
         "operationId": "listProjects",
@@ -324,6 +2650,1994 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/Project"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createProject",
+        "summary": "Create a project",
+        "description": "Creates a project, optionally from a template (which sets up its boards and enabled features). The creator becomes its manager. Returns 409 when the key is taken.",
+        "tags": [
+          "Projects"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "key": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 10,
+                    "pattern": "^[A-Z][A-Z0-9]*$"
+                  },
+                  "description": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "templateId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
+                  },
+                  "sector": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "key"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Create a project",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectWithBoards"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (`conflict`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/projects/{projectId}": {
+      "get": {
+        "operationId": "getProject",
+        "summary": "Get a project",
+        "description": "One project with its boards (and their columns), intervals and members. A token sees members' `orgMember.user.email` only when it holds `members:read`; a browser session always does.",
+        "tags": [
+          "Projects"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "x-cosmos-scoped-fields": [
+          {
+            "scope": "members:read",
+            "paths": [
+              "members[].orgMember.user.email"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Get a project",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateProject",
+        "summary": "Update a project",
+        "description": "Partial update: send only the fields to change. `settings` is merged into the existing settings, not replaced. Changing `teamScopedAccess` (who can see the project) needs a project manager or org admin.",
+        "tags": [
+          "Projects"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "description": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "settings": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  },
+                  "clientId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "DRAFT",
+                      "ACTIVE",
+                      "ON_HOLD",
+                      "COMPLETE"
+                    ]
+                  },
+                  "archived": {
+                    "type": "boolean"
+                  },
+                  "enabledFeatures": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Board tabs to enable. Unknown names are dropped, not rejected."
+                  },
+                  "disabledBoardTypes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "KANBAN",
+                        "SCRUM",
+                        "BACKLOG",
+                        "TABLE",
+                        "CALENDAR",
+                        "TIMELINE",
+                        "OKR",
+                        "DASHBOARD",
+                        "PORTFOLIO",
+                        "RAID",
+                        "ROADMAP",
+                        "CFD",
+                        "PROGRAM",
+                        "SPRINT_PLANNING",
+                        "SPRINT_REVIEW"
+                      ]
+                    }
+                  },
+                  "krLinkTypeId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
+                  },
+                  "objectiveLinkTypeId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
+                  },
+                  "teamScopedAccess": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Update a project",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectUpdate"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/projects/{projectId}/intervals": {
+      "get": {
+        "operationId": "listIntervals",
+        "summary": "List intervals",
+        "description": "The project's sprints, phases and Program Increments, newest first, each with its item count.",
+        "tags": [
+          "Intervals"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PLANNED",
+                "ACTIVE",
+                "COMPLETED"
+              ],
+              "description": "Only intervals in this state."
+            },
+            "required": false,
+            "description": "Only intervals in this state.",
+            "name": "status",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List intervals",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/IntervalSummary"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createInterval",
+        "summary": "Create an interval",
+        "description": "A sprint (the default kind) may sit inside a Program Increment via `parentId`; a Program Increment is always top-level.",
+        "tags": [
+          "Intervals"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "goal": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "startDate": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "endDate": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "intervalKind": {
+                    "type": "string",
+                    "enum": [
+                      "SPRINT",
+                      "PHASE",
+                      "MODULE",
+                      "RUN",
+                      "EVENT_DAY",
+                      "RELEASE",
+                      "ITERATION",
+                      "PROGRAM_INCREMENT"
+                    ],
+                    "default": "SPRINT"
+                  },
+                  "parentId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "name",
+                  "startDate",
+                  "endDate"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Create an interval",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntervalSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/projects/{projectId}/intervals/{intervalId}": {
+      "get": {
+        "operationId": "getInterval",
+        "summary": "Get an interval",
+        "description": "One interval with its work items, in board order.",
+        "tags": [
+          "Intervals"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "intervalId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Get an interval",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntervalDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateInterval",
+        "summary": "Update an interval",
+        "description": "Partial update. Setting `status` to `ACTIVE` starts it (409 while another sprint in the project is active, and it also starts its Program Increment). A Program Increment can't be started by hand, and completes only once every interval inside it has.",
+        "tags": [
+          "Intervals"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "intervalId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "goal": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "startDate": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "endDate": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "PLANNED",
+                      "ACTIVE",
+                      "COMPLETED"
+                    ]
+                  },
+                  "parentId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Update an interval",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntervalSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (`conflict`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/projects/{projectId}/milestones": {
+      "get": {
+        "operationId": "listMilestones",
+        "summary": "List milestones",
+        "description": "The project's milestones by due date, with progress from their linked work items.",
+        "tags": [
+          "Milestones"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List milestones",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MilestoneWithProgress"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createMilestone",
+        "summary": "Create a milestone",
+        "description": "With `autoStatus` (the default), status and date follow the work items linked to it.",
+        "tags": [
+          "Milestones"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "description": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "dueDate": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "ownerId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
+                  },
+                  "autoStatus": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "title",
+                  "dueDate"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Create a milestone",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Milestone"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/projects/{projectId}/milestones/{milestoneId}": {
+      "delete": {
+        "operationId": "deleteMilestone",
+        "summary": "Delete a milestone",
+        "description": "Removes the milestone and its links. The linked work items are untouched.",
+        "tags": [
+          "Milestones"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "milestoneId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Delete a milestone",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedRef"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateMilestone",
+        "summary": "Update a milestone",
+        "tags": [
+          "Milestones"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "milestoneId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "description": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "dueDate": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "UPCOMING",
+                      "IN_PROGRESS",
+                      "COMPLETED",
+                      "MISSED"
+                    ]
+                  },
+                  "autoStatus": {
+                    "type": "boolean"
+                  },
+                  "completedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "ownerId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
+                  },
+                  "sortOrder": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Update a milestone",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Milestone"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/work-item-types": {
+      "get": {
+        "operationId": "listWorkItemTypes",
+        "summary": "List work-item types",
+        "description": "Built-in types first, then the organization's own. Use an `id` as a work item's `workItemTypeId`.",
+        "tags": [
+          "Configuration"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List work-item types",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkItemType"
                   }
                 }
               }

@@ -17,13 +17,19 @@ import { json, loadFeedbackRoute, threadWriteBlock } from "@/lib/feedback/route-
 
 type RouteParams = { params: Promise<{ orgId: string; feedbackId: string }> };
 
-/** The discussion on one feedback item, as this viewer may see it. */
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+const filterSchema = z.enum(["all", "public", "internal"]).catch("all");
+
+/**
+ * The discussion on one feedback item, as this viewer may see it. Staff can
+ * narrow it with `?visibility=public|internal`; for anyone else it is public.
+ */
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, feedbackId } = await params;
     const route = await loadFeedbackRoute(orgId, feedbackId);
     if (route instanceof Response) return route;
-    return success(await listFeedbackComments(orgId, feedbackId, route.viewer));
+    const filter = filterSchema.parse(request.nextUrl.searchParams.get("visibility") ?? "all");
+    return success(await listFeedbackComments(orgId, feedbackId, route.viewer, filter));
   } catch (e) {
     return handleApiError(e);
   }
@@ -32,6 +38,10 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 const createSchema = z.object({
   content: z.string().trim().min(1).max(10000),
   parentId: z.string().uuid().optional(),
+  /** Staff only: an internal note the rest of the org never sees. */
+  visibility: z.enum(["PUBLIC", "INTERNAL"]).optional(),
+  /** Staff only: the team's official response, pinned and always public. */
+  kind: z.enum(["COMMENT", "OFFICIAL"]).optional(),
 });
 
 /** Post a comment, or a reply (one level: a reply to a reply joins its thread). */
@@ -60,6 +70,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       : null;
     if (data.parentId && !parent) return json(400, { error: "That comment can't be replied to." });
 
+    const wantsInternal = data.visibility === "INTERNAL";
+    const official = data.kind === "OFFICIAL";
+    if ((wantsInternal || official) && !viewer.isStaff) {
+      return json(403, { error: "Only the feedback team can post internal notes or official responses." });
+    }
+    if (official && (wantsInternal || parent)) {
+      return json(400, { error: "An official response is a public, top-level comment." });
+    }
+    // A reply to an internal note is internal too: its context is invisible
+    // to anyone outside the team.
+    const visibility = wantsInternal || parent?.visibility === "INTERNAL" ? "INTERNAL" : "PUBLIC";
+
     const comment = await prisma.$transaction((tx) =>
       insertFeedbackComment(tx, {
         orgId,
@@ -67,19 +89,26 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         authorId: ctx.userId,
         content: data.content,
         parentId: parent?.id ?? null,
+        visibility,
+        kind: official ? "OFFICIAL" : "COMMENT",
       }),
     );
 
-    try {
-      publishToOrg(orgId, "feedback.comment.created", { feedbackId, commentId: comment.id });
-    } catch {
-      /* realtime is best-effort */
+    // The org-wide channel reaches everyone, so an internal note is never
+    // announced on it: even ids would tell the rest that one was written.
+    if (visibility === "PUBLIC") {
+      try {
+        publishToOrg(orgId, "feedback.comment.created", { feedbackId, commentId: comment.id });
+      } catch {
+        /* realtime is best-effort */
+      }
     }
     await notifyCommentAudience({
       org,
       item,
       comment: { id: comment.id, content: comment.content, authorId: ctx.userId },
       repliedToUserId: parent?.authorId ?? null,
+      visibility,
     }).catch(() => {});
     void syncReferences({
       orgId,

@@ -49,6 +49,50 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.454.0",
+    date: "2026-10-24",
+    title: "More of the API on contracts",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "For API clients: projects, intervals, milestones, labels, custom fields and members now return standard problem+json errors, the members list can be paged (send limit or cursor), and member email addresses are returned only to API keys with the new members:read scope.",
+      },
+    ],
+  },
+  {
+    version: "2.453.0",
+    date: "2026-10-24",
+    title: "Team voice in feedback",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Staff can now add internal notes to feedback that only staff see, pin an official response at the top of the discussion, filter between public and internal comments, and switch a comment between the two.",
+      },
+    ],
+  },
+  {
+    version: "2.452.0",
+    date: "2026-10-23",
+    title: "Shared saved filters",
+    highlights: [
+      {
+        kind: "feature",
+        text: "With the query language on, share a saved filter with a team, a project or the whole organization, add co-editors, star filters into the sidebar, and see when you've changed the filter you loaded. Shared filters never reveal projects or people you can't see.",
+      },
+    ],
+  },
+  {
+    version: "2.451.0",
+    date: "2026-10-23",
+    title: "Cosmos for Teams",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Use Cosmos from Microsoft Teams: search work items, preview links in chat, and create a work item from a Teams message, all with your own Cosmos permissions.",
+      },
+    ],
+  },
+  {
     version: "2.450.0",
     date: "2026-10-23",
     title: "Projects API: paging and standard errors",
