@@ -1,7 +1,6 @@
 {
   "read": [
     "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
-    "POST v1/orgs/[orgId]/integrations/teams/digest",
     "POST v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
     "POST v1/orgs/[orgId]/work-items/search",
     "PUT v1/orgs/[orgId]/projects/[projectId]/tab-prefs"
@@ -41,7 +40,6 @@
     "PATCH v1/orgs/[orgId]/projects/[projectId]/vendors/[vendorId]",
     "PATCH v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]",
     "POST v1/orgs/[orgId]/feedback/remediate",
-    "POST v1/orgs/[orgId]/integrations/teams/digest",
     "POST v1/orgs/[orgId]/labels",
     "POST v1/orgs/[orgId]/projects/[projectId]/blockers",
     "POST v1/orgs/[orgId]/projects/[projectId]/changes",
@@ -121,7 +119,6 @@
     "PATCH v1/orgs/[orgId]/projects/[projectId]/schedule/[milestoneId]",
     "PATCH v1/orgs/[orgId]/projects/[projectId]/staffing/[memberId]",
     "PATCH v1/orgs/[orgId]/projects/[projectId]/vendors/[vendorId]",
-    "POST v1/orgs/[orgId]/integrations/teams/digest",
     "POST v1/orgs/[orgId]/projects/[projectId]/blockers",
     "POST v1/orgs/[orgId]/projects/[projectId]/changes",
     "POST v1/orgs/[orgId]/projects/[projectId]/clins",
@@ -181,7 +178,6 @@
     "PATCH v1/orgs/[orgId]/projects/[projectId]/staffing/[memberId]",
     "PATCH v1/orgs/[orgId]/projects/[projectId]/vendors/[vendorId]",
     "POST v1/orgs/[orgId]/feedback/remediate",
-    "POST v1/orgs/[orgId]/integrations/teams/digest",
     "POST v1/orgs/[orgId]/projects/[projectId]/blockers",
     "POST v1/orgs/[orgId]/projects/[projectId]/changes",
     "POST v1/orgs/[orgId]/projects/[projectId]/clins",

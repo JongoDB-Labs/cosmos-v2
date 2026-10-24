@@ -19,16 +19,16 @@ import { gateBits, handlerCode } from "./gate-bits";
 import { scopeMask } from "@/lib/auth/api-key";
 import { API_KEY_SCOPES } from "@/lib/auth/api-key-scopes";
 import BASELINE_BY_SCOPE from "./scope-writes.baseline.json";
+import HELPER_GATED from "./helper-gated-writes.baseline.json";
 
 /**
  * Handlers that already met that bar before scopes were enforced. Each acts on
  * the caller's own state (watching an item, their tab layout) or is a read sent
- * as POST (search); the Teams digest awaits ops' call on its scheduled caller.
+ * as POST (search).
  * Frozen: a new entry fails the test, so it is a decision, not drift.
  */
 const BASELINE = [
   "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
-  "POST v1/orgs/[orgId]/integrations/teams/digest",
   "POST v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
   "POST v1/orgs/[orgId]/work-items/search",
   "PUT v1/orgs/[orgId]/projects/[projectId]/tab-prefs",
@@ -94,5 +94,43 @@ describe("every scope reaches exactly its frozen writes", () => {
   it("would catch ANALYTICS_READ in planning:write: the SharePoint export POST", () => {
     const widened = writesReachableBy(scopeMask(["planning:write"]) | Permission.ANALYTICS_READ);
     expect(widened).toContain("POST v1/orgs/[orgId]/projects/[projectId]/export/sharepoint");
+  });
+});
+
+/**
+ * Library helpers that decide a write from the caller's ROLE (org admin,
+ * project or channel manager, supervisor, uploader, owner) rather than from a
+ * bit the scan above can read. A key carries its minter's role, so each of
+ * these must cap the role with roleCountsFor (lib/rbac/key-role.ts) or an
+ * equivalent; the bit scan cannot check that, which is how the supervisor
+ * approval path (#1135) slipped past it.
+ */
+const ROLE_HELPERS = [
+  "canManageProject", "canAdministerProject", "requireProjectManage", "getManagedProjectIds",
+  "canManageBoardsInProject", "canWriteInProject", "approvalAuthority", "isManagerOf",
+  "canManageDocument", "withManageFlags", "canManageChannelGiven", "canDeleteMessageGiven",
+  "canEdit", "canDelete", "viewerScope", "isOrgAdministrator",
+];
+
+/** Every write handler that consults a role helper, with the helpers it calls. */
+export function helperGatedWrites(): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const file of globSync("src/app/api/**/route.ts")) {
+    const src = readFileSync(file, "utf8");
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+      const code = handlerCode(src, method);
+      if (!code) continue;
+      const used = ROLE_HELPERS.filter((h) => new RegExp(`\\b${h}\\(`).test(code));
+      if (used.length) out[`${method} ${file.replace(/^src\/app\/api\//, "").replace(/\/route\.ts$/, "")}`] = used;
+    }
+  }
+  return Object.fromEntries(Object.entries(out).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+describe("writes gated by a role helper are listed, so a new one is reviewed", () => {
+  it("matches helper-gated-writes.baseline.json exactly", () => {
+    // A new entry means a write decided by role: check that a key's role is
+    // capped (roleCountsFor) on that path, then add it here.
+    expect(helperGatedWrites()).toEqual(HELPER_GATED);
   });
 });

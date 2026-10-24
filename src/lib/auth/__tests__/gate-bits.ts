@@ -7,6 +7,12 @@
 // usually an optional enrichment (show the money column when FINANCE_READ is
 // held), and counting it as required would hide real reach: the SharePoint
 // export POST looked unreachable for want of FINANCE_READ it never demands.
+//
+// Limits: a gate written as a positive hasPermission (`const ok = hasPermission(…)`)
+// is invisible, and branches gated differently for keys and sessions with
+// plain if/else (not a ternary) are unioned, which over-states what a key
+// needs. Such routes carry their own route tests (the Teams digest), and
+// writes decided by a role helper are listed in helper-gated-writes.baseline.json.
 import { Permission } from "@/lib/rbac/permissions";
 
 const GATE_WITH_BIT = /\b(?:requirePermission|requireProjectManage|canAdministerProject|assertPermission)\([^;]*?Permission\.([A-Z_]+)/g;
