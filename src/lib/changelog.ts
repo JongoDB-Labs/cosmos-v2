@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.454.1",
+    date: "2026-10-24",
+    title: "Safer web page reading in the assistant",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When the assistant reads a web page, encoded markup is now cleaned out properly instead of being turned back into tags.",
+      },
+    ],
+  },
+  {
     version: "2.454.0",
     date: "2026-10-24",
     title: "More of the API on contracts",
