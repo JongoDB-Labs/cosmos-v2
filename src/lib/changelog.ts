@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.460.1",
+    date: "2026-10-24",
+    title: "More reliable test fixtures",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Internal: test fixtures now allocate ticket numbers the same race-safe way the app does, removing an intermittent test failure. No change to the app's behaviour.",
+      },
+    ],
+  },
+  {
     version: "2.460.0",
     date: "2026-10-24",
     title: "Follow feedback and merge duplicates",
