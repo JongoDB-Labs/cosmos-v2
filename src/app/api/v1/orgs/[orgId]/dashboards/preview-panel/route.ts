@@ -3,6 +3,7 @@ import { z } from "zod";
 import { success } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { cqlErrorResponse, cqlGate, cqlTooLong } from "@/lib/query/route.server";
+import { previewDashboardPanel } from "./route.contract";
 import { parseCql } from "@/lib/query/parser";
 import { hasErrors } from "@/lib/query/errors";
 import { isValidTimeZone } from "@/lib/query/dates";
@@ -36,7 +37,7 @@ const bodySchema = z.strictObject({
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
-    const gate = await cqlGate(orgId);
+    const gate = await cqlGate(orgId, previewDashboardPanel);
     if ("response" in gate) return gate.response;
     const limited = checkRateLimit(request, "dashboards.preview", gate.ctx.userId, { capacity: 30, refillPerSecond: 3 });
     if (limited) return limited;
