@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.470.0",
+    date: "2026-10-24",
+    title: "One category per status",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Every board, report and filter now reads a status column's category from the status itself, so a status means the same thing everywhere. Settings \u2192 Workflows \u2192 Statuses lists any status whose boards disagreed on its category and lets an admin keep the status's category or adopt a board's.",
+      },
+    ],
+  },
+  {
     version: "2.469.0",
     date: "2026-10-24",
     title: "Search work items across projects in the API",
