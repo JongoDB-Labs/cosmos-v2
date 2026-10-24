@@ -49,6 +49,28 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.474.2",
+    date: "2026-10-24",
+    title: "Comment moderation stays in its project",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security: a project manager can moderate comments only in the projects they manage. Before this, they could delete comments in other projects too.",
+      },
+    ],
+  },
+  {
+    version: "2.474.1",
+    date: "2026-10-24",
+    title: "The audit log says how each change was made",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The audit log now records whether each change was made in the app or with an API key, and which key.",
+      },
+    ],
+  },
+  {
     version: "2.474.0",
     date: "2026-10-24",
     title: "Webhooks are delivered",
