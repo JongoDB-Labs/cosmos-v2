@@ -14,6 +14,7 @@ import { NextRequest } from "next/server";
 import { Permission, RolePermissions, type PermissionKey } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
+import { scopeMask } from "@/lib/auth/api-key";
 
 const { getAuthContext, prisma } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
@@ -369,5 +370,64 @@ describe("PUT /time-entries/[entryId] — the response redacts the rate too", ()
     });
     const body = await (await PUT(putRequest({ hours: 3 }), { params })).json();
     expect(body.rate).toBe("225");
+  });
+});
+
+/**
+ * An admin edits and removes anyone's entries by ROLE. An API key acts with
+ * its minter's role, so that role counts for a key only when its scopes would
+ * grant TIME_APPROVE — none do. An admin's time:write key keeps its owner's
+ * own drafts and nothing more; the admin's browser session is unchanged.
+ */
+describe("an admin's time:write key — own drafts only", () => {
+  const keyCtx = (): AuthContext => ({
+    ...ctxWith(scopeMask(["time:write"])),
+    orgRole: OrgRole.ADMIN,
+    isApiKey: true,
+    scopes: ["time:write"],
+  });
+  const putRequest = () =>
+    new NextRequest(`http://localhost/api/v1/orgs/o/time-entries/${ENTRY_ID}`, {
+      method: "PUT",
+      body: JSON.stringify({ hours: 3 }),
+      headers: { "Content-Type": "application/json" },
+    });
+  const deleteRequest = () =>
+    new NextRequest(`http://localhost/api/v1/orgs/o/time-entries/${ENTRY_ID}`, {
+      method: "DELETE",
+      body: JSON.stringify({ reason: "logged twice" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+  beforeEach(() => {
+    prisma.timeEntry.findFirst.mockResolvedValue(timeEntryRow({ id: ENTRY_ID, userId: OTHER_ID, status: "DRAFT" }));
+    prisma.timeEntry.update.mockResolvedValue(timeEntryRow({ id: ENTRY_ID, userId: OTHER_ID, hours: 3 }));
+    prisma.timesheet.findUnique.mockResolvedValue({ status: "OPEN" });
+  });
+
+  it("can't edit someone else's entry", async () => {
+    getAuthContext.mockResolvedValue(keyCtx());
+    expect((await PUT(putRequest(), { params })).status).toBe(403);
+    expect(prisma.timeEntry.update).not.toHaveBeenCalled();
+  });
+
+  // No scope grants TIME_DELETE today, so DELETE refuses a key on the bit
+  // first; the role cap there is what keeps it shut if one ever does.
+  it("can't remove someone else's entry", async () => {
+    getAuthContext.mockResolvedValue(keyCtx());
+    expect((await DELETE(deleteRequest(), { params })).status).toBe(403);
+    expect(prisma.timeEntry.update).not.toHaveBeenCalled();
+  });
+
+  it("still edits its owner's own draft", async () => {
+    getAuthContext.mockResolvedValue(keyCtx());
+    prisma.timeEntry.findFirst.mockResolvedValue(timeEntryRow({ id: ENTRY_ID, userId: ACTOR_ID, status: "DRAFT" }));
+    expect((await PUT(putRequest(), { params })).status).toBe(200);
+  });
+
+  it("the same admin's browser session still edits and removes it", async () => {
+    getAuthContext.mockResolvedValue({ ...ctxWith(RolePermissions.ADMIN), orgRole: OrgRole.ADMIN });
+    expect((await PUT(putRequest(), { params })).status).toBe(200);
+    expect((await DELETE(deleteRequest(), { params })).status).toBe(204);
   });
 });

@@ -44,8 +44,10 @@ export interface RouteContract<
   /**
    * Scopes a bearer token must ALL hold. Documented in the spec as
    * `x-cosmos-scopes` and asserted before the handler's permission check.
-   * Empty means any valid token. A scope is a ceiling, never a grant: the
-   * user's own permissions still apply.
+   * Empty means NO token: an API key is refused (default-deny), and only a
+   * browser session gets through. Every stable/beta contract names at least one
+   * (coverage.arch.test.ts). A scope is a ceiling, never a grant: the user's
+   * own permissions still apply.
    */
   scopes: ApiScope[];
   request: { params?: P; query?: Q; body?: B };

@@ -36,10 +36,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const parsed = schema.safeParse(await req.json().catch(() => null));
     if (!parsed.success) return err("invalid_input");
     const { command, args } = parsed.data;
-    // Every command but /mute (the caller's own notification setting) acts in
-    // the channel others see, so it needs CHAT_USE like the Chat page. An API
-    // key never holds it (no scope grants it).
-    if (command !== "mute") requirePermission(ctx, Permission.CHAT_USE);
+    // Every command needs CHAT_USE like the Chat page, /mute included: it is the
+    // same change as members/me PATCH, and every chat write follows one rule.
+    // An API key never holds it (no scope grants it).
+    requirePermission(ctx, Permission.CHAT_USE);
 
     const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
     if (!channel || channel.orgId !== orgId) return new Response("Not found", { status: 404 });

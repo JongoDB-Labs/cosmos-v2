@@ -108,7 +108,7 @@ export function FeedbackThread({
   item,
 }: {
   orgId: string;
-  item: { id: string; isMine?: boolean; lockedAt?: string | null; mergedIntoId?: string | null };
+  item: { id: string; status?: string; isMine?: boolean; lockedAt?: string | null; mergedIntoId?: string | null };
 }) {
   const base = `/api/v1/orgs/${orgId}/feedback/${item.id}/comments`;
   const key = useOrgQueryKey("feedback-comments", item.id);
@@ -195,7 +195,10 @@ export function FeedbackThread({
   const markedInternal = !!marking && !!markingPolicy && markingForcesInternal(marking, markingPolicy.orgCeiling);
   const internal = isStaff && (tab === "INTERNAL" || markedInternal);
 
-  const closed = !!item.mergedIntoId || (!!item.lockedAt && !isStaff);
+  // MERGED counts without a pointer too: deleting the survivor nulls it, and
+  // the server still refuses comments then.
+  const merged = !!item.mergedIntoId || item.status === "MERGED";
+  const closed = merged || (!!item.lockedAt && !isStaff);
   const canComment = !closed && (can(Permission.COMMENT_CREATE) || !!item.isMine);
 
   async function send(
@@ -517,7 +520,7 @@ export function FeedbackThread({
             submitLabel={internal ? "Post internal note" : "Post comment"}
           />
         </div>
-      ) : item.mergedIntoId ? (
+      ) : merged ? (
         <p className="text-xs text-muted-foreground">This request was merged; the discussion continues there.</p>
       ) : item.lockedAt ? (
         <p className="text-xs text-muted-foreground">Comments are closed on this request.</p>

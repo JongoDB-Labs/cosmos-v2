@@ -14,7 +14,7 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, listMilestones);
     const { params: { orgId, projectId } } = await parseRequest(listMilestones, request, params);
     await requireProjectRead(ctx, projectId, "PROJECT_READ");
 
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, createMilestone);
     const { params: { orgId, projectId }, body: data } = await parseRequest(createMilestone, request, params);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 

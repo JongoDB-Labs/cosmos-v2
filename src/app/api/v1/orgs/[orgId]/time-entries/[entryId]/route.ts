@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireAccess } from "@/lib/abac/require-access";
 import { Permission } from "@/lib/rbac/permissions";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 import { redactRates } from "@/lib/time/visibility";
 import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
 import { timesheetIdForEntry, isTimesheetOpen } from "@/lib/time/timesheet";
@@ -19,7 +20,7 @@ type RouteParams = { params: Promise<{ orgId: string; entryId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, getTimeEntry);
     const { params: { orgId, entryId } } = await parseRequest(getTimeEntry, request, params);
     requirePermission(ctx, Permission.TIME_READ);
 
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, updateTimeEntry);
     const { params: { orgId, entryId }, body: data } = await parseRequest(updateTimeEntry, request, params);
 
     const existing = await prisma.timeEntry.findFirst({
@@ -61,7 +62,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // until a policy exists.
     await requireAccess(ctx, "TIME_UPDATE", { ownerId: existing.userId });
 
-    const isAdminOrOwner = ctx.orgRole === "ADMIN" || ctx.orgRole === "OWNER";
+    // An admin edits anyone's entries by role. A key's role counts only when
+    // its scopes would grant TIME_APPROVE (none do), so an admin's time:write
+    // key stays on its owner's own drafts.
+    const isAdminOrOwner =
+      roleCountsFor(ctx, Permission.TIME_APPROVE) && (ctx.orgRole === "ADMIN" || ctx.orgRole === "OWNER");
     if (!isAdminOrOwner) {
       if (existing.userId !== ctx.userId) {
         return problem(403, "forbidden", "You can only update your own time entries", { request });
@@ -162,7 +167,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return problem(400, "invalid_request", "Only draft entries can be deleted", { request });
     }
 
-    const isAdminOrOwner = ctx.orgRole === "ADMIN" || ctx.orgRole === "OWNER";
+    const isAdminOrOwner =
+      roleCountsFor(ctx, Permission.TIME_APPROVE) && (ctx.orgRole === "ADMIN" || ctx.orgRole === "OWNER");
     if (existing.userId !== ctx.userId && !isAdminOrOwner) {
       return problem(403, "forbidden", "You can only delete your own time entries", { request });
     }

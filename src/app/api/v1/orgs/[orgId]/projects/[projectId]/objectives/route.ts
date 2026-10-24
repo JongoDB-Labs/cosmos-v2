@@ -15,7 +15,7 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, listObjectives);
     const { params: { orgId, projectId } } = await parseRequest(listObjectives, request, params);
     await requireProjectRead(ctx, projectId, "OKR_READ");
 
@@ -116,7 +116,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, createObjective);
     const { params: { orgId, projectId }, body: data } = await parseRequest(createObjective, request, params);
     await requireProjectManage(ctx, projectId, Permission.OKR_CREATE);
 
@@ -171,7 +171,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, reorderObjectives);
     const { params: { orgId, projectId }, body: { orderedIds } } = await parseRequest(reorderObjectives, request, params);
     await requireProjectManage(ctx, projectId, Permission.OKR_UPDATE);
 
