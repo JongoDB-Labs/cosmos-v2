@@ -11,6 +11,8 @@ import { uniqueBoardSlug } from "@/lib/templates/slugify";
 import { z } from "zod";
 import { BoardType, Prisma } from "@prisma/client";
 import { BOARD_TYPE_REGISTRY } from "@/lib/boards/board-types";
+import { DEFAULT_COLUMNS } from "@/lib/boards/default-columns";
+import { seedBoardColumns, type ColumnSpec } from "@/lib/workflow/provision.server";
 
 const createBoardSchema = z.object({
   name: z.string().min(1).max(100),
@@ -85,25 +87,38 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       _max: { sortOrder: true },
     });
 
-    const board = await prisma.board.create({
-      data: {
-        orgId,
-        projectId,
-        name: data.name,
-        slug: await uniqueBoardSlug(data.name, projectId),
-        type: data.type,
-        config: (data.config ?? {}) as Prisma.InputJsonValue,
-        sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
-        // Types whose columns ARE their structure get them at creation. A retro
-        // board with no columns opens with nowhere to put a note, which reads
-        // as a broken feature rather than an unconfigured one.
-        columns: {
-          create: (BOARD_TYPE_REGISTRY[data.type].defaultColumns ?? []).map(
-            (c, i) => ({ ...c, sortOrder: i })
-          ),
+    const slug = await uniqueBoardSlug(data.name, projectId);
+    const board = await prisma.$transaction(async (tx) => {
+      const row = await tx.board.create({
+        data: {
+          orgId,
+          projectId,
+          name: data.name,
+          slug,
+          type: data.type,
+          config: (data.config ?? {}) as Prisma.InputJsonValue,
+          sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
+          // Types whose columns ARE their structure get them at creation. A retro
+          // board with no columns opens with nowhere to put a note, which reads
+          // as a broken feature rather than an unconfigured one.
+          columns: {
+            create: (BOARD_TYPE_REGISTRY[data.type].defaultColumns ?? []).map(
+              (c, i) => ({ ...c, sortOrder: i })
+            ),
+          },
         },
-      },
-      include: { columns: true },
+      });
+      // A new Kanban board (Issues' "Save as board", or the board form) shows
+      // the project's workflow: the main Kanban board's columns, or the
+      // default ones. Through the status provisioning path, so every column
+      // is a view onto a status that exists.
+      if (data.type === BoardType.KANBAN) {
+        await seedBoardColumns(tx, row, await kanbanColumnsFor(tx, projectId));
+      }
+      return tx.board.findUniqueOrThrow({
+        where: { id: row.id },
+        include: { columns: { orderBy: { sortOrder: "asc" } } },
+      });
     });
 
     await logAudit({
@@ -120,4 +135,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   } catch (error) {
     return handleApiError(error);
   }
+}
+
+/** The columns a new Kanban board starts with: the project's first Kanban board's, else the defaults. */
+async function kanbanColumnsFor(tx: Prisma.TransactionClient, projectId: string): Promise<ColumnSpec[]> {
+  const primary = await tx.board.findFirst({
+    where: { projectId, type: BoardType.KANBAN, columns: { some: {} } },
+    orderBy: { sortOrder: "asc" },
+    select: { columns: { orderBy: { sortOrder: "asc" }, select: { name: true, key: true, color: true, category: true } } },
+  });
+  const columns = primary?.columns ?? DEFAULT_COLUMNS;
+  return columns.map((c, i) => ({ name: c.name, key: c.key, color: c.color, category: c.category, sortOrder: i }));
 }
