@@ -169,7 +169,8 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
-        {chip(null, "Everything", counts?.total)}
+        {/* The kind chips count what the toggle shows; so does this one. */}
+        {chip(null, "Everything", unreadOnly ? counts?.unread : counts?.total)}
         {(counts?.byType ?? []).map((t) => chip(t.type, kindLabel(t.type), t.count))}
         <div className="ml-auto flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setUnreadOnly((v) => !v)}>

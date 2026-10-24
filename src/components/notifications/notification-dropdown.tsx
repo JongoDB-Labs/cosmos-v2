@@ -17,6 +17,7 @@ import { notifyError } from "@/lib/errors/notify";
 import type { Notification } from "@/types/models";
 import { notificationHref } from "@/lib/notifications/href";
 import { NotificationPreview } from "./notification-preview";
+import { kindLabel } from "@/lib/notifications/kind";
 import {
   announceNotificationsChanged,
   onNotificationsChanged,
@@ -61,7 +62,7 @@ type BellItem = Pick<
 type InboxPage = {
   data: BellItem[];
   nextCursor: string | null;
-  counts: { unread: number };
+  counts: { unread: number; byType?: { type: string; count: number }[] };
 };
 
 /** One page per fetch. Enough to fill the panel and then some. */
@@ -86,6 +87,16 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
   const [sentinel, setSentinel] = useState<HTMLButtonElement | null>(null);
   // Bumped when the Inbox page changes notifications under the bell.
   const [reloads, setReloads] = useState(0);
+  // One kind at a time, or everything. The kinds come from the server's counts,
+  // which describe the whole inbox whatever is picked, so the chips never hide
+  // the way back.
+  const [kind, setKind] = useState<string | null>(null);
+  const [kinds, setKinds] = useState<{ type: string; count: number }[]>([]);
+  const kindRef = useRef<string | null>(null);
+  useEffect(() => {
+    kindRef.current = kind;
+  }, [kind]);
+  const kindParam = kind ? `&type=${encodeURIComponent(kind)}` : "";
   useEffect(
     () => onNotificationsChanged("bell", () => setReloads((n) => n + 1)),
     [],
@@ -99,7 +110,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     (async () => {
       try {
         const r = await fetch(
-          `/api/v1/orgs/${orgId}/notifications/inbox?unreadOnly=false&limit=${PAGE_SIZE}`,
+          `/api/v1/orgs/${orgId}/notifications/inbox?unreadOnly=false&limit=${PAGE_SIZE}${kindParam}`,
         );
         if (!r.ok) return;
         const page: InboxPage = await r.json();
@@ -107,6 +118,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
         setNotifications(page.data);
         setCursor(page.nextCursor);
         setLoadFailed(false);
+        setKinds(page.counts.byType ?? []);
         setUnreadNotLoaded(
           Math.max(
             0,
@@ -120,7 +132,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     return () => {
       cancelled = true;
     };
-  }, [orgId, reloads]);
+  }, [orgId, reloads, kindParam]);
 
   async function loadOlder() {
     if (!cursor || loadingMore) return;
@@ -128,7 +140,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     setLoadFailed(false);
     try {
       const r = await fetch(
-        `/api/v1/orgs/${orgId}/notifications/inbox?unreadOnly=false&limit=${PAGE_SIZE}&cursor=${encodeURIComponent(cursor)}`,
+        `/api/v1/orgs/${orgId}/notifications/inbox?unreadOnly=false&limit=${PAGE_SIZE}${kindParam}&cursor=${encodeURIComponent(cursor)}`,
       );
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const page: InboxPage = await r.json();
@@ -180,6 +192,11 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     const handler = (ev: Event) => {
       try {
         const data = JSON.parse((ev as MessageEvent).data) as BellItem;
+        // Another kind than the one showing: not listed, but still unread.
+        if (kindRef.current && data.type !== kindRef.current) {
+          if (!data.read) setUnreadNotLoaded((c) => c + 1);
+          return;
+        }
         setNotifications((prev) =>
           prev.some((n) => n.id === data.id) ? prev : [data, ...prev],
         );
@@ -370,6 +387,52 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
           )}
         </div>
         <DropdownMenuSeparator />
+        {kinds.length > 1 && (
+          <div
+            role="group"
+            aria-label="Show"
+            className="flex gap-1 overflow-x-auto px-3 py-2"
+          >
+            {[
+              {
+                type: null as string | null,
+                label: "All",
+                count: undefined as number | undefined,
+              },
+              ...kinds.map((k) => ({
+                type: k.type as string | null,
+                label: kindLabel(k.type),
+                count: k.count as number | undefined,
+              })),
+            ].map((c) => (
+              <button
+                key={c.type ?? "all"}
+                type="button"
+                aria-pressed={kind === c.type}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Drop the old kind's cursor first, so nothing loads "older"
+                  // from the wrong list before the new first page lands.
+                  setCursor(null);
+                  setKind(c.type);
+                }}
+                className={cn(
+                  "shrink-0 rounded-full border px-2 py-0.5 text-xs",
+                  kind === c.type
+                    ? "border-transparent bg-[var(--primary)] text-[var(--primary-foreground)]"
+                    : "border-[var(--border)] text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {c.label}
+                {c.count !== undefined && (
+                  <span className="ml-1 tabular-nums opacity-70">
+                    {c.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
         {notifications.length === 0 ? (
           <div className="py-8 text-center">

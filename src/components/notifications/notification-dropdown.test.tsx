@@ -13,6 +13,7 @@ import {
   fireEvent,
   waitFor,
   act,
+  within,
 } from "@testing-library/react";
 import { NotificationDropdown } from "./notification-dropdown";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -33,8 +34,11 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/errors/notify", () => ({ notifyError }));
 
 // jsdom has no EventSource; the component opens one for live updates.
+const sse: { emit?: (data: unknown) => void } = {};
 class FakeEventSource {
-  addEventListener() {}
+  addEventListener(_name: string, fn: (ev: MessageEvent) => void) {
+    sse.emit = (data) => fn({ data: JSON.stringify(data) } as MessageEvent);
+  }
   removeEventListener() {}
   close() {}
 }
@@ -61,6 +65,7 @@ type Page = {
   data: Notification[];
   nextCursor: string | null;
   unread?: number;
+  byType?: { type: string; count: number }[];
 };
 
 /** The bell reads the paged inbox endpoint; answer by cursor. */
@@ -71,7 +76,9 @@ function mockInbox(
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "PUT")
       return { ok: put.ok, status: put.ok ? 200 : 500, json: async () => ({}) };
-    const cursor = new URL(url, "http://x").searchParams.get("cursor") ?? "";
+    const sp = new URL(url, "http://x").searchParams;
+    const cursor =
+      (sp.get("type") ? `${sp.get("type")}:` : "") + (sp.get("cursor") ?? "");
     const p = pages[cursor];
     if (!p) return { ok: false, status: 404, json: async () => ({}) };
     return {
@@ -79,7 +86,10 @@ function mockInbox(
       json: async () => ({
         data: p.data,
         nextCursor: p.nextCursor,
-        counts: { unread: p.unread ?? p.data.filter((n) => !n.read).length },
+        counts: {
+          unread: p.unread ?? p.data.filter((n) => !n.read).length,
+          byType: p.byType,
+        },
       }),
     };
   });
@@ -465,5 +475,115 @@ describe("NotificationDropdown preview", () => {
       { timeout: 2000 },
     );
     expect(popup).toHaveTextContent(long.body);
+  });
+});
+
+describe("NotificationDropdown filter by kind", () => {
+  const of = (id: string, type: string, read = true) => ({
+    ...notif(id, read),
+    type,
+  });
+  const byType = [
+    { type: "comment.mentioned", count: 2 },
+    { type: "work_item.assigned", count: 1 },
+  ];
+
+  it("offers the kinds with their counts, and lists only the one picked", async () => {
+    const fetchMock = mockInbox({
+      "": {
+        data: [
+          of("m1", "comment.mentioned"),
+          of("a1", "work_item.assigned"),
+          of("m2", "comment.mentioned"),
+        ],
+        nextCursor: null,
+        byType,
+      },
+      "work_item.assigned:": {
+        data: [of("a1", "work_item.assigned")],
+        nextCursor: null,
+        byType,
+      },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    const group = await screen.findByRole("group", { name: "Show" });
+    expect(within(group).getByRole("button", { name: "All" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.click(within(group).getByRole("button", { name: /^Assigned\s*1$/ }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("menuitem")).toHaveLength(1),
+    );
+    expect(screen.getByText("Title a1")).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([u]) =>
+        String(u).includes("type=work_item.assigned"),
+      ),
+    ).toBe(true);
+    // And back.
+    fireEvent.click(within(group).getByRole("button", { name: "All" }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("menuitem")).toHaveLength(3),
+    );
+  });
+
+  it("keeps the kind when loading older", async () => {
+    const fetchMock = mockInbox({
+      "": {
+        data: [of("m1", "comment.mentioned"), of("a1", "work_item.assigned")],
+        nextCursor: "c0",
+        byType,
+      },
+      "comment.mentioned:": {
+        data: [of("m1", "comment.mentioned")],
+        nextCursor: "c1",
+        byType,
+      },
+      "comment.mentioned:c1": {
+        data: [of("m2", "comment.mentioned")],
+        nextCursor: null,
+        byType,
+      },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(await screen.findByRole("button", { name: /^Mentioned\s*2$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Load older" }));
+    expect(await screen.findByText("Title m2")).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(
+        ([u]) =>
+          String(u).includes("type=comment.mentioned") &&
+          String(u).includes("cursor=c1"),
+      ),
+    ).toBe(true);
+  });
+
+  it("still counts a new notification of another kind on the badge", async () => {
+    mockInbox({
+      "": {
+        data: [of("m1", "comment.mentioned"), of("a1", "work_item.assigned")],
+        nextCursor: null,
+        byType,
+      },
+      "comment.mentioned:": {
+        data: [of("m1", "comment.mentioned")],
+        nextCursor: null,
+        byType,
+      },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(await screen.findByRole("button", { name: /^Mentioned\s*2$/ }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("menuitem")).toHaveLength(1),
+    );
+    act(() => sse.emit!(of("a9", "work_item.assigned", false)));
+    expect(
+      await screen.findByRole("button", { name: "Notifications, 1 unread" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Title a9")).toBeNull();
   });
 });
