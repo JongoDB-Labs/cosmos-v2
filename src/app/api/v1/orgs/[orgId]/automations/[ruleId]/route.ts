@@ -6,6 +6,7 @@ import { parseRequest } from "@/lib/openapi/respond";
 import { orgContext } from "@/lib/openapi/org-context";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { ruleInOrg } from "@/lib/automation/route-auth.server";
 import { RULE_DTO_SELECT, ruleWarnings, updateRule } from "@/lib/automation/rules.server";
@@ -18,6 +19,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { params: p } = await parseRequest(getAutomationRule, request, params);
     const { ctx } = await orgContext(p.orgId, getAutomationRule);
     const rule = await ruleInOrg(ctx, p.ruleId);
+    if (rule.projectId) await requireProjectVisible(ctx, rule.projectId);
     if (rule.projectId) await requireProjectManage(ctx, rule.projectId, Permission.AUTOMATION_MANAGE);
     else requirePermission(ctx, Permission.AUTOMATION_MANAGE);
     return success(await prisma.automationRule.findUniqueOrThrow({ where: { id: p.ruleId }, select: RULE_DTO_SELECT }));
@@ -31,6 +33,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const { params: p, body } = await parseRequest(updateAutomationRule, request, params);
     const { ctx } = await orgContext(p.orgId, updateAutomationRule);
     const rule = await ruleInOrg(ctx, p.ruleId);
+    if (rule.projectId) await requireProjectVisible(ctx, rule.projectId);
     if (rule.projectId) await requireProjectManage(ctx, rule.projectId, Permission.AUTOMATION_MANAGE);
     else requirePermission(ctx, Permission.AUTOMATION_MANAGE);
     const { revision, ...patch } = body;
@@ -55,6 +58,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const { params: p } = await parseRequest(deleteAutomationRule, request, params);
     const { ctx } = await orgContext(p.orgId, deleteAutomationRule);
     const rule = await ruleInOrg(ctx, p.ruleId);
+    if (rule.projectId) await requireProjectVisible(ctx, rule.projectId);
     if (rule.projectId) await requireProjectManage(ctx, rule.projectId, Permission.AUTOMATION_MANAGE);
     else requirePermission(ctx, Permission.AUTOMATION_MANAGE);
     await prisma.automationRule.delete({ where: { id: rule.id } });

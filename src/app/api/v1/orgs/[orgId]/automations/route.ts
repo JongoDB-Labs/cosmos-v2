@@ -6,6 +6,7 @@ import { parseRequest } from "@/lib/openapi/respond";
 import { orgContext } from "@/lib/openapi/org-context";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { projectInOrg } from "@/lib/automation/route-auth.server";
 import { createRule, RULE_DTO_SELECT, ruleWarnings } from "@/lib/automation/rules.server";
@@ -18,6 +19,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { params: p, query } = await parseRequest(listAutomationRules, request, params);
     const { ctx } = await orgContext(p.orgId, listAutomationRules);
     await projectInOrg(ctx, query.projectId ?? null);
+    // A team-scoped project is its team's and the org admins' alone, whatever bit the caller holds.
+    if (query.projectId) await requireProjectVisible(ctx, query.projectId);
     if (query.projectId) await requireProjectManage(ctx, query.projectId, Permission.AUTOMATION_MANAGE);
     else requirePermission(ctx, Permission.AUTOMATION_MANAGE);
     const rules = await prisma.automationRule.findMany({
@@ -36,6 +39,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { params: p, body } = await parseRequest(createAutomationRule, request, params);
     const { ctx } = await orgContext(p.orgId, createAutomationRule);
     await projectInOrg(ctx, body.projectId);
+    if (body.projectId) await requireProjectVisible(ctx, body.projectId);
     if (body.projectId) await requireProjectManage(ctx, body.projectId, Permission.AUTOMATION_MANAGE);
     else requirePermission(ctx, Permission.AUTOMATION_MANAGE);
     const rule = await createRule(ctx, body);

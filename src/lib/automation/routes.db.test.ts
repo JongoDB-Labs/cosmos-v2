@@ -117,6 +117,24 @@ describe("who may manage rules", () => {
     expect((await call(createRuleRoute, { orgId }, { method: "POST", body: { projectId: other, name: "Theirs", spec: SPEC } })).status).toBe(403);
   });
 
+  it("keeps a team-scoped project's rules to its team and the org's admins, whatever bit the caller holds", async () => {
+    const p = await project();
+    await prisma.project.update({ where: { id: p }, data: { teamScopedAccess: true } });
+    const ruleId = (await call(createRuleRoute, { orgId }, { method: "POST", body: { projectId: p, name: "Team only", spec: SPEC } })).body.id as string;
+    // An org-wide AUTOMATION_MANAGE (a work role can hand it out), but not on the project's team.
+    actAs(bobId, MEMBER | Permission.AUTOMATION_MANAGE, { role: OrgRole.MEMBER });
+    expect((await call(listRules, { orgId }, { query: `?projectId=${p}` })).status).toBe(403);
+    expect((await call(createRuleRoute, { orgId }, { method: "POST", body: { projectId: p, name: "Sneak", spec: SPEC } })).status).toBe(403);
+    expect((await call(getRule, { orgId, ruleId })).status).toBe(403);
+    expect((await call(patchRule, { orgId, ruleId }, { method: "PATCH", body: { revision: 1, enabled: false } })).status).toBe(403);
+    expect((await call(listRuns, { orgId, ruleId })).status).toBe(403);
+    expect((await call(deleteRule, { orgId, ruleId }, { method: "DELETE" })).status).toBe(403);
+    expect(await prisma.automationRule.findUniqueOrThrow({ where: { id: ruleId }, select: { enabled: true } })).toEqual({ enabled: true });
+    // The same bit on a project that isn't team-scoped reaches it as before.
+    const open = await project();
+    expect((await call(createRuleRoute, { orgId }, { method: "POST", body: { projectId: open, name: "Open", spec: SPEC } })).status).toBe(201);
+  });
+
   it("never lets an API key manage rules, whoever minted it", async () => {
     const p = await project();
     // A key's permissions are its scopes' mask (no scope carries AUTOMATION_MANAGE),
