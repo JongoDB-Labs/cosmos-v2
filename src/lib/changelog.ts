@@ -49,6 +49,39 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.460.0",
+    date: "2026-10-24",
+    title: "Follow feedback and merge duplicates",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Follow a feedback item to hear about new comments and status changes; you follow automatically when you post, vote, comment or are mentioned, and unfollowing sticks. Staff can merge a duplicate into another request, moving its votes and followers, and undo the merge exactly.",
+      },
+    ],
+  },
+  {
+    version: "2.459.0",
+    date: "2026-10-24",
+    title: "Per-operation API key scopes",
+    highlights: [
+      {
+        kind: "feature",
+        text: "API keys are now checked against the scopes each operation needs, and new scopes let you mint narrower keys (time, audit, planning, deletes). Keys with only rules:run or members:read can no longer list members or edit saved views, and read-only keys can no longer save, star or unstar saved views; re-mint with items:write if you relied on that.",
+      },
+    ],
+  },
+  {
+    version: "2.458.0",
+    date: "2026-10-24",
+    title: "Cosmos tabs in Microsoft Teams",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Add Cosmos to a Teams channel or your personal Teams app to see your assigned work and a project's items without leaving Teams. Sign-in uses your Microsoft account, linked through Outlook Calendar; an admin grants consent once.",
+      },
+    ],
+  },
+  {
     version: "2.457.0",
     date: "2026-10-24",
     title: "API reference: OKRs, goals, KPIs, time and audit",

@@ -50,6 +50,8 @@ export const ALL_SERVER_EVENT_TYPES = [
   "feedback.comment.created",
   "feedback.comment.updated",
   "feedback.comment.deleted",
+  "feedback.merged",
+  "feedback.unmerged",
   "settings.updated",
   "member.updated",
   "hello",

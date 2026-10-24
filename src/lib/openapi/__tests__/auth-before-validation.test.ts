@@ -32,6 +32,8 @@ import { PATCH as updateKpi } from "@/app/api/v1/orgs/[orgId]/projects/[projectI
 import { POST as createDataPoint } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/kpis/[kpiId]/data-points/route";
 import { POST as createTimeEntry } from "@/app/api/v1/orgs/[orgId]/time-entries/route";
 import { PUT as updateTimeEntry } from "@/app/api/v1/orgs/[orgId]/time-entries/[entryId]/route";
+import { POST as createStatus } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/statuses/route";
+import { PATCH as updateStatus } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/statuses/[key]/route";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const ID = "22222222-2222-4222-8222-222222222222";
@@ -57,6 +59,8 @@ const ROUTES: [string, Handler, string, Record<string, string>][] = [
   ["POST kpi data points", createDataPoint as unknown as Handler, "POST", { orgId: ORG, projectId: ID, kpiId: ID }],
   ["POST time entries", createTimeEntry as unknown as Handler, "POST", { orgId: ORG }],
   ["PUT time entry", updateTimeEntry as unknown as Handler, "PUT", { orgId: ORG, entryId: ID }],
+  ["POST statuses", createStatus as unknown as Handler, "POST", { orgId: ORG, projectId: ID }],
+  ["PATCH status", updateStatus as unknown as Handler, "PATCH", { orgId: ORG, projectId: ID, key: "todo" }],
 ];
 
 /** A body every one of these routes refuses: an array where each expects an object. */

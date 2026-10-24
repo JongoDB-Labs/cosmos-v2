@@ -14,7 +14,7 @@ type RouteParams = {
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, updateKpi);
     const { params: { orgId, projectId, kpiId }, body: data } = await parseRequest(updateKpi, request, params);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
@@ -51,7 +51,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, deleteKpi);
     const { params: { orgId, projectId, kpiId } } = await parseRequest(deleteKpi, request, params);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 

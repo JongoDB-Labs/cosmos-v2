@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
+import { orgContext } from "@/lib/openapi/org-context";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
@@ -15,11 +15,9 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    // Authenticate (and hold a key to the contract's scopes) before validating.
+    const { ctx } = await orgContext((await params).orgId, listStatuses);
     const { params: p, query } = await parseRequest(listStatuses, request, params);
-    const org = await prisma.organization.findUnique({ where: { id: p.orgId } });
-    if (!org) return problem(404, "not_found", "Organization not found", { request });
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return problem(401, "unauthorized", undefined, { request });
 
     const project = await prisma.project.findFirst({ where: { id: p.projectId, orgId: p.orgId }, select: { id: true } });
     if (!project) return problem(404, "not_found", "Project not found", { request });
@@ -35,11 +33,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    // Authenticate (and hold a key to the contract's scopes) before validating.
+    const { ctx } = await orgContext((await params).orgId, createStatus);
     const { params: p, body } = await parseRequest(createStatus, request, params);
-    const org = await prisma.organization.findUnique({ where: { id: p.orgId } });
-    if (!org) return problem(404, "not_found", "Organization not found", { request });
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return problem(401, "unauthorized", undefined, { request });
 
     const project = await prisma.project.findFirst({ where: { id: p.projectId, orgId: p.orgId }, select: { id: true } });
     if (!project) return problem(404, "not_found", "Project not found", { request });
