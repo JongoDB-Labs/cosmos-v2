@@ -161,7 +161,11 @@ export async function ensureStatuses(
   }
 }
 
-/** A status's category, and the (deprecated) mirror of it on every column showing it. */
+/**
+ * A status's category. Columns showing it read it from here
+ * (column-categories.server.ts); their own stored category is no longer kept
+ * in step, and only still counts on a lane the backfill found conflicting.
+ */
 export async function setStatusCategory(
   tx: Prisma.TransactionClient,
   projectId: string,
@@ -169,10 +173,6 @@ export async function setStatusCategory(
   category: ColumnCategory,
 ): Promise<void> {
   await tx.workflowStatus.update({ where: { projectId_key: { projectId, key } }, data: { category } });
-  await tx.boardColumn.updateMany({
-    where: { key, board: { projectId, type: { in: STATUS_BOARD_TYPES } } },
-    data: { category },
-  });
 }
 
 /**

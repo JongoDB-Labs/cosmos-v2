@@ -21,6 +21,7 @@ const { getAuthContext, prisma } = vi.hoisted(() => ({
     project: { findMany: vi.fn() },
     board: { findMany: vi.fn() },
     boardColumn: { findMany: vi.fn() },
+    workflowStatus: { findMany: vi.fn() },
     workItem: { findMany: vi.fn(), count: vi.fn(), groupBy: vi.fn() },
     interval: { findFirst: vi.fn(), findMany: vi.fn() },
     orgMember: { findUnique: vi.fn() },
@@ -67,6 +68,7 @@ beforeEach(() => {
   ]);
   prisma.board.findMany.mockResolvedValue([]);
   prisma.boardColumn.findMany.mockResolvedValue([]);
+  prisma.workflowStatus.findMany.mockResolvedValue([]);
   prisma.workItem.findMany.mockResolvedValue([]);
   prisma.workItem.count.mockResolvedValue(0);
   prisma.workItem.groupBy.mockResolvedValue([]);
@@ -146,12 +148,9 @@ describe("portfolio analytics — completion when a project has no board", () =>
     expect(await percentOf(await GET(req(), { params }))).toBe(0);
   });
 
-  it("still prefers the board's own DONE columns where a team has modelled them", async () => {
-    prisma.board.findMany.mockResolvedValue([{ id: "b1" }]);
-    prisma.boardColumn.findMany.mockImplementation(({ where }: { where: { category: string } }) =>
-      Promise.resolve(where.category === "DONE" ? [{ key: "shipped" }] : []),
-    );
-    // completedAt would say 8; the board says 3, and the board wins.
+  it("still prefers the project's own DONE statuses where a team has modelled them", async () => {
+    prisma.workflowStatus.findMany.mockResolvedValue([{ key: "shipped", category: "DONE" }]);
+    // completedAt would say 8; the statuses say 3, and the statuses win.
     prisma.workItem.count.mockImplementation(({ where }: { where: Record<string, unknown> }) => {
       if (where.dueDate) return Promise.resolve(0);
       if (where.columnKey) return Promise.resolve(3);
