@@ -357,6 +357,8 @@ model Organization {
   bills               Bill[]
   calendarFeeds       CalendarFeed[]
   externalEventLinks  ExternalEventLink[]
+  teamsConversations  TeamsConversation[]
+  teamsOutbox         TeamsOutbox[]
 
   @@map("organizations")
 }
@@ -442,6 +444,7 @@ model User {
   calendarFeeds       CalendarFeed[]
   externalEventLinks  ExternalEventLink[]
   meetingInvitesOrganized SyncMeeting[] @relation("MeetingInviteOrganizer")
+  teamsConversations  TeamsConversation[]
 
   @@map("users")
 }
@@ -864,6 +867,8 @@ model Project {
 
   expenses Expense[]
   bills    Bill[]
+
+  teamsConversations TeamsConversation[]
 
   @@unique([orgId, key])
   /// Unique per org, so a re-import can never fork one source record into two.
@@ -5985,4 +5990,57 @@ model ExternalEventLink {
   @@unique([orgId, provider, userId, entityType, entityId])
   @@index([orgId, entityType, entityId])
   @@map("external_event_links")
+}
+
+/// COSMOS-202 T2: where the Cosmos bot may write in Microsoft Teams. Either a
+/// person's chat with the bot (userId: installed in their personal scope) or
+/// a channel linked to a project (projectId); exactly one of the two. The
+/// reference is captured only from a verified inbound Bot Framework activity,
+/// and serviceUrl only from an allowlisted Microsoft host. It goes with the
+/// org, the person or the project (cascade).
+model TeamsConversation {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String    @map("org_id") @db.Uuid
+  userId         String?   @map("user_id") @db.Uuid
+  projectId      String?   @map("project_id") @db.Uuid
+  tenantId       String    @map("tenant_id")
+  serviceUrl     String    @map("service_url")
+  conversationId String    @map("conversation_id")
+  /// Personal: which notifications also go to Teams ("assigned", "mentioned", "due_tomorrow"). Empty = none.
+  notifyTypes    String[]  @default([]) @map("notify_types")
+  /// Personal: the UTC day the last due-tomorrow digest was sent for.
+  dueDigestOn    DateTime? @map("due_digest_on") @db.Date
+  /// Channel: the last DomainEvent posted (a cursor), so each change is posted once.
+  lastEventId    BigInt?   @map("last_event_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  org     Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user    User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  outbox  TeamsOutbox[]
+
+  @@unique([orgId, userId])
+  @@unique([orgId, projectId])
+  @@map("teams_conversations")
+}
+
+/// COSMOS-202 T2: Teams messages waiting to be sent. Ids only, never text:
+/// the message is built when it is sent, as its reader may see it then.
+model TeamsOutbox {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId               String   @map("org_id") @db.Uuid
+  teamsConversationId String   @map("teams_conversation_id") @db.Uuid
+  /// "notification" | "due_digest" | "channel_digest" | "reply"
+  kind                String
+  payload             Json     @default("{}")
+  attempts            Int      @default(0)
+  nextAttemptAt       DateTime @default(now()) @map("next_attempt_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  org          Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  conversation TeamsConversation @relation(fields: [teamsConversationId], references: [id], onDelete: Cascade)
+
+  @@index([nextAttemptAt])
+  @@map("teams_outbox")
 }

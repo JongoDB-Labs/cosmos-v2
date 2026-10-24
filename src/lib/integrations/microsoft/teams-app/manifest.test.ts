@@ -21,7 +21,13 @@ describe("Teams app package", () => {
     expect(m.composeExtensions[0].commands[1].context).toEqual(["message"]);
     expect(m.composeExtensions[0].messageHandlers).toEqual([{ type: "link", value: { domains: ["cosmos.example"] } }]);
     expect(m.validDomains).toEqual(["cosmos.example"]);
-    expect(m).not.toHaveProperty("bots"); // message extensions only: nobody chats with it in T1
+  });
+
+  it("T2: version 1.2.0, and the bot in personal chats and teams (not group chats)", () => {
+    const m = teamsManifest(ARGS);
+    expect(m.version).toBe("1.2.0");
+    expect(m.bots).toEqual([expect.objectContaining({ botId: ARGS.appId, scopes: ["personal", "team"] })]);
+    expect(m.bots[0].commandLists.flatMap((l) => l.commands.map((c) => c.title))).toEqual(["help", "link", "unlink"]);
   });
 
   it("declares the tabs on this host, and SSO for our App ID URI", () => {
