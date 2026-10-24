@@ -132,4 +132,13 @@ describe("following a feedback item (e2e DB)", () => {
     expect((await body(await PUT(req("PUT", { following: true }), p()))).following).toBe(true);
     expect((await body(await GET(req("GET"), p()))).following).toBe(true);
   });
+
+  it("never tells a follower outside the feedback team about an internal note", async () => {
+    await prisma.notification.deleteMany({ where: { orgId, refId: itemId } });
+    as(alice, "ADMIN");
+    const res = await COMMENT(req("POST", { content: "Eng says Q2.", visibility: "INTERNAL" }), p());
+    expect(res.status).toBe(201);
+    expect(await commentNotices(bob)).toHaveLength(0);
+    expect(await commentNotices(carol)).toHaveLength(0);
+  });
 });
