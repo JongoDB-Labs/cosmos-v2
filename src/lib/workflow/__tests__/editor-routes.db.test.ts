@@ -219,4 +219,16 @@ describe("the editor's steps", () => {
     actAs(aliceId, ALL);
     expect((await call(createTemplateRoute, { orgId }, "POST", { fromWorkflowId: id, name: `T ${Math.random()}` })).status).toBe(201);
   });
+
+  it("won't make a template of a workflow from a project the caller can't see", async () => {
+    const p = await project();
+    const id = await newWorkflow(p);
+    await call(publishRoute, { orgId, projectId: p, workflowId: id }, "POST", {});
+    await prisma.project.update({ where: { id: p }, data: { teamScopedAccess: true } });
+    // The org-wide right to manage workflows, but no place in this team-scoped project.
+    actAs(bobId, MEMBER | Permission.WORKFLOW_MANAGE, { role: OrgRole.MEMBER });
+    const r = await call(createTemplateRoute, { orgId }, "POST", { fromWorkflowId: id, name: `Hidden ${Math.random()}` });
+    expect(r.status).toBe(403);
+    expect(await prisma.workflow.count({ where: { orgId, projectId: null, name: { startsWith: "Hidden" } } })).toBe(0);
+  });
 });
