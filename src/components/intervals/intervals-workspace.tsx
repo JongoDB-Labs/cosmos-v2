@@ -45,6 +45,7 @@ import { CapacityDialog } from "./capacity-dialog";
 import { AddIssuesDialog } from "./add-issues-dialog";
 import { StartSprintDialog } from "./start-sprint-dialog";
 import { computeSprintReview, type SprintReview } from "@/lib/intervals/sprint-review";
+import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { computeNextSprintDefaults } from "@/lib/intervals/next-sprint";
 import { nextPlannedSprint } from "@/lib/intervals/carry-forward-target";
 import { formatDateMediumStable } from "@/lib/format/stable-date";
@@ -127,6 +128,8 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
   const canComplete = can(Permission.SPRINT_COMPLETE);
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
+  // The review counts an item done by its status's CATEGORY, as the server does.
+  const projectStatuses = useProjectStatuses(orgId, projectId);
 
   const [intervals, setIntervals] = useState<Interval[]>([]);
   const [loading, setLoading] = useState(true);
@@ -253,6 +256,7 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
               columnKey: i.columnKey,
             }),
           ),
+          columns: projectStatuses,
         }),
       );
     } catch (err) {

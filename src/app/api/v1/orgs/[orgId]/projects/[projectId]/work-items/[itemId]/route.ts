@@ -1,64 +1,14 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { isDonePhase, isStartedPhase } from "@/lib/boards/column-phase";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requireAccess } from "@/lib/abac/require-access";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { createNotification } from "@/lib/notifications/create";
 import { publishToOrg } from "@/lib/realtime/broker";
-import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
-import { storeEmbedding } from "@/lib/rag/embed";
-import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
-import { setWorkItemLabels } from "@/lib/work-items/labels";
-import { cascadeSchedule, type CascadedItem } from "@/lib/work-items/schedule-cascade-io";
-import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
-import { z } from "zod";
-import { Priority, Prisma, WorkCategory } from "@prisma/client";
-
-const updateItemSchema = z.object({
-  title: z.string().min(1).max(500).optional(),
-  description: z.string().nullish(),
-  workItemTypeId: z.string().uuid().nullish(),
-  columnKey: z.string().nullish(),
-  assigneeId: z.string().uuid().nullable().optional(),
-  // Multi-assign (FR 1d38496a): replaces the WHOLE set; first entry becomes the
-  // primary assigneeId. When present it wins over the legacy single field.
-  assigneeIds: z.array(z.string().uuid()).max(50).optional(),
-  priority: z.nativeEnum(Priority).optional(),
-  intervalId: z.string().uuid().nullable().optional(),
-  parentId: z.string().uuid().nullable().optional(),
-  storyPoints: z.number().int().min(0).nullable().optional(),
-  sortOrder: z.number().int().optional(),
-  dueDate: z.string().datetime().nullable().optional(),
-  startDate: z.string().datetime().nullable().optional(),
-  // Interdependent rescheduling (COSMOS-154): the OTHER items this same user
-  // action is writing by hand, each in its own request. Their dates are settled
-  // by those requests, so this one's cascade must neither move them nor reach
-  // past them — otherwise a multi-select Shift, or an undo restoring a whole
-  // cascade, moves shared dependents once per member. Not a stored field.
-  cascadeSkipIds: z.array(z.string().uuid()).max(500).optional(),
-  actualStart: z.string().datetime().nullable().optional(),
-  completedAt: z.string().datetime().nullable().optional(),
-  workCategory: z.nativeEnum(WorkCategory).optional(),
-  // Archive / unarchive. A timestamp in, or null to bring it back.
-  //
-  // It rides on this route rather than getting an endpoint of its own because
-  // it is gated on ITEM_UPDATE like every other field here — which is the whole
-  // point: archiving is editing, not deleting, so the person who made a mess can
-  // clear it up without being handed the ability to destroy anyone's work.
-  archivedAt: z.string().datetime().nullable().optional(),
-  // Meeting callout colour. Validated against the palette on WRITE even though
-  // reads deliberately tolerate an unknown key: the column is plain TEXT for
-  // forward-compatibility with a NEWER build, which is not a licence for THIS
-  // build to store a typo. A rejected value is a 400 the user can see; a stored
-  // one would be an invisible no-op border they could never clear from the UI.
-  // `null` clears the highlight.
-  highlight: z.enum(WORK_ITEM_HIGHLIGHT_ORDER).nullable().optional(),
-  tags: z.array(z.string()).optional(),
-  customFields: z.record(z.string(), z.unknown()).optional(),
-});
+import { teamProjectError } from "@/lib/teams/item-team.server";
+import { applyWorkItemChange, workItemPatchSchema } from "@/lib/work-items/apply-change.server";
+import { runAfterCommit } from "@/lib/work-items/after-commit";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; itemId: string }> };
 
@@ -121,163 +71,22 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     });
 
     const body = await request.json();
-    const data = updateItemSchema.parse(body);
+    const data = workItemPatchSchema.parse(body);
 
-    const item = await prisma.$transaction(async (tx) => {
-      const trackFields: Array<{ field: string; oldVal: string | null; newVal: string | null }> = [];
+    const teamError = await teamProjectError({ projectId, teamId: data.teamId });
+    if (teamError) return Response.json({ error: teamError }, { status: 400 });
 
-      if (data.title !== undefined && data.title !== existing.title) {
-        trackFields.push({ field: "title", oldVal: existing.title, newVal: data.title });
-      }
-      if (data.columnKey !== undefined && data.columnKey !== existing.columnKey) {
-        trackFields.push({ field: "columnKey", oldVal: existing.columnKey, newVal: data.columnKey });
-      }
-      if (data.priority !== undefined && data.priority !== existing.priority) {
-        trackFields.push({ field: "priority", oldVal: existing.priority, newVal: data.priority });
-      }
-      if (data.assigneeId !== undefined && data.assigneeId !== existing.assigneeId) {
-        trackFields.push({ field: "assigneeId", oldVal: existing.assigneeId, newVal: data.assigneeId });
-      }
-      // Multi-assign: the set's first member becomes the primary — track that
-      // change under the same field name the activity feed already renders.
-      const primaryFromSet =
-        data.assigneeIds !== undefined ? (data.assigneeIds[0] ?? null) : undefined;
-      if (primaryFromSet !== undefined && primaryFromSet !== existing.assigneeId) {
-        trackFields.push({ field: "assigneeId", oldVal: existing.assigneeId, newVal: primaryFromSet });
-      }
-      if (data.intervalId !== undefined && data.intervalId !== existing.intervalId) {
-        trackFields.push({ field: "intervalId", oldVal: existing.intervalId, newVal: data.intervalId });
-      }
-      if (data.workItemTypeId !== undefined && data.workItemTypeId !== existing.workItemTypeId) {
-        trackFields.push({ field: "workItemTypeId", oldVal: existing.workItemTypeId, newVal: data.workItemTypeId });
-      }
-
-      const columnChanged = data.columnKey !== undefined && data.columnKey !== existing.columnKey;
-
-      const updateData: Record<string, unknown> = {};
-      if (data.title !== undefined) updateData.title = data.title;
-      if (data.description !== undefined) updateData.description = data.description ?? "";
-      if (data.workItemTypeId !== undefined) updateData.workItemTypeId = data.workItemTypeId;
-      if (data.columnKey !== undefined && data.columnKey !== null) {
-        updateData.columnKey = data.columnKey;
-        if (columnChanged) updateData.columnEnteredAt = new Date();
-      }
-      if (data.assigneeId !== undefined) updateData.assigneeId = data.assigneeId;
-      if (data.assigneeIds !== undefined) updateData.assigneeId = data.assigneeIds[0] ?? null;
-      if (data.priority !== undefined) updateData.priority = data.priority;
-      if (data.intervalId !== undefined) updateData.intervalId = data.intervalId;
-      if (data.parentId !== undefined) updateData.parentId = data.parentId;
-      if (data.storyPoints !== undefined) updateData.storyPoints = data.storyPoints;
-      if (data.sortOrder !== undefined) updateData.sortOrder = data.sortOrder;
-      if (data.dueDate !== undefined) updateData.dueDate = data.dueDate ? new Date(data.dueDate) : null;
-      if (data.startDate !== undefined) updateData.startDate = data.startDate ? new Date(data.startDate) : null;
-      if (data.actualStart !== undefined) updateData.actualStart = data.actualStart ? new Date(data.actualStart) : null;
-      if (data.completedAt !== undefined) updateData.completedAt = data.completedAt ? new Date(data.completedAt) : null;
-      if (data.workCategory !== undefined) updateData.workCategory = data.workCategory;
-      if (data.archivedAt !== undefined)
-        updateData.archivedAt = data.archivedAt ? new Date(data.archivedAt) : null;
-      if (data.highlight !== undefined) updateData.highlight = data.highlight;
-      // Labels are NOT written here. `tags` is a mirror of the work_item_labels
-      // rows now, so writing the array directly would leave the catalogue out of
-      // step — the label would filter but not exist to rename or delete.
-      // setWorkItemLabels owns both sides; it runs before the update below so
-      // the row this PUT echoes back already carries the new values.
-      if (data.tags !== undefined) {
-        await setWorkItemLabels(tx, orgId, itemId, data.tags);
-      }
-      if (data.customFields !== undefined) {
-        // MERGE partial custom-field updates into the existing JSON so a PUT
-        // that touches one field (the detail sheet's per-field save) never
-        // clobbers the item's other custom-field values. Keys explicitly set to
-        // null/undefined still overwrite — that's how the UI clears a value.
-        const existingCustom =
-          existing.customFields && typeof existing.customFields === "object" && !Array.isArray(existing.customFields)
-            ? (existing.customFields as Record<string, unknown>)
-            : {};
-        updateData.customFields = {
-          ...existingCustom,
-          ...data.customFields,
-        } as Prisma.InputJsonValue;
-      }
-
-      // The destination column's CATEGORY decides whether this move means
-      // "started" or "finished". Both checks used to guess from the key string
-      // ("not backlog/todo" = started, "contains done" = finished), which stamped
-      // an actual START on any team-named column such as Review — the cause of a
-      // user's Gantt bars all jumping to today after a batch of Sprint-board moves.
-      const destColumn = data.columnKey
-        ? await tx.boardColumn.findFirst({
-            where: { board: { projectId }, key: data.columnKey },
-            select: { category: true },
-          })
-        : null;
-      const doneColumn = destColumn ? isDonePhase(destColumn.category) : false;
-      // Actual End auto-capture (skipped when the request sets completedAt manually).
-      if (data.completedAt === undefined) {
-        if (doneColumn && !existing.completedAt) {
-          updateData.completedAt = new Date();
-        } else if (data.columnKey && !doneColumn && existing.completedAt) {
-          updateData.completedAt = null;
-        }
-      }
-      // Actual Start auto-capture: first time the item enters a started (in-progress
-      // or done) column. Mirrors the completedAt capture; never overwritten once set;
-      // a manual actualStart in this request wins.
-      const startedColumn = destColumn ? isStartedPhase(destColumn.category) : false;
-      if (data.actualStart === undefined && startedColumn && !existing.actualStart) {
-        updateData.actualStart = new Date();
-      }
-
-      // Sync the assignee SET before the row update reads it back:
-      // - assigneeIds present → the set is replaced wholesale (order = payload).
-      // - legacy single assigneeId → promote it into the set as the new front
-      //   (extras are preserved); null clears the whole set — "Unassigned"
-      //   from any surface means nobody.
-      if (data.assigneeIds !== undefined) {
-        await tx.workItemAssignee.deleteMany({ where: { workItemId: itemId } });
-        if (data.assigneeIds.length > 0) {
-          await tx.workItemAssignee.createMany({
-            data: data.assigneeIds.map((userId, i) => ({
-              workItemId: itemId,
-              userId,
-              sortOrder: i,
-            })),
-            skipDuplicates: true,
-          });
-        }
-      } else if (data.assigneeId !== undefined) {
-        if (data.assigneeId === null) {
-          await tx.workItemAssignee.deleteMany({ where: { workItemId: itemId } });
-        } else {
-          await tx.workItemAssignee.upsert({
-            where: { workItemId_userId: { workItemId: itemId, userId: data.assigneeId } },
-            create: { workItemId: itemId, userId: data.assigneeId, sortOrder: -1 },
-            update: { sortOrder: -1 },
-          });
-        }
-      }
-
-      // DATE AUDIT. Every date on the item, diffed from the FINAL updateData
-      // rather than from the request body — the 2026-08-14 incident was caused by
-      // an AUTO-CAPTURED actualStart that the client never sent, so tracking only
-      // what the caller asked for would have recorded nothing and left no trail of
-      // the very change that caused the report. Recording the derived value is the
-      // whole point.
-      const DATE_FIELDS = ["startDate", "dueDate", "actualStart", "completedAt"] as const;
-      for (const field of DATE_FIELDS) {
-        if (!(field in updateData)) continue;
-        const before = existing[field] as Date | null;
-        const after = updateData[field] as Date | null;
-        const beforeIso = before ? new Date(before).toISOString() : null;
-        const afterIso = after ? new Date(after).toISOString() : null;
-        if (beforeIso !== afterIso) {
-          trackFields.push({ field, oldVal: beforeIso, newVal: afterIso });
-        }
-      }
-
-      const updated = await tx.workItem.update({
+    const { item, effects } = await prisma.$transaction(async (tx) => {
+      const change = await applyWorkItemChange(tx, {
+        actorId: ctx.userId,
+        orgId,
+        projectId,
+        itemIds: [itemId],
+        patch: data,
+        source: "API",
+      });
+      const updated = await tx.workItem.findUniqueOrThrow({
         where: { id: itemId },
-        data: updateData,
         include: {
           // Keep the child-ref shape consistent with the GET routes (the detail
           // sheet renders `#{ticketNumber}` for each sub-item) so a PUT echo of a
@@ -294,139 +103,16 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           _count: { select: { comments: true, activities: true } },
         },
       });
-
-      if (trackFields.length > 0) {
-        await tx.activity.createMany({
-          data: trackFields.map((f) => ({
-            orgId,
-            workItemId: itemId,
-            userId: ctx.userId,
-            action: "updated",
-            field: f.field,
-            oldValue: f.oldVal,
-            newValue: f.newVal,
-          })),
-        });
-      }
-
-      // INTERDEPENDENT RESCHEDULING (COSMOS-154). A date edit is never about one
-      // item: the epic above it claims a finish date its children no longer meet,
-      // and everything linked downstream is still planned against the old one. So
-      // a save that moves `startDate`/`dueDate` pulls the parent chain out to the
-      // envelope of its children and shifts each downstream successor by the same
-      // slip. Inside this transaction, so a failure leaves NO half-moved plan.
-      let cascaded: CascadedItem[] = [];
-      if ("startDate" in updateData || "dueDate" in updateData) {
-        const beforeDue = existing.dueDate ? new Date(existing.dueDate).getTime() : null;
-        const afterDue = updated.dueDate ? new Date(updated.dueDate).getTime() : null;
-        // Only a SLIP travels downstream — see the planner for why pulling an
-        // item in must not drag its dependents earlier with it.
-        const dueShiftMs = beforeDue !== null && afterDue !== null ? afterDue - beforeDue : 0;
-        cascaded = await cascadeSchedule(tx, {
-          orgId,
-          projectId,
-          itemId,
-          dueShiftMs,
-          userId: ctx.userId,
-          skipIds: data.cascadeSkipIds,
-        });
-      }
-
       // The echo carries WHAT ELSE MOVED, and where it moved FROM. A cascade is
       // only reversible if the caller is told its full extent: the slip rule is
       // one-directional by design, so putting the dragged bar back cascades
       // nothing and would strand every item this just pushed. The Gantt's Undo
       // restores this set alongside the bar. Derived, not a column — and not
       // included in the row the PUT writes.
-      return { ...updated, scheduleCascade: cascaded };
+      return { item: { ...updated, scheduleCascade: change.scheduleCascade }, effects: change.effects };
     });
 
-    // RAG: re-embed when searchable text changed. Same skip-when-untouched
-    // optimization as the note route. Runs after the update.
-    if (data.title !== undefined || data.description !== undefined) {
-      await storeEmbedding("work_items", itemId, `${item.title}\n${item.description}`).catch(
-        (err: unknown) =>
-          console.warn("[rag] failed to persist work item embedding:", (err as Error).message)
-      );
-    }
-
-    await logAudit({
-      orgId,
-      userId: ctx.userId,
-      action: "work_item.updated",
-      entity: "work_item",
-      entityId: itemId,
-      metadata: { changes: Object.keys(data).join(", ") } as Record<string, string>,
-      ipAddress: getIpAddress(request),
-    });
-
-    // Live updates: tell other clients viewing this project's boards/issues to
-    // refresh (FR: "issue updates without manual refresh"). Best-effort — the
-    // broker error is swallowed so it never breaks the PUT response.
-    try {
-      publishToOrg(orgId, "work-item.updated", {
-        id: itemId,
-        projectId,
-        columnKey: item.columnKey,
-        ticketNumber: item.ticketNumber,
-      });
-    } catch {
-      /* never let a broker error break the update response */
-    }
-
-    // Reflect a column move onto any feedback item this work item was delivered
-    // from (PLANNED → IN_PROGRESS → DONE follow the board). Best-effort inside.
-    if (data.columnKey !== undefined && data.columnKey !== existing.columnKey) {
-      await syncFeedbackForWorkItems([itemId]);
-    }
-
-    // Notify the new assignee when assignee changes to a non-null user
-    // who isn't the actor themselves. Best-effort — never break the PUT.
-    if (
-      data.assigneeId !== undefined &&
-      data.assigneeId !== null &&
-      data.assigneeId !== existing.assigneeId &&
-      data.assigneeId !== ctx.userId
-    ) {
-      const actor = await prisma.user
-        .findUnique({ where: { id: ctx.userId }, select: { displayName: true, email: true } })
-        .catch(() => null);
-      const actorName = actor?.displayName || actor?.email || "Someone";
-      const itemLabel = existing.ticketNumber
-        ? `#${existing.ticketNumber} ${existing.title}`
-        : existing.title;
-
-      await createNotification({
-        orgId,
-        userId: data.assigneeId,
-        type: "work_item.assigned",
-        title: `Assigned: ${itemLabel}`,
-        message: `${actorName} assigned you a work item`,
-        relatedType: "work_item",
-        relatedId: itemId,
-        // Was the org home: an "Assigned: X" notification that did not take you
-        // to X. Not a 404, just useless. Same deep link as every other path.
-        url: `/${org.slug}/issues?item=${itemId}`,
-      }).catch(() => {
-        /* swallow — notification is convenience, not load-bearing */
-      });
-    }
-
-    // Teams notification (FR 8a162fe7): item newly COMPLETED (moved into a done
-    // column without a prior completedAt). Gated + best-effort inside teamsNotify.
-    if (item.completedAt && !existing.completedAt) {
-      void (async () => {
-        const project = await prisma.project.findUnique({
-          where: { id: projectId },
-          select: { key: true },
-        });
-        await teamsNotify(
-          orgId,
-          "itemCompleted",
-          `✅ <b>${project?.key ?? ""}-${item.ticketNumber}</b> ${escapeHtmlBasic(item.title)} completed`,
-        );
-      })().catch(() => {});
-    }
+    await runAfterCommit(effects, { ipAddress: getIpAddress(request) });
 
     return success(item);
   } catch (error) {

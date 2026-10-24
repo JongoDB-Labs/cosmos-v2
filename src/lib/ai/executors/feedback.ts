@@ -85,6 +85,8 @@ export async function createFeedback(input: Record<string, unknown>, ctx: ToolCo
       type: data.type,
       title: data.title,
       description: data.description,
+      // The author follows their own request, in the same write.
+      subscriptions: { create: { orgId: ctx.orgId, userId: ctx.userId, reason: "author" } },
     },
     select: FEEDBACK_SELECT,
   });
@@ -94,7 +96,8 @@ export async function createFeedback(input: Record<string, unknown>, ctx: ToolCo
 // ── set_feedback_status ─────────────────────────────────────────────────────
 const setStatusSchema = z.object({
   feedbackId: z.string().uuid(),
-  status: z.nativeEnum(FeedbackStatus),
+  // MERGED is set only by a merge, never as a plain status change.
+  status: z.nativeEnum(FeedbackStatus).refine((s) => s !== "MERGED", "MERGED is set by merging"),
 });
 
 export async function setFeedbackStatus(input: Record<string, unknown>, ctx: ToolContext) {
@@ -107,7 +110,7 @@ export async function setFeedbackStatus(input: Record<string, unknown>, ctx: Too
 
   const existing = await prisma.feedbackItem.findFirst({
     where: { id: data.feedbackId, orgId: ctx.orgId },
-    select: { id: true, projectId: true },
+    select: { id: true, projectId: true, status: true, mergedIntoId: true },
   });
   if (!existing) return { error: "Feedback item not found" };
 
@@ -118,6 +121,11 @@ export async function setFeedbackStatus(input: Record<string, unknown>, ctx: Too
   if (existing.projectId) {
     const outOfScope = await assertProjectRead(ctx, existing.projectId, "ITEM_UPDATE");
     if (outOfScope) return { error: "Feedback item not found" };
+  }
+
+  // Same rule as PUT /feedback/[id]: a merged item's status belongs to the merge.
+  if (existing.mergedIntoId || existing.status === "MERGED") {
+    return { error: "This feedback was merged into another item; its status can't be changed until the merge is undone." };
   }
 
   const updated = await prisma.feedbackItem.update({

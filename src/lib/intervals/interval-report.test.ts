@@ -12,6 +12,16 @@ const completedAt = "2026-08-11T12:00:00.000Z";
  * The report is the only place that fact survives, so these tests pin it.
  */
 
+// The project's statuses. "shipped" is a team-named done lane: done by its
+// CATEGORY, though its key says nothing about being done.
+const STATUSES = [
+  { key: "todo", category: "TODO" },
+  { key: "in_progress", category: "IN_PROGRESS" },
+  { key: "in_review", category: "IN_PROGRESS" },
+  { key: "done", category: "DONE" },
+  { key: "shipped", category: "DONE" },
+];
+
 const items = [
   { id: "a", columnKey: "done", storyPoints: 8, priority: "HIGH" },
   { id: "b", columnKey: "done", storyPoints: 5, priority: "HIGH" },
@@ -21,28 +31,39 @@ const items = [
 
 describe("buildIntervalReport", () => {
   it("names the items that carried, so the list survives their reassignment", () => {
-    const report = buildIntervalReport(items, completedAt);
+    const report = buildIntervalReport(items, completedAt, STATUSES);
     expect(report.carriedItemIds).toEqual(["c", "d"]);
+  });
+
+  it("counts a team-named done lane as done", () => {
+    const report = buildIntervalReport(
+      [{ id: "a", columnKey: "shipped", storyPoints: 2, priority: "LOW" }],
+      completedAt,
+      STATUSES
+    );
+    expect(report.completedItems).toBe(1);
+    expect(report.carriedItemIds).toEqual([]);
   });
 
   it("records no carried items when everything shipped", () => {
     const report = buildIntervalReport(
       [{ id: "a", columnKey: "done", storyPoints: 1, priority: "LOW" }],
-      completedAt
+      completedAt,
+      STATUSES
     );
     expect(report.carriedItemIds).toEqual([]);
   });
 
   it("counts completion the same way the review does", () => {
     // A second definition of "done" would let the report and the board disagree.
-    const report = buildIntervalReport(items, completedAt);
+    const report = buildIntervalReport(items, completedAt, STATUSES);
     expect(report.totalItems).toBe(4);
     expect(report.completedItems).toBe(2);
     expect(report.incompleteItems).toBe(2);
   });
 
   it("sums points across all items and across completed ones", () => {
-    const report = buildIntervalReport(items, completedAt);
+    const report = buildIntervalReport(items, completedAt, STATUSES);
     expect(report.totalStoryPoints).toBe(16);
     expect(report.completedStoryPoints).toBe(13);
     // Velocity is what the team actually delivered, not what it committed to.
@@ -50,12 +71,12 @@ describe("buildIntervalReport", () => {
   });
 
   it("keeps the priority breakdown the previous report shape carried", () => {
-    const report = buildIntervalReport(items, completedAt);
+    const report = buildIntervalReport(items, completedAt, STATUSES);
     expect(report.itemsByPriority).toEqual({ HIGH: 2, MEDIUM: 1, LOW: 1 });
   });
 
   it("stamps the completion time it was given rather than reading the clock", () => {
     // Pure: the route supplies the instant, so the report is reproducible.
-    expect(buildIntervalReport(items, completedAt).completedAt).toBe(completedAt);
+    expect(buildIntervalReport(items, completedAt, STATUSES).completedAt).toBe(completedAt);
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useImperativeHandle, useMemo, useState, type Ref } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,19 @@ interface ProjectRow {
   name: string;
   /** The template's sector, which scopes the Type picker. Null = no template. */
   sector: string | null;
+}
+
+/** Where a board's right-click landed: the Status column, or the calendar day
+ *  (`YYYY-MM-DD`, seeding both planned dates). Seeds only, all editable. */
+export interface NewIssueSeed {
+  columnKey?: string | null;
+  date?: string | null;
+}
+
+/** Opens the button's dialog from elsewhere on the board (the right-click
+ *  create menu, COSMOS-88), optionally pre-scoped by a {@link NewIssueSeed}. */
+export interface NewIssueHandle {
+  open: (seed?: NewIssueSeed) => void;
 }
 
 /**
@@ -38,6 +51,7 @@ export function NewIssueButton({
   label = "New issue",
   variant = "outline",
   initialLabels,
+  ref,
 }: {
   orgId: string;
   projectId: string;
@@ -49,8 +63,23 @@ export function NewIssueButton({
   /** Labels applied to the new issue by default — the RAID log seeds its
    *  category so a new entry doesn't land in "Unclassified" (COSMOS-80). */
   initialLabels?: string[];
+  ref?: Ref<NewIssueHandle>;
 }) {
   const [open, setOpen] = useState(false);
+  const [seed, setSeed] = useState<NewIssueSeed>({});
+
+  // The board's right-click menu opens this same dialog rather than a second
+  // create surface, so every field and default stays identical (COSMOS-88).
+  useImperativeHandle(
+    ref,
+    () => ({
+      open: (next) => {
+        setSeed(next ?? {});
+        setOpen(true);
+      },
+    }),
+    [],
+  );
 
   // Close the dialog if the board or project it was opened against changes
   // underneath it (COSMOS-63).
@@ -107,7 +136,15 @@ export function NewIssueButton({
 
   return (
     <>
-      <Button size="sm" variant={variant} className="gap-1.5" onClick={() => setOpen(true)}>
+      <Button
+        size="sm"
+        variant={variant}
+        className="gap-1.5"
+        onClick={() => {
+          setSeed({});
+          setOpen(true);
+        }}
+      >
         <Plus className="h-3.5 w-3.5" />
         {label}
       </Button>
@@ -119,6 +156,9 @@ export function NewIssueButton({
         prefilledProjectId={projectId}
         boardId={boardId}
         initialLabels={initialLabels}
+        initialColumnKey={seed.columnKey}
+        initialStartDate={seed.date}
+        initialDueDate={seed.date}
         onCreated={onCreated}
       />
     </>

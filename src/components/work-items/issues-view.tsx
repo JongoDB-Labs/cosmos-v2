@@ -17,7 +17,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
@@ -40,7 +39,7 @@ import type { WorkItem, OrgMember, Interval, BoardColumn } from "@/types/models"
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 import { planTagAddition, type TagRowInfo } from "@/lib/work-items/bulk-tags";
 import { summarizeBulkDelete } from "@/lib/work-items/bulk-delete";
-import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Highlighter, Plus, Check, Download, Star, Archive, UserPlus, CheckCircle2, CalendarRange } from "lucide-react";
+import { ListFilter, Save, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Highlighter, Plus, Check, Download, Star, Archive, UserPlus, CheckCircle2, CalendarRange } from "lucide-react";
 import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
 import { archiveAction } from "@/lib/work-items/item-actions";
 import { highlightLabel, highlightRowStyle } from "@/lib/work-items/highlights";
@@ -55,6 +54,28 @@ import {
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import { entityUrl } from "@/lib/mentions/urls";
+import { useProjectTeams } from "@/hooks/use-project-teams";
+import {
+  ANY,
+  EMPTY_FILTERS,
+  FilterBar,
+  STRING_FILTER_KEYS,
+  filterStateToSavedFilter,
+  savedFilterToFilterState,
+  toQueryString,
+  toWorkItemFilter,
+  type Facets,
+  type FilterState,
+} from "@/components/work-items/issues-filter-bar";
+import { QueryBuilder, withClause } from "@/components/work-items/cql/query-builder";
+import { useCqlSchema, useCqlUrlState, useCqlValidate, viewerTimeZone } from "@/components/work-items/cql/use-cql";
+import { FiltersMenu } from "@/components/work-items/cql/filters-menu";
+import { SaveFilterDialog } from "@/components/work-items/cql/save-filter-dialog";
+import { FilterChangedBar, filterChanged } from "@/components/work-items/cql/filter-changed-bar";
+import { rememberFilter, useSavedFilter, type SavedFilter } from "@/components/work-items/cql/use-saved-filters";
+import { toWorkItemFilter as cqlToWorkItemFilter } from "@/lib/query/adapters";
+import { ARCHIVED_ONLY, WATCHING, hasClause, legacyText, toggleClause } from "@/lib/query/chip-ops";
+import { parseCql } from "@/lib/query/parser";
 
 /** Best-effort human reason from a rejected bulk request — the server message
  *  carried by a jsonFetch FetchError, or a network error's own message. */
@@ -95,35 +116,10 @@ interface IssueRow {
   updatedAt: string;
 }
 
-interface Facets {
-  // `sector` comes from the project's template and scopes the New-issue Type
-  // picker. Nullable: a project without a template gets the full catalogue.
-  projects: {
-    id: string;
-    key: string;
-    name: string;
-    archived: boolean;
-    sector: string | null;
-  }[];
-  types: { id: string; key: string; name: string; icon: string | null; color: string | null }[];
-  statuses: { key: string; name: string; category: string }[];
-  /** Lane options keyed by project id — the valid statuses for each project's
-   *  board, so inline status edits stay scoped to the item's own project. */
-  statusesByProject: Record<string, { key: string; name: string; category: string }[]>;
-  members: { id: string; displayName: string; avatarUrl: string | null }[];
-  labels: string[];
-  intervals: { id: string; name: string; number: number; projectId: string; status: string }[];
-  /** Projects the actor can administer (org PROJECT_MANAGE or project MANAGER).
-   *  Lets a project manager who lacks org-wide BOARD_CREATE still save a board. */
-  managedProjectIds: string[];
-}
-
 interface SearchResponse {
   data: IssueRow[];
   total: number;
 }
-
-const ANY = "__any__";
 
 const PRIORITY_VARIANT: Record<IssueRow["priority"], BadgeVariant> = {
   CRITICAL: "critical",
@@ -137,132 +133,6 @@ const STATUS_VARIANT: Record<string, BadgeVariant> = {
   IN_PROGRESS: "progress",
   DONE: "done",
 };
-
-interface FilterState {
-  project: string;
-  type: string;
-  status: string;
-  priority: string;
-  assignee: string;
-  label: string;
-  text: string;
-  // Date-range bounds (YYYY-MM-DD; "" = unset). Active when non-empty, unlike
-  // the ANY-sentinel select fields above.
-  createdFrom: string;
-  createdTo: string;
-  updatedFrom: string;
-  updatedTo: string;
-  /** FR 8702c9b8 — restrict to items the current user watches. */
-  watchedByMe: boolean;
-  /** Show ONLY archived items. Off by default: archiving exists to get things
-   *  out of the way, so this is the one surface that deliberately brings them
-   *  back — it is where you go to find one and undo it. It selects rather than
-   *  includes, because a control labelled "Archived" that merely ADDED them
-   *  looked like it did nothing at all on a list with one archived item. */
-  showArchived: boolean;
-}
-
-/** Filter keys whose "inactive" value is an empty string (not the ANY
- *  sentinel) — the free-text box and the four date-range bounds. */
-const STRING_FILTER_KEYS = [
-  "text",
-  "createdFrom",
-  "createdTo",
-  "updatedFrom",
-  "updatedTo",
-] as const satisfies readonly (keyof FilterState)[];
-
-const EMPTY_FILTERS: FilterState = {
-  project: ANY,
-  type: ANY,
-  status: ANY,
-  priority: ANY,
-  assignee: ANY,
-  label: ANY,
-  text: "",
-  createdFrom: "",
-  createdTo: "",
-  updatedFrom: "",
-  updatedTo: "",
-  watchedByMe: false,
-  showArchived: false,
-};
-
-/** Build the search query string from the active filters + page. */
-function toQueryString(f: FilterState, page: number, pageSize: number): string {
-  const p = new URLSearchParams();
-  if (f.project !== ANY) p.set("project", f.project);
-  if (f.type !== ANY) p.set("type", f.type);
-  if (f.status !== ANY) p.set("status", f.status);
-  if (f.priority !== ANY) p.set("priority", f.priority);
-  if (f.assignee !== ANY) p.set("assignee", f.assignee);
-  if (f.label !== ANY) p.set("label", f.label);
-  const text = f.text.trim();
-  if (text) p.set("text", text);
-  if (f.createdFrom) p.set("createdFrom", f.createdFrom);
-  if (f.createdTo) p.set("createdTo", f.createdTo);
-  if (f.updatedFrom) p.set("updatedFrom", f.updatedFrom);
-  if (f.updatedTo) p.set("updatedTo", f.updatedTo);
-  if (f.watchedByMe) p.set("watchedByMe", "1");
-  if (f.showArchived) p.set("archived", "only");
-  p.set("page", String(page));
-  p.set("pageSize", String(pageSize));
-  return p.toString();
-}
-
-/** Map the Issues filter-bar state into the query lib's WorkItemFilter (the
- *  shape persisted as a board's saved view). Mirrors toQueryString's mapping;
- *  the project pin is intentionally NOT included — a saved board carries its own
- *  project and the server re-pins scope on every read. */
-function toWorkItemFilter(f: FilterState): WorkItemFilter {
-  const filter: WorkItemFilter = {};
-  if (f.type !== ANY) filter.typeIds = [f.type];
-  if (f.status !== ANY) filter.columnKeys = [f.status];
-  if (f.priority !== ANY) {
-    filter.priorities = [f.priority] as WorkItemFilter["priorities"];
-  }
-  if (f.assignee !== ANY) filter.assigneeIds = [f.assignee];
-  if (f.label !== ANY) filter.labels = [f.label];
-  const text = f.text.trim();
-  if (text) filter.text = text;
-  if (f.createdFrom || f.createdTo) {
-    filter.createdAt = { from: f.createdFrom || undefined, to: f.createdTo || undefined };
-  }
-  if (f.updatedFrom || f.updatedTo) {
-    filter.updatedAt = { from: f.updatedFrom || undefined, to: f.updatedTo || undefined };
-  }
-  return filter;
-}
-
-/** Map the filter bar into a saved-view filter (FR 2b36c2b8). Unlike
- *  toWorkItemFilter (board-oriented), this PRESERVES the project pin — a saved
- *  view like "my project-X bugs" should re-select the project on apply. */
-function filterStateToSavedFilter(f: FilterState): WorkItemFilter {
-  const filter = toWorkItemFilter(f);
-  if (f.project !== ANY) filter.projectIds = [f.project];
-  return filter;
-}
-
-/** Inverse of filterStateToSavedFilter — apply a stored view to the filter bar.
- *  Single-select fields take the first array member; unknowns fall back to ANY
- *  so a stale/partial saved filter can't wedge the UI. */
-function savedFilterToFilterState(wf: WorkItemFilter): FilterState {
-  const first = (arr?: string[]) => (arr && arr.length > 0 ? arr[0] : ANY);
-  return {
-    ...EMPTY_FILTERS,
-    project: first(wf.projectIds),
-    type: first(wf.typeIds),
-    status: first(wf.columnKeys),
-    priority: first(wf.priorities as string[] | undefined),
-    assignee: first(wf.assigneeIds),
-    label: first(wf.labels),
-    text: wf.text ?? "",
-    createdFrom: wf.createdAt?.from ?? "",
-    createdTo: wf.createdAt?.to ?? "",
-    updatedFrom: wf.updatedAt?.from ?? "",
-    updatedTo: wf.updatedAt?.to ?? "",
-  };
-}
 
 const PAGE_SIZE = 25;
 
@@ -301,17 +171,77 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // ── CQL, where the org has it on ─────────────────────────────────────────
+  // One query in the URL (`?cql=`) drives the results, "select all matching",
+  // the export, saved views and "Save as board". Orgs without it keep the
+  // legacy filter bar (issues-filter-bar.tsx); the two never mix.
+  const cqlSchema = useCqlSchema(orgId);
+  const cqlOn = cqlSchema.enabled;
+  const cqlUrl = useCqlUrlState();
+  // A saved filter loaded with `?filter=<id>` runs BY ID until its text is
+  // changed: the server runs the stored query, narrowed to what this viewer
+  // can see, so even a filter with ‹restricted› parts runs correctly.
+  const loadedFilter = useSavedFilter(orgId, cqlOn ? cqlUrl.filterId : null);
+  const typed = cqlOn ? cqlUrl.cql : "";
+  const runById = cqlOn && !!cqlUrl.filterId && !typed.trim();
+  const cqlText = typed.trim() ? typed : runById ? (loadedFilter.data?.cql ?? "") : "";
+  const restrictedFilter = runById && !!loadedFilter.data?.partiallyRestricted;
+  const cqlValidation = useCqlValidate(orgId, cqlText, cqlOn && !restrictedFilter);
+  const [saveDialog, setSaveDialog] = useState<{ cql: string } | { filter: SavedFilter } | null>(null);
+  const cqlQuery = useMemo(() => parseCql(cqlText).query, [cqlText]);
+  const applyCql = useCallback(
+    (text: string) => {
+      setPage(1);
+      // Emptying the query also lets go of a loaded filter.
+      cqlUrl.update(text.trim() ? { cql: text } : { cql: null, filter: null });
+    },
+    [cqlUrl],
+  );
+  const runSavedFilter = useCallback(
+    (f: { id: string }) => {
+      setPage(1);
+      rememberFilter(f.id);
+      cqlUrl.update({ filter: f.id, cql: null });
+    },
+    [cqlUrl],
+  );
+  const cfTypes = useMemo(
+    () => new Map((cqlSchema.schema?.customFields ?? []).map((c) => [c.key, c.fieldType as string])),
+    [cqlSchema.schema],
+  );
+  // The query in the legacy shape saved views and boards still store (until
+  // saved filters v2), or null when that shape can't say it.
+  const cqlFilter = useMemo((): WorkItemFilter | null => {
+    if (!cqlOn) return null;
+    if (!cqlText.trim()) return {};
+    const v = cqlValidation.data;
+    return v?.valid && v.query ? cqlToWorkItemFilter(legacyText(v.query), cfTypes) : null;
+  }, [cqlOn, cqlText, cqlValidation.data, cfTypes]);
+  const cqlFilterUnavailable = cqlOn && !cqlFilter
+    ? cqlValidation.isFetching
+      ? "Checking the query…"
+      : "This query uses more than saved views and boards can store yet. Simplify it, or save it once saved filters support CQL."
+    : undefined;
+
   // Deep-link: `/issues?watching=1` pre-applies the Watching filter (the "My
   // watched items" widget's "View all"). One-time init, then strip the param.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    if (!searchParams.get("watching")) return;
+    if (!searchParams.get("watching") || cqlSchema.isLoading) return;
+    if (cqlOn) {
+      // `?watching=1` (the "My watched items" widget) is `watcher = me`.
+      cqlUrl.update({
+        watching: null,
+        cql: withClause(cqlUrl.cql, (q) => (hasClause(q, WATCHING) ? q : toggleClause(q, WATCHING))),
+      });
+      return;
+    }
     setFilters((prev) => (prev.watchedByMe ? prev : { ...prev, watchedByMe: true }));
     const url = new URL(window.location.href);
     url.searchParams.delete("watching");
     router.replace(url.pathname + url.search);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [cqlSchema.isLoading]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // Deep-link: `/issues?item=<id>` opens that work item's detail sheet even when
@@ -385,7 +315,18 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     staleTime: 60_000,
   });
 
-  const qs = toQueryString(filters, page, pageSize);
+  /** The search query string for a page: the legacy filters, or `cql=` (+ the viewer's zone). */
+  const searchQs = (p: number, size: number): string => {
+    if (!cqlOn) return toQueryString(filters, p, size);
+    const sp = new URLSearchParams();
+    if (typed.trim()) sp.set("cql", typed);
+    else if (runById) sp.set("filter", cqlUrl.filterId!);
+    if (sp.size) sp.set("tz", viewerTimeZone());
+    sp.set("page", String(p));
+    sp.set("pageSize", String(size));
+    return sp.toString();
+  };
+  const qs = searchQs(page, pageSize);
   const resultsKey = useOrgQueryKey("issues", "search", qs);
   const {
     data: results,
@@ -393,11 +334,14 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     isError,
     isFetching,
     refetch,
+    error: resultsError,
   } = useQuery({
     queryKey: resultsKey,
     queryFn: () =>
       jsonFetch<SearchResponse>(`/api/v1/orgs/${orgId}/work-items/search?${qs}`),
     placeholderData: keepPreviousData,
+    // Wait for the flag, so a CQL org doesn't first run the legacy search.
+    enabled: !cqlSchema.isLoading,
   });
 
   // Live updates: re-run the current cross-project search whenever ANY project's
@@ -424,6 +368,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   );
 
   const facets = facetsQuery.data;
+
 
   // The rows in this table are SUMMARIES; the editing sheet needs the whole work
   // item (children, custom fields, assignees…). Fetch it when a row is opened.
@@ -461,6 +406,8 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
       ),
     [detailRow, facets],
   );
+  // The Team picker on the detail sheet (COSMOS-204).
+  const { data: detailTeams } = useProjectTeams(orgId, detailRow?.project.id ?? "");
   const detailIntervals: Interval[] = useMemo(
     () =>
       (facets?.intervals ?? [])
@@ -517,7 +464,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
       const cappedPages = Math.min(pages, SELECT_ALL_CAP / MAX_SEARCH_PAGE);
       for (let p = 1; p <= cappedPages; p++) {
         const res = await jsonFetch<SearchResponse>(
-          `/api/v1/orgs/${orgId}/work-items/search?${toQueryString(filters, p, MAX_SEARCH_PAGE)}`,
+          `/api/v1/orgs/${orgId}/work-items/search?${searchQs(p, MAX_SEARCH_PAGE)}`,
         );
         for (const r of res.data) map.set(r.id, { projectId: r.project.id, tags: r.tags });
       }
@@ -1064,10 +1011,47 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     [orgSlug, orgId, router, canCreateItem, canBulkDelete, canUpdateItem, refetch, facets],
   );
 
+  const watching = cqlOn ? hasClause(cqlQuery, WATCHING) : filters.watchedByMe;
+  const archivedOnly = cqlOn ? hasClause(cqlQuery, ARCHIVED_ONLY) : filters.showArchived;
+  const filtering = cqlOn ? cqlText.trim() !== "" || runById : activeCount > 0;
+  // A query the server refused (400) is the query's fault, not the network's.
+  const queryRejected = cqlOn && resultsError instanceof FetchError && resultsError.status === 400;
+  // The project the view is pinned to, if exactly one: new issues and boards default to it.
+  const pinnedProject = cqlOn
+    ? cqlFilter?.projectIds?.length === 1
+      ? cqlFilter.projectIds[0]
+      : undefined
+    : filters.project !== ANY
+      ? filters.project
+      : undefined;
+  const exportQs = (() => {
+    if (!cqlOn) return qs;
+    const sp = new URLSearchParams();
+    if (typed.trim()) sp.set("cql", typed);
+    else if (runById) sp.set("filter", cqlUrl.filterId!);
+    if (sp.size) sp.set("tz", viewerTimeZone());
+    return sp.toString();
+  })();
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
         {/* Saved views (FR 2b36c2b8) — named, reusable filters. */}
+        {cqlOn ? (
+          <>
+            <FiltersMenu
+              orgId={orgId}
+              orgSlug={orgSlug}
+              activeId={cqlUrl.filterId}
+              onRun={runSavedFilter}
+              onEdit={(f) => setSaveDialog({ filter: f })}
+            />
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setSaveDialog({ cql: cqlText })}>
+              <Save className="h-3.5 w-3.5" aria-hidden />
+              Save filter
+            </Button>
+          </>
+        ) : (
         <SavedViewsPicker
           orgId={orgId}
           currentFilter={filterStateToSavedFilter(filters)}
@@ -1077,29 +1061,38 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
             setPage(1);
           }}
         />
+        )}
         {/* Watching quick-filter (FR 8702c9b8) — restricts to items the current
             user follows (the ★ on a ticket's detail panel). */}
         <button
           type="button"
-          onClick={() => set("watchedByMe", !filters.watchedByMe)}
-          aria-pressed={filters.watchedByMe}
+          onClick={() =>
+            cqlOn
+              ? applyCql(withClause(cqlText, (q) => toggleClause(q, WATCHING)))
+              : set("watchedByMe", !filters.watchedByMe)
+          }
+          aria-pressed={watching}
           className={cn(
-            buttonVariants({ variant: filters.watchedByMe ? "default" : "outline", size: "sm" }),
+            buttonVariants({ variant: watching ? "default" : "outline", size: "sm" }),
             "gap-1.5",
           )}
           title="Show only the items you're watching"
         >
-          <Star className={cn("h-4 w-4", filters.watchedByMe && "fill-current")} /> Watching
+          <Star className={cn("h-4 w-4", watching && "fill-current")} /> Watching
         </button>
         {/* Archived items are hidden everywhere else. This is the one place
             they can be brought back into view — which is how somebody finds the
             thing they archived by mistake and restores it. */}
         <button
           type="button"
-          onClick={() => set("showArchived", !filters.showArchived)}
-          aria-pressed={filters.showArchived}
+          onClick={() =>
+            cqlOn
+              ? applyCql(withClause(cqlText, (q) => toggleClause(q, ARCHIVED_ONLY)))
+              : set("showArchived", !filters.showArchived)
+          }
+          aria-pressed={archivedOnly}
           className={cn(
-            buttonVariants({ variant: filters.showArchived ? "default" : "outline", size: "sm" }),
+            buttonVariants({ variant: archivedOnly ? "default" : "outline", size: "sm" }),
             "gap-1.5",
           )}
           title="Show only archived items"
@@ -1110,13 +1103,26 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
             attachment, so this downloads the CSV without navigating away.
             `qs` carries the active filters → "export what you see". */}
         <a
-          href={`/api/v1/orgs/${orgId}/work-items/export?${qs}`}
+          href={`/api/v1/orgs/${orgId}/work-items/export?${exportQs}`}
           className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
           title="Download these issues (your current filters applied) as a CSV"
         >
           <Download className="h-4 w-4" /> Export CSV
         </a>
       </div>
+      {cqlSchema.isLoading ? (
+        <Skeleton className="h-[58px] w-full rounded-[var(--radius)]" />
+      ) : cqlOn && cqlSchema.schema ? (
+        <QueryBuilder
+          orgId={orgId}
+          schema={cqlSchema.schema}
+          cql={cqlText}
+          onCqlChange={applyCql}
+          mode={cqlUrl.mode}
+          onModeChange={cqlUrl.setMode}
+          serverDiagnostics={cqlValidation.data?.diagnostics ?? []}
+        />
+      ) : (
       <FilterBar
         filters={filters}
         textDraft={textDraft}
@@ -1134,29 +1140,54 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         facetsError={facetsQuery.isError}
         onRetryFacets={() => void facetsQuery.refetch()}
       />
+      )}
+      {cqlOn && loadedFilter.data && filterChanged(typed, loadedFilter.data) && (
+        <FilterChangedBar
+          orgId={orgId}
+          loaded={loadedFilter.data}
+          cql={typed}
+          onSaveAs={() => setSaveDialog({ cql: typed })}
+          onDiscard={() => cqlUrl.update({ cql: null })}
+        />
+      )}
+      {runById && (loadedFilter.isError || loadedFilter.data?.partiallyRestricted) && (
+        <p role="status" className="text-xs text-[var(--text-muted)]">
+          {loadedFilter.isError
+            ? "That saved filter doesn't exist, or isn't shared with you."
+            : (loadedFilter.data?.broken ?? `Parts of “${loadedFilter.data?.name}” refer to things you can't see. They're left out of the results.`)}
+        </p>
+      )}
 
       {isError ? (
         <LoadError
           title="Couldn't load issues"
-          description="Something went wrong while running your search."
+          description={
+            queryRejected
+              ? "This query can't run as written. The problems are listed under the query."
+              : "Something went wrong while running your search."
+          }
           onRetry={() => void refetch()}
         />
-      ) : isLoading ? (
+      ) : isLoading || cqlSchema.isLoading ? (
         <TableSkeleton />
       ) : rows.length === 0 ? (
         <EmptyState
           illustration={<ListFilter className="mx-auto h-12 w-12 text-[var(--text-muted)]" strokeWidth={1.5} aria-hidden />}
-          title={activeCount > 0 ? "No issues match these filters" : "No issues yet"}
+          title={filtering ? "No issues match these filters" : "No issues yet"}
           description={
-            activeCount > 0
+            filtering
               ? "Try widening or clearing some filters."
               : "Work items across your projects will show up here."
           }
           action={
-            activeCount > 0 ? (
+            filtering ? (
               <Button
                 variant="outline"
                 onClick={() => {
+                  if (cqlOn) {
+                    applyCql("");
+                    return;
+                  }
                   setFilters(EMPTY_FILTERS);
                   setTextDraft("");
                   setPage(1);
@@ -1180,6 +1211,8 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
                   variant="outline"
                   size="sm"
                   className="gap-1.5"
+                  disabled={!!cqlFilterUnavailable}
+                  title={cqlFilterUnavailable}
                   onClick={() => setSaveBoardOpen(true)}
                 >
                   <Save className="h-3.5 w-3.5" aria-hidden />
@@ -1279,6 +1312,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         projectId={detailRow?.project.id ?? ""}
         members={detailMembers}
         intervals={detailIntervals}
+        teams={detailTeams}
         columns={detailColumns}
         onUpdate={(updated) => {
           setDetailItem(updated);
@@ -1418,13 +1452,29 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         </DialogContent>
       </Dialog>
 
+      {cqlOn && (
+        <SaveFilterDialog
+          orgId={orgId}
+          open={saveDialog !== null}
+          onOpenChange={(o) => !o && setSaveDialog(null)}
+          filter={saveDialog && "filter" in saveDialog ? saveDialog.filter : undefined}
+          cql={saveDialog && "cql" in saveDialog ? saveDialog.cql : undefined}
+          projects={(facets?.projects ?? []).filter((p) => !p.archived)}
+          members={facets?.members ?? []}
+          onSaved={(f) => {
+            // A new filter is loaded, so the "changed" bar tracks it from now on.
+            if (saveDialog && "cql" in saveDialog) runSavedFilter(f);
+          }}
+        />
+      )}
+
       {canCreateBoard && facets && (
         <SaveAsBoardDialog
           open={saveBoardOpen}
           onOpenChange={setSaveBoardOpen}
           orgId={orgId}
           orgSlug={orgSlug}
-          filter={toWorkItemFilter(filters)}
+          filter={cqlOn ? { ...(cqlFilter ?? {}), projectIds: undefined } : toWorkItemFilter(filters)}
           projects={
             // A project manager without org-wide BOARD_CREATE may only target the
             // projects they manage — don't offer one whose POST would 403.
@@ -1432,9 +1482,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
               ? facets.projects
               : facets.projects.filter((p) => managedProjectIds.includes(p.id))
           }
-          defaultProjectId={
-            filters.project !== ANY ? filters.project : undefined
-          }
+          defaultProjectId={pinnedProject}
         />
       )}
 
@@ -1466,199 +1514,13 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
           prefilledProjectId={
             duplicateSource
               ? undefined
-              : filters.project !== ANY
-                ? filters.project
-                : undefined
+              : pinnedProject
           }
           duplicateSource={duplicateSource}
           onCreated={() => void refetch()}
         />
       )}
     </div>
-  );
-}
-
-interface FilterBarProps {
-  filters: FilterState;
-  textDraft: string;
-  setTextDraft: (v: string) => void;
-  onCommitText: () => void;
-  onChange: <K extends keyof FilterState>(key: K, value: FilterState[K]) => void;
-  onClear: () => void;
-  activeCount: number;
-  facets: Facets | undefined;
-  facetsLoading: boolean;
-  /** The facets request failed — the selects fall back to text-search-only and
-   *  we surface a small retry affordance instead of silently empty dropdowns. */
-  facetsError: boolean;
-  onRetryFacets: () => void;
-}
-
-function FilterBar({
-  filters,
-  textDraft,
-  setTextDraft,
-  onCommitText,
-  onChange,
-  onClear,
-  activeCount,
-  facets,
-  facetsLoading,
-  facetsError,
-  onRetryFacets,
-}: FilterBarProps) {
-  // When facets fail to load, the facet selects can't be populated. Keep the
-  // text search usable, disable the (empty) selects, and offer a retry — the
-  // results LoadError handles the search failure separately.
-  const facetsDisabled = facetsLoading || (facetsError && !facets);
-  return (
-    <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3">
-      {facetsError && !facets && (
-        <div className="mb-2 flex items-center gap-2 text-xs text-[var(--status-blocked-text,var(--status-blocked))]">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span>Couldn&apos;t load filter options.</span>
-          <button
-            type="button"
-            onClick={onRetryFacets}
-            className="font-medium underline underline-offset-2 hover:no-underline"
-          >
-            Retry
-          </button>
-        </div>
-      )}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[200px] flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
-          <Input
-            value={textDraft}
-            onChange={(e) => setTextDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onCommitText();
-            }}
-            onBlur={onCommitText}
-            placeholder="Search title or description…"
-            className="pl-8"
-            aria-label="Search issues"
-          />
-        </div>
-
-        <FacetSelect
-          label="Project"
-          value={filters.project}
-          onValueChange={(v) => onChange("project", v)}
-          disabled={facetsDisabled}
-          options={(facets?.projects ?? []).map((p) => ({
-            value: p.id,
-            label: `${p.key} · ${p.name}`,
-          }))}
-        />
-        <FacetSelect
-          label="Type"
-          value={filters.type}
-          onValueChange={(v) => onChange("type", v)}
-          disabled={facetsDisabled}
-          options={(facets?.types ?? []).map((t) => ({ value: t.id, label: t.name }))}
-        />
-        <FacetSelect
-          label="Status"
-          value={filters.status}
-          onValueChange={(v) => onChange("status", v)}
-          disabled={facetsDisabled}
-          options={(facets?.statuses ?? []).map((s) => ({ value: s.key, label: s.name }))}
-        />
-        <FacetSelect
-          label="Priority"
-          value={filters.priority}
-          onValueChange={(v) => onChange("priority", v)}
-          options={[
-            { value: "CRITICAL", label: "Critical" },
-            { value: "HIGH", label: "High" },
-            { value: "MEDIUM", label: "Medium" },
-            { value: "LOW", label: "Low" },
-          ]}
-        />
-        <FacetSelect
-          label="Assignee"
-          value={filters.assignee}
-          onValueChange={(v) => onChange("assignee", v)}
-          disabled={facetsDisabled}
-          options={[
-            { value: "unassigned", label: "Unassigned" },
-            ...(facets?.members ?? []).map((m) => ({ value: m.id, label: m.displayName })),
-          ]}
-        />
-        {facets && facets.labels.length > 0 && (
-          <FacetSelect
-            label="Label"
-            value={filters.label}
-            onValueChange={(v) => onChange("label", v)}
-            options={facets.labels.map((l) => ({ value: l, label: l }))}
-          />
-        )}
-
-        <DateRangeFilter
-          label="Created"
-          from={filters.createdFrom}
-          to={filters.createdTo}
-          onFrom={(v) => onChange("createdFrom", v)}
-          onTo={(v) => onChange("createdTo", v)}
-        />
-        <DateRangeFilter
-          label="Updated"
-          from={filters.updatedFrom}
-          to={filters.updatedTo}
-          onFrom={(v) => onChange("updatedFrom", v)}
-          onTo={(v) => onChange("updatedTo", v)}
-        />
-
-        {activeCount > 0 && (
-          <Button variant="ghost" size="sm" onClick={onClear} className="gap-1">
-            <X className="h-3.5 w-3.5" /> Clear ({activeCount})
-          </Button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function FacetSelect({
-  label,
-  value,
-  onValueChange,
-  options,
-  disabled,
-}: {
-  label: string;
-  value: string;
-  onValueChange: (v: string) => void;
-  options: { value: string; label: string }[];
-  disabled?: boolean;
-}) {
-  const items = useMemo(() => {
-    const map: Record<string, string> = { [ANY]: `${label}: Any` };
-    for (const o of options) map[o.value] = `${label}: ${o.label}`;
-    return map;
-  }, [label, options]);
-
-  return (
-    <Select
-      items={items}
-      value={value}
-      onValueChange={(v) => v && onValueChange(v as string)}
-      disabled={disabled}
-    >
-      <SelectTrigger size="sm" aria-label={label}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={ANY}>{label}: Any</SelectItem>
-        {options.map((o) => (
-          <SelectItem key={o.value} value={o.value}>
-            {`${label}: ${o.label}`}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
   );
 }
 
@@ -1694,52 +1556,6 @@ function BulkSelect({
         ))}
       </SelectContent>
     </Select>
-  );
-}
-
-/** A compact "from → to" pair of native date inputs for a created/updated
- *  range filter. Empty inputs are inert; the label turns active-colored once
- *  either bound is set so it reads like the other filter chips. */
-function DateRangeFilter({
-  label,
-  from,
-  to,
-  onFrom,
-  onTo,
-}: {
-  label: string;
-  from: string;
-  to: string;
-  onFrom: (v: string) => void;
-  onTo: (v: string) => void;
-}) {
-  const active = from !== "" || to !== "";
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-xs",
-        active && "border-[var(--primary)]",
-      )}
-    >
-      <span className="text-[var(--text-muted)]">{label}:</span>
-      <input
-        type="date"
-        value={from}
-        max={to || undefined}
-        onChange={(e) => onFrom(e.target.value)}
-        aria-label={`${label} from`}
-        className="bg-transparent text-xs outline-none [color-scheme:light] dark:[color-scheme:dark]"
-      />
-      <span className="text-[var(--text-muted)]">→</span>
-      <input
-        type="date"
-        value={to}
-        min={from || undefined}
-        onChange={(e) => onTo(e.target.value)}
-        aria-label={`${label} to`}
-        className="bg-transparent text-xs outline-none [color-scheme:light] dark:[color-scheme:dark]"
-      />
-    </div>
   );
 }
 

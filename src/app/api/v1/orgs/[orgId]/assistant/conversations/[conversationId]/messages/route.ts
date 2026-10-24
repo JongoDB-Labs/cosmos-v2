@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
+import { requirePermission, type AuthContext } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import {
   success,
@@ -169,6 +169,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const iterationCtx: IterationCtx = {
       orgId,
       userId: ctx.userId,
+      // The caller's OWN AuthContext — for an API key that is the minting
+      // user's permissions ∩ the key's scopes, plus its project ceiling. The
+      // agent's tools are authorised against this, not rebuilt from userId.
+      auth: ctx,
       conversationId,
       initialPrompt,
       systemPrompt,
@@ -195,6 +199,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 interface IterationCtx {
   orgId: string;
   userId: string;
+  /** The authenticated caller, as `getAuthContext` returned it. */
+  auth: AuthContext;
   conversationId: string;
   /** The full transcript serialized into the loop's initial user prompt. */
   initialPrompt: string;
@@ -243,6 +249,7 @@ async function runBlocking(ctx: IterationCtx): Promise<Response> {
   const result = await runAgentLoop({
     orgId: ctx.orgId,
     userId: ctx.userId,
+    auth: ctx.auth,
     tenantClass: ctx.tenantClass,
     conversationId: ctx.conversationId,
     systemPrompt: ctx.systemPrompt,
@@ -250,9 +257,11 @@ async function runBlocking(ctx: IterationCtx): Promise<Response> {
     model: ctx.model,
   });
 
+  // The transcript, not the final turn alone, so a blocking client stores the
+  // same message a streaming one shows.
   const assistantMsg = await persistAssistantMessage(
     ctx,
-    result.text,
+    result.transcript,
     result.toolCalls,
   );
   // Auto-title after the first exchange (persists on the conversation). Non-
@@ -275,8 +284,8 @@ function runStreaming(ctx: IterationCtx): Response {
       }
 
       try {
-        // The unified loop streams the final answer's text via `onDelta`
-        // (cumulative text-so-far); forward each update as a `text` SSE event.
+        // The unified loop streams the run's text via `onDelta` (cumulative
+        // across every turn); forward each update as a `text` SSE event.
         // Tool calls are surfaced after the run as `tool_call_*` events so the
         // existing client event contract (text / tool_call_start /
         // tool_call_result / done / error) is preserved.
@@ -284,15 +293,16 @@ function runStreaming(ctx: IterationCtx): Response {
         const result = await runAgentLoop({
           orgId: ctx.orgId,
           userId: ctx.userId,
+          auth: ctx.auth,
           tenantClass: ctx.tenantClass,
           conversationId: ctx.conversationId,
           systemPrompt: ctx.systemPrompt,
           initialPrompt: ctx.initialPrompt,
           model: ctx.model,
           onDelta: (textSoFar) => {
-            // onDelta carries the cumulative text for the current (final) turn.
-            // Emit only the newly-appended slice so the client appends, not
-            // re-renders, matching the previous per-delta `text` events.
+            // onDelta carries the cumulative text of the whole run. Emit only
+            // the newly-appended slice so the client appends, not re-renders,
+            // matching the previous per-delta `text` events.
             if (textSoFar.length <= lastSent.length) return;
             const delta = textSoFar.slice(lastSent.length);
             lastSent = textSoFar;
@@ -311,21 +321,25 @@ function runStreaming(ctx: IterationCtx): Response {
           send({ type: "tool_call_result", id: tc.id, result: tc.result });
         }
 
-        // If the final answer never streamed any text (e.g. a tool-only run),
-        // emit it once so the client has the full content before `done`.
-        if (result.text && result.text !== lastSent) {
-          send({ type: "text", text: result.text.slice(lastSent.length) || result.text });
+        // The transcript is what onDelta built up, so normally it is exactly
+        // `lastSent`. Anything that never streamed (e.g. the tool-budget
+        // fallback) is sent once here, before `done`.
+        if (result.transcript.startsWith(lastSent) && result.transcript !== lastSent) {
+          send({ type: "text", text: result.transcript.slice(lastSent.length) });
         }
 
+        // Persist and finish with the transcript too. `done` REPLACES the
+        // bubble's content, so sending the final turn alone made the preamble
+        // the reader had just watched stream in vanish at the end.
         const assistantMsg = await persistAssistantMessage(
           ctx,
-          result.text,
+          result.transcript,
           result.toolCalls,
         );
         send({
           type: "done",
           messageId: assistantMsg.id,
-          content: result.text,
+          content: result.transcript,
           toolCalls: result.toolCalls,
         });
 

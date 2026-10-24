@@ -88,8 +88,8 @@ export function matchesFilters(
   )
     return false;
   if (f.intervalId && item.intervalId !== f.intervalId) return false;
-  // A team's work is what its members are assigned; an item can match several.
-  if (!itemMatchesTeam(item.assigneeId, f.teamId, teamsByUserId)) return false;
+  // The item's own team, else whatever teams its assignee is on.
+  if (!itemMatchesTeam(item, f.teamId, teamsByUserId)) return false;
   if (!matchesLabelFilter(item.tags, f.labels)) return false;
   if (!matchesOneOf(item.columnKey, f.columnKeys)) return false;
   if (!matchesOneOf(item.workCategory, f.workCategories)) return false;

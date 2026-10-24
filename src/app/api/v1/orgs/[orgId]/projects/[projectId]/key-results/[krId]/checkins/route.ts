@@ -1,25 +1,19 @@
 import { NextRequest } from "next/server";
-import { z } from "zod";
 import { RagStatus, KeyResultStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { isProjectVisible } from "@/lib/rbac/project-access";
 import { ForbiddenError } from "@/lib/rbac/check";
-import { success, created, handleApiError } from "@/lib/api-helpers";
+import { handleApiError } from "@/lib/api-helpers";
 import { krFraction } from "@/lib/okr/progress";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { createCheckin, listCheckins } from "./route.contract";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; krId: string }>;
 };
-
-const checkinSchema = z.object({
-  value: z.number(),
-  confidence: z.number().int().min(0).max(100),
-  rag: z.nativeEnum(RagStatus),
-  note: z.string().max(2000).nullish(),
-  blockers: z.string().max(2000).nullish(),
-});
 
 // The stoplight is the primary health signal; keep the legacy KeyResultStatus in
 // step so existing views/filters stay meaningful (no BEHIND value — RED maps to
@@ -37,17 +31,13 @@ async function loadScopedKr(orgId: string, projectId: string, krId: string) {
   });
 }
 
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, krId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, listCheckins);
+    const { params: { orgId, projectId, krId } } = await parseRequest(listCheckins, request, params);
 
     const kr = await loadScopedKr(orgId, projectId, krId);
-    if (!kr) return new Response("Not found", { status: 404 });
+    if (!kr) return problem(404, "not_found", undefined, { request });
 
     // NOT `requireProjectRead` here: it rebuilds the attribute bag as
     // `{orgId, projectId}` and would DROP `objectiveId`, weakening any ABAC
@@ -67,31 +57,25 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       where: { keyResultId: krId },
       orderBy: { createdAt: "desc" },
     });
-    return success(checkins);
+    return respond(listCheckins, 200, checkins);
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, krId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, createCheckin);
+    const { params: { orgId, projectId, krId }, body: data } = await parseRequest(createCheckin, request, params);
 
     const kr = await loadScopedKr(orgId, projectId, krId);
-    if (!kr) return new Response("Not found", { status: 404 });
+    if (!kr) return problem(404, "not_found", undefined, { request });
 
     await requireAccess(ctx, "OKR_UPDATE", {
       ownerId: kr.ownerId,
       projectId: kr.objective.projectId,
       objectiveId: kr.objectiveId,
     });
-
-    const data = checkinSchema.parse(await request.json());
 
     const checkin = await prisma.keyResultCheckin.create({
       data: {
@@ -137,8 +121,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       data: { progress },
     });
 
-    return created(checkin);
+    return respond(createCheckin, 201, checkin);
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }

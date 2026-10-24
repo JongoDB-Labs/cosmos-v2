@@ -108,7 +108,7 @@ test.describe("interaction — work item drag (non-gating, flaky)", () => {
     //  1. press on the source card
     //  2. nudge >5px to cross the PointerSensor activation distance
     //     (kanban-board.tsx:157 — { distance: 5 })
-    //  3. move to the target card in steps so closestCorners collision +
+    //  3. move to the target card in steps so the pointer-first collision +
     //     handleDragOver run and select the over-item
     //  4. settle so dnd-kit's measuring stabilizes, then release
     await page.mouse.move(srcX, srcY);

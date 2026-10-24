@@ -1,4 +1,3 @@
-import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { hasPermission, type PermissionKey } from "@/lib/rbac/permissions";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
@@ -7,16 +6,35 @@ import type { OrgRole } from "@prisma/client";
 
 /**
  * Context handed to every AI tool executor — the org and user the chat is
- * running on behalf of.
+ * running on behalf of, and the AuthContext the CALLER actually authenticated
+ * with.
+ *
+ * `auth` is the whole point. The routes that run the agent authenticate with
+ * `getAuthContext`, which also accepts API keys, and a key's AuthContext is
+ * deliberately NARROWER than its minting user: permissions ∩ the key's scope
+ * mask, an optional `projectScope` ceiling, and `isApiKey` (which switches off
+ * the OWNER break-glass). These helpers used to throw that away and rebuild the
+ * actor from `userId` alone (`loadEffectivePermissions(orgId, userId)`), so a
+ * read-only or single-project key could have the assistant create, update and
+ * delete across the whole org with its owner's full authority.
+ *
+ * So every permission decision below is made against `auth` and nothing else.
+ * There is no fallback to the user's own permissions: a context without `auth`,
+ * or whose `auth` was issued for a different org or user, is refused outright.
+ * Server-initiated callers that have no HTTP request must build an AuthContext
+ * for the identity they act as and pass it here explicitly — that is a decision
+ * a caller has to make on purpose, never one this module makes by default.
  */
 export interface ToolContext {
   orgId: string;
   userId: string;
+  /** The caller's own AuthContext, exactly as the route received it. */
+  auth: AuthContext;
 }
 
 /**
- * Result of `loadActorPermissions` — the OrgMember row resolved to its
- * effective permission bitmask (role base | stored overrides).
+ * Result of `loadActorPermissions` — the caller's org role and the permission
+ * bitmask it may act with (already narrowed by any API-key scope).
  */
 export interface ActorPermissions {
   orgRole: OrgRole;
@@ -24,25 +42,39 @@ export interface ActorPermissions {
 }
 
 /**
- * Look up the actor's OrgMember row and return their effective permission
- * bitmask. Returns `null` if the user isn't a member of the org — callers
- * should treat that as "forbidden, no permissions".
+ * The caller's AuthContext, or `null` when the ToolContext does not carry one
+ * that belongs to it.
+ *
+ * The org/user cross-check is not decoration: `orgId` and `userId` are what the
+ * executors scope their queries and stamp their rows with, so an `auth` issued
+ * for anyone else would authorise one principal while acting as another. A
+ * mismatch is a wiring bug, and a wiring bug in an authorization path must deny.
+ *
+ * Read at RUNTIME, not trusted from the type: plugin dispatchers, `as` casts
+ * and JavaScript callers can all hand over a context the compiler never saw.
+ */
+function callerAuth(ctx: ToolContext): AuthContext | null {
+  const auth = (ctx as Partial<ToolContext> | null | undefined)?.auth;
+  if (!auth || typeof auth.permissions !== "bigint") return null;
+  if (auth.orgId !== ctx.orgId || auth.userId !== ctx.userId) return null;
+  return auth;
+}
+
+/**
+ * The caller's org role and effective permission bitmask, or `null` when the
+ * context carries no usable caller AuthContext — callers treat that as
+ * "forbidden, no permissions".
  *
  * IMPORTANT: do not `include`/`select` raw `permissions: true` and ship it
- * through JSON — BigInt isn't serializable. We resolve to a bigint here and
- * keep it server-side; tool executors only ever read it via `assertPermission`.
+ * through JSON — BigInt isn't serializable. Tool executors only ever read it via
+ * `assertPermission`.
  */
 export async function loadActorPermissions(
   ctx: ToolContext
 ): Promise<ActorPermissions | null> {
-  // Shared resolver so AI tools respect work-role grants identically to HTTP
-  // routes (the work-role OR lives in exactly one place).
-  const effective = await loadEffectivePermissions(ctx.orgId, ctx.userId);
-  if (!effective) return null;
-  return {
-    orgRole: effective.orgRole,
-    permissions: effective.permissions,
-  };
+  const auth = callerAuth(ctx);
+  if (!auth) return null;
+  return { orgRole: auth.orgRole, permissions: auth.permissions };
 }
 
 /**
@@ -72,25 +104,19 @@ export async function assertPermission(
  * a bare TIME_READ — a permission MEMBER and VIEWER both hold — and then
  * queried the whole org with rates selected. Same table, different door.
  *
- * Every field comes from `loadEffectivePermissions`, which is the same source
- * `getAuthContext` builds an HTTP AuthContext from, so the two cannot disagree
- * about what an actor may do. Nothing here is defaulted or invented.
+ * It returns the CALLER's AuthContext — the one `getAuthContext` built for the
+ * request — so `projectScope` and `isApiKey` reach `getReadableProjectIds`,
+ * `isProjectVisible` and `requireAccess` exactly as they do on the REST routes.
+ * Rebuilding it from the user id is the bug this replaced: it produced a context
+ * with neither field, i.e. an unrestricted session for whoever minted the key.
  *
- * Returns `null` when the user is not a member — callers treat that as denied.
+ * Returns `null` when the context carries no caller AuthContext — callers treat
+ * that as denied.
  */
 export async function loadAuthContext(
   ctx: ToolContext,
 ): Promise<AuthContext | null> {
-  const effective = await loadEffectivePermissions(ctx.orgId, ctx.userId);
-  if (!effective) return null;
-  return {
-    userId: ctx.userId,
-    orgId: ctx.orgId,
-    orgRole: effective.orgRole,
-    permissions: effective.permissions,
-    basePermissions: effective.basePermissions,
-    abacRules: effective.abacRules,
-  };
+  return callerAuth(ctx);
 }
 
 /**

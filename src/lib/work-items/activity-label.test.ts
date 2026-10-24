@@ -7,6 +7,7 @@ const resolvers = {
   interval: (id: string) => (id === "cyc-1" ? "Sprint 3" : undefined),
   type: (id: string) => (id === "typ-1" ? "Bug" : undefined),
   column: (key: string) => (key === "in_progress" ? "In Progress" : undefined),
+  team: (id: string) => (id === "team-1" ? "Customer Success" : undefined),
 };
 
 describe("activityFieldLabel", () => {
@@ -37,6 +38,12 @@ describe("activityValueLabel", () => {
   it("resolves interval and type ids", () => {
     expect(activityValueLabel("intervalId", "cyc-1", resolvers)).toBe("Sprint 3");
     expect(activityValueLabel("workItemTypeId", "typ-1", resolvers)).toBe("Bug");
+  });
+
+  it("resolves a team id to the team's name, and never leaks one it can't (COSMOS-204)", () => {
+    expect(activityFieldLabel("teamId")).toBe("team");
+    expect(activityValueLabel("teamId", "team-1", resolvers)).toBe("Customer Success");
+    expect(activityValueLabel("teamId", UUID, resolvers)).toBeNull();
   });
 
   it("resolves a status columnKey to its column name, else the slug", () => {

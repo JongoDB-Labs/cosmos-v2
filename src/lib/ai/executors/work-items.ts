@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import { storeEmbedding } from "@/lib/rag/embed";
-import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
+import { applyWorkItemChange, type WorkItemPatch } from "@/lib/work-items/apply-change.server";
+import { runAfterCommit } from "@/lib/work-items/after-commit";
+import { createWorkItemRow } from "@/lib/work-items/write.server";
 import {
   directedDependencyEdge,
   wouldCreateDependencyCycle,
@@ -10,8 +12,10 @@ import {
 import { Prisma, Priority, LinkType } from "@prisma/client";
 import { z } from "zod";
 import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
+import { teamFilter } from "./teams";
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 import { allocateTicketNumber, allocateSortOrder } from "@/lib/work-items/allocate";
+import { intervalRequirementError } from "@/lib/work-items/interval-required.server";
 
 // ─── Schemas ─────────────────────────────────────────────────────────────
 
@@ -56,6 +60,8 @@ const listWorkItemsSchema = z.object({
   assigneeId: z.string().uuid().optional(),
   type: z.string().optional(),
   search: z.string().optional(),
+  parentId: z.string().uuid().optional(),
+  teamId: z.string().uuid().optional(),
   limit: z.number().int().positive().optional(),
 });
 
@@ -245,6 +251,15 @@ export async function createWorkItem(
     }
   }
 
+  // Same rule as the create API (COSMOS-205): the model gets the reason back
+  // and can ask which sprint or PI the story belongs in.
+  const needsInterval = await intervalRequirementError({
+    projectId: data.projectId,
+    workItemTypeId: resolvedTypeId,
+    intervalId: data.intervalId,
+  });
+  if (needsInterval) return { error: needsInterval };
+
   const columnKey = data.columnKey ?? "todo";
 
   const item = await prisma.$transaction(async (tx) => {
@@ -259,7 +274,7 @@ export async function createWorkItem(
       columnKey,
     });
 
-    const created = await tx.workItem.create({
+    const created = await createWorkItemRow(tx, {
       data: {
         orgId: ctx.orgId,
         projectId: data.projectId,
@@ -286,7 +301,7 @@ export async function createWorkItem(
         columnEnteredAt: new Date(),
         createdById: ctx.userId,
       },
-    });
+    }, { actorId: ctx.userId, source: "AI" });
 
     await tx.activity.create({
       data: {
@@ -345,66 +360,43 @@ export async function updateWorkItem(
   const strangerAssignee = await assertAssigneeInOrg(ctx.orgId, data.assigneeId);
   if (strangerAssignee) return strangerAssignee;
 
-  const update: Prisma.WorkItemUpdateInput = {};
-  if (data.title !== undefined) update.title = data.title;
-  if (data.description !== undefined) update.description = data.description;
-  if (data.priority !== undefined) update.priority = data.priority;
-  if (data.assigneeId !== undefined) update.assigneeId = data.assigneeId;
-  if (data.intervalId !== undefined) {
-    update.interval = data.intervalId
-      ? { connect: { id: data.intervalId } }
-      : { disconnect: true };
-  }
-  if (data.parentId !== undefined) {
-    update.parent = data.parentId
-      ? { connect: { id: data.parentId } }
-      : { disconnect: true };
-  }
-  if (data.storyPoints !== undefined) update.storyPoints = data.storyPoints;
-  if (data.dueDate !== undefined) update.dueDate = toCalendarNoonUTC(data.dueDate);
-  if (data.startDate !== undefined) update.startDate = toCalendarNoonUTC(data.startDate);
-  if (data.tags !== undefined) update.tags = data.tags;
-
-  const columnChanged = data.columnKey !== undefined && data.columnKey !== existing.columnKey;
-  if (data.columnKey !== undefined) {
-    update.columnKey = data.columnKey;
-    if (columnChanged) update.columnEnteredAt = new Date();
-
-    const isDone = ["done", "completed", "closed"].some((k) =>
-      data.columnKey!.toLowerCase().includes(k)
-    );
-    if (isDone && !existing.completedAt) update.completedAt = new Date();
-    else if (!isDone && existing.completedAt) update.completedAt = null;
+  // Dates are calendar days for the assistant: stored at noon UTC, as the
+  // create path stores them, then written like any other edit.
+  const toIso = (d: string | null | undefined) =>
+    d === undefined ? undefined : (toCalendarNoonUTC(d)?.toISOString() ?? null);
+  const patch: WorkItemPatch = {
+    title: data.title,
+    description: data.description,
+    priority: data.priority,
+    assigneeId: data.assigneeId,
+    intervalId: data.intervalId,
+    parentId: data.parentId,
+    storyPoints: data.storyPoints,
+    dueDate: toIso(data.dueDate),
+    startDate: toIso(data.startDate),
+    tags: data.tags,
+    columnKey: data.columnKey,
+  };
+  for (const k of Object.keys(patch) as (keyof WorkItemPatch)[]) {
+    if (patch[k] === undefined) delete patch[k];
   }
 
-  const item = await prisma.$transaction(async (tx) => {
-    // Keep the multi-assign SET in step with the legacy scalar, with the same
-    // semantics the PUT route uses for a single `assigneeId`: null clears the
-    // set, a user is promoted to the front of it (sortOrder -1, the set is read
-    // ordered ascending). Without this the set kept whoever it held before —
-    // and a Cosmo reassignment showed the OLD person on the ticket (COSMOS-192).
-    if (data.assigneeId !== undefined) {
-      if (data.assigneeId === null) {
-        await tx.workItemAssignee.deleteMany({ where: { workItemId: data.itemId } });
-      } else {
-        await tx.workItemAssignee.upsert({
-          where: { workItemId_userId: { workItemId: data.itemId, userId: data.assigneeId } },
-          create: { workItemId: data.itemId, userId: data.assigneeId, sortOrder: -1 },
-          update: { sortOrder: -1 },
-        });
-      }
-    }
-    return tx.workItem.update({ where: { id: data.itemId }, data: update });
-  });
-
-  // Column moves carry any linked feedback item along (best-effort inside).
-  if (columnChanged) await syncFeedbackForWorkItems([item.id]);
-
-  if (data.title !== undefined || data.description !== undefined) {
-    await storeEmbedding("work_items", item.id, `${item.title}\n${item.description}`).catch(() => {
-      /* best-effort */
+  // The same writer as the PUT route: done/started follow the destination
+  // status's CATEGORY, the move is recorded in history, tags go through the
+  // label catalogue, and the edit is audited and published like any other.
+  const { item, effects } = await prisma.$transaction(async (tx) => {
+    const change = await applyWorkItemChange(tx, {
+      actorId: ctx.userId,
+      orgId: ctx.orgId,
+      projectId: existing.projectId,
+      itemIds: [existing.id],
+      patch,
+      source: "AI",
     });
-  }
+    const item = await tx.workItem.findUniqueOrThrow({ where: { id: existing.id } });
+    return { item, effects: change.effects };
+  });
+  await runAfterCommit(effects);
 
   return {
     updated: true,
@@ -470,6 +462,14 @@ export async function listWorkItems(
   if (data.columnKey) where.columnKey = data.columnKey;
   if (data.assigneeId) where.assigneeId = data.assigneeId;
   if (data.search) where.title = { contains: data.search, mode: "insensitive" };
+  if (data.parentId) where.parentId = data.parentId;
+  if (data.teamId) {
+    const team = await teamFilter(ctx.orgId, data.teamId, [data.projectId]);
+    if ("error" in team) return team;
+    // Appended, not assigned, so a later AND clause added above can't be lost.
+    const and = where.AND ? (Array.isArray(where.AND) ? where.AND : [where.AND]) : [];
+    where.AND = [...and, team.where];
+  }
 
   if (data.type) {
     const typeId = await resolveWorkItemTypeId(data.projectId, data.type);
@@ -492,6 +492,8 @@ export async function listWorkItems(
       priority: true,
       assigneeId: true,
       intervalId: true,
+      parentId: true,
+      teamId: true,
       storyPoints: true,
       dueDate: true,
       workItemTypeId: true,

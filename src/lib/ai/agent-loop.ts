@@ -8,6 +8,7 @@ import { runModelTurn, toModelTools, projectForModel, projectResult, entityTypeF
 import type { TenantClass } from "./egress";
 import { effectiveCeiling, maxByRank, rankOf } from "@/lib/classification/effective";
 import type { ClassificationLevel } from "@prisma/client";
+import type { AuthContext } from "@/lib/rbac/check";
 
 /**
  * Opaque-handle resolver feature flag (default ON). When `EGRESS_HANDLES_ENABLED`
@@ -29,9 +30,11 @@ function handlesEnabled(): boolean {
  * `claude` CLI / `TOOL_CALL:` text protocol and the per-org host-CLI MCP config
  * flag are gone.
  *
- * SECURITY: every tool runs via `executeTool(..., { orgId, userId })`, which
- * permission-checks against THAT user — so a bot can never do anything the
- * invoking user couldn't. Callers pass the invoker's id. Additionally, every
+ * SECURITY: every tool runs via `executeTool(..., { orgId, userId, auth })`,
+ * which permission-checks against `auth` — the invoker's OWN AuthContext as the
+ * route received it, API-key scope and project ceiling included — so a bot (or
+ * a key driving the assistant) can never do anything its caller couldn't.
+ * Callers pass the invoker's AuthContext, never one rebuilt from the user id. Additionally, every
  * tool result is projected through the egress gate BEFORE it can re-enter the
  * model context under the data-driven MAC ceiling: CUI/FOUO data is withheld for
  * BOTH tenants; below that, `commercial` exposes and `gov` is default-deny.
@@ -45,7 +48,15 @@ export interface AgentToolCall {
 }
 
 export interface AgentLoopResult {
+  /** The final turn's text alone (titles, summaries, bot replies). */
   text: string;
+  /**
+   * Every turn's text, a blank line between turns: what `onDelta` streamed.
+   * The assistant persists this, so a preamble the reader watched arrive
+   * ("Let me look that up.") is still there when the answer lands and after
+   * a reload.
+   */
+  transcript: string;
   toolCalls: AgentToolCall[];
 }
 
@@ -56,6 +67,13 @@ export interface RunAgentLoopOptions {
   orgId: string;
   /** The INVOKING user — tools execute as this identity (perm-scoped). */
   userId: string;
+  /**
+   * The invoker's AuthContext exactly as the route authenticated it. Tools are
+   * authorised against THIS — not against `userId`'s full org permissions — so
+   * an API key's scope mask and project ceiling bind the agent too. Its
+   * `userId`/`orgId` must match the two above or every tool call is refused.
+   */
+  auth: AuthContext;
   /** Drives the egress gate. CUI/FOUO data is withheld for both tenants; below that gov default-denies. */
   tenantClass: TenantClass;
   /** Conversation id for egress-decision audit correlation. */
@@ -65,7 +83,12 @@ export interface RunAgentLoopOptions {
   model?: string;
   tools?: ToolDefinition[];
   maxIterations?: number;
-  /** Stream the final answer's text deltas (final turn only). */
+  /**
+   * Stream the run's text as it arrives. `textSoFar` is cumulative across EVERY
+   * model turn (a blank line between turns), so each call extends the last —
+   * the assistant route forwards only the newly-appended slice and relies on
+   * that. The returned `text` is still the final turn alone.
+   */
   onDelta?: (textSoFar: string) => void;
 }
 
@@ -98,20 +121,32 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   const allConnectorNames = connectorToolNames(); // full set (no class) — to subtract
   const baseTools = opts.tools ?? cosmosTools;
   const nativeAndForeign = baseTools.filter((t) => !allConnectorNames.has(t.name));
+  // With a caller-supplied list, connector tools are re-added ONLY where that list
+  // named them: the tenant and runtime-config filters narrow the caller's choice,
+  // never widen it. (They used to be re-added wholesale, so a READONLY bot or
+  // `tools: []` still offered send_email / slack_post_message.) Without one, the
+  // default catalog is every connector tool the tenant and config allow.
+  const requested = opts.tools ? new Set(opts.tools.map((t) => t.name)) : null;
   const tenantTools: ToolDefinition[] = [
     ...nativeAndForeign,
-    ...connectorToolDefs(opts.tenantClass, enabledFilter),
+    ...connectorToolDefs(opts.tenantClass, enabledFilter).filter((t) => !requested || requested.has(t.name)),
   ];
   const tools = toModelTools(tenantTools);
+  // What the model was offered: the only names this run will execute.
+  const offered: ReadonlySet<string> = new Set(tenantTools.map((t) => t.name));
   const max = opts.maxIterations ?? MAX_TOOL_ITERATIONS;
   const model = opts.model ?? DEFAULT_MODEL;
   const messages: ModelMessage[] = [{ role: "user", content: opts.initialPrompt }];
   const toolCalls: AgentToolCall[] = [];
   let finalText = "";
+  let streamed = "";
+  const turnTexts: string[] = [];
 
   for (let turn = 0; turn < max; turn++) {
     const ctx = { orgId: opts.orgId, userId: opts.userId, conversationId: opts.conversationId, turn, tenantClass: opts.tenantClass, mode: "enforced" as const };
-    let streamed = "";
+    // Restarting the text each turn made a tool turn's preamble swallow the
+    // start of the final answer downstream; separate the turns instead.
+    let separator = streamed ? "\n\n" : "";
     const reply = await runModelTurn({
       ctx,
       system: opts.systemPrompt,
@@ -119,10 +154,16 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       tools,
       model,
       onTextDelta: opts.onDelta
-        ? (delta) => { streamed += delta; opts.onDelta?.(streamed); }
+        ? (delta) => {
+            if (!delta) return;
+            streamed += separator + delta;
+            separator = "";
+            opts.onDelta?.(streamed);
+          }
         : undefined,
     });
 
+    if (reply.text) turnTexts.push(reply.text);
     if (reply.toolUses.length === 0) {
       finalText = reply.text;
       break;
@@ -142,6 +183,22 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
     const toolResultBlocks = [];
     const flagOn = handlesEnabled();
     for (const u of reply.toolUses) {
+      // ── OFFERED gate (before anything else) ──────────────────────────────────
+      // Run only a tool the model was offered this run. A name outside the list (a
+      // forged or hallucinated call, or a tool a bot's scope or the caller removed)
+      // is refused and audited, native or connector alike; nothing is resolved or run.
+      if (!offered.has(u.name)) {
+        logEgressDecision({
+          conversationId: opts.conversationId, turn, valueKind: "tool_args",
+          toolName: u.name, exposed: false, withheldCount: 1,
+          contentHash: sha256Hex(JSON.stringify(u.input ?? {})), decidedBy: "tool_not_offered_block",
+          tenantClass: opts.tenantClass, mode: "enforced",
+        });
+        const notOffered = { error: `tool "${u.name}" is not available in this conversation` };
+        toolResultBlocks.push({ type: "tool_result" as const, tool_use_id: u.id, content: JSON.stringify(notOffered) });
+        toolCalls.push({ id: u.id, name: u.name, arguments: u.input, result: notOffered });
+        continue;
+      }
       // ── RESOLVE handles in the tool args BEFORE execution (in-boundary) ──
       // The model may carry an opaque handle (a token minted for a previously
       // withheld CUI field) into a later tool call. Resolve every whole-string,
@@ -266,6 +323,8 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       const output = await executeTool(u.name, execInput, {
         orgId: opts.orgId,
         userId: opts.userId,
+        auth: opts.auth,
+        offered,
         tenantClass: opts.tenantClass,
         conversationId: opts.conversationId,
         // Defense in depth: dispatch refuses a tool whose connector this org disabled.
@@ -332,6 +391,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       toolCalls.length > 0
         ? `I applied ${toolCalls.length} action${toolCalls.length === 1 ? "" : "s"} (shown above) but reached the tool-call limit before I could wrap up. They were applied — tell me to continue and I'll pick up where I left off, or narrow the request.`
         : "I couldn't complete that within the tool-call budget — please narrow the request.";
+    turnTexts.push(finalText);
   }
-  return { text: finalText, toolCalls };
+  return { text: finalText, transcript: turnTexts.join("\n\n"), toolCalls };
 }

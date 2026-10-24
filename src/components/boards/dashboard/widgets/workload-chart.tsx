@@ -34,6 +34,8 @@ export function WorkloadChart({ data, onSliceClick }: WorkloadChartProps) {
         <YAxis
           type="category"
           dataKey="name"
+          // Show every assignee: Recharts otherwise hides every other label once the bars are crowded.
+          interval={0}
           tick={{ fontSize: 11, fill: "var(--text-muted)" }}
           axisLine={false}
           tickLine={false}

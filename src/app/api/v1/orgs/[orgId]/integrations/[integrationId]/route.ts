@@ -11,6 +11,9 @@ import { IntegrationRegistry } from "@/lib/integrations/registry";
 import "@/lib/integrations/registry/index";
 import { splitConfigSecrets } from "@/lib/integrations/config-secrets";
 import { setOrgCredential, deleteOrgCredential } from "@/lib/integrations/credentials";
+import { MS_CALENDAR } from "@/lib/integrations/microsoft/calendar-connect";
+import { purgeOrgCalendarConnections } from "@/lib/integrations/microsoft/calendar-token.server";
+import { offboardOrgInvites } from "@/lib/integrations/microsoft/calendar-sync.server";
 
 const updateIntegrationSchema = z.object({
   displayName: z.string().min(1).max(200).optional(),
@@ -85,6 +88,17 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       },
     });
 
+    // Outlook Calendar switched off, or its tenant changed: every person's
+    // connection goes, not just stops working (COSMOS-202 B1).
+    if (
+      existing.provider === MS_CALENDAR &&
+      ((data.status !== undefined && data.status !== "ACTIVE") ||
+        (configUpdate !== undefined &&
+          (configUpdate as { tenantId?: unknown }).tenantId !== (existing.config as { tenantId?: unknown } | null)?.tenantId))
+    ) {
+      await purgeCalendarConnections(request, orgId, ctx.userId);
+    }
+
     await logAudit({
       orgId,
       userId: ctx.userId,
@@ -121,6 +135,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // Tear down the sealed org-level credential so the secret doesn't outlive the
     // integration (idempotent — a no-op if the provider had no sealed secret).
     await deleteOrgCredential(orgId, integration.provider);
+    if (integration.provider === MS_CALENDAR) await purgeCalendarConnections(request, orgId, ctx.userId);
 
     await logAudit({
       orgId,
@@ -136,4 +151,21 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   } catch (error) {
     return handleApiError(error);
   }
+}
+
+/** Delete everyone's Outlook Calendar connection in the org, and say so in the audit log. */
+async function purgeCalendarConnections(request: NextRequest, orgId: string, userId: string) {
+  // First cancel the meeting invitations people send through it (attendees
+  // are told, admins notified), while their tokens still work.
+  await offboardOrgInvites(orgId).catch((e) => console.error("outlook invite cancel failed:", e instanceof Error ? e.message : "unknown"));
+  const removed = await purgeOrgCalendarConnections(orgId);
+  await logAudit({
+    orgId,
+    userId,
+    action: "microsoft_calendar.disabled_by_admin",
+    entity: "integration",
+    entityId: orgId,
+    metadata: { connectionsRemoved: String(removed) },
+    ipAddress: getIpAddress(request),
+  });
 }

@@ -64,3 +64,15 @@ export function buildIntervalTree<T extends TreeInterval>(intervals: T[]): Inter
     standalone,
   };
 }
+
+/**
+ * Whether a Program Increment is behind us: completed, or its end date has
+ * passed. The sprint board collapses these by default so people can revisit a
+ * past PI without landing in it by accident (COSMOS-203).
+ */
+export function isPastProgramIncrement(
+  pi: { status: string; endDate: string },
+  now: number = Date.now(),
+): boolean {
+  return pi.status === "COMPLETED" || new Date(pi.endDate).getTime() < now;
+}

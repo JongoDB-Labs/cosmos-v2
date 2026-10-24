@@ -22,6 +22,8 @@ interface KanbanColumnProps {
    * the column key, so a drop still only changes the card's columnKey/status.
    */
   droppableId?: string;
+  /** The column's status is archived: still shown, with its items, and marked. */
+  archived?: boolean;
   /** Bulk-select mode (threaded to each card). */
   selectMode?: boolean;
   selectedIds?: Set<string>;
@@ -36,6 +38,7 @@ export function KanbanColumn({
   members,
   onCardClick,
   droppableId,
+  archived = false,
   selectMode = false,
   selectedIds,
   onToggleSelect,
@@ -53,6 +56,8 @@ export function KanbanColumn({
 
   return (
     <div
+      // A right-click anywhere in the column creates into it (COSMOS-88).
+      data-board-column={column.key}
       className={cn(
         // Near-full-width columns on phones (with a peek of the next), w-72 at
         // sm+. Avoids the 288px-on-375px unusable horizontal scroll.
@@ -71,6 +76,14 @@ export function KanbanColumn({
       <div className="flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-medium">{column.name}</h3>
+          {archived && (
+            <span
+              title="This status is archived. Pickers no longer offer it; its items stay here until they are moved."
+              className="rounded border px-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+            >
+              Archived
+            </span>
+          )}
           <span
             title={
               column.wipLimit != null

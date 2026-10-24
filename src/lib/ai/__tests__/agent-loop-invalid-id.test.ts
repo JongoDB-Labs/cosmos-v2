@@ -21,6 +21,7 @@
 // rejection is the database's own rule. Everything else the loop needs for I/O is
 // mocked.
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { stubAuth } from "@/lib/testing/tool-auth";
 
 const { runModelTurn, executeTool, effectiveCeiling, getRuntimeConfig, getAgentPolicy, logEgressDecision } =
   vi.hoisted(() => ({
@@ -76,6 +77,7 @@ async function runLoop() {
   return runAgentLoop({
     orgId: ORG_ID,
     userId: "22222222-2222-2222-2222-222222222222",
+    auth: stubAuth(ORG_ID, "22222222-2222-2222-2222-222222222222"),
     tenantClass: "commercial",
     systemPrompt: "sys",
     initialPrompt: "prep me for a retro",

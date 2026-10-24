@@ -14,6 +14,16 @@ import { resolveCarriedItems } from "./ceremony-carried";
  * carried" — a claim the data cannot support.
  */
 
+// The project's statuses. "shipped" is a team-named done lane: done by its
+// CATEGORY, though its key says nothing about being done.
+const STATUSES = [
+  { key: "todo", category: "TODO" },
+  { key: "in_progress", category: "IN_PROGRESS" },
+  { key: "in_review", category: "IN_PROGRESS" },
+  { key: "done", category: "DONE" },
+  { key: "shipped", category: "DONE" },
+];
+
 const items = [
   { id: "a", columnKey: "done" },
   { id: "b", columnKey: "in_review" },
@@ -22,12 +32,12 @@ const items = [
 
 describe("resolveCarriedItems", () => {
   it("derives from the board while the sprint is still open", () => {
-    const r = resolveCarriedItems({ status: "ACTIVE", items, report: null });
+    const r = resolveCarriedItems({ status: "ACTIVE", items, report: null, statuses: STATUSES });
     expect(r).toEqual({ kind: "live", itemIds: ["b", "c"] });
   });
 
   it("derives live for a sprint that has not started either", () => {
-    const r = resolveCarriedItems({ status: "PLANNED", items, report: null });
+    const r = resolveCarriedItems({ status: "PLANNED", items, report: null, statuses: STATUSES });
     expect(r.kind).toBe("live");
   });
 
@@ -38,6 +48,7 @@ describe("resolveCarriedItems", () => {
       status: "COMPLETED",
       items: [{ id: "a", columnKey: "done" }],
       report: { carriedItemIds: ["b", "c"] },
+      statuses: STATUSES,
     });
     expect(r).toEqual({ kind: "recorded", itemIds: ["b", "c"] });
   });
@@ -47,6 +58,7 @@ describe("resolveCarriedItems", () => {
       status: "COMPLETED",
       items: [],
       report: { carriedItemIds: [] },
+      statuses: STATUSES,
     });
     expect(carriedNothing).toEqual({ kind: "recorded", itemIds: [] });
 
@@ -55,12 +67,13 @@ describe("resolveCarriedItems", () => {
       status: "COMPLETED",
       items: [],
       report: { totalItems: 25, completedItems: 19 },
+      statuses: STATUSES,
     });
     expect(neverRecorded).toEqual({ kind: "unrecorded" });
   });
 
   it("treats a completed sprint with no report at all as unrecorded", () => {
-    const r = resolveCarriedItems({ status: "COMPLETED", items: [], report: null });
+    const r = resolveCarriedItems({ status: "COMPLETED", items: [], report: null, statuses: STATUSES });
     expect(r).toEqual({ kind: "unrecorded" });
   });
 
@@ -70,6 +83,7 @@ describe("resolveCarriedItems", () => {
       status: "COMPLETED",
       items: [],
       report: { carriedItemIds: "b,c" },
+      statuses: STATUSES,
     });
     expect(r).toEqual({ kind: "unrecorded" });
   });

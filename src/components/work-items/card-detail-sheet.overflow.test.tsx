@@ -119,6 +119,32 @@ describe("CardDetailSheet — wide content stays reachable (COSMOS-21)", () => {
     expect(body.className).toContain("overflow-x-hidden");
   });
 
+  it("wraps the header actions instead of running Delete off the edge", () => {
+    render(
+      withClient(
+        <CardDetailSheet
+          item={ITEM}
+          open
+          onOpenChange={() => {}}
+          orgId="o1"
+          projectId="p1"
+          members={[]}
+          intervals={[]}
+          columns={[{ key: "todo", name: "To Do" } as never]}
+          onUpdate={() => {}}
+        />,
+      ),
+    );
+
+    // The pane hides overflow-x (above), so an action row that can't wrap is
+    // clipped rather than scrollable: at 1366px Delete fell past the window.
+    const actions = screen.getByTestId("card-detail-actions");
+    expect(actions.className).toContain("flex-wrap");
+    expect(actions.parentElement?.className).toContain("flex-wrap");
+    // Every action still lives in this row, so wrapping is what keeps it reachable.
+    expect(actions.contains(screen.getByRole("button", { name: "Delete" }))).toBe(true);
+  });
+
   it("gives the description its own horizontal scroller so wide markdown is reachable, not clipped", () => {
     render(
       withClient(

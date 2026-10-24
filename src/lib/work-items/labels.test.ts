@@ -79,7 +79,7 @@ describe("work-item labels (e2e DB)", () => {
     const { org, item } = await makeItem();
     const suffix = Math.random().toString(36).slice(2, 8);
 
-    track(await setWorkItemLabels(prisma, org.id, item.id, [`Alpha-${suffix}`, `Beta-${suffix}`]));
+    track(await setWorkItemLabels(prisma, org.id, item.id, [`Alpha-${suffix}`, `Beta-${suffix}`], { actorId: null, source: "SYSTEM" }));
 
     const joins = await prisma.workItemLabel.findMany({
       where: { workItemId: item.id },
@@ -100,8 +100,8 @@ describe("work-item labels (e2e DB)", () => {
     const { org, item } = await makeItem();
     const suffix = Math.random().toString(36).slice(2, 8);
 
-    track(await setWorkItemLabels(prisma, org.id, item.id, [`Keep-${suffix}`, `Drop-${suffix}`]));
-    track(await setWorkItemLabels(prisma, org.id, item.id, [`Keep-${suffix}`]));
+    track(await setWorkItemLabels(prisma, org.id, item.id, [`Keep-${suffix}`, `Drop-${suffix}`], { actorId: null, source: "SYSTEM" }));
+    track(await setWorkItemLabels(prisma, org.id, item.id, [`Keep-${suffix}`], { actorId: null, source: "SYSTEM" }));
 
     let joins = await prisma.workItemLabel.findMany({
       where: { workItemId: item.id },
@@ -112,7 +112,7 @@ describe("work-item labels (e2e DB)", () => {
     expect(after.tags).toEqual([`Keep-${suffix}`]);
 
     // Clearing is the case an empty IN-list would silently get wrong.
-    await setWorkItemLabels(prisma, org.id, item.id, []);
+    await setWorkItemLabels(prisma, org.id, item.id, [], { actorId: null, source: "SYSTEM" });
     joins = await prisma.workItemLabel.findMany({
       where: { workItemId: item.id },
       include: { label: true },
@@ -129,7 +129,7 @@ describe("work-item labels (e2e DB)", () => {
     const { org, item } = await makeItem();
     const suffix = Math.random().toString(36).slice(2, 8);
 
-    const labels = await setWorkItemLabels(prisma, org.id, item.id, [`Sec-${suffix}`]);
+    const labels = await setWorkItemLabels(prisma, org.id, item.id, [`Sec-${suffix}`], { actorId: null, source: "SYSTEM" });
     track(labels);
 
     await prisma.label.update({
@@ -137,7 +137,7 @@ describe("work-item labels (e2e DB)", () => {
       data: { name: `Security-${suffix}` },
     });
     // Renaming alone leaves the mirror stale — this is the step the route owes.
-    await recomputeTagMirror(prisma, [item.id]);
+    await recomputeTagMirror(prisma, [item.id], { actorId: null, source: "SYSTEM" });
 
     const after = await prisma.workItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(after.tags).toEqual([`Security-${suffix}`]);
@@ -150,14 +150,14 @@ describe("work-item labels (e2e DB)", () => {
     const labels = await setWorkItemLabels(prisma, org.id, item.id, [
       `Gone-${suffix}`,
       `Stays-${suffix}`,
-    ]);
+    ], { actorId: null, source: "SYSTEM" });
     track(labels);
     const doomed = labels.find((l) => l.name === `Gone-${suffix}`)!;
 
     // Cascade removes the join row but knows nothing about the mirror, so
     // without the recompute the label lingers on the RAID board forever.
     await prisma.label.delete({ where: { id: doomed.id } });
-    await recomputeTagMirror(prisma, [item.id]);
+    await recomputeTagMirror(prisma, [item.id], { actorId: null, source: "SYSTEM" });
 
     const after = await prisma.workItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(after.tags).toEqual([`Stays-${suffix}`]);
@@ -167,10 +167,10 @@ describe("work-item labels (e2e DB)", () => {
     const { org, item } = await makeItem();
     const suffix = Math.random().toString(36).slice(2, 8);
 
-    const labels = await setWorkItemLabels(prisma, org.id, item.id, [`Only-${suffix}`]);
+    const labels = await setWorkItemLabels(prisma, org.id, item.id, [`Only-${suffix}`], { actorId: null, source: "SYSTEM" });
     track(labels);
     await prisma.label.delete({ where: { id: labels[0].id } });
-    await recomputeTagMirror(prisma, [item.id]);
+    await recomputeTagMirror(prisma, [item.id], { actorId: null, source: "SYSTEM" });
 
     const after = await prisma.workItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(after.tags).toEqual([]);
@@ -183,10 +183,10 @@ describe("work-item labels (e2e DB)", () => {
     const b = await makeItem();
     const suffix = Math.random().toString(36).slice(2, 8);
 
-    track(await setWorkItemLabels(prisma, a.org.id, a.item.id, [`Old-${suffix}`]));
+    track(await setWorkItemLabels(prisma, a.org.id, a.item.id, [`Old-${suffix}`], { actorId: null, source: "SYSTEM" }));
     track(await setLabelsForMany(prisma, a.org.id, [a.item.id, b.item.id], [
       `Bulk-${suffix}`,
-    ]).then(() => resolveLabels(prisma, a.org.id, [`Bulk-${suffix}`, `Old-${suffix}`])));
+    ], { actorId: null, source: "SYSTEM" }).then(() => resolveLabels(prisma, a.org.id, [`Bulk-${suffix}`, `Old-${suffix}`])));
 
     for (const id of [a.item.id, b.item.id]) {
       const joins = await prisma.workItemLabel.findMany({
@@ -203,9 +203,9 @@ describe("work-item labels (e2e DB)", () => {
   it("clears every item's labels when the bulk set is empty", async () => {
     const a = await makeItem();
     const suffix = Math.random().toString(36).slice(2, 8);
-    track(await setWorkItemLabels(prisma, a.org.id, a.item.id, [`Doomed-${suffix}`]));
+    track(await setWorkItemLabels(prisma, a.org.id, a.item.id, [`Doomed-${suffix}`], { actorId: null, source: "SYSTEM" }));
 
-    await setLabelsForMany(prisma, a.org.id, [a.item.id], []);
+    await setLabelsForMany(prisma, a.org.id, [a.item.id], [], { actorId: null, source: "SYSTEM" });
 
     const joins = await prisma.workItemLabel.findMany({ where: { workItemId: a.item.id } });
     const row = await prisma.workItem.findUniqueOrThrow({ where: { id: a.item.id } });
@@ -220,7 +220,7 @@ describe("work-item labels (e2e DB)", () => {
     track(await resolveLabels(prisma, org.id, [`Security-${suffix}`]));
     // Caller uses a different case; the mirror must not reintroduce a variant
     // the migration just collapsed.
-    await setWorkItemLabels(prisma, org.id, item.id, [`security-${suffix}`]);
+    await setWorkItemLabels(prisma, org.id, item.id, [`security-${suffix}`], { actorId: null, source: "SYSTEM" });
 
     const after = await prisma.workItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(after.tags).toEqual([`Security-${suffix}`]);

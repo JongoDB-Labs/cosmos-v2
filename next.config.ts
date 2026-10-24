@@ -18,6 +18,9 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_PRODUCT: process.env.PRODUCT ?? "cosmos",
   },
   cacheComponents: true,
+  // Calendar feed URLs carry their secret token in the path (COSMOS-202); keep
+  // them out of the dev request log. Dev-only: production builds log no requests.
+  logging: { incomingRequests: { ignore: [/\/api\/v1\/calendar\/feeds\//] } },
   // Next 16 writes its own AGENTS.md on every `next dev`. AGENTS.md here is NOT
   // a generated file — it is the hand-maintained engineering guide CLAUDE.md
   // imports, and the only copy of these rules that reaches a git worktree. Left
