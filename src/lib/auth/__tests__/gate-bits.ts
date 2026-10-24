@@ -81,14 +81,29 @@ function calledHelpers(code: string, src: string, file: string | undefined, dept
   for (const imp of src.matchAll(/^import\s*\{([^}]*)\}\s*from\s*"([^"]+)"/gm)) {
     const target = resolveImport(file, imp[2]);
     if (!target) continue;
-    const names = imp[1].split(",").map((n) => n.trim().split(/\s+as\s+/).pop()!).filter((n) => n && !n.startsWith("type "));
-    if (!names.some(called)) continue;
+    // `{ PUT as projectItemPut }`: the module exports `PUT`, the caller calls
+    // `projectItemPut`. Match the export on the first name, the call on the second.
+    const bindings = imp[1]
+      .split(",")
+      .map((n) => n.trim())
+      .filter((n) => n && !n.startsWith("type "))
+      .map((n) => {
+        const [exported, local = exported] = n.split(/\s+as\s+/);
+        return { exported, local };
+      });
+    const used = bindings.filter((b) => called(b.local));
+    if (!used.length) continue;
     const dep = readFileSync(target, "utf8");
-    for (const m of dep.matchAll(FUNCTION)) {
-      const exported = /^export /.test(m[0]);
-      if (!exported || !names.includes(m[1]) || !called(m[1]) || seen.has(`${target}#${m[1]}`)) continue;
-      seen.add(`${target}#${m[1]}`);
-      out += "\n" + m[0] + calledHelpers(m[0], dep, target, depth - 1, seen);
+    for (const { exported } of used) {
+      if (seen.has(`${target}#${exported}`)) continue;
+      // A forwarded route handler (`GET`, `PUT`, … including `export { PATCH
+      // as PUT }`), or an ordinary exported helper.
+      const fn = /^(?:GET|POST|PUT|PATCH|DELETE)$/.test(exported)
+        ? handlerBody(dep, exported)
+        : [...dep.matchAll(FUNCTION)].find((m) => /^export /.test(m[0]) && m[1] === exported)?.[0];
+      if (!fn) continue;
+      seen.add(`${target}#${exported}`);
+      out += "\n" + fn + calledHelpers(fn, dep, target, depth - 1, seen);
     }
   }
   return out;
