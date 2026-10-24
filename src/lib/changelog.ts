@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.476.1",
+    date: "2026-10-24",
+    title: "Org-wide permissions stop at team-limited projects",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security: on a project limited to its team, an org-wide permission (such as managing sprints or deleting items) no longer lets someone outside the team change it. Org owners and admins are unaffected.",
+      },
+    ],
+  },
+  {
     version: "2.476.0",
     date: "2026-10-24",
     title: "Clear, preview and filter notifications",
