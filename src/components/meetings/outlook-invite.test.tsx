@@ -128,4 +128,36 @@ describe("OutlookInvitePanel", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("keyboard focus follows the review: into it when it opens, back to its button when put away", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue(state({}) as never);
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Send Outlook invitations" }));
+    const review = screen.getByRole("group", { name: "Send Outlook invitations" });
+    await waitFor(() => expect(document.activeElement).toBe(review));
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Send Outlook invitations" })));
+  });
+
+  it("the stop confirmation takes focus, and gives it back to Stop", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true }) as never);
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Stop sending invitations" }));
+    const confirm = screen.getByRole("group", { name: "Stop Outlook invitations" });
+    await waitFor(() => expect(document.activeElement).toBe(confirm));
+    fireEvent.click(screen.getByRole("button", { name: "Keep sending" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Stop sending invitations" })));
+  });
+
+  it("once a change goes through, focus lands on the section heading", async () => {
+    let on = false;
+    vi.mocked(jsonFetch).mockImplementation(async (_url, init) => {
+      if (init?.method === "PUT") on = true;
+      return state(on ? { on: true, organizerId: "u1", organizerName: "Alice" } : {}) as never;
+    });
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Send Outlook invitations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send invitations" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Outlook invitations" })));
+  });
+
 });

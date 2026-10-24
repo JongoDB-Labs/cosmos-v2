@@ -54,33 +54,36 @@ export function TabSignIn({ org }: { org: string | null }) {
   }, [org, router]);
 
   return (
-    <div role="status" className="p-6 text-sm">
-      {state.kind === "working" && <p className="text-muted-foreground">Signing in to Cosmos…</p>}
-      {state.kind === "outside" && <p>Open this tab in Microsoft Teams.</p>}
-      {state.kind === "failed" && <p>Cosmos couldn&apos;t sign you in. Close and reopen the tab to try again.</p>}
-      {state.kind === "not_connected" && (
-        <p>
-          Cosmos doesn&apos;t know who you are in Teams yet. In Cosmos, open Settings, Preferences and connect Outlook
-          Calendar with your work account, then reopen this tab.{" "}
-          <a href={state.connectUrl} target="_blank" rel="noreferrer" className="underline">
-            Open Cosmos settings
-          </a>
-        </p>
-      )}
-      {state.kind === "choose" && (
-        <div className="flex flex-col gap-2">
-          <p>You use Cosmos in more than one organization. Which one?</p>
-          <ul className="flex flex-col gap-1">
-            {state.orgs.map((o) => (
-              <li key={o}>
-                <a href={`?org=${encodeURIComponent(o)}`} className="underline">
-                  {o}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
+    <main className="p-6 text-sm">
+      <h1 className="sr-only">Cosmos</h1>
+      <div role="status">
+        {state.kind === "working" && <p className="text-muted-foreground">Signing in to Cosmos…</p>}
+        {state.kind === "outside" && <p>Open this tab in Microsoft Teams.</p>}
+        {state.kind === "failed" && <p>Cosmos couldn&apos;t sign you in. Close and reopen the tab to try again.</p>}
+        {state.kind === "not_connected" && (
+          <p>
+            Cosmos doesn&apos;t know who you are in Teams yet. In Cosmos, open Settings, Preferences and connect Outlook
+            Calendar with your work account, then reopen this tab.{" "}
+            <a href={state.connectUrl} target="_blank" rel="noreferrer" className="underline">
+              Open Cosmos settings
+            </a>
+          </p>
+        )}
+        {state.kind === "choose" && (
+          <div className="flex flex-col gap-2">
+            <p>You use Cosmos in more than one organization. Which one?</p>
+            <ul className="flex flex-col gap-1">
+              {state.orgs.map((o) => (
+                <li key={o}>
+                  <a href={`?org=${encodeURIComponent(o)}`} className="underline">
+                    {o}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }

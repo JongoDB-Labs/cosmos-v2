@@ -59,14 +59,27 @@ export function decideDeploy(requestedVersion: string, check: UpdateCheck): Depl
     // An unreadable registry is UNKNOWN, never "go ahead".
     return { ok: false, reason: "check-failed", detail: `The registry could not be read: ${check.error}` };
   }
-  if (!check.status?.updateAvailable || !check.status.latest) {
-    return { ok: false, reason: "no-update", detail: "There is no newer version to deploy." };
+  // The version on offer: the newest one, or — when nothing newer exists but the
+  // image for the running version was rebuilt — the running version itself.
+  // A composed image is tagged with the CORE version, so a plugin-only release
+  // is exactly that rebuild; refusing it left every such release uninstallable
+  // from this page until core happened to move.
+  const status = check.status;
+  const target = status?.updateAvailable
+    ? status.latest
+    : check.rebuildAvailable === true
+      ? (status?.current ?? null)
+      : null;
+  if (!target) {
+    return { ok: false, reason: "no-update", detail: "There is no newer version or rebuilt image to deploy." };
   }
-  if (requestedVersion !== check.status.latest) {
+  if (requestedVersion !== target) {
     return {
       ok: false,
       reason: "version-mismatch",
-      detail: `You asked to deploy ${requestedVersion}, but the newest available version is now ${check.status.latest}. Re-check before deploying.`,
+      detail: status?.updateAvailable
+        ? `You asked to deploy ${requestedVersion}, but the newest available version is now ${target}. Re-check before deploying.`
+        : `You asked to deploy ${requestedVersion}, but what is on offer now is a rebuild of ${target}. Re-check before deploying.`,
     };
   }
 
@@ -90,7 +103,7 @@ export function decideDeploy(requestedVersion: string, check: UpdateCheck): Depl
     };
   }
 
-  return { ok: true, version: check.status.latest };
+  return { ok: true, version: target };
 }
 
 /** HTTP status for a refusal — distinct codes so the UI can react precisely. */
