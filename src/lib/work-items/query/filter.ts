@@ -17,6 +17,7 @@
  * builder can stay synchronous + exhaustively unit-tested.
  */
 import { Priority } from "@prisma/client";
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, WORK_ITEM_SORT_FIELDS } from "@/lib/openapi/schemas/work-item-query";
 
 /** A boolean-ish parent constraint plus an optional specific-parent filter. */
 export type ParentFilter =
@@ -122,28 +123,14 @@ export const NO_INTERVAL = "none" as const;
 
 /** Sort fields the list view + API expose (whitelist — anything else falls
  *  back to a stable default in the builder). */
-export type WorkItemSortField =
-  | "createdAt"
-  | "updatedAt"
-  | "priority"
-  | "dueDate"
-  | "startDate"
-  | "ticketNumber";
+export type WorkItemSortField = (typeof WORK_ITEM_SORT_FIELDS)[number];
 
 export interface WorkItemSort {
   field: WorkItemSortField;
   direction: "asc" | "desc";
 }
 
-export const SORT_FIELDS: readonly WorkItemSortField[] = [
-  "createdAt",
-  "updatedAt",
-  "priority",
-  "dueDate",
-  "startDate",
-  "ticketNumber",
-] as const;
+export const SORT_FIELDS: readonly WorkItemSortField[] = WORK_ITEM_SORT_FIELDS;
 
-/** Hard cap on page size — protects the DB from an unbounded scan. */
-export const MAX_PAGE_SIZE = 100;
-export const DEFAULT_PAGE_SIZE = 25;
+/** Hard cap on page size, and the default; the public contract publishes both. */
+export { MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE };
