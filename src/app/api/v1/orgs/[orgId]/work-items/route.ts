@@ -1,5 +1,9 @@
 import { NextRequest } from "next/server";
-import { GET as searchGet } from "./search/route";
+import { handleApiError } from "@/lib/api-helpers";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { orgContext } from "@/lib/openapi/org-context";
+import { searchByParams } from "./search/route";
+import { listWorkItems } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -13,11 +17,18 @@ type RouteParams = { params: Promise<{ orgId: string }> };
  * sibling paths (`/facets`, `/export`, `/{itemId}/row`) all hang off this one,
  * so the bare path being the only 404 in the family was the odd one out.
  *
- * A delegation, not a copy: same handler, same filter parsing, same RBAC
+ * A delegation, not a copy: same search, same filter parsing, same RBAC
  * scoping through `getReadableProjectIds`. `/search` keeps working — it is used
  * by the Issues view and carries the POST body form for complex filters — so
  * this adds a name for something rather than a second implementation of it.
  */
-export async function GET(request: NextRequest, ctx: RouteParams) {
-  return searchGet(request, ctx);
+export async function GET(request: NextRequest, { params }: RouteParams) {
+  try {
+    const { org, ctx } = await orgContext((await params).orgId, listWorkItems);
+    const { params: { orgId } } = await parseRequest(listWorkItems, request, params);
+    const result = await searchByParams(request, org, ctx, orgId);
+    return result instanceof Response ? result : respond(listWorkItems, 200, result);
+  } catch (error) {
+    return handleApiError(error);
+  }
 }

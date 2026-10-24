@@ -44,6 +44,8 @@ import * as c40 from "@/app/api/v1/orgs/[orgId]/work-item-types/route.contract";
 import * as c41 from "@/app/api/v1/orgs/[orgId]/work-items/[itemId]/comments/route.contract";
 import * as c42 from "@/app/api/v1/orgs/[orgId]/work-items/[itemId]/route.contract";
 import * as c43 from "@/app/api/v1/orgs/[orgId]/work-items/facets/route.contract";
-import * as c44 from "@/app/api/v1/orgs/[orgId]/workflow-settings/route.contract";
+import * as c44 from "@/app/api/v1/orgs/[orgId]/work-items/route.contract";
+import * as c45 from "@/app/api/v1/orgs/[orgId]/work-items/search/route.contract";
+import * as c46 from "@/app/api/v1/orgs/[orgId]/workflow-settings/route.contract";
 
-export const contractModules: readonly Record<string, unknown>[] = [c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44];
+export const contractModules: readonly Record<string, unknown>[] = [c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45, c46];
