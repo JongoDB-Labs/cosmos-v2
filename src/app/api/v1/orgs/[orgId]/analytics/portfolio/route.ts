@@ -38,33 +38,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const portfolio = await Promise.all(
       projects.map(async (project) => {
-        const boards = await prisma.board.findMany({
-          where: { projectId: project.id },
-          select: { id: true },
+        // The project's live statuses by category. Archived ones (the keys the
+        // backfill found only on items) don't count: a project that tracks work
+        // without boards has no done status to name, and falls back below.
+        const statuses = await prisma.workflowStatus.findMany({
+          where: { projectId: project.id, archivedAt: null, category: { in: ["DONE", "IN_PROGRESS"] } },
+          select: { key: true, category: true },
         });
-        const boardIds = boards.map((b) => b.id);
-
-        const doneColumns = boardIds.length > 0
-          ? await prisma.boardColumn.findMany({
-              where: { boardId: { in: boardIds }, category: "DONE" },
-              select: { key: true },
-            })
-          : [];
-        const doneKeys = doneColumns.map((c) => c.key);
-
-        const inProgressColumns = boardIds.length > 0
-          ? await prisma.boardColumn.findMany({
-              where: { boardId: { in: boardIds }, category: "IN_PROGRESS" },
-              select: { key: true },
-            })
-          : [];
-        const inProgressKeys = inProgressColumns.map((c) => c.key);
+        const doneKeys = statuses.filter((st) => st.category === "DONE").map((st) => st.key);
+        const inProgressKeys = statuses.filter((st) => st.category === "IN_PROGRESS").map((st) => st.key);
 
         const totalItems = await prisma.workItem.count({
           where: { orgId, projectId: project.id },
         });
 
-        // A project with no board has no DONE column to name, and answering
+        // A project with no done status has none to name, and answering
         // ZERO then is a claim rather than an absence: a practice whose work
         // items were 80% finished read 0% complete across every project on the
         // portfolio, because it tracks work without using boards at all.
@@ -74,8 +62,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         // `completedAt: null`. So the two halves of one response disagreed
         // about what "done" means. Fall back to it rather than to zero.
         //
-        // Board columns still WIN where they exist: a team that has modelled
-        // its own done states has said something more specific than the
+        // Statuses still WIN where they exist: a team that has modelled its
+        // own done states has said something more specific than the
         // timestamp, and this is a fallback, not a replacement.
         const completedItems = await prisma.workItem.count({
           where: {

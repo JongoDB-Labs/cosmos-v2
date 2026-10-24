@@ -65,14 +65,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         select: { id: true, key: true, name: true, icon: true, color: true },
         orderBy: [{ isBuiltIn: "desc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
       }),
-      // Distinct status lanes available across the actor's projects' boards.
-      // `board.projectId` lets us key the lanes per project so the Issues view
-      // can offer a VALID inline status change scoped to each item's own board.
-      prisma.boardColumn.findMany({
-        where: { board: { projectId: { in: allowedProjectIds } } },
-        select: { key: true, name: true, category: true, sortOrder: true, board: { select: { projectId: true } } },
-        orderBy: { sortOrder: "asc" },
-      }),
+      // The statuses of the actor's projects (project-level rows, each with
+      // its category), keyed per project so the Issues view offers a VALID
+      // inline status change: only the statuses of the item's own project.
+      prisma.workflowStatus
+        .findMany({
+          where: { projectId: { in: allowedProjectIds }, archivedAt: null },
+          select: { key: true, name: true, category: true, sortOrder: true, projectId: true },
+          orderBy: [{ sortOrder: "asc" }, { key: "asc" }],
+        })
+        .then((rows) => rows.map(({ projectId, ...r }) => ({ ...r, board: { projectId } }))),
       prisma.orgMember.findMany({
         where: { orgId, ...(roster ? { userId: { in: roster } } : {}) },
         select: {

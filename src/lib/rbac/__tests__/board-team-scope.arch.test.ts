@@ -44,10 +44,6 @@ const APPLIES_TEAM_GATE = /\b(narrowBoards|isBoardVisible|requireBoardRead|visib
  * counts toward a rollup.
  */
 const ALLOWED: Record<string, string> = {
-  "app/api/v1/orgs/[orgId]/analytics/portfolio/route.ts":
-    "reads board ids only, to resolve column semantics for a project-level rollup; narrowing would make completion % differ per viewer",
-  "app/api/v1/orgs/[orgId]/analytics/projects/[projectId]/route.ts":
-    "reads board ids only, to resolve column semantics for a project-level rollup; narrowing would make completion % differ per viewer",
   "lib/templates/slugify.ts":
     "uniqueBoardSlug reads existing slugs to avoid a collision when CREATING a board; it returns a slug, never board data, and the caller has already passed the create gate",
 };
