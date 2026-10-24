@@ -28,7 +28,7 @@ export type ScheduleAction = "moved" | "undo" | "redo";
 // Day-month-year words read unambiguously aloud, unlike 3/4/2026.
 const day = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
-function range(r: AnnouncedRange): string {
+export function formatRange(r: AnnouncedRange): string {
   const s = r.startDate ? day.format(new Date(r.startDate)) : null;
   const e = r.dueDate ? day.format(new Date(r.dueDate)) : null;
   if (s && e) return s === e ? s : `${s} to ${e}`;
@@ -52,10 +52,10 @@ export function announceSchedule(
   const label = labelFor(first.id);
   switch (action) {
     case "moved":
-      return `Moved ${label} to ${range(first.after)}.${others(rest.length, "moved with it")} Press Control Z or Command Z to undo.`;
+      return `Moved ${label} to ${formatRange(first.after)}.${others(rest.length, "moved with it")} Press Control Z or Command Z to undo.`;
     case "undo":
-      return `Undid the change to ${label}: back to ${range(first.before)}.${others(rest.length, "moved back")}`;
+      return `Undid the change to ${label}: back to ${formatRange(first.before)}.${others(rest.length, "moved back")}`;
     case "redo":
-      return `Redid the change to ${label}: ${range(first.after)}.${others(rest.length, "moved with it")}`;
+      return `Redid the change to ${label}: ${formatRange(first.after)}.${others(rest.length, "moved with it")}`;
   }
 }

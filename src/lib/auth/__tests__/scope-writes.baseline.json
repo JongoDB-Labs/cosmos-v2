@@ -87,6 +87,7 @@
     "POST v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/split-assignees",
     "POST v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
     "POST v1/orgs/[orgId]/projects/[projectId]/work-items/import",
+    "POST v1/orgs/[orgId]/projects/[projectId]/work-items/schedule-preview",
     "POST v1/orgs/[orgId]/saved-views",
     "POST v1/orgs/[orgId]/work-items/[itemId]/comments",
     "POST v1/orgs/[orgId]/work-items/aggregate",
