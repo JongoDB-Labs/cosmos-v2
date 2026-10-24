@@ -48,6 +48,30 @@ export const Count = (...keys: string[]) =>
 /** A query/body date: `2026-11-01` or a full ISO datetime. */
 export const DateOrDateTime = z.union([z.iso.date(), z.iso.datetime({ offset: true })]);
 
+/**
+ * A date FILTER in a query string: anything `Date.parse` reads, as these
+ * routes took before they had contracts (`2026-11-01`, an offset-less
+ * datetime, an RFC 2822 date). Query use only: bodies stay strict. A string
+ * `Date.parse` can't read is a 400; it used to reach Prisma as Invalid Date.
+ */
+export const QueryDate = z
+  .string()
+  .refine((s) => !Number.isNaN(Date.parse(s)), "Not a date")
+  .meta({ format: "date-time", example: "2026-11-01" });
+
+/**
+ * A query integer clamped into [min, max] rather than refused, as these routes
+ * did before they had contracts: `?limit=1000` reads as the maximum. A value
+ * that isn't a number at all is still a 400.
+ */
+export const clampedInt = (min: number, max: number, fallback: number) =>
+  z.coerce
+    .number()
+    .default(fallback)
+    .transform((n) => Math.min(max, Math.max(min, Math.trunc(n))))
+    // Documented as what a client should send; the clamping is in the description.
+    .meta({ type: "integer", default: fallback });
+
 export const Project = z.object({
   id: Uuid,
   orgId: Uuid,

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "@/lib/openapi/contract";
-import { DateOrDateTime, Uuid } from "@/lib/openapi/schemas/common";
+import { QueryDate, Uuid } from "@/lib/openapi/schemas/common";
 import { TimeEntry } from "@/lib/openapi/schemas/time";
 import * as E from "@/lib/openapi/schemas/enums.generated";
 
@@ -23,8 +23,8 @@ export const listTimeEntries = defineRoute({
       projectId: Uuid.optional(),
       status: z.enum(E.TimeEntryStatus).optional(),
       billableType: z.enum(E.BillableType).optional(),
-      startDate: DateOrDateTime.optional(),
-      endDate: DateOrDateTime.optional(),
+      startDate: QueryDate.optional(),
+      endDate: QueryDate.optional(),
     }),
   },
   responses: {

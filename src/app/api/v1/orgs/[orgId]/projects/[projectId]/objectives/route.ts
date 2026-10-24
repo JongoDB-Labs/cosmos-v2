@@ -134,9 +134,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         select: { id: true },
       });
       if (!interval) {
-        return new Response("intervalId must be an interval of this project", {
-          status: 400,
-        });
+        return problem(400, "invalid_request", "intervalId must be an interval of this project", { request });
       }
     }
 

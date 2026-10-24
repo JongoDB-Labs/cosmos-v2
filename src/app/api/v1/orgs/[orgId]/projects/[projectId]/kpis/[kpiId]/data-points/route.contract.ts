@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "@/lib/openapi/contract";
-import { DateOrDateTime, Uuid } from "@/lib/openapi/schemas/common";
+import { Uuid } from "@/lib/openapi/schemas/common";
 import { KpiDataPoint } from "@/lib/openapi/schemas/goals";
 
 const params = z.object({ orgId: Uuid, projectId: Uuid, kpiId: Uuid });
@@ -32,7 +32,12 @@ export const createKpiDataPoint = defineRoute({
     params,
     body: z.object({
       value: z.number(),
-      recordedAt: DateOrDateTime.optional().describe("Defaults to now."),
+      // Coerced, as before contracts: epoch milliseconds and offset-less datetimes work.
+      recordedAt: z.coerce
+        .date()
+        .optional()
+        .meta({ type: "string", format: "date-time" })
+        .describe("When the value was measured; epoch milliseconds also work. Defaults to now."),
       note: z.string().nullish(),
     }),
   },

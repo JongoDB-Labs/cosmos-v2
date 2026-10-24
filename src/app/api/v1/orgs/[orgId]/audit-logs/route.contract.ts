@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "@/lib/openapi/contract";
-import { DateOrDateTime, Uuid } from "@/lib/openapi/schemas/common";
+import { clampedInt, QueryDate, Uuid } from "@/lib/openapi/schemas/common";
 import { AuditLogEntry } from "@/lib/openapi/schemas/audit";
 
 export const listAuditLogs = defineRoute({
@@ -15,13 +15,13 @@ export const listAuditLogs = defineRoute({
   request: {
     params: z.object({ orgId: Uuid }),
     query: z.object({
-      page: z.coerce.number().int().min(1).default(1),
-      limit: z.coerce.number().int().min(1).max(200).default(50),
+      page: clampedInt(1, Number.MAX_SAFE_INTEGER, 1).describe("From 1; lower values read as 1."),
+      limit: clampedInt(1, 200, 50).describe("1 to 200, default 50; values outside are clamped."),
       action: z.string().optional(),
       entity: z.string().optional(),
       userId: Uuid.optional(),
-      startDate: DateOrDateTime.optional(),
-      endDate: DateOrDateTime.optional(),
+      startDate: QueryDate.optional(),
+      endDate: QueryDate.optional(),
     }),
   },
   responses: {

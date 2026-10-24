@@ -3380,21 +3380,22 @@
           {
             "schema": {
               "type": "integer",
-              "minimum": 1,
-              "default": 1
+              "default": 1,
+              "description": "From 1; lower values read as 1."
             },
             "required": false,
+            "description": "From 1; lower values read as 1.",
             "name": "page",
             "in": "query"
           },
           {
             "schema": {
               "type": "integer",
-              "minimum": 1,
-              "maximum": 200,
-              "default": 50
+              "default": 50,
+              "description": "1 to 200, default 50; values outside are clamped."
             },
             "required": false,
+            "description": "1 to 200, default 50; values outside are clamped.",
             "name": "limit",
             "in": "query"
           },
@@ -3424,16 +3425,9 @@
           },
           {
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date"
-                },
-                {
-                  "type": "string",
-                  "format": "date-time"
-                }
-              ]
+              "type": "string",
+              "format": "date-time",
+              "example": "2026-11-01"
             },
             "required": false,
             "name": "startDate",
@@ -3441,16 +3435,9 @@
           },
           {
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date"
-                },
-                {
-                  "type": "string",
-                  "format": "date-time"
-                }
-              ]
+              "type": "string",
+              "format": "date-time",
+              "example": "2026-11-01"
             },
             "required": false,
             "name": "endDate",
@@ -7544,17 +7531,9 @@
                     "type": "number"
                   },
                   "recordedAt": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "date"
-                      },
-                      {
-                        "type": "string",
-                        "format": "date-time"
-                      }
-                    ],
-                    "description": "Defaults to now."
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "When the value was measured; epoch milliseconds also work. Defaults to now."
                   },
                   "note": {
                     "type": [
@@ -9520,16 +9499,9 @@
           },
           {
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date"
-                },
-                {
-                  "type": "string",
-                  "format": "date-time"
-                }
-              ]
+              "type": "string",
+              "format": "date-time",
+              "example": "2026-11-01"
             },
             "required": false,
             "name": "startDate",
@@ -9537,16 +9509,9 @@
           },
           {
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date"
-                },
-                {
-                  "type": "string",
-                  "format": "date-time"
-                }
-              ]
+              "type": "string",
+              "format": "date-time",
+              "example": "2026-11-01"
             },
             "required": false,
             "name": "endDate",
