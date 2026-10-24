@@ -54,7 +54,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.TIME_READ);
+    // A write to the caller's own time. A session needs TIME_READ, as ever; a
+    // key needs TIME_CREATE (time:write), so time:read stays read-only.
+    requirePermission(ctx, ctx.isApiKey ? Permission.TIME_CREATE : Permission.TIME_READ);
 
     const body = patchSchema.parse(await req.json());
 

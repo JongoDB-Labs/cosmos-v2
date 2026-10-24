@@ -25,6 +25,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Permission } from "@/lib/rbac/permissions";
+import { gateBits, handlerCode } from "./gate-bits";
 import { scopeMask } from "@/lib/auth/api-key";
 import { assertScopes } from "@/lib/openapi/org-context";
 import { contractModules } from "@/lib/openapi/contracts.generated";
@@ -74,25 +75,14 @@ function contracts(): { contract: RouteContract; src: string }[] {
 }
 
 /**
- * The bits a handler checks: Permission.X references and "X" action keys in its
- * body, and in any of the module's own helper functions the body calls (the
- * statuses routes check through a local `authorize`).
+ * The bits a handler's gates required BEFORE this PR (gate-bits.ts). The
+ * `ctx.isApiKey ? keyBit : sessionBit` gates are new here, and before them
+ * every caller met the session arm, so that is what a pre-existing key had to hold.
  */
 function bitsChecked(src: string, method: string): bigint {
-  const parts = src.split(/export async function (GET|POST|PUT|PATCH|DELETE)\b/);
-  const i = parts.indexOf(method.toUpperCase());
-  expect(i, `no ${method.toUpperCase()} handler`).toBeGreaterThan(0);
-  let body = parts[i + 1];
-  const helpers = new Map(
-    [...parts[0].matchAll(/^(?:async )?function (\w+)\([\s\S]*?\n\}/gm)].map((m) => [m[1], m[0]] as const),
-  );
-  for (const [name, fn] of helpers) if (new RegExp(`\\b${name}\\(`).test(body)) body += fn;
-  const keys = new Set<string>();
-  for (const m of body.matchAll(/Permission\.([A-Z_]+)/g)) keys.add(m[1]);
-  for (const m of body.matchAll(/\b(?:requireAccess|requireProjectRead|assertProjectRead)\([^)]*?"([A-Z_]+)"/g)) keys.add(m[1]);
-  let mask = 0n;
-  for (const k of keys) mask |= (P as Record<string, bigint>)[k] ?? 0n;
-  return mask;
+  const code = handlerCode(src, method);
+  expect(code, `no ${method.toUpperCase()} handler`).not.toBeNull();
+  return gateBits(code!, { forKey: false });
 }
 
 describe("no pre-existing scope loses an operation its mask reached", () => {

@@ -9,53 +9,51 @@
 // ORG_READ alone.
 //
 // The scan reads every src/app/api route: for each POST/PUT/PATCH/DELETE
-// handler, the bits it checks (Permission.X and action keys, in its body and
-// in the module's own helpers it calls). A handler whose bits all sit inside
-// the read mask is writable by a read key.
+// handler, the bits it GATES on (gate-bits.ts: gate calls only, in its body and
+// the module's own helpers it calls, the key arm of a session/key ternary). A
+// handler whose gate bits all sit inside a mask is writable by that scope.
 import { describe, it, expect } from "vitest";
 import { globSync, readFileSync } from "node:fs";
 import { Permission } from "@/lib/rbac/permissions";
+import { gateBits, handlerCode } from "./gate-bits";
 import { scopeMask } from "@/lib/auth/api-key";
+import { API_KEY_SCOPES } from "@/lib/auth/api-key-scopes";
+import BASELINE_BY_SCOPE from "./scope-writes.baseline.json";
 
 /**
  * Handlers that already met that bar before scopes were enforced. Each acts on
- * the caller's own state, or is a read sent as POST. Frozen: a new entry fails
- * the test, so it is a decision, not drift.
+ * the caller's own state (their comments, watches, saved views, tab layout) or
+ * is a read sent as POST; the comment edits, saved-view writes and the Teams
+ * digest are tightened in a follow-up (ops' #1135 review). Frozen: a new entry
+ * fails the test, so it is a decision, not drift.
  */
 const BASELINE = [
-  "POST v1/orgs/[orgId]/work-items/search",
-  "POST v1/orgs/[orgId]/saved-views",
-  "DELETE v1/orgs/[orgId]/saved-views/[viewId]",
-  "PUT v1/orgs/[orgId]/saved-views/[viewId]/favorite",
-  "DELETE v1/orgs/[orgId]/saved-views/[viewId]/favorite",
-  "POST v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/pm-comments/[commentId]",
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]",
   "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
-  "PATCH v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]",
-  "PUT v1/orgs/[orgId]/projects/[projectId]/tab-prefs",
+  "DELETE v1/orgs/[orgId]/saved-views/[viewId]",
+  "DELETE v1/orgs/[orgId]/saved-views/[viewId]/favorite",
   "PATCH v1/orgs/[orgId]/projects/[projectId]/pm-comments/[commentId]",
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]",
   "POST v1/orgs/[orgId]/integrations/teams/digest",
+  "POST v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
+  "POST v1/orgs/[orgId]/saved-views",
+  "POST v1/orgs/[orgId]/work-items/search",
+  "PUT v1/orgs/[orgId]/projects/[projectId]/tab-prefs",
+  "PUT v1/orgs/[orgId]/saved-views/[viewId]/favorite",
 ];
-
-function bitsChecked(body: string, preamble: string): bigint {
-  const helpers = [...preamble.matchAll(/^(?:async )?function (\w+)\([\s\S]*?\n\}/gm)];
-  for (const [fn, name] of helpers) if (new RegExp(`\\b${name}\\(`).test(body)) body += fn;
-  const keys = new Set([...body.matchAll(/Permission\.([A-Z_]+)/g)].map((m) => m[1]));
-  for (const m of body.matchAll(/\b(?:requireAccess|requireProjectRead|assertProjectRead)\([^)]*?"([A-Z_]+)"/g)) keys.add(m[1]);
-  let need = 0n;
-  for (const k of keys) need |= (Permission as Record<string, bigint>)[k] ?? 0n;
-  return need;
-}
 
 /** Every write handler a key holding exactly `mask` could pass on bits alone. */
 export function writesReachableBy(mask: bigint): string[] {
   const out: string[] = [];
   for (const file of globSync("src/app/api/**/route.ts")) {
-    const parts = readFileSync(file, "utf8").split(/export async function (GET|POST|PUT|PATCH|DELETE)\b/);
-    for (let i = 1; i < parts.length; i += 2) {
-      if (parts[i] === "GET") continue;
-      const need = bitsChecked(parts[i + 1], parts[0]);
+    const src = readFileSync(file, "utf8");
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+      const code = handlerCode(src, method);
+      if (!code) continue;
+      const need = gateBits(code);
       if (need !== 0n && (need & ~mask) === 0n) {
-        out.push(`${parts[i]} ${file.replace(/^src\/app\/api\//, "").replace(/\/route\.ts$/, "")}`);
+        out.push(`${method} ${file.replace(/^src\/app\/api\//, "").replace(/\/route\.ts$/, "")}`);
       }
     }
   }
@@ -75,5 +73,35 @@ describe("the read scope's mask gates no write", () => {
     const widened = writesReachableBy(scopeMask(["read"]) | Permission.ORG_READ);
     expect(widened.length).toBeGreaterThan(BASELINE.length);
     expect(widened).toContain("POST v1/orgs/[orgId]/mentions/resolve");
+  });
+});
+
+/**
+ * Every scope, not just `read`: the writes each scope's mask reaches on bits
+ * alone, frozen in scope-writes.baseline.json. A change to a mask, or a route
+ * whose gate moves onto a bit some scope carries, changes a list and fails
+ * here, so it is reviewed as a diff of that file, never discovered later.
+ * (Regenerate it by hand from writesReachableBy when the change is intended.)
+ */
+describe("every scope reaches exactly its frozen writes", () => {
+  it("covers every scope", () => {
+    expect(Object.keys(BASELINE_BY_SCOPE).sort()).toEqual([...API_KEY_SCOPES].sort());
+  });
+
+  it.each([...API_KEY_SCOPES])("%s", (scope) => {
+    expect(writesReachableBy(scopeMask([scope]))).toEqual((BASELINE_BY_SCOPE as Record<string, string[]>)[scope]);
+  });
+
+  it.each(["time:read", "audit:read", "members:read"])("%s, a read scope, reaches no write at all", (scope) => {
+    expect(writesReachableBy(scopeMask([scope]))).toEqual([]);
+  });
+
+  it("read reaches only its frozen pre-existing handlers", () => {
+    expect((BASELINE_BY_SCOPE as Record<string, string[]>).read).toEqual([...BASELINE].sort());
+  });
+
+  it("would catch ANALYTICS_READ in planning:write: the SharePoint export POST", () => {
+    const widened = writesReachableBy(scopeMask(["planning:write"]) | Permission.ANALYTICS_READ);
+    expect(widened).toContain("POST v1/orgs/[orgId]/projects/[projectId]/export/sharepoint");
   });
 });

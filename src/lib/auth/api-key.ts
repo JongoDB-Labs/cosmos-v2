@@ -48,8 +48,7 @@ const SCOPE_MASK: Record<ApiKeyScope, bigint> = {
   "planning:write":
     Permission.PROJECT_READ | Permission.PROJECT_UPDATE | Permission.ITEM_READ |
     Permission.OKR_READ | Permission.OKR_CREATE | Permission.OKR_UPDATE |
-    Permission.SPRINT_READ | Permission.SPRINT_CREATE | Permission.SPRINT_UPDATE |
-    Permission.ANALYTICS_READ,
+    Permission.SPRINT_READ | Permission.SPRINT_CREATE | Permission.SPRINT_UPDATE,
   // Time is its own domain: hours are payroll and billing data, not work items.
   // Rates stay behind canSeeRate (own rows, or FINANCE_READ) whatever the scope.
   "time:read": Permission.TIME_READ,
