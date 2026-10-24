@@ -25,6 +25,9 @@ if (!Element.prototype.scrollIntoView) {
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/acme/projects/FSC/boards/b1",
+  // The board's query bar (boards/shared/use-board-query) reads the URL too.
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 // Keep the render light — these pull in heavy trees we don't exercise here.

@@ -1,5 +1,6 @@
 import { connectorToolDefs } from "./connectors";
 import { workItemTools } from "./tools/work-items";
+import { cqlTools } from "./tools/cql";
 import { noteTools } from "./tools/notes";
 import { commentTools } from "./tools/comments";
 import { timeTools } from "./tools/time";
@@ -50,7 +51,7 @@ export function formatToolsForSystemPrompt(tools: ToolDefinition[]): string {
 export const cosmosTools: ToolDefinition[] = [
   {
     name: "query_work_items",
-    description: "Search and filter work items in the project. Returns matching items with their status, assignee, priority, interval, parentId (the item they sit under, or null) and teamId (the team that owns it, or null).",
+    description: "Search and filter work items in the project. Returns matching items with their status, assignee, priority, interval, parentId (the item they sit under, or null) and teamId (the team that owns it, or null). For anything across projects, by date, label, sprint, history or text, use search_work_items when it is available.",
     input_schema: {
       type: "object",
       properties: {
@@ -188,6 +189,8 @@ export const cosmosTools: ToolDefinition[] = [
   // Phase 3b: cosmos-internal CRUD tools — split by domain so each domain
   // file owns its definitions + executor pair.
   ...workItemTools,
+  // The query language: one search across every readable project (CQL org switch).
+  ...cqlTools,
   ...noteTools,
   ...commentTools,
   ...timeTools,
@@ -224,6 +227,7 @@ export const cosmosTools: ToolDefinition[] = [
 // Re-export the native sub-catalogs for callers who want them directly.
 export {
   workItemTools,
+  cqlTools,
   noteTools,
   commentTools,
   timeTools,

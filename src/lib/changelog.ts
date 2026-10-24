@@ -49,6 +49,28 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.471.1",
+    date: "2026-10-24",
+    title: "API keys limited to projects stay in them",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security: an API key limited to some projects can now only change those projects. Before this, it could create and delete work in any project of the org.",
+      },
+    ],
+  },
+  {
+    version: "2.471.0",
+    date: "2026-10-24",
+    title: "Boards and the assistant speak the query language",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Boards and the assistant now speak the Cosmos Query Language (beta): narrow any board with a query and Clear back to its own scope, ask the assistant to search across all your projects, or describe a filter in plain words and let AI write the query for you to check.",
+      },
+    ],
+  },
+  {
     version: "2.470.2",
     date: "2026-10-24",
     title: "Delete an unused workflow",

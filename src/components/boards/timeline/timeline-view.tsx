@@ -1,5 +1,7 @@
 "use client";
 
+import { useBoardQuery } from "@/components/boards/shared/use-board-query";
+import { BoardQueryBar } from "@/components/boards/shared/board-query-bar";
 import { useState, useMemo, useRef, useCallback, useEffect, useLayoutEffect } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -583,19 +585,23 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     [projectStatuses, columns],
   );
 
+  // With the query language on, the bar and the board's scope are one CQL query (boards/shared/use-board-query).
+  const boardQuery = useBoardQuery({ orgId, projectId, config: boardQ.data?.config, rows: items as unknown as Record<string, unknown>[] });
   const filteredItems = useMemo(
     () =>
       items.filter(
         (it) =>
-          matchesFilters(it, filters, projectCustomFields, teamsByUserId, filterNow, {
-            blocked: blockedIds,
-            milestones: milestoneMap,
-          }) &&
+          (boardQuery.enabled
+            ? boardQuery.keep(it)
+            : matchesFilters(it, filters, projectCustomFields, teamsByUserId, filterNow, {
+                blocked: blockedIds,
+                milestones: milestoneMap,
+              })) &&
           // Hide-done lens. Finished work still occupies rows, and on a
           // long-running plan it crowds out what is actually in play.
           !(hideDone && it.columnKey != null && doneKeys.has(it.columnKey)),
       ),
-    [items, filters, projectCustomFields, teamsByUserId, filterNow, blockedIds, milestoneMap, hideDone, doneKeys],
+    [items, filters, projectCustomFields, teamsByUserId, filterNow, blockedIds, milestoneMap, hideDone, doneKeys, boardQuery],
   );
   // ── Hierarchy rows (FR f396a6a9) ─────────────────────────────────────────
   // Depth-first parent→children row order with per-parent collapse. Collapsing a
@@ -1638,24 +1644,27 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           <Minimize2 className="size-3" /> Exit
         </Button>
       )}
-      {!fullscreen && (
-        <FilterBar
-          filters={filters}
-          onFilterChange={setFilters}
-          members={members}
-          intervals={intervals}
-          teams={teams}
-          presentLabelNames={presentLabelNames}
-          boardColumns={projectStatuses}
-          milestoneOptions={milestoneRows}
-          presentPointValues={presentPointValues}
-          showEstimate={showEstimate}
-          orgId={orgId}
-          customFields={projectCustomFields}
-          presentTypeKeys={presentTypeKeys}
-          presentCustomFieldKeys={presentCustomFieldKeys}
-        />
-      )}
+      {!fullscreen &&
+        (boardQuery.enabled ? (
+          <BoardQueryBar orgId={orgId} q={boardQuery} />
+        ) : (
+          <FilterBar
+            filters={filters}
+            onFilterChange={setFilters}
+            members={members}
+            intervals={intervals}
+            teams={teams}
+            presentLabelNames={presentLabelNames}
+            boardColumns={projectStatuses}
+            milestoneOptions={milestoneRows}
+            presentPointValues={presentPointValues}
+            showEstimate={showEstimate}
+            orgId={orgId}
+            customFields={projectCustomFields}
+            presentTypeKeys={presentTypeKeys}
+            presentCustomFieldKeys={presentCustomFieldKeys}
+          />
+        ))}
       {!fullscreen && (
         <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
           <div className="flex flex-wrap items-center gap-1.5">

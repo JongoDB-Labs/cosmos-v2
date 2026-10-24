@@ -31,8 +31,11 @@ import UNGATED from "./ungated-writes.baseline.json";
  */
 const BASELINE = [
   "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
+  "POST v1/orgs/[orgId]/cql/ai",
+  "POST v1/orgs/[orgId]/cql/predicate",
   "POST v1/orgs/[orgId]/cql/validate",
   "POST v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
+  "POST v1/orgs/[orgId]/work-items/aggregate",
   "POST v1/orgs/[orgId]/work-items/query",
   "POST v1/orgs/[orgId]/work-items/search",
   "PUT v1/orgs/[orgId]/projects/[projectId]/tab-prefs",
