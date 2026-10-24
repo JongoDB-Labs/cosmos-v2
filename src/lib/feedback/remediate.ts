@@ -842,7 +842,7 @@ async function runFeedbackRemediationInner(
             createdById: opts.actorUserId,
           },
           select: { id: true, ticketNumber: true },
-        });
+        }, { actorId: opts.actorUserId, source: "SYSTEM" });
 
         await tx.activity.create({
           data: { orgId, workItemId: workItem.id, userId: opts.actorUserId, action: "created" },
