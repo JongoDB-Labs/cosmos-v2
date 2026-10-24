@@ -5,6 +5,7 @@
 // board showing different items from the Issues list it was saved from.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
+import { ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
 import { buildWorkItemWhere } from "./build-where";
 import { matchesWorkItemFilter, evaluable } from "./evaluate-filter";
 import type { WorkItemFilter } from "./filter";
@@ -28,6 +29,7 @@ describe("matchesWorkItemFilter ≡ buildWorkItemWhere (e2e DB)", () => {
     const project = await prisma.project.create({
       data: { orgId, name: "EV", key: `EV${stamp.slice(-4).toUpperCase()}` },
     });
+    await ensureFixtureStatuses(project.id);
     projectId = project.id;
     typeA = (await prisma.workItemType.findFirstOrThrow({ where: { orgId: null } })).id;
     typeB = (await prisma.workItemType.create({ data: { orgId, key: "epic", name: "Epic" } })).id;

@@ -38,6 +38,7 @@ import {
   type BoardFilters,
 } from "@/components/boards/shared/filter-bar";
 import { useCustomFields } from "@/hooks/use-custom-fields";
+import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import { boardBaseline, matchesFilters } from "@/lib/work-items/board-filters";
@@ -239,6 +240,13 @@ function KanbanBoardInner({
   // Custom-field defs for this project — drives the FilterBar's per-field
   // controls and the client-side custom-field predicate below.
   const { fields: projectCustomFields } = useCustomFields(orgId, projectId);
+  // A column whose status was archived stays on the board (its items are still
+  // there) and is marked; nothing about saving the board brings it back.
+  const liveStatuses = useProjectStatuses(orgId, projectId);
+  const liveStatusKeys = useMemo(
+    () => (liveStatuses.length > 0 ? new Set(liveStatuses.map((s) => s.key)) : null),
+    [liveStatuses],
+  );
 
   // Board data is cached in React Query (keyed per org/project) so switching
   // between a project's boards reuses it instead of refetching everything each
@@ -1238,6 +1246,7 @@ function KanbanBoardInner({
                     <KanbanColumn
                       key={`${lane.id}${LANE_SEP}${col.id}`}
                       column={col}
+                      archived={liveStatusKeys !== null && !liveStatusKeys.has(col.key)}
                       droppableId={`${lane.id}${LANE_SEP}${col.key}`}
                       items={itemsForColumnInLane(col.key, lane.items)}
                       members={members}
@@ -1267,6 +1276,7 @@ function KanbanBoardInner({
               <KanbanColumn
                 key={col.id}
                 column={col}
+                archived={liveStatusKeys !== null && !liveStatusKeys.has(col.key)}
                 items={itemsForColumn(col.key)}
                 members={members}
                 onCardClick={handleCardClick}

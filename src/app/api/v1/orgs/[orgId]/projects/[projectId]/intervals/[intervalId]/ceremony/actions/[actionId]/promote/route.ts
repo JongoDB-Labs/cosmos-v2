@@ -175,7 +175,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           createdById: ctx.userId,
         },
         select: { id: true, ticketNumber: true, title: true },
-      });
+      }, { actorId: ctx.userId, source: "API" });
 
       await tx.retroActionItem.update({
         where: { id: action.id },

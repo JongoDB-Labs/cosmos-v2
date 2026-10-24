@@ -8,6 +8,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { applyGovGuardrails } from "@/lib/runtime-config/guardrails";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { sweepMarkedComments } from "@/lib/feedback/comments.server";
 import { isAtLeastAsProtective } from "@/lib/org/tenant-class";
 
 // TENANT-FACING, TIGHTEN-ONLY tenant-class control. This ADDS a self-service path ALONGSIDE
@@ -90,6 +91,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
+    // Feedback comments marked above what the org now covers go internal.
+    await sweepMarkedComments({ orgId, actorId: ctx.userId, reason: "tenant_class_changed", ipAddress: getIpAddress(request) }).catch(
+      (e) => console.error("feedback marking sweep failed:", e instanceof Error ? e.message : "unknown error"),
+    );
     return success({ orgId, tenantClass });
   } catch (error) {
     return handleApiError(error);

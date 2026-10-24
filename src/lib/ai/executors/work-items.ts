@@ -301,7 +301,7 @@ export async function createWorkItem(
         columnEnteredAt: new Date(),
         createdById: ctx.userId,
       },
-    });
+    }, { actorId: ctx.userId, source: "AI" });
 
     await tx.activity.create({
       data: {

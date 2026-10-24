@@ -78,6 +78,7 @@ export const BoardColumn = z.object({
   wipLimit: z.number().int().nullable(),
   sortOrder: z.number().int(),
   category: z.enum(E.ColumnCategory),
+  statusKeys: z.array(z.string()).describe("The statuses this column shows. Empty means the status whose key is `key`."),
 }).meta({ id: "BoardColumn" });
 
 export const Board = z.object({

@@ -8,6 +8,7 @@ import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext 
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 import { DEFAULT_COLUMNS } from "@/lib/boards/default-columns";
 import { loadStatusCategories } from "@/lib/boards/status-categories.server";
+import { seedBoardColumns } from "@/lib/workflow/provision.server";
 import { buildIntervalReport } from "@/lib/intervals/interval-report";
 import { isDoneStatus } from "@/lib/work-items/done-state";
 import { updateWorkItems } from "@/lib/work-items/write.server";
@@ -244,11 +245,9 @@ export async function createProject(input: Record<string, unknown>, ctx: ToolCon
     // Seed the default board + columns (non-template path of the route).
     const board = await tx.board.create({
       data: { orgId: ctx.orgId, projectId: proj.id, name: "Board", type: "KANBAN", sortOrder: 0 },
-      select: { id: true },
+      select: { id: true, orgId: true, projectId: true, type: true },
     });
-    await tx.boardColumn.createMany({
-      data: DEFAULT_COLUMNS.map((col) => ({ boardId: board.id, ...col })),
-    });
+    await seedBoardColumns(tx, board, DEFAULT_COLUMNS);
 
     // Add the actor as a project MANAGER when they are an org member.
     const orgMember = await tx.orgMember.findUnique({
@@ -434,7 +433,7 @@ export async function completeInterval(input: Record<string, unknown>, ctx: Tool
         if (!dest) throw new Error("moveIncompleteToIntervalId is not an interval in this project");
         destination = dest.id;
       }
-      await updateWorkItems(tx, incompleteItems.map((i) => i.id), { intervalId: destination });
+      await updateWorkItems(tx, incompleteItems.map((i) => i.id), { intervalId: destination }, { actorId: ctx.userId, source: "AI" });
     }
 
     const row = await tx.interval.update({

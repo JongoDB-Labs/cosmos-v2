@@ -6,6 +6,7 @@
 import crypto from "node:crypto";
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
+import { ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
 import { MS_CALENDAR } from "../calendar-connect";
 import { MS_TEAMS_APP } from "./identity.server";
 import { handleActivity, parseItemLink, type Activity } from "./handlers.server";
@@ -65,6 +66,8 @@ describe("Cosmos for Teams invokes (e2e DB)", () => {
     const type = await builtInTask();
     const key = `TM${stamp.slice(-4).replace(/[^a-z0-9]/gi, "").toUpperCase()}X`;
     const project = await prisma.project.create({ data: { orgId: org.id, name: "Teams project", key } });
+    await ensureFixtureStatuses(project.id);
+    await ensureFixtureStatuses(project.id, ["in_progress"], { in_progress: "IN_PROGRESS" });
     const item = await prisma.workItem.create({
       data: {
         orgId: org.id, projectId: project.id, ticketNumber: 1, title: "Fix the login page", description: "It loops.",

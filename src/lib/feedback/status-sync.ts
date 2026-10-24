@@ -8,7 +8,7 @@
 import { prisma as defaultPrisma } from "@/lib/db/client";
 
 /** The subset of the Prisma client this sync needs — accepts the root client, an
- *  interactive-transaction client, or Foreman's own instance. `boardColumn` is
+ *  interactive-transaction client, or Foreman's own instance. `workflowStatus` is
  *  optional so a client without it still syncs, by the key heuristic. */
 export interface StatusSyncClient {
   workItem: {
@@ -17,12 +17,11 @@ export interface StatusSyncClient {
       select: { id: true; columnKey: true; projectId: true };
     }): Promise<{ id: string; columnKey: string; projectId: string }[]>;
   };
-  boardColumn?: {
+  workflowStatus?: {
     findMany(args: {
-      where: { board: { projectId: { in: string[] } } };
-      orderBy: object[];
-      select: { key: true; category: true; board: { select: { projectId: true } } };
-    }): Promise<{ key: string; category: string; board: { projectId: string } }[]>;
+      where: { projectId: { in: string[] } };
+      select: { projectId: true; key: true; category: true };
+    }): Promise<{ projectId: string; key: string; category: string }[]>;
   };
   feedbackItem: {
     updateMany(args: {
@@ -82,20 +81,15 @@ export async function syncFeedbackForWorkItems(
       where: { id: { in: workItemIds } },
       select: { id: true, columnKey: true, projectId: true },
     });
-    // Each project's status categories; the first column of a key wins, as
-    // in loadStatusCategories.
+    // Each project's status categories.
     const categories = new Map<string, string>();
-    const columns = client.boardColumn
-      ? await client.boardColumn.findMany({
-          where: { board: { projectId: { in: [...new Set(items.map((i) => i.projectId))] } } },
-          orderBy: [{ board: { sortOrder: "asc" } }, { board: { createdAt: "asc" } }, { sortOrder: "asc" }],
-          select: { key: true, category: true, board: { select: { projectId: true } } },
+    const statuses = client.workflowStatus
+      ? await client.workflowStatus.findMany({
+          where: { projectId: { in: [...new Set(items.map((i) => i.projectId))] } },
+          select: { projectId: true, key: true, category: true },
         })
       : [];
-    for (const c of columns) {
-      const k = `${c.board.projectId}:${c.key}`;
-      if (!categories.has(k)) categories.set(k, c.category);
-    }
+    for (const st of statuses) categories.set(`${st.projectId}:${st.key}`, st.category);
     // Group by target status so each status is one updateMany.
     const byStatus = new Map<FeedbackStatus, string[]>();
     for (const it of items) {

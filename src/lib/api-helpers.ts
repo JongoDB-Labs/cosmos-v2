@@ -53,6 +53,18 @@ export function handleApiError(error: unknown, request?: Request) {
     // is a conflict, not a server error.
     return problem(409, "conflict", "Conflicting concurrent request — please retry", opts);
   }
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2003" &&
+    JSON.stringify(error.meta ?? {}).includes("column_key")
+  ) {
+    // work_items(project_id, column_key) references the project's statuses: a
+    // status the project does not define is the caller's mistake, not a crash.
+    return NextResponse.json(
+      { error: "That status doesn't exist in this project." },
+      { status: 400 }
+    );
+  }
   if (error instanceof ZodError) {
     // Input-validation failures are client errors, not server errors —
     // returning 500 here masked real bugs (and confused clients) for every
