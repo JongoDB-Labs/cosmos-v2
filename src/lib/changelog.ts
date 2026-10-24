@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.460.0",
+    date: "2026-10-24",
+    title: "Follow feedback and merge duplicates",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Follow a feedback item to hear about new comments and status changes; you follow automatically when you post, vote, comment or are mentioned, and unfollowing sticks. Staff can merge a duplicate into another request, moving its votes and followers, and undo the merge exactly.",
+      },
+    ],
+  },
+  {
     version: "2.459.0",
     date: "2026-10-24",
     title: "Per-operation API key scopes",
