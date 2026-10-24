@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.478.1",
+    date: "2026-10-24",
+    title: "Event worker health in Admin",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Admin \u2192 Updates now shows whether the background worker that sends webhooks and runs automations is keeping up, and says so when it looks stopped.",
+      },
+    ],
+  },
+  {
     version: "2.478.0",
     date: "2026-10-24",
     title: "Subscribe to a saved filter (beta)",
