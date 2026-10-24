@@ -134,6 +134,17 @@ export function WorkflowsOverview({
                     : `used by ${w.assignedTo.map((t) => (t ? (types.data?.find((x) => x.id === t)?.name ?? "a type") : "the project")).join(", ")}`}
                 </span>
                 {canManageTemplates && w.published && <SaveAsTemplate orgId={orgId} workflowId={w.id} name={w.name} />}
+                {/* Only a workflow nothing follows: the server refuses one in use (409),
+                    and offering the button there would only lead to that refusal. */}
+                {canManage && w.assignedTo.length === 0 && (
+                  <DeleteWorkflow
+                    orgId={orgId}
+                    projectId={projectId}
+                    workflowId={w.id}
+                    name={w.name}
+                    className={canManageTemplates && w.published ? undefined : "ml-auto"}
+                  />
+                )}
               </li>
             ))}
           </ul>
@@ -323,6 +334,56 @@ function NewWorkflowDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function DeleteWorkflow({
+  orgId,
+  projectId,
+  workflowId,
+  name,
+  className,
+}: {
+  orgId: string;
+  projectId: string;
+  workflowId: string;
+  name: string;
+  className?: string;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const remove = useOrgMutation({
+    mutationFn: () => jsonFetch(`${projectBase(orgId, projectId)}/workflows/${workflowId}`, { method: "DELETE" }),
+    invalidate: WORKFLOW_INVALIDATE,
+    onSuccess: () => {
+      setConfirming(false);
+      toast.success(`Deleted "${name}".`);
+    },
+    onError: (e) => notifyError(e, "Couldn't delete the workflow."),
+  });
+  return (
+    <>
+      <Button className={className} variant="ghost" size="sm" aria-label={`Delete workflow ${name}`} onClick={() => setConfirming(true)}>
+        Delete…
+      </Button>
+      <Dialog open={confirming} onOpenChange={(o) => !o && setConfirming(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete this workflow?</DialogTitle>
+            <DialogDescription>
+              {`“${name}” and all of its versions will be deleted. No type follows it, so no item moves. This can’t be undone.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirming(false)} disabled={remove.isPending}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" onClick={() => remove.mutate()} disabled={remove.isPending}>
+              {remove.isPending ? "Deleting…" : "Delete workflow"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

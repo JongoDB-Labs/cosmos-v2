@@ -334,6 +334,8 @@ describe("drafts and publishes at once", () => {
     const first = held((t) => assignWorkflow(t, { orgId, projectId: p, workItemTypeId: null, workflowId: a }));
     await first.ready;
     const second = tx((t) => assignWorkflow(t, { orgId, projectId: p, workItemTypeId: null, workflowId: b }));
+    // It rejects while the test waits below; handled now so vitest doesn't count it unhandled.
+    second.catch(() => {});
     await new Promise((r) => setTimeout(r, 200));
     first.release();
     await first.done;
@@ -348,6 +350,8 @@ describe("drafts and publishes at once", () => {
     const assign = held((t) => assignWorkflow(t, { orgId, projectId: p, workItemTypeId: null, workflowId: id }));
     await assign.ready;
     const remove = tx((t) => deleteWorkflow(t, scopeOf(p), id));
+    // It rejects while the test waits below; handled now so vitest doesn't count it unhandled.
+    remove.catch(() => {});
     await new Promise((r) => setTimeout(r, 200));
     assign.release();
     await assign.done;
@@ -387,6 +391,8 @@ describe("names", () => {
     }, { timeout: 15_000 });
     await ready;
     const second = tx((t) => createTemplateFrom(t, { orgId, workflowId: id, name, actorId: aliceId }));
+    // It rejects while the test waits below; handled now so vitest doesn't count it unhandled.
+    second.catch(() => {});
     await new Promise((r) => setTimeout(r, 200));
     release();
     await first;

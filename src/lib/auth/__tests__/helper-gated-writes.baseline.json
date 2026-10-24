@@ -349,6 +349,9 @@
   "POST v1/orgs/[orgId]/projects/[projectId]/work-item-links": [
     "requireProjectManage"
   ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/workflow/conflicts": [
+    "requireProjectManage"
+  ],
   "POST v1/orgs/[orgId]/projects/[projectId]/workflow/simulate": [
     "requireProjectManage"
   ],

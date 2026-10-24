@@ -49,6 +49,39 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.470.2",
+    date: "2026-10-24",
+    title: "Delete an unused workflow",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Settings \u2192 Workflows can now delete a workflow that nothing follows, after a confirmation. A workflow that is a project's default or assigned to an item type can't be deleted.",
+      },
+    ],
+  },
+  {
+    version: "2.470.1",
+    date: "2026-10-24",
+    title: "Inbox links open the right item",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Clicking a notification in the Inbox now opens the item it is about. Before, every Inbox link pointed to a page that did not exist.",
+      },
+    ],
+  },
+  {
+    version: "2.470.0",
+    date: "2026-10-24",
+    title: "One category per status",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Every board, report and filter now reads a status column's category from the status itself, so a status means the same thing everywhere. Settings \u2192 Workflows \u2192 Statuses lists any status whose boards disagreed on its category and lets an admin keep the status's category or adopt a board's.",
+      },
+    ],
+  },
+  {
     version: "2.469.0",
     date: "2026-10-24",
     title: "Search work items across projects in the API",
