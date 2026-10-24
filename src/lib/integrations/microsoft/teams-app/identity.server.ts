@@ -85,3 +85,29 @@ export async function teamsUsers(orgs: TeamsOrg[], tenantId: string, aadObjectId
   }
   return out;
 }
+
+const TENANTS_TTL_MS = 60_000;
+let tenants: { set: Set<string>; at: number } | null = null;
+
+/**
+ * Tenants some org has the Teams app on for, cached for a minute: lets an
+ * unauthenticated endpoint refuse a token from any other tenant without a
+ * database read per request, and without fetching keys for it.
+ */
+export async function teamsAppTenants(now = Date.now()): Promise<Set<string>> {
+  if (tenants && now - tenants.at < TENANTS_TTL_MS) return tenants.set;
+  const on = await prisma.integration.findMany({ where: { provider: MS_TEAMS_APP, status: "ACTIVE" }, select: { orgId: true } });
+  const cal = on.length
+    ? await prisma.integration.findMany({ where: { provider: MS_CALENDAR, status: "ACTIVE", orgId: { in: on.map((o) => o.orgId) } }, select: { config: true } })
+    : [];
+  const set = new Set(
+    cal.map((c) => (c.config as { tenantId?: unknown } | null)?.tenantId).filter((t): t is string => typeof t === "string" && !!t.trim()).map((t) => t.trim().toLowerCase()),
+  );
+  tenants = { set, at: now };
+  return set;
+}
+
+/** For tests: forget the cached tenant list. */
+export function _resetTeamsAppTenants() {
+  tenants = null;
+}

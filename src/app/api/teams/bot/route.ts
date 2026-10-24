@@ -4,6 +4,7 @@ import { getRateLimitKey, rateLimit } from "@/lib/rate-limit/bucket";
 import { BotAuthError, verifyBotRequest } from "@/lib/integrations/microsoft/teams-app/bot-auth.server";
 import { teamsBotAppId } from "@/lib/integrations/microsoft/teams-app/identity.server";
 import { handleActivity, tenantOf, type Activity } from "@/lib/integrations/microsoft/teams-app/handlers.server";
+import { readCapped } from "@/lib/integrations/microsoft/teams-app/read-capped";
 
 /**
  * COSMOS-202 T1: the Cosmos for Teams bot's messaging endpoint. Public (the
@@ -14,37 +15,13 @@ import { handleActivity, tenantOf, type Activity } from "@/lib/integrations/micr
 
 const MAX_BODY = 256 * 1024;
 
-/**
- * The body as text, or null once it passes MAX_BODY bytes. Read off the
- * stream and counted in bytes, so neither a missing or false Content-Length
- * nor a chunked upload can make us buffer more than the limit.
- */
-async function readCapped(request: NextRequest): Promise<string | null> {
-  if (!request.body) return "";
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_BODY) {
-      await reader.cancel().catch(() => undefined);
-      return null;
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
 const limited = (retryAfter: number) =>
   new Response(JSON.stringify({ error: "rate_limited" }), { status: 429, headers: { "Content-Type": "application/json", "Retry-After": String(retryAfter) } });
 
 export async function POST(request: NextRequest) {
   const ip = rateLimit(getRateLimitKey(request, "teams-bot"), { capacity: 120, refillPerSecond: 2 });
   if (!ip.allowed) return limited(ip.retryAfter);
-  if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) return new Response(null, { status: 413 });
-
-  const raw = await readCapped(request);
+  const raw = await readCapped(request, MAX_BODY);
   if (raw === null) return new Response(null, { status: 413 });
   let activity: Activity;
   try {

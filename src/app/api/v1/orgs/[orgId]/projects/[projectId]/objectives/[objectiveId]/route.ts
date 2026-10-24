@@ -20,7 +20,7 @@ async function loadObjective(orgId: string, projectId: string, objectiveId: stri
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, getObjective);
     const { params: { orgId, projectId, objectiveId } } = await parseRequest(getObjective, request, params);
     await requireProjectRead(ctx, projectId, "OKR_READ");
 
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, updateObjective);
     const { params: { orgId, projectId, objectiveId }, body: data } = await parseRequest(updateObjective, request, params);
 
     const existing = await loadObjective(orgId, projectId, objectiveId);
@@ -115,7 +115,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, deleteObjective);
     const { params: { orgId, projectId, objectiveId } } = await parseRequest(deleteObjective, request, params);
 
     const existing = await loadObjective(orgId, projectId, objectiveId);

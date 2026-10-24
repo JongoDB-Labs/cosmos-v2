@@ -27,7 +27,7 @@ export const createGoal = defineRoute({
   summary: "Create a goal",
   tags: ["Goals & KPIs"],
   stability: "stable",
-  scopes: ["items:write"],
+  scopes: ["planning:write"],
   request: {
     params,
     body: z.object({

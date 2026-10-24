@@ -14,7 +14,7 @@ type RouteParams = {
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, updateKeyResult);
     const { params: { orgId, projectId, krId }, body: data } = await parseRequest(updateKeyResult, request, params);
 
     // Scope check: the KR's objective must belong to this org + project.
@@ -75,7 +75,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const { ctx } = await orgContext((await params).orgId);
+    const { ctx } = await orgContext((await params).orgId, deleteKeyResult);
     const { params: { orgId, projectId, krId } } = await parseRequest(deleteKeyResult, request, params);
 
     const kr = await prisma.keyResult.findFirst({

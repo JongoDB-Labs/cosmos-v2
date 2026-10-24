@@ -15,7 +15,7 @@ export const listMembers = defineRoute({
   scopes: ["read"],
   request: { params: z.object({ orgId: Uuid }) },
   responses: { 200: z.array(Member) },
-  errors: [400, 401, 404],
+  errors: [400, 401, 403, 404],
   pagination: "cursor",
   scopedFields: [{ scope: "members:read", paths: ["[].user.email"] }],
 });
