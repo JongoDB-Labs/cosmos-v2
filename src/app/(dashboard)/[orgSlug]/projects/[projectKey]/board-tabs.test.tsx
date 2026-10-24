@@ -162,3 +162,15 @@ describe("ProjectBoardTabs — per-tab management menu (COSMOS-57)", () => {
     expect(labels).toContain("Hide tab");
   });
 });
+
+describe("ProjectBoardTabs — Filters tab (query language)", () => {
+  it("shows a Filters tab when the layout passes the query language's \"filters\"", () => {
+    render(<ProjectBoardTabs {...baseProps} enabledFeatures={["okr", "filters"]} />);
+    expect(screen.getByRole("link", { name: "Filters" }).getAttribute("href")).toMatch(/\/projects\/[^/]+\/filters$/);
+  });
+
+  it("has no Filters tab without it", () => {
+    render(<ProjectBoardTabs {...baseProps} />);
+    expect(screen.queryByRole("link", { name: "Filters" })).toBeNull();
+  });
+});

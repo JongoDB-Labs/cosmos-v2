@@ -83,14 +83,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
           _count: { select: { comments: true, activities: true } },
         },
-      });
+      }, { actorId: ctx.userId, source: "API" });
 
       // The copied tags name real labels, but a copy needs its OWN join rows —
       // otherwise the duplicate shows the label on its card while the catalogue
       // has no record of it carrying one, and renaming that label later would
       // skip the copy.
       if (source.tags.length > 0) {
-        await setWorkItemLabels(tx, orgId, dupe.id, source.tags);
+        await setWorkItemLabels(tx, orgId, dupe.id, source.tags, { actorId: ctx.userId, source: "API" });
       }
 
       await tx.activity.create({
@@ -122,9 +122,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               sortOrder: kid.sortOrder,
               createdById: ctx.userId,
             },
-          });
+          }, { actorId: ctx.userId, source: "API" });
           if (kid.tags.length > 0) {
-            await setWorkItemLabels(tx, orgId, child.id, kid.tags);
+            await setWorkItemLabels(tx, orgId, child.id, kid.tags, { actorId: ctx.userId, source: "API" });
           }
           await tx.activity.create({
             data: {

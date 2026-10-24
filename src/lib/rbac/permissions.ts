@@ -173,6 +173,12 @@ export const Permission = {
   //
   // The same own/all split TIME_READ and TIME_READ_ALL already make.
   FINANCE_READ_PROJECT: 1n << 121n,
+
+  // Share a saved filter with the WHOLE org (query design §10.2). Sharing with
+  // a team or a project needs only the right to see it; org-wide sharing puts
+  // a filter in every member's "Shared with me", so it is an administrator's
+  // call by default, delegable to a work role.
+  FILTER_SHARE_ORG: 1n << 122n,
 } as const;
 
 export type PermissionKey = keyof typeof Permission;
@@ -228,6 +234,7 @@ export const RolePermissions = {
     Permission.ITEM_DELETE,
     Permission.ITEM_ASSIGN,
     Permission.ITEM_BULK_EDIT,
+    Permission.FILTER_SHARE_ORG,
     Permission.SPRINT_CREATE,
     Permission.SPRINT_READ,
     Permission.SPRINT_UPDATE,

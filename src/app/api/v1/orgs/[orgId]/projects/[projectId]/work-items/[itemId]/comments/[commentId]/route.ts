@@ -5,6 +5,7 @@ import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { canManageProject } from "@/lib/rbac/scope";
 import { success, noContent, handleApiError } from "@/lib/api-helpers";
 import { z } from "zod";
+import { Permission } from "@/lib/rbac/permissions";
 
 /**
  * Edit / delete a single work-item comment — the CRUD the comments collection
@@ -73,7 +74,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     // The author can remove their own comment; a project manager can moderate.
     const allowed =
       existing.authorId === ctx.userId ||
-      (await canManageProject(ctx, projectId));
+      (await canManageProject(ctx, projectId, Permission.ITEM_DELETE));
     if (!allowed) return new Response("Forbidden", { status: 403 });
 
     await prisma.comment.delete({ where: { id: commentId } });

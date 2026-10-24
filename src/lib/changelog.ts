@@ -49,6 +49,127 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.457.0",
+    date: "2026-10-24",
+    title: "API reference: OKRs, goals, KPIs, time and audit",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The API reference now covers OKRs, goals, KPIs, time entries and the audit log. Editing a time entry no longer shows its billing rate to someone without finance access.",
+      },
+    ],
+  },
+  {
+    version: "2.456.1",
+    date: "2026-10-24",
+    title: "Tighter access checks in chat and assistant search",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The assistant's search now respects project access policies for admins, and API keys can no longer post, edit, pin or react in chat.",
+      },
+    ],
+  },
+  {
+    version: "2.456.0",
+    date: "2026-10-24",
+    title: "Project statuses",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each project can now define its own workflow statuses, each mapped to a category (to do, in progress, done). Board columns follow the status categories, and every status change is recorded consistently.",
+      },
+    ],
+  },
+  {
+    version: "2.455.0",
+    date: "2026-10-24",
+    title: "CUI markings on feedback comments",
+    highlights: [
+      {
+        kind: "feature",
+        text: "For government organizations, staff can mark a feedback comment CUI. Marked comments stay internal unless the organization is cleared for them, and lowering the clearance hides them again automatically.",
+      },
+    ],
+  },
+  {
+    version: "2.454.2",
+    date: "2026-10-24",
+    title: "API keys respect their scopes",
+    highlights: [
+      {
+        kind: "fix",
+        text: "API keys now respect their scopes for project planning changes, boards, team and member management, files and chat channel administration, whatever the role of the person who created the key.",
+      },
+    ],
+  },
+  {
+    version: "2.454.1",
+    date: "2026-10-24",
+    title: "Safer web page reading in the assistant",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When the assistant reads a web page, encoded markup is now cleaned out properly instead of being turned back into tags.",
+      },
+    ],
+  },
+  {
+    version: "2.454.0",
+    date: "2026-10-24",
+    title: "More of the API on contracts",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "For API clients: projects, intervals, milestones, labels, custom fields and members now return standard problem+json errors, the members list can be paged (send limit or cursor), and member email addresses are returned only to API keys with the new members:read scope.",
+      },
+    ],
+  },
+  {
+    version: "2.453.0",
+    date: "2026-10-24",
+    title: "Team voice in feedback",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Staff can now add internal notes to feedback that only staff see, pin an official response at the top of the discussion, filter between public and internal comments, and switch a comment between the two.",
+      },
+    ],
+  },
+  {
+    version: "2.452.0",
+    date: "2026-10-23",
+    title: "Shared saved filters",
+    highlights: [
+      {
+        kind: "feature",
+        text: "With the query language on, share a saved filter with a team, a project or the whole organization, add co-editors, star filters into the sidebar, and see when you've changed the filter you loaded. Shared filters never reveal projects or people you can't see.",
+      },
+    ],
+  },
+  {
+    version: "2.451.0",
+    date: "2026-10-23",
+    title: "Cosmos for Teams",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Use Cosmos from Microsoft Teams: search work items, preview links in chat, and create a work item from a Teams message, all with your own Cosmos permissions.",
+      },
+    ],
+  },
+  {
+    version: "2.450.0",
+    date: "2026-10-23",
+    title: "Projects API: paging and standard errors",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "For API clients: the projects list can now be paged (send limit or cursor; without them you still get the full list), unknown query parameters are ignored, and errors come back as standard problem+json.",
+      },
+    ],
+  },
+  {
     version: "2.449.1",
     date: "2026-10-23",
     title: "Consistent work item updates",

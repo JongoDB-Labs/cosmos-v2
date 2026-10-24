@@ -3,7 +3,7 @@ import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { ForbiddenError, NotFoundError, ConflictError } from "./rbac/check";
 import { serverReportError } from "./telemetry/server";
-import { problem } from "./openapi/problem";
+import { problem, ProblemError } from "./openapi/problem";
 import { isNoModelCredentialError } from "./ai/egress/types";
 
 export function success<T>(data: T, status = 200) {
@@ -26,6 +26,9 @@ export function noContent() {
  */
 export function handleApiError(error: unknown, request?: Request) {
   const opts = { request };
+  if (error instanceof ProblemError) {
+    return problem(error.status, error.code, error.message, { ...opts, headers: error.headers });
+  }
   if (error instanceof ForbiddenError) {
     return problem(403, "forbidden", error.message, opts);
   }
@@ -49,6 +52,18 @@ export function handleApiError(error: unknown, request?: Request) {
     // A unique-constraint race (e.g. two posts of the same source landing at once)
     // is a conflict, not a server error.
     return problem(409, "conflict", "Conflicting concurrent request — please retry", opts);
+  }
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2003" &&
+    JSON.stringify(error.meta ?? {}).includes("column_key")
+  ) {
+    // work_items(project_id, column_key) references the project's statuses: a
+    // status the project does not define is the caller's mistake, not a crash.
+    return NextResponse.json(
+      { error: "That status doesn't exist in this project." },
+      { status: 400 }
+    );
   }
   if (error instanceof ZodError) {
     // Input-validation failures are client errors, not server errors —

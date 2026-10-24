@@ -1,68 +1,74 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { revalidateOrgProjects } from "@/lib/cache/queries";
 import { getEntitlements, isSectorEnabled } from "@/lib/entitlements";
 import { seedSectorFields } from "@/lib/custom-fields/seed-sector-fields";
-import { z } from "zod";
 import { DEFAULT_COLUMNS } from "@/lib/boards/default-columns";
-
-const createProjectSchema = z.object({
-  name: z.string().min(1).max(100),
-  key: z.string().min(2).max(10).regex(/^[A-Z][A-Z0-9]*$/, "Key must be uppercase alphanumeric"),
-  description: z.string().nullish(),
-  templateId: z.string().uuid().nullish(),
-  sector: z.string().nullish(),
-});
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { cursorPage } from "@/lib/openapi/paginate";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { createProject, listProjects } from "./route.contract";
+import { seedBoardColumns } from "@/lib/workflow/provision.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId);
+    const { params: p, query } = await parseRequest(listProjects, request, params);
     requirePermission(ctx, Permission.PROJECT_READ);
 
-    const archived = request.nextUrl.searchParams.get("archived") === "true";
+    // `1`/`0` as well as `true`/`false`: callers used to be able to send either.
+    const archived = query.archived === "true" || query.archived === "1";
 
-    const projects = await prisma.project.findMany({
-      where: { orgId, archived },
+    // Visibility is decided BEFORE paging and goes into the WHERE. Filtering
+    // after the fetch (as this route used to) let a hidden project end a page,
+    // and the cursor is built from a page's last row, so its id and createdAt
+    // went out in `Link` / `Cosmos-Next-Cursor` to exactly the caller it is
+    // hidden from. In the WHERE, pages are also full.
+    //
+    // getVisibleProjectIds works on ids (it resolves memberships once and
+    // short-circuits when nothing in the set is restricted), so it gets the
+    // org's candidates first: an id-only query over one org's projects.
+    const candidates = await prisma.project.findMany({
+      where: { orgId: p.orgId, archived },
+      select: { id: true },
+    });
+    const visible = await getVisibleProjectIds(ctx, candidates.map((c) => c.id));
+
+    const page = cursorPage<{ createdAt: Date; id: string }>({
+      request, query,
+      order: [
+        { field: "createdAt", dir: "desc", type: "date" },
+        { field: "id", dir: "desc", type: "string" },
+      ],
+    });
+    const fetched = await prisma.project.findMany({
+      where: { AND: [{ orgId: p.orgId, archived, id: { in: [...visible] } }, page.where] },
       include: {
         _count: { select: { boards: true, intervals: true, members: true } },
         // The template's sector scopes the New-issue Type picker to the types
         // belonging to this project, rather than every type in the org.
         projectTemplate: { select: { sector: true } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: page.orderBy,
+      take: page.take,
     });
+    const { rows: projects, headers } = page.finish(fetched);
 
-    // Drop the projects this actor may not see. The read-gate conversion
-    // covered projects/[projectId]/**, which is everything that reads a
-    // project's CONTENTS — but the LIST sits one level up, so a restricted
-    // project still appeared as a card and only 403'd once opened. That leaks
-    // its existence, name, key and counts to precisely the people it is meant
-    // to be hidden from.
-    //
-    // Filtered in memory rather than in the WHERE clause: visibility depends on
-    // the actor's memberships and org role, not on anything expressible as a
-    // Prisma predicate here, and getVisibleProjectIds short-circuits when
-    // nothing in the set is restricted (the common case) without querying
-    // memberships at all.
-    const visible = await getVisibleProjectIds(
-      ctx,
-      projects.map((p) => p.id),
-    );
-
-    return success(
+    // The projects this actor may not see were excluded in the WHERE above.
+    // The list is where a restricted project leaks its existence, name, key and
+    // counts to the people it is hidden from, so the result is narrowed again
+    // here: the rule must not depend on one predicate staying exactly as written.
+    return respond(
+      listProjects,
+      200,
       projects
         .filter((p) => visible.has(p.id))
         // Flatten the template relation to a bare `sector`, so the client reads
@@ -71,33 +77,24 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           ...p,
           sector: projectTemplate?.sector ?? null,
         })),
+      { headers },
     );
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId);
+    const { params: { orgId }, body: data } = await parseRequest(createProject, request, params);
     requirePermission(ctx, Permission.PROJECT_CREATE);
-
-    const body = await request.json();
-    const data = createProjectSchema.parse(body);
 
     const existing = await prisma.project.findUnique({
       where: { orgId_key: { orgId, key: data.key } },
     });
     if (existing) {
-      return new Response(
-        JSON.stringify({ error: "Project key already exists" }),
-        { status: 409, headers: { "Content-Type": "application/json" } }
-      );
+      return problem(409, "conflict", "Project key already exists", { request });
     }
 
     // Optionally load the template
@@ -117,17 +114,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         include: { boardTemplates: true },
       });
       if (!tpl) {
-        return new Response(
-          JSON.stringify({ error: "Template not found" }),
-          { status: 404, headers: { "Content-Type": "application/json" } }
-        );
+        return problem(404, "not_found", "Template not found", { request });
       }
       // Allow built-in templates or org-owned templates
       if (!tpl.isBuiltIn && tpl.orgId !== orgId) {
-        return new Response(
-          JSON.stringify({ error: "Template not found" }),
-          { status: 404, headers: { "Content-Type": "application/json" } }
-        );
+        return problem(404, "not_found", "Template not found", { request });
       }
       // Sector entitlement boundary: a tenant restricted to certain sectors
       // (e.g. an example vertical → AEC only) cannot instantiate a template from a disabled
@@ -135,10 +126,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // without this. 404 (not 403) to avoid revealing the template exists.
       const ent = await getEntitlements(orgId);
       if (!isSectorEnabled(ent, tpl.sector)) {
-        return new Response(
-          JSON.stringify({ error: "Template not found" }),
-          { status: 404, headers: { "Content-Type": "application/json" } }
-        );
+        return problem(404, "not_found", "Template not found", { request });
       }
       template = tpl;
     }
@@ -182,25 +170,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             },
           });
 
-          if (columns && columns.length > 0) {
-            await tx.boardColumn.createMany({
-              data: columns.map((col, idx) => ({
-                boardId: board.id,
-                name: col.name,
-                key: col.key,
-                color: col.color ?? "#7dd3fc",
-                sortOrder: col.sortOrder ?? idx,
-                category: (col.category as import("@prisma/client").ColumnCategory) ?? "TODO",
-              })),
-            });
-          } else {
-            await tx.boardColumn.createMany({
-              data: DEFAULT_COLUMNS.map((col) => ({
-                boardId: board.id,
-                ...col,
-              })),
-            });
-          }
+          await seedBoardColumns(
+            tx,
+            board,
+            columns && columns.length > 0
+              ? columns.map((col, idx) => ({
+                  name: col.name,
+                  key: col.key,
+                  color: col.color,
+                  sortOrder: col.sortOrder ?? idx,
+                  category: col.category as import("@prisma/client").ColumnCategory | undefined,
+                }))
+              : DEFAULT_COLUMNS,
+          );
         }
       } else {
         // Default single board with default columns
@@ -214,12 +196,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           },
         });
 
-        await tx.boardColumn.createMany({
-          data: DEFAULT_COLUMNS.map((col) => ({
-            boardId: board.id,
-            ...col,
-          })),
-        });
+        await seedBoardColumns(tx, board, DEFAULT_COLUMNS);
       }
 
       const orgMember = await tx.orgMember.findUnique({
@@ -265,8 +242,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     revalidateOrgProjects(orgId);
 
-    return created(project);
+    return respond(createProject, 201, project);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

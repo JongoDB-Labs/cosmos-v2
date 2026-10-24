@@ -116,7 +116,7 @@ export async function convertBlockToWorkItem(input: {
         createdById: input.userId,
       },
       select: { id: true, title: true, ticketNumber: true, columnKey: true },
-    });
+    }, { actorId: input.userId, source: "API" });
     await tx.activity.create({
       data: { orgId: input.orgId, workItemId: item.id, userId: input.userId, action: "created" },
     });
@@ -262,7 +262,7 @@ export async function convertTableToWorkItems(input: {
           createdById: input.userId,
         },
         select: { id: true },
-      });
+      }, { actorId: input.userId, source: "API" });
       await tx.activity.create({
         data: { orgId: input.orgId, workItemId: item.id, userId: input.userId, action: "created" },
       });

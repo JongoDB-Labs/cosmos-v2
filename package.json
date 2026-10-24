@@ -1,6 +1,6 @@
 {
   "name": "cosmos-v2",
-  "version": "2.449.1",
+  "version": "2.457.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -12,6 +12,8 @@
     "check:examples": "node scripts/check-examples.mjs",
     "check:control-coverage": "node scripts/check-control-coverage.mjs",
     "check:licenses": "node scripts/check-dependency-licenses.mjs",
+    "openapi": "node scripts/openapi/collect.mjs && tsx scripts/openapi/build.mts",
+    "check:openapi": "node scripts/openapi/check.mjs",
     "analyze": "ANALYZE=true next build",
     "e2e": "playwright test",
     "e2e:install": "playwright install chromium",
@@ -119,6 +121,7 @@
   },
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.278",
+    "@asteasolutions/zod-to-openapi": "9.1.0",
     "@lexical/headless": "^0.51.0",
     "@next/bundle-analyzer": "^16.4.2",
     "@playwright/test": "^1.63.0",
