@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { prisma } from "@/lib/db/client";
 import type { Prisma } from "@prisma/client";
 import { SESSION_COOKIE } from "@/lib/auth/client";
-import { classifyBearer, parseKeyToken } from "@/lib/auth/bearer";
+import { verifiedApiKeyId } from "@/lib/auth/api-key";
 
 export interface AuditEntry {
   orgId: string;
@@ -15,17 +15,21 @@ export interface AuditEntry {
 }
 
 /** How the request behind an audited action authenticated. */
-export type AuthMethod = "session" | "api_key" | "oauth";
+export type AuthMethod = "session" | "api_key";
 
 /**
  * How the current request authenticated, and with which key. A key acts as the
  * user who minted it, so `userId` alone can't say whether a person did
  * something in the app or a script did it with their key; these fields can.
  *
- * Read from the request itself, so the ~200 call sites of logAudit need no
- * change. A bearer decides a request whenever it is present (it never falls
- * back to the cookie riding beside it), so it is checked first. Outside a
- * request (a job, a script) there is nothing to record.
+ * Read from the same request headers authentication reads, so the ~200 call
+ * sites of logAudit need no change. Nothing here trusts a header's claim: a
+ * key is recorded only when its secret verifies (the check authentication
+ * itself makes), so a signed-in user who adds someone's key prefix to a
+ * request can't pin their write on that key. A bearer that doesn't verify
+ * authenticated nothing, so the cookie decides. Outside a request (a job, a
+ * script) there is nothing to record. OAuth tokens authenticate nothing yet;
+ * they get a method of their own when they do.
  */
 async function requestAuth(orgId: string): Promise<{ authMethod?: AuthMethod; apiKeyId?: string }> {
   let h: Headers;
@@ -34,17 +38,8 @@ async function requestAuth(orgId: string): Promise<{ authMethod?: AuthMethod; ap
   } catch {
     return {};
   }
-  const authorization = h.get("authorization");
-  const kind = classifyBearer(authorization);
-  if (kind === "api_key") {
-    const parsed = parseKeyToken(authorization);
-    const key = parsed
-      ? await prisma.apiKey.findUnique({ where: { orgId_prefix: { orgId, prefix: parsed.prefix } }, select: { id: true } })
-      : null;
-    return { authMethod: "api_key", ...(key && { apiKeyId: key.id }) };
-  }
-  if (kind === "oauth_access") return { authMethod: "oauth" };
-  if (kind) return {};
+  const keyId = await verifiedApiKeyId(h.get("authorization"), orgId);
+  if (keyId) return { authMethod: "api_key", apiKeyId: keyId };
   const cookie = h.get("cookie") ?? "";
   return new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=`).test(cookie) ? { authMethod: "session" } : {};
 }
