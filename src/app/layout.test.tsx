@@ -10,9 +10,13 @@ describe("root layout <head>", () => {
   // Chromium reads rel=manifest only from <head>. Streamed metadata lands in
   // <body>, so a manifest link that only comes from metadata leaves the app
   // uninstallable (COSMOS-230).
-  it("carries the web-app manifest link", () => {
+  // Next's own (streamed) copy lands in <body>, which Chromium ignores, so
+  // the one in <head> is the only one it sees.
+  it("carries exactly one web-app manifest link", () => {
     const html = renderToStaticMarkup(<RootLayout>{null}</RootLayout>);
     const head = html.slice(html.indexOf("<head>"), html.indexOf("</head>"));
-    expect(head).toContain('<link rel="manifest" href="/manifest.webmanifest"/>');
+    expect(head.match(/<link[^>]*rel="manifest"[^>]*>/g)).toEqual([
+      '<link rel="manifest" href="/manifest.webmanifest"/>',
+    ]);
   });
 });
