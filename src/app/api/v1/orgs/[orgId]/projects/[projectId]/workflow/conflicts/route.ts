@@ -5,7 +5,7 @@ import { parseRequest } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { Permission } from "@/lib/rbac/permissions";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { workflowProjectContext } from "@/lib/workflow/route-auth.server";
 import { listBackfillConflicts, resolveBackfillConflict } from "@/lib/workflow/column-categories.server";
 import { listStatusConflicts, resolveStatusConflict } from "./route.contract";
@@ -27,6 +27,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: p, body } = await parseRequest(resolveStatusConflict, request, params);
     const ctx = await workflowProjectContext(p, resolveStatusConflict);
+    await requireProjectVisible(ctx, p.projectId);
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     const status = await prisma.workflowStatus.findUnique({ where: { projectId_key: { projectId: p.projectId, key: body.key } }, select: { id: true } });
     if (!status) return problem(404, "not_found", "Status not found", { request });

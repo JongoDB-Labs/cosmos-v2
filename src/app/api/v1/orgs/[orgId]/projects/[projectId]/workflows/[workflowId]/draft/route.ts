@@ -7,6 +7,7 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { discardDraft, saveDraft, type VersionLayout } from "@/lib/workflow/versions.server";
 import { discardWorkflowDraft, saveWorkflowDraft } from "./route.contract";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; workflowId: string }> };
 
@@ -15,6 +16,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: p, body } = await parseRequest(saveWorkflowDraft, request, params);
     const ctx = await workflowProjectContext(p, saveWorkflowDraft);
+    await requireProjectVisible(ctx, p.projectId);
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     const saved = await prisma.$transaction((tx) =>
       saveDraft(tx, { orgId: p.orgId, projectId: p.projectId }, p.workflowId, {
@@ -32,6 +34,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: p } = await parseRequest(discardWorkflowDraft, request, params);
     const ctx = await workflowProjectContext(p, discardWorkflowDraft);
+    await requireProjectVisible(ctx, p.projectId);
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     await prisma.$transaction((tx) => discardDraft(tx, { orgId: p.orgId, projectId: p.projectId }, p.workflowId));
     return success({ ok: true as const });

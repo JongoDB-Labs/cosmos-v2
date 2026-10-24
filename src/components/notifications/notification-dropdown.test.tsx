@@ -12,8 +12,15 @@ import {
   cleanup,
   fireEvent,
   waitFor,
+  act,
+  within,
 } from "@testing-library/react";
 import { NotificationDropdown } from "./notification-dropdown";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  announceNotificationsChanged,
+  onNotificationsChanged,
+} from "@/lib/notifications/changed";
 import type { Notification } from "@/types/models";
 
 const { push, notifyError } = vi.hoisted(() => ({
@@ -27,8 +34,11 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/errors/notify", () => ({ notifyError }));
 
 // jsdom has no EventSource; the component opens one for live updates.
+const sse: { emit?: (data: unknown) => void } = {};
 class FakeEventSource {
-  addEventListener() {}
+  addEventListener(_name: string, fn: (ev: MessageEvent) => void) {
+    sse.emit = (data) => fn({ data: JSON.stringify(data) } as MessageEvent);
+  }
   removeEventListener() {}
   close() {}
 }
@@ -55,6 +65,7 @@ type Page = {
   data: Notification[];
   nextCursor: string | null;
   unread?: number;
+  byType?: { type: string; count: number }[];
 };
 
 /** The bell reads the paged inbox endpoint; answer by cursor. */
@@ -65,7 +76,9 @@ function mockInbox(
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "PUT")
       return { ok: put.ok, status: put.ok ? 200 : 500, json: async () => ({}) };
-    const cursor = new URL(url, "http://x").searchParams.get("cursor") ?? "";
+    const sp = new URL(url, "http://x").searchParams;
+    const cursor =
+      (sp.get("type") ? `${sp.get("type")}:` : "") + (sp.get("cursor") ?? "");
     const p = pages[cursor];
     if (!p) return { ok: false, status: 404, json: async () => ({}) };
     return {
@@ -73,7 +86,10 @@ function mockInbox(
       json: async () => ({
         data: p.data,
         nextCursor: p.nextCursor,
-        counts: { unread: p.unread ?? p.data.filter((n) => !n.read).length },
+        counts: {
+          unread: p.unread ?? p.data.filter((n) => !n.read).length,
+          byType: p.byType,
+        },
       }),
     };
   });
@@ -303,5 +319,271 @@ describe("NotificationDropdown read and unread", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: /Title a/ }));
     expect(push).toHaveBeenCalledWith("/acme/issues?item=a");
     expect(putBodies(fetchMock)).toEqual([]);
+  });
+});
+
+describe("NotificationDropdown clearing", () => {
+  const calls = (fetchMock: ReturnType<typeof mockInbox>, method: string) =>
+    fetchMock.mock.calls
+      .filter(([, init]) => init?.method === method)
+      .map(([u, init]) => [
+        String(u).replace(`/api/v1/orgs/${ORG_ID}`, ""),
+        init?.body ? JSON.parse(String(init.body)) : null,
+      ]);
+
+  it("clears one notification, and the badge follows", async () => {
+    const fetchMock = mockInbox({
+      "": { data: [notif("a", false), notif("b", false)], nextCursor: null },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(
+      await screen.findByRole("button", { name: 'Clear "Title a"' }),
+    );
+    await waitFor(() => expect(screen.queryByText("Title a")).toBeNull());
+    expect(screen.getByText("Title b")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Notifications, 1 unread" }),
+    ).toBeInTheDocument();
+    expect(calls(fetchMock, "DELETE")).toEqual([["/notifications/a", null]]);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("clears everything only after you confirm", async () => {
+    const fetchMock = mockInbox({
+      "": { data: many("n", 20, false), nextCursor: "c1", unread: 30 },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(await screen.findByRole("button", { name: "Clear all…" }));
+    expect(calls(fetchMock, "POST")).toEqual([]);
+    expect(screen.getByText("Clear all?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(await screen.findByText("No notifications yet")).toBeInTheDocument();
+    expect(calls(fetchMock, "POST")).toEqual([
+      ["/notifications/inbox", { action: "clear" }],
+    ]);
+    // The 10 unread not yet loaded went too.
+    expect(
+      screen.getByRole("button", { name: "Notifications" }),
+    ).toBeInTheDocument();
+  });
+
+  it("clears nothing when you cancel", async () => {
+    const fetchMock = mockInbox({
+      "": { data: many("n", 3), nextCursor: null },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(await screen.findByRole("button", { name: "Clear all…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(
+      screen.getByRole("button", { name: "Clear all…" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("menuitem")).toHaveLength(3);
+    expect(calls(fetchMock, "POST")).toEqual([]);
+  });
+
+  it("keeps the list, and says so, when clearing is refused", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_u: string, init?: RequestInit) =>
+        init?.method === "DELETE" || init?.method === "POST"
+          ? { ok: false, status: 500, json: async () => ({}) }
+          : {
+              ok: true,
+              json: async () => ({
+                data: [notif("a", true)],
+                nextCursor: null,
+                counts: { unread: 0 },
+              }),
+            },
+      ),
+    );
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(
+      await screen.findByRole("button", { name: 'Clear "Title a"' }),
+    );
+    await waitFor(() =>
+      expect(notifyError).toHaveBeenCalledWith(
+        expect.anything(),
+        "Couldn't clear that notification.",
+      ),
+    );
+    expect(screen.getByText("Title a")).toBeInTheDocument();
+  });
+});
+
+describe("NotificationDropdown stays in step with the Inbox page", () => {
+  const gets = (fetchMock: ReturnType<typeof mockInbox>) =>
+    fetchMock.mock.calls.filter(([, init]) => !init?.method).length;
+
+  it("reloads when the Inbox page changes notifications", async () => {
+    const fetchMock = mockInbox({
+      "": { data: [notif("a", false)], nextCursor: null },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await screen.findByRole("button", { name: "Notifications, 1 unread" });
+    // The Inbox page cleared everything.
+    mockInbox({ "": { data: [], nextCursor: null } });
+    act(() => announceNotificationsChanged("inbox"));
+    expect(
+      await screen.findByRole("button", { name: "Notifications" }),
+    ).toBeInTheDocument();
+    expect(gets(fetchMock)).toBe(1);
+  });
+
+  it("tells the Inbox page about its own writes, without reloading itself", async () => {
+    const heard = vi.fn();
+    const off = onNotificationsChanged("inbox", heard);
+    const fetchMock = mockInbox({
+      "": { data: [notif("a", false)], nextCursor: null },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(
+      await screen.findByRole("button", { name: 'Mark "Title a" read' }),
+    );
+    await screen.findByRole("button", { name: "Notifications" });
+    expect(heard).toHaveBeenCalledTimes(1);
+    expect(gets(fetchMock)).toBe(1);
+    off();
+  });
+});
+
+describe("NotificationDropdown preview", () => {
+  it("previews a row on hover, with the whole message", async () => {
+    const long = {
+      ...notif("a", false),
+      body: "The whole message, longer than two lines would ever show in the bell panel.",
+    };
+    mockInbox({ "": { data: [long], nextCursor: null } });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <NotificationDropdown orgId={ORG_ID} />
+      </QueryClientProvider>,
+    );
+    await openBell();
+    const row = (await screen.findByRole("menuitem", { name: /Title a/ }))
+      .parentElement!;
+    fireEvent.pointerEnter(row, { pointerType: "mouse" });
+    fireEvent.mouseEnter(row);
+    const popup = await screen.findByTestId(
+      "notification-preview",
+      {},
+      { timeout: 2000 },
+    );
+    expect(popup).toHaveTextContent(long.body);
+  });
+});
+
+describe("NotificationDropdown filter by kind", () => {
+  const of = (id: string, type: string, read = true) => ({
+    ...notif(id, read),
+    type,
+  });
+  const byType = [
+    { type: "comment.mentioned", count: 2 },
+    { type: "work_item.assigned", count: 1 },
+  ];
+
+  it("offers the kinds with their counts, and lists only the one picked", async () => {
+    const fetchMock = mockInbox({
+      "": {
+        data: [
+          of("m1", "comment.mentioned"),
+          of("a1", "work_item.assigned"),
+          of("m2", "comment.mentioned"),
+        ],
+        nextCursor: null,
+        byType,
+      },
+      "work_item.assigned:": {
+        data: [of("a1", "work_item.assigned")],
+        nextCursor: null,
+        byType,
+      },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    const group = await screen.findByRole("group", { name: "Show" });
+    expect(within(group).getByRole("button", { name: "All" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.click(within(group).getByRole("button", { name: /^Assigned\s*1$/ }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("menuitem")).toHaveLength(1),
+    );
+    expect(screen.getByText("Title a1")).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([u]) =>
+        String(u).includes("type=work_item.assigned"),
+      ),
+    ).toBe(true);
+    // And back.
+    fireEvent.click(within(group).getByRole("button", { name: "All" }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("menuitem")).toHaveLength(3),
+    );
+  });
+
+  it("keeps the kind when loading older", async () => {
+    const fetchMock = mockInbox({
+      "": {
+        data: [of("m1", "comment.mentioned"), of("a1", "work_item.assigned")],
+        nextCursor: "c0",
+        byType,
+      },
+      "comment.mentioned:": {
+        data: [of("m1", "comment.mentioned")],
+        nextCursor: "c1",
+        byType,
+      },
+      "comment.mentioned:c1": {
+        data: [of("m2", "comment.mentioned")],
+        nextCursor: null,
+        byType,
+      },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(await screen.findByRole("button", { name: /^Mentioned\s*2$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Load older" }));
+    expect(await screen.findByText("Title m2")).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(
+        ([u]) =>
+          String(u).includes("type=comment.mentioned") &&
+          String(u).includes("cursor=c1"),
+      ),
+    ).toBe(true);
+  });
+
+  it("still counts a new notification of another kind on the badge", async () => {
+    mockInbox({
+      "": {
+        data: [of("m1", "comment.mentioned"), of("a1", "work_item.assigned")],
+        nextCursor: null,
+        byType,
+      },
+      "comment.mentioned:": {
+        data: [of("m1", "comment.mentioned")],
+        nextCursor: null,
+        byType,
+      },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(await screen.findByRole("button", { name: /^Mentioned\s*2$/ }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("menuitem")).toHaveLength(1),
+    );
+    act(() => sse.emit!(of("a9", "work_item.assigned", false)));
+    expect(
+      await screen.findByRole("button", { name: "Notifications, 1 unread" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Title a9")).toBeNull();
   });
 });
