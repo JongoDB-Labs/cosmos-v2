@@ -9,6 +9,8 @@
  * dates), the time axis is the project's intervals — which is exactly what sets this
  * apart from the date-driven Timeline/Gantt.
  */
+import { useBoardQuery } from "@/components/boards/shared/use-board-query";
+import { BoardQueryBar } from "@/components/boards/shared/board-query-bar";
 import { useMemo, useState } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Map as MapIcon, Check } from "lucide-react";
@@ -80,9 +82,11 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
   const projectStatuses = useProjectStatuses(orgId, projectId);
   // The Team picker on the detail sheet (COSMOS-204).
   const { data: detailTeams } = useProjectTeams(orgId, projectId);
+  // With the query language on, the bar and the board's scope are one CQL query (boards/shared/use-board-query).
+  const boardQuery = useBoardQuery({ orgId, projectId, config: boardQ.data?.config, rows: items as unknown as Record<string, unknown>[] });
   const visibleItems = useMemo(
-    () => items.filter((it) => matchesFilters(it, filters)),
-    [items, filters],
+    () => items.filter((it) => (boardQuery.enabled ? boardQuery.keep(it) : matchesFilters(it, filters))),
+    [items, filters, boardQuery],
   );
   const members: OrgMember[] = membersQ.data ?? [];
   const columns: BoardColumn[] = boardQ.data?.columns ?? [];
@@ -157,15 +161,19 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
       // on a blank screen with no way back.
       <div className="flex h-full flex-col">
         <div className="border-b border-[var(--border)] px-4 py-2">
-          <FilterBar
-            filters={filters}
-            onFilterChange={setFilters}
-            members={membersQ.data ?? []}
-            intervals={[]}
-            teams={[]}
-            orgId={orgId}
-            boardColumns={projectStatuses}
-          />
+          {boardQuery.enabled ? (
+            <BoardQueryBar orgId={orgId} q={boardQuery} />
+          ) : (
+            <FilterBar
+              filters={filters}
+              onFilterChange={setFilters}
+              members={membersQ.data ?? []}
+              intervals={[]}
+              teams={[]}
+              orgId={orgId}
+              boardColumns={projectStatuses}
+            />
+          )}
         </div>
         <div className="flex flex-1 items-center justify-center p-6">
         <EmptyState
@@ -191,15 +199,19 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-[var(--border)] px-4 py-2">
-        <FilterBar
-          filters={filters}
-          onFilterChange={setFilters}
-          members={membersQ.data ?? []}
-          intervals={[]}
-          teams={[]}
-          orgId={orgId}
-          boardColumns={projectStatuses}
-        />
+        {boardQuery.enabled ? (
+          <BoardQueryBar orgId={orgId} q={boardQuery} />
+        ) : (
+          <FilterBar
+            filters={filters}
+            onFilterChange={setFilters}
+            members={membersQ.data ?? []}
+            intervals={[]}
+            teams={[]}
+            orgId={orgId}
+            boardColumns={projectStatuses}
+          />
+        )}
       </div>
       {/* toolbar */}
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-[var(--border)] px-4 py-2 text-sm">

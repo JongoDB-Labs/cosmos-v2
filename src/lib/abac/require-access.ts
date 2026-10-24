@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/client";
-import { ForbiddenError, type AuthContext } from "@/lib/rbac/check";
+import { ForbiddenError, inKeyProjectScope, type AuthContext } from "@/lib/rbac/check";
 import { type PermissionKey } from "@/lib/rbac/permissions";
 import {
   evaluateAccess,
@@ -22,6 +22,13 @@ export async function requireAccess(
   action: PermissionKey,
   resource?: ResourceAttributes,
 ): Promise<void> {
+  // A project-scoped key acts only in its projects, whatever its bits: an action
+  // on a resource in any other project is refused before policy is consulted.
+  // A resource that names a project field the caller couldn't resolve (null or
+  // missing) fails closed for such a key.
+  if (resource && "projectId" in resource && !inKeyProjectScope(ctx, resource.projectId)) {
+    throw new ForbiddenError("Access denied by policy");
+  }
   const isOwner = ctx.orgRole === "OWNER";
 
   let relationships: Partial<Record<AbacRelationship, boolean>> | undefined;

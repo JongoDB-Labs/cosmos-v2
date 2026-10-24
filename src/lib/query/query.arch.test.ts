@@ -35,7 +35,7 @@ describe("CQL architecture", () => {
   });
 
   it("the client-safe modules import nothing server-side (the editor runs them in the browser)", () => {
-    const clientSafe = ["ast", "fields", "functions", "lexer", "parser", "print", "normalize", "typecheck", "errors", "dates", "env", "adapters", "flag", "basic", "complete"];
+    const clientSafe = ["ast", "fields", "functions", "lexer", "parser", "print", "normalize", "typecheck", "errors", "dates", "env", "adapters", "flag", "basic", "complete", "evaluate", "aggregate", "history", "describe"];
     for (const name of clientSafe) {
       const src = readFileSync(`src/lib/query/${name}.ts`, "utf8");
       expect(src, name).not.toMatch(/from ["']@\/lib\/db|from ["']@prisma\/client["'](?!;\s*$)|\.server["']|from ["']next\/server["']/m);

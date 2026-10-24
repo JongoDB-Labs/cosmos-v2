@@ -276,6 +276,20 @@ export function serializeFilters(filters: BoardFilters): string {
  * reloaded board restores its filtered + grouped view). Unknown values fall
  * back to the empty defaults.
  */
+/** The URL params serializeFilters owns. Everything else (`?cql=`, `&mode=`, `?item=`) belongs to someone else. */
+export const FILTER_PARAM_KEYS = [
+  "q", "type", "priority", "assignee", "label", "status", "cat", "reporter", "due",
+  "milestone", "blocked", "points", "est", "team", "interval", "lane", "cf",
+] as const;
+
+/** The current query string with the filter params replaced by `filters`', and the rest left alone. */
+export function withFilterParams(current: URLSearchParams, filters: BoardFilters): string {
+  const next = new URLSearchParams(current.toString());
+  for (const k of FILTER_PARAM_KEYS) next.delete(k);
+  for (const [k, v] of new URLSearchParams(serializeFilters(filters))) next.append(k, v);
+  return next.toString();
+}
+
 export function parseFilters(
   params: URLSearchParams | ReadonlyURLSearchParams,
 ): BoardFilters {
@@ -414,6 +428,35 @@ const priorityColors: Record<string, string> = {
   MEDIUM: "bg-yellow-500/20 text-yellow-400",
   LOW: "bg-green-500/20 text-green-400",
 };
+
+/**
+ * The swimlane choice on its own: presentation, not a filter (see the note in
+ * filter-baseline), so a board using the query language keeps it beside the
+ * query bar.
+ */
+export function SwimlaneSelect({ value, onChange }: { value: SwimlaneKey; onChange: (v: SwimlaneKey) => void }) {
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-xs text-muted-foreground mr-1">Swimlanes:</span>
+      <Select
+        items={Object.fromEntries(SWIMLANE_OPTIONS.map((o) => [o.value, o.label]))}
+        value={value}
+        onValueChange={(v) => onChange(VALID_SWIMLANES.has(v as string) ? (v as SwimlaneKey) : "none")}
+      >
+        <SelectTrigger size="sm" aria-label="Group into swimlanes" className="h-7 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {SWIMLANE_OPTIONS.map((o) => (
+            <SelectItem key={o.value} value={o.value}>
+              {o.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
 
 export function FilterBar({
   filters,
@@ -615,38 +658,10 @@ export function FilterBar({
       </button>
 
       {showSwimlane && (
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-muted-foreground mr-1">Swimlanes:</span>
-          <Select
-            items={Object.fromEntries(
-              SWIMLANE_OPTIONS.map((o) => [o.value, o.label]),
-            )}
-            value={filters.swimlaneBy}
-            onValueChange={(v) =>
-              onFilterChange({
-                ...filters,
-                swimlaneBy: VALID_SWIMLANES.has(v as string)
-                  ? (v as SwimlaneKey)
-                  : "none",
-              })
-            }
-          >
-            <SelectTrigger
-              size="sm"
-              aria-label="Group into swimlanes"
-              className="h-7 text-xs"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SWIMLANE_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <SwimlaneSelect
+          value={filters.swimlaneBy}
+          onChange={(swimlaneBy) => onFilterChange({ ...filters, swimlaneBy })}
+        />
       )}
 
       {hasFilters && (

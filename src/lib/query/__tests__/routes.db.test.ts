@@ -57,6 +57,27 @@ describe("CQL routes (e2e DB)", () => {
     expect(body.cql).toBe("priority = CRITICAL ORDER BY due ASC");
   });
 
+  it("query idsOnly: the ids search returns, no rows, scoped; past 5,000 it refuses rather than truncate", async () => {
+    const full = (await (await queryRoute(post("work-items/query", { cql: "priority = CRITICAL", pageSize: 100 }), { params: params() })).json()) as { data: { id: string }[] };
+    const res = await queryRoute(post("work-items/query", { cql: "priority = CRITICAL", idsOnly: true }), { params: params() });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ids: string[]; data?: unknown };
+    expect(body.data).toBeUndefined();
+    expect(body.ids.sort()).toEqual(full.data.map((r) => r.id).sort());
+    expect(body.ids).not.toContain(w.items[`p2-secret-${w.stamp}`].id);
+    // Over the cap: a 422 with advice, never a silent first-5,000.
+    await prisma.workItem.createMany({
+      data: Array.from({ length: 5_001 }, (_, i) => ({
+        orgId: w.orgA, projectId: w.P3.id, ticketNumber: 20_000 + i, title: `ids ${i}`, description: "", columnKey: "todo",
+        workItemTypeId: w.typeTask, createdById: w.actor.id,
+      })),
+    });
+    const big = await queryRoute(post("work-items/query", { cql: `project = ${w.P3.key}`, idsOnly: true }), { params: params() });
+    expect(big.status).toBe(422);
+    expect(await big.text()).toContain("CQL_TOO_BROAD");
+    await prisma.workItem.deleteMany({ where: { projectId: w.P3.id, ticketNumber: { gte: 20_000 } } });
+  }, 60_000);
+
   it("query: invalid CQL is a 400 with positioned diagnostics", async () => {
     const res = await queryRoute(post("work-items/query", { cql: "priorty = HIGH" }), { params: params() });
     expect(res.status).toBe(400);
