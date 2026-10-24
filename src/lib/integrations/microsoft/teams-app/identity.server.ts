@@ -86,6 +86,21 @@ export async function teamsUsers(orgs: TeamsOrg[], tenantId: string, aadObjectId
   return out;
 }
 
+/**
+ * COSMOS-202 T2: one Cosmos person as the Teams app sees them right now, for a
+ * send: the org still answers for `tenantId` (Teams app on, Outlook pinned to
+ * it), and their own Outlook link is still there, in that tenant, and they're
+ * an active member. Null otherwise.
+ */
+export async function teamsUserById(orgId: string, userId: string, tenantId: string): Promise<TeamsUser | null> {
+  const org = (await teamsOrgsForTenant(tenantId)).find((o) => o.orgId === orgId);
+  if (!org) return null;
+  const cred = await prisma.connectorCredential.findFirst({ where: { orgId, provider: MS_CALENDAR, userId }, select: { meta: true } });
+  const meta = cred?.meta as { oid?: unknown; tid?: unknown } | undefined;
+  if (!meta || typeof meta.oid !== "string" || !same(meta.tid, tenantId)) return null;
+  return (await teamsUsers([org], tenantId, meta.oid)).find((u) => u.userId === userId) ?? null;
+}
+
 const TENANTS_TTL_MS = 60_000;
 let tenants: { set: Set<string>; at: number } | null = null;
 

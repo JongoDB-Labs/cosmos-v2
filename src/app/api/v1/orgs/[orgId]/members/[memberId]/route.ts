@@ -142,6 +142,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       where: { id: memberId },
       data: { removedAt: new Date() },
     });
+    // Nothing more goes to their Teams chat from this org (COSMOS-202 T2).
+    await prisma.teamsConversation.deleteMany({ where: { orgId, userId: member.userId } });
 
     await logAudit({
       orgId,

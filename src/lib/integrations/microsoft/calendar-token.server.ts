@@ -234,10 +234,13 @@ export async function calendarConnection(orgId: string, userId: string) {
 /** Delete one person's connection. Idempotent. */
 export async function disconnectCalendar(orgId: string, userId: string): Promise<boolean> {
   cache.delete(key(orgId, userId));
-  // The event links go with the token: nothing is left to sync against.
+  // The event links go with the token: nothing is left to sync against. So
+  // does their Teams chat with the bot (COSMOS-202 T2): it was theirs only
+  // through this link.
   const [r] = await prisma.$transaction([
     prisma.connectorCredential.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId } }),
     prisma.externalEventLink.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId } }),
+    prisma.teamsConversation.deleteMany({ where: { orgId, userId } }),
   ]);
   return r.count > 0;
 }
@@ -245,9 +248,11 @@ export async function disconnectCalendar(orgId: string, userId: string): Promise
 /** Delete every person's connection in an org (the admin turned it off). */
 export async function purgeOrgCalendarConnections(orgId: string): Promise<number> {
   for (const k of cache.keys()) if (k.startsWith(`${orgId}:`)) cache.delete(k);
+  // Teams (T2) answers only for the tenant Outlook is pinned to: its chats and channels go too.
   const [r] = await prisma.$transaction([
     prisma.connectorCredential.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId: { not: null } } }),
     prisma.externalEventLink.deleteMany({ where: { orgId, provider: MS_CALENDAR } }),
+    prisma.teamsConversation.deleteMany({ where: { orgId } }),
   ]);
   return r.count;
 }

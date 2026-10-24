@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { pushToUser } from "@/lib/notifications/push";
+import { queueTeamsNotification } from "@/lib/integrations/microsoft/teams-app/outbox.server";
 
 export interface CreateNotificationInput {
   orgId: string;
@@ -63,6 +64,13 @@ export async function createNotification(input: CreateNotificationInput) {
     });
   } catch {
     // VAPID not configured, no subscriptions, etc. — silent
+  }
+
+  // Teams (COSMOS-202 T2): queued for the bot when the person chose this type there
+  try {
+    await queueTeamsNotification(input);
+  } catch {
+    /* convenience, like push */
   }
 
   return notification;

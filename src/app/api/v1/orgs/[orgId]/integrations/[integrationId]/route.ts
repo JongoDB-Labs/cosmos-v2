@@ -13,6 +13,8 @@ import { splitConfigSecrets } from "@/lib/integrations/config-secrets";
 import { setOrgCredential, deleteOrgCredential } from "@/lib/integrations/credentials";
 import { MS_CALENDAR } from "@/lib/integrations/microsoft/calendar-connect";
 import { purgeOrgCalendarConnections } from "@/lib/integrations/microsoft/calendar-token.server";
+import { MS_TEAMS_APP } from "@/lib/integrations/microsoft/teams-app/identity.server";
+import { forgetOrgConversations } from "@/lib/integrations/microsoft/teams-app/conversations.server";
 
 const updateIntegrationSchema = z.object({
   displayName: z.string().min(1).max(200).optional(),
@@ -97,6 +99,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     ) {
       await purgeCalendarConnections(request, orgId, ctx.userId);
     }
+    // Cosmos for Teams switched off: every chat and channel it knew is forgotten (COSMOS-202 T2).
+    if (existing.provider === MS_TEAMS_APP && data.status !== undefined && data.status !== "ACTIVE") {
+      await forgetOrgConversations(orgId);
+    }
 
     await logAudit({
       orgId,
@@ -135,6 +141,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // integration (idempotent — a no-op if the provider had no sealed secret).
     await deleteOrgCredential(orgId, integration.provider);
     if (integration.provider === MS_CALENDAR) await purgeCalendarConnections(request, orgId, ctx.userId);
+    if (integration.provider === MS_TEAMS_APP) await forgetOrgConversations(orgId);
 
     await logAudit({
       orgId,

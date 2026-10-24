@@ -51,7 +51,7 @@ async function rows(u: TeamsUser, filter: WorkItemFilter): Promise<{ rows: Issue
  * everywhere else) and not cancelled (a CANCELLED status). The project's
  * workflow statuses decide, archived ones included: an item can still sit in one.
  */
-async function openOnly(list: IssueRow[]): Promise<IssueRow[]> {
+export async function openOnly(list: IssueRow[]): Promise<IssueRow[]> {
   const projectIds = [...new Set(list.map((r) => r.project.id))];
   const statuses = projectIds.length
     ? await prisma.workflowStatus.findMany({ where: { projectId: { in: projectIds } }, select: { projectId: true, key: true, category: true } })

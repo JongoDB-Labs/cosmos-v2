@@ -70,6 +70,7 @@ export async function deleteUserAccount(params: {
     const pushSubscriptions = await tx.pushSubscription.deleteMany({
       where: { userId },
     });
+    await tx.teamsConversation.deleteMany({ where: { userId } });
     const allowlistEntries = await tx.allowedEmail.deleteMany({
       where: { email: { equals: emailLower, mode: "insensitive" } },
     });
