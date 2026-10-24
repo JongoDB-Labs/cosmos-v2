@@ -221,6 +221,30 @@ describe("the run", () => {
     await prisma.filterSubscription.delete({ where: { id: quiet.id } });
   });
 
+  it("each send uses the recipient's read scope at send time, not at subscribe time", async () => {
+    outbox.length = 0;
+    // Bob can read the restricted project while he subscribes...
+    const mBob = await prisma.orgMember.findFirstOrThrow({ where: { orgId: w.orgA, userId: w.bob.id } });
+    const pm = await prisma.projectMember.create({ data: { projectId: w.P2.id, orgMemberId: mBob.id } });
+    const secretKey = `${w.P2.key}-${w.items[`p2-secret-${w.stamp}`].ticketNumber}`;
+    try {
+      const v = await filter("priority = CRITICAL", { visibility: "ORG" });
+      const bobScope = await viewerScope((await loadMemberAuthContext(w.orgA, w.bob.id))!);
+      await createSubscription(bobScope, v, { recipient: { kind: "me" }, cron: "0 8 * * *", timezone: "UTC", onlyChanges: false }, ORIGIN);
+      await runNow();
+      expect(mailTo(bobEmail).at(-1)!.text).toContain(secretKey);
+      // ...and loses it before the next send: that item is gone from the email.
+      await prisma.projectMember.delete({ where: { id: pm.id } });
+      outbox.length = 0;
+      await runNow();
+      const [mail] = mailTo(bobEmail);
+      expect(mail.text).toContain(`${w.P1.key}-${w.items["p1-login-bug"].ticketNumber}`);
+      expect(mail.text + mail.html).not.toContain(secretKey);
+    } finally {
+      await prisma.projectMember.deleteMany({ where: { id: pm.id } });
+    }
+  });
+
   it("a recipient who left the org: disabled with the reason, nothing sent", async () => {
     outbox.length = 0;
     const view = await prisma.savedView.create({
@@ -296,5 +320,22 @@ describe("unsubscribe by link", () => {
     expect(after.disabledReason).toBe("unsubscribed");
     expect(await (await call(unsubGet, good)).text()).toContain("You're unsubscribed");
     expect(await prisma.auditLog.count({ where: { orgId: w.orgA, action: "saved_filter.unsubscribed_by_link" } })).toBeGreaterThanOrEqual(1);
+  });
+
+  it("a token minted for another subscription, or for one since deleted, does nothing", async () => {
+    const call = (fn: typeof unsubGet, token: string) =>
+      fn(new NextRequest(`${ORIGIN}/api/v1/unsubscribe/filter/${token}`, { method: fn === unsubGet ? "GET" : "POST" }), { params: Promise.resolve({ token }) });
+    const v = await filter("priority = CRITICAL");
+    const a = await createSubscription(actorScope, v, { recipient: { kind: "me" }, cron: "0 8 * * *", timezone: "UTC" }, ORIGIN);
+    const b = await createSubscription(actorScope, v, { recipient: { kind: "me" }, cron: "0 9 * * *", timezone: "UTC" }, ORIGIN);
+    const keyA = (await prisma.filterSubscription.findUniqueOrThrow({ where: { id: a.id } })).unsubscribeKey;
+    // A's key, B's id: purpose-bound to one subscription.
+    expect((await call(unsubPost, unsubscribeToken(keyA, b.id, w.actor.id))).status).toBe(404);
+    expect((await prisma.filterSubscription.findUniqueOrThrow({ where: { id: b.id } })).disabledAt).toBeNull();
+    // The link dies with its subscription.
+    const good = unsubscribeToken(keyA, a.id, w.actor.id);
+    await prisma.filterSubscription.delete({ where: { id: a.id } });
+    expect((await call(unsubGet, good)).status).toBe(404);
+    expect((await call(unsubPost, good)).status).toBe(404);
   });
 });
