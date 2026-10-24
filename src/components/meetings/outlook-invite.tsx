@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { CalendarCheck } from "lucide-react";
@@ -95,6 +95,22 @@ export function OutlookInvitePanel({
   });
   // "on" / "off": the person is reviewing what turning it on or off will do.
   const [confirming, setConfirming] = useState<"on" | "off" | null>(null);
+  // Each step replaces the button that was just used, so keyboard focus is
+  // moved on purpose rather than dropped on the page: into the review when it
+  // opens, back to its button when it's put away, to the heading once done.
+  const [focusTo, setFocusTo] = useState<"review" | "start" | "stop" | "heading" | null>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const reviewRef = useRef<HTMLDivElement>(null);
+  const startRef = useRef<HTMLButtonElement>(null);
+  const stopRef = useRef<HTMLButtonElement>(null);
+  const open = (step: "on" | "off") => {
+    setConfirming(step);
+    setFocusTo("review");
+  };
+  const putAway = () => {
+    setFocusTo(confirming === "off" ? "stop" : "start");
+    setConfirming(null);
+  };
   const toggle = useOrgMutation({
     mutationFn: (enabled: boolean) =>
       jsonFetch<InviteState>(url, {
@@ -104,6 +120,7 @@ export function OutlookInvitePanel({
     invalidate: [["outlook-invite", meetingId]],
     onSuccess: (d, enabled) => {
       setConfirming(null);
+      setFocusTo("heading");
       if (!enabled && d?.pendingCancel) {
         toast.error("Reconnect Outlook Calendar to cancel the invitations.");
         return;
@@ -114,6 +131,14 @@ export function OutlookInvitePanel({
     },
     onError: (e) => notifyError(e, "Couldn't change the Outlook invitations."),
   });
+
+  useEffect(() => {
+    if (!focusTo) return;
+    const el = { review: reviewRef, start: startRef, stop: stopRef, heading: headingRef }[focusTo].current;
+    if (!el) return; // not rendered yet (the refetch after a change): try again on the next render
+    el.focus();
+    setFocusTo(null);
+  }, [focusTo, data, confirming]);
 
   if (!data || (!data.available && !data.on && !data.ended)) return null;
   const outside = data.recipients.filter((r) => r.outside);
@@ -128,7 +153,9 @@ export function OutlookInvitePanel({
       >
         <h2
           id="outlook-invite-heading"
-          className="flex items-center gap-2 text-lg font-semibold"
+          ref={headingRef}
+          tabIndex={-1}
+          className="flex items-center gap-2 text-lg font-semibold outline-none"
         >
           <CalendarCheck className="size-5" />
           Outlook invitations
@@ -154,7 +181,7 @@ export function OutlookInvitePanel({
               &quot;Cosmos&quot; calendar.
             </p>
             {data.pendingCancel && (
-              <p role="alert" className="text-sm text-destructive">
+              <p role="alert" className="text-sm text-[var(--status-critical-text)]">
                 {mine
                   ? "These invitations couldn't be cancelled: reconnect your Outlook Calendar (Settings, Preferences) and they will be."
                   : "These invitations are waiting to be cancelled until the organizer reconnects Outlook."}
@@ -163,9 +190,10 @@ export function OutlookInvitePanel({
             {mine && !data.pendingCancel && confirming !== "off" && (
               <div>
                 <Button
+                  ref={stopRef}
                   size="sm"
                   variant="outline"
-                  onClick={() => setConfirming("off")}
+                  onClick={() => open("off")}
                 >
                   Stop sending invitations
                 </Button>
@@ -173,9 +201,11 @@ export function OutlookInvitePanel({
             )}
             {confirming === "off" && (
               <div
+                ref={reviewRef}
+                tabIndex={-1}
                 role="group"
                 aria-label="Stop Outlook invitations"
-                className="flex flex-col gap-2 rounded-md border p-3"
+                className="flex flex-col gap-2 rounded-md border p-3 outline-none"
               >
                 <p className="text-sm">
                   Attendees will be sent a cancellation in Outlook, and the
@@ -194,7 +224,7 @@ export function OutlookInvitePanel({
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => setConfirming(null)}
+                    onClick={putAway}
                     disabled={toggle.isPending}
                   >
                     Keep sending
@@ -230,9 +260,10 @@ export function OutlookInvitePanel({
             {confirming !== "on" && (
               <div>
                 <Button
+                  ref={startRef}
                   size="sm"
                   variant="outline"
-                  onClick={() => setConfirming("on")}
+                  onClick={() => open("on")}
                   disabled={!data.canChange}
                 >
                   Send Outlook invitations
@@ -241,9 +272,11 @@ export function OutlookInvitePanel({
             )}
             {confirming === "on" && (
               <div
+                ref={reviewRef}
+                tabIndex={-1}
                 role="group"
                 aria-label="Send Outlook invitations"
-                className="flex flex-col gap-2 rounded-md border p-3"
+                className="flex flex-col gap-2 rounded-md border p-3 outline-none"
               >
                 {data.recipients.length ? (
                   <>
@@ -296,7 +329,7 @@ export function OutlookInvitePanel({
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => setConfirming(null)}
+                    onClick={putAway}
                     disabled={toggle.isPending}
                   >
                     Not now
