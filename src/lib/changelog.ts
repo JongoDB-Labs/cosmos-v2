@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.467.0",
+    date: "2026-10-24",
+    title: "Edit a client after it is created",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A client's name, legal name, contact details, website, notes and active status can now be corrected after the client is created. Anyone with permission to update CRM records can make the change, and it is recorded in the audit log.",
+      },
+    ],
+  },
+  {
     version: "2.466.0",
     date: "2026-10-24",
     title: "Reinstall a rebuilt release from Admin \u203a Updates",
