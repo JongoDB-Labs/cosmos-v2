@@ -14,6 +14,7 @@ import { cursorPage } from "@/lib/openapi/paginate";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createProject, listProjects } from "./route.contract";
+import { seedBoardColumns } from "@/lib/workflow/provision.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -169,25 +170,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             },
           });
 
-          if (columns && columns.length > 0) {
-            await tx.boardColumn.createMany({
-              data: columns.map((col, idx) => ({
-                boardId: board.id,
-                name: col.name,
-                key: col.key,
-                color: col.color ?? "#7dd3fc",
-                sortOrder: col.sortOrder ?? idx,
-                category: (col.category as import("@prisma/client").ColumnCategory) ?? "TODO",
-              })),
-            });
-          } else {
-            await tx.boardColumn.createMany({
-              data: DEFAULT_COLUMNS.map((col) => ({
-                boardId: board.id,
-                ...col,
-              })),
-            });
-          }
+          await seedBoardColumns(
+            tx,
+            board,
+            columns && columns.length > 0
+              ? columns.map((col, idx) => ({
+                  name: col.name,
+                  key: col.key,
+                  color: col.color,
+                  sortOrder: col.sortOrder ?? idx,
+                  category: col.category as import("@prisma/client").ColumnCategory | undefined,
+                }))
+              : DEFAULT_COLUMNS,
+          );
         }
       } else {
         // Default single board with default columns
@@ -201,12 +196,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           },
         });
 
-        await tx.boardColumn.createMany({
-          data: DEFAULT_COLUMNS.map((col) => ({
-            boardId: board.id,
-            ...col,
-          })),
-        });
+        await seedBoardColumns(tx, board, DEFAULT_COLUMNS);
       }
 
       const orgMember = await tx.orgMember.findUnique({

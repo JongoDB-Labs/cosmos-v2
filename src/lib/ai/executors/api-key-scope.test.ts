@@ -4,6 +4,7 @@ import { apiKeyAuthContext, mintApiKey } from "@/lib/auth/api-key";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { executeTool } from "../tool-executor";
+import { ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
 
 /**
  * The assistant's tools must act with the CALLER's authority, not the authority
@@ -42,6 +43,8 @@ describe("AI tools honor the caller's API-key scope (e2e DB)", () => {
     const projectB = await prisma.project.create({
       data: { orgId: org.id, name: "Bravo", key: `KB${suffix}` },
     });
+    await ensureFixtureStatuses(projectA.id);
+    await ensureFixtureStatuses(projectB.id);
     const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null } });
     const mk = (projectId: string, title: string) =>
       prisma.workItem.create({

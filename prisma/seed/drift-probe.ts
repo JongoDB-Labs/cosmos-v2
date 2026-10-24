@@ -17,6 +17,7 @@
  *   npx tsx prisma/seed/drift-probe.ts
  */
 import { makePrismaClient } from "./shared/prisma-client";
+import { DEFAULT_SEED_STATUSES, ensureSeedStatuses } from "./shared/statuses";
 
 const prisma = makePrismaClient();
 
@@ -128,6 +129,9 @@ async function main() {
       sortOrder: 2,
     },
   });
+
+  // Items must be in one of the project's statuses (a foreign key).
+  await ensureSeedStatuses(prisma, project.id, DEFAULT_SEED_STATUSES);
 
   for (const s of SCENARIOS) {
     const item = await prisma.workItem.create({

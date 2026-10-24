@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.456.0",
+    date: "2026-10-24",
+    title: "Project statuses",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each project can now define its own workflow statuses, each mapped to a category (to do, in progress, done). Board columns follow the status categories, and every status change is recorded consistently.",
+      },
+    ],
+  },
+  {
     version: "2.455.0",
     date: "2026-10-24",
     title: "CUI markings on feedback comments",

@@ -3,6 +3,7 @@
 // duplicate stays, Cancelled as MERGED and pointing at the survivor.
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
+import { ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
 import { mergeWorkItems, MergeError } from "./merge.server";
 
 describe("mergeWorkItems (e2e DB)", () => {
@@ -19,6 +20,7 @@ describe("mergeWorkItems (e2e DB)", () => {
     await prisma.orgMember.create({ data: { orgId: org.id, userId: owner.id, role: "OWNER" } });
     const key = `MG${stamp.slice(-4).toUpperCase()}`;
     const project = await prisma.project.create({ data: { orgId: org.id, name: "P", key } });
+    await ensureFixtureStatuses(project.id, ["todo", "done"]);
     const board = await prisma.board.create({ data: { orgId: org.id, projectId: project.id, name: "Board", type: "KANBAN" } });
     await prisma.boardColumn.createMany({
       data: [

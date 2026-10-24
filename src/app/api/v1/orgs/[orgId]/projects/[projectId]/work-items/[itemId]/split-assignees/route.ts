@@ -74,7 +74,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       await tx.workItemAssignee.deleteMany({
         where: { workItemId: source.id, userId: { in: plan.splitOff } },
       });
-      await updateWorkItems(tx, [source.id], { assigneeId: plan.keep });
+      await updateWorkItems(tx, [source.id], { assigneeId: plan.keep }, { actorId: ctx.userId, source: "API" });
       await tx.activity.create({
         data: {
           orgId,
@@ -100,9 +100,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             sortOrder: nextSort++,
             createdById: ctx.userId,
           },
-        });
+        }, { actorId: ctx.userId, source: "API" });
         await tx.workItemAssignee.create({ data: { workItemId: copy.id, userId, sortOrder: 0 } });
-        if (source.tags.length > 0) await setWorkItemLabels(tx, orgId, copy.id, source.tags);
+        if (source.tags.length > 0) await setWorkItemLabels(tx, orgId, copy.id, source.tags, { actorId: ctx.userId, source: "API" });
         await tx.workItemLink.create({
           data: { orgId, sourceItemId: copy.id, targetItemId: source.id, type: "CLONES" },
         });
