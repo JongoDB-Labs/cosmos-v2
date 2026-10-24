@@ -30,6 +30,11 @@ const { getAuthContext, getCurrentUser, prisma } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getAuthContext, getCurrentUser }));
+// Visibility is covered against a real database (lib/rbac/team-scope-writes.db.test.ts).
+vi.mock("@/lib/rbac/require-project-read", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rbac/require-project-read")>()),
+  requireProjectVisible: vi.fn(async () => undefined),
+}));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 // Best-effort side-effects the POST path fires — stub so they never reach I/O.
 // Hoisted so the mention test can assert the notification URL it is called with.

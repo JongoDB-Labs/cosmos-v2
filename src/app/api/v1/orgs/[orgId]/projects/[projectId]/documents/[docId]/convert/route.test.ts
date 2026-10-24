@@ -23,6 +23,11 @@ const { resolveAuth, prisma, convertBlockToItem, convertTableToWorkItems } = vi.
 }));
 
 vi.mock("@/lib/auth/api-key", () => ({ resolveAuth }));
+// Visibility is covered against a real database (lib/rbac/team-scope-writes.db.test.ts).
+vi.mock("@/lib/rbac/require-project-read", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rbac/require-project-read")>()),
+  requireProjectVisible: vi.fn(async () => undefined),
+}));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/files/convert", () => ({ convertBlockToItem, convertTableToWorkItems }));
 
