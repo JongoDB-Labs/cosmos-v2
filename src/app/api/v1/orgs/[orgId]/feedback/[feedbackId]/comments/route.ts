@@ -143,6 +143,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       comment: { id: comment.id, content: comment.content, authorId: ctx.userId },
       repliedToUserId: parent?.authorId ?? null,
       visibility,
+      classification: data.classification ?? null,
       notifySubscribers: true,
     }).catch(() => {});
     void syncReferences({

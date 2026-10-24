@@ -16,6 +16,7 @@ import { POST as CREATE_ITEM } from "../../route";
 import { POST as VOTE } from "../vote/route";
 import { POST as COMMENT } from "../comments/route";
 import { PATCH as EDIT } from "../comments/[commentId]/route";
+import { MARKED_COMMENT_NOTICE } from "@/lib/feedback/comments.server";
 
 const PREFIX = "[fb-follow-test]";
 let orgId: string;
@@ -66,7 +67,11 @@ beforeAll(async () => {
   carol = id("carol@test.local");
 });
 
+const tempUsers: string[] = [];
+
 afterAll(async () => {
+  await prisma.orgMember.deleteMany({ where: { userId: { in: tempUsers } } });
+  await prisma.user.deleteMany({ where: { id: { in: tempUsers } } });
   const items = await prisma.feedbackItem.findMany({ where: { orgId, title: { startsWith: PREFIX } }, select: { id: true } });
   const ids = items.map((i) => i.id);
   await prisma.comment.deleteMany({ where: { orgId, subjectType: "feedback", subjectId: { in: ids } } });
@@ -140,5 +145,34 @@ describe("following a feedback item (e2e DB)", () => {
     expect(res.status).toBe(201);
     expect(await commentNotices(bob)).toHaveLength(0);
     expect(await commentNotices(carol)).toHaveLength(0);
+  });
+
+  it("never tells a follower who left the org, or can no longer read the board", async () => {
+    const make = async (tag: string) => {
+      const u = await prisma.user.create({ data: { email: `fb-follow-${tag}-${Date.now()}@test.local`, displayName: tag } });
+      tempUsers.push(u.id);
+      await prisma.feedbackSubscription.create({ data: { orgId, feedbackItemId: itemId, userId: u.id, reason: "voter" } });
+      return u.id;
+    };
+    const left = await make("left"); // no membership at all any more
+    const guest = await make("guest"); // a member whose role has no ORG_READ
+    await prisma.orgMember.create({ data: { orgId, userId: guest, role: "GUEST" } });
+
+    await prisma.notification.deleteMany({ where: { orgId, refId: itemId } });
+    as(alice, "ADMIN");
+    expect((await COMMENT(req("POST", { content: "Shipping soon." }), p())).status).toBe(201);
+    expect(await commentNotices(left)).toHaveLength(0);
+    expect(await commentNotices(guest)).toHaveLength(0);
+    expect(await commentNotices(carol)).toHaveLength(1); // a reader still hears
+  });
+
+  it("keeps a marked comment's words out of every notification", async () => {
+    await prisma.notification.deleteMany({ where: { orgId, refId: itemId } });
+    as(alice, "ADMIN");
+    const res = await COMMENT(req("POST", { content: `Site 4 logs attached <@${bob}>`, classification: "UNCLASSIFIED" }), p());
+    expect(res.status).toBe(201);
+    const sent = [...(await commentNotices(bob)), ...(await commentNotices(carol))];
+    expect(sent.map((n) => n.type).sort()).toEqual(["feedback.comment.created", "feedback.comment.mentioned"]);
+    for (const n of sent) expect(n.body).toBe(MARKED_COMMENT_NOTICE);
   });
 });

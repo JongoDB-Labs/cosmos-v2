@@ -9,7 +9,6 @@ import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { hasPermission } from "@/lib/rbac/permissions";
 import { FEEDBACK_ROW_SELECT, toFeedbackDto } from "@/lib/feedback/feedback-dto";
-import { ensureSubscribed } from "@/lib/feedback/subscriptions.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -165,9 +164,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         source: data.source,
         // Only meaningful alongside a source that names something.
         sourceRef: data.source === "app" ? null : (data.sourceRef ?? null),
+        // The author follows their own request, in the same write.
+        subscriptions: { create: { orgId, userId: ctx.userId, reason: "author" } },
       },
     });
-    await ensureSubscribed(prisma, { orgId, feedbackItemId: created.id, userId: ctx.userId, reason: "author" });
 
     // Link the submitter's own orphan attachments to the new item.
     let attachments: {

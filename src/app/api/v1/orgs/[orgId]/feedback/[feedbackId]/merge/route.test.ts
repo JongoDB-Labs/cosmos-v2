@@ -14,6 +14,8 @@ vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 import { prisma } from "@/lib/db/client";
 import { POST as MERGE, DELETE as UNDO } from "./route";
 import { POST as VOTE } from "../vote/route";
+import { PUT as FOLLOW } from "../subscription/route";
+import { POST as COMMENT } from "../comments/route";
 
 const PREFIX = "[fb-merge-test]";
 const V1 = "aaaaaaaa-0000-4000-8000-000000000001"; // votes on both
@@ -73,7 +75,10 @@ beforeAll(async () => {
   carol = id("carol@test.local");
 });
 
+let otherOrg: string | undefined;
+
 afterAll(async () => {
+  if (otherOrg) await prisma.organization.delete({ where: { id: otherOrg } });
   const items = await prisma.feedbackItem.findMany({ where: { orgId, title: { startsWith: PREFIX } }, select: { id: true } });
   const ids = items.map((i) => i.id);
   await prisma.feedbackMerge.deleteMany({ where: { duplicateId: { in: ids } } });
@@ -176,5 +181,115 @@ describe("merging feedback (e2e DB)", () => {
     await prisma.feedbackItem.delete({ where: { id: survivor } });
     expect((await undo(dup)).status).toBe(200);
     expect(await get(dup)).toMatchObject({ status: "OPEN", mergedIntoId: null, voteCount: 1 });
+  });
+
+  describe("under concurrency", () => {
+    const statuses = (rs: Response[]) => rs.map((r) => r.status).sort();
+
+    it("lets only one of A→B and B→A win, and leaves no loop", async () => {
+      as(alice, "ADMIN");
+      for (let round = 0; round < 5; round++) {
+        const a = await item(`race A ${round}`, bob, [V2]);
+        const b = await item(`race B ${round}`, carol, [V1]);
+        const res = await Promise.all([merge(a, b), merge(b, a)]);
+        expect(statuses(res)[0]).toBe(200);
+        expect(statuses(res)[1]).toBeGreaterThanOrEqual(400);
+        const [ra, rb] = await Promise.all([get(a), get(b)]);
+        expect([ra.status, rb.status].filter((st) => st === "MERGED")).toHaveLength(1);
+        expect(ra.mergedIntoId && rb.mergedIntoId).toBeFalsy();
+        expect(await prisma.feedbackMerge.count({ where: { duplicateId: { in: [a, b] }, undoneAt: null } })).toBe(1);
+      }
+    });
+
+    it("merges a duplicate once when two merges of it race, counting its votes once", async () => {
+      as(alice, "ADMIN");
+      const survivor = await item("race survivor", alice, []);
+      const dup = await item("race dup", bob, [V1, V2]);
+      const res = await Promise.all([merge(dup, survivor), merge(dup, survivor)]);
+      expect(statuses(res)).toEqual([200, 409]);
+      expect(await prisma.feedbackMerge.count({ where: { duplicateId: dup } })).toBe(1);
+      expect((await get(survivor)).voteCount).toBe(2);
+    });
+
+    it("never builds a chain when one merge targets a request another is merging away", async () => {
+      as(alice, "ADMIN");
+      const c = await item("chain C", alice);
+      const a = await item("chain A", bob);
+      const b = await item("chain B", carol);
+      await Promise.all([merge(a, c), merge(b, a)]);
+      const rows = await prisma.feedbackItem.findMany({ where: { id: { in: [a, b, c] } } });
+      const merged = new Set(rows.filter((r) => r.status === "MERGED").map((r) => r.id));
+      for (const r of rows) if (r.mergedIntoId) expect(merged.has(r.mergedIntoId)).toBe(false);
+    });
+  });
+
+  it("refuses a survivor whose own survivor was deleted (merged, with no pointer left)", async () => {
+    as(alice, "ADMIN");
+    const orphan = await item("orphan", alice);
+    await prisma.feedbackItem.update({ where: { id: orphan }, data: { status: "MERGED", mergedIntoId: null } });
+    const dup = await item("into orphan", bob);
+    expect((await merge(dup, orphan)).status).toBe(404);
+    expect((await get(dup)).status).toBe("OPEN");
+  });
+
+  it("refuses a survivor from another org as not found", async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    otherOrg = (await prisma.organization.create({ data: { name: `${PREFIX} ${stamp}`, slug: `fb-merge-other-${stamp}` } })).id;
+    const foreign = await prisma.feedbackItem.create({
+      data: { orgId: otherOrg, authorId: alice, type: "BUG", title: `${PREFIX} foreign` },
+    });
+    as(alice, "ADMIN");
+    const dup = await item("into foreign", bob);
+    expect((await merge(dup, foreign.id)).status).toBe(404);
+    expect((await get(dup)).status).toBe("OPEN");
+  });
+
+  it("applies ABAC rules on the survivor too", async () => {
+    const survivor = await item("abac survivor", carol);
+    const dup = await item("abac dup", bob);
+    getAuthContext.mockResolvedValue({
+      userId: alice,
+      orgId,
+      orgRole: "ADMIN",
+      permissions: RolePermissions.ADMIN,
+      basePermissions: RolePermissions.ADMIN,
+      abacRules: [{ effect: "deny", actions: ["ORG_UPDATE"], conditions: [{ attr: "createdById", op: "eq", value: carol }] }],
+    });
+    expect((await merge(dup, survivor)).status).toBe(403);
+    expect((await get(dup)).status).toBe("OPEN");
+  });
+
+  it("keeps an opt-out made after the merge when the merge is undone", async () => {
+    as(alice, "ADMIN");
+    const survivor = await item("optout survivor", alice);
+    const dup = await item("optout dup", bob, [], [bob]);
+    expect((await merge(dup, survivor)).status).toBe(200);
+    // bob followed the survivor through the merge, then said stop.
+    as(bob, "MEMBER");
+    expect((await FOLLOW(new NextRequest("http://localhost/x", { method: "PUT", body: JSON.stringify({ following: false }) }), p(survivor))).status).toBe(200);
+    as(alice, "ADMIN");
+    expect((await undo(dup)).status).toBe(200);
+    const row = await prisma.feedbackSubscription.findUnique({
+      where: { feedbackItemId_userId: { feedbackItemId: survivor, userId: bob } },
+    });
+    expect(row?.unsubscribedAt).not.toBeNull();
+    // ...so the next comment on the survivor doesn't reach him either.
+    await prisma.notification.deleteMany({ where: { orgId, refId: survivor } });
+    as(carol, "MEMBER");
+    expect((await COMMENT(new NextRequest("http://localhost/x", { method: "POST", body: JSON.stringify({ content: "any news?" }) }), p(survivor))).status).toBe(201);
+    expect(await prisma.notification.count({ where: { orgId, userId: bob, refId: survivor } })).toBe(0);
+  });
+
+  it("keeps an explicit follow made after the merge when the merge is undone", async () => {
+    as(alice, "ADMIN");
+    const survivor = await item("follow survivor", alice);
+    const dup = await item("follow dup", bob, [], [bob]);
+    expect((await merge(dup, survivor)).status).toBe(200);
+    // bob chose to follow the survivor himself: it's his now, not the merge's.
+    as(bob, "MEMBER");
+    expect((await FOLLOW(new NextRequest("http://localhost/x", { method: "PUT", body: JSON.stringify({ following: true }) }), p(survivor))).status).toBe(200);
+    as(alice, "ADMIN");
+    expect((await undo(dup)).status).toBe(200);
+    expect(await followers(survivor)).toContain(bob);
   });
 });

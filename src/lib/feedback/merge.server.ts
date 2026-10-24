@@ -18,7 +18,7 @@ import type { FeedbackStatus, Prisma } from "@prisma/client";
  * until those are undone. So every MERGED item points at a live, unmerged one.
  */
 
-export type MergeErrorCode = "not-found" | "self" | "cycle" | "already-merged" | "has-duplicates";
+export type MergeErrorCode = "not-found" | "self" | "cycle" | "already-merged" | "has-duplicates" | "busy";
 
 export class MergeError extends Error {
   constructor(
@@ -32,6 +32,17 @@ export class MergeError extends Error {
 
 const MAX_HOPS = 20;
 
+/**
+ * Lock these items' rows for the rest of the transaction, in id order, so two
+ * merges touching the same items wait for each other instead of interleaving
+ * (and always take their locks in the same order).
+ */
+async function lockItems(tx: Prisma.TransactionClient, ids: string[]) {
+  for (const id of [...new Set(ids)].sort()) {
+    await tx.$queryRaw`SELECT id FROM feedback_items WHERE id = ${id}::uuid FOR UPDATE`;
+  }
+}
+
 /** Follow merge pointers from `id` to the item that holds the discussion. */
 async function resolveSurvivor(tx: Prisma.TransactionClient, orgId: string, id: string, duplicateId: string) {
   let current = id;
@@ -42,8 +53,14 @@ async function resolveSurvivor(tx: Prisma.TransactionClient, orgId: string, id: 
       select: { id: true, title: true, status: true, mergedIntoId: true },
     });
     if (!row) throw new MergeError("not-found", "The request to merge into was not found.");
-    if (!row.mergedIntoId) return row;
-    current = row.mergedIntoId;
+    if (row.mergedIntoId) {
+      current = row.mergedIntoId;
+      continue;
+    }
+    // MERGED with no pointer: the request it was merged into was deleted
+    // (ON DELETE SET NULL). There's no discussion left to join.
+    if (row.status === "MERGED") throw new MergeError("not-found", "The request to merge into no longer exists.");
+    return row;
   }
   throw new MergeError("cycle", "Those requests form a merge loop.");
 }
@@ -63,6 +80,9 @@ export async function mergeFeedback(
   if (input.survivorId === duplicateId) {
     throw new MergeError("self", "A request can't be merged into itself.");
   }
+  // Concurrent merges (staff and intake on the same item, A→B alongside B→A)
+  // serialize on these locks; every read below sees what the other committed.
+  await lockItems(tx, [duplicateId, input.survivorId]);
   const duplicate = await tx.feedbackItem.findFirst({
     where: { id: duplicateId, orgId },
     select: { id: true, status: true, mergedIntoId: true },
@@ -71,6 +91,12 @@ export async function mergeFeedback(
   if (duplicate.mergedIntoId || duplicate.status === "MERGED") {
     throw new MergeError("already-merged", "This request is already merged.");
   }
+  // Claim it: only one merge moves an item out of the state it was read in.
+  const claimed = await tx.feedbackItem.updateMany({
+    where: { id: duplicateId, orgId, mergedIntoId: null, status: duplicate.status },
+    data: { status: "MERGED" },
+  });
+  if (claimed.count !== 1) throw new MergeError("already-merged", "This request is already merged.");
   const children = await tx.feedbackItem.count({ where: { orgId, mergedIntoId: duplicateId } });
   if (children > 0) {
     throw new MergeError(
@@ -79,6 +105,18 @@ export async function mergeFeedback(
     );
   }
   const survivor = await resolveSurvivor(tx, orgId, input.survivorId, duplicateId);
+  if (survivor.id !== input.survivorId) {
+    // Followed a pointer to an item not locked above: lock it, and make sure it
+    // wasn't merged away while we waited.
+    await lockItems(tx, [survivor.id]);
+    const now = await tx.feedbackItem.findUniqueOrThrow({
+      where: { id: survivor.id },
+      select: { status: true, mergedIntoId: true },
+    });
+    if (now.mergedIntoId || now.status === "MERGED") {
+      throw new MergeError("busy", "The request to merge into changed meanwhile. Try again.");
+    }
+  }
 
   // Votes: add the duplicate's voters the survivor doesn't have yet.
   const [dupVotes, survivorVotes] = await Promise.all([
@@ -88,14 +126,17 @@ export async function mergeFeedback(
   const had = new Set(survivorVotes.map((v) => v.userId));
   const movedVoteUserIds = dupVotes.map((v) => v.userId).filter((u) => !had.has(u));
   if (movedVoteUserIds.length > 0) {
-    await tx.feedbackVote.createMany({
+    const added = await tx.feedbackVote.createMany({
       data: movedVoteUserIds.map((userId) => ({ feedbackItemId: survivor.id, userId })),
       skipDuplicates: true,
     });
-    await tx.feedbackItem.update({
-      where: { id: survivor.id },
-      data: { voteCount: { increment: movedVoteUserIds.length } },
-    });
+    // Count what was actually inserted, not what was meant to be.
+    if (added.count > 0) {
+      await tx.feedbackItem.update({
+        where: { id: survivor.id },
+        data: { voteCount: { increment: added.count } },
+      });
+    }
   }
 
   // Followers: the duplicate's followers now follow the survivor.
@@ -144,6 +185,7 @@ export async function undoMerge(
   input: { orgId: string; duplicateId: string; undoneById: string },
 ): Promise<{ restoredStatus: FeedbackStatus; survivorId: string }> {
   const { orgId, duplicateId } = input;
+  await lockItems(tx, [duplicateId]);
   const duplicate = await tx.feedbackItem.findFirst({
     where: { id: duplicateId, orgId },
     select: { id: true, status: true },
@@ -172,8 +214,15 @@ export async function undoMerge(
       }
     }
     if (merge.addedSubscriberIds.length > 0) {
+      // Only follows the merge made and nobody has touched since: an explicit
+      // follow or opt-out made after the merge is "manual" and stays.
       await tx.feedbackSubscription.deleteMany({
-        where: { feedbackItemId: merge.survivorId, userId: { in: merge.addedSubscriberIds }, reason: "merged" },
+        where: {
+          feedbackItemId: merge.survivorId,
+          userId: { in: merge.addedSubscriberIds },
+          reason: "merged",
+          unsubscribedAt: null,
+        },
       });
     }
   }
@@ -189,4 +238,13 @@ export async function undoMerge(
     data: { undoneAt: new Date(), undoneById: input.undoneById },
   });
   return { restoredStatus, survivorId: merge.survivorId };
+}
+
+/**
+ * Postgres gave up on a transaction because another one held what it needed
+ * (a deadlock, or a serialization failure). The caller answers "try again".
+ */
+export function isTxConflict(e: unknown): boolean {
+  const err = e as { code?: string; meta?: { code?: string } } | null;
+  return err?.code === "P2034" || (err?.code === "P2010" && (err.meta?.code === "40P01" || err.meta?.code === "40001"));
 }

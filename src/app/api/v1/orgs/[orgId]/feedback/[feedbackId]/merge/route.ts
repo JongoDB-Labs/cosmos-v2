@@ -8,13 +8,15 @@ import { publishToOrg } from "@/lib/realtime/broker";
 import { createNotification } from "@/lib/notifications/create";
 import { feedbackItemUrl } from "@/lib/feedback/urls";
 import { json, loadFeedbackRoute } from "@/lib/feedback/route-context.server";
-import { mergeFeedback, MergeError, undoMerge } from "@/lib/feedback/merge.server";
+import { isTxConflict, mergeFeedback, MergeError, undoMerge } from "@/lib/feedback/merge.server";
 
 type RouteParams = { params: Promise<{ orgId: string; feedbackId: string }> };
 
 const mergeSchema = z.object({ survivorId: z.string().uuid() });
 
 const refused = (e: MergeError) => json(e.code === "not-found" ? 404 : 409, { error: e.message, code: e.code });
+const busy = () =>
+  json(409, { error: "Someone else is changing these requests right now. Try again.", code: "busy" });
 
 /**
  * Merge this request into another (staff). Same authority as triaging its
@@ -27,6 +29,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (route instanceof Response) return route;
     await requireAccess(route.ctx, "ORG_UPDATE", { createdById: route.item.authorId });
     const { survivorId } = mergeSchema.parse(await request.json());
+    // A merge changes the survivor too (votes and followers land on it), so
+    // ABAC rules on its author apply as well. Another org's id is simply not found.
+    const survivorRow = await prisma.feedbackItem.findFirst({
+      where: { id: survivorId, orgId },
+      select: { authorId: true },
+    });
+    if (!survivorRow) return json(404, { error: "The request to merge into was not found.", code: "not-found" });
+    await requireAccess(route.ctx, "ORG_UPDATE", { createdById: survivorRow.authorId });
 
     let result: Awaited<ReturnType<typeof mergeFeedback>>;
     try {
@@ -35,6 +45,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     } catch (e) {
       if (e instanceof MergeError) return refused(e);
+      if (isTxConflict(e)) return busy();
       throw e;
     }
 
@@ -82,6 +93,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
       result = await prisma.$transaction((tx) => undoMerge(tx, { orgId, duplicateId: feedbackId, undoneById: route.ctx.userId }));
     } catch (e) {
       if (e instanceof MergeError) return refused(e);
+      if (isTxConflict(e)) return busy();
       throw e;
     }
 

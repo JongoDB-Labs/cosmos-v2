@@ -17,6 +17,7 @@ import { mentionsToPlainText, userMentionLabels } from "@/lib/mentions/plain-tex
 import { createNotification } from "@/lib/notifications/create";
 import { feedbackItemUrl } from "./urls";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
+import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { isFeedbackStaff } from "./access";
 import { effectiveCeiling } from "@/lib/classification/effective";
 import { logAudit } from "@/lib/audit";
@@ -66,12 +67,26 @@ function filterWhere(viewer: CommentViewer, filter: ThreadFilter): Prisma.Commen
  * lost the role.
  */
 export async function currentStaff(orgId: string, userIds: string[]): Promise<Set<string>> {
-  const out = new Set<string>();
-  for (const id of new Set(userIds)) {
-    const eff = await loadEffectivePermissions(orgId, id);
-    if (eff && isFeedbackStaff(eff)) out.add(id);
-  }
-  return out;
+  return whoCan(orgId, userIds, isFeedbackStaff);
+}
+
+/**
+ * Which of these people can read the board right now (members holding
+ * ORG_READ). Someone who left the org, or lost the read, hears nothing more.
+ */
+export async function currentReaders(orgId: string, userIds: string[]): Promise<Set<string>> {
+  return whoCan(orgId, userIds, (eff) => hasPermission(eff.permissions, Permission.ORG_READ));
+}
+
+/** Everyone whose current effective permissions pass `test`, loaded in parallel. */
+async function whoCan(
+  orgId: string,
+  userIds: string[],
+  test: (eff: { permissions: bigint }) => boolean,
+): Promise<Set<string>> {
+  const ids = [...new Set(userIds)];
+  const effs = await Promise.all(ids.map((id) => loadEffectivePermissions(orgId, id)));
+  return new Set(ids.filter((_, i) => effs[i] && test(effs[i]!)));
 }
 
 export const FEEDBACK_COMMENT_SELECT = {
@@ -570,11 +585,15 @@ async function withdrawNotifications(tx: Prisma.TransactionClient, orgId: string
   if (drop.length > 0) await tx.notification.deleteMany({ where: { id: { in: drop } } });
 }
 
+/** What a notification says about a marked comment: never its words. */
+export const MARKED_COMMENT_NOTICE = "A marked comment was posted. Open it to read.";
+
 /**
  * After the comment commits: tell the people it was addressed to. Mentions of
  * org members, the author of the comment replied to and, for a new comment,
- * the item's followers. The writer is never notified; nobody is notified
- * twice. Best-effort.
+ * the item's followers. Only people who can read the board now are told; the
+ * writer never is; nobody is told twice. A marked comment's words stay out of
+ * every notification (they reach push and lock screens). Best-effort.
  */
 export async function notifyCommentAudience(input: {
   org: { id: string; slug: string };
@@ -585,18 +604,22 @@ export async function notifyCommentAudience(input: {
   repliedToUserId?: string | null;
   /** An internal note only ever notifies people currently on the team. */
   visibility?: CommentVisibility;
+  /** The comment's marking, if any: the notification then carries no snippet. */
+  classification?: ClassificationLevel | null;
   /** A NEW comment also tells everyone following the item (an edit doesn't). */
   notifySubscribers?: boolean;
 }): Promise<void> {
   const { org, item, comment } = input;
   const url = `${feedbackItemUrl(org.slug, item.id)}#c-${comment.id}`;
+  const internal = input.visibility === "INTERNAL";
+  const audience = (ids: string[]) => (internal ? currentStaff(org.id, ids) : currentReaders(org.id, ids));
+
   let wanted = input.mentionIds ?? parseMentions(comment.content);
   let repliedTo = input.repliedToUserId ?? null;
-  if (input.visibility === "INTERNAL") {
-    const staff = await currentStaff(org.id, [...wanted, ...(repliedTo ? [repliedTo] : [])]);
-    wanted = wanted.filter((id) => staff.has(id));
-    if (repliedTo && !staff.has(repliedTo)) repliedTo = null;
-  }
+  const allowed = await audience([...wanted, ...(repliedTo ? [repliedTo] : [])]);
+  wanted = wanted.filter((id) => allowed.has(id));
+  if (repliedTo && !allowed.has(repliedTo)) repliedTo = null;
+
   const members = wanted.length
     ? await prisma.orgMember.findMany({
         where: { orgId: org.id, userId: { in: wanted } },
@@ -608,7 +631,9 @@ export async function notifyCommentAudience(input: {
       .filter((m) => m.user?.displayName)
       .map((m) => ({ id: m.userId, displayName: m.user!.displayName })),
   );
-  const snippet = mentionsToPlainText(comment.content, labels).slice(0, 200);
+  const message = input.classification
+    ? MARKED_COMMENT_NOTICE
+    : mentionsToPlainText(comment.content, labels).slice(0, 200);
   const notified = new Set<string>([comment.authorId]);
 
   for (const m of members) {
@@ -622,7 +647,7 @@ export async function notifyCommentAudience(input: {
       userId: m.userId,
       type: "feedback.comment.mentioned",
       title: `Mentioned on "${item.title}"`,
-      message: snippet,
+      message,
       relatedId: item.id,
       relatedType: "feedback_item",
       url,
@@ -636,7 +661,7 @@ export async function notifyCommentAudience(input: {
       userId: repliedTo,
       type: "feedback.comment.replied",
       title: `New reply on "${item.title}"`,
-      message: snippet,
+      message,
       relatedId: item.id,
       relatedType: "feedback_item",
       url,
@@ -644,25 +669,19 @@ export async function notifyCommentAudience(input: {
   }
 
   if (!input.notifySubscribers) return;
-  // Followers still in the org who haven't already heard about this comment;
-  // of an internal note, only those on the team now.
-  let followers = (await activeSubscriberIds(item.id)).filter((id) => !notified.has(id));
-  if (input.visibility === "INTERNAL") {
-    const staff = await currentStaff(org.id, followers);
-    followers = followers.filter((id) => staff.has(id));
-  }
-  if (followers.length === 0) return;
-  const stillMembers = await prisma.orgMember.findMany({
-    where: { orgId: org.id, userId: { in: followers } },
-    select: { userId: true },
-  });
-  for (const { userId } of stillMembers) {
+  // Followers who haven't already heard about this comment and may read it now
+  // (of an internal note, only the team).
+  const pending = (await activeSubscriberIds(item.id)).filter((id) => !notified.has(id));
+  if (pending.length === 0) return;
+  const followers = await audience(pending);
+  for (const userId of pending) {
+    if (!followers.has(userId)) continue;
     await createNotification({
       orgId: org.id,
       userId,
       type: "feedback.comment.created",
       title: `New comment on "${item.title}"`,
-      message: snippet,
+      message,
       relatedId: item.id,
       relatedType: "feedback_item",
       url,

@@ -21,7 +21,11 @@ export async function ensureSubscribed(
   });
 }
 
-/** The person's own choice: follow (clears an opt-out) or stop following. */
+/**
+ * The person's own choice: follow (clears an opt-out) or stop following. Either
+ * way the row becomes theirs ("manual"), so nothing automatic, an undone merge
+ * included, takes it back.
+ */
 export async function setFollowing(
   db: Db,
   input: { orgId: string; feedbackItemId: string; userId: string; following: boolean },
@@ -31,7 +35,7 @@ export async function setFollowing(
     await db.feedbackSubscription.upsert({
       where,
       create: { orgId: input.orgId, feedbackItemId: input.feedbackItemId, userId: input.userId, reason: "manual" },
-      update: { unsubscribedAt: null },
+      update: { unsubscribedAt: null, reason: "manual" },
     });
   } else {
     await db.feedbackSubscription.upsert({
@@ -43,7 +47,7 @@ export async function setFollowing(
         reason: "manual",
         unsubscribedAt: new Date(),
       },
-      update: { unsubscribedAt: new Date() },
+      update: { unsubscribedAt: new Date(), reason: "manual" },
     });
   }
 }
