@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.460.7",
+    date: "2026-10-24",
+    title: "Issues search updates the address bar instantly",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Running a query on the Issues page updates the URL and results immediately instead of waiting on a server round trip.",
+      },
+    ],
+  },
+  {
     version: "2.460.6",
     date: "2026-10-24",
     title: "API keys stay within their projects in the document library",
