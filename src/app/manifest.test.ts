@@ -50,3 +50,9 @@ it("switches to a registered vertical brand when PRODUCT matches it", () => {
   expect(m.theme_color).toBe("#f9f7f4");
   expect(m.icons?.[0]?.src).toBe("/acme-mark.png");
 });
+
+it("pins a stable app id equal to the one derived from start_url", () => {
+  const m = manifest();
+  expect(m.id).toBe("/");
+  expect(m.start_url).toBe("/");
+});

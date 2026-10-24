@@ -438,6 +438,7 @@ model User {
   timeEntryPhasesSet  TimeEntryPhase[]
   calendarFeeds       CalendarFeed[]
   externalEventLinks  ExternalEventLink[]
+  meetingInvitesOrganized SyncMeeting[] @relation("MeetingInviteOrganizer")
 
   @@map("users")
 }
@@ -2360,9 +2361,13 @@ model SyncMeeting {
   // Optional org-defined custom type. When set, `meetingType` is OTHER and this
   // carries the user-defined label; null means a built-in MeetingType.
   customTypeId       String?                     @map("custom_type_id") @db.Uuid
+  /// COSMOS-202 B2 invite mode: set while real Outlook invitations go out from
+  /// this person's calendar. Null = attendees get mirrored copies instead.
+  inviteOrganizerId  String?                     @map("invite_organizer_id") @db.Uuid
 
-  attendees  MeetingAttendee[]
-  customType MeetingTypeOption? @relation(fields: [customTypeId], references: [id], onDelete: SetNull)
+  attendees       MeetingAttendee[]
+  customType      MeetingTypeOption? @relation(fields: [customTypeId], references: [id], onDelete: SetNull)
+  inviteOrganizer User?              @relation("MeetingInviteOrganizer", fields: [inviteOrganizerId], references: [id], onDelete: SetNull)
 
   @@index([orgId, meetingDate])
   @@map("sync_meetings")
