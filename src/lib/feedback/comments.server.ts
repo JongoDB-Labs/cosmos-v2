@@ -531,8 +531,9 @@ async function withdrawMarked(
  */
 export async function sweepMarkedComments(input: {
   orgId: string;
-  actorId: string;
-  reason: "ceiling_changed" | "tenant_class_changed";
+  /** Null for the scheduled sweep: nobody did it. */
+  actorId: string | null;
+  reason: "ceiling_changed" | "tenant_class_changed" | "scheduled";
   ipAddress?: string | null;
 }): Promise<{ comments: number; replies: number }> {
   const ceiling = await markingCeiling(input.orgId);
@@ -570,7 +571,7 @@ export async function sweepMarkedComments(input: {
   if (comments > 0) {
     await logAudit({
       orgId: input.orgId,
-      userId: input.actorId,
+      userId: input.actorId ?? undefined,
       action: "feedback.comments.marking_sweep",
       entity: "organization",
       entityId: input.orgId,
@@ -706,4 +707,32 @@ export async function notifyCommentAudience(input: {
 export async function feedbackCommentDto(row: FeedbackCommentRow, viewer: CommentViewer) {
   const authors = await uploadersByIds([row.authorId]);
   return toDto(row, viewer, authors);
+}
+
+/**
+ * The scheduled backstop for sweepMarkedComments (jobs.ts). A ceiling change
+ * sweeps in the same request, but a failure there only logs; this catches it,
+ * so notifications and replies don't wait for the next ceiling write. Only orgs
+ * that still have public marked feedback comments are looked at, and each
+ * org's sweep is idempotent.
+ */
+export async function sweepAllMarkedComments(opts: { signal?: AbortSignal } = {}): Promise<{
+  orgs: number;
+  comments: number;
+  replies: number;
+}> {
+  const orgs = await prisma.comment.findMany({
+    where: { subjectType: FEEDBACK_SUBJECT, visibility: "PUBLIC", classification: { not: null } },
+    distinct: ["orgId"],
+    select: { orgId: true },
+  });
+  let comments = 0;
+  let replies = 0;
+  for (const { orgId } of orgs) {
+    if (opts.signal?.aborted) break;
+    const r = await sweepMarkedComments({ orgId, actorId: null, reason: "scheduled" });
+    comments += r.comments;
+    replies += r.replies;
+  }
+  return { orgs: orgs.length, comments, replies };
 }
