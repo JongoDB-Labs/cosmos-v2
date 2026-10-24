@@ -315,7 +315,7 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
             onChange={(e) => onPick(e.target.files)}
           />
         </div>
-        <nav className="min-h-0 flex-1 overflow-y-auto p-2">
+        <nav aria-label="Documents" className="min-h-0 flex-1 overflow-y-auto p-2">
           {(docs ?? []).length === 0 ? (
             <p className="px-2 py-4 text-center text-xs text-[var(--text-muted)]">
               No documents yet. Upload docx, pdf, pptx or xlsx.

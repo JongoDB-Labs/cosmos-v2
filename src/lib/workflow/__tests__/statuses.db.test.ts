@@ -297,6 +297,21 @@ describe("statuses API", () => {
     ]);
   });
 
+  it("needs workflow-manage to create one once the project runs a custom workflow", async () => {
+    const p = await project();
+    await board(p.id, "KANBAN");
+    const wf = await prisma.workflow.create({ data: { orgId, projectId: p.id, name: "Custom", createdById: userId } });
+    await prisma.workflowAssignment.create({ data: { orgId, projectId: p.id, workflowId: wf.id } });
+    const saved = calls.ctx;
+    calls.ctx = { ...(saved as AuthContext), orgRole: OrgRole.MEMBER, permissions: (saved as AuthContext).permissions & ~Permission.WORKFLOW_MANAGE };
+    try {
+      const res = await createStatus(req("POST", { key: "qa", name: "QA", category: "IN_PROGRESS" }), { params: Promise.resolve({ orgId, projectId: p.id }) });
+      expect(res.status).toBe(403);
+    } finally {
+      calls.ctx = saved;
+    }
+  });
+
   it("creates a status, and refuses a duplicate key", async () => {
     const p = await project();
     await board(p.id, "KANBAN");
@@ -370,7 +385,7 @@ describe("board column editor", () => {
     expect((await statusesOf(p.id)).map((s) => s.key)).toEqual(["todo", "in-flight", "done"]);
   });
 
-  it("adds a column's status, writes an edited category to it, and keeps the status of a removed column", async () => {
+  it("adds a column's status, and keeps the status of a removed column", async () => {
     const p = await project();
     const kanban = await board(p.id, "KANBAN");
     const wi = await item(p.id, "doing");
@@ -379,7 +394,7 @@ describe("board column editor", () => {
     const res = await putColumns(
       req("PUT", {
         columns: [
-          ...keep.map((c) => ({ id: c.id, name: c.name, key: c.key, sortOrder: c.sortOrder, category: c.key === "todo" ? "IN_PROGRESS" : c.category })),
+          ...keep.map((c) => ({ id: c.id, name: c.name, key: c.key, sortOrder: c.sortOrder, category: c.category })),
           { name: "QA", key: "qa", sortOrder: 9, category: "IN_PROGRESS" },
         ],
       }),
@@ -387,11 +402,50 @@ describe("board column editor", () => {
     );
     expect(res.status).toBe(200);
     const statuses = await statusesOf(p.id);
-    expect(statuses.find((s) => s.key === "todo")?.category).toBe("IN_PROGRESS");
     expect(statuses.find((s) => s.key === "qa")).toMatchObject({ name: "QA", category: "IN_PROGRESS" });
+    expect((await columnsOf(kanban.id)).find((c) => c.key === "qa")?.category).toBe("IN_PROGRESS");
     // The column went; the status and the item in it stay.
     expect(statuses.find((s) => s.key === "doing")).toBeTruthy();
     expect((await prisma.workItem.findUniqueOrThrow({ where: { id: wi.id } })).columnKey).toBe("doing");
+  });
+
+  it("refuses a new category on a column: the category is its status's, set in the workflow editor", async () => {
+    const p = await project();
+    const kanban = await board(p.id, "KANBAN");
+    const cols = await prisma.boardColumn.findMany({ where: { boardId: kanban.id }, orderBy: { sortOrder: "asc" } });
+    const res = await putColumns(
+      req("PUT", { columns: cols.map((c) => ({ id: c.id, name: c.name, key: c.key, sortOrder: c.sortOrder, category: c.key === "todo" ? "DONE" : c.category })) }),
+      pb(p.id, kanban.id),
+    );
+    expect(res.status).toBe(409);
+    expect((await statusesOf(p.id)).find((s) => s.key === "todo")?.category).toBe("TODO");
+  });
+
+  it("needs workflow-manage to add a status once the project runs a custom workflow", async () => {
+    const p = await project();
+    const kanban = await board(p.id, "KANBAN");
+    const wf = await prisma.workflow.create({ data: { orgId, projectId: p.id, name: "Custom", createdById: userId } });
+    await prisma.workflowAssignment.create({ data: { orgId, projectId: p.id, workflowId: wf.id } });
+    const cols = await prisma.boardColumn.findMany({ where: { boardId: kanban.id }, orderBy: { sortOrder: "asc" } });
+    const body = {
+      columns: [
+        ...cols.map((c) => ({ id: c.id, name: c.name, key: c.key, sortOrder: c.sortOrder })),
+        { name: "QA", key: "qa", sortOrder: 9, category: "IN_PROGRESS" },
+      ],
+    };
+    const saved = calls.ctx;
+    // Board rights, but no workflow rights and no project role.
+    calls.ctx = { ...(saved as AuthContext), orgRole: OrgRole.MEMBER, permissions: (saved as AuthContext).permissions & ~Permission.WORKFLOW_MANAGE };
+    try {
+      expect((await putColumns(req("PUT", body), pb(p.id, kanban.id))).status).toBe(403);
+      expect((await statusesOf(p.id)).find((s) => s.key === "qa")).toBeUndefined();
+      // Reordering what is already there needs no more than before.
+      const reorder = { columns: [...cols].reverse().map((c, i) => ({ id: c.id, name: c.name, key: c.key, sortOrder: i })) };
+      expect((await putColumns(req("PUT", reorder), pb(p.id, kanban.id))).status).toBe(200);
+    } finally {
+      calls.ctx = saved;
+    }
+    expect((await putColumns(req("PUT", body), pb(p.id, kanban.id))).status).toBe(200);
   });
 
   // Every save sends every column, so a save must not undo what was decided

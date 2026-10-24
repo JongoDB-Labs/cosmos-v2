@@ -167,7 +167,7 @@ export function RoadmapWorkspace({ orgId, projectId, orgSlug, projectKey }: Prop
             />
           </div>
         </div>
-        <nav className="min-h-0 flex-1 overflow-y-auto p-2">
+        <nav aria-label="Roadmap" className="min-h-0 flex-1 overflow-y-auto p-2">
           {query.trim() ? (
             <div className="space-y-0.5">
               <p className="px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
