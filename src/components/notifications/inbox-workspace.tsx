@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { notificationHref } from "@/lib/notifications/href";
+import { kindLabel } from "@/lib/notifications/kind";
+import { NotificationPreview } from "./notification-preview";
 import { announceNotificationsChanged, onNotificationsChanged } from "@/lib/notifications/changed";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -30,6 +32,8 @@ type Row = {
   title: string;
   body: string;
   url: string | null;
+  refType: string | null;
+  refId: string | null;
   read: boolean;
   createdAt: string;
 };
@@ -39,14 +43,6 @@ type Page = {
   nextCursor: string | null;
   counts: { total: number; unread: number; byType: { type: string; count: number }[] };
 };
-
-/** A dotted type reads as its last word — `x.y.past_due` becomes "Past due" —
- *  so a new kind needs no lookup table, and no table can go stale. */
-export function kindLabel(type: string): string {
-  const leaf = type.split(".").pop() ?? type;
-  const words = leaf.replace(/[_-]+/g, " ").trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
 
 const when = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, {
@@ -264,7 +260,8 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
             // The actions sit beside the link, not inside it, so using them
             // never navigates away from the inbox.
             return (
-              <div key={n.id} className="group flex items-start hover:bg-[var(--primary-tint)]">
+              <NotificationPreview key={n.id} orgId={orgId} notification={n} side="bottom">
+              <div className="group flex items-start hover:bg-[var(--primary-tint)]">
                 {body}
                 <div className="flex shrink-0 items-center gap-1 px-2 py-2.5">
                   <Button
@@ -289,6 +286,7 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
                   </Button>
                 </div>
               </div>
+              </NotificationPreview>
             );
           })}
         </div>

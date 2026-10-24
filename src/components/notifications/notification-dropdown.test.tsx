@@ -15,6 +15,7 @@ import {
   act,
 } from "@testing-library/react";
 import { NotificationDropdown } from "./notification-dropdown";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   announceNotificationsChanged,
   onNotificationsChanged,
@@ -438,5 +439,31 @@ describe("NotificationDropdown stays in step with the Inbox page", () => {
     expect(heard).toHaveBeenCalledTimes(1);
     expect(gets(fetchMock)).toBe(1);
     off();
+  });
+});
+
+describe("NotificationDropdown preview", () => {
+  it("previews a row on hover, with the whole message", async () => {
+    const long = {
+      ...notif("a", false),
+      body: "The whole message, longer than two lines would ever show in the bell panel.",
+    };
+    mockInbox({ "": { data: [long], nextCursor: null } });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <NotificationDropdown orgId={ORG_ID} />
+      </QueryClientProvider>,
+    );
+    await openBell();
+    const row = (await screen.findByRole("menuitem", { name: /Title a/ }))
+      .parentElement!;
+    fireEvent.pointerEnter(row, { pointerType: "mouse" });
+    fireEvent.mouseEnter(row);
+    const popup = await screen.findByTestId(
+      "notification-preview",
+      {},
+      { timeout: 2000 },
+    );
+    expect(popup).toHaveTextContent(long.body);
   });
 });

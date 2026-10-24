@@ -119,3 +119,14 @@ describe("InboxWorkspace stays in step with the bell", () => {
     off();
   });
 });
+
+describe("InboxWorkspace preview", () => {
+  it("previews a row on hover", async () => {
+    renderInbox();
+    const row = (await screen.findByText("FSC-7 is past due")).closest(".group") as HTMLElement;
+    fireEvent.pointerEnter(row, { pointerType: "mouse" });
+    fireEvent.mouseEnter(row);
+    const popup = await screen.findByTestId("notification-preview", {}, { timeout: 2000 });
+    expect(popup).toHaveTextContent("Past due");
+  });
+});
