@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.471.2",
+    date: "2026-10-24",
+    title: "No stray error when the query language is off",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Pages no longer log a failed request when the Cosmos Query Language (beta) is switched off for the organization.",
+      },
+    ],
+  },
+  {
     version: "2.471.1",
     date: "2026-10-24",
     title: "API keys limited to projects stay in them",
