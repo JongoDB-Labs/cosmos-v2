@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.469.0",
+    date: "2026-10-24",
+    title: "Search work items across projects in the API",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The API reference now documents searching work items across projects: GET /work-items, GET /work-items/search, and POST /work-items/search with a JSON filter. API keys need the read scope for them.",
+      },
+    ],
+  },
+  {
     version: "2.468.1",
     date: "2026-10-24",
     title: "Tighter API key visibility",
