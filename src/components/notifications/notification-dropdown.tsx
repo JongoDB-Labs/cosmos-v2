@@ -10,12 +10,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Bell, Check, Mail, MailOpen } from "lucide-react";
+import { Bell, Check, Mail, MailOpen, X } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
 import type { Notification } from "@/types/models";
 import { notificationHref } from "@/lib/notifications/href";
+import {
+  announceNotificationsChanged,
+  onNotificationsChanged,
+} from "@/lib/notifications/changed";
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -71,6 +75,12 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
   // state change tells this component the sentinel now exists to observe.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
   const [sentinel, setSentinel] = useState<HTMLButtonElement | null>(null);
+  // Bumped when the Inbox page changes notifications under the bell.
+  const [reloads, setReloads] = useState(0);
+  useEffect(
+    () => onNotificationsChanged("bell", () => setReloads((n) => n + 1)),
+    [],
+  );
 
   // First page, through the same paged endpoint the inbox reads, so scrolling
   // can carry on from its cursor.
@@ -87,6 +97,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
         if (cancelled) return;
         setNotifications(page.data);
         setCursor(page.nextCursor);
+        setLoadFailed(false);
         setUnreadNotLoaded(
           Math.max(
             0,
@@ -100,7 +111,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     return () => {
       cancelled = true;
     };
-  }, [orgId]);
+  }, [orgId, reloads]);
 
   async function loadOlder() {
     if (!cursor || loadingMore) return;
@@ -183,9 +194,47 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
       setUnreadNotLoaded(0);
+      announceNotificationsChanged("bell");
     } catch (err) {
       console.error("Failed to mark all notifications read:", err);
       notifyError(err, "Couldn't mark all as read.");
+    }
+  }
+
+  // Clearing deletes. Like read/unread, the list changes only once the server
+  // has done it.
+  async function clearOne(id: string) {
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/notifications/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      announceNotificationsChanged("bell");
+    } catch (err) {
+      notifyError(err, "Couldn't clear that notification.");
+    }
+  }
+
+  // Two steps, in place: a dialog opened from inside a dropdown menu would
+  // close the menu under it, and this can't be undone.
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  async function clearAll() {
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/notifications/inbox`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear" }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setNotifications([]);
+      setUnreadNotLoaded(0);
+      setCursor(null);
+      announceNotificationsChanged("bell");
+    } catch (err) {
+      notifyError(err, "Couldn't clear your notifications.");
+    } finally {
+      setConfirmingClear(false);
     }
   }
 
@@ -202,6 +251,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, read } : n)),
       );
+      announceNotificationsChanged("bell");
     } catch (err) {
       // Opening a notification marks it read on the way past; failing that is
       // trivial and self-heals on the next load, so it stays quiet. Asking for
@@ -252,19 +302,62 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
       <DropdownMenuContent align="end" className="w-80">
         <div className="flex items-center justify-between px-3 py-2">
           <p className="text-sm font-medium">Notifications</p>
-          {unreadCount > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs gap-1 h-7"
-              onClick={(e) => {
-                e.stopPropagation();
-                markAllRead();
-              }}
-            >
-              <Check className="h-3 w-3" />
-              Mark all read
-            </Button>
+          {confirmingClear ? (
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground">Clear all?</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmingClear(false);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void clearAll();
+                }}
+              >
+                Clear
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              {unreadCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs gap-1 h-7"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    markAllRead();
+                  }}
+                >
+                  <Check className="h-3 w-3" />
+                  Mark all read
+                </Button>
+              )}
+              {notifications.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmingClear(true);
+                  }}
+                >
+                  Clear all…
+                </Button>
+              )}
+            </div>
           )}
         </div>
         <DropdownMenuSeparator />
@@ -341,6 +434,19 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
                   ) : (
                     <MailOpen className="size-4" />
                   )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="mt-1.5 mr-1 shrink-0 text-muted-foreground"
+                  aria-label={`Clear "${notification.title}"`}
+                  title="Clear"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void clearOne(notification.id);
+                  }}
+                >
+                  <X className="size-4" />
                 </Button>
               </div>
             ))}

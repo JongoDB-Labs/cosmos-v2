@@ -12,8 +12,13 @@ import {
   cleanup,
   fireEvent,
   waitFor,
+  act,
 } from "@testing-library/react";
 import { NotificationDropdown } from "./notification-dropdown";
+import {
+  announceNotificationsChanged,
+  onNotificationsChanged,
+} from "@/lib/notifications/changed";
 import type { Notification } from "@/types/models";
 
 const { push, notifyError } = vi.hoisted(() => ({
@@ -303,5 +308,135 @@ describe("NotificationDropdown read and unread", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: /Title a/ }));
     expect(push).toHaveBeenCalledWith("/acme/issues?item=a");
     expect(putBodies(fetchMock)).toEqual([]);
+  });
+});
+
+describe("NotificationDropdown clearing", () => {
+  const calls = (fetchMock: ReturnType<typeof mockInbox>, method: string) =>
+    fetchMock.mock.calls
+      .filter(([, init]) => init?.method === method)
+      .map(([u, init]) => [
+        String(u).replace(`/api/v1/orgs/${ORG_ID}`, ""),
+        init?.body ? JSON.parse(String(init.body)) : null,
+      ]);
+
+  it("clears one notification, and the badge follows", async () => {
+    const fetchMock = mockInbox({
+      "": { data: [notif("a", false), notif("b", false)], nextCursor: null },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(
+      await screen.findByRole("button", { name: 'Clear "Title a"' }),
+    );
+    await waitFor(() => expect(screen.queryByText("Title a")).toBeNull());
+    expect(screen.getByText("Title b")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Notifications, 1 unread" }),
+    ).toBeInTheDocument();
+    expect(calls(fetchMock, "DELETE")).toEqual([["/notifications/a", null]]);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("clears everything only after you confirm", async () => {
+    const fetchMock = mockInbox({
+      "": { data: many("n", 20, false), nextCursor: "c1", unread: 30 },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(await screen.findByRole("button", { name: "Clear all…" }));
+    expect(calls(fetchMock, "POST")).toEqual([]);
+    expect(screen.getByText("Clear all?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(await screen.findByText("No notifications yet")).toBeInTheDocument();
+    expect(calls(fetchMock, "POST")).toEqual([
+      ["/notifications/inbox", { action: "clear" }],
+    ]);
+    // The 10 unread not yet loaded went too.
+    expect(
+      screen.getByRole("button", { name: "Notifications" }),
+    ).toBeInTheDocument();
+  });
+
+  it("clears nothing when you cancel", async () => {
+    const fetchMock = mockInbox({
+      "": { data: many("n", 3), nextCursor: null },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(await screen.findByRole("button", { name: "Clear all…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(
+      screen.getByRole("button", { name: "Clear all…" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("menuitem")).toHaveLength(3);
+    expect(calls(fetchMock, "POST")).toEqual([]);
+  });
+
+  it("keeps the list, and says so, when clearing is refused", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_u: string, init?: RequestInit) =>
+        init?.method === "DELETE" || init?.method === "POST"
+          ? { ok: false, status: 500, json: async () => ({}) }
+          : {
+              ok: true,
+              json: async () => ({
+                data: [notif("a", true)],
+                nextCursor: null,
+                counts: { unread: 0 },
+              }),
+            },
+      ),
+    );
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(
+      await screen.findByRole("button", { name: 'Clear "Title a"' }),
+    );
+    await waitFor(() =>
+      expect(notifyError).toHaveBeenCalledWith(
+        expect.anything(),
+        "Couldn't clear that notification.",
+      ),
+    );
+    expect(screen.getByText("Title a")).toBeInTheDocument();
+  });
+});
+
+describe("NotificationDropdown stays in step with the Inbox page", () => {
+  const gets = (fetchMock: ReturnType<typeof mockInbox>) =>
+    fetchMock.mock.calls.filter(([, init]) => !init?.method).length;
+
+  it("reloads when the Inbox page changes notifications", async () => {
+    const fetchMock = mockInbox({
+      "": { data: [notif("a", false)], nextCursor: null },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await screen.findByRole("button", { name: "Notifications, 1 unread" });
+    // The Inbox page cleared everything.
+    mockInbox({ "": { data: [], nextCursor: null } });
+    act(() => announceNotificationsChanged("inbox"));
+    expect(
+      await screen.findByRole("button", { name: "Notifications" }),
+    ).toBeInTheDocument();
+    expect(gets(fetchMock)).toBe(1);
+  });
+
+  it("tells the Inbox page about its own writes, without reloading itself", async () => {
+    const heard = vi.fn();
+    const off = onNotificationsChanged("inbox", heard);
+    const fetchMock = mockInbox({
+      "": { data: [notif("a", false)], nextCursor: null },
+    });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(
+      await screen.findByRole("button", { name: 'Mark "Title a" read' }),
+    );
+    await screen.findByRole("button", { name: "Notifications" });
+    expect(heard).toHaveBeenCalledTimes(1);
+    expect(gets(fetchMock)).toBe(1);
+    off();
   });
 });
