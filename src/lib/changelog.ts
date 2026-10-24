@@ -49,6 +49,61 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.474.3",
+    date: "2026-10-24",
+    title: "Teams tabs load cleanly",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Cosmos tabs in Teams load without console errors. The tabs can now fetch Microsoft's current list of Teams hosts. Before, the browser blocked it and they fell back to the copy built into the Teams library.",
+      },
+    ],
+  },
+  {
+    version: "2.474.2",
+    date: "2026-10-24",
+    title: "Comment moderation stays in its project",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security: a project manager can moderate comments only in the projects they manage. Before this, they could delete comments in other projects too.",
+      },
+    ],
+  },
+  {
+    version: "2.474.1",
+    date: "2026-10-24",
+    title: "The audit log says how each change was made",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The audit log now records whether each change was made in the app or with an API key, and which key.",
+      },
+    ],
+  },
+  {
+    version: "2.474.0",
+    date: "2026-10-24",
+    title: "Webhooks are delivered",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Webhooks now fire: subscribed endpoints receive signed work-item events, delivered in the background with retries. Each delivery re-checks its address at send time and refuses private or internal destinations.",
+      },
+    ],
+  },
+  {
+    version: "2.473.0",
+    date: "2026-10-24",
+    title: "Mark notifications read or unread from the bell",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each notification in the bell can now be marked read or unread on its own, and the unread count updates to match.",
+      },
+    ],
+  },
+  {
     version: "2.472.0",
     date: "2026-10-24",
     title: "Cosmos in your Teams chats and channels",

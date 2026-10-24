@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Bell, Check } from "lucide-react";
+import { Bell, Check, Mail, MailOpen } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
@@ -189,23 +189,30 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     }
   }
 
-  async function markRead(id: string) {
+  // Read or unread, one notification. The row changes only once the server
+  // has it, so the badge never shows a state that didn't persist.
+  async function setRead(id: string, read: boolean, quiet = false) {
     try {
       const res = await fetch(`/api/v1/orgs/${orgId}/notifications/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ read: true }),
+        body: JSON.stringify({ read }),
       });
-      // Only reflect "read" in the UI if the server accepted it — otherwise the
-      // badge would lie. (No toast: marking one read is trivial and self-heals.)
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
+        prev.map((n) => (n.id === id ? { ...n, read } : n)),
       );
     } catch (err) {
-      // Deliberately silent: marking one notification read is trivial and
-      // self-heals on the next load; a toast here would just be noise.
-      // eslint-disable-next-line no-restricted-syntax
+      // Opening a notification marks it read on the way past; failing that is
+      // trivial and self-heals on the next load, so it stays quiet. Asking for
+      // read or unread outright and not getting it deserves to be told.
+      if (!quiet) {
+        notifyError(
+          err,
+          read ? "Couldn't mark that read." : "Couldn't mark that unread.",
+        );
+        return;
+      }
       console.error("Failed to mark notification read:", err);
     }
   }
@@ -214,7 +221,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     unreadNotLoaded + notifications.filter((n) => !n.read).length;
 
   function handleNotificationClick(n: BellItem) {
-    markRead(n.id);
+    if (!n.read) void setRead(n.id, true, true);
     if (!orgSlug || !n.url) return;
     router.push(notificationHref(orgSlug, n.url));
   }
@@ -278,36 +285,64 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
             data-testid="notification-scroll"
           >
             {notifications.map((notification) => (
-              <DropdownMenuItem
+              // The toggle sits beside the item, not inside it: a button
+              // nested in a menuitem is two controls in one, and using it
+              // would also open the notification.
+              <div
                 key={notification.id}
                 className={cn(
-                  "flex-col items-start gap-1 py-2.5",
+                  "flex items-start",
                   !notification.read && "bg-muted/50",
                 )}
-                onClick={() => handleNotificationClick(notification)}
               >
-                <div className="flex items-start gap-2 w-full">
-                  {!notification.read && (
-                    <div className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className={cn(
-                        "text-sm truncate",
-                        !notification.read && "font-medium",
-                      )}
-                    >
-                      {notification.title}
-                    </p>
-                    <p className="text-xs text-muted-foreground line-clamp-2">
-                      {notification.body}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      {timeAgo(notification.createdAt)}
-                    </p>
+                <DropdownMenuItem
+                  className="min-w-0 flex-1 flex-col items-start gap-1 py-2.5"
+                  onClick={() => handleNotificationClick(notification)}
+                >
+                  <div className="flex items-start gap-2 w-full">
+                    {!notification.read && (
+                      <div className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className={cn(
+                          "text-sm truncate",
+                          !notification.read && "font-medium",
+                        )}
+                      >
+                        {notification.title}
+                      </p>
+                      <p className="text-xs text-muted-foreground line-clamp-2">
+                        {notification.body}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {timeAgo(notification.createdAt)}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </DropdownMenuItem>
+                </DropdownMenuItem>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="mt-1.5 mr-1 shrink-0 text-muted-foreground"
+                  aria-label={
+                    notification.read
+                      ? `Mark "${notification.title}" unread`
+                      : `Mark "${notification.title}" read`
+                  }
+                  title={notification.read ? "Mark unread" : "Mark read"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void setRead(notification.id, !notification.read);
+                  }}
+                >
+                  {notification.read ? (
+                    <Mail className="size-4" />
+                  ) : (
+                    <MailOpen className="size-4" />
+                  )}
+                </Button>
+              </div>
             ))}
             {hasMore ? (
               <button

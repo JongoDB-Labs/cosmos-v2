@@ -139,6 +139,14 @@ describe("an unresolved project fails closed for a scoped key", () => {
     expect(inKeyProjectScope(owner(), null)).toBe(true);
   });
 
+  it("an EMPTY ceiling writes nowhere either (fails closed, never org-wide)", async () => {
+    // verifyApiKey maps a stored [] to undefined, so [] shouldn't reach a gate;
+    // if it ever does, it must mean "no project", not "every project".
+    expect(inKeyProjectScope(owner([]), "p1")).toBe(false);
+    await expect(requireAccess(owner([]), "ITEM_DELETE", { projectId: "p1" })).rejects.toThrow("Access denied by policy");
+    expect(await canAdministerProject(owner([]), "p1")).toBe(false);
+  });
+
   it("requireAccess refuses a resource whose project couldn't be resolved, for a scoped key only", async () => {
     await expect(requireAccess(owner(["p2"]), "ITEM_UPDATE", { projectId: null })).rejects.toThrow("Access denied by policy");
     await expect(requireAccess(owner(["p2"]), "ITEM_UPDATE", { projectId: undefined })).rejects.toThrow("Access denied by policy");
