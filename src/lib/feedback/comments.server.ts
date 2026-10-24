@@ -78,15 +78,28 @@ export async function currentReaders(orgId: string, userIds: string[]): Promise<
   return whoCan(orgId, userIds, (eff) => hasPermission(eff.permissions, Permission.ORG_READ));
 }
 
-/** Everyone whose current effective permissions pass `test`, loaded in parallel. */
+/** How many permission loads run at once: well under the connection pool. */
+const PERMISSION_BATCH = 20;
+
+/**
+ * Everyone whose current effective permissions pass `test`, loaded in parallel
+ * batches, so a busy item's followers can't take every pooled connection.
+ */
 async function whoCan(
   orgId: string,
   userIds: string[],
   test: (eff: { permissions: bigint }) => boolean,
 ): Promise<Set<string>> {
   const ids = [...new Set(userIds)];
-  const effs = await Promise.all(ids.map((id) => loadEffectivePermissions(orgId, id)));
-  return new Set(ids.filter((_, i) => effs[i] && test(effs[i]!)));
+  const out = new Set<string>();
+  for (let i = 0; i < ids.length; i += PERMISSION_BATCH) {
+    const batch = ids.slice(i, i + PERMISSION_BATCH);
+    const effs = await Promise.all(batch.map((id) => loadEffectivePermissions(orgId, id)));
+    batch.forEach((id, j) => {
+      if (effs[j] && test(effs[j]!)) out.add(id);
+    });
+  }
+  return out;
 }
 
 export const FEEDBACK_COMMENT_SELECT = {

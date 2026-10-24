@@ -1031,8 +1031,10 @@ export async function mergeDuplicateFeedback(
 
       // A duplicate of another FEEDBACK item is a real merge, through the same
       // writer staff merges use (votes and followers carried over, undoable).
-      // Its checks all run before it writes, so on a refusal (the target is
-      // gone, say) this transaction is untouched and the item is simply linked.
+      // A refusal (the target is gone, say) may come after the merge has
+      // already claimed the item (status MERGED, no pointer yet); the DECLINED
+      // write below overwrites that in the same transaction, so the item ends
+      // up simply linked.
       if (match.kind === "feedback" && match.feedbackId) {
         try {
           await mergeFeedback(tx, {

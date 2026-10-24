@@ -50,7 +50,7 @@ async function resolveSurvivor(tx: Prisma.TransactionClient, orgId: string, id: 
     if (current === duplicateId) throw new MergeError("cycle", "That would merge the request into itself.");
     const row = await tx.feedbackItem.findFirst({
       where: { id: current, orgId },
-      select: { id: true, title: true, status: true, mergedIntoId: true },
+      select: { id: true, title: true, status: true, mergedIntoId: true, authorId: true },
     });
     if (!row) throw new MergeError("not-found", "The request to merge into was not found.");
     if (row.mergedIntoId) {
@@ -74,6 +74,12 @@ export async function mergeFeedback(
     source: "manual" | "intake";
     /** Null for an intake merge: the dedup judge made it, not a person. */
     mergedById: string | null;
+    /**
+     * Run against the FINAL survivor when the named one was itself merged and
+     * the merge follows its pointer (the caller already checked the named one).
+     * Throws to refuse; the transaction rolls back.
+     */
+    authorizeSurvivor?: (survivor: { id: string; authorId: string }) => Promise<void>;
   },
 ): Promise<{ mergeId: string; survivor: { id: string; title: string } }> {
   const { orgId, duplicateId } = input;
@@ -106,6 +112,7 @@ export async function mergeFeedback(
   }
   const survivor = await resolveSurvivor(tx, orgId, input.survivorId, duplicateId);
   if (survivor.id !== input.survivorId) {
+    await input.authorizeSurvivor?.(survivor);
     // Followed a pointer to an item not locked above: lock it, and make sure it
     // wasn't merged away while we waited.
     await lockItems(tx, [survivor.id]);

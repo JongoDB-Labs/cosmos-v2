@@ -259,6 +259,25 @@ describe("merging feedback (e2e DB)", () => {
     expect((await get(dup)).status).toBe("OPEN");
   });
 
+  it("applies ABAC rules on the request it really lands on, when the named one was merged further", async () => {
+    as(alice, "ADMIN");
+    const final = await item("abac final", carol);
+    const named = await item("abac named", alice);
+    expect((await merge(named, final)).status).toBe(200);
+    const dup = await item("abac chained dup", bob);
+    getAuthContext.mockResolvedValue({
+      userId: alice,
+      orgId,
+      orgRole: "ADMIN",
+      permissions: RolePermissions.ADMIN,
+      basePermissions: RolePermissions.ADMIN,
+      abacRules: [{ effect: "deny", actions: ["ORG_UPDATE"], conditions: [{ attr: "createdById", op: "eq", value: carol }] }],
+    });
+    expect((await merge(dup, named)).status).toBe(403);
+    expect((await get(dup)).status).toBe("OPEN");
+    expect(await prisma.feedbackMerge.count({ where: { duplicateId: dup } })).toBe(0);
+  });
+
   it("keeps an opt-out made after the merge when the merge is undone", async () => {
     as(alice, "ADMIN");
     const survivor = await item("optout survivor", alice);

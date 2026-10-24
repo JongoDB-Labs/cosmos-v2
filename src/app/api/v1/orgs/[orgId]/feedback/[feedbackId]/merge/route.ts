@@ -41,7 +41,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     let result: Awaited<ReturnType<typeof mergeFeedback>>;
     try {
       result = await prisma.$transaction((tx) =>
-        mergeFeedback(tx, { orgId, duplicateId: feedbackId, survivorId, source: "manual", mergedById: route.ctx.userId }),
+        mergeFeedback(tx, {
+          orgId,
+          duplicateId: feedbackId,
+          survivorId,
+          source: "manual",
+          mergedById: route.ctx.userId,
+          // The request actually merged into may be further along the chain.
+          authorizeSurvivor: (s) => requireAccess(route.ctx, "ORG_UPDATE", { createdById: s.authorId }),
+        }),
       );
     } catch (e) {
       if (e instanceof MergeError) return refused(e);

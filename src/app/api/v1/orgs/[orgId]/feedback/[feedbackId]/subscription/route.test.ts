@@ -175,4 +175,25 @@ describe("following a feedback item (e2e DB)", () => {
     expect(sent.map((n) => n.type).sort()).toEqual(["feedback.comment.created", "feedback.comment.mentioned"]);
     for (const n of sent) expect(n.body).toBe(MARKED_COMMENT_NOTICE);
   });
+
+  it("tells every one of a busy item's followers, across batches", async () => {
+    const many = await Promise.all(
+      Array.from({ length: 50 }, (_, n) =>
+        prisma.user.create({ data: { email: `fb-follow-many-${n}-${Date.now()}@test.local`, displayName: `f${n}` } }),
+      ),
+    );
+    tempUsers.push(...many.map((u) => u.id));
+    await prisma.orgMember.createMany({ data: many.map((u) => ({ orgId, userId: u.id, role: "MEMBER" as const })) });
+    await prisma.feedbackSubscription.createMany({
+      data: many.map((u) => ({ orgId, feedbackItemId: itemId, userId: u.id, reason: "voter" })),
+    });
+    await prisma.notification.deleteMany({ where: { orgId, refId: itemId } });
+    as(alice, "ADMIN");
+    expect((await COMMENT(req("POST", { content: "Big update." }), p())).status).toBe(201);
+    const told = await prisma.notification.findMany({
+      where: { orgId, refId: itemId, type: "feedback.comment.created", userId: { in: many.map((u) => u.id) } },
+      select: { userId: true },
+    });
+    expect(new Set(told.map((n) => n.userId)).size).toBe(50);
+  });
 });
