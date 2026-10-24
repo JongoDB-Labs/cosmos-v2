@@ -79,7 +79,7 @@ export const FUNCTIONS: readonly FunctionDef[] = [
   { name: "watchedItems", returns: "item", many: true, args: [], description: "Items you watch." },
   { name: "linkedItems", returns: "item", many: true, args: [{ kind: "item" }, { kind: "linkType", optional: true }], description: "Items linked to KEY, optionally by link type: `linkedItems(ACME-1, BLOCKS)`." },
   { name: "childrenOf", returns: "item", many: true, args: [{ kind: "item" }], description: "Direct children of KEY." },
-  { name: "descendantsOf", returns: "item", many: true, args: [{ kind: "item" }], pending: "query phase 4", description: "Everything under KEY, any depth." },
+  { name: "descendantsOf", returns: "item", many: true, args: [{ kind: "item" }], description: "Everything under KEY, any depth." },
   { name: "updatedBy", returns: "item", many: true, args: [{ kind: "user" }, { kind: "date", optional: true }, { kind: "date", optional: true }], description: "Items a person changed, optionally between two dates." },
 ];
 

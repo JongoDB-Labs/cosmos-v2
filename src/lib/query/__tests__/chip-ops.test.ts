@@ -65,9 +65,9 @@ describe("chip editing", () => {
     expect(chipOps(chipField({ kind: "cf", key: "flagged" }, CFS)!)).toEqual(["is"]);
   });
 
-  it("leaves out pending fields, ORDER-BY-only fields and the free-text field", () => {
+  it("leaves out ORDER-BY-only fields and the free-text field", () => {
     const ids = chipFields(CFS, SYSTEM_FIELD_IDS).map((f) => (f.field.kind === "sys" ? f.field.id : `cf:${f.field.key}`));
-    expect(ids).not.toContain("ancestor");
+    expect(ids).toContain("ancestor");
     expect(ids).not.toContain("rank");
     expect(ids).not.toContain("text");
     expect(ids).toContain("cf:severity");

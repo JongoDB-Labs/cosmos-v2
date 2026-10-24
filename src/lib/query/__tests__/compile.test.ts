@@ -3,7 +3,8 @@
 // that whatever a user writes stays inside the scope envelope.
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
-import { compileQuery } from "../compile";
+import { compileQuery, historySpecs } from "../compile";
+import { historyKey } from "../history";
 import { parseCql } from "../parser";
 import { typecheck } from "../typecheck";
 import type { CompileEnv } from "../env";
@@ -30,6 +31,10 @@ function env(over: Partial<CompileEnv> = {}): CompileEnv {
     },
     items: new Map([["item-100", { projectId: "p1", ticketNumber: 100 }]]),
     customFields: new Map([["sev", "SELECT"], ["n", "NUMBER"], ["areas", "MULTI_SELECT"]]),
+    descendants: new Map([["item-1", ["c1", "c2", "g1"]]]),
+    milestoneItems: new Map([["m1", ["c1", "x9"]]]),
+    milestoneLinked: ["c1", "x9", "y7"],
+    history: new Map(),
     ...over,
   };
 }
@@ -154,6 +159,99 @@ describe("compile — field by field", () => {
     expect(where('parent = "ref:item:i1"')).toEqual({ parentId: { in: ["i1"], not: null } });
     expect(where("watchedItems()")).toEqual({ watchers: { some: { userId: "me-id" } } });
     expect(where('childrenOf("ref:item:i1")')).toEqual({ parentId: "i1" });
+  });
+
+  it("hierarchy and milestones compile to the resolver's id sets", () => {
+    expect(where('ancestor = "ref:item:item-1"')).toEqual({ id: { in: ["c1", "c2", "g1"] } });
+    expect(where('ancestor IN ("ref:item:item-1", "ref:item:none")')).toEqual({ id: { in: ["c1", "c2", "g1"] } });
+    expect(where('ancestor = "ref:item:none"')).toEqual({ id: { in: [] } });
+    expect(where('descendantsOf("ref:item:item-1")')).toEqual({ id: { in: ["c1", "c2", "g1"] } });
+    expect(where('descendantsOf("ref:item:none")')).toEqual({ id: { in: [] } });
+    expect(where('milestone = "ref:milestone:m1"')).toEqual({ id: { in: ["c1", "x9"] } });
+    expect(where("milestone IS EMPTY")).toEqual({ id: { notIn: ["c1", "x9", "y7"] } });
+  });
+
+  it("history: CHANGED and untimed WAS are Activity relation filters", () => {
+    const act = (w: object) => ({ activities: { some: { action: "updated", field: "columnKey", ...w } } });
+    expect(where("status CHANGED")).toEqual(act({}));
+    expect(where('status CHANGED FROM "ref:status:todo" TO ("ref:status:done", "ref:status:shipped") BY me')).toEqual(
+      act({
+        AND: [{ oldValue: { in: ["todo"] } }, { newValue: { in: ["done", "shipped"] } }],
+        userId: { in: ["me-id"] },
+      }),
+    );
+    expect(where('status CHANGED AFTER 2026-10-01 BEFORE -1d')).toEqual(
+      act({ createdAt: { gte: new Date("2026-10-02T00:00:00Z"), lt: new Date("2026-10-14T15:00:00Z") } }),
+    );
+    // Now, or a recorded change that left or entered it.
+    expect(where('status WAS "ref:status:done"')).toEqual({
+      OR: [{ columnKey: { in: ["done"] } }, act({ OR: [{ oldValue: { in: ["done"] } }, { newValue: { in: ["done"] } }] })],
+    });
+    // Nullable columns stay two-valued under NOT.
+    expect(where("assignee WAS NOT me")).toEqual({
+      NOT: {
+        OR: [
+          { assigneeId: { in: ["me-id"], not: null } },
+          { activities: { some: { action: "updated", field: "assigneeId", OR: [{ oldValue: { in: ["me-id"] } }, { newValue: { in: ["me-id"] } }] } } },
+        ],
+      },
+    });
+    expect(where("assignee WAS EMPTY BY me")).toEqual({
+      activities: { some: { action: "updated", field: "assigneeId", newValue: null, userId: { in: ["me-id"] } } },
+    });
+  });
+
+  it("history: a window is prefiltered ids (held at the start or set inside), or holding it since", () => {
+    const e = env();
+    const q14 = 'status WAS "ref:status:done" AFTER -14d';
+    const specs = historySpecs(q(q14).where, e);
+    expect(specs).toEqual([
+      { kind: "window", field: "status", set: { values: ["done"], ranges: [], empty: false }, from: "2026-10-01T15:00:00.000Z", to: null },
+    ]);
+    e.history.set(historyKey(specs[0]), ["i1", "i2"]);
+    const act = (w: object) => ({ activities: { some: { action: "updated", field: "columnKey", ...w } } });
+    expect(where(q14, e)).toEqual({ OR: [{ id: { in: ["i1", "i2"] } }, { columnKey: { in: ["done"] } }] });
+    expect(where(`NOT (${q14})`, e)).toMatchObject({ NOT: { OR: expect.any(Array) } });
+    // BEFORE only: a change before the end entered or left it (a per-item
+    // EXISTS, never a scan of the org's history), or the prefilter's "first
+    // change at or after the end started from it", or born before the end,
+    // holding it, and quiet since.
+    const qB = 'status WAS "ref:status:done" BEFORE 2026-10-01';
+    const eB = env();
+    eB.history.set(historyKey(historySpecs(q(qB).where, eB)[0]), ["i3"]);
+    const end = new Date("2026-10-01T00:00:00Z");
+    expect(where(qB, eB)).toEqual({
+      OR: [
+        act({ OR: [{ oldValue: { in: ["done"] } }, { newValue: { in: ["done"] } }], createdAt: { lt: end } }),
+        { id: { in: ["i3"] } },
+        { AND: [{ columnKey: { in: ["done"] } }, { createdAt: { lt: end } }, { NOT: act({ createdAt: { gte: end } }) }] },
+      ],
+    });
+    // Without its prefilter the compiler refuses rather than guessing.
+    expect(() => where(q14)).toThrow(/prefilter/);
+    // A history clause with an unset variable is inert, so it needs no prefilter.
+    expect(historySpecs(q("status WAS $s AFTER -1d").where, env())).toEqual([]);
+  });
+
+  it("history: dates match as ISO text ranges, in Activity and on the column", () => {
+    expect(where("due WAS 2026-10-20")).toEqual({
+      OR: [
+        { dueDate: { gte: new Date("2026-10-20T00:00:00Z"), lt: new Date("2026-10-21T00:00:00Z"), not: null } },
+        {
+          activities: {
+            some: {
+              action: "updated",
+              field: "dueDate",
+              OR: [
+                { oldValue: { gte: "2026-10-20T00:00:00.000Z", lt: "2026-10-21T00:00:00.000Z" } },
+                { newValue: { gte: "2026-10-20T00:00:00.000Z", lt: "2026-10-21T00:00:00.000Z" } },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    expect(historySpecs(q("due CHANGED FROM 2026-10-20 TO EMPTY").where, env())).toEqual([]);
   });
 
   it("an empty date is a plain null, so IS EMPTY / IS NOT EMPTY / != partition", () => {

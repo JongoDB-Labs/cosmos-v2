@@ -14,21 +14,26 @@
  * Lookups are batched per entity, so a query costs a handful of queries however
  * many values it names.
  */
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { isUuid } from "@/lib/ids";
 import type { AuthContext } from "@/lib/rbac/check";
 import {
+  predValues,
   type CqlNode,
   type CqlQuery,
   type CqlValue,
   type FieldRef,
+  type HistoryPreds,
   type LeafNode,
+  type PredValue,
   type RefEntity,
 } from "./ast";
 import { fieldDef, type SystemFieldId } from "./fields";
 import { lookupFunction } from "./functions";
-import { fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
-import { diag, type CqlDiagnostic, type Span } from "./errors";
+import { HISTORY_BY_FIELD, fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
+import { ID_SET_MAX, diag, tooBroad, type CqlDiagnostic, type Span } from "./errors";
+import { withStatementTimeout } from "./timeout.server";
 import type { CustomFieldType, SchemaCustomField } from "./typecheck";
 
 /** A dashboard variable's value as a caller supplies it: ids/names, or nothing (= everyone). */
@@ -44,6 +49,8 @@ export interface ResolveArgs {
   now: Date;
   tz: string;
   vars?: Record<string, VarInput>;
+  /** Statement budget for the resolver's own id-set reads (hierarchy, milestones). */
+  timeoutMs?: number;
   contextProjectId?: string;
   sinceLastStandup?: Date;
   /** "warn": unknown values are warnings and match nothing; "strict": errors. */
@@ -85,7 +92,7 @@ const KEY_RE = /^([A-Za-z][A-Za-z0-9_]*)-(\d+)$/;
  * People, labels and types are org-wide: an item assigned to someone who has
  * since left is still that person's item.
  */
-const SCOPED_REFS = new Set<RefEntity>(["project", "interval", "team", "item"]);
+const SCOPED_REFS = new Set<RefEntity>(["project", "interval", "team", "item", "milestone"]);
 /**
  * Stored refs that are re-checked against the ORG (not a project): a JSON
  * query (an API caller, a saved filter) could carry any id, and an id from
@@ -121,15 +128,29 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     if (v.t === "var") varUses.push({ name: v.name, field, entity });
     if (v.t === "fn") v.args.forEach((arg, i) => collect(arg, fnArgEntity(v.name, i), field));
   };
-  const leafValues = (l: LeafNode): CqlValue[] =>
-    l.op === "cmp" ? [l.value] : l.op === "in" || l.op === "was" ? l.values : [];
+  /** A leaf's values, each with the field it is typed by: history's BY is people, its dates are no entity. */
+  const leafParts = (l: LeafNode): { v: CqlValue; field: FieldRef | null }[] => {
+    if (l.op === "cmp") return [{ v: l.value, field: l.field }];
+    if (l.op === "in") return l.values.map((v) => ({ v, field: l.field }));
+    if (l.op !== "was" && l.op !== "changed") return [];
+    const p = l.preds ?? {};
+    return [
+      ...(l.op === "was" ? l.values : []).map((v) => ({ v, field: l.field })),
+      ...[...predValues(p.from), ...predValues(p.to)].map((v) => ({ v, field: l.field })),
+      ...predValues(p.by).map((v) => ({ v, field: HISTORY_BY_FIELD })),
+      ...[p.after, p.before, p.on, ...(p.during ?? [])].filter((v): v is CqlValue => !!v).map((v) => ({ v, field: null })),
+    ];
+  };
+  const leafValues = (l: LeafNode): CqlValue[] => leafParts(l).map((x) => x.v);
   const walk = (n: CqlNode | null, f: (l: LeafNode) => void) => {
     if (!n) return;
     if (n.op === "and" || n.op === "or") n.args.forEach((x) => walk(x, f));
     else if (n.op === "not") walk(n.arg, f);
     else f(n);
   };
-  walk(a.query.where, (l) => leafValues(l).forEach((v) => collect(v, entityOf(l.field, cfTypes), l.field)));
+  walk(a.query.where, (l) =>
+    leafParts(l).forEach(({ v, field }) => collect(v, field ? entityOf(field, cfTypes) : null, field ?? l.field)),
+  );
 
   // Variables carry raw ids/names too; they resolve for the field they sit in.
   const varValues = new Map<string, CqlValue[] | null>();
@@ -174,10 +195,10 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
 
   // ── 2. Batched, scoped lookups ─────────────────────────────────────────────
   const readableIds = [...readable];
-  const nameOrIdOr = (names: Set<string>, column: "name" | "key" | "email" | "displayName") =>
+  const nameOrIdOr = (names: Set<string>, column: "name" | "key" | "email" | "displayName" | "title") =>
     [...names].map((n) => ({ [column]: { equals: n, mode: "insensitive" as const } }));
 
-  const [projects, types, columns, intervals, teams, labels, members] = await Promise.all([
+  const [projects, types, columns, intervals, teams, labels, members, milestones] = await Promise.all([
     wanted.project.size || wanted.item.size || a.contextProjectId
       ? prisma.project.findMany({ where: { orgId, id: { in: readableIds } }, select: { id: true, key: true, name: true } })
       : [],
@@ -223,6 +244,12 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
             },
           },
           select: { user: { select: { id: true, email: true, displayName: true } } },
+        })
+      : [],
+    wanted.milestone.size
+      ? prisma.milestone.findMany({
+          where: { orgId, projectId: { in: readableIds }, OR: [...nameOrIdOr(wanted.milestone, "title"), { id: { in: [...wanted.milestone].filter(isUuid) } }] },
+          select: { id: true, title: true },
         })
       : [],
   ]);
@@ -291,6 +318,11 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     const ref: Ref = { t: "ref", entity: "label", id: l.id, label: l.name };
     put("label", l.name, ref);
     put("label", l.id, ref);
+  }
+  for (const m of milestones) {
+    const ref: Ref = { t: "ref", entity: "milestone", id: m.id, label: m.title };
+    put("milestone", m.title, ref);
+    put("milestone", m.id, ref);
   }
   const userByName = new Map<string, { id: string; email: string; displayName: string }[]>();
   for (const { user: u } of members) {
@@ -404,6 +436,29 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
         if (!list) return n;
         return { ...n, values: dedupe(list) };
       }
+      case "was":
+      case "changed": {
+        // FROM / TO / BY resolve like IN lists: a status name that is a
+        // different key in each project becomes the list of those keys.
+        const p = n.preds ?? {};
+        const pred = (v: PredValue | undefined, field: FieldRef): PredValue | null | undefined => {
+          if (v === undefined) return undefined;
+          const r = resolveList(predValues(v), field);
+          return r && (r.length === 1 ? r[0] : dedupe(r));
+        };
+        const from = pred(p.from, n.field);
+        const to = pred(p.to, n.field);
+        const by = pred(p.by, HISTORY_BY_FIELD);
+        const values = n.op === "was" ? resolveList(n.values, n.field) : [];
+        if (from === null || to === null || by === null || values === null) return n;
+        const preds: HistoryPreds = {
+          ...p,
+          ...(from !== undefined ? { from } : {}),
+          ...(to !== undefined ? { to } : {}),
+          ...(by !== undefined ? { by } : {}),
+        };
+        return n.op === "was" ? { ...n, values: dedupe(values), preds } : { ...n, preds };
+      }
       default:
         return n;
     }
@@ -489,6 +544,63 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     }
   }
 
+  // ── 5b. Hierarchy and milestones, as id sets ─────────────────────────────────
+  // `ancestor = X` and `descendantsOf(X)`: everything under X at any depth,
+  // walking only readable projects. `milestone`: the items each named
+  // milestone links to (MilestoneLink has no relation to WorkItem).
+  const refIdsOf = (values: CqlValue[], entity: RefEntity) =>
+    values.filter((v): v is Ref => v.t === "ref" && v.entity === entity).map((v) => v.id);
+  const roots = new Set<string>();
+  const milestoneIds = new Set<string>();
+  // Only `IS EMPTY`, an EMPTY value and negations (`!=` / NOT IN leave out
+  // items with no milestone) need every linked item; `=` / IN need only the
+  // named milestones' links.
+  let needsLinked = false;
+  // A leaf's values with its variables expanded (`milestone = $m`,
+  // `ancestor = $epic`), exactly as the compiler will see them.
+  const expanded = (l: Parameters<Parameters<typeof walk>[1]>[0]) =>
+    leafValues(l).flatMap((v) => (v.t === "var" ? (vars.get(varKey(v.name, l.field)) ?? []) : [v]));
+  if (where) {
+    walk(where, (l) => {
+      const values = expanded(l);
+      if (l.field.kind === "sys" && l.field.id === "ancestor") refIdsOf(values, "item").forEach((id) => roots.add(id));
+      if (l.field.kind === "sys" && l.field.id === "milestone") {
+        refIdsOf(values, "milestone").forEach((id) => milestoneIds.add(id));
+        if (l.op === "empty" || values.some((v) => v.t === "empty") || (l.op === "cmp" && l.cmp === "neq") || (l.op === "in" && l.negate)) {
+          needsLinked = true;
+        }
+      }
+    });
+  }
+  for (const fn of fnValues) if (fn.name === "descendantsOf") refIdsOf(fn.args, "item").forEach((id) => roots.add(id));
+  // One statement budget for all of it: /cql/validate and every run reach
+  // these reads, and a deep tree or a big milestone must not run unbounded.
+  const { descendants, milestoneItems, milestoneLinked } = await withStatementTimeout(a.timeoutMs ?? 3_000, async (tx) => {
+    const descendants = await descendantsByRoot(tx, orgId, [...roots], readableIds);
+    const milestoneItems = new Map<string, string[]>();
+    if (milestoneIds.size) {
+      const links = await tx.milestoneLink.findMany({
+        where: { milestoneId: { in: [...milestoneIds] }, milestone: { orgId, projectId: { in: readableIds } } },
+        select: { milestoneId: true, workItemId: true },
+        take: ID_SET_MAX + 1,
+      });
+      if (links.length > ID_SET_MAX) throw tooBroad("milestone");
+      for (const l of links) pushTo(milestoneItems, l.milestoneId, l.workItemId);
+    }
+    let milestoneLinked: string[] = [];
+    if (needsLinked) {
+      const linked = await tx.milestoneLink.findMany({
+        where: { milestone: { orgId, projectId: { in: readableIds } } },
+        select: { workItemId: true },
+        distinct: ["workItemId"],
+        take: ID_SET_MAX + 1,
+      });
+      if (linked.length > ID_SET_MAX) throw tooBroad("milestone-empty");
+      milestoneLinked = linked.map((l) => l.workItemId);
+    }
+    return { descendants, milestoneItems, milestoneLinked };
+  });
+
   // ── 6. Status categories per readable project ──────────────────────────────
   const statusCategories: CompileEnv["statusCategories"] = { TODO: [], IN_PROGRESS: [], DONE: [], CANCELLED: [] };
   if (needsStatusCategories) {
@@ -520,10 +632,42 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     statusCategories,
     items,
     customFields: cfTypes,
+    descendants,
+    milestoneItems,
+    milestoneLinked,
+    history: new Map(),
     ...(contextProject ? { contextProjectId: contextProject } : {}),
     ...(a.sinceLastStandup ? { sinceLastStandup: a.sinceLastStandup } : {}),
   };
   return { query: { ...a.query, where }, env, diagnostics };
+}
+
+/**
+ * Everything under each root, any depth, inside readable projects. One
+ * recursive query, parameterized (no SQL built from strings); UNION stops on
+ * cycles. Bounded: past ID_SET_MAX rows it is refused.
+ */
+async function descendantsByRoot(db: Pick<Prisma.TransactionClient, "$queryRaw">, orgId: string, roots: string[], readable: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (roots.length === 0 || readable.length === 0) return out;
+  const rows = await db.$queryRaw<{ root: string; id: string }[]>`
+    WITH RECURSIVE tree(root, id) AS (
+      SELECT w.parent_id, w.id FROM work_items w
+       WHERE w.parent_id = ANY(${roots}::uuid[]) AND w.org_id = ${orgId}::uuid AND w.project_id = ANY(${readable}::uuid[])
+      UNION
+      SELECT t.root, w.id FROM work_items w JOIN tree t ON w.parent_id = t.id
+       WHERE w.org_id = ${orgId}::uuid AND w.project_id = ANY(${readable}::uuid[])
+    )
+    SELECT root::text AS root, id::text AS id FROM tree LIMIT ${ID_SET_MAX + 1}`;
+  if (rows.length > ID_SET_MAX) throw tooBroad("descendants");
+  for (const r of rows) pushTo(out, r.root, r.id);
+  return out;
+}
+
+function pushTo(m: Map<string, string[]>, k: string, v: string): void {
+  const list = m.get(k);
+  if (list) list.push(v);
+  else m.set(k, [v]);
 }
 
 function dedupe(values: CqlValue[]): CqlValue[] {

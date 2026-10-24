@@ -47,6 +47,8 @@ type UpdateCheck = {
   } | null;
   candidateDigest: string | null;
   candidateTag: string | null;
+  /** The image for the RUNNING version was rebuilt; null when the instance does not know its own digest. */
+  rebuildAvailable: boolean | null;
   preflights: Preflight[];
   notes: ReleaseNote[];
   notesOmitted: number;
@@ -185,7 +187,16 @@ function useDeployStatus() {
   });
 }
 
-function DeployPanel({ version, applyable }: { version: string; applyable: boolean }) {
+function DeployPanel({
+  version,
+  applyable,
+  reinstall = false,
+}: {
+  version: string;
+  applyable: boolean;
+  /** The running version, rebuilt: same request, same runner, different words. */
+  reinstall?: boolean;
+}) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
 
@@ -210,8 +221,12 @@ function DeployPanel({ version, applyable }: { version: string; applyable: boole
   return (
     <SectionCard
       icon={Rocket}
-      title="Install this version"
-      description="Runs the same deploy the operator would run by hand, on the server."
+      title={reinstall ? "Reinstall this version" : "Install this version"}
+      description={
+        reinstall
+          ? "Pulls the rebuilt image and runs the same deploy as an upgrade, on the server — backup, migration and health check included."
+          : "Runs the same deploy the operator would run by hand, on the server."
+      }
     >
       {active ? (
         <div className="space-y-2">
@@ -232,7 +247,7 @@ function DeployPanel({ version, applyable }: { version: string; applyable: boole
         <>
           <Button onClick={() => start.mutate()} disabled={!applyable || start.isPending}>
             <Rocket className="mr-2 size-4" aria-hidden />
-            {start.isPending ? "Requesting…" : `Install ${version}`}
+            {start.isPending ? "Requesting…" : `${reinstall ? "Reinstall" : "Install"} ${version}`}
           </Button>
           {!applyable && (
             <p className="mt-2 text-xs text-muted-foreground">
@@ -770,6 +785,13 @@ export function UpdatesManager() {
                 <span className="font-medium">{status.newer.length}</span>{" "}
                 {status.newer.length === 1 ? "release" : "releases"} available.
               </p>
+            ) : data.rebuildAvailable ? (
+              // Not "up to date": the version matches, the contents do not. On a
+              // composed instance this is how a plugin-only release arrives.
+              <p className="text-sm">
+                The image for <span className="font-mono">{status?.current}</span> has been rebuilt since this
+                instance installed it.
+              </p>
             ) : (
               <p className="text-sm text-muted-foreground">This instance is up to date.</p>
             )}
@@ -818,8 +840,12 @@ export function UpdatesManager() {
         </SectionCard>
       )}
 
-      {status?.updateAvailable && status.latest && (
+      {status?.updateAvailable && status.latest ? (
         <DeployPanel version={status.latest} applyable={data.applyable} />
+      ) : (
+        !status?.ahead &&
+        data.rebuildAvailable &&
+        status?.current && <DeployPanel version={status.current} applyable={data.applyable} reinstall />
       )}
 
       {/* Deliberately NOT gated on `updateAvailable` — see LastDeployCard. */}

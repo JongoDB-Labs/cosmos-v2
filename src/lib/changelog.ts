@@ -49,6 +49,50 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.468.0",
+    date: "2026-10-24",
+    title: "Query language: history, hierarchy and richer sorting",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Query language (beta): search history with WAS and CHANGED (for example: status CHANGED FROM Review TO \"In Progress\" AFTER -14d), filter by everything under an epic (ancestor = ACME-1), by milestone, and by empty or matching custom fields, and sort by assignee, status, project or a custom field.",
+      },
+    ],
+  },
+  {
+    version: "2.467.0",
+    date: "2026-10-24",
+    title: "Edit a client after it is created",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A client's name, legal name, contact details, website, notes and active status can now be corrected after the client is created. Anyone with permission to update CRM records can make the change, and it is recorded in the audit log.",
+      },
+    ],
+  },
+  {
+    version: "2.466.0",
+    date: "2026-10-24",
+    title: "Reinstall a rebuilt release from Admin \u203a Updates",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When the image for the version you already run has been rebuilt (for example a plugin-only release), Admin \u203a Updates now says so and offers Reinstall, with the same safety checks as an upgrade. Before, such a release stayed invisible until the next core version.",
+      },
+    ],
+  },
+  {
+    version: "2.465.1",
+    date: "2026-10-24",
+    title: "Plugin versions recorded with each release",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Each release now records the exact released version of every bundled plugin alongside its pinned commit, so it is clear which plugin versions a Cosmos release contains.",
+      },
+    ],
+  },
+  {
     version: "2.465.0",
     date: "2026-10-24",
     title: "Workflows you can design per project",
