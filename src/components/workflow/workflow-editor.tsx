@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -26,9 +27,16 @@ import { StatusesPanel } from "./statuses-panel";
 import { TransitionMatrix } from "./transition-matrix";
 import { TransitionPanel } from "./transition-panel";
 
-type View = "matrix" | "statuses" | "simulate" | "history";
+// React Flow and ELK are ~150 kB: only for those who open the diagram.
+const WorkflowCanvas = dynamic(() => import("./workflow-canvas").then((m) => m.WorkflowCanvas), {
+  ssr: false,
+  loading: () => <Skeleton className="h-[560px] w-full" />,
+});
+
+type View = "matrix" | "canvas" | "statuses" | "simulate" | "history";
 const VIEWS: { id: View; label: string }[] = [
   { id: "matrix", label: "Transitions" },
+  { id: "canvas", label: "Diagram" },
   { id: "statuses", label: "Statuses" },
   { id: "simulate", label: "Simulate" },
   { id: "history", label: "History" },
@@ -121,6 +129,7 @@ function Loaded({
   const qc = useQueryClient();
   const listKey = useOrgQueryKey("workflows", projectId);
   const [def, setDef] = useState<WorkflowDefinition>(initial);
+  const [lay, setLay] = useState<VersionLayout>(layout);
   const [view, setView] = useState<View>("matrix");
   const [editing, setEditing] = useState<TransitionSpec | null>(null);
   const [publishing, setPublishing] = useState(false);
@@ -130,12 +139,12 @@ function Loaded({
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
-  const persist = async (next: WorkflowDefinition) => {
+  const persist = async (next: WorkflowDefinition, nextLayout: VersionLayout) => {
     setSave({ kind: "saving" });
     try {
       const r = await jsonFetch<{ version: number; issues: DefinitionIssue[] }>(`${base}/draft`, {
         method: "PUT",
-        body: JSON.stringify({ definition: next, layout }),
+        body: JSON.stringify({ definition: next, layout: nextLayout }),
       });
       setSave({ kind: "saved", issues: r.issues });
       // The badges and the list show the draft; the editor keeps its own copy.
@@ -147,11 +156,20 @@ function Loaded({
     }
   };
 
+  const schedule = (next: WorkflowDefinition, nextLayout: VersionLayout) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => void persist(next, nextLayout), 600);
+  };
   const change = (next: WorkflowDefinition) => {
     if (readOnly) return;
     setDef(next);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => void persist(next), 600);
+    schedule(next, lay);
+  };
+  const moveNodes = (nodes: NonNullable<VersionLayout["nodes"]>) => {
+    if (readOnly) return;
+    const next = { ...lay, nodes };
+    setLay(next);
+    schedule(def, next);
   };
 
   const byKey = new Map(statuses.map((s) => [s.key, s]));
@@ -274,6 +292,22 @@ function Loaded({
             )}
             <TransitionList transitions={def.transitions} nameOf={nameOf} onEdit={setEditing} />
           </div>
+        )}
+        {view === "canvas" && (
+          <WorkflowCanvas
+            definition={def}
+            statuses={def.statuses.map((st) => ({
+              key: st.key,
+              name: nameOf(st.key),
+              color: byKey.get(st.key)?.color ?? "#94a3b8",
+              category: byKey.get(st.key)?.category ?? "TODO",
+            }))}
+            layout={lay}
+            onChange={change}
+            onLayoutChange={moveNodes}
+            onEditTransition={(id) => setEditing(def.transitions.find((t) => t.id === id) ?? null)}
+            readOnly={readOnly}
+          />
         )}
         {view === "statuses" && (
           <StatusesPanel orgId={orgId} projectId={projectId} definition={def} statuses={statuses} onChange={change} readOnly={readOnly} />
