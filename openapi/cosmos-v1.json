@@ -246,7 +246,7 @@
               },
               "email": {
                 "type": "string",
-                "description": "Browser sessions only; never returned to API tokens."
+                "description": "Returned to browser sessions, and to API tokens that hold `members:read`."
               },
               "displayName": {
                 "type": "string"
@@ -1045,7 +1045,7 @@
           },
           "email": {
             "type": "string",
-            "description": "Browser sessions only; never returned to API tokens."
+            "description": "Returned to browser sessions, and to API tokens that hold `members:read`."
           },
           "displayName": {
             "type": "string"
@@ -1599,6 +1599,9 @@
                     "integer",
                     "null"
                   ]
+                },
+                "sourceRecord": {
+                  "description": "The record an import or sync created this item from, as the source system sent it; null otherwise."
                 },
                 "_count": {
                   "type": "object",
@@ -2402,7 +2405,7 @@
       "get": {
         "operationId": "listMembers",
         "summary": "List members",
-        "description": "Everyone in the organization, longest-standing first. Email addresses are not returned to API tokens.",
+        "description": "Everyone in the organization, longest-standing first. A token sees `user.email` only when it holds `members:read`; a browser session always does.",
         "tags": [
           "Members"
         ],
@@ -2417,8 +2420,13 @@
           "read"
         ],
         "x-cosmos-stability": "stable",
-        "x-cosmos-session-only": [
-          "email"
+        "x-cosmos-scoped-fields": [
+          {
+            "scope": "members:read",
+            "paths": [
+              "[].user.email"
+            ]
+          }
         ],
         "parameters": [
           {
@@ -2911,7 +2919,7 @@
       "get": {
         "operationId": "getProject",
         "summary": "Get a project",
-        "description": "One project with its boards (and their columns), intervals and members.",
+        "description": "One project with its boards (and their columns), intervals and members. A token sees members' `orgMember.user.email` only when it holds `members:read`; a browser session always does.",
         "tags": [
           "Projects"
         ],
@@ -2926,8 +2934,13 @@
           "read"
         ],
         "x-cosmos-stability": "stable",
-        "x-cosmos-session-only": [
-          "email"
+        "x-cosmos-scoped-fields": [
+          {
+            "scope": "members:read",
+            "paths": [
+              "members[].orgMember.user.email"
+            ]
+          }
         ],
         "parameters": [
           {

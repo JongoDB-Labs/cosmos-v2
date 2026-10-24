@@ -14,8 +14,8 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId);
     const { params: { orgId, projectId } } = await parseRequest(listMilestones, request, params);
-    const { ctx } = await orgContext(orgId);
     await requireProjectRead(ctx, projectId, "PROJECT_READ");
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
@@ -30,8 +30,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId);
     const { params: { orgId, projectId }, body: data } = await parseRequest(createMilestone, request, params);
-    const { ctx } = await orgContext(orgId);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });

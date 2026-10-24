@@ -23,14 +23,17 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string; interva
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId);
     const { params: { orgId, projectId, intervalId } } = await parseRequest(getInterval, request, params);
-    const { ctx } = await orgContext(orgId);
     await requireProjectRead(ctx, projectId, "SPRINT_READ");
 
     const interval = await prisma.interval.findFirst({
       where: { id: intervalId, projectId, orgId },
       include: {
         workItems: {
+          // Full-text index internals: never part of the WorkItem contract, so
+          // not fetched (respond() would otherwise reject the row outside prod).
+          omit: { searchVector: true },
           include: {
             _count: { select: { comments: true } },
           },
@@ -50,8 +53,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId);
     const { params: { orgId, projectId, intervalId }, body: data } = await parseRequest(updateInterval, request, params);
-    const { ctx } = await orgContext(orgId);
     await requireProjectManage(ctx, projectId, Permission.SPRINT_UPDATE);
 
     const existing = await prisma.interval.findFirst({ where: { id: intervalId, projectId, orgId } });

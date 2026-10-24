@@ -10,14 +10,16 @@ export const getProject = defineRoute({
   path: "/orgs/{orgId}/projects/{projectId}",
   operationId: "getProject",
   summary: "Get a project",
-  description: "One project with its boards (and their columns), intervals and members.",
+  description:
+    "One project with its boards (and their columns), intervals and members. A token sees members' " +
+    "`orgMember.user.email` only when it holds `members:read`; a browser session always does.",
   tags: ["Projects"],
   stability: "stable",
   scopes: ["read"],
   request: { params },
   responses: { 200: ProjectDetail },
   errors: [400, 401, 403, 404],
-  sessionOnly: ["email"],
+  scopedFields: [{ scope: "members:read", paths: ["members[].orgMember.user.email"] }],
 });
 
 export const updateProject = defineRoute({

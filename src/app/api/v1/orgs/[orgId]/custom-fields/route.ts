@@ -27,8 +27,8 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId);
     const { params: { orgId }, query: { projectId } } = await parseRequest(listCustomFields, request, params);
-    const { ctx } = await orgContext(orgId);
     requirePermission(ctx, Permission.ORG_READ);
 
     const where: Prisma.CustomFieldWhereInput = {

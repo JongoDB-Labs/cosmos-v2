@@ -116,7 +116,7 @@ export const IntervalWithCount = Interval.extend({ _count: Count("workItems") })
 /** Who someone is, as other records show them. `email` reaches signed-in browser sessions only. */
 export const UserSummary = z.object({
   id: Uuid,
-  email: z.string().optional().describe("Browser sessions only; never returned to API tokens."),
+  email: z.string().optional().describe("Returned to browser sessions, and to API tokens that hold `members:read`."),
   displayName: z.string(),
   avatarUrl: z.string().nullable(),
 }).meta({ id: "UserSummary" });
@@ -187,6 +187,7 @@ export const WorkItem = z.object({
   originalEstimate: z.number().int().nullable(),
   remainingEstimate: z.number().int().nullable(),
   timeSpent: z.number().int().nullable(),
+  sourceRecord: Json.describe("The record an import or sync created this item from, as the source system sent it; null otherwise."),
 }).meta({ id: "WorkItem" });
 
 export const IntervalDetail = IntervalWithCount.extend({

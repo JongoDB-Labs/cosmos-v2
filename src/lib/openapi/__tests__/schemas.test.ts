@@ -22,7 +22,6 @@ const ENTITIES: Record<string, { model: string; omitted: Record<string, string> 
     model: "WorkItem",
     omitted: {
       searchVector: "full-text index internals",
-      sourceRecord: "the raw record an import came from; may hold another system's data",
     },
   },
   MilestoneLink: { model: "MilestoneLink", omitted: {} },

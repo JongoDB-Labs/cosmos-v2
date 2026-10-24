@@ -7,7 +7,9 @@ export const listMembers = defineRoute({
   path: "/orgs/{orgId}/members",
   operationId: "listMembers",
   summary: "List members",
-  description: "Everyone in the organization, longest-standing first. Email addresses are not returned to API tokens.",
+  description:
+    "Everyone in the organization, longest-standing first. A token sees `user.email` only when it holds " +
+    "`members:read`; a browser session always does.",
   tags: ["Members"],
   stability: "stable",
   scopes: ["read"],
@@ -15,5 +17,5 @@ export const listMembers = defineRoute({
   responses: { 200: z.array(Member) },
   errors: [400, 401, 404],
   pagination: "cursor",
-  sessionOnly: ["email"],
+  scopedFields: [{ scope: "members:read", paths: ["[].user.email"] }],
 });

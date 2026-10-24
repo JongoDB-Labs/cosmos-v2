@@ -54,11 +54,14 @@ export interface RouteContract<
   /** Lists only: `limit`/`cursor` query params plus `Link: rel="next"`. */
   pagination?: "cursor";
   /**
-   * Field names returned to a signed-in browser session but removed, at any
-   * depth, for bearer tokens. For data the UI shows people that a token has no
-   * business exporting (email addresses). The schema marks each optional.
+   * Fields an API token receives only when it holds `scope`; a browser session
+   * always gets them. For personal data a token should be granted explicitly
+   * (email addresses). Each path is EXACT, from the response root: dotted keys,
+   * `[]` for every element of an array (`[].user.email`,
+   * `members[].orgMember.user.email`), so an unrelated field that happens to
+   * share the name is never touched. The schema marks each such field optional.
    */
-  sessionOnly?: string[];
+  scopedFields?: { scope: ApiScope; paths: string[] }[];
 }
 
 /** Identity at runtime; exists for inference, so `parseRequest` and
