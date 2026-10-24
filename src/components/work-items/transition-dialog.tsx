@@ -174,15 +174,17 @@ function FieldEditor({
 }) {
   const id = useId();
   const field = input.field;
-  if ("custom" in field) {
-    if (!custom) return null;
+  if ("custom" in field && custom) {
     return (
       <CustomFieldInput field={custom} value={value} onChange={onChange} disabled={disabled} showRequiredMark={input.required} />
     );
   }
-  const label = input.label ?? SYSTEM_LABELS[field.system] ?? field.system;
+  // A custom field whose definition the caller didn't load (the board) still
+  // gets an editor: the server sent its label and, for a choice, its options.
+  const label = input.label ?? ("custom" in field ? field.custom : (SYSTEM_LABELS[field.system] ?? field.system));
+  const system = "system" in field ? field.system : null;
 
-  if (field.system === "cancelReason") {
+  if (system === "cancelReason") {
     return (
       <div role="radiogroup" aria-label={label} className="space-y-2">
         {CANCEL_REASONS.map((r) => (
@@ -206,7 +208,7 @@ function FieldEditor({
     );
   }
 
-  const required = input.required || (field.system === "cancelNote" && reason === "OTHER");
+  const required = input.required || (system === "cancelNote" && reason === "OTHER");
   const labelEl = (
     <label htmlFor={id} className="text-xs font-medium">
       {label}
@@ -235,7 +237,7 @@ function FieldEditor({
         </SelectContent>
       </Select>
     );
-  } else if (field.system === "dueDate" || field.system === "startDate") {
+  } else if (system === "dueDate" || system === "startDate") {
     control = (
       <DatePicker
         value={typeof value === "string" ? value : undefined}
@@ -244,7 +246,7 @@ function FieldEditor({
         aria-label={label}
       />
     );
-  } else if (field.system === "storyPoints") {
+  } else if (system === "storyPoints") {
     control = (
       <Input
         id={id}
@@ -256,15 +258,15 @@ function FieldEditor({
         aria-required={required}
       />
     );
-  } else if (field.system === "cancelNote" || field.system === "description") {
+  } else if (system === "cancelNote" || system === "description") {
     control = (
       <Textarea
         id={id}
         value={typeof value === "string" ? value : ""}
-        maxLength={field.system === "cancelNote" ? CANCEL_NOTE_MAX : undefined}
+        maxLength={system === "cancelNote" ? CANCEL_NOTE_MAX : undefined}
         onChange={(e) => onChange(e.target.value)}
         placeholder={
-          field.system !== "cancelNote"
+          system !== "cancelNote"
             ? undefined
             : reason === "OTHER"
               ? "Why was it cancelled?"
