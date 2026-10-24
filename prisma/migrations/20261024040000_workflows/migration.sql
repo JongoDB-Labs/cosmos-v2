@@ -49,6 +49,8 @@ CREATE TABLE "workflow_assignments" (
     "project_id" UUID NOT NULL,
     "work_item_type_id" UUID,
     "workflow_id" UUID NOT NULL,
+    "migration_map" JSONB,
+    "assigned_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "workflow_assignments_pkey" PRIMARY KEY ("id")
 );
