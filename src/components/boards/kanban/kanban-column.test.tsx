@@ -125,5 +125,27 @@ describe("KanbanColumn for an archived status", () => {
   it("is unmarked for a live status", () => {
     renderWith();
     expect(screen.queryByText("Archived")).toBeNull();
+
+describe("KanbanColumn while a card that can't move here is dragged", () => {
+  afterEach(() => cleanup());
+
+  it("is dimmed and says why, and is otherwise left alone", () => {
+    const { container, rerender } = render(
+      <DndContext>
+        <KanbanColumn column={makeColumn()} items={[]} members={[]} onCardClick={() => {}} unavailable />
+      </DndContext>,
+    );
+    const col = container.querySelector("[data-board-column='todo']")!;
+    expect(col.getAttribute("data-unavailable")).toBe("true");
+    expect(col.className).toContain("opacity-40");
+    expect(col.getAttribute("title")).toMatch(/workflow doesn't allow/);
+
+    rerender(
+      <DndContext>
+        <KanbanColumn column={makeColumn()} items={[]} members={[]} onCardClick={() => {}} />
+      </DndContext>,
+    );
+    expect(col.hasAttribute("data-unavailable")).toBe(false);
+    expect(col.className).not.toContain("opacity-40");
   });
 });

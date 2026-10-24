@@ -46,7 +46,8 @@ export interface ConditionHistory {
 
 export interface ConditionContext {
   actor: ConditionActor;
-  item: ConditionItem;
+  /** Absent when asking about a status in general, not an item: what depends on the item is then unresolvable. */
+  item?: ConditionItem;
   history?: ConditionHistory;
 }
 
@@ -93,13 +94,14 @@ export function evaluateCondition(node: ConditionNode, ctx: ConditionContext): T
       return tri(actor.projectRole !== null && node.in.includes(actor.projectRole));
     case "actorInTeam": {
       if (actor.teamIds === undefined) return "unresolvable";
-      const teamId = node.teamId === "item" ? item.teamId : node.teamId;
+      if (node.teamId === "item" && !item) return "unresolvable";
+      const teamId = node.teamId === "item" ? item!.teamId : node.teamId;
       return tri(teamId !== null && actor.teamIds.includes(teamId));
     }
     case "actorIsAssignee":
-      return tri(item.assigneeIds.includes(actor.userId));
+      return item ? tri(item.assigneeIds.includes(actor.userId)) : "unresolvable";
     case "actorIsCreator":
-      return tri(item.createdById === actor.userId);
+      return item ? tri(item.createdById === actor.userId) : "unresolvable";
     case "actorIsNot": {
       const last = history?.lastTransitionActor;
       if (last === undefined) return "unresolvable";
@@ -111,6 +113,7 @@ export function evaluateCondition(node: ConditionNode, ctx: ConditionContext): T
       if (history?.previousStatus === undefined) return "unresolvable";
       return tri(history.previousStatus !== null && node.in.includes(history.previousStatus));
     case "field": {
+      if (!item) return "unresolvable";
       const value = fieldValue(item, node.field);
       if (node.op === "isEmpty") return tri(isEmpty(value));
       if (node.op === "isNotEmpty") return tri(!isEmpty(value));
@@ -120,6 +123,16 @@ export function evaluateCondition(node: ConditionNode, ctx: ConditionContext): T
     default:
       return "unresolvable";
   }
+}
+
+/**
+ * Could the restriction let this actor take the transition on SOME item? False
+ * only when it definitely can't (a missing permission or role); what depends
+ * on the item counts as possible. For dimming a board's columns ahead of a
+ * move, never for deciding one.
+ */
+export function restrictionMayAllow(restrict: ConditionNode | undefined, actor: ConditionActor): boolean {
+  return restrict === undefined || evaluateCondition(restrict, { actor }) !== "false";
 }
 
 /** Does the restriction let this actor see and run the transition? */
