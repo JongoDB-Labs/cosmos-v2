@@ -117,7 +117,9 @@ async function runForEvent(rule: Rule, spec: AutomationSpec, e: RuleEvent, now: 
 
   try {
     const scope = await scopeIds(e.subjectId, spec.scope);
-    const matched = spec.condition ? await matchingItemIds(ctx, { cql: spec.condition.cql }, { within: scope, now: now() }) : scope;
+    const matched = spec.condition
+      ? await matchingItemIds(ctx, { cql: spec.condition.cql }, { within: scope, now: now(), contextProjectId: rule.projectId ?? undefined })
+      : scope;
     if (matched.length === 0) {
       await finish("NO_MATCH");
       return true;
@@ -178,9 +180,15 @@ async function runScheduled(rule: Rule, spec: AutomationSpec, cql: string, now: 
     return void (await disable(rule, "Its owner is no longer a member. Save the rule to take it over."));
   }
   try {
-    const ids = await matchingItemIds(ctx, { cql }, { limit: AUTOMATION_LIMITS.scheduledItems, now: now(), timeoutMs: 10_000 });
-    // A project rule acts on its own project's items only, whatever its query says.
-    const scoped = rule.projectId ? (await prisma.workItem.findMany({ where: { id: { in: ids }, projectId: rule.projectId }, select: { id: true } })).map((r) => r.id) : ids;
+    // A project rule acts on its own project's items only, whatever its query
+    // says: narrowed inside the scope envelope, so the limit counts only them.
+    // Its project is also the query's context, as when the rule was saved.
+    const scoped = await matchingItemIds(ctx, { cql }, {
+      limit: AUTOMATION_LIMITS.scheduledItems,
+      now: now(),
+      timeoutMs: 10_000,
+      ...(rule.projectId ? { projectIds: [rule.projectId], contextProjectId: rule.projectId } : {}),
+    });
     if (scoped.length === 0) return void (await finish("NO_MATCH"));
     const run = { rule: { id: rule.id, name: rule.name, orgId: rule.orgId }, ctx, automationUserId: await automationUserId(rule.orgId), triggerActorId: null, correlationId, depth: 1, now: now() };
     const outcomes: ActionOutcome[] = [];

@@ -16,7 +16,7 @@ import { processOutboxBatch } from "./outbox.server";
 import { runDueSchedules, runRulesForEvents, RULE_RUNS_PER_5_MIN, type RuleEvent } from "./engine.server";
 import { createRule, ruleWarnings, updateRule } from "./rules.server";
 import { automationUserId } from "./principal.server";
-import type { AutomationSpec } from "./spec";
+import { AUTOMATION_LIMITS, type AutomationSpec } from "./spec";
 
 let orgId = "";
 let aliceId = "";
@@ -311,6 +311,52 @@ describe("scheduled rules", () => {
     expect((await prisma.workItem.findUniqueOrThrow({ where: { id: mine } })).tags).toEqual(["swept"]);
     expect((await prisma.workItem.findUniqueOrThrow({ where: { id: theirs } })).tags).toEqual([]);
     expect((await runsOf(r.id)).map((x) => [x.status, x.eventId])).toEqual([["SUCCESS", null]]);
+  });
+
+  it("counts its item limit in its own project: another project's matches can't crowd its own out", async () => {
+    const p = await project();
+    const other = await project();
+    const tail = () => Math.random().toString(16).slice(2, 14).padEnd(12, "0");
+    // The other project's matches sort first by id and alone would fill the limit.
+    const theirs = [await item(other, { priority: "LOW", id: `00000000-0000-4000-8000-${tail()}` }), await item(other, { priority: "LOW", id: `00000000-0000-4000-8000-${tail()}` })];
+    const mine = await item(p, { priority: "LOW", id: `ffffffff-ffff-4fff-bfff-${tail()}` });
+    const limits = AUTOMATION_LIMITS as { scheduledItems: number };
+    const was = limits.scheduledItems;
+    limits.scheduledItems = 2;
+    try {
+      const r = await rule(p, { trigger: { on: "schedule", every: "day", hour: 9, minute: 0, cql: "priority = LOW" }, actions: [{ kind: "addLabels", labels: ["swept"] }] });
+      await runDueSchedules({ orgId, now: () => new Date("2026-10-25T09:05:00Z") });
+      expect((await runsOf(r.id)).map((x) => x.status)).toEqual(["SUCCESS"]);
+      expect((await prisma.workItem.findUniqueOrThrow({ where: { id: mine } })).tags).toEqual(["swept"]);
+      for (const id of theirs) expect((await prisma.workItem.findUniqueOrThrow({ where: { id } })).tags).toEqual([]);
+    } finally {
+      limits.scheduledItems = was;
+    }
+  });
+
+  it("runs its query with its project as the context, as it was saved: currentProject() works", async () => {
+    const p = await project();
+    const other = await project();
+    const mine = await item(p, { priority: "LOW" });
+    await item(other, { priority: "LOW" });
+    const r = await rule(p, {
+      trigger: { on: "schedule", every: "day", hour: 9, minute: 0, cql: "project = currentProject() AND priority = LOW" },
+      actions: [{ kind: "addLabels", labels: ["here"] }],
+    });
+    await runDueSchedules({ orgId, now: () => new Date("2026-10-26T09:05:00Z") });
+    expect((await runsOf(r.id)).map((x) => x.status)).toEqual(["SUCCESS"]);
+    expect((await prisma.workItem.findUniqueOrThrow({ where: { id: mine } })).tags).toEqual(["here"]);
+  });
+});
+
+describe("a project rule's condition", () => {
+  it("runs with its project as the context, as it was saved: currentProject() matches, not FAILED", async () => {
+    const p = await project();
+    const r = await rule(p, { trigger: { on: "item.created" }, condition: { cql: "project = currentProject()" }, actions: [{ kind: "addLabels", labels: ["ctx"] }] });
+    const id = await item(p);
+    await settle();
+    expect((await runsOf(r.id)).map((x) => x.status)).toEqual(["SUCCESS"]);
+    expect((await prisma.workItem.findUniqueOrThrow({ where: { id } })).tags).toEqual(["ctx"]);
   });
 });
 

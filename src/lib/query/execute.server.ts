@@ -220,19 +220,21 @@ export async function executeCql(ctx: AuthContext, input: CqlInput, opts: CqlRun
  * that fired a rule match its condition?) or across every readable project
  * up to `limit` (the items a scheduled rule acts on). The same scope envelope
  * and resolver as `executeCql`, under the caller's ctx, so an automation's
- * condition sees no more than the owner it runs as.
+ * condition sees no more than the owner it runs as. `projectIds` narrows the
+ * envelope itself (a project rule), so `limit` counts only those projects.
  */
 export async function matchingItemIds(
   ctx: AuthContext,
   input: CqlInput,
-  opts: Omit<CqlRunOptions, "page" | "pageSize" | "countTimeoutMs"> & { within?: readonly string[]; limit?: number } = {},
+  opts: Omit<CqlRunOptions, "page" | "pageSize" | "countTimeoutMs"> & { within?: readonly string[]; limit?: number; projectIds?: readonly string[] } = {},
 ): Promise<string[]> {
   if (opts.within && opts.within.length === 0) return [];
   const prepared = await prepareCql(ctx, input, opts);
-  if (prepared.readable.length === 0) return [];
+  const allowed = opts.projectIds ? prepared.readable.filter((p) => opts.projectIds!.includes(p)) : prepared.readable;
+  if (allowed.length === 0) return [];
   const where = buildScopedWhere({
     orgId: prepared.orgId,
-    allowedProjectIds: prepared.readable,
+    allowedProjectIds: allowed,
     archived: prepared.compiled.archived,
     user: prepared.compiled.where,
     prefilterIds: opts.within ? [...opts.within] : null,
