@@ -12,7 +12,7 @@
  * migration job (migrate.server.ts) moves them from it until none are left.
  */
 import { createHash } from "node:crypto";
-import type { ColumnCategory, Prisma, WorkflowEnforcement } from "@prisma/client";
+import type { Prisma, WorkflowEnforcement } from "@prisma/client";
 import { NotFoundError } from "@/lib/rbac/check";
 import { WorkflowEditError } from "@/lib/workflow/contract";
 import { buildOpenDefinition } from "@/lib/workflow/compile";
@@ -20,26 +20,18 @@ import {
   validateDefinition,
   workflowDefinitionSchema,
   type DefinitionIssue,
+  type MigrationMap,
   type StatusRef,
   type ValidatorSpec,
+  type VersionLayout,
   type WorkflowDefinition,
 } from "@/lib/workflow/definition";
+
+export type { MigrationMap, VersionLayout };
 import { workflowSettings } from "@/lib/workflow/settings";
 import { ensureStatuses, loadStatuses, type StatusRow } from "@/lib/workflow/statuses.server";
 
 type Tx = Prisma.TransactionClient;
-
-/** {from status key: to status key}, for items in statuses a change drops. */
-export type MigrationMap = Record<string, string>;
-
-/**
- * Editor-only data kept with a version (never read by the engine): node
- * positions, and on a template the statuses it brings into a project.
- */
-export interface VersionLayout {
-  nodes?: Record<string, { x: number; y: number }>;
-  statusCatalog?: { key: string; name: string; color: string; category: ColumnCategory }[];
-}
 
 /** sha256 of the definition with its keys sorted: which rules were in force. */
 export function definitionChecksum(def: WorkflowDefinition): string {
