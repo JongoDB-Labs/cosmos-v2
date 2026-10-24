@@ -11,6 +11,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
+import { hiddenProjectIds } from "@/lib/rbac/project-access";
 import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
 import { resolveModelCredential } from "@/lib/ai/model-credential-provider";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -171,7 +172,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         where: { orgId, archived: false },
         select: { id: true },
       });
-      const orgProjectIds = new Set(orgProjects.map((p) => p.id));
+      // A team-scoped project the caller can't see answers as unknown, so
+      // the refusal never confirms it exists.
+      const hidden = new Set(await hiddenProjectIds(ctx));
+      const orgProjectIds = new Set(orgProjects.map((p) => p.id).filter((id) => !hidden.has(id)));
       const unknownId = referencedIds.find((id) => !orgProjectIds.has(id));
       if (unknownId) {
         return badRequest("One or more selected projects were not found in this organization.");

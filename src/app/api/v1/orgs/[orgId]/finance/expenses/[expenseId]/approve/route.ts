@@ -7,6 +7,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { safeAutoPost, postExpenseToLedger } from "@/lib/ledger/auto-post";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 const approveSchema = z.object({ action: z.enum(["approve", "reject"]) });
 
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.expense.findFirst({
       where: { id: expenseId, orgId },
     });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
 
     if (existing.status !== "SUBMITTED") {
       return new Response(
