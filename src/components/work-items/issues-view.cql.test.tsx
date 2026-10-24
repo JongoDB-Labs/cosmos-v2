@@ -67,6 +67,7 @@ const SCHEMA = { version: 1, fields: FIELDS.map((f) => ({ ...f, sortable: !!f.so
 function serve(cqlOn: boolean) {
   vi.mocked(jsonFetch).mockImplementation((async (url: string) => {
     if (url.endsWith("/facets")) return FACETS;
+    if (url.endsWith("/query-language")) return { enabled: cqlOn, canManage: false };
     if (url.endsWith("/cql/schema")) {
       if (!cqlOn) throw new FetchError(404, { error: "Not found" }, "Not found");
       return SCHEMA;
@@ -172,5 +173,14 @@ describe("IssuesView with CQL off", () => {
     await waitFor(() => expect(searchUrls().length).toBeGreaterThan(0));
     expect(searchUrls().some((u) => u.includes("cql="))).toBe(false);
     expect(screen.queryByRole("button", { name: "Advanced" })).toBeNull();
+  });
+
+  it("doesn't ask for the schema at all, so the browser logs no 404", async () => {
+    serve(false);
+    renderView();
+    await waitFor(() => expect(searchUrls().length).toBeGreaterThan(0));
+    const urls = vi.mocked(jsonFetch).mock.calls.map((c) => c[0] as string);
+    expect(urls.some((u) => u.endsWith("/query-language"))).toBe(true);
+    expect(urls.some((u) => u.endsWith("/cql/schema"))).toBe(false);
   });
 });

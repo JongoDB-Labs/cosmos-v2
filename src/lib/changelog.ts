@@ -49,6 +49,50 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.473.0",
+    date: "2026-10-24",
+    title: "Mark notifications read or unread from the bell",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each notification in the bell can now be marked read or unread on its own, and the unread count updates to match.",
+      },
+    ],
+  },
+  {
+    version: "2.472.0",
+    date: "2026-10-24",
+    title: "Cosmos in your Teams chats and channels",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Get your Cosmos notifications (assigned to you, mentions, due tomorrow) in a chat with Cosmos in Microsoft Teams, chosen under Preferences. Project admins can link a channel with \"@Cosmos link KEY\" to post the project's new items and status changes there. Messages show an item's key, title and a link, never its description or comments, and restricted items show only their key.",
+      },
+    ],
+  },
+  {
+    version: "2.471.3",
+    date: "2026-10-24",
+    title: "No stray error when the query language is off",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Pages no longer log a failed request when the Cosmos Query Language (beta) is switched off for the organization.",
+      },
+    ],
+  },
+  {
+    version: "2.471.2",
+    date: "2026-10-24",
+    title: "The bell shows all your notifications",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The notification bell now scrolls through all your notifications, loading older ones as you go, and its badge shows your real unread count instead of the unread among the latest ten.",
+      },
+    ],
+  },
+  {
     version: "2.471.1",
     date: "2026-10-24",
     title: "API keys limited to projects stay in them",

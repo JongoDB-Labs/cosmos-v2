@@ -16,8 +16,8 @@ type RouteParams = { params: Promise<{ orgId: string }> };
  * every /cql/ route answers 404 while the switch is off, and this is how it
  * gets turned on.
  *
- * GET  { enabled, emailTitles, canManage } for any member (the Issues view
- *      reads the flag through /cql/schema; this is the settings card).
+ * GET  { enabled, emailTitles, canManage } for any member: the settings card,
+ *      and useCqlSchema, which asks for /cql/schema only when this says on.
  * PUT  { enabled?, emailTitles? } with ORG_MANAGE_SETTINGS; each change audited.
  *      emailTitles: may filter subscription emails carry item titles (§6.6).
  */

@@ -5,6 +5,7 @@ import { pruneDomainEvents } from "@/lib/work-items/events.server";
 import { sweepAllMarkedComments } from "@/lib/feedback/comments.server";
 import { runWorkflowMigrations } from "@/lib/workflow/migrate.server";
 import { runDueSubscriptions } from "@/lib/query/subscriptions.server";
+import { drainTeamsOutbox, queueChannelDigests, queueDueDigests } from "@/lib/integrations/microsoft/teams-app/notify.server";
 
 /**
  * Every periodic job the app runs, registered on the shared runner
@@ -74,5 +75,41 @@ registerJob({
   run: async ({ signal }) => {
     const r = await runDueSubscriptions({ signal });
     return r.subscriptions ? { ...r } : undefined;
+  },
+});
+
+// COSMOS-202 T2: Cosmos for Teams. Channel updates are gathered each minute
+// (one card per channel at most), "due tomorrow" hourly, and the outbox is
+// drained each minute, each card re-read as its recipient when it's sent.
+registerJob({
+  name: "teams-channel-digest",
+  everyMs: 60_000,
+  jitterMs: 5_000,
+  timeoutMs: 50_000,
+  run: async () => {
+    const queued = await queueChannelDigests();
+    return queued ? { queued } : undefined;
+  },
+});
+
+registerJob({
+  name: "teams-due-tomorrow",
+  everyMs: 60 * 60_000,
+  jitterMs: 5 * 60_000,
+  timeoutMs: 10 * 60_000,
+  run: async () => {
+    const queued = await queueDueDigests();
+    return queued ? { queued } : undefined;
+  },
+});
+
+registerJob({
+  name: "teams-outbox",
+  everyMs: 60_000,
+  jitterMs: 5_000,
+  timeoutMs: 55_000,
+  run: async ({ signal }) => {
+    const r = await drainTeamsOutbox({ signal });
+    return r.sent || r.retried || r.forgotten || r.dropped ? { ...r } : undefined;
   },
 });
