@@ -1,12 +1,13 @@
 import { NextRequest } from "next/server";
-import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { handleApiError } from "@/lib/api-helpers";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { createKpiDataPoint, listKpiDataPoints } from "./route.contract";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; kpiId: string }>;
@@ -16,51 +17,36 @@ async function loadKpi(orgId: string, projectId: string, kpiId: string) {
   return prisma.kpi.findFirst({ where: { id: kpiId, orgId, projectId } });
 }
 
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, kpiId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId);
+    const { params: { orgId, projectId, kpiId } } = await parseRequest(listKpiDataPoints, request, params);
     await requireProjectRead(ctx, projectId, "ANALYTICS_READ");
 
     const kpi = await loadKpi(orgId, projectId, kpiId);
-    if (!kpi) return new Response("Not found", { status: 404 });
+    if (!kpi) return problem(404, "not_found", undefined, { request });
 
     const dataPoints = await prisma.kpiDataPoint.findMany({
       where: { kpiId },
       orderBy: { recordedAt: "asc" },
     });
 
-    return success(dataPoints);
+    return respond(listKpiDataPoints, 200, dataPoints);
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }
 
-const createSchema = z.object({
-  value: z.number(),
-  recordedAt: z.coerce.date().optional(),
-  note: z.string().nullish(),
-});
-
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, kpiId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId);
+    const { params: { orgId, projectId, kpiId }, body: data } = await parseRequest(createKpiDataPoint, request, params);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
     const kpi = await loadKpi(orgId, projectId, kpiId);
-    if (!kpi) return new Response("Not found", { status: 404 });
+    if (!kpi) return problem(404, "not_found", undefined, { request });
 
-    const data = createSchema.parse(await request.json());
-    const recordedAt = data.recordedAt ?? new Date();
+    const recordedAt = data.recordedAt ? new Date(data.recordedAt) : new Date();
 
     const dataPoint = await prisma.kpiDataPoint.create({
       data: {
@@ -83,8 +69,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       });
     }
 
-    return success(dataPoint);
+    return respond(createKpiDataPoint, 200, dataPoint);
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }

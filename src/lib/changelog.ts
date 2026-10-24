@@ -49,6 +49,28 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.457.0",
+    date: "2026-10-24",
+    title: "API reference: OKRs, goals, KPIs, time and audit",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The API reference now covers OKRs, goals, KPIs, time entries and the audit log. Editing a time entry no longer shows its billing rate to someone without finance access.",
+      },
+    ],
+  },
+  {
+    version: "2.456.1",
+    date: "2026-10-24",
+    title: "Tighter access checks in chat and assistant search",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The assistant's search now respects project access policies for admins, and API keys can no longer post, edit, pin or react in chat.",
+      },
+    ],
+  },
+  {
     version: "2.456.0",
     date: "2026-10-24",
     title: "Project statuses",

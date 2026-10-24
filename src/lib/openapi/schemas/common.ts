@@ -40,9 +40,37 @@ export const Problem = z.object({
   error: z.string().describe("Deprecated: same text as `detail` (or `title`). Kept for existing clients."),
 }).meta({ id: "Problem", description: "RFC 9457 problem details (`application/problem+json`)." });
 
-const NullableDateTime = z.iso.datetime({ offset: true }).nullable();
-const Json = z.unknown();
-const Count = (...keys: string[]) => z.object(Object.fromEntries(keys.map((k) => [k, z.number().int()])));
+export const NullableDateTime = z.iso.datetime({ offset: true }).nullable();
+export const Json = z.unknown();
+export const Count = (...keys: string[]) =>
+  z.object(Object.fromEntries(keys.map((k) => [k, z.number().int()])));
+
+/** A query/body date: `2026-11-01` or a full ISO datetime. */
+export const DateOrDateTime = z.union([z.iso.date(), z.iso.datetime({ offset: true })]);
+
+/**
+ * A date FILTER in a query string: anything `Date.parse` reads, as these
+ * routes took before they had contracts (`2026-11-01`, an offset-less
+ * datetime, an RFC 2822 date). Query use only: bodies stay strict. A string
+ * `Date.parse` can't read is a 400; it used to reach Prisma as Invalid Date.
+ */
+export const QueryDate = z
+  .string()
+  .refine((s) => !Number.isNaN(Date.parse(s)), "Not a date")
+  .meta({ format: "date-time", example: "2026-11-01" });
+
+/**
+ * A query integer clamped into [min, max] rather than refused, as these routes
+ * did before they had contracts: `?limit=1000` reads as the maximum. A value
+ * that isn't a number at all is still a 400.
+ */
+export const clampedInt = (min: number, max: number, fallback: number) =>
+  z.coerce
+    .number()
+    .default(fallback)
+    .transform((n) => Math.min(max, Math.max(min, Math.trunc(n))))
+    // Documented as what a client should send; the clamping is in the description.
+    .meta({ type: "integer", default: fallback });
 
 export const Project = z.object({
   id: Uuid,
@@ -287,3 +315,6 @@ export const CustomField = z.object({
     id: Uuid, workItemTypeId: Uuid, customFieldId: Uuid, required: z.boolean(), sortOrder: z.number().int(),
   })).describe("Work-item types it applies to; empty means every type."),
 }).meta({ id: "CustomField" });
+
+/** What a DELETE that answers with a body returns. */
+export const DeletedRef = z.object({ id: Uuid }).meta({ id: "DeletedRef" });
