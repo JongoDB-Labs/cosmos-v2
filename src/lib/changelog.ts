@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.468.0",
+    date: "2026-10-24",
+    title: "Query language: history, hierarchy and richer sorting",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Query language (beta): search history with WAS and CHANGED (for example: status CHANGED FROM Review TO \"In Progress\" AFTER -14d), filter by everything under an epic (ancestor = ACME-1), by milestone, and by empty or matching custom fields, and sort by assignee, status, project or a custom field.",
+      },
+    ],
+  },
+  {
     version: "2.467.0",
     date: "2026-10-24",
     title: "Edit a client after it is created",

@@ -16,12 +16,30 @@
  *   - `assignee` matches the primary assignee or any co-assignee.
  *   - `statusCategory = DONE` is "done column OR has a completion date", the
  *     same OR that lib/work-items/done-state.ts uses.
+ *   - History (`WAS`, `CHANGED`) reads the Activity rows the writers record:
+ *     `f WAS v` is "is v now, or a recorded change left or entered v";
+ *     with AFTER / BEFORE / ON / DURING it is "held v at some instant in that
+ *     window", whose "held it when the window opened" part is an id prefilter
+ *     (history.server.ts, results in `env.history`). `BY u` means u made the
+ *     change to v. `CHANGED` is a relation filter on Activity.
  */
-import type { Prisma } from "@prisma/client";
-import { mentionsField, type CmpOp, type CqlNode, type CqlQuery, type CqlSort, type CqlValue, type FieldRef, type LeafNode } from "./ast";
+import { Prisma } from "@prisma/client";
+import {
+  mentionsField,
+  predValues,
+  type CmpOp,
+  type CqlNode,
+  type CqlQuery,
+  type CqlSort,
+  type CqlValue,
+  type FieldRef,
+  type HistoryPreds,
+  type LeafNode,
+} from "./ast";
 import { PRIORITY_ORDER, type SystemFieldId } from "./fields";
 import { applyRel, dayOf, durationSeconds, endOf, literalRange, periodOffset, startOf, workingDaysFrom, type Period } from "./dates";
-import { fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
+import { HISTORY_BY_FIELD, fnKey, varKey, type CompileEnv, type SqlSortKey, type StatusCategory } from "./env";
+import { HISTORY, historyKey, isHistoryColumn, type HistoryField, type HistorySpec, type HistoryValueSet } from "./history";
 import type { CustomFieldType } from "./typecheck";
 
 type Where = Prisma.WorkItemWhereInput;
@@ -30,7 +48,16 @@ export interface Compiled {
   where: Where;
   archived: "active" | "only" | "all";
   orderBy: Prisma.WorkItemOrderByWithRelationInput[];
+  /**
+   * Set when the ORDER BY names something Prisma can't sort by (assignee's
+   * name, status name, project key, a custom field): the whole ordering then
+   * runs as SQL over the matching ids (sort.server.ts). `orderBy` is unused.
+   */
+  sqlSort: SqlSortKey[] | null;
 }
+
+/** Sort keys only the SQL path can order by. */
+const SQL_ONLY_SORT = new Set<string>(["assignee", "status", "project"]);
 
 export const TRUE: Where = {};
 export const FALSE: Where = { id: { in: [] } };
@@ -113,6 +140,10 @@ function itemFnWhere(v: Extract<CqlValue, { t: "fn" }>, env: CompileEnv): Where 
     case "childrenOf": {
       const id = refId(v.args[0]);
       return id ? { parentId: id } : FALSE;
+    }
+    case "descendantsOf": {
+      const id = refId(v.args[0]);
+      return id ? { id: { in: env.descendants.get(id) ?? [] } } : FALSE;
     }
     case "linkedItems": {
       const id = refId(v.args[0]);
@@ -465,7 +496,15 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
         },
       };
     case "ancestor":
+      return {
+        match: (b) => ({ id: { in: [...new Set(ids(b).flatMap((root) => env.descendants.get(root) ?? []))] } }),
+        isEmpty: null,
+      };
     case "milestone":
+      return {
+        match: (b) => ({ id: { in: [...new Set(ids(b).flatMap((m) => env.milestoneItems.get(m) ?? []))] } }),
+        isEmpty: { id: { notIn: env.milestoneLinked } },
+      };
     case "rank":
       throw new Error(`${id} is not compiled in this phase`);
   }
@@ -473,6 +512,14 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
 
 function cfCompiler(key: string, type: CustomFieldType): FieldCompiler {
   const at = (f: Omit<Prisma.JsonNullableFilter<"WorkItem">, "path">): Where => ({ customFields: { path: [key], ...f } });
+  // Empty: never set (or JSON null), or cleared to "" / []. Checkboxes are
+  // never empty; an unset one is false.
+  const isEmpty = or(at({ equals: Prisma.AnyNull }), at({ equals: "" }), at({ equals: [] }));
+  const c = cfCompilerOf(type, at);
+  return type === "CHECKBOX" ? c : { ...c, isEmpty };
+}
+
+function cfCompilerOf(type: CustomFieldType, at: (f: Omit<Prisma.JsonNullableFilter<"WorkItem">, "path">) => Where): FieldCompiler {
   switch (type) {
     case "NUMBER":
       return {
@@ -506,14 +553,193 @@ function cfCompiler(key: string, type: CustomFieldType): FieldCompiler {
       return { match: (b) => or(...scalars(b).map((v) => at({ equals: v === true }))), isEmpty: null };
     case "USER":
       return { match: (b) => or(...ids(b).map((id) => at({ equals: id }))), isEmpty: null };
+    case "TEXT":
+    case "URL":
+    case "EMAIL":
+      return {
+        match: (b) => or(...scalars(b).map((v) => at({ equals: String(v) }))),
+        isEmpty: null,
+        // Like `summary ~`: contains, case-insensitive, LIKE wildcards escaped; a trailing * is a prefix.
+        text: (q) => (q.endsWith("*") ? at({ string_starts_with: likeText(q), mode: "insensitive" }) : at({ string_contains: likeText(q), mode: "insensitive" })),
+      };
     default:
-      // TEXT, URL, EMAIL, SELECT: exact value.
+      // SELECT: exact value.
       return { match: (b) => or(...scalars(b).map((v) => at({ equals: String(v) }))), isEmpty: null };
   }
 }
 
 function isoDay(d: Date): string {
   return d.toISOString().slice(0, 10);
+}
+
+// ── History ──────────────────────────────────────────────────────────────────
+
+type ActivityWhere = Prisma.ActivityWhereInput;
+type HistoryLeaf = Extract<LeafNode, { op: "was" | "changed" }>;
+
+/**
+ * How one history clause is answered: the id prefilters it needs (at most
+ * one), and its where given their results.
+ */
+type HistoryPlan = { specs: HistorySpec[]; build(idsOf: (spec: HistorySpec) => string[]): Where };
+
+/** The values a history clause names, as Activity stores them. */
+function historySet(values: CqlValue[], field: FieldRef, env: CompileEnv): HistoryValueSet {
+  const b = bind(values, field, env);
+  return {
+    values: [...ids(b), ...scalars(b).map(String)],
+    ranges: b
+      .filter((x): x is Extract<Bound, { k: "time" }> => x.k === "time")
+      // A date value means its whole day, as `=` does.
+      .map((t) => (t.day ? t : { ...t, ...dayOf(t.from, env.tz) }))
+      .map((t) => ({ from: t.from.toISOString(), to: t.to.toISOString() })),
+    empty: hasEmpty(b),
+  };
+}
+
+/** AFTER / BEFORE / ON / DURING as one [from, to) window; null ends are open. */
+function historyWindow(p: HistoryPreds, env: CompileEnv): { from: Date | null; to: Date | null } {
+  let from: Date | null = null;
+  let to: Date | null = null;
+  const narrow = (lo: Date | null, hi: Date | null) => {
+    if (lo && (!from || lo > from)) from = lo;
+    if (hi && (!to || hi < to)) to = hi;
+  };
+  const time = (v: CqlValue) => timeOf(v, env) as Extract<Bound, { k: "time" }>;
+  if (p.after) {
+    // After a day means after the whole day; after an instant, from it.
+    const t = time(p.after);
+    narrow(t.day ? t.to : t.from, null);
+  }
+  if (p.before) narrow(null, time(p.before).from);
+  if (p.on) {
+    const t = time(p.on);
+    const d = t.day ? t : dayOf(t.from, env.tz);
+    narrow(d.from, d.to);
+  }
+  if (p.during) {
+    const a = time(p.during[0]);
+    const b = time(p.during[1]);
+    narrow(a.from, b.day ? b.to : new Date(b.from.getTime() + 1));
+  }
+  return { from, to };
+}
+
+/**
+ * An Activity value column matching a set. Dates are stored as
+ * `toISOString()` text, one fixed width, so text order is time order and a
+ * day is a [from, to) range of strings.
+ */
+function activityMatch(column: "oldValue" | "newValue", set: HistoryValueSet): ActivityWhere {
+  const parts: ActivityWhere[] = [
+    ...(set.values.length ? [{ [column]: { in: set.values } }] : []),
+    ...set.ranges.map((r) => ({ [column]: { gte: r.from, lt: r.to } })),
+    ...(set.empty ? [{ [column]: null }] : []),
+  ];
+  if (parts.length === 0) return { id: { in: [] } };
+  return parts.length === 1 ? parts[0] : { OR: parts };
+}
+
+/** The item's current value matching a set. Nullable columns stay two-valued under NOT. */
+function currentMatch(h: (typeof HISTORY)[HistoryField], set: HistoryValueSet): Where {
+  const col = (filter: Record<string, unknown>): Where =>
+    h.nullable ? nn(h.column, filter) : ({ [h.column]: filter } as Where);
+  return or(
+    ...(set.values.length ? [col({ in: set.values })] : []),
+    ...set.ranges.map((r) => col({ gte: new Date(r.from), lt: new Date(r.to) })),
+    ...(set.empty ? [{ [h.column]: null } as Where] : []),
+  );
+}
+
+function historyPlan(n: HistoryLeaf, env: CompileEnv): HistoryPlan {
+  const id = n.field.kind === "sys" ? n.field.id : "";
+  if (!isHistoryColumn(id)) throw new Error(`${id} has no history`);
+  const h = HISTORY[id];
+  const p = n.preds ?? {};
+  const win = historyWindow(p, env);
+  const timed = !!(win.from || win.to);
+  const by = p.by ? ids(bind(predValues(p.by), HISTORY_BY_FIELD, env)) : undefined;
+  const window = { ...(win.from ? { gte: win.from } : {}), ...(win.to ? { lt: win.to } : {}) };
+  const act = (w: ActivityWhere, opts: { by?: boolean; window?: boolean } = { by: true, window: true }): Where => ({
+    activities: {
+      some: {
+        action: "updated",
+        field: h.activity,
+        ...w,
+        ...(opts.by && by ? { userId: { in: by } } : {}),
+        ...(opts.window && timed ? { createdAt: window } : {}),
+      },
+    },
+  });
+  const plain = (where: Where): HistoryPlan => ({ specs: [], build: () => where });
+
+  if (n.op === "changed") {
+    const from = p.from ? historySet(predValues(p.from), n.field, env) : undefined;
+    const to = p.to ? historySet(predValues(p.to), n.field, env) : undefined;
+    const values = [...(from ? [activityMatch("oldValue", from)] : []), ...(to ? [activityMatch("newValue", to)] : [])];
+    return plain(act(values.length ? { AND: values } : {}));
+  }
+
+  const set = historySet(n.values, n.field, env);
+  // `WAS v BY u`: u changed it to v (Jira).
+  if (by) return plain(act(activityMatch("newValue", set)));
+  // Untimed: holds v now, or a recorded change left or entered v.
+  if (!timed) return plain(or(currentMatch(h, set), act({ OR: [activityMatch("oldValue", set), activityMatch("newValue", set)] })));
+
+  // Held v at some instant in the window: it held v when the window opened
+  // or a change inside the window set it (an id prefilter, bounded by the
+  // window's activity), or it holds v now and nothing was recorded since the
+  // window closed.
+  const spec: HistorySpec = { kind: "window", field: id, set, from: win.from?.toISOString() ?? null, to: win.to?.toISOString() ?? null };
+  // Only BEFORE (no lower bound): "held v when the window opened" would be the
+  // value each item started with, read off its first change ever, which is a
+  // scan of the org's whole history of the field. Instead: a recorded change
+  // before the window closed entered or left v (a per-item EXISTS on the
+  // (item, field, time) index), or nothing was recorded before it and its
+  // first change, at or after it, started from v (the prefilter, bounded by
+  // the activity since the window closed).
+  const opened = win.from
+    ? []
+    : [act({ OR: [activityMatch("oldValue", set), activityMatch("newValue", set)] })];
+  return {
+    specs: [spec],
+    build: (idsOf) =>
+      or(
+        ...opened,
+        { id: { in: idsOf(spec) } },
+        and(
+          currentMatch(h, set),
+          ...(win.to ? [{ createdAt: { lt: win.to } }, { NOT: act({ createdAt: { gte: win.to } }, {}) }] : []),
+        ),
+      ),
+  };
+}
+
+function compileHistory(n: HistoryLeaf, env: CompileEnv): Where {
+  const positive = historyPlan(n, env).build((spec) => {
+    const hit = env.history.get(historyKey(spec));
+    if (!hit) throw new Error("history prefilter missing; run historySpecs() first");
+    return hit;
+  });
+  return n.op === "was" && n.negate ? not(positive) : positive;
+}
+
+/** The id prefilters a query's history clauses need, for history.server.ts to run before compiling. */
+export function historySpecs(where: CqlNode | null | undefined, env: CompileEnv): HistorySpec[] {
+  const out = new Map<string, HistorySpec>();
+  const visit = (n: CqlNode) => {
+    if (n.op === "and" || n.op === "or") n.args.forEach(visit);
+    else if (n.op === "not") visit(n.arg);
+    else if (n.op === "was" || n.op === "changed") {
+      try {
+        for (const spec of historyPlan(n, env).specs) out.set(historyKey(spec), spec);
+      } catch (e) {
+        if (!(e instanceof Inert)) throw e;
+      }
+    }
+  };
+  if (where) visit(where);
+  return [...out.values()];
 }
 
 function compilerFor(field: FieldRef, env: CompileEnv): FieldCompiler {
@@ -534,7 +760,9 @@ function compileLeaf(n: LeafNode, env: CompileEnv): Where {
       case "text": {
         if (!c.text) throw new Error("no text match");
         const w = c.text(n.query);
-        return n.negate ? not(w) : w;
+        if (!n.negate) return w;
+        // A custom field's `!~`, like its `!=`, leaves out items where it is empty.
+        return n.field.kind === "cf" && c.isEmpty ? and(not(w), not(c.isEmpty)) : not(w);
       }
       case "in":
       case "cmp": {
@@ -556,8 +784,9 @@ function compileLeaf(n: LeafNode, env: CompileEnv): Where {
         // Jira: `!=` / NOT IN never match the empty value, unless EMPTY is listed.
         return c.isEmpty && !wantsEmpty ? and(not(positive), not(c.isEmpty)) : not(positive);
       }
-      default:
-        throw new Error(`${n.op} is not compiled in this phase`);
+      case "was":
+      case "changed":
+        return compileHistory(n, env);
     }
   } catch (e) {
     if (e instanceof Inert) return TRUE;
@@ -630,5 +859,17 @@ export function compileQuery(q: CqlQuery, env: CompileEnv): Compiled {
     // The default hides archived work, unless the query talks about archiving.
     archived: mentions ? "all" : "active",
     orderBy: compileOrderBy(q.orderBy),
+    sqlSort: sqlSortOf(q.orderBy, env),
   };
+}
+
+function sqlSortOf(sorts: CqlSort[] | undefined, env: CompileEnv): SqlSortKey[] | null {
+  if (!sorts?.some((s) => s.field.kind === "cf" || SQL_ONLY_SORT.has(s.field.id))) return null;
+  return sorts.map((s) => ({
+    field: s.field,
+    dir: s.dir,
+    // Postgres' default, as compileOrderBy uses.
+    nulls: s.nulls ?? (s.dir === "asc" ? "last" : "first"),
+    ...(s.field.kind === "cf" ? { cfType: env.customFields.get(s.field.key) } : {}),
+  }));
 }

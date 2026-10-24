@@ -23,6 +23,14 @@ export interface CompileEnv {
   items: Map<string, { projectId: string; ticketNumber: number }>;
   /** Custom field types by key. */
   customFields: Map<string, CustomFieldType>;
+  /** Everything under an item (readable projects only), by the item's id: `ancestor`, `descendantsOf()`. */
+  descendants: Map<string, string[]>;
+  /** Items linked to each milestone the query names. */
+  milestoneItems: Map<string, string[]>;
+  /** Every item linked to any readable milestone (for `milestone IS EMPTY`). */
+  milestoneLinked: string[];
+  /** History prefilter results, by `historyKey(spec)` (see history.ts). */
+  history: Map<string, string[]>;
   contextProjectId?: string;
   sinceLastStandup?: Date;
 }
@@ -35,3 +43,18 @@ export function varKey(name: string, field: FieldRef): string {
   return `${name}@${field.kind === "sys" ? field.id : `cf:${field.key}`}`;
 }
 
+
+/**
+ * The field a history clause's BY is typed and resolved as: people. Dashboard
+ * variables in BY resolve under this key.
+ */
+export const HISTORY_BY_FIELD: FieldRef = { kind: "sys", id: "assignee" };
+
+/** One ORDER BY key for the SQL sort (compile.ts → sort.server.ts). */
+export type SqlSortKey = {
+  field: FieldRef;
+  dir: "asc" | "desc";
+  nulls: "first" | "last";
+  /** Custom fields: the type, which decides how the JSON value compares. */
+  cfType?: CustomFieldType;
+};

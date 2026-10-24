@@ -261,6 +261,7 @@ describe("depth is refused before parsing (never a stack overflow)", () => {
     expect(limit(at("status IN (todo, done)"))).toBeUndefined();
     expect(limit(at("labels IN ALL (a, b)"))).toBeUndefined();
     expect(limit(at("status NOT IN (todo)"))).toBeUndefined();
+    expect(limit(at("status CHANGED FROM (todo, review) BY (me, bob) DURING (-7d, now())"))).toBeUndefined();
     expect(parseCql(at("status IN (todo, done)")).diagnostics).toEqual([]);
     // One more group is still one too many.
     expect(limit(`(${at("status IN (todo, done)")})`)?.message).toMatch(/Parentheses can nest at most/);
