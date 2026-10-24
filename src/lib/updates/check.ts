@@ -329,13 +329,27 @@ export async function checkForUpdates(
       if (app && migrate) {
         rebuildAvailable = app !== config.runningDigest;
         if (rebuildAvailable && !candidateDigest) {
+          // The rebuild IS the candidate when no newer version is on offer, so
+          // it is held to the same pairing the upgrade path checks above —
+          // including the sidecars, at this same tag — before it can be
+          // reinstalled.
           candidateDigest = app;
           candidateTag = tag;
+          migrateImagePresent = true;
+          const found = await Promise.all(
+            config.sidecarRepos.map((r) => deps.resolveDigest(r, tag, auth).then((d) => ({ r, ok: !!d }))),
+          );
+          missingSidecars = found.filter((f) => !f.ok).map((f) => f.r);
         }
         break;
       }
     }
   }
+
+  // A REINSTALL: no newer version, but the image for the version we run has
+  // been rebuilt. It gets the full preflights, so a reinstall is offered on the
+  // same terms as an upgrade and never unconditionally.
+  const reinstall = !status.updateAvailable && rebuildAvailable === true;
 
   const [dbReachable, currentHealthOk] = await Promise.all([
     deps.probeDb().catch(() => null),
@@ -344,7 +358,7 @@ export async function checkForUpdates(
 
   const facts: PreflightFacts = {
     currentVersion,
-    candidateVersion: status.updateAvailable ? status.latest : null,
+    candidateVersion: status.updateAvailable ? status.latest : reinstall ? currentVersion : null,
     ahead: status.ahead,
     candidateDigest,
     migrateImagePresent,
@@ -367,7 +381,7 @@ export async function checkForUpdates(
     estimatedRequiredBytes: null,
   };
 
-  const preflights = status.updateAvailable ? evaluatePreflights(facts) : [];
+  const preflights = status.updateAvailable || reinstall ? evaluatePreflights(facts) : [];
 
   // Notes are best-effort and MUST NOT be able to fail the check. Knowing an
   // upgrade exists is the useful part; knowing what is in it is a bonus that

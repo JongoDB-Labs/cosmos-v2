@@ -148,6 +148,63 @@ describe("decideDeploy — refusals", () => {
   });
 });
 
+describe("decideDeploy — reinstalling a rebuilt image of the running version", () => {
+  // A composed image is tagged with the CORE version, so a plugin-only release
+  // republishes the tag the instance already runs. Nothing newer exists, and
+  // the only way to take the release is to reinstall the running version.
+  const REBUILT: UpdateCheck = {
+    ...READY,
+    status: { current: "2.278.2", latest: "2.278.2", newer: [], updateAvailable: false, ahead: false },
+    rebuildAvailable: true,
+    candidateTag: "2.278.2-alpha",
+  };
+
+  it("permits the running version when the FRESH check found it rebuilt", () => {
+    expect(decideDeploy("2.278.2", REBUILT)).toEqual({ ok: true, version: "2.278.2" });
+  });
+
+  it("REFUSES the running version when the image was NOT rebuilt", () => {
+    const d = decideDeploy("2.278.2", { ...REBUILT, rebuildAvailable: false });
+    expect(d.ok).toBe(false);
+    if (!d.ok) expect(d.reason).toBe("no-update");
+  });
+
+  it("REFUSES when nobody told the instance its own digest — unknown is not 'rebuilt'", () => {
+    const d = decideDeploy("2.278.2", { ...REBUILT, rebuildAvailable: null });
+    expect(d.ok).toBe(false);
+    if (!d.ok) expect(d.reason).toBe("no-update");
+  });
+
+  it("REFUSES any other version, and says what is on offer", () => {
+    const d = decideDeploy("2.278.1", REBUILT);
+    expect(d.ok).toBe(false);
+    if (!d.ok) {
+      expect(d.reason).toBe("version-mismatch");
+      expect(d.detail).toContain("rebuild of 2.278.2");
+    }
+  });
+
+  it("REFUSES on a failed blocking preflight, exactly as an upgrade does", () => {
+    const d = decideDeploy("2.278.2", {
+      ...REBUILT,
+      preflights: [{ id: "migrate-image-paired", title: "Matching migration image", status: "fail", detail: "", blocking: true }],
+      applyable: false,
+    });
+    expect(d.ok).toBe(false);
+    if (!d.ok) expect(d.reason).toBe("preflight-blocked");
+  });
+
+  it("offers the NEWER version, not a reinstall, when both exist", () => {
+    // A stale tab asking to reinstall must not win over an upgrade that has
+    // appeared since; the operator re-checks and sees the upgrade.
+    const both = { ...READY, rebuildAvailable: true };
+    const d = decideDeploy("2.278.2", both);
+    expect(d.ok).toBe(false);
+    if (!d.ok) expect(d.reason).toBe("version-mismatch");
+    expect(decideDeploy("2.279.0", both)).toEqual({ ok: true, version: "2.279.0" });
+  });
+});
+
 describe("the page and the decision must agree — composed, not hand-built", () => {
   // WHY THIS EXISTS. The escaped bug was not that either module was wrong on
   // its own. `evaluatePreflights` + `canApply` were right, `decideDeploy` was

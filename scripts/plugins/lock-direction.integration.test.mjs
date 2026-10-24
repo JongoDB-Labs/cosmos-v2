@@ -20,7 +20,7 @@ const LOCK_MJS = join(process.cwd(), "scripts", "plugins", "lock.mjs");
 const GIT = ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"];
 
 let root; // a throwaway "core" checkout
-let first; // commit 1 in plugins/alpha
+let first; // commit 1 in plugins/whiteboard — a PUBLIC slug, the only kind lock.mjs writes
 let second; // commit 2, a descendant of first
 
 function git(cwd, ...args) {
@@ -28,11 +28,11 @@ function git(cwd, ...args) {
 }
 
 function writeLock(ref) {
-  writeFileSync(join(root, "plugins.lock.json"), `${JSON.stringify({ plugins: { alpha: { ref } } }, null, 2)}\n`);
+  writeFileSync(join(root, "plugins.lock.json"), `${JSON.stringify({ plugins: { whiteboard: { ref } } }, null, 2)}\n`);
 }
 
 function readLockRef() {
-  return JSON.parse(readFileSync(join(root, "plugins.lock.json"), "utf8")).plugins.alpha.ref;
+  return JSON.parse(readFileSync(join(root, "plugins.lock.json"), "utf8")).plugins.whiteboard.ref;
 }
 
 function runLock(...extraArgs) {
@@ -44,7 +44,7 @@ function runLock(...extraArgs) {
 
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "lock-direction-"));
-  const plugin = join(root, "plugins", "alpha");
+  const plugin = join(root, "plugins", "whiteboard");
   mkdirSync(plugin, { recursive: true });
 
   execFileSync("git", ["-c", "init.defaultBranch=main", "init", plugin], { stdio: "ignore" });
@@ -63,7 +63,7 @@ describe("lock.mjs --write", () => {
     // POSITIVE CONTROL. Without this, every refusal below could be the script
     // failing for some unrelated reason and the test would not notice.
     writeLock(first);
-    git(join(root, "plugins", "alpha"), "checkout", "-q", second);
+    git(join(root, "plugins", "whiteboard"), "checkout", "-q", second);
 
     const r = runLock();
     expect(r.status, r.stderr).toBe(0);
@@ -74,7 +74,7 @@ describe("lock.mjs --write", () => {
   it("REFUSES to roll a pin back, and leaves the lockfile untouched", () => {
     // The stale-checkout case: the lock is ahead, the checkout is behind.
     writeLock(second);
-    git(join(root, "plugins", "alpha"), "checkout", "-q", first);
+    git(join(root, "plugins", "whiteboard"), "checkout", "-q", first);
     const before = readFileSync(join(root, "plugins.lock.json"), "utf8");
 
     const r = runLock();
@@ -93,7 +93,7 @@ describe("lock.mjs --write", () => {
     // The escape hatch has to work, or the guard turns a deliberate revert into
     // an unsolvable problem and someone edits the lockfile by hand instead.
     writeLock(second);
-    git(join(root, "plugins", "alpha"), "checkout", "-q", first);
+    git(join(root, "plugins", "whiteboard"), "checkout", "-q", first);
 
     const r = runLock("--allow-rollback");
 
@@ -107,7 +107,7 @@ describe("lock.mjs --write", () => {
     // clone made before the current pin existed. git cannot compare them, and
     // "cannot compare" must not resolve to "go ahead".
     writeLock("0".repeat(40));
-    git(join(root, "plugins", "alpha"), "checkout", "-q", second);
+    git(join(root, "plugins", "whiteboard"), "checkout", "-q", second);
 
     const r = runLock();
 

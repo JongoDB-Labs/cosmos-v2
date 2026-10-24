@@ -76,6 +76,7 @@ import {
   type CqlValue,
   type FieldRef,
   type HistoryPreds,
+  type PredValue,
 } from "./ast";
 import { lookupField } from "./fields";
 import { lookupFunction } from "./functions";
@@ -351,9 +352,9 @@ class CqlParser extends EmbeddedActionsParser {
     this.MANY(() => {
       any = true;
       this.OR([
-        { ALT: () => (this.CONSUME(From), (preds.from = this.SUBRULE(this.value))) },
-        { ALT: () => (this.CONSUME(To), (preds.to = this.SUBRULE2(this.value))) },
-        { ALT: () => (this.CONSUME(By), (preds.by = this.SUBRULE3(this.value))) },
+        { ALT: () => (this.CONSUME(From), (preds.from = this.SUBRULE(this.predValue))) },
+        { ALT: () => (this.CONSUME(To), (preds.to = this.SUBRULE2(this.predValue))) },
+        { ALT: () => (this.CONSUME(By), (preds.by = this.SUBRULE3(this.predValue))) },
         { ALT: () => (this.CONSUME(After), (preds.after = this.SUBRULE4(this.value))) },
         { ALT: () => (this.CONSUME(Before), (preds.before = this.SUBRULE5(this.value))) },
         { ALT: () => (this.CONSUME(On), (preds.on = this.SUBRULE6(this.value))) },
@@ -371,6 +372,27 @@ class CqlParser extends EmbeddedActionsParser {
       ]);
     });
     return any ? preds : undefined;
+  });
+
+  /** FROM / TO / BY: a value, or a list `(a, b)`. */
+  private predValue = this.RULE("predValue", (): PredValue => {
+    return this.OR([
+      {
+        ALT: () => {
+          this.CONSUME(LParen);
+          const vals: CqlValue[] = [];
+          this.AT_LEAST_ONE_SEP({
+            SEP: Comma,
+            DEF: () => {
+              vals.push(this.SUBRULE(this.value));
+            },
+          });
+          this.CONSUME(RParen);
+          return vals.length === 1 ? vals[0] : vals;
+        },
+      },
+      { ALT: () => this.SUBRULE2(this.value) },
+    ]);
   });
 
   /** `(a, b, c)`, or a set-valued function / variable: `IN openSprints()`. */
@@ -543,8 +565,8 @@ function looksLikeWords(tokens: IToken[]): boolean {
   return !(first.tokenType === Identifier && lookupField(first.image));
 }
 
-/** Tokens a value list's `(` follows: `IN (a, b)`, `IN ALL (…)`, `DURING (a, b)`. */
-const LIST_OPENERS = new Set<TokenType>([In, All, During]);
+/** Tokens a value list's `(` follows: `IN (a, b)`, `IN ALL (…)`, `DURING (a, b)`, `FROM` / `TO` / `BY (a, b)`. */
+const LIST_OPENERS = new Set<TokenType>([In, All, During, From, To, By]);
 
 /**
  * The first place the token stream nests too deep, if any: grouping
