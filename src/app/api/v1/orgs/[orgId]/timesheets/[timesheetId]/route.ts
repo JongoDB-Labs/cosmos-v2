@@ -24,6 +24,7 @@ import {
 } from "@/lib/time/notify";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 
 type RouteParams = { params: Promise<{ orgId: string; timesheetId: string }> };
 
@@ -164,7 +165,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       actorUserId: ctx.userId,
       subjectUserId: sheet.userId,
       hasTimeApprove: hasPermission(ctx.permissions, Permission.TIME_APPROVE),
-      isManagerOfSubject: await isManagerOf(orgId, ctx.userId, sheet.userId),
+      // Supervising someone is a role. A key acts by it only when its scopes
+      // grant TIME_APPROVE, which none do, so a key never approves.
+      isManagerOfSubject: roleCountsFor(ctx, Permission.TIME_APPROVE) && (await isManagerOf(orgId, ctx.userId, sheet.userId)),
       subjectHasManager: await hasManager(orgId, sheet.userId),
     });
     if (!authority.allowed) {

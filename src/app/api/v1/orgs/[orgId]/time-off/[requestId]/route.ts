@@ -8,6 +8,7 @@ import { approvalAuthority } from "@/lib/time/approval";
 import { isManagerOf, hasManager } from "@/lib/time/timesheet-actions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { totalHours } from "@/lib/time/time-off";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 
 type RouteParams = { params: Promise<{ orgId: string; requestId: string }> };
 
@@ -91,7 +92,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       actorUserId: ctx.userId,
       subjectUserId: existing.userId,
       hasTimeApprove: hasPermission(ctx.permissions, Permission.TIME_APPROVE),
-      isManagerOfSubject: await isManagerOf(orgId, ctx.userId, existing.userId),
+      // Supervising someone is a role. A key acts by it only when its scopes
+      // grant TIME_APPROVE, which none do, so a key never approves.
+      isManagerOfSubject: roleCountsFor(ctx, Permission.TIME_APPROVE) && (await isManagerOf(orgId, ctx.userId, existing.userId)),
       subjectHasManager: await hasManager(orgId, existing.userId),
     });
     if (!authority.allowed) {
