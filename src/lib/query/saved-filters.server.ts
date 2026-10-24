@@ -31,6 +31,7 @@ import { prepareCql } from "./execute.server";
 import { validateAst } from "./normalize";
 import { printCql, type LabelFor } from "./print";
 import { loadSchemaCustomFields } from "./resolve.server";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 
 export const RESTRICTED = "‹restricted›";
 
@@ -52,7 +53,9 @@ export async function viewerScope(ctx: AuthContext): Promise<ViewerScope> {
     ctx,
     readable,
     teams: new Map(rows.map((r) => [r.team.id, r.team.projectId])),
-    isAdmin: isOrgAdministrator(ctx.orgRole),
+    // An admin edits and deletes anyone's saved filter. A key never does: no
+    // scope grants FILTER_SHARE_ORG (lib/rbac/key-role.ts).
+    isAdmin: isOrgAdministrator(ctx.orgRole) && roleCountsFor(ctx, Permission.FILTER_SHARE_ORG),
   };
 }
 

@@ -7,6 +7,8 @@ import { logAudit } from "@/lib/audit";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { z } from "zod";
+import { orgRoleFor } from "@/lib/rbac/key-role";
+import { Permission } from "@/lib/rbac/permissions";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -65,7 +67,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     // A channel is manageable (rename / topic / archive) by org OWNER/ADMIN or a
     // channel ADMIN — and only real CHANNELs, never DMs. Surfaced so the client
     // can gate the channel-settings gear without a second round-trip.
-    const orgIsAdmin = ctx.orgRole === "OWNER" || ctx.orgRole === "ADMIN";
+    const orgRole = orgRoleFor(ctx, Permission.CHAT_USE);
+    const orgIsAdmin = orgRole === "OWNER" || orgRole === "ADMIN";
 
     const channels = memberships.map((m) => ({
       id: m.channel.id,
