@@ -122,6 +122,7 @@ async function TeamPageContent({ params }: PageParams) {
         grantableRoleIds={grantableRoleIds}
         isPlatformAdmin={isPlatformAdmin}
         currentUserId={ctx.userId}
+        viewerIsOwner={ctx.orgRole === "OWNER"}
       />
     </PageShell>
   );
