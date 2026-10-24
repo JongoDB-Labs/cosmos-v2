@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.453.0",
+    date: "2026-10-24",
+    title: "Team voice in feedback",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Staff can now add internal notes to feedback that only staff see, pin an official response at the top of the discussion, filter between public and internal comments, and switch a comment between the two.",
+      },
+    ],
+  },
+  {
     version: "2.452.0",
     date: "2026-10-23",
     title: "Shared saved filters",
