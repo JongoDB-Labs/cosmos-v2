@@ -142,7 +142,7 @@ export async function visibilityProblem(
       if (!target.teamId) return "Pick the team to share it with.";
       const team = await prisma.team.findFirst({ where: { id: target.teamId, orgId: s.ctx.orgId }, select: { projectId: true } });
       if (!team || !s.readable.has(team.projectId)) return "That team isn't one you can see.";
-      if (s.teams.has(target.teamId) || (await canManageProject(s.ctx, team.projectId))) return null;
+      if (s.teams.has(target.teamId) || (await canManageProject(s.ctx, team.projectId, Permission.PROJECT_MANAGE))) return null;
       return "Only members of that team, or managers of its project, can share with it.";
     }
   }

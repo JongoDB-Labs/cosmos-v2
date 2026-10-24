@@ -6,7 +6,7 @@ import { canDeleteMessageGiven, loadChannelAndMembership } from "@/lib/chat/acce
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { z } from "zod";
-import { orgRoleFor } from "@/lib/rbac/key-role";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 import { Permission } from "@/lib/rbac/permissions";
 
 type RouteParams = { params: Promise<{ orgId: string; messageId: string }> };
@@ -91,7 +91,8 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
         authorId: message.authorId,
         viewerId: ctx.userId,
         channelMember: member,
-        orgRole: orgRoleFor(ctx, Permission.CHAT_USE),
+        orgRole: ctx.orgRole,
+        roleCounts: roleCountsFor(ctx, Permission.CHAT_USE),
       })
     ) {
       return new Response("Forbidden", { status: 403 });

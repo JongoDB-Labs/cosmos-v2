@@ -43,36 +43,54 @@ describe("canPostToChannelGiven", () => {
 
 describe("canManageChannelGiven", () => {
   it("plain channel member cannot manage", () => {
-    expect(canManageChannelGiven({ channel: publicChan, member, viewerOrgId: "o1", orgRole: "MEMBER" })).toBe(false);
+    expect(canManageChannelGiven({ channel: publicChan, member, viewerOrgId: "o1", orgRole: "MEMBER", roleCounts: true })).toBe(false);
   });
   it("channel admin can manage", () => {
-    expect(canManageChannelGiven({ channel: publicChan, member: admin, viewerOrgId: "o1", orgRole: "MEMBER" })).toBe(true);
+    expect(canManageChannelGiven({ channel: publicChan, member: admin, viewerOrgId: "o1", orgRole: "MEMBER", roleCounts: true })).toBe(true);
   });
   it("org admin can manage any channel in their org", () => {
-    expect(canManageChannelGiven({ channel: publicChan, member: null, viewerOrgId: "o1", orgRole: "ADMIN" })).toBe(true);
+    expect(canManageChannelGiven({ channel: publicChan, member: null, viewerOrgId: "o1", orgRole: "ADMIN", roleCounts: true })).toBe(true);
   });
   it("org owner can manage any channel in their org", () => {
-    expect(canManageChannelGiven({ channel: publicChan, member: null, viewerOrgId: "o1", orgRole: "OWNER" })).toBe(true);
+    expect(canManageChannelGiven({ channel: publicChan, member: null, viewerOrgId: "o1", orgRole: "OWNER", roleCounts: true })).toBe(true);
   });
   it("cross-org false even for org admin", () => {
-    expect(canManageChannelGiven({ channel: publicChan, member: admin, viewerOrgId: "o2", orgRole: "ADMIN" })).toBe(false);
+    expect(canManageChannelGiven({ channel: publicChan, member: admin, viewerOrgId: "o2", orgRole: "ADMIN", roleCounts: true })).toBe(false);
   });
 });
 
 describe("canDeleteMessageGiven", () => {
   it("author can delete own message", () => {
-    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u1", channelMember: member, orgRole: "MEMBER" })).toBe(true);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u1", channelMember: member, orgRole: "MEMBER", roleCounts: true })).toBe(true);
   });
   it("channel admin can delete others' messages", () => {
-    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: admin, orgRole: "MEMBER" })).toBe(true);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: admin, orgRole: "MEMBER", roleCounts: true })).toBe(true);
   });
   it("org admin can delete others' messages", () => {
-    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: null, orgRole: "ADMIN" })).toBe(true);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: null, orgRole: "ADMIN", roleCounts: true })).toBe(true);
   });
   it("plain member cannot delete others'", () => {
-    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: member, orgRole: "MEMBER" })).toBe(false);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: member, orgRole: "MEMBER", roleCounts: true })).toBe(false);
   });
   it("non-channel-member with no org-admin role cannot delete", () => {
-    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: null, orgRole: "MEMBER" })).toBe(false);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: null, orgRole: "MEMBER", roleCounts: true })).toBe(false);
+  });
+});
+
+// An API key whose scopes don't grant CHAT_USE acts by neither role: not the org
+// role, and not channel ADMIN, which whoever created the channel holds.
+describe("when the actor's roles don't count (an API key)", () => {
+  it("a channel ADMIN can't manage the channel", () => {
+    expect(canManageChannelGiven({ channel: publicChan, member: admin, viewerOrgId: "o1", orgRole: "MEMBER", roleCounts: false })).toBe(false);
+  });
+  it("an org OWNER can't either", () => {
+    expect(canManageChannelGiven({ channel: publicChan, member: null, viewerOrgId: "o1", orgRole: "OWNER", roleCounts: false })).toBe(false);
+  });
+  it("a channel ADMIN or org ADMIN can't delete someone else's message", () => {
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: admin, orgRole: "MEMBER", roleCounts: false })).toBe(false);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: null, orgRole: "ADMIN", roleCounts: false })).toBe(false);
+  });
+  it("but still deletes its own", () => {
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u1", channelMember: member, orgRole: "MEMBER", roleCounts: false })).toBe(true);
   });
 });

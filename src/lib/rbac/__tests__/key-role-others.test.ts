@@ -41,7 +41,7 @@ vi.mock("@/lib/db/client", () => ({
   },
 }));
 
-import { roleCountsFor, orgRoleFor } from "../key-role";
+import { roleCountsFor } from "../key-role";
 import { canManageBoardsInProject } from "../project-role";
 import { DELETE as deleteItemComment } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]/route";
 import { DELETE as deleteChannel } from "@/app/api/v1/orgs/[orgId]/chat/channels/[channelId]/route";
@@ -61,7 +61,7 @@ beforeEach(() => {
   h.deleted.length = 0;
 });
 
-describe("roleCountsFor / orgRoleFor", () => {
+describe("roleCountsFor", () => {
   it("a session's role always counts; a key's only when its scopes grant the bit", () => {
     expect(roleCountsFor(as(OrgRole.OWNER), Permission.CHAT_USE)).toBe(true);
     expect(roleCountsFor(ownerKey(["items:write"]), Permission.PROJECT_UPDATE)).toBe(true);
@@ -69,10 +69,6 @@ describe("roleCountsFor / orgRoleFor", () => {
     expect(roleCountsFor(ownerKey([]), Permission.PROJECT_UPDATE)).toBe(false);
   });
 
-  it("orgRoleFor hands a role-taking predicate MEMBER for a key that doesn't qualify", () => {
-    expect(orgRoleFor(ownerKey(["items:write"]), Permission.CHAT_USE)).toBe("MEMBER");
-    expect(orgRoleFor(as(OrgRole.ADMIN), Permission.CHAT_USE)).toBe("ADMIN");
-  });
 });
 
 describe("comment moderation", () => {

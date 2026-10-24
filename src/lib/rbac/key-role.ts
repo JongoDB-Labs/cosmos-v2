@@ -1,4 +1,3 @@
-import type { OrgRole } from "@prisma/client";
 import { scopeMask } from "@/lib/auth/api-key";
 import type { AuthContext } from "@/lib/rbac/check";
 import { hasPermission } from "@/lib/rbac/permissions";
@@ -21,11 +20,3 @@ export function roleCountsFor(ctx: Pick<AuthContext, "isApiKey" | "scopes">, bit
   return !ctx.isApiKey || hasPermission(scopeMask(ctx.scopes ?? []), bit);
 }
 
-/**
- * The org role to hand a predicate that takes a role rather than a context
- * (lib/chat/access.ts): the actor's own, or MEMBER for a key whose scopes
- * don't grant `bit`.
- */
-export function orgRoleFor(ctx: Pick<AuthContext, "isApiKey" | "scopes" | "orgRole">, bit: bigint): OrgRole {
-  return roleCountsFor(ctx, bit) ? (ctx.orgRole as OrgRole) : ("MEMBER" as OrgRole);
-}
