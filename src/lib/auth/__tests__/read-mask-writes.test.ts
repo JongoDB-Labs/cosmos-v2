@@ -20,6 +20,7 @@ import { scopeMask } from "@/lib/auth/api-key";
 import { API_KEY_SCOPES } from "@/lib/auth/api-key-scopes";
 import BASELINE_BY_SCOPE from "./scope-writes.baseline.json";
 import HELPER_GATED from "./helper-gated-writes.baseline.json";
+import UNGATED from "./ungated-writes.baseline.json";
 
 /**
  * Handlers that already met that bar before scopes were enforced. Each acts on
@@ -112,7 +113,25 @@ const ROLE_HELPERS = [
   "canEdit", "canDelete", "viewerScope", "isOrgAdministrator",
 ];
 
-/** Every write handler that consults a role helper, with the helpers it calls. */
+/**
+ * The same decision written inline: a comparison against an org or project
+ * role, a staff/admin flag, or the role passed on to a library that decides.
+ * Each is reported under the label on the left.
+ */
+const INLINE_ROLE_CHECKS: [string, RegExp][] = [
+  ["orgRole", /\borgRole\s*[!=]==|[!=]==\s*(?:\w+\.)*orgRole\b/],
+  ["OrgRole.OWNER|ADMIN", /\bOrgRole\.(?:OWNER|ADMIN)\b/],
+  ["role literal", /[!=]==\s*["'](?:OWNER|ADMIN|MANAGER|LEAD)["']|["'](?:OWNER|ADMIN|MANAGER|LEAD)["']\s*[!=]==/],
+  ["isStaff", /\bisStaff\b/],
+  ["isAdmin*", /\bisAdmin\w*\b/],
+  // The role handed to a library that decides with it (the assistant's tools).
+  ["orgRole handed on", /\b(?:orgRole|role):\s*ctx\.orgRole\b/],
+];
+
+/**
+ * Every write handler that decides by role, with what it consults. A handler
+ * that also calls roleCountsFor is marked so, which is the cap a key needs.
+ */
 export function helperGatedWrites(): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   for (const file of globSync("src/app/api/**/route.ts")) {
@@ -120,7 +139,11 @@ export function helperGatedWrites(): Record<string, string[]> {
     for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
       const code = handlerCode(src, method);
       if (!code) continue;
-      const used = ROLE_HELPERS.filter((h) => new RegExp(`\\b${h}\\(`).test(code));
+      const used = [
+        ...ROLE_HELPERS.filter((h) => new RegExp(`\\b${h}\\(`).test(code)),
+        ...INLINE_ROLE_CHECKS.filter(([, re]) => re.test(code)).map(([label]) => label),
+      ];
+      if (used.length && /\broleCountsFor\(/.test(code)) used.push("roleCountsFor");
       if (used.length) out[`${method} ${file.replace(/^src\/app\/api\//, "").replace(/\/route\.ts$/, "")}`] = used;
     }
   }
@@ -132,5 +155,33 @@ describe("writes gated by a role helper are listed, so a new one is reviewed", (
     // A new entry means a write decided by role: check that a key's role is
     // capped (roleCountsFor) on that path, then add it here.
     expect(helperGatedWrites()).toEqual(HELPER_GATED);
+  });
+});
+
+/**
+ * Write handlers whose gates show the scan no bit at all. Every scope's mask
+ * "reaches" them, so the per-scope lists above leave them out, and they are
+ * where a key-reachable write hides: some are session-only (/me, auth),
+ * signed webhooks or forwards to a gated route; others gate through a bit in
+ * a variable or a local helper the scan can't read. Frozen so that a new one
+ * is looked at: say how it is gated, then add it.
+ */
+export function ungatedWrites(): string[] {
+  const out: string[] = [];
+  for (const file of globSync("src/app/api/**/route.ts")) {
+    const src = readFileSync(file, "utf8");
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+      const code = handlerCode(src, method);
+      if (code && gateBits(code) === 0n) {
+        out.push(`${method} ${file.replace(/^src\/app\/api\//, "").replace(/\/route\.ts$/, "")}`);
+      }
+    }
+  }
+  return out.sort();
+}
+
+describe("writes with no gate bit are listed, so a new one is reviewed", () => {
+  it("matches ungated-writes.baseline.json exactly", () => {
+    expect(ungatedWrites()).toEqual(UNGATED);
   });
 });

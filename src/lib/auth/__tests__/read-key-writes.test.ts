@@ -15,7 +15,7 @@ const ORG = "11111111-1111-4111-8111-111111111111";
 const P = "22222222-2222-4222-8222-222222222222";
 const ME = "88888888-8888-4888-8888-888888888888";
 
-const h = vi.hoisted(() => ({ getAuthContext: vi.fn(), writes: [] as string[] }));
+const h = vi.hoisted(() => ({ getAuthContext: vi.fn(), writes: [] as string[], view: null as unknown }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext: h.getAuthContext }));
 // The real rule, minus project visibility: the action's bit must be held.
 vi.mock("@/lib/rbac/require-project-read", () => ({
@@ -34,13 +34,30 @@ vi.mock("@/lib/db/client", () => {
         update: w("comment.update"),
         delete: w("comment.delete"),
       },
-      savedView: { findFirst: async () => null, create: w("savedView.create") },
+      // `h.view` is the caller's own view where a test needs one; none (so no
+      // name clash) for create.
+      savedView: { findFirst: async () => h.view, create: w("savedView.create"), delete: w("savedView.delete") },
+      savedViewFavorite: {
+        aggregate: async () => ({ _max: { sortOrder: null } }),
+        upsert: async () => { h.writes.push("favorite.upsert"); return { sortOrder: 0 }; },
+        deleteMany: w("favorite.delete"),
+      },
     },
   };
 });
 
+// Visibility is not what's under test: the caller can see and owns the view.
+vi.mock("@/lib/query/saved-filters.server", async (orig) => ({
+  ...(await orig<typeof import("@/lib/query/saved-filters.server")>()),
+  viewerScope: async (ctx: AuthContext) => ({ ctx }),
+  canSee: () => true,
+  canDelete: () => true,
+}));
+
 import { PATCH as editComment, DELETE as deleteComment } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]/route";
-import { PATCH as editPmComment } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/pm-comments/[commentId]/route";
+import { PATCH as editPmComment, DELETE as deletePmComment } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/pm-comments/[commentId]/route";
+import { DELETE as deleteView } from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/route";
+import { PUT as starView, DELETE as unstarView } from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/favorite/route";
 import { POST as createView } from "@/app/api/v1/orgs/[orgId]/saved-views/route";
 
 const READ = Permission.PROJECT_READ | Permission.ITEM_READ | Permission.COMMENT_READ;
@@ -53,13 +70,14 @@ const req = (method: string, body?: unknown) =>
   new NextRequest("http://localhost/x", { method, ...(body ? { body: JSON.stringify(body), headers: { "Content-Type": "application/json" } } : {}) });
 const params = { params: Promise.resolve({ orgId: ORG, projectId: P, itemId: "w1", commentId: "c1" }) };
 
-beforeEach(() => { vi.clearAllMocks(); h.writes.length = 0; });
+beforeEach(() => { vi.clearAllMocks(); h.writes.length = 0; h.view = null; });
 
 describe("comment edits and deletes", () => {
   it.each([
     ["edit a work-item comment", () => editComment(req("PATCH", { content: "x" }), params as never)],
     ["delete a work-item comment", () => deleteComment(req("DELETE"), params as never)],
     ["edit a PM comment", () => editPmComment(req("PATCH", { content: "x" }), params as never)],
+    ["delete a PM comment", () => deletePmComment(req("DELETE"), params as never)],
   ])("a read key can't %s it authored", async (_n, call) => {
     h.getAuthContext.mockResolvedValue(as(READ, ["read"]));
     expect((await call()).status).toBe(403);
@@ -93,5 +111,31 @@ describe("saved-view create", () => {
     expect((await create()).status).not.toBe(403);
     h.getAuthContext.mockResolvedValue(as(READ));
     expect((await create()).status).not.toBe(403);
+  });
+});
+
+describe("saved-view delete, star and unstar", () => {
+  const viewParams = { params: Promise.resolve({ orgId: ORG, viewId: "v1" }) };
+  const OWN_VIEW = { id: "v1", orgId: ORG, ownerId: ME, name: "Mine", visibility: "PRIVATE", projectId: null, teamId: null, editors: [] };
+  const calls = [
+    ["delete", () => deleteView(req("DELETE"), viewParams as never), "savedView.delete"],
+    ["star", () => starView(req("PUT", {}), viewParams as never), "favorite.upsert"],
+    ["unstar", () => unstarView(req("DELETE"), viewParams as never), "favorite.delete"],
+  ] as const;
+
+  it.each(calls)("a read key can't %s its own view", async (_n, call) => {
+    h.view = OWN_VIEW;
+    h.getAuthContext.mockResolvedValue(as(READ, ["read"]));
+    expect((await call()).status).toBe(403);
+    expect(h.writes).toEqual([]);
+  });
+
+  it.each(calls)("an items:write key and an ITEM_READ session can %s it", async (_n, call, write) => {
+    h.view = OWN_VIEW;
+    h.getAuthContext.mockResolvedValue(as(WRITE, ["items:write"]));
+    expect((await call()).status).toBeLessThan(300);
+    h.getAuthContext.mockResolvedValue(as(READ));
+    expect((await call()).status).toBeLessThan(300);
+    expect(h.writes).toEqual([write, write]);
   });
 });

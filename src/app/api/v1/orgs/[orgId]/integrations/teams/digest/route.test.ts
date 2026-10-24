@@ -15,15 +15,29 @@ import type { AuthContext } from "@/lib/rbac/check";
 const P1 = "a1111111-1111-4111-8111-111111111111";
 const P2 = "a2222222-2222-4222-8222-222222222222";
 
-const h = vi.hoisted(() => ({ resolveAuth: vi.fn(), posted: [] as string[], counts: [] as unknown[] }));
+const h = vi.hoisted(() => ({
+  resolveAuth: vi.fn(),
+  posted: [] as string[],
+  counts: [] as unknown[],
+  /** What the next Teams post does: succeed, fail, or throw. */
+  outcome: "ok" as "ok" | "fail" | "throw",
+}));
 vi.mock("@/lib/auth/api-key", async (orig) => ({ ...(await orig<typeof import("@/lib/auth/api-key")>()), resolveAuth: h.resolveAuth }));
-vi.mock("@/lib/integrations/teams-notify", () => ({
-  teamsEventEnabled: async () => true,
-  teamsNotify: async (orgId: string) => { h.posted.push(orgId); },
+vi.mock("@/lib/integrations/teams-notify", () => ({ teamsEventEnabled: async () => true }));
+vi.mock("@/lib/integrations/teams", () => ({
+  postTeamsChannelMessage: async (orgId: string) => {
+    if (h.outcome === "throw") throw new Error("network down");
+    if (h.outcome === "fail") return { ok: false, error: "Teams API error (HTTP 503) tenant detail" };
+    h.posted.push(orgId);
+    return { ok: true };
+  },
 }));
 vi.mock("@/lib/db/client", () => ({
   prisma: {
-    organization: { findUnique: async ({ where }: { where: { id: string } }) => ({ id: where.id, slug: "acme" }) },
+    // Postgres matches a uuid in any spelling and hands back the stored one.
+    organization: {
+      findUnique: async ({ where }: { where: { id: string } }) => ({ id: where.id.toLowerCase(), slug: "acme" }),
+    },
     project: { findMany: async () => [{ id: P1, teamScopedAccess: false }, { id: P2, teamScopedAccess: false }] },
     workItem: { count: async (args: unknown) => { h.counts.push(args); return 1; } },
     feedbackItem: { count: async (args: unknown) => { h.counts.push(args); return 0; } },
@@ -42,7 +56,7 @@ const as = (orgId: string, permissions: bigint, over: Partial<AuthContext> = {})
 });
 const READ = Permission.PROJECT_READ | Permission.ITEM_READ;
 
-beforeEach(() => { vi.clearAllMocks(); h.posted.length = 0; h.counts.length = 0; });
+beforeEach(() => { vi.clearAllMocks(); h.posted.length = 0; h.counts.length = 0; h.outcome = "ok"; });
 
 describe("who may post the digest", () => {
   it("a read key is refused, and nothing is posted", async () => {
@@ -93,6 +107,37 @@ describe("one post per org per hour", () => {
     expect(again.status).toBe(429);
     expect(again.headers.get("retry-after")).toBeTruthy();
     expect(h.posted).toEqual([org]);
+  });
+
+  it("another spelling of the same org id shares the bucket", async () => {
+    const org = freshOrg();
+    h.resolveAuth.mockResolvedValue(as(org, READ | Permission.INTEGRATION_MANAGE));
+    expect((await post(org)).status).toBe(200);
+    expect((await post(org.toUpperCase())).status).toBe(429);
+    expect(h.posted).toEqual([org]);
+  });
+
+  it("a failed post is a 502 that hides the detail, and doesn't use up the hour", async () => {
+    const org = freshOrg();
+    h.resolveAuth.mockResolvedValue(as(org, READ | Permission.INTEGRATION_MANAGE));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    h.outcome = "fail";
+    const failed = await post(org);
+    expect(failed.status).toBe(502);
+    expect(await failed.json()).toEqual({ posted: false, error: "teams_post_failed" });
+    h.outcome = "ok";
+    expect((await post(org)).status).toBe(200);
+    expect(h.posted).toEqual([org]);
+  });
+
+  it("a post that throws doesn't use up the hour either", async () => {
+    const org = freshOrg();
+    h.resolveAuth.mockResolvedValue(as(org, READ | Permission.INTEGRATION_MANAGE));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    h.outcome = "throw";
+    expect((await post(org)).status).toBe(500);
+    h.outcome = "ok";
+    expect((await post(org)).status).toBe(200);
   });
 });
 

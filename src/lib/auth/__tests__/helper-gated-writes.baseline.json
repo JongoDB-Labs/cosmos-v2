@@ -1,9 +1,22 @@
 {
+  "DELETE v1/orgs/[orgId]/chat/channels/[channelId]": [
+    "orgRole",
+    "role literal",
+    "roleCountsFor"
+  ],
   "DELETE v1/orgs/[orgId]/chat/channels/[channelId]/members/[userId]": [
-    "canManageChannelGiven"
+    "canManageChannelGiven",
+    "role literal",
+    "orgRole handed on",
+    "roleCountsFor"
+  ],
+  "DELETE v1/orgs/[orgId]/chat/channels/[channelId]/pins/[messageId]": [
+    "orgRole handed on"
   ],
   "DELETE v1/orgs/[orgId]/chat/messages/[messageId]": [
-    "canDeleteMessageGiven"
+    "canDeleteMessageGiven",
+    "orgRole handed on",
+    "roleCountsFor"
   ],
   "DELETE v1/orgs/[orgId]/documents/[docId]": [
     "canManageDocument"
@@ -13,6 +26,17 @@
   ],
   "DELETE v1/orgs/[orgId]/documents/[docId]/shares/[shareId]": [
     "canManageDocument"
+  ],
+  "DELETE v1/orgs/[orgId]/feedback/[feedbackId]/comments/[commentId]": [
+    "isStaff"
+  ],
+  "DELETE v1/orgs/[orgId]/members/[memberId]": [
+    "role literal"
+  ],
+  "DELETE v1/orgs/[orgId]/notes/[noteId]": [
+    "orgRole",
+    "role literal",
+    "isAdmin*"
   ],
   "DELETE v1/orgs/[orgId]/projects/[projectId]/blockers/[blockerId]": [
     "requireProjectManage"
@@ -103,11 +127,22 @@
   "DELETE v1/orgs/[orgId]/saved-views/[viewId]/favorite": [
     "viewerScope"
   ],
+  "DELETE v1/orgs/[orgId]/time-entries/[entryId]": [
+    "orgRole",
+    "role literal",
+    "isAdmin*",
+    "roleCountsFor"
+  ],
   "PATCH v1/orgs/[orgId]/chat/channels/[channelId]": [
-    "canManageChannelGiven"
+    "canManageChannelGiven",
+    "orgRole handed on",
+    "roleCountsFor"
   ],
   "PATCH v1/orgs/[orgId]/documents/[docId]": [
     "canManageDocument"
+  ],
+  "PATCH v1/orgs/[orgId]/feedback/[feedbackId]/comments/[commentId]": [
+    "isStaff"
   ],
   "PATCH v1/orgs/[orgId]/projects/[projectId]/blockers/[blockerId]": [
     "requireProjectManage"
@@ -154,18 +189,55 @@
   "PATCH v1/orgs/[orgId]/projects/[projectId]/vendors/[vendorId]": [
     "requireProjectManage"
   ],
+  "PATCH v1/orgs/[orgId]/tenant-class": [
+    "orgRole",
+    "role literal"
+  ],
   "PATCH v1/orgs/[orgId]/time-off/[requestId]": [
     "approvalAuthority",
-    "isManagerOf"
+    "isManagerOf",
+    "roleCountsFor"
+  ],
+  "POST v1/orgs/[orgId]/assistant/conversations/[conversationId]/messages": [
+    "orgRole handed on"
   ],
   "POST v1/orgs/[orgId]/chat/channels/[channelId]/commands": [
-    "canManageChannelGiven"
+    "canManageChannelGiven",
+    "orgRole handed on",
+    "roleCountsFor"
   ],
   "POST v1/orgs/[orgId]/chat/channels/[channelId]/members": [
-    "canManageChannelGiven"
+    "canManageChannelGiven",
+    "orgRole handed on",
+    "roleCountsFor"
+  ],
+  "POST v1/orgs/[orgId]/chat/channels/[channelId]/messages": [
+    "orgRole handed on"
+  ],
+  "POST v1/orgs/[orgId]/chat/channels/[channelId]/pins": [
+    "orgRole handed on"
+  ],
+  "POST v1/orgs/[orgId]/chat/channels/[channelId]/typing": [
+    "orgRole handed on"
+  ],
+  "POST v1/orgs/[orgId]/chat/messages/[messageId]/reactions": [
+    "orgRole handed on"
   ],
   "POST v1/orgs/[orgId]/documents/[docId]/shares": [
     "canManageDocument"
+  ],
+  "POST v1/orgs/[orgId]/email-settings/test": [
+    "orgRole",
+    "role literal"
+  ],
+  "POST v1/orgs/[orgId]/feedback": [
+    "isStaff"
+  ],
+  "POST v1/orgs/[orgId]/feedback/[feedbackId]/comments": [
+    "isStaff"
+  ],
+  "POST v1/orgs/[orgId]/members": [
+    "OrgRole.OWNER|ADMIN"
   ],
   "POST v1/orgs/[orgId]/projects/[projectId]/blockers": [
     "requireProjectManage"
@@ -262,7 +334,19 @@
   ],
   "POST v1/orgs/[orgId]/timesheets/[timesheetId]": [
     "approvalAuthority",
-    "isManagerOf"
+    "isManagerOf",
+    "roleCountsFor"
+  ],
+  "PUT v1/orgs/[orgId]/email-settings": [
+    "orgRole",
+    "role literal"
+  ],
+  "PUT v1/orgs/[orgId]/feedback/[feedbackId]": [
+    "isStaff"
+  ],
+  "PUT v1/orgs/[orgId]/members/[memberId]": [
+    "orgRole",
+    "role literal"
   ],
   "PUT v1/orgs/[orgId]/projects/[projectId]": [
     "canManageProject"
@@ -290,5 +374,11 @@
   ],
   "PUT v1/orgs/[orgId]/saved-views/[viewId]/favorite": [
     "viewerScope"
+  ],
+  "PUT v1/orgs/[orgId]/time-entries/[entryId]": [
+    "orgRole",
+    "role literal",
+    "isAdmin*",
+    "roleCountsFor"
   ]
 }
