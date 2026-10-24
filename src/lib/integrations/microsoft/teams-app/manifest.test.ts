@@ -24,6 +24,13 @@ describe("Teams app package", () => {
     expect(m).not.toHaveProperty("bots"); // message extensions only: nobody chats with it in T1
   });
 
+  it("declares the tabs on this host, and SSO for our App ID URI", () => {
+    const m = teamsManifest(ARGS);
+    expect(m.staticTabs).toEqual([expect.objectContaining({ contentUrl: "https://cosmos.example/teams/tab/my-work", scopes: ["personal"] })]);
+    expect(m.configurableTabs).toEqual([expect.objectContaining({ configurationUrl: "https://cosmos.example/teams/tab/configure" })]);
+    expect(m.webApplicationInfo).toEqual({ id: ARGS.appId, resource: `api://cosmos.example/${ARGS.appId}` });
+  });
+
   it("zips manifest.json and the 192 px color and 32 px outline icons at the root", () => {
     const files = unzipSync(teamsAppPackage(ARGS));
     expect(Object.keys(files).sort()).toEqual(["color.png", "manifest.json", "outline.png"]);

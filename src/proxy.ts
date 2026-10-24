@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { SESSION_COOKIE } from "@/lib/auth/client";
-import { applySecurityHeaders } from "@/lib/security/headers";
+import { applySecurityHeaders, applyTeamsTabFraming } from "@/lib/security/headers";
+import { isTabPath } from "@/lib/integrations/microsoft/teams-app/tab-paths";
 import { classifyBearer } from "@/lib/auth/bearer";
 import { REQUEST_ID_HEADER, requestIdFor } from "@/lib/openapi/request-id";
 import { problem } from "@/lib/openapi/problem";
@@ -100,6 +101,10 @@ const PUBLIC_PATH_PREFIXES = [
   // Cosmos for Teams bot (COSMOS-202 T1): the Bot Connector has no session;
   // the route verifies its signed token before anything else.
   "/api/teams/bot",
+  // Teams tabs (T1 d): framed by Teams with no Cosmos session; the pages and
+  // the sign-in route do their own auth (the tab session).
+  "/api/teams/tab/session",
+  "/teams/tab",
   "/manifest.webmanifest",
   // Test-only routes — only active when E2E_TEST_AUTH=1; session check is
   // moot because these routes create/look up sessions themselves.
@@ -130,11 +135,20 @@ export async function proxy(request: NextRequest) {
   };
   const res = await gate(request, next);
   res.headers.set(REQUEST_ID_HEADER, requestId);
+  // Teams tabs (COSMOS-202 T1 d) are the only pages another site may frame,
+  // and only Microsoft Teams' hosts. Everything else keeps 'none'.
+  if (isTabPath(request.nextUrl.pathname)) applyTeamsTabFraming(res.headers);
   return res;
 }
 
 async function gate(request: NextRequest, next: () => NextResponse): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
+
+  // Teams tabs (COSMOS-202 T1 d) are read-only pages, and their session is
+  // honoured only for a GET: anything else never reaches them.
+  if (isTabPath(pathname) && request.method !== "GET" && request.method !== "HEAD") {
+    return withSecurityHeaders(new NextResponse(null, { status: 405, headers: { Allow: "GET, HEAD" } }));
+  }
 
   // CSRF: refuse cross-origin mutating verbs. The session cookie is
   // SameSite=Lax so the common case is already covered; this catches
