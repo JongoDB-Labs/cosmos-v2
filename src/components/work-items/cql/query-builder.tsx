@@ -18,7 +18,7 @@
  */
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
-import { CircleHelp, Play, Search, WandSparkles, X } from "lucide-react";
+import { CircleHelp, Play, Search, Sparkles, WandSparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,6 +29,8 @@ import { lineCol, type CqlDiagnostic, type Span } from "@/lib/query/errors";
 import { normalize } from "@/lib/query/normalize";
 import { parseCql } from "@/lib/query/parser";
 import { printCql, printNode } from "@/lib/query/print";
+import { CQL_EXAMPLES } from "@/lib/query/describe";
+import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
 import { QueryChips } from "./query-chips";
 import { useCqlValidate, type CqlClientSchema, type QueryMode } from "./use-cql";
 
@@ -248,6 +250,7 @@ function AdvancedMode({
   const [draft, setDraft] = useState(cql);
   const [shown, setShown] = useState(cql);
   const [help, setHelp] = useState(false);
+  const [ask, setAsk] = useState(false);
   if (cql !== shown) {
     setShown(cql);
     setDraft(cql);
@@ -306,6 +309,9 @@ function AdvancedMode({
         <Button variant="ghost" size="sm" onClick={format} title="Tidy the query's spacing and keywords" className="gap-1">
           <WandSparkles className="h-3.5 w-3.5" aria-hidden /> Format
         </Button>
+        <Button variant="ghost" size="sm" onClick={() => setAsk((a) => !a)} aria-expanded={ask} className="gap-1">
+          <Sparkles className="h-3.5 w-3.5" aria-hidden /> Ask AI
+        </Button>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -319,24 +325,70 @@ function AdvancedMode({
       </div>
       {/* The textarea has no inline lint, so its findings are listed. */}
       {narrow && draft !== cql && <Diagnostics items={findings} text={draft} />}
+      {ask && <AskAi orgId={orgId} onQuery={setDraft} />}
       {help && <SyntaxHelp onPick={(q) => setDraft(q)} />}
     </div>
   );
 }
 
-// Every example is checked to parse and typecheck (query-builder.test).
-const EXAMPLES: { q: string; says: string }[] = [
-  { q: "assignee = me AND statusCategory != DONE ORDER BY priority, due", says: "My open work, most urgent first" },
-  { q: "priority IN (HIGH, CRITICAL) AND due < now()", says: "Urgent and overdue" },
-  { q: "sprint IN openSprints() AND assignee IS EMPTY", says: "Unassigned in the current sprint" },
-  { q: "assignee IN membersOf(\"Platform\") AND updated >= -3wd", says: "The Platform team's work touched in the last 3 working days" },
-  { q: 'text ~ "login" AND type = Bug', says: "Bugs that mention login (title, description or comments)" },
-  { q: "labels IN ALL (auth, security)", says: "Has both labels" },
-  { q: 'status CHANGED FROM Review TO "In Progress" AFTER -14d', says: "Sent back from review in the last two weeks" },
-  { q: "status WAS Done AND statusCategory != DONE", says: "Reopened after being done" },
-  { q: "assignee WAS me AND assignee != me", says: "Handed off by me (or to someone else)" },
-  { q: "priority CHANGED BY me DURING (startOfWeek(), now())", says: "Priorities I changed this week" },
-];
+/**
+ * "Ask AI to build a filter" (§12.3): a sentence in, a query into the editor.
+ * It never runs the query: the user reads it and presses Run query.
+ */
+function AskAi({ orgId, onQuery }: { orgId: string; onQuery: (cql: string) => void }) {
+  const [prompt, setPrompt] = useState("");
+  const [state, setState] = useState<{ busy: boolean; note: string | null; error: string | null }>({ busy: false, note: null, error: null });
+  const submit = async () => {
+    const text = prompt.trim();
+    if (!text || state.busy) return;
+    setState({ busy: true, note: null, error: null });
+    try {
+      const r = await jsonFetch<{ cql: string; diagnostics: CqlDiagnostic[] }>(`/api/v1/orgs/${orgId}/cql/ai`, {
+        method: "POST",
+        body: JSON.stringify({ prompt: text, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+      });
+      if (!r.cql) {
+        setState({ busy: false, note: null, error: "The assistant couldn't turn that into a query. Try rewording it." });
+        return;
+      }
+      onQuery(r.cql);
+      const bad = r.diagnostics.some((d) => d.severity === "error");
+      setState({ busy: false, error: null, note: bad ? "The query has problems, underlined in the editor. Fix them, then Run query." : "Check the query in the editor, then Run query." });
+    } catch (e) {
+      const body = e instanceof FetchError ? (e.body as { error?: { message?: string } } | null) : null;
+      const message =
+        e instanceof FetchError && e.status === 429 ? "Too many requests. Wait a moment and try again." : (body?.error?.message ?? "The assistant couldn't build a query just now.");
+      setState({ busy: false, note: null, error: message });
+    }
+  };
+  return (
+    <form
+      className="flex min-w-0 flex-wrap items-center gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <Input
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        maxLength={500}
+        aria-label="Describe the filter"
+        placeholder="e.g. my high priority bugs due this week"
+        className="h-8 min-w-0 flex-1 text-sm"
+      />
+      <Button type="submit" size="sm" variant="outline" disabled={!prompt.trim() || state.busy} className="gap-1">
+        <Sparkles className="h-3.5 w-3.5" aria-hidden /> {state.busy ? "Building…" : "Build query"}
+      </Button>
+      {(state.note || state.error) && (
+        <p role="status" className={cn("w-full text-xs", state.error ? "text-destructive" : "text-[var(--text-muted)]")}>
+          {state.error ?? state.note}
+        </p>
+      )}
+    </form>
+  );
+}
+
 
 function SyntaxHelp({ onPick }: { onPick: (q: string) => void }) {
   return (
@@ -354,7 +406,7 @@ function SyntaxHelp({ onPick }: { onPick: (q: string) => void }) {
         covers changes recorded since history tracking began, and for assignee only the primary assignee.
       </p>
       <ul className="space-y-1">
-        {EXAMPLES.map((e) => (
+        {CQL_EXAMPLES.map((e) => (
           <li key={e.q}>
             <button type="button" onClick={() => onPick(e.q)} className="text-left hover:underline">
               <code className="text-[var(--primary)]">{e.q}</code>

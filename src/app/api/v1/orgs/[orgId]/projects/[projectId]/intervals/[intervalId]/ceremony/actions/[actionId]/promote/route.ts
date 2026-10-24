@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { columnCategoryResolver } from "@/lib/workflow/column-categories.server";
 import { prisma } from "@/lib/db/client";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { assignableMembersWhere } from "@/lib/work-items/apply-change.server";
@@ -109,8 +110,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Fall back to the ceremony board only when the project has no delivery
     // board at all — a home that reads oddly still beats refusing the promotion
     // and losing the team's decision.
+    // A delivery board's column has its status's category (column-categories.server.ts).
+    const categoryOf = deliveryBoard ? await columnCategoryResolver(prisma, projectId) : null;
     const columns =
-      deliveryBoard?.columns ??
+      deliveryBoard?.columns.map((c) => ({ ...c, category: categoryOf!(c) })) ??
       (await prisma.boardColumn.findMany({
         where: { boardId: action.ceremony.boardId },
         orderBy: { sortOrder: "asc" },

@@ -4163,13 +4163,15 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The value before, for the item fields the history shows values for (title, status, priority, assignee, dates, …); null for any other field."
           },
           "newValue": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The value after; null like `oldValue`."
           },
           "createdAt": {
             "$ref": "#/components/schemas/IsoDateTime"
@@ -4783,6 +4785,333 @@
           "createdAt"
         ]
       },
+      "WorkItemSearchPage": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkItemSearchRow"
+            }
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Every match, across pages. Null only when a query-language count ran out of time."
+          },
+          "totalCapped": {
+            "type": "boolean",
+            "description": "Query-language searches: true when `total` couldn't be counted in time."
+          },
+          "cql": {
+            "type": "string",
+            "description": "Query-language searches: the query as run, normalized."
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CqlDiagnostic"
+            },
+            "description": "Query-language searches: warnings about the query."
+          }
+        },
+        "required": [
+          "data",
+          "total"
+        ]
+      },
+      "WorkItemSearchRow": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "ticketNumber": {
+            "type": "integer"
+          },
+          "ticketKey": {
+            "type": "string",
+            "description": "The project key and ticket number, e.g. `ACME-128`."
+          },
+          "title": {
+            "type": "string"
+          },
+          "columnKey": {
+            "type": "string",
+            "description": "The status (board column) key."
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "CRITICAL",
+              "HIGH",
+              "MEDIUM",
+              "LOW"
+            ]
+          },
+          "type": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "icon": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "color": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "key",
+              "name",
+              "icon",
+              "color"
+            ]
+          },
+          "project": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "key",
+              "name"
+            ]
+          },
+          "assignee": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "avatarUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "displayName",
+              "avatarUrl"
+            ],
+            "description": "The primary assignee."
+          },
+          "assignees": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$ref": "#/components/schemas/Uuid"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "avatarUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "displayName",
+                "avatarUrl"
+              ]
+            },
+            "description": "Every assignee, the primary first."
+          },
+          "parent": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              "ticketKey": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "ticketKey",
+              "title"
+            ],
+            "description": "Null too when the parent is in a project you can't read."
+          },
+          "intervalId": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            ]
+          },
+          "storyPoints": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "highlight": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A meeting callout colour, or null."
+          },
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "startDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          }
+        },
+        "required": [
+          "id",
+          "ticketNumber",
+          "ticketKey",
+          "title",
+          "columnKey",
+          "priority",
+          "type",
+          "project",
+          "assignee",
+          "assignees",
+          "parent",
+          "intervalId",
+          "storyPoints",
+          "tags",
+          "highlight",
+          "archivedAt",
+          "startDate",
+          "dueDate",
+          "completedAt",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "CqlDiagnostic": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Open set: new codes are added as the language grows."
+          },
+          "severity": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "from": {
+            "type": "integer"
+          },
+          "to": {
+            "type": "integer"
+          },
+          "line": {
+            "type": "integer"
+          },
+          "column": {
+            "type": "integer"
+          },
+          "hint": {
+            "type": "string"
+          },
+          "fixes": {
+            "type": "array",
+            "items": {}
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "message",
+          "from",
+          "to",
+          "line",
+          "column"
+        ]
+      },
       "WorkItemFacets": {
         "type": "object",
         "properties": {
@@ -4959,6 +5288,288 @@
           "intervals",
           "managedProjectIds"
         ]
+      },
+      "WorkItemQuery": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "$ref": "#/components/schemas/WorkItemFilter"
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "createdAt",
+                  "updatedAt",
+                  "priority",
+                  "dueDate",
+                  "startDate",
+                  "ticketNumber"
+                ]
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "asc",
+                  "desc"
+                ],
+                "default": "desc"
+              }
+            },
+            "required": [
+              "field"
+            ]
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 25
+          }
+        }
+      },
+      "WorkItemFilter": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxItems": 100,
+            "description": "Only these items."
+          },
+          "archived": {
+            "type": "string",
+            "enum": [
+              "active",
+              "only",
+              "all"
+            ],
+            "description": "Default `active`."
+          },
+          "watchedByUserId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Only your own user id: a watch list is personal."
+          },
+          "projectIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "typeIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "columnKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Status (board column) keys."
+          },
+          "priorities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "CRITICAL",
+                "HIGH",
+                "MEDIUM",
+                "LOW"
+              ]
+            }
+          },
+          "assigneeIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`unassigned` matches items with no assignee."
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "intervalIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`none` matches items in no interval."
+          },
+          "parent": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "any"
+                    ]
+                  }
+                },
+                "required": [
+                  "mode"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "has_parent"
+                    ]
+                  }
+                },
+                "required": [
+                  "mode"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "no_parent"
+                    ]
+                  }
+                },
+                "required": [
+                  "mode"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "is"
+                    ]
+                  },
+                  "parentIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": []
+                  }
+                },
+                "required": [
+                  "mode"
+                ]
+              }
+            ]
+          },
+          "startDate": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "description": "Inclusive bounds, ISO dates or date-times; either end may be left open."
+          },
+          "dueDate": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "description": "Inclusive bounds, ISO dates or date-times; either end may be left open."
+          },
+          "createdAt": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "description": "Inclusive bounds, ISO dates or date-times; either end may be left open."
+          },
+          "updatedAt": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "description": "Inclusive bounds, ISO dates or date-times; either end may be left open."
+          },
+          "text": {
+            "type": "string",
+            "description": "Case-insensitive match on the title or description."
+          },
+          "customFields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "SELECT",
+                    "MULTI_SELECT",
+                    "CHECKBOX",
+                    "TEXT"
+                  ]
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "kind",
+                "value"
+              ]
+            }
+          }
+        },
+        "default": {},
+        "additionalProperties": false
       }
     },
     "parameters": {}
@@ -5463,7 +6074,7 @@
       "get": {
         "operationId": "listMembers",
         "summary": "List members",
-        "description": "Everyone in the organization, longest-standing first. A token sees `user.email` only when it holds `members:read`; a browser session always does.",
+        "description": "Everyone in the organization, longest-standing first. For a project-scoped key, limited to people on the scoped projects: their project members, and the assignees, creators and commenters of their work items. A token sees `user.email` only when it holds `members:read`; a browser session always does.",
         "tags": [
           "Members"
         ],
@@ -14377,6 +14988,494 @@
         }
       }
     },
+    "/orgs/{orgId}/work-items": {
+      "get": {
+        "operationId": "listWorkItems",
+        "summary": "List work items across projects",
+        "description": "The org-wide work-item collection: the same search, filters and results as `searchWorkItems`, at the collection's own path. Results come from every project you can read; a project-scoped API key reads only its projects. An unrecognised parameter is a 400.",
+        "tags": [
+          "Work items"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "Project ids. Repeat the parameter or separate with commas."
+            },
+            "required": false,
+            "description": "Project ids. Repeat the parameter or separate with commas.",
+            "name": "project",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "Work-item type ids."
+            },
+            "required": false,
+            "description": "Work-item type ids.",
+            "name": "type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "Status (board column) keys."
+            },
+            "required": false,
+            "description": "Status (board column) keys.",
+            "name": "status",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "CRITICAL, HIGH, MEDIUM or LOW; other values are ignored."
+            },
+            "required": false,
+            "description": "CRITICAL, HIGH, MEDIUM or LOW; other values are ignored.",
+            "name": "priority",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "User ids; `unassigned` matches items with no assignee."
+            },
+            "required": false,
+            "description": "User ids; `unassigned` matches items with no assignee.",
+            "name": "assignee",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ]
+            },
+            "required": false,
+            "name": "label",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "Interval ids; `none` matches items in no interval."
+            },
+            "required": false,
+            "description": "Interval ids; `none` matches items in no interval.",
+            "name": "interval",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "A custom-field match, `key~KIND~value` (KIND is SELECT, MULTI_SELECT, CHECKBOX or TEXT). Repeat for several."
+            },
+            "required": false,
+            "description": "A custom-field match, `key~KIND~value` (KIND is SELECT, MULTI_SELECT, CHECKBOX or TEXT). Repeat for several.",
+            "name": "cf",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "`has_parent` or `no_parent`."
+            },
+            "required": false,
+            "description": "`has_parent` or `no_parent`.",
+            "name": "parent",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "Children of these items."
+            },
+            "required": false,
+            "description": "Children of these items.",
+            "name": "parentId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "`only`: just archived items; `all`: archived and active. Anything else, or none: active only."
+            },
+            "required": false,
+            "description": "`only`: just archived items; `all`: archived and active. Anything else, or none: active only.",
+            "name": "archived",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "`1`: the same as `archived=all`."
+            },
+            "required": false,
+            "description": "`1`: the same as `archived=all`.",
+            "name": "includeArchived",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "startFrom",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "startTo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "dueFrom",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "dueTo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "createdFrom",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "createdTo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "updatedFrom",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "updatedTo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Case-insensitive match on the title or description."
+            },
+            "required": false,
+            "description": "Case-insensitive match on the title or description.",
+            "name": "text",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Any value: only items you watch."
+            },
+            "required": false,
+            "description": "Any value: only items you watch.",
+            "name": "watchedByMe",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "One of createdAt, updatedAt, priority, dueDate, startDate, ticketNumber. Anything else: the default order."
+            },
+            "required": false,
+            "description": "One of createdAt, updatedAt, priority, dueDate, startDate, ticketNumber. Anything else: the default order.",
+            "name": "sortField",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "`asc`; anything else is descending."
+            },
+            "required": false,
+            "description": "`asc`; anything else is descending.",
+            "name": "sortDir",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "From 1."
+            },
+            "required": false,
+            "description": "From 1.",
+            "name": "page",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Default 25, at most 100; larger values are clamped."
+            },
+            "required": false,
+            "description": "Default 25, at most 100; larger values are clamped.",
+            "name": "pageSize",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List work items across projects",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkItemSearchPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (`rate_limited`); wait `Retry-After` seconds.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/orgs/{orgId}/work-items/{itemId}": {
       "get": {
         "operationId": "getWorkItemById",
@@ -14676,7 +15775,7 @@
       "get": {
         "operationId": "getWorkItemFacets",
         "summary": "Get work-item filter options",
-        "description": "The values the work-item filters can take across the projects the caller can read: projects, types, statuses (also per project), members, labels in use and intervals. A caller who can read no project gets empty lists.",
+        "description": "The values the work-item filters can take across the projects the caller can read: projects, types, statuses (also per project), members, labels in use and intervals. A caller who can read no project gets empty lists. `members` is the whole organization, except for a project-scoped key: limited to people on the scoped projects (their project members, and the assignees, creators and commenters of their work items).",
         "tags": [
           "Work items"
         ],
@@ -14731,6 +15830,640 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/WorkItemFacets"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/work-items/search": {
+      "get": {
+        "operationId": "searchWorkItems",
+        "summary": "Search work items across projects",
+        "description": "Results come from every project you can read; a project-scoped API key reads only its projects. Filters on different fields combine with AND, and the values of one field with OR. A parameter the search doesn't recognise is a 400 rather than being ignored, so a misspelt filter can't return an unfiltered page; its `issues` name the parameters. For filters that don't fit in a URL, POST the same search as JSON.",
+        "tags": [
+          "Work items"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "Project ids. Repeat the parameter or separate with commas."
+            },
+            "required": false,
+            "description": "Project ids. Repeat the parameter or separate with commas.",
+            "name": "project",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "Work-item type ids."
+            },
+            "required": false,
+            "description": "Work-item type ids.",
+            "name": "type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "Status (board column) keys."
+            },
+            "required": false,
+            "description": "Status (board column) keys.",
+            "name": "status",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "CRITICAL, HIGH, MEDIUM or LOW; other values are ignored."
+            },
+            "required": false,
+            "description": "CRITICAL, HIGH, MEDIUM or LOW; other values are ignored.",
+            "name": "priority",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "User ids; `unassigned` matches items with no assignee."
+            },
+            "required": false,
+            "description": "User ids; `unassigned` matches items with no assignee.",
+            "name": "assignee",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ]
+            },
+            "required": false,
+            "name": "label",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "Interval ids; `none` matches items in no interval."
+            },
+            "required": false,
+            "description": "Interval ids; `none` matches items in no interval.",
+            "name": "interval",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "A custom-field match, `key~KIND~value` (KIND is SELECT, MULTI_SELECT, CHECKBOX or TEXT). Repeat for several."
+            },
+            "required": false,
+            "description": "A custom-field match, `key~KIND~value` (KIND is SELECT, MULTI_SELECT, CHECKBOX or TEXT). Repeat for several.",
+            "name": "cf",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "`has_parent` or `no_parent`."
+            },
+            "required": false,
+            "description": "`has_parent` or `no_parent`.",
+            "name": "parent",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "Children of these items."
+            },
+            "required": false,
+            "description": "Children of these items.",
+            "name": "parentId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "`only`: just archived items; `all`: archived and active. Anything else, or none: active only."
+            },
+            "required": false,
+            "description": "`only`: just archived items; `all`: archived and active. Anything else, or none: active only.",
+            "name": "archived",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "`1`: the same as `archived=all`."
+            },
+            "required": false,
+            "description": "`1`: the same as `archived=all`.",
+            "name": "includeArchived",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "startFrom",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "startTo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "dueFrom",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "dueTo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "createdFrom",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "createdTo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "updatedFrom",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "updatedTo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Case-insensitive match on the title or description."
+            },
+            "required": false,
+            "description": "Case-insensitive match on the title or description.",
+            "name": "text",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Any value: only items you watch."
+            },
+            "required": false,
+            "description": "Any value: only items you watch.",
+            "name": "watchedByMe",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "One of createdAt, updatedAt, priority, dueDate, startDate, ticketNumber. Anything else: the default order."
+            },
+            "required": false,
+            "description": "One of createdAt, updatedAt, priority, dueDate, startDate, ticketNumber. Anything else: the default order.",
+            "name": "sortField",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "`asc`; anything else is descending."
+            },
+            "required": false,
+            "description": "`asc`; anything else is descending.",
+            "name": "sortDir",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "From 1."
+            },
+            "required": false,
+            "description": "From 1.",
+            "name": "page",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Default 25, at most 100; larger values are clamped."
+            },
+            "required": false,
+            "description": "Default 25, at most 100; larger values are clamped.",
+            "name": "pageSize",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search work items across projects",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkItemSearchPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (`rate_limited`); wait `Retry-After` seconds.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "searchWorkItemsByFilter",
+        "summary": "Search work items with a JSON filter",
+        "description": "The work-item search with the filter as a JSON body. Results come from every project you can read; a project-scoped API key reads only its projects. An unknown filter key is a 400. `watchedByUserId` may only be your own user id.",
+        "tags": [
+          "Work items"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "stable",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkItemQuery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Search work items with a JSON filter",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkItemSearchPage"
                 }
               }
             }

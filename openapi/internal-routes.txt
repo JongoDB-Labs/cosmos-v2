@@ -287,9 +287,7 @@ GET /orgs/{orgId}/timesheets/periods
 GET /orgs/{orgId}/webhooks
 GET /orgs/{orgId}/webhooks/{webhookId}
 GET /orgs/{orgId}/webhooks/{webhookId}/deliveries
-GET /orgs/{orgId}/work-items
 GET /orgs/{orgId}/work-items/export
-GET /orgs/{orgId}/work-items/search
 GET /orgs/{orgId}/work-items/{itemId}/row
 GET /orgs/{orgId}/work-roles
 GET /orgs/{orgId}/work-roles/{roleId}
@@ -506,7 +504,6 @@ POST /orgs/{orgId}/webhooks/{webhookId}/test
 POST /orgs/{orgId}/work-item-types
 POST /orgs/{orgId}/work-item-types/{typeId}/fields
 POST /orgs/{orgId}/work-items/query
-POST /orgs/{orgId}/work-items/search
 POST /orgs/{orgId}/work-items/{itemId}/comments
 POST /orgs/{orgId}/work-roles
 PUT /admin/updates/settings

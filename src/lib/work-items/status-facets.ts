@@ -1,6 +1,7 @@
 /**
- * Group a project's board columns into per-project inline-status options for the
- * org-wide Issues view.
+ * Group projects' statuses into per-project inline-status options for the
+ * org-wide Issues view (the rows are statuses, shaped as `board.projectId` for
+ * the callers that once passed board columns).
  *
  * A work item's `columnKey` is a project-scoped board lane, so the cross-project
  * Issues list can only offer a *valid* inline status change (COSMOS-30) by

@@ -19,6 +19,9 @@ import { ensureCancelledStatus, ensureStatuses, loadStatuses, renameStatusIfUnsh
 import { GET as listStatuses, POST as createStatus } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/statuses/route";
 import { PATCH as patchStatus, DELETE as deleteStatus } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/statuses/[key]/route";
 import { PUT as putColumns } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/boards/[boardId]/columns/route";
+import { GET as getBoard } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/boards/[boardId]/route";
+import { GET as listBoards } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/boards/route";
+import { GET as listConflicts, POST as resolveConflict } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/workflow/conflicts/route";
 
 let orgId = "";
 let userId = "";
@@ -70,6 +73,11 @@ const statusesOf = async (projectId: string) =>
   (await loadStatuses(prisma, projectId, { includeArchived: true })).map((s) => ({
     key: s.key, name: s.name, category: s.category, archived: s.archivedAt !== null,
   }));
+/** A board's columns as the board API answers them: each with its status's category. */
+async function servedColumnsOf(projectId: string, boardId: string): Promise<{ key: string; category: string }[]> {
+  const res = await getBoard(req("GET"), { params: Promise.resolve({ orgId, projectId, boardId }) });
+  return (await res.json()).columns;
+}
 const columnsOf = (boardId: string) =>
   prisma.boardColumn.findMany({ where: { boardId }, orderBy: { sortOrder: "asc" }, select: { key: true, name: true, category: true } });
 
@@ -122,7 +130,7 @@ describe("work items and statuses", () => {
 });
 
 describe("ensureStatuses", () => {
-  it("keeps an existing status's name and writes its category only when asked, onto status boards only", async () => {
+  it("keeps an existing status's name and writes its category only when asked, which status boards then show", async () => {
     const p = await project();
     const kanban = await board(p.id, "KANBAN");
     const planning = await board(p.id, "SPRINT_PLANNING", [{ key: "doing", name: "Doing prompt", category: "TODO" }]);
@@ -136,8 +144,13 @@ describe("ensureStatuses", () => {
       ensureStatuses(tx, { orgId, projectId: p.id }, [{ key: "doing", name: "Renamed", category: "DONE" }], { writeCategory: true }),
     );
     expect((await statusesOf(p.id)).find((s) => s.key === "doing")).toMatchObject({ name: "Doing", category: "DONE" });
-    expect((await columnsOf(kanban.id)).find((c) => c.key === "doing")?.category).toBe("DONE");
-    expect((await columnsOf(planning.id))[0].category).toBe("TODO");
+    // The board answers with the status's category; the ceremony board's prompt is no status.
+    expect((await servedColumnsOf(p.id, kanban.id)).find((c) => c.key === "doing")?.category).toBe("DONE");
+    expect((await servedColumnsOf(p.id, planning.id))[0].category).toBe("TODO");
+    // The same in the board list, where both kinds come together.
+    const listed = (await (await listBoards(req("GET"), { params: Promise.resolve({ orgId, projectId: p.id }) })).json()) as { id: string; columns: { key: string; category: string }[] }[];
+    expect(listed.find((b) => b.id === planning.id)!.columns[0].category).toBe("TODO");
+    expect(listed.find((b) => b.id === kanban.id)!.columns.find((c) => c.key === "doing")?.category).toBe("DONE");
   });
 
   it("does not reset a category when a spec gives none", async () => {
@@ -322,13 +335,15 @@ describe("statuses API", () => {
     expect((await createStatus(req("POST", { key: "blocked", name: "Again", category: "TODO" }), ps(p.id))).status).toBe(409);
   });
 
-  it("changes a status's category on the status and the columns showing it", async () => {
+  it("changes a status's category, which every column showing it then reports", async () => {
     const p = await project();
     const kanban = await board(p.id, "KANBAN");
     const res = await patchStatus(req("PATCH", { category: "DONE", name: "Shipping" }), pk(p.id, "doing"));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ key: "doing", name: "Shipping", category: "DONE" });
-    expect((await columnsOf(kanban.id)).find((c) => c.key === "doing")?.category).toBe("DONE");
+    expect((await servedColumnsOf(p.id, kanban.id)).find((c) => c.key === "doing")?.category).toBe("DONE");
+    // No copy kept in step any more: the column's own row is left as it was.
+    expect((await columnsOf(kanban.id)).find((c) => c.key === "doing")?.category).toBe("IN_PROGRESS");
     expect(calls.audit.at(-1)).toMatchObject({
       action: "workflow.status_updated",
       metadata: expect.objectContaining({ categoryFrom: "IN_PROGRESS", categoryTo: "DONE" }),
@@ -516,5 +531,51 @@ describe("board column editor", () => {
     })));
     expect(res.status).toBe(200);
     expect((await statusesOf(p.id)).find((s) => s.key === "qa")).toMatchObject({ archived: false, category: "IN_PROGRESS" });
+  });
+});
+
+describe("lanes the backfill found disagreeing", () => {
+  /** A Scrum board whose Doing lane is DONE while the status is IN_PROGRESS, as the backfill left it. */
+  async function conflicted() {
+    const p = await project();
+    const kanban = await board(p.id, "KANBAN");
+    const scrum = await board(p.id, "SCRUM", [{ key: "doing", name: "Shipped", category: "IN_PROGRESS" }]);
+    await prisma.boardColumn.updateMany({ where: { boardId: scrum.id, key: "doing" }, data: { category: "DONE" } });
+    const status = await prisma.workflowStatus.findUniqueOrThrow({ where: { projectId_key: { projectId: p.id, key: "doing" } } });
+    await prisma.auditLog.create({
+      data: { orgId, action: "workflow.backfill_conflict", entity: "workflow_status", entityId: status.id, metadata: { key: "doing", chosenCategory: "IN_PROGRESS" } },
+    });
+    return { p, kanban, scrum };
+  }
+  const pp = (projectId: string) => ({ params: Promise.resolve({ orgId, projectId }) });
+  const lane = async (projectId: string, boardId: string) => (await servedColumnsOf(projectId, boardId)).find((c) => c.key === "doing")?.category;
+
+  it("keep their own category until resolved, then follow their status", async () => {
+    const { p, kanban, scrum } = await conflicted();
+    expect(await lane(p.id, scrum.id)).toBe("DONE");
+    expect(await lane(p.id, kanban.id)).toBe("IN_PROGRESS");
+
+    const listed = await (await listConflicts(req("GET"), pp(p.id))).json();
+    expect(listed).toEqual([expect.objectContaining({ key: "doing", statusCategory: "IN_PROGRESS", boards: [expect.objectContaining({ boardId: scrum.id, category: "DONE" })] })]);
+
+    const res = await resolveConflict(req("POST", { key: "doing", take: "status" }), pp(p.id));
+    expect(await res.json()).toEqual({ category: "IN_PROGRESS" });
+    expect(await lane(p.id, scrum.id)).toBe("IN_PROGRESS");
+    expect(await (await listConflicts(req("GET"), pp(p.id))).json()).toEqual([]);
+  });
+
+  it("can be resolved with the board's category, which the status then takes", async () => {
+    const { p, kanban, scrum } = await conflicted();
+    await resolveConflict(req("POST", { key: "doing", take: "DONE" }), pp(p.id));
+    expect((await statusesOf(p.id)).find((s) => s.key === "doing")?.category).toBe("DONE");
+    expect(await lane(p.id, kanban.id)).toBe("DONE");
+    expect(await lane(p.id, scrum.id)).toBe("DONE");
+  });
+
+  it("are left alone by a change to the status's category before they are resolved", async () => {
+    const { p, kanban, scrum } = await conflicted();
+    await patchStatus(req("PATCH", { category: "TODO" }), { params: Promise.resolve({ orgId, projectId: p.id, key: "doing" }) });
+    expect(await lane(p.id, kanban.id)).toBe("TODO");
+    expect(await lane(p.id, scrum.id)).toBe("DONE");
   });
 });

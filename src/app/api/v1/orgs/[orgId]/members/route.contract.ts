@@ -8,8 +8,9 @@ export const listMembers = defineRoute({
   operationId: "listMembers",
   summary: "List members",
   description:
-    "Everyone in the organization, longest-standing first. A token sees `user.email` only when it holds " +
-    "`members:read`; a browser session always does.",
+    "Everyone in the organization, longest-standing first. For a project-scoped key, limited to people on the " +
+    "scoped projects: their project members, and the assignees, creators and commenters of their work items. " +
+    "A token sees `user.email` only when it holds `members:read`; a browser session always does.",
   tags: ["Members"],
   stability: "stable",
   scopes: ["read"],

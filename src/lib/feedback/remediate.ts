@@ -504,8 +504,8 @@ async function runFeedbackRemediationInner(
   if (!hasAi) return empty("no-ai-credential");
 
   // Resolve every project in scope ONCE (not just one hardcoded target): each
-  // becomes a delivery target if it's live in this org and has a usable board
-  // column. A project in scope but missing either is simply absent from the
+  // becomes a delivery target if it's live in this org and has a usable
+  // status. A project in scope but missing either is simply absent from the
   // map — its items fall through to the org default (or are skipped) below,
   // rather than aborting the whole run.
   const projects = await prisma.project.findMany({
@@ -514,21 +514,21 @@ async function runFeedbackRemediationInner(
       id: true,
       key: true,
       projectTemplateId: true,
-      boards: {
-        select: { columns: { select: { key: true, category: true, sortOrder: true } } },
-        orderBy: { sortOrder: "asc" },
-        take: 1,
+      // The project's statuses in workflow order: where new items can start.
+      statuses: {
+        where: { archivedAt: null },
+        select: { key: true, category: true },
+        orderBy: [{ sortOrder: "asc" }, { key: "asc" }],
       },
     },
   });
 
   const targets = new Map<string, DeliveryTarget>();
   for (const project of projects) {
-    // Land new items in the first board's leftmost TODO column (fallback: its
-    // first column outright).
-    const columns = project.boards[0]?.columns ?? [];
-    const sorted = [...columns].sort((a, b) => a.sortOrder - b.sortOrder);
-    const columnKey = (sorted.find((c) => c.category === "TODO") ?? sorted[0])?.key;
+    // Land new items in the project's first To Do status (fallback: its first
+    // status outright).
+    const statuses = project.statuses;
+    const columnKey = (statuses.find((st) => st.category === "TODO") ?? statuses[0])?.key;
     if (!columnKey) continue; // no usable column — this project's items skip below
     targets.set(project.id, { id: project.id, key: project.key, projectTemplateId: project.projectTemplateId, columnKey });
   }

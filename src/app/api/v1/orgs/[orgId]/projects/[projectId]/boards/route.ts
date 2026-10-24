@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { withStatusCategories } from "@/lib/workflow/column-categories.server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // project"; this answers "which of its boards are theirs to see". Without
     // it this route returned every board while the sidebar hid the ones
     // assigned to another team — the same question, two different answers.
-    return success(await narrowBoards(ctx, projectId, boards));
+    return success(await withStatusCategories(prisma, projectId, await narrowBoards(ctx, projectId, boards)));
   } catch (error) {
     return handleApiError(error);
   }

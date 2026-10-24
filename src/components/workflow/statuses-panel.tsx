@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { jsonFetch } from "@/lib/query/json-fetcher";
+import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { notifyError } from "@/lib/errors/notify";
 import { excludeStatus, includeStatus, setInitial } from "@/lib/workflow/draft-edit";
@@ -170,7 +172,79 @@ export function StatusesPanel({
       <p className="text-xs text-muted-foreground">
         {"Name, colour, category and order belong to the project's status: they change for every board and workflow at once."}
       </p>
+      <ConflictsSection orgId={orgId} projectId={projectId} nameOf={(k) => statuses.find((st) => st.key === k)?.name ?? k} readOnly={readOnly} />
     </div>
+  );
+}
+
+interface Conflict {
+  statusId: string;
+  key: string;
+  statusCategory: Category;
+  boards: { boardId: string; boardName: string; category: Category }[];
+}
+
+/**
+ * Statuses whose boards disagreed on their category when statuses moved to the
+ * project. Until one is resolved, each disagreeing lane keeps its own
+ * category, so nothing a board shows changed; resolving makes every lane
+ * follow the status.
+ */
+function ConflictsSection({
+  orgId,
+  projectId,
+  nameOf,
+  readOnly,
+}: {
+  orgId: string;
+  projectId: string;
+  nameOf: (key: string) => string;
+  readOnly: boolean;
+}) {
+  const base = `${projectBase(orgId, projectId)}/workflow/conflicts`;
+  const conflicts = useQuery({
+    queryKey: useOrgQueryKey("workflows", projectId, "conflicts"),
+    queryFn: () => jsonFetch<Conflict[]>(base),
+  });
+  const resolve = useOrgMutation({
+    mutationFn: (body: { key: string; take: "status" | Category }) => jsonFetch(base, { method: "POST", body: JSON.stringify(body) }),
+    invalidate: WORKFLOW_INVALIDATE,
+    onError: (e) => notifyError(e, "Couldn't resolve the conflict."),
+  });
+  const list = conflicts.data ?? [];
+  if (list.length === 0) return null;
+  return (
+    <section aria-labelledby="status-conflicts-heading" className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+      <h4 id="status-conflicts-heading" className="font-medium">Boards that disagree on a status&apos;s category</h4>
+      <p className="text-xs text-muted-foreground">
+        Until you choose, each board below keeps its own category for the status, so its done counts haven&apos;t changed. Choosing makes every board follow the status.
+      </p>
+      <ul className="space-y-2">
+        {list.map((c) => {
+          const boardCategories = [...new Set(c.boards.map((b) => b.category))];
+          return (
+            <li key={c.statusId} className="space-y-1">
+              <p>
+                <strong>{nameOf(c.key)}</strong> is {CATEGORY_LABELS[c.statusCategory]}; on{" "}
+                {c.boards.map((b) => `${b.boardName} (${CATEGORY_LABELS[b.category]})`).join(", ")}
+              </p>
+              {!readOnly && (
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" disabled={resolve.isPending} onClick={() => resolve.mutate({ key: c.key, take: "status" })}>
+                    Keep {CATEGORY_LABELS[c.statusCategory]}
+                  </Button>
+                  {boardCategories.map((cat) => (
+                    <Button key={cat} size="sm" variant="outline" disabled={resolve.isPending} onClick={() => resolve.mutate({ key: c.key, take: cat })}>
+                      Use {CATEGORY_LABELS[cat]}, as the board has it
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

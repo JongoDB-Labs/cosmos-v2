@@ -10,7 +10,9 @@ export const getWorkItemFacets = defineRoute({
   summary: "Get work-item filter options",
   description:
     "The values the work-item filters can take across the projects the caller can read: projects, types, statuses " +
-    "(also per project), members, labels in use and intervals. A caller who can read no project gets empty lists.",
+    "(also per project), members, labels in use and intervals. A caller who can read no project gets empty lists. " +
+    "`members` is the whole organization, except for a project-scoped key: limited to people on the scoped projects " +
+    "(their project members, and the assignees, creators and commenters of their work items).",
   tags: ["Work items"],
   stability: "stable",
   scopes: ["read"],

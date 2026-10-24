@@ -61,7 +61,7 @@ describe("pre-existing scopes keep their masks", () => {
 });
 
 /** Every contract, with the source of the route.ts beside it. */
-function contracts(): { contract: RouteContract; src: string }[] {
+function contracts(): { contract: RouteContract; src: string; file: string }[] {
   const gen = readFileSync(path.join(process.cwd(), "src/lib/openapi/contracts.generated.ts"), "utf8");
   const files = [...gen.matchAll(/from "@\/(app\/[^"]+)\/route\.contract"/g)].map((m) =>
     path.join(process.cwd(), "src", m[1], "route.ts"),
@@ -70,7 +70,7 @@ function contracts(): { contract: RouteContract; src: string }[] {
   return contractModules.flatMap((mod, i) =>
     Object.values(mod)
       .filter((v): v is RouteContract => !!v && typeof v === "object" && "operationId" in v && "method" in v)
-      .map((contract) => ({ contract, src: readFileSync(files[i], "utf8") })),
+      .map((contract) => ({ contract, src: readFileSync(files[i], "utf8"), file: files[i] })),
   );
 }
 
@@ -79,8 +79,10 @@ function contracts(): { contract: RouteContract; src: string }[] {
  * `ctx.isApiKey ? keyBit : sessionBit` gates are new here, and before them
  * every caller met the session arm, so that is what a pre-existing key had to hold.
  */
-function bitsChecked(src: string, method: string): bigint {
-  const code = handlerCode(src, method);
+function bitsChecked(src: string, method: string, file: string): bigint {
+  // With the file, helpers imported from sibling routes are followed too (the
+  // bare work-items collection runs the search's).
+  const code = handlerCode(src, method, file);
   expect(code, `no ${method.toUpperCase()} handler`).not.toBeNull();
   return gateBits(code!, { forKey: false });
 }
@@ -89,8 +91,8 @@ describe("no pre-existing scope loses an operation its mask reached", () => {
   const ctx = (scopes: string[]) =>
     ({ userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes, isApiKey: true }) as never;
   const all = contracts();
-  const cases = all.flatMap(({ contract, src }) => {
-    const need = bitsChecked(src, contract.method);
+  const cases = all.flatMap(({ contract, src, file }) => {
+    const need = bitsChecked(src, contract.method, file);
     return Object.keys(BEFORE)
       .filter((s) => (BEFORE[s] & need) === need) // the old mask reached it
       .filter((s) => !LOST_WITHOUT_READ[contract.operationId]?.includes(s)) // exception 1

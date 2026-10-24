@@ -76,7 +76,7 @@ export async function loadWorkItemDetail(ctx: AuthContext, orgId: string, projec
     },
   });
   if (!item) return null;
-  return { ...item, comments: item.comments ?? [] };
+  return { ...item, comments: item.comments ?? [], activities: projectActivityValues(item.activities) };
 }
 
 /**
@@ -130,3 +130,26 @@ export async function readableItemProjectId(
   if (!item) return null;
   return (await mayRead(ctx, item.projectId, action)) ? item.projectId : null;
 }
+
+/**
+ * The fields whose before/after values a work item's change history returns.
+ * Each is a field of the item itself, readable by anyone who can read the
+ * item: what the writers record today (apply-change, the schedule cascade,
+ * merge). A change to any other field still appears, with its values null,
+ * until it is reviewed and added here, so a future writer that records, say,
+ * a description or a rate can't publish it through the history.
+ */
+export const ACTIVITY_VALUE_FIELDS: ReadonlySet<string> = new Set([
+  "title", "columnKey", "priority", "assigneeId", "resolution", "intervalId", "teamId",
+  "workItemTypeId", "cancelReason", "transition", "startDate", "dueDate", "mergedIntoId", "mergedFrom",
+]);
+
+/** Activity rows as the history returns them: values only for ACTIVITY_VALUE_FIELDS. */
+export function projectActivityValues<T extends { field: string | null; oldValue: string | null; newValue: string | null }>(
+  rows: T[],
+): T[] {
+  return rows.map((r) =>
+    r.field === null || ACTIVITY_VALUE_FIELDS.has(r.field) ? r : { ...r, oldValue: null, newValue: null },
+  );
+}
+

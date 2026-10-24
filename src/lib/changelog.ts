@@ -49,6 +49,83 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.471.1",
+    date: "2026-10-24",
+    title: "API keys limited to projects stay in them",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security: an API key limited to some projects can now only change those projects. Before this, it could create and delete work in any project of the org.",
+      },
+    ],
+  },
+  {
+    version: "2.471.0",
+    date: "2026-10-24",
+    title: "Boards and the assistant speak the query language",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Boards and the assistant now speak the Cosmos Query Language (beta): narrow any board with a query and Clear back to its own scope, ask the assistant to search across all your projects, or describe a filter in plain words and let AI write the query for you to check.",
+      },
+    ],
+  },
+  {
+    version: "2.470.2",
+    date: "2026-10-24",
+    title: "Delete an unused workflow",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Settings \u2192 Workflows can now delete a workflow that nothing follows, after a confirmation. A workflow that is a project's default or assigned to an item type can't be deleted.",
+      },
+    ],
+  },
+  {
+    version: "2.470.1",
+    date: "2026-10-24",
+    title: "Inbox links open the right item",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Clicking a notification in the Inbox now opens the item it is about. Before, every Inbox link pointed to a page that did not exist.",
+      },
+    ],
+  },
+  {
+    version: "2.470.0",
+    date: "2026-10-24",
+    title: "One category per status",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Every board, report and filter now reads a status column's category from the status itself, so a status means the same thing everywhere. Settings \u2192 Workflows \u2192 Statuses lists any status whose boards disagreed on its category and lets an admin keep the status's category or adopt a board's.",
+      },
+    ],
+  },
+  {
+    version: "2.469.0",
+    date: "2026-10-24",
+    title: "Search work items across projects in the API",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The API reference now documents searching work items across projects: GET /work-items, GET /work-items/search, and POST /work-items/search with a JSON filter. API keys need the read scope for them.",
+      },
+    ],
+  },
+  {
+    version: "2.468.1",
+    date: "2026-10-24",
+    title: "Tighter API key visibility",
+    highlights: [
+      {
+        kind: "fix",
+        text: "API keys limited to some projects now see only the people on those projects in the member list and the work-item filters. A work item's change history in the API shows before-and-after values only for the item's own reviewed fields.",
+      },
+    ],
+  },
+  {
     version: "2.468.0",
     date: "2026-10-24",
     title: "Query language: history, hierarchy and richer sorting",

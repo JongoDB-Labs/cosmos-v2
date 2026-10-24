@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
+import { withStatusCategories } from "@/lib/workflow/column-categories.server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
+import { inKeyProjectScope, requirePermission } from "@/lib/rbac/check";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
@@ -69,7 +70,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     if (!project) return problem(404, "not_found", undefined, { request });
 
-    return respond(getProject, 200, project, { ctx });
+    // Each status column's category is its status's (column-categories.server.ts).
+    const boards = await withStatusCategories(prisma, projectId, project.boards);
+    return respond(getProject, 200, { ...project, boards }, { ctx });
   } catch (error) {
     return handleApiError(error, request);
   }
@@ -165,6 +168,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return problem(401, "unauthorized", undefined, { request });
     requirePermission(ctx, Permission.PROJECT_DELETE);
+    // A project-scoped key can't delete a project outside its scope.
+    if (!inKeyProjectScope(ctx, projectId)) return problem(403, "forbidden", "Access denied by policy", { request });
 
     const existing = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!existing) return problem(404, "not_found", undefined, { request });

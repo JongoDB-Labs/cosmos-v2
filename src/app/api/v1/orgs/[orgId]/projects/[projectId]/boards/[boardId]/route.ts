@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { withStatusCategories } from "@/lib/workflow/column-categories.server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // team scoping is meant to withhold.
     await requireBoardRead(ctx, projectId, board);
 
-    return success(board);
+    return success((await withStatusCategories(prisma, projectId, [board!]))[0]);
   } catch (error) {
     return handleApiError(error);
   }
@@ -113,7 +114,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
-    return success(updated);
+    return success((await withStatusCategories(prisma, projectId, [updated]))[0]);
   } catch (error) {
     return handleApiError(error);
   }
