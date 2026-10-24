@@ -70,7 +70,8 @@ describe("the work-item outbox", () => {
         orgId, projectId, workItemTypeId: typeId, createdById: userId,
         title: "from a plugin", description: "", columnKey: "todo", ticketNumber: ++ticket,
       },
-    });
+    // A plugin's call passes no meta; explicit here so the arch test sees it was meant.
+    }, undefined);
     const [e] = await eventsFor(await lastCreatedId());
     expect(e).toMatchObject({ type: "work_item.created", actorId: null, source: "PLUGIN" });
   });
