@@ -47,6 +47,12 @@ export interface SavedFilterDto {
   filter: WorkItemFilter;
   /** LEGACY (one release): visibility === "ORG". */
   shared: boolean;
+  /**
+   * Something this filter refers to is withheld from the viewer. Here: the
+   * project or team it's shared with (`project`/`team` are then null); GET
+   * also folds in the query's own ‹restricted› parts.
+   */
+  partiallyRestricted: boolean;
 }
 
 export function toDto(
@@ -55,14 +61,19 @@ export function toDto(
   favorite: { sortOrder: number } | undefined,
   cfTypes: ReadonlyMap<string, string>,
 ): SavedFilterDto {
+  // The target is named only to someone who can read its project. Seeing the
+  // filter isn't enough: an editor, or an administrator an ABAC policy keeps
+  // out of the project, can see a filter shared with a project they can't.
+  const project = v.project && s.readable.has(v.project.id) ? { id: v.project.id, key: v.project.key, name: v.project.name } : null;
+  const team = v.team && s.readable.has(v.team.projectId) ? { id: v.team.id, name: v.team.name } : null;
   return {
     id: v.id,
     name: v.name,
     description: v.description,
     visibility: v.visibility,
     // A team-less TEAM filter (its team was deleted) names no team.
-    project: v.project ? { id: v.project.id, key: v.project.key, name: v.project.name } : null,
-    team: v.team ? { id: v.team.id, name: v.team.name } : null,
+    project,
+    team,
     ownerId: v.ownerId,
     ownerName: v.owner.displayName,
     mine: v.ownerId === s.ctx.userId,
@@ -74,5 +85,6 @@ export function toDto(
     updatedAt: v.updatedAt.toISOString(),
     filter: v.query ? legacyFilterOf(storedQuery(v), cfTypes) : ((v.filter ?? {}) as WorkItemFilter),
     shared: v.visibility === "ORG",
+    partiallyRestricted: (!!v.project && !project) || (!!v.team && !team),
   };
 }

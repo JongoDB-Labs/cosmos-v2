@@ -53,6 +53,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { notifyError } from "@/lib/errors/notify";
+import { sendItemChange, TransitionBackedOut, useTransitionPrompt } from "@/components/work-items/use-transition-prompt";
+import { announceBulkChange, combineBulkChanges, sendBulkChange } from "@/components/work-items/bulk-change";
 import { toast } from "sonner";
 import { entityUrl } from "@/lib/mentions/urls";
 import { useProjectTeams } from "@/hooks/use-project-teams";
@@ -148,6 +150,8 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const canCreateItem = can(Permission.ITEM_CREATE);
   const canUpdateItem = can(Permission.ITEM_UPDATE);
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
+  // A bulk move the workflow wants details for, asked once per transition.
+  const { ask: askTransition, dialog: transitionDialog } = useTransitionPrompt();
   // The text input is uncontrolled-ish: we commit it into `filters.text` on
   // submit/enter so every keystroke doesn't refire the query.
   const [textDraft, setTextDraft] = useState("");
@@ -367,17 +371,14 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const quickUpdate = useCallback(
     async (row: IssueRow, patch: Record<string, unknown>, label: string) => {
       try {
-        await jsonFetch(
-          `/api/v1/orgs/${orgId}/projects/${row.project.id}/work-items/${row.id}`,
-          { method: "PUT", body: JSON.stringify(patch) },
-        );
+        await sendItemChange(`/api/v1/orgs/${orgId}/projects/${row.project.id}/work-items/${row.id}`, patch, askTransition);
         toast.success(`${row.ticketKey} · ${label}`);
         void refetch();
       } catch (err) {
-        notifyError(err, "Couldn't update the issue.");
+        if (!(err instanceof TransitionBackedOut)) notifyError(err, "Couldn't update the issue.");
       }
     },
-    [orgId, refetch],
+    [orgId, refetch, askTransition],
   );
 
   const facets = facetsQuery.data;
@@ -515,14 +516,14 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     if (selectedCount === 0) return;
     setBulkPending(true);
     try {
-      await Promise.all(
-        [...bucketByProject(selectedIds).entries()].map(([projectId, ids]) =>
-          jsonFetch(
-            `/api/v1/orgs/${orgId}/projects/${projectId}/work-items/bulk`,
-            { method: "PUT", body: JSON.stringify({ ids, update }) },
-          ),
-        ),
-      );
+      // One project at a time: a transition that wants details asks once per project.
+      const results = [];
+      for (const [projectId, ids] of bucketByProject(selectedIds)) {
+        results.push(
+          await sendBulkChange({ basePath: `/api/v1/orgs/${orgId}/projects/${projectId}`, ids, update, ask: askTransition }),
+        );
+      }
+      announceBulkChange(combineBulkChanges(results));
       setRowSelection({});
       await refetch();
     } catch (err) {
@@ -862,11 +863,11 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
       // produce a change the server rejects (or worse, silently accepts).
       const patch = async (body: Record<string, unknown>, done: string, fail: string) => {
         try {
-          await jsonFetch(itemBase, { method: "PUT", body: JSON.stringify(body) });
+          await sendItemChange(itemBase, body, askTransition);
           toast.success(done);
           await refetch();
         } catch (err) {
-          notifyError(err, fail);
+          if (!(err instanceof TransitionBackedOut)) notifyError(err, fail);
         }
       };
 
@@ -1021,7 +1022,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         ...(crud.length > 0 ? [{ items: crud }] : []),
       ];
     },
-    [orgSlug, orgId, router, canCreateItem, canBulkDelete, canUpdateItem, refetch, facets],
+    [orgSlug, orgId, router, canCreateItem, canBulkDelete, canUpdateItem, refetch, facets, askTransition],
   );
 
   const watching = cqlOn ? hasClause(cqlQuery, WATCHING) : filters.watchedByMe;
@@ -1048,6 +1049,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
 
   return (
     <div className="space-y-4">
+      {transitionDialog}
       <div className="flex items-center justify-end gap-2">
         {/* Saved views (FR 2b36c2b8) — named, reusable filters. */}
         {cqlOn ? (

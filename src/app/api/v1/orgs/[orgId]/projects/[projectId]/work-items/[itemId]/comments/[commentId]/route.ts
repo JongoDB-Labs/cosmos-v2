@@ -5,6 +5,7 @@ import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { canManageProject } from "@/lib/rbac/scope";
 import { success, noContent, handleApiError } from "@/lib/api-helpers";
 import { z } from "zod";
+import { Permission } from "@/lib/rbac/permissions";
 
 /**
  * Edit / delete a single work-item comment — the CRUD the comments collection
@@ -33,7 +34,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    await requireProjectRead(ctx, projectId, "COMMENT_READ");
+    // Editing or removing a comment is a write: a session needs COMMENT_READ
+    // plus authorship, as ever; a key also needs COMMENT_CREATE (items:write),
+    // so a read key can't rewrite or erase what its minter published.
+    await requireProjectRead(ctx, projectId, ctx.isApiKey ? "COMMENT_CREATE" : "COMMENT_READ");
 
     const existing = await prisma.comment.findFirst({
       where: { id: commentId, orgId, workItemId: itemId },
@@ -63,7 +67,10 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    await requireProjectRead(ctx, projectId, "COMMENT_READ");
+    // Editing or removing a comment is a write: a session needs COMMENT_READ
+    // plus authorship, as ever; a key also needs COMMENT_CREATE (items:write),
+    // so a read key can't rewrite or erase what its minter published.
+    await requireProjectRead(ctx, projectId, ctx.isApiKey ? "COMMENT_CREATE" : "COMMENT_READ");
 
     const existing = await prisma.comment.findFirst({
       where: { id: commentId, orgId, workItemId: itemId },
@@ -73,7 +80,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     // The author can remove their own comment; a project manager can moderate.
     const allowed =
       existing.authorId === ctx.userId ||
-      (await canManageProject(ctx, projectId));
+      (await canManageProject(ctx, projectId, Permission.ITEM_DELETE));
     if (!allowed) return new Response("Forbidden", { status: 403 });
 
     await prisma.comment.delete({ where: { id: commentId } });

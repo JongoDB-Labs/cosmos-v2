@@ -5,7 +5,8 @@
  *   visibility  PRIVATE  the owner (and explicit editors)
  *               TEAM     members of the team who can read its project
  *               PROJECT  anyone who can read the project
- *               ORG      every member with ITEM_READ (setting it: FILTER_SHARE_ORG)
+ *               ORG      every member with ITEM_READ (setting it: FILTER_SHARE_ORG
+ *                        where CQL is on; any member where it isn't)
  *   edit        owner, editors, org administrators
  *   delete      owner, org administrators
  *
@@ -30,6 +31,7 @@ import { prepareCql } from "./execute.server";
 import { validateAst } from "./normalize";
 import { printCql, type LabelFor } from "./print";
 import { loadSchemaCustomFields } from "./resolve.server";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 
 export const RESTRICTED = "‹restricted›";
 
@@ -51,7 +53,9 @@ export async function viewerScope(ctx: AuthContext): Promise<ViewerScope> {
     ctx,
     readable,
     teams: new Map(rows.map((r) => [r.team.id, r.team.projectId])),
-    isAdmin: isOrgAdministrator(ctx.orgRole),
+    // An admin edits and deletes anyone's saved filter. A key never does: no
+    // scope grants FILTER_SHARE_ORG (lib/rbac/key-role.ts).
+    isAdmin: isOrgAdministrator(ctx.orgRole) && roleCountsFor(ctx, Permission.FILTER_SHARE_ORG),
   };
 }
 
@@ -112,15 +116,21 @@ export function visibleWhere(s: ViewerScope): Prisma.SavedViewWhereInput {
 /**
  * May this actor give a filter this visibility? Returns the reason it can't,
  * or null. Checked on create and on every visibility change.
+ *
+ * `cql` is the org's query-language switch. Without it the org keeps the
+ * pre-CQL rule, where any member could share a filter with everyone; the
+ * FILTER_SHARE_ORG gate arrives with the rest of saved filters v2.
  */
 export async function visibilityProblem(
   s: ViewerScope,
   target: { visibility: FilterVisibility; projectId?: string | null; teamId?: string | null },
+  opts: { cql: boolean },
 ): Promise<string | null> {
   switch (target.visibility) {
     case "PRIVATE":
       return null;
     case "ORG":
+      if (!opts.cql) return null;
       return hasPermission(s.ctx.permissions, Permission.FILTER_SHARE_ORG)
         ? null
         : "Sharing a filter with the whole organization needs the Share filters with the org permission.";
@@ -132,7 +142,7 @@ export async function visibilityProblem(
       if (!target.teamId) return "Pick the team to share it with.";
       const team = await prisma.team.findFirst({ where: { id: target.teamId, orgId: s.ctx.orgId }, select: { projectId: true } });
       if (!team || !s.readable.has(team.projectId)) return "That team isn't one you can see.";
-      if (s.teams.has(target.teamId) || (await canManageProject(s.ctx, team.projectId))) return null;
+      if (s.teams.has(target.teamId) || (await canManageProject(s.ctx, team.projectId, Permission.PROJECT_MANAGE))) return null;
       return "Only members of that team, or managers of its project, can share with it.";
     }
   }

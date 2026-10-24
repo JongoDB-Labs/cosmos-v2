@@ -88,3 +88,32 @@ export function applySecurityHeaders(headers: Headers): void {
     headers.set(k, v);
   }
 }
+
+/**
+ * Microsoft's hosts that frame Teams tabs: Teams and the new *.cloud.microsoft
+ * Teams. Teams only, matching the sign-in, which takes tokens from the Teams
+ * clients alone.
+ */
+// Hosting the tabs in Outlook/Microsoft 365 would need both their client ids (teams-clients.ts) and their framing hosts here.
+export const TEAMS_TAB_FRAME_ANCESTORS = [
+  "'self'",
+  "https://teams.microsoft.com",
+  "https://*.teams.microsoft.com",
+  "https://*.cloud.microsoft",
+];
+
+/**
+ * COSMOS-202 T1 d: let Teams frame a tab page, and nothing else frame it.
+ * Called for /teams/tab responses ONLY (proxy.ts), after
+ * applySecurityHeaders: replaces `frame-ancestors 'none'` with Microsoft's
+ * hosts and drops X-Frame-Options (DENY would win in older browsers, and
+ * ALLOW-FROM can't name several hosts). Every other directive stays.
+ */
+export function applyTeamsTabFraming(headers: Headers): void {
+  const csp = headers.get("Content-Security-Policy") ?? "";
+  headers.set(
+    "Content-Security-Policy",
+    csp.replace(/frame-ancestors [^;]*/, `frame-ancestors ${TEAMS_TAB_FRAME_ANCESTORS.join(" ")}`),
+  );
+  headers.delete("X-Frame-Options");
+}

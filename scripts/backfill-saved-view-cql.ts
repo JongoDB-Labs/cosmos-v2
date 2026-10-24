@@ -17,7 +17,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { fromWorkItemFilter } from "../src/lib/query/adapters";
 import type { WorkItemFilter } from "../src/lib/work-items/query/filter";
 
-const prisma = new PrismaClient({
+const prisma = new PrismaClient<Prisma.PrismaClientOptions>({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
 });
 

@@ -14,7 +14,7 @@
 // sibling type-select suite does it: a portalled popup cannot be driven in jsdom,
 // and the component's own state logic is what matters here.
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { render, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("@/components/providers/permissions-provider", () => ({
   usePermissions: () => ({ can: () => true }),
@@ -54,31 +54,33 @@ vi.mock("@/components/files/work-item-attachments", () => ({
 // field as a controlled input. `data-options` makes the Type control findable
 // among the sheet's several selects.
 vi.mock("@/components/ui/select", () => ({
+  // Options come from the SelectItem children, as in the real component; the
+  // `items` map is only its label lookup.
   Select: ({
     items,
     value,
     onValueChange,
+    children,
   }: {
     items: Record<string, string>;
     value: string;
     onValueChange: (v: string) => void;
+    children?: React.ReactNode;
   }) => (
     <select
       data-options={Object.values(items).join(",")}
       value={value}
       onChange={(e) => onValueChange(e.target.value)}
     >
-      {Object.entries(items).map(([id, label]) => (
-        <option key={id} value={id}>
-          {label}
-        </option>
-      ))}
+      {children}
     </select>
   ),
   SelectTrigger: () => null,
   SelectValue: () => null,
-  SelectContent: () => null,
-  SelectItem: () => null,
+  SelectContent: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children?: React.ReactNode }) => (
+    <option value={value}>{children}</option>
+  ),
 }));
 
 vi.mock("@/hooks/use-work-item-types", () => ({
@@ -94,6 +96,9 @@ vi.mock("@/hooks/use-custom-fields", () => ({
   useCustomFields: () => ({ fields: [] }),
   fieldAppliesToType: () => false,
 }));
+// The workflow's transitions: unknown (null) unless a test sets them.
+const transitions = vi.hoisted(() => ({ value: null as null | Map<string, unknown> }));
+vi.mock("@/hooks/use-item-transitions", () => ({ useItemTransitions: () => transitions.value }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
@@ -112,6 +117,7 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  transitions.value = null;
 });
 
 function itemFixture(over: Partial<WorkItem> = {}): WorkItem {
@@ -223,5 +229,104 @@ describe("the Status dropdown on a board that owns no columns", () => {
       />
     );
     expect(Array.from(statusSelect().options).map((o) => o.textContent)).toEqual(["To Do"]);
+  });
+});
+
+describe("the Status dropdown under a workflow", () => {
+  const STATUSES = [
+    { key: "todo", name: "To Do" },
+    { key: "doing", name: "Doing" },
+    { key: "done", name: "Done" },
+    { key: "cancelled", name: "Cancelled" },
+  ];
+  const reachable = (entries: [string, boolean][]) =>
+    new Map(
+      entries.map(([to, needsInput]) => [
+        to,
+        {
+          id: to === "done" ? "resolve" : `open:${to}`,
+          name: to === "done" ? "Resolve" : to,
+          to,
+          toCategory: "TODO",
+          input: needsInput ? [{ field: { system: "resolution" }, required: true }] : [],
+        },
+      ]),
+    );
+
+  it("offers only the statuses this person can move it to, and marks the ones that ask for details", () => {
+    transitions.value = reachable([["doing", false], ["done", true]]);
+    global.fetch = vi.fn(async () => new Response("[]", { status: 200 })) as unknown as typeof fetch;
+    render(<CardDetailSheet {...SHEET_PROPS} statusColumns={STATUSES} item={itemFixture()} />);
+    expect(Array.from(statusSelect().options).map((o) => o.textContent)).toEqual(["To Do", "Doing", "Done…"]);
+  });
+
+  it("asks for what the transition needs and saves the move with it", async () => {
+    transitions.value = reachable([["doing", false], ["done", true]]);
+    const refusal = {
+      error: "Resolve needs Resolution.",
+      code: "transition_input_required",
+      transition: { id: "resolve", name: "Resolve", to: "done" },
+      fields: [{ field: { system: "resolution" }, required: true, options: [{ value: "Fixed", label: "Fixed" }] }],
+    };
+    const puts: unknown[] = [];
+    global.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "PUT") return new Response("[]", { status: 200 });
+      const body = JSON.parse(init.body as string);
+      puts.push(body);
+      return body.transition
+        ? new Response(JSON.stringify(itemFixture({ columnKey: "done" })), { status: 200 })
+        : new Response(JSON.stringify(refusal), { status: 422 });
+    }) as unknown as typeof fetch;
+    const onUpdate = vi.fn();
+    render(<CardDetailSheet {...SHEET_PROPS} onUpdate={onUpdate} statusColumns={STATUSES} item={itemFixture()} />);
+
+    fireEvent.change(statusSelect(), { target: { value: "done" } });
+    const dlg = await screen.findByRole("dialog", { name: "Resolve" });
+    const resolution = within(dlg).getByRole("combobox");
+    fireEvent.change(resolution, { target: { value: "Fixed" } });
+    fireEvent.click(within(dlg).getByRole("button", { name: "Resolve" }));
+
+    await waitFor(() => expect(onUpdate).toHaveBeenCalled());
+    expect(puts).toEqual([
+      { columnKey: "done" },
+      { columnKey: "done", transition: { id: "resolve", input: { "system:resolution": "Fixed" } } },
+    ]);
+  });
+
+  it("never saves an emptied status (the select resets its value when the options change)", async () => {
+    const puts: unknown[] = [];
+    global.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") puts.push(JSON.parse(init.body as string));
+      return new Response("[]", { status: 200 });
+    }) as unknown as typeof fetch;
+    render(<CardDetailSheet {...SHEET_PROPS} statusColumns={STATUSES} item={itemFixture()} />);
+    const select = statusSelect();
+    const empty = document.createElement("option");
+    empty.value = "";
+    select.appendChild(empty);
+    fireEvent.change(select, { target: { value: "" } });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(puts).toEqual([]);
+  });
+
+  it("puts the status back, without an error, when the person backs out", async () => {
+    transitions.value = reachable([["done", true]]);
+    const refusal = {
+      error: "Resolve needs Resolution.",
+      code: "transition_input_required",
+      transition: { id: "resolve", name: "Resolve", to: "done" },
+      fields: [{ field: { system: "resolution" }, required: true }],
+    };
+    global.fetch = vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === "PUT" ? new Response(JSON.stringify(refusal), { status: 422 }) : new Response("[]", { status: 200 }),
+    ) as unknown as typeof fetch;
+    const { notifyError } = await import("@/lib/errors/notify");
+    render(<CardDetailSheet {...SHEET_PROPS} statusColumns={STATUSES} item={itemFixture()} />);
+
+    fireEvent.change(statusSelect(), { target: { value: "done" } });
+    const dlg = await screen.findByRole("dialog", { name: "Resolve" });
+    fireEvent.click(within(dlg).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(statusSelect().value).toBe("todo"));
+    expect(notifyError).not.toHaveBeenCalled();
   });
 });

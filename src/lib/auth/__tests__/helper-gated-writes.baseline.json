@@ -1,0 +1,431 @@
+{
+  "DELETE v1/orgs/[orgId]/chat/channels/[channelId]": [
+    "orgRole",
+    "role literal",
+    "roleCountsFor"
+  ],
+  "DELETE v1/orgs/[orgId]/chat/channels/[channelId]/members/[userId]": [
+    "canManageChannelGiven",
+    "role literal",
+    "orgRole handed on",
+    "roleCountsFor"
+  ],
+  "DELETE v1/orgs/[orgId]/chat/channels/[channelId]/pins/[messageId]": [
+    "orgRole handed on"
+  ],
+  "DELETE v1/orgs/[orgId]/chat/messages/[messageId]": [
+    "canDeleteMessageGiven",
+    "orgRole handed on",
+    "roleCountsFor"
+  ],
+  "DELETE v1/orgs/[orgId]/documents/[docId]": [
+    "canManageDocument"
+  ],
+  "DELETE v1/orgs/[orgId]/documents/[docId]/comments/[commentId]": [
+    "canManageDocument"
+  ],
+  "DELETE v1/orgs/[orgId]/documents/[docId]/shares/[shareId]": [
+    "canManageDocument"
+  ],
+  "DELETE v1/orgs/[orgId]/feedback/[feedbackId]/comments/[commentId]": [
+    "isStaff"
+  ],
+  "DELETE v1/orgs/[orgId]/members/[memberId]": [
+    "role literal"
+  ],
+  "DELETE v1/orgs/[orgId]/notes/[noteId]": [
+    "orgRole",
+    "role literal",
+    "isAdmin*"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/blockers/[blockerId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/boards/[boardId]": [
+    "canManageProject"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/boards/[boardId]/dashboard-widgets/[widgetId]": [
+    "canManageProject"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/changes/[changeId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/clins/[clinId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/deliverables/[deliverableId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/documents/[docId]": [
+    "canManageDocument"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/goals/[goalId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/goals/[goalId]/links/[linkId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/notes/[noteId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/kpis/[kpiId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/kpis/[kpiId]/data-points/[pointId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/members": [
+    "canManageProject"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/milestones/[milestoneId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/milestones/[milestoneId]/links/[linkId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/pm-comments/[commentId]": [
+    "canManageProject"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/pm-links/[linkId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/risks/[riskId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/roadmap-nodes/[nodeId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/schedule/[milestoneId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/statuses/[key]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/teams/[teamId]": [
+    "canManageProject"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/vendors/[vendorId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/work-item-links/[linkId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]": [
+    "canManageProject"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/bulk": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]/draft": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/saved-views/[viewId]": [
+    "canDelete",
+    "viewerScope",
+    "isAdmin*"
+  ],
+  "DELETE v1/orgs/[orgId]/saved-views/[viewId]/favorite": [
+    "viewerScope"
+  ],
+  "DELETE v1/orgs/[orgId]/time-entries/[entryId]": [
+    "orgRole",
+    "role literal",
+    "isAdmin*",
+    "roleCountsFor"
+  ],
+  "PATCH v1/orgs/[orgId]/chat/channels/[channelId]": [
+    "canManageChannelGiven",
+    "orgRole handed on",
+    "roleCountsFor"
+  ],
+  "PATCH v1/orgs/[orgId]/documents/[docId]": [
+    "canManageDocument"
+  ],
+  "PATCH v1/orgs/[orgId]/feedback/[feedbackId]/comments/[commentId]": [
+    "isStaff"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/blockers/[blockerId]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/changes/[changeId]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/clins/[clinId]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/deliverables/[deliverableId]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/goals/[goalId]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/notes/[noteId]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/kpis/[kpiId]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/milestones/[milestoneId]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/objectives": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/risks/[riskId]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/roadmap-nodes/[nodeId]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/schedule/[milestoneId]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/staffing/[memberId]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/statuses/[key]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/vendors/[vendorId]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/saved-views/[viewId]": [
+    "canEdit",
+    "viewerScope",
+    "isAdmin*"
+  ],
+  "PATCH v1/orgs/[orgId]/tenant-class": [
+    "orgRole",
+    "role literal"
+  ],
+  "PATCH v1/orgs/[orgId]/time-off/[requestId]": [
+    "approvalAuthority",
+    "isManagerOf",
+    "roleCountsFor"
+  ],
+  "POST v1/orgs/[orgId]/assistant/conversations/[conversationId]/messages": [
+    "orgRole handed on"
+  ],
+  "POST v1/orgs/[orgId]/chat/channels/[channelId]/commands": [
+    "canManageChannelGiven",
+    "orgRole handed on",
+    "roleCountsFor"
+  ],
+  "POST v1/orgs/[orgId]/chat/channels/[channelId]/members": [
+    "canManageChannelGiven",
+    "orgRole handed on",
+    "roleCountsFor"
+  ],
+  "POST v1/orgs/[orgId]/chat/channels/[channelId]/messages": [
+    "orgRole handed on"
+  ],
+  "POST v1/orgs/[orgId]/chat/channels/[channelId]/pins": [
+    "orgRole handed on"
+  ],
+  "POST v1/orgs/[orgId]/chat/channels/[channelId]/typing": [
+    "orgRole handed on"
+  ],
+  "POST v1/orgs/[orgId]/chat/messages/[messageId]/reactions": [
+    "orgRole handed on"
+  ],
+  "POST v1/orgs/[orgId]/documents/[docId]/shares": [
+    "canManageDocument"
+  ],
+  "POST v1/orgs/[orgId]/email-settings/test": [
+    "orgRole",
+    "role literal"
+  ],
+  "POST v1/orgs/[orgId]/feedback": [
+    "isStaff"
+  ],
+  "POST v1/orgs/[orgId]/feedback/[feedbackId]/comments": [
+    "isStaff"
+  ],
+  "POST v1/orgs/[orgId]/members": [
+    "OrgRole.OWNER|ADMIN"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/blockers": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/boards": [
+    "canManageBoardsInProject"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/boards/[boardId]/dashboard-widgets": [
+    "canManageProject"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/changes": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/clins": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/deliverables": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/documents": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/documents/[docId]/convert": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/documents/[docId]/propose": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/goals": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/goals/[goalId]/links": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/import": [
+    "canManageProject"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/intervals": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/actions/[actionId]/promote": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/close": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/open": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/complete": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/items/import": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/kpis": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/kpis/[kpiId]/data-points": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/milestones": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/milestones/[milestoneId]/links": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/objectives": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/pm-links": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/risks": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/roadmap-nodes/import": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/schedule": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/statuses": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/teams": [
+    "canManageProject"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/teams/[teamId]": [
+    "canManageProject"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/vendors": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/work-item-links": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/workflow/conflicts": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/workflow/simulate": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/workflows": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]/publish": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]/versions/[version]/restore": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/saved-views": [
+    "viewerScope"
+  ],
+  "POST v1/orgs/[orgId]/timesheets/[timesheetId]": [
+    "approvalAuthority",
+    "isManagerOf",
+    "roleCountsFor"
+  ],
+  "PUT v1/orgs/[orgId]/email-settings": [
+    "orgRole",
+    "role literal"
+  ],
+  "PUT v1/orgs/[orgId]/feedback/[feedbackId]": [
+    "isStaff"
+  ],
+  "PUT v1/orgs/[orgId]/members/[memberId]": [
+    "orgRole",
+    "role literal"
+  ],
+  "PUT v1/orgs/[orgId]/projects/[projectId]": [
+    "canManageProject"
+  ],
+  "PUT v1/orgs/[orgId]/projects/[projectId]/boards/[boardId]": [
+    "canManageProject"
+  ],
+  "PUT v1/orgs/[orgId]/projects/[projectId]/boards/[boardId]/columns": [
+    "canManageProject",
+    "requireProjectManage"
+  ],
+  "PUT v1/orgs/[orgId]/projects/[projectId]/boards/[boardId]/dashboard-widgets/[widgetId]": [
+    "canManageProject"
+  ],
+  "PUT v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]": [
+    "requireProjectManage"
+  ],
+  "PUT v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/capacity": [
+    "requireProjectManage"
+  ],
+  "PUT v1/orgs/[orgId]/projects/[projectId]/members": [
+    "canManageProject"
+  ],
+  "PUT v1/orgs/[orgId]/projects/[projectId]/work-items/bulk": [
+    "requireProjectManage"
+  ],
+  "PUT v1/orgs/[orgId]/projects/[projectId]/workflow/assignments": [
+    "requireProjectManage"
+  ],
+  "PUT v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]/draft": [
+    "requireProjectManage"
+  ],
+  "PUT v1/orgs/[orgId]/saved-views/[viewId]": [
+    "canEdit",
+    "viewerScope",
+    "isAdmin*"
+  ],
+  "PUT v1/orgs/[orgId]/saved-views/[viewId]/favorite": [
+    "viewerScope"
+  ],
+  "PUT v1/orgs/[orgId]/time-entries/[entryId]": [
+    "orgRole",
+    "role literal",
+    "isAdmin*",
+    "roleCountsFor"
+  ]
+}

@@ -12,7 +12,7 @@
  * Contains NO secret literals beyond the throwaway dex client secret, which is
  * already in the (gitignored) dex config — this file is safe to commit.
  */
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { sealSecret } from "../../src/lib/crypto/vault";
 
@@ -22,7 +22,7 @@ const CLIENT_SECRET = process.env.DEX_CLIENT_SECRET ?? "dex-cosmos-throwaway-sec
 const SLUG = process.env.TEST_ORG_SLUG ?? "dextest";
 
 async function main() {
-  const prisma = new PrismaClient({
+  const prisma = new PrismaClient<Prisma.PrismaClientOptions>({
     adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
   });
   try {

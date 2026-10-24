@@ -17,7 +17,9 @@ async function visible(orgId: string, viewId: string) {
   if (!org) return null;
   const ctx = await getAuthContext(org.slug);
   if (!ctx) return "unauthorized" as const;
-  requirePermission(ctx, Permission.ITEM_READ);
+  // Starring is a write (PUT and DELETE both come through here): a key needs
+  // ITEM_UPDATE (items:write), as the contract says; a session keeps ITEM_READ.
+  requirePermission(ctx, ctx.isApiKey ? Permission.ITEM_UPDATE : Permission.ITEM_READ);
   const view = await prisma.savedView.findFirst({
     where: { id: viewId, orgId },
     select: { ownerId: true, visibility: true, projectId: true, teamId: true, editors: { select: { userId: true } } },

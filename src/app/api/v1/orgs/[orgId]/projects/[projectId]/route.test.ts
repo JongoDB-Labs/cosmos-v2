@@ -34,6 +34,7 @@ vi.mock("@/lib/audit", () => ({ logAudit }));
 vi.mock("@/lib/cache/queries", () => ({ revalidateOrgProjects }));
 
 import { PUT } from "./route";
+import { projectRow } from "@/lib/openapi/testing/rows";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const PROJECT_ID = "22222222-2222-2222-2222-222222222222";
@@ -71,10 +72,7 @@ beforeEach(() => {
     orgId: ORG_ID,
     settings: { hiddenFeatureTabs: ["kpi"] },
   });
-  prisma.project.update.mockResolvedValue({
-    id: PROJECT_ID,
-    _count: { boards: 1, intervals: 0, members: 1 },
-  });
+  prisma.project.update.mockResolvedValue(projectRow({ id: PROJECT_ID, orgId: ORG_ID }));
   // canManageProject resolves the actor's OrgMember, then looks for a MANAGER
   // ProjectMember row. Default: they are NOT a project manager.
   prisma.orgMember.findUnique.mockResolvedValue({ id: ORG_MEMBER_ID });
@@ -162,7 +160,7 @@ describe("PUT teamScopedAccess — stricter than an ordinary settings edit", () 
     prisma.orgMember.findUnique.mockResolvedValue({ id: ORG_MEMBER_ID });
     prisma.projectMember.findFirst.mockResolvedValue({ id: "pm1", role: ProjectRole.MANAGER });
     prisma.project.findFirst.mockResolvedValue({ id: PROJECT_ID, orgId: ORG_ID, settings: {} });
-    prisma.project.update.mockResolvedValue({ id: PROJECT_ID, teamScopedAccess: true });
+    prisma.project.update.mockResolvedValue(projectRow({ id: PROJECT_ID, orgId: ORG_ID, teamScopedAccess: true }));
 
     const res = await PUT(putRequest({ teamScopedAccess: true }), {
       params: Promise.resolve({ orgId: ORG_ID, projectId: PROJECT_ID }),

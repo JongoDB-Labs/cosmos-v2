@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { notificationHref } from "@/lib/notifications/href";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
@@ -186,7 +187,7 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
             );
             const body = n.url ? (
               <Link
-                href={n.url.startsWith("/") ? `/${orgSlug}${n.url}` : n.url}
+                href={notificationHref(orgSlug, n.url)}
                 className="block min-w-0 flex-1"
               >
                 {inner}

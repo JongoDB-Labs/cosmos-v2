@@ -22,7 +22,7 @@
  */
 import { Prisma } from "@prisma/client";
 import { makePrismaClient } from "./shared/prisma-client";
-import { readFileSync } from "node:fs";
+import { resolveDbUrl } from "./shared/env-local";
 // password.ts imports only node:crypto — no app-dependency chain, safe under tsx.
 import { hashPassword, passwordPolicyError } from "../../src/lib/auth/password";
 
@@ -56,23 +56,6 @@ const SEED_MOCK = process.env.SEED_MOCK === "true";
 // Prefer an explicit DATABASE_URL from the environment; otherwise fall back to a
 // local .env.local (mirrors the demo-defense seeds) so a host run doesn't grab .env's
 // in-container `cosmos-postgres` hostname.
-function resolveDbUrl(): string | undefined {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
-  try {
-    const txt = readFileSync(process.cwd() + "/.env.local", "utf8");
-    for (const line of txt.split("\n")) {
-      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
-      if (!m) continue;
-      let v = m[2];
-      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))
-        v = v.slice(1, -1);
-      if (!process.env[m[1]]) process.env[m[1]] = v;
-    }
-  } catch {
-    /* no .env.local — rely on a preset DATABASE_URL */
-  }
-  return process.env.DATABASE_URL;
-}
 const DB_URL = resolveDbUrl();
 const prisma = makePrismaClient(DB_URL);
 

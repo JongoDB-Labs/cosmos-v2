@@ -11,6 +11,7 @@
  */
 import { Prisma } from "@prisma/client";
 import { makePrismaClient } from "./shared/prisma-client";
+import { ensureSeedStatuses } from "./shared/statuses";
 
 const prisma = makePrismaClient();
 
@@ -87,7 +88,10 @@ async function ensureProjectFixture(
     where: { orgId, key: PROJECT_KEY },
     select: { id: true },
   });
-  if (existing) return existing.id;
+  if (existing) {
+    await ensureSeedStatuses(prisma, existing.id);
+    return existing.id;
+  }
 
   const DEFAULT_COLUMNS = [
     { name: "Backlog", key: "backlog", color: "#94a3b8", sortOrder: 0, category: "TODO" as const },
@@ -112,6 +116,8 @@ async function ensureProjectFixture(
     await tx.boardColumn.createMany({
       data: DEFAULT_COLUMNS.map((c) => ({ boardId: board.id, ...c })),
     });
+    // Each column's status: a work item's columnKey must name one.
+    await ensureSeedStatuses(tx, proj.id);
     // ProjectMember.orgMemberId references OrgMember.id (NOT User.id).
     await tx.projectMember.create({
       data: { projectId: proj.id, orgMemberId: aliceMemberId, role: "MANAGER" },
@@ -122,8 +128,8 @@ async function ensureProjectFixture(
 
 /**
  * Seed a SECOND board on the TEST project so the board-switching E2E journey has
- * two tabs to toggle between. Distinct name ("Roadmap") + type (TABLE) so the
- * two tabs are unambiguous, and sortOrder 1 so it stays AFTER the default KANBAN
+ * two tabs to toggle between. Distinct name ("Roadmap") so the two tabs are
+ * unambiguous, and sortOrder 1 so it stays AFTER the default KANBAN
  * board (sortOrder 0) — the default must remain the /projects/{key} redirect
  * target. Idempotent on (projectId, name). Separate from ensureProjectFixture
  * (which early-returns when the project exists, so re-runs would skip a folded-in
@@ -200,6 +206,8 @@ async function ensureMentionFixtures(orgId: string, aliceId: string): Promise<vo
       "Falcon telemetry pipeline",
       "Falcon SSO integration",
     ];
+    // No board here, so the one status the items use is made directly.
+    await ensureSeedStatuses(tx, proj.id, [{ key: "backlog", name: "Backlog", category: "TODO" }]);
     await tx.workItem.createMany({
       data: titles.map((title, i) => ({
         orgId,

@@ -18,6 +18,7 @@ import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
+import type { Denial } from "@/lib/workflow/engine.server";
 import type { ChangeSource } from "@/lib/work-items/apply-change.server";
 
 /** How many tickets a bulk "completed" Teams message names before "and N more". */
@@ -44,12 +45,21 @@ export interface AfterCommitEffects {
   /** The single assignee the change named, if it named one. */
   assigneeId: string | null | undefined;
   items: ChangedItem[];
+  /** Refusals the workflow went past: forced by an override, or only recorded in shadow mode. */
+  workflow?: { forced: Denial[]; shadow: Denial[] };
 }
 
 /** Several change results (a bulk edit's batches) as one. */
 export function mergeEffects(parts: AfterCommitEffects[]): AfterCommitEffects | null {
   if (parts.length === 0) return null;
-  return { ...parts[0], items: parts.flatMap((p) => p.items) };
+  return {
+    ...parts[0],
+    items: parts.flatMap((p) => p.items),
+    workflow: {
+      forced: parts.flatMap((p) => p.workflow?.forced ?? []),
+      shadow: parts.flatMap((p) => p.workflow?.shadow ?? []),
+    },
+  };
 }
 
 export async function runAfterCommit(
@@ -59,6 +69,31 @@ export async function runAfterCommit(
   const { orgId, projectId, actorId, items } = effects;
   if (items.length === 0) return;
   const bulk = effects.source === "BULK";
+
+  // Every change forced past the workflow is audited with what it bypassed
+  // (design §4.4); shadow-mode refusals are recorded so admins can see what an
+  // enforced workflow would have blocked.
+  for (const [action, denials] of [
+    ["work_item.transition_forced", effects.workflow?.forced ?? []],
+    ["workflow.shadow_denied", effects.workflow?.shadow ?? []],
+  ] as const) {
+    for (const d of denials) {
+      await logAudit({
+        orgId,
+        userId: actorId,
+        action,
+        entity: "work_item",
+        entityId: d.itemId,
+        metadata: {
+          code: d.body.code,
+          message: d.body.error,
+          ...(d.body.transition && { transition: d.body.transition.id }),
+          ...(d.body.reasons && { reasons: d.body.reasons.map((r) => r.validator).join(", ") }),
+        },
+        ipAddress: opts.ipAddress,
+      });
+    }
+  }
 
   // RAG: re-embed when searchable text changed.
   if (effects.textChanged) {

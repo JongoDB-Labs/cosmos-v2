@@ -69,7 +69,7 @@ afterEach(() => {
 describe("TimeTracker — Export CSV", () => {
   it("downloads the loaded entries with project and CLIN names", async () => {
     entries = [ENTRY];
-    render(<TimeTracker orgId={ORG} />);
+    render(<TimeTracker orgId={ORG} selfUserId="me" />);
 
     const button = await screen.findByRole("button", { name: /Export CSV/ });
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
@@ -92,7 +92,7 @@ describe("TimeTracker — Export CSV", () => {
 
   it("is disabled when there is nothing to export", async () => {
     entries = [];
-    render(<TimeTracker orgId={ORG} />);
+    render(<TimeTracker orgId={ORG} selfUserId="me" />);
 
     const button = await screen.findByRole("button", { name: /Export CSV/ });
     // Give the load a chance to settle; it must stay disabled with no entries.

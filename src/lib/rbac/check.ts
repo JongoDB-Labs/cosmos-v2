@@ -28,6 +28,8 @@ export interface AuthContext {
    * item, because the break-glass returned true before the mask was consulted.
    */
   isApiKey?: boolean;
+  /** A token's scopes, as minted. Absent for a browser session. */
+  scopes?: string[];
   /**
    * A hard ceiling on which projects this actor may touch, independent of role.
    *

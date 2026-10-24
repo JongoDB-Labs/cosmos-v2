@@ -3,6 +3,7 @@ import { type AuthContext } from "@/lib/rbac/check";
 import { isOrgAdministrator } from "@/lib/rbac/project-access";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { ProjectRole } from "@prisma/client";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 
 /**
  * Inheriting admin hierarchy (system → org → project → board): a check at the
@@ -15,7 +16,13 @@ import { ProjectRole } from "@prisma/client";
 export async function canManageProject(
   ctx: AuthContext,
   projectId: string,
+  keyBit: bigint = Permission.PROJECT_UPDATE,
 ): Promise<boolean> {
+  // Both ways in below come from WHO minted a key (their org role, their
+  // project membership), so a key takes them only when its own scopes would
+  // grant `keyBit` (lib/rbac/key-role.ts).
+  if (!roleCountsFor(ctx, keyBit)) return false;
+
   // Org-tier inherit: org-wide ADMINISTRATION, taken from the org ROLE.
   //
   // NOT the PROJECT_MANAGE bit. That bit is delegable — a "Project Manager" work
@@ -52,6 +59,8 @@ export async function getManagedProjectIds(
   projectIds: string[],
 ): Promise<Set<string>> {
   if (projectIds.length === 0) return new Set();
+  // A key's scopes cap its role, exactly as in canManageProject.
+  if (!roleCountsFor(ctx, Permission.PROJECT_UPDATE)) return new Set();
   // Org ROLE, not the delegable PROJECT_MANAGE bit — same reasoning as
   // canManageProject above. These two must agree or the org-wide Issues view
   // offers an action the per-project route then refuses.

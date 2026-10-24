@@ -59,7 +59,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Inheriting authority: org-wide BOARD_UPDATE holder OR project MANAGER.
     if (
       !hasPermission(ctx.permissions, Permission.BOARD_UPDATE) &&
-      !(await canManageProject(ctx, projectId))
+      !(await canManageProject(ctx, projectId, Permission.BOARD_UPDATE))
     ) {
       return new Response("Forbidden", { status: 403 });
     }

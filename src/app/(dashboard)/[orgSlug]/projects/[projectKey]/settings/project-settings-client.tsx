@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Archive, Trash2, Loader2, AlertTriangle, Check } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -546,6 +548,21 @@ export function ProjectSettingsClient({
             })}
           </div>
         )}
+      </div>
+
+      {/* Workflows */}
+      <div className="rounded-lg border">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+          <div>
+            <h3 className="text-sm font-semibold">Workflows</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              The statuses each type uses and the moves between them: who may make them, what they ask for and check.
+            </p>
+          </div>
+          <Link href={`/${orgSlug}/projects/${projectKey}/settings/workflows`} className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+            Edit workflows
+          </Link>
+        </div>
       </div>
 
       {/* Board Types */}

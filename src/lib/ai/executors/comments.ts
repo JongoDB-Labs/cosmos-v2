@@ -1,10 +1,11 @@
 import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import { z } from "zod";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 import {
   assertPermission,
   assertProjectRead,
-  loadActorPermissions,
+  loadAuthContext,
   type ToolContext,
 } from "./_ctx";
 
@@ -150,8 +151,10 @@ export async function deleteComment(
   }
 
   if (existing.authorId !== ctx.userId) {
-    const actor = await loadActorPermissions(ctx);
-    const isPrivileged = actor?.orgRole === "OWNER" || actor?.orgRole === "ADMIN";
+    const actor = await loadAuthContext(ctx);
+    // A key acts as an admin only when its scopes grant ITEM_DELETE (rbac/key-role.ts).
+    const isPrivileged =
+      (actor?.orgRole === "OWNER" || actor?.orgRole === "ADMIN") && roleCountsFor(actor, Permission.ITEM_DELETE);
     if (!isPrivileged) {
       return { error: "Only the author or an admin can delete this comment" };
     }

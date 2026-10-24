@@ -185,3 +185,19 @@ describe("KanbanCard click routing (COSMOS-52)", () => {
     ).toBeInTheDocument();
   });
 });
+
+// A card's title sits one level below its column's (axe heading-order): h3 on a
+// flat board's h2 column, h4 in a swimlane, whose columns are h3.
+describe("KanbanCard title heading level", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("is an h3 by default and an h4 when its column is nested in a swimlane", () => {
+    renderCard();
+    expect(screen.getByRole("heading", { level: 3, name: "Test card" })).toBeTruthy();
+    cleanup();
+    renderCard({ headingLevel: 4 });
+    expect(screen.getByRole("heading", { level: 4, name: "Test card" })).toBeTruthy();
+  });
+});

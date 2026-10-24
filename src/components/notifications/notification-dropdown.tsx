@@ -15,6 +15,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
 import type { Notification } from "@/types/models";
+import { notificationHref } from "@/lib/notifications/href";
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -132,16 +133,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
   function handleNotificationClick(n: Notification & { url?: string | null }) {
     markRead(n.id);
     if (!orgSlug || !n.url) return;
-    let path = n.url.startsWith("/") ? n.url : `/${n.url}`;
-    // Notification creators are inconsistent: some store an org-relative URL
-    // (e.g. "/notes/x") and others an already-org-slug-prefixed one (e.g.
-    // "/{slug}/meetings/x"). Strip a leading "/{orgSlug}" if present so we
-    // re-prefix exactly once — otherwise meeting/work-item/comment links became
-    // "/{slug}/{slug}/…" and 404'd.
-    if (path === `/${orgSlug}` || path.startsWith(`/${orgSlug}/`)) {
-      path = path.slice(`/${orgSlug}`.length) || "/";
-    }
-    router.push(path === "/" ? `/${orgSlug}` : `/${orgSlug}${path}`);
+    router.push(notificationHref(orgSlug, n.url));
   }
 
   return (
@@ -162,7 +154,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
       >
         <Bell className="h-4 w-4" />
         {unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground">
+          <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--status-critical-text)] text-[9px] font-bold text-[var(--bg)]">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}

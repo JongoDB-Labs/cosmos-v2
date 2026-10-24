@@ -10,6 +10,7 @@
  */
 import { Prisma } from "@prisma/client";
 import { rebuildTagMirror, updateWorkItems } from "@/lib/work-items/write.server";
+import { PLUGIN_WRITE, type WriteMetaOrCaller } from "@/lib/work-items/events.server";
 
 /** Prisma client or an interactive-transaction client. */
 type Db = Prisma.TransactionClient;
@@ -73,6 +74,7 @@ export async function setLabelsForMany(
   orgId: string,
   workItemIds: readonly string[],
   names: readonly string[],
+  meta: WriteMetaOrCaller = PLUGIN_WRITE,
 ): Promise<void> {
   if (workItemIds.length === 0) return;
   const ids = [...workItemIds];
@@ -96,7 +98,7 @@ export async function setLabelsForMany(
     `;
   }
 
-  await recomputeTagMirror(db, ids);
+  await recomputeTagMirror(db, ids, meta);
 }
 
 /**
@@ -111,8 +113,9 @@ export async function setLabelsForMany(
 export async function recomputeTagMirror(
   db: Db,
   workItemIds: readonly string[],
+  meta: WriteMetaOrCaller = PLUGIN_WRITE,
 ): Promise<void> {
-  await rebuildTagMirror(db, workItemIds);
+  await rebuildTagMirror(db, workItemIds, meta);
 }
 
 /**
@@ -128,6 +131,7 @@ export async function setWorkItemLabels(
   orgId: string,
   workItemId: string,
   names: readonly string[],
+  meta: WriteMetaOrCaller = PLUGIN_WRITE,
 ): Promise<{ id: string; name: string }[]> {
   const labels = await resolveLabels(db, orgId, names);
   const keep = labels.map((l) => l.id);
@@ -149,7 +153,7 @@ export async function setWorkItemLabels(
     });
   }
 
-  await updateWorkItems(db, [workItemId], { tags: labels.map((l) => l.name) });
+  await updateWorkItems(db, [workItemId], { tags: labels.map((l) => l.name) }, meta);
 
   return labels;
 }

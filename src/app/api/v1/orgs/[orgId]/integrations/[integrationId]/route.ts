@@ -13,6 +13,7 @@ import { splitConfigSecrets } from "@/lib/integrations/config-secrets";
 import { setOrgCredential, deleteOrgCredential } from "@/lib/integrations/credentials";
 import { MS_CALENDAR } from "@/lib/integrations/microsoft/calendar-connect";
 import { purgeOrgCalendarConnections } from "@/lib/integrations/microsoft/calendar-token.server";
+import { offboardOrgInvites } from "@/lib/integrations/microsoft/calendar-sync.server";
 
 const updateIntegrationSchema = z.object({
   displayName: z.string().min(1).max(200).optional(),
@@ -154,6 +155,9 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
 /** Delete everyone's Outlook Calendar connection in the org, and say so in the audit log. */
 async function purgeCalendarConnections(request: NextRequest, orgId: string, userId: string) {
+  // First cancel the meeting invitations people send through it (attendees
+  // are told, admins notified), while their tokens still work.
+  await offboardOrgInvites(orgId).catch((e) => console.error("outlook invite cancel failed:", e instanceof Error ? e.message : "unknown"));
   const removed = await purgeOrgCalendarConnections(orgId);
   await logAudit({
     orgId,

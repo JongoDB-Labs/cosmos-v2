@@ -28,7 +28,13 @@ export function isResponse(v: unknown): v is Response {
   return v instanceof Response;
 }
 
-/** Resolve org + session + project-read. Used by every contributor action. */
+/**
+ * Resolve org + session + project-read. Used by every contributor action, and
+ * each of those is a write (add, edit or delete a note or action item). A
+ * session needs only SPRINT_READ, so any project member can type into a retro;
+ * a key also needs SPRINT_CREATE (items:write or planning:write), so a read
+ * key can't rewrite or delete the room's notes and actions.
+ */
 export async function requireContributor(
   orgId: string,
   projectId: string,
@@ -39,7 +45,7 @@ export async function requireContributor(
 
   const ctx = await getAuthContext(org.slug);
   if (!ctx) return new Response("Unauthorized", { status: 401 });
-  await requireProjectRead(ctx, projectId, "SPRINT_READ");
+  await requireProjectRead(ctx, projectId, ctx.isApiKey ? "SPRINT_CREATE" : "SPRINT_READ");
 
   return { ctx, orgId, projectId, intervalId };
 }

@@ -3,6 +3,8 @@ import { Permission } from "@/lib/rbac/permissions";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { applyWorkItemChange, type WorkItemPatch } from "@/lib/work-items/apply-change.server";
 import { runAfterCommit } from "@/lib/work-items/after-commit";
+import { listTransitions } from "@/lib/workflow/engine.server";
+import { TransitionError } from "@/lib/workflow/contract";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
 import {
   directedDependencyEdge,
@@ -301,7 +303,7 @@ export async function createWorkItem(
         columnEnteredAt: new Date(),
         createdById: ctx.userId,
       },
-    });
+    }, { actorId: ctx.userId, source: "AI" });
 
     await tx.activity.create({
       data: {
@@ -384,18 +386,29 @@ export async function updateWorkItem(
   // The same writer as the PUT route: done/started follow the destination
   // status's CATEGORY, the move is recorded in history, tags go through the
   // label catalogue, and the edit is audited and published like any other.
-  const { item, effects } = await prisma.$transaction(async (tx) => {
-    const change = await applyWorkItemChange(tx, {
-      actorId: ctx.userId,
-      orgId: ctx.orgId,
-      projectId: existing.projectId,
-      itemIds: [existing.id],
-      patch,
-      source: "AI",
+  let result;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      const change = await applyWorkItemChange(tx, {
+        actorId: ctx.userId,
+        orgId: ctx.orgId,
+        projectId: existing.projectId,
+        itemIds: [existing.id],
+        patch,
+        source: "AI",
+        actor: ctx.auth,
+      });
+      const item = await tx.workItem.findUniqueOrThrow({ where: { id: existing.id } });
+      return { item, effects: change.effects };
     });
-    const item = await tx.workItem.findUniqueOrThrow({ where: { id: existing.id } });
-    return { item, effects: change.effects };
-  });
+  } catch (e) {
+    // The workflow's refusal, as the model can act on it: what blocked the
+    // move and, for missing input, which fields to ask for (list_transitions
+    // shows the rest).
+    if (e instanceof TransitionError) return transitionRefusal(e);
+    throw e;
+  }
+  const { item, effects } = result;
   await runAfterCommit(effects);
 
   return {
@@ -406,6 +419,116 @@ export async function updateWorkItem(
     columnKey: item.columnKey,
     assigneeId: item.assigneeId,
     assigneeName: await assigneeName(ctx.orgId, item.assigneeId),
+  };
+}
+
+/**
+ * A workflow refusal as the assistant sees it: the code to branch on, which
+ * transition, the fields to ask for, the kinds of check that failed. Not the
+ * messages: a check's message can quote item content (a sub-item's title), and
+ * the model is told what to ask, not shown what the item holds.
+ */
+function transitionRefusal(e: TransitionError) {
+  const b = e.body;
+  return {
+    error: TRANSITION_REFUSALS[b.code],
+    code: b.code,
+    ...(b.transition && { transitionId: b.transition.id }),
+    ...(b.fields && { fields: b.fields.map((f) => ({ field: f.field, required: f.required, ...(f.options && { options: f.options.map((o) => o.value) }) })) }),
+    ...(b.reasons && { failedChecks: b.reasons.map((r) => r.validator) }),
+    ...(b.candidates && { candidates: b.candidates.map((c) => c.id) }),
+  };
+}
+
+const TRANSITION_REFUSALS: Record<TransitionError["body"]["code"], string> = {
+  transition_not_allowed: "The workflow has no way to that status from where the item is. Call list_transitions.",
+  transition_ambiguous: "Several transitions lead there; call transition_item with one of the candidates.",
+  transition_forbidden: "This user may not take that transition.",
+  transition_invalid: "The transition's checks failed; tell the user which checks (failedChecks) and stop.",
+  transition_input_required: "The transition needs input: ask the user for the listed fields, then call transition_item with them.",
+  type_change_needs_status: "The new type's workflow doesn't have the item's status.",
+};
+
+async function itemForTransitions(itemId: unknown, ctx: ToolContext) {
+  if (typeof itemId !== "string") return { error: "itemId is required" } as const;
+  const item = await prisma.workItem.findFirst({ where: { id: itemId, orgId: ctx.orgId } });
+  if (!item) return { error: "Work item not found" } as const;
+  const outOfScope = await assertProjectRead(ctx, item.projectId, "ITEM_UPDATE");
+  if (outOfScope) return { error: "Work item not found" } as const;
+  return { item } as const;
+}
+
+/** The transitions the user may take on an item, with what each asks for. */
+export async function listTransitionsForItem(input: Record<string, unknown>, ctx: ToolContext) {
+  const denied = await assertPermission(ctx, Permission.ITEM_UPDATE);
+  if (denied) return denied;
+  const found = await itemForTransitions(input.itemId, ctx);
+  if ("error" in found) return found;
+  const transitions = await prisma.$transaction((tx) =>
+    listTransitions(tx, { orgId: ctx.orgId, projectId: found.item.projectId, actor: ctx.auth, item: found.item }),
+  );
+  return {
+    itemId: found.item.id,
+    transitions: transitions.map((t) => ({
+      id: t.id,
+      name: t.name,
+      to: t.to,
+      toCategory: t.toCategory,
+      requiresInput: t.input.some((f) => f.required),
+      input: t.input.map((f) => ({ field: f.field, required: f.required, ...(f.options && { options: f.options.map((o) => o.value) }) })),
+    })),
+  };
+}
+
+const transitionItemSchema = z.object({
+  itemId: z.string().uuid(),
+  transitionId: z.string().min(1).max(64),
+  input: z.record(z.string().max(120), z.unknown()).optional(),
+});
+
+/** Take a named transition, with the input it asked for. */
+export async function transitionItem(input: Record<string, unknown>, ctx: ToolContext) {
+  const denied = await assertPermission(ctx, Permission.ITEM_UPDATE);
+  if (denied) return denied;
+  const parsed = transitionItemSchema.safeParse(input);
+  if (!parsed.success) return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
+  const found = await itemForTransitions(parsed.data.itemId, ctx);
+  if ("error" in found) return found;
+  const { item: existing } = found;
+
+  let result;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      // Only a transition this user is offered: hidden and restricted ones are not.
+      const offered = await listTransitions(tx, { orgId: ctx.orgId, projectId: existing.projectId, actor: ctx.auth, item: existing });
+      const t = offered.find((o) => o.id === parsed.data.transitionId);
+      if (!t) throw new TransitionError({ error: "That transition isn't available.", code: "transition_not_allowed" });
+      const change = await applyWorkItemChange(tx, {
+        actorId: ctx.userId,
+        orgId: ctx.orgId,
+        projectId: existing.projectId,
+        itemIds: [existing.id],
+        patch: { columnKey: t.to },
+        source: "AI",
+        actor: ctx.auth,
+        transition: { id: t.id, input: parsed.data.input },
+      });
+      const item = await tx.workItem.findUniqueOrThrow({ where: { id: existing.id } });
+      return { item, effects: change.effects };
+    });
+  } catch (e) {
+    if (e instanceof TransitionError) return transitionRefusal(e);
+    throw e;
+  }
+  await runAfterCommit(result.effects);
+  return {
+    updated: true,
+    id: result.item.id,
+    ticketNumber: result.item.ticketNumber,
+    title: result.item.title,
+    columnKey: result.item.columnKey,
+    assigneeId: result.item.assigneeId,
+    completedAt: result.item.completedAt,
   };
 }
 

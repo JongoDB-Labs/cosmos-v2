@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
+import { columnCategoryResolver } from "@/lib/workflow/column-categories.server";
 import { prisma } from "@/lib/db/client";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
+import { assignableMembersWhere } from "@/lib/work-items/apply-change.server";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
@@ -108,8 +110,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Fall back to the ceremony board only when the project has no delivery
     // board at all — a home that reads oddly still beats refusing the promotion
     // and losing the team's decision.
+    // A delivery board's column has its status's category (column-categories.server.ts).
+    const categoryOf = deliveryBoard ? await columnCategoryResolver(prisma, projectId) : null;
     const columns =
-      deliveryBoard?.columns ??
+      deliveryBoard?.columns.map((c) => ({ ...c, category: categoryOf!(c) })) ??
       (await prisma.boardColumn.findMany({
         where: { boardId: action.ceremony.boardId },
         orderBy: { sortOrder: "asc" },
@@ -159,6 +163,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         columnKey: target.key,
       });
 
+      // The owner becomes the assignee only while they are still in the org
+      // (someone who has left would be assigned work they can never see).
+      const ownerInOrg = action.ownerId
+        ? (await tx.orgMember.count({ where: assignableMembersWhere(orgId, [action.ownerId]) })) > 0
+        : false;
+
       const item = await createWorkItemRow(tx, {
         data: {
           orgId,
@@ -167,7 +177,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           title: action.text.slice(0, 255),
           description: "",
           columnKey: target.key,
-          assigneeId: action.ownerId,
+          assigneeId: ownerInOrg ? action.ownerId : null,
           dueDate: action.dueDate,
           intervalId: nextInterval?.id ?? null,
           ticketNumber,
@@ -175,7 +185,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           createdById: ctx.userId,
         },
         select: { id: true, ticketNumber: true, title: true },
-      });
+      }, { actorId: ctx.userId, source: "API" });
 
       await tx.retroActionItem.update({
         where: { id: action.id },

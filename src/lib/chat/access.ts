@@ -44,29 +44,41 @@ export function canPostToChannelGiven(args: {
 /**
  * Management predicate. Channel admin OR org OWNER/ADMIN can rename, archive,
  * add/remove members, promote/demote channel admins.
+ *
+ * Both are roles, so `roleCounts` must say whether this actor's roles count:
+ * always for a browser session, never for an API key whose scopes don't grant
+ * CHAT_USE (`roleCountsFor(ctx, Permission.CHAT_USE)`, lib/rbac/key-role.ts).
+ * Whoever creates a channel is its ADMIN, so a key its creator minted would
+ * otherwise administer it whatever the key's scopes.
  */
 export function canManageChannelGiven(args: {
   channel: ChannelLite;
   member: ChannelMemberLite | null;
   viewerOrgId: string;
   orgRole: OrgRole;
+  roleCounts: boolean;
 }): boolean {
   if (args.channel.orgId !== args.viewerOrgId) return false;
+  if (!args.roleCounts) return false;
   if (args.orgRole === "OWNER" || args.orgRole === "ADMIN") return true;
   return args.member?.role === "ADMIN";
 }
 
 /**
  * Message-delete predicate. Authors can always delete their own messages.
- * Channel admins and org OWNER/ADMIN can delete any message.
+ * Channel admins and org OWNER/ADMIN can delete any message, when their roles
+ * count (`roleCounts`).
  */
 export function canDeleteMessageGiven(args: {
   authorId: string;
   viewerId: string;
   channelMember: ChannelMemberLite | null;
   orgRole: OrgRole;
+  /** Whether the actor's roles count; see canManageChannelGiven. */
+  roleCounts: boolean;
 }): boolean {
   if (args.authorId === args.viewerId) return true;
+  if (!args.roleCounts) return false;
   if (args.orgRole === "OWNER" || args.orgRole === "ADMIN") return true;
   return args.channelMember?.role === "ADMIN";
 }

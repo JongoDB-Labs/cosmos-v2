@@ -1,11 +1,10 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission, ConflictError } from "@/lib/rbac/check";
+import { ConflictError } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import {
@@ -13,8 +12,10 @@ import {
   wouldCreateDependencyCycle,
   type DirectedEdge,
 } from "@/lib/work-items/dependency-graph";
-import { z } from "zod";
-import { LinkType } from "@prisma/client";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { createWorkItemLink, listWorkItemLinks } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -39,20 +40,17 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, listWorkItemLinks);
+    const { params: { orgId, projectId }, query } = await parseRequest(listWorkItemLinks, request, params);
     await requireProjectRead(ctx, projectId, "ITEM_READ");
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
-    if (!project) return new Response("Not found", { status: 404 });
+    if (!project) return problem(404, "not_found", undefined, { request });
 
     // Scope to links whose SOURCE item lives in this project (every link's both
     // ends share a project by construction, so this also scopes the target).
     // The unique (orgId, sourceItemId) index backs this lookup.
-    const item = request.nextUrl.searchParams.get("item");
+    const item = query.item;
     const links = await prisma.workItemLink.findMany({
       where: {
         orgId,
@@ -71,7 +69,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       orderBy: { createdAt: "asc" },
     });
 
-    return success(
+    return respond(
+      listWorkItemLinks,
+      200,
       links.map((l) => ({
         id: l.id,
         type: l.type,
@@ -85,34 +85,23 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       })),
     );
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
-
-const createSchema = z.object({
-  sourceItemId: z.string().uuid(),
-  targetItemId: z.string().uuid(),
-  type: z.nativeEnum(LinkType),
-});
 
 /** POST — create a directed link between two work items in this project. */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, createWorkItemLink);
+    const { params: { orgId, projectId }, body } = await parseRequest(createWorkItemLink, request, params);
     await requireProjectManage(ctx, projectId, Permission.ITEM_UPDATE);
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
-    if (!project) return new Response("Not found", { status: 404 });
+    if (!project) return problem(404, "not_found", undefined, { request });
 
-    const parsed = createSchema.safeParse(await request.json());
-    if (!parsed.success) return new Response("Bad request", { status: 400 });
-    const { sourceItemId, targetItemId, type } = parsed.data;
+    const { sourceItemId, targetItemId, type } = body;
     if (sourceItemId === targetItemId) {
-      return new Response("A work item cannot link to itself", { status: 400 });
+      return problem(400, "invalid_request", "A work item cannot link to itself", { request });
     }
 
     // BOTH ends must be work items in THIS org+project (no cross-project edges).
@@ -120,7 +109,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       where: { id: { in: [sourceItemId, targetItemId] }, orgId, projectId },
       select: { id: true },
     });
-    if (ends.length !== 2) return new Response("Both items must be in this project", { status: 400 });
+    if (ends.length !== 2) return problem(400, "invalid_request", "Both items must be in this project", { request });
 
     // Load this project's existing links once and reject invalid states before
     // creating: an exact duplicate of an existing link, or a directed link that
@@ -169,8 +158,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     publishToOrg(orgId, "work-item-link.created", { projectId, link });
 
-    return created(link);
+    return respond(createWorkItemLink, 201, link);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

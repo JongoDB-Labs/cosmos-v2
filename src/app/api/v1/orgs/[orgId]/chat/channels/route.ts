@@ -7,6 +7,8 @@ import { logAudit } from "@/lib/audit";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { z } from "zod";
+import { roleCountsFor } from "@/lib/rbac/key-role";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -65,7 +67,9 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     // A channel is manageable (rename / topic / archive) by org OWNER/ADMIN or a
     // channel ADMIN — and only real CHANNELs, never DMs. Surfaced so the client
     // can gate the channel-settings gear without a second round-trip.
-    const orgIsAdmin = ctx.orgRole === "OWNER" || ctx.orgRole === "ADMIN";
+    // A key's role counts only when its scopes grant CHAT_USE (lib/rbac/key-role.ts).
+    const roleCounts = roleCountsFor(ctx, Permission.CHAT_USE);
+    const orgIsAdmin = roleCounts && (ctx.orgRole === "OWNER" || ctx.orgRole === "ADMIN");
 
     const channels = memberships.map((m) => ({
       id: m.channel.id,
@@ -77,7 +81,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       isPrivate: m.channel.isPrivate,
       isGeneral: m.channel.isGeneral,
       canManage:
-        m.channel.kind === "CHANNEL" && (orgIsAdmin || m.role === "ADMIN"),
+        m.channel.kind === "CHANNEL" && roleCounts && (orgIsAdmin || m.role === "ADMIN"),
       projectId: m.channel.projectId,
       lastMessageAt: m.channel.lastMessageAt,
       notificationPref: m.notificationPref,
@@ -123,6 +127,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // Chat writes need CHAT_USE, as the Chat page itself does. An API key never
+    // holds it (no scope grants it), so a key can't create channels or post.
+    if (!hasPermission(ctx.permissions, Permission.CHAT_USE)) {
+      return new Response("Forbidden", { status: 403 });
+    }
 
     const limited = checkRateLimit(req, "chat.channel.create", ctx.userId, {
       capacity: 5,

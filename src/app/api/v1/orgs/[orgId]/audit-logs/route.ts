@@ -1,30 +1,22 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { handleApiError } from "@/lib/api-helpers";
 import type { Prisma } from "@prisma/client";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { orgContext } from "@/lib/openapi/org-context";
+import { listAuditLogs } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, listAuditLogs);
+    const { params: { orgId }, query } = await parseRequest(listAuditLogs, request, params);
     requirePermission(ctx, Permission.AUDIT_LOG_READ);
 
-    const page = Math.max(1, parseInt(request.nextUrl.searchParams.get("page") ?? "1", 10));
-    const limit = Math.min(200, Math.max(1, parseInt(request.nextUrl.searchParams.get("limit") ?? "50", 10)));
-    const action = request.nextUrl.searchParams.get("action");
-    const entity = request.nextUrl.searchParams.get("entity");
-    const userId = request.nextUrl.searchParams.get("userId");
-    const startDate = request.nextUrl.searchParams.get("startDate");
-    const endDate = request.nextUrl.searchParams.get("endDate");
+    const { page, limit, action, entity, userId, startDate, endDate } = query;
 
     const where: Prisma.AuditLogWhereInput = {
       orgId,
@@ -66,8 +58,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       prisma.auditLog.count({ where }),
     ]);
 
-    return success({ data, total, page, limit });
+    return respond(listAuditLogs, 200, { data, total, page, limit });
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

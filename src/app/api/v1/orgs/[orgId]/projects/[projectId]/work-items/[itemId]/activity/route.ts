@@ -1,23 +1,23 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { handleApiError } from "@/lib/api-helpers";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { listWorkItemActivity } from "./route.contract";
+import { projectActivityValues } from "@/lib/work-items/read.server";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; itemId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, itemId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, listWorkItemActivity);
+    const { params: { orgId, projectId, itemId } } = await parseRequest(listWorkItemActivity, request, params);
     await requireProjectRead(ctx, projectId, "ITEM_READ");
 
     const item = await prisma.workItem.findFirst({ where: { id: itemId, orgId, projectId } });
-    if (!item) return new Response("Not found", { status: 404 });
+    if (!item) return problem(404, "not_found", undefined, { request });
 
     const activities = await prisma.activity.findMany({
       where: { workItemId: itemId, orgId },
@@ -25,8 +25,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       take: 100,
     });
 
-    return success(activities);
+    return respond(listWorkItemActivity, 200, projectActivityValues(activities));
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

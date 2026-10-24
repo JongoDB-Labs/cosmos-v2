@@ -17,7 +17,6 @@ import { ApplySavedSkin } from "@/components/settings/apply-saved-skin";
 import { BugReporter } from "@/components/telemetry/bug-reporter";
 import { PageTransition } from "@/components/ui/page-transition";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Toaster } from "@/components/ui/sonner";
 import { resolveBrand, pickOrgBrand } from "@/lib/brand";
 import { BrandProvider } from "@/components/providers/brand-provider";
 
@@ -37,7 +36,6 @@ export default function DashboardLayout({
       <Suspense fallback={<DashboardLayoutFallback />}>
         <AuthedShell>{children}</AuthedShell>
       </Suspense>
-      <Toaster position="top-right" richColors />
     </QueryProvider>
   );
 }

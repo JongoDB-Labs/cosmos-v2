@@ -247,5 +247,62 @@ describe("checkForUpdates — the same version, rebuilt", () => {
     );
     expect(out.rebuildAvailable).toBe(false);
   });
+
+  it("offers a rebuild for REINSTALL on the same terms as an upgrade: preflighted and applyable", async () => {
+    const out = await checkForUpdates(
+      "2.276.8",
+      { ...CONFIG, runningDigest: RUNNING },
+      deps({ ...sameVersionOnly, resolveDigest: vi.fn(async () => REBUILT) }),
+    );
+    expect(out.candidateTag).toBe("2.276.8-alpha");
+    expect(out.preflights.map((p) => p.id)).toEqual(
+      expect.arrayContaining(["candidate-resolves", "migrate-image-paired", "not-a-downgrade"]),
+    );
+    expect(out.preflights.find((p) => p.id === "migrate-image-paired")?.status).toBe("pass");
+    expect(out.preflights.find((p) => p.id === "not-a-downgrade")?.detail).toContain("rebuild");
+    expect(out.applyable).toBe(true);
+  });
+
+  it("does not offer a reinstall when the digest still matches", async () => {
+    const out = await checkForUpdates(
+      "2.276.8",
+      { ...CONFIG, runningDigest: RUNNING },
+      deps({ ...sameVersionOnly, resolveDigest: vi.fn(async () => RUNNING) }),
+    );
+    expect(out.preflights).toEqual([]);
+    expect(out.applyable).toBe(false);
+  });
+
+  it("holds a reinstall to the sidecar pairing at the rebuilt tag", async () => {
+    // The rebuilt app must not be reinstalled beside a sidecar from another
+    // build — the same rule the upgrade path enforces.
+    const SIDECAR = "registry.example.com/cosmos/assembly/realtime-sidecar";
+    const resolveDigest = vi.fn(async (repo: string) =>
+      repo === SIDECAR ? null : REBUILT,
+    ) as unknown as CheckDeps["resolveDigest"];
+    const out = await checkForUpdates(
+      "2.276.8",
+      { ...CONFIG, runningDigest: RUNNING, sidecarRepos: [SIDECAR] },
+      deps({ ...sameVersionOnly, resolveDigest }),
+    );
+    expect(out.rebuildAvailable).toBe(true);
+    expect(out.preflights.find((p) => p.id === "sidecars-paired")?.status).toBe("fail");
+    expect(out.applyable).toBe(false);
+  });
+
+  it("prefers a NEWER version over a reinstall when both exist", async () => {
+    const resolveDigest = vi.fn(async (_repo: string, tag: string) =>
+      tag.startsWith("2.276.8") ? REBUILT : DIGEST,
+    ) as unknown as CheckDeps["resolveDigest"];
+    const out = await checkForUpdates(
+      "2.276.8",
+      { ...CONFIG, runningDigest: RUNNING },
+      deps({ listTags: vi.fn(async () => ["2.276.8-alpha", "2.277.0-alpha"]), resolveDigest }),
+    );
+    expect(out.status!.updateAvailable).toBe(true);
+    expect(out.rebuildAvailable).toBe(true);
+    expect(out.candidateTag).toBe("2.277.0-alpha");
+    expect(out.candidateDigest).toBe(DIGEST);
+  });
 });
 

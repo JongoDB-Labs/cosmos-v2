@@ -293,7 +293,7 @@ jobs:
       # Collect per-arch digests (runtime/ + migrate/ subdirs, one digest-named
       # file per arch) into a single tree.
       - name: Download digests
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: digests-cosmos-v2-*
           path: /tmp/d
@@ -433,7 +433,7 @@ jobs:
       # EVERY STEP HERE IS continue-on-error BY DESIGN. Notes are a convenience;
       # the image is the product. A release must never fail because a changelog
       # entry was missing or a registry hiccuped on a 2 KB artifact.
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         continue-on-error: true
         with: { node-version: 24 }
 

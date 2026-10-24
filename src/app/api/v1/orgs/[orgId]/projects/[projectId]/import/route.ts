@@ -77,7 +77,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // this project OR an org-wide PROJECT_UPDATE holder (mirrors schedule/route).
     const allowed =
       hasPermission(ctx.permissions, Permission.PROJECT_UPDATE) ||
-      (await canManageProject(ctx, project.id));
+      (await canManageProject(ctx, project.id, Permission.PROJECT_UPDATE));
     if (!allowed) throw new ForbiddenError("Cannot manage this project");
 
     const body = await request.json();

@@ -13,6 +13,7 @@ import { parseMentions } from "@/lib/chat/mentions";
 import { z } from "zod";
 import { createUserMessage } from "@/lib/chat/messages";
 import { runChatBot } from "@/lib/chat/bot-runner";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 
 type RouteParams = { params: Promise<{ orgId: string; channelId: string }> };
 const schema = z.object({ command: z.string().min(1).max(20), args: z.string().max(8000).default("") });
@@ -35,6 +36,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const parsed = schema.safeParse(await req.json().catch(() => null));
     if (!parsed.success) return err("invalid_input");
     const { command, args } = parsed.data;
+    // Every command needs CHAT_USE like the Chat page, /mute included: it is the
+    // same change as members/me PATCH, and every chat write follows one rule.
+    // An API key never holds it (no scope grants it).
+    requirePermission(ctx, Permission.CHAT_USE);
 
     const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
     if (!channel || channel.orgId !== orgId) return new Response("Not found", { status: 404 });
@@ -49,14 +54,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     switch (command) {
       case "topic": {
-        if (!canManageChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole })) return err("forbidden", 403);
+        if (!canManageChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole, roleCounts: roleCountsFor(ctx, Permission.CHAT_USE) })) return err("forbidden", 403);
         const topic = args.slice(0, 256);
         await prisma.chatChannel.update({ where: { id: channelId }, data: { topic } });
         await postServerMessage({ orgSlug: org.slug, channel: channelLite, kind: "SYSTEM", authorId: ctx.userId, content: `${actorName} set the topic to "${topic}"` });
         return success({ ok: true });
       }
       case "invite": {
-        if (!canManageChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole })) return err("forbidden", 403);
+        if (!canManageChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole, roleCounts: roleCountsFor(ctx, Permission.CHAT_USE) })) return err("forbidden", 403);
         const ids = parseMentions(args);
         if (ids.length === 0) return err("no_user");
         const present = await prisma.orgMember.findMany({ where: { orgId, userId: { in: ids } }, select: { userId: true } });

@@ -33,7 +33,7 @@ export async function requireProjectManage(
   orgWideBit: bigint = Permission.PROJECT_UPDATE,
 ): Promise<void> {
   if (hasPermission(ctx.permissions, orgWideBit)) return;
-  if (await canManageProject(ctx, projectId)) return;
+  if (await canManageProject(ctx, projectId, orgWideBit)) return;
   throw new ForbiddenError(
     "You must be a manager of this project, or hold the org-wide permission, to do that.",
   );
@@ -50,5 +50,5 @@ export async function canAdministerProject(
   orgWideBit: bigint = Permission.PROJECT_UPDATE,
 ): Promise<boolean> {
   if (hasPermission(ctx.permissions, orgWideBit)) return true;
-  return canManageProject(ctx, projectId);
+  return canManageProject(ctx, projectId, orgWideBit);
 }

@@ -14,6 +14,7 @@
  * Lookups are batched per entity, so a query costs a handful of queries however
  * many values it names.
  */
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { isUuid } from "@/lib/ids";
 import type { AuthContext } from "@/lib/rbac/check";
@@ -32,6 +33,7 @@ import { fieldDef, type SystemFieldId } from "./fields";
 import { lookupFunction } from "./functions";
 import { HISTORY_BY_FIELD, fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
 import { ID_SET_MAX, diag, tooBroad, type CqlDiagnostic, type Span } from "./errors";
+import { withStatementTimeout } from "./timeout.server";
 import type { CustomFieldType, SchemaCustomField } from "./typecheck";
 
 /** A dashboard variable's value as a caller supplies it: ids/names, or nothing (= everyone). */
@@ -47,6 +49,8 @@ export interface ResolveArgs {
   now: Date;
   tz: string;
   vars?: Record<string, VarInput>;
+  /** Statement budget for the resolver's own id-set reads (hierarchy, milestones). */
+  timeoutMs?: number;
   contextProjectId?: string;
   sinceLastStandup?: Date;
   /** "warn": unknown values are warnings and match nothing; "strict": errors. */
@@ -202,9 +206,13 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
       ? prisma.workItemType.findMany({ where: { OR: [{ orgId }, { orgId: null }] }, select: { id: true, key: true, name: true } })
       : [],
     wanted.status.size || needsStatusCategories
-      ? prisma.boardColumn.findMany({
-          where: { board: { projectId: { in: readableIds } } },
-          select: { key: true, name: true, category: true, sortOrder: true, board: { select: { projectId: true } } },
+      ? // The project's statuses (archived ones too: items can sit in them).
+        // Board columns are views onto these; reading them instead let a
+        // ceremony board's prompts resolve as statuses and missed statuses no
+        // board shows.
+        prisma.workflowStatus.findMany({
+          where: { projectId: { in: readableIds } },
+          select: { key: true, name: true, category: true, sortOrder: true, projectId: true },
           orderBy: { sortOrder: "asc" },
         })
       : [],
@@ -548,9 +556,13 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
   // items with no milestone) need every linked item; `=` / IN need only the
   // named milestones' links.
   let needsLinked = false;
+  // A leaf's values with its variables expanded (`milestone = $m`,
+  // `ancestor = $epic`), exactly as the compiler will see them.
+  const expanded = (l: Parameters<Parameters<typeof walk>[1]>[0]) =>
+    leafValues(l).flatMap((v) => (v.t === "var" ? (vars.get(varKey(v.name, l.field)) ?? []) : [v]));
   if (where) {
     walk(where, (l) => {
-      const values = leafValues(l);
+      const values = expanded(l);
       if (l.field.kind === "sys" && l.field.id === "ancestor") refIdsOf(values, "item").forEach((id) => roots.add(id));
       if (l.field.kind === "sys" && l.field.id === "milestone") {
         refIdsOf(values, "milestone").forEach((id) => milestoneIds.add(id));
@@ -561,36 +573,41 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     });
   }
   for (const fn of fnValues) if (fn.name === "descendantsOf") refIdsOf(fn.args, "item").forEach((id) => roots.add(id));
-  const descendants = await descendantsByRoot(orgId, [...roots], readableIds);
-  const milestoneItems = new Map<string, string[]>();
-  if (milestoneIds.size) {
-    const links = await prisma.milestoneLink.findMany({
-      where: { milestoneId: { in: [...milestoneIds] }, milestone: { orgId, projectId: { in: readableIds } } },
-      select: { milestoneId: true, workItemId: true },
-      take: ID_SET_MAX + 1,
-    });
-    if (links.length > ID_SET_MAX) throw tooBroad("milestone");
-    for (const l of links) pushTo(milestoneItems, l.milestoneId, l.workItemId);
-  }
-  let milestoneLinked: string[] = [];
-  if (needsLinked) {
-    const linked = await prisma.milestoneLink.findMany({
-      where: { milestone: { orgId, projectId: { in: readableIds } } },
-      select: { workItemId: true },
-      distinct: ["workItemId"],
-      take: ID_SET_MAX + 1,
-    });
-    if (linked.length > ID_SET_MAX) throw tooBroad("milestone-empty");
-    milestoneLinked = linked.map((l) => l.workItemId);
-  }
+  // One statement budget for all of it: /cql/validate and every run reach
+  // these reads, and a deep tree or a big milestone must not run unbounded.
+  const { descendants, milestoneItems, milestoneLinked } = await withStatementTimeout(a.timeoutMs ?? 3_000, async (tx) => {
+    const descendants = await descendantsByRoot(tx, orgId, [...roots], readableIds);
+    const milestoneItems = new Map<string, string[]>();
+    if (milestoneIds.size) {
+      const links = await tx.milestoneLink.findMany({
+        where: { milestoneId: { in: [...milestoneIds] }, milestone: { orgId, projectId: { in: readableIds } } },
+        select: { milestoneId: true, workItemId: true },
+        take: ID_SET_MAX + 1,
+      });
+      if (links.length > ID_SET_MAX) throw tooBroad("milestone");
+      for (const l of links) pushTo(milestoneItems, l.milestoneId, l.workItemId);
+    }
+    let milestoneLinked: string[] = [];
+    if (needsLinked) {
+      const linked = await tx.milestoneLink.findMany({
+        where: { milestone: { orgId, projectId: { in: readableIds } } },
+        select: { workItemId: true },
+        distinct: ["workItemId"],
+        take: ID_SET_MAX + 1,
+      });
+      if (linked.length > ID_SET_MAX) throw tooBroad("milestone-empty");
+      milestoneLinked = linked.map((l) => l.workItemId);
+    }
+    return { descendants, milestoneItems, milestoneLinked };
+  });
 
   // ── 6. Status categories per readable project ──────────────────────────────
   const statusCategories: CompileEnv["statusCategories"] = { TODO: [], IN_PROGRESS: [], DONE: [], CANCELLED: [] };
   if (needsStatusCategories) {
-    // First-seen (lowest sortOrder) category wins per project+key, as in status-facets.
+    // One status per project+key, so one category.
     const seen = new Map<string, Map<string, StatusCategory>>();
     for (const c of columns) {
-      const pid = c.board.projectId;
+      const pid = c.projectId;
       const m = seen.get(pid) ?? new Map<string, StatusCategory>();
       if (!m.has(c.key)) m.set(c.key, c.category as StatusCategory);
       seen.set(pid, m);
@@ -630,10 +647,10 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
  * recursive query, parameterized (no SQL built from strings); UNION stops on
  * cycles. Bounded: past ID_SET_MAX rows it is refused.
  */
-async function descendantsByRoot(orgId: string, roots: string[], readable: string[]): Promise<Map<string, string[]>> {
+async function descendantsByRoot(db: Pick<Prisma.TransactionClient, "$queryRaw">, orgId: string, roots: string[], readable: string[]): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   if (roots.length === 0 || readable.length === 0) return out;
-  const rows = await prisma.$queryRaw<{ root: string; id: string }[]>`
+  const rows = await db.$queryRaw<{ root: string; id: string }[]>`
     WITH RECURSIVE tree(root, id) AS (
       SELECT w.parent_id, w.id FROM work_items w
        WHERE w.parent_id = ANY(${roots}::uuid[]) AND w.org_id = ${orgId}::uuid AND w.project_id = ANY(${readable}::uuid[])

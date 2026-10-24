@@ -30,9 +30,6 @@
  */
 import { getManifest, getBlobText, type RegistryOptions } from "./registry";
 
-/** The artifact type the publisher stamps on the notes manifest. */
-export const NOTES_ARTIFACT_TYPE = "application/vnd.cosmos.release-notes.v1+json";
-
 /** Tag under which a version's notes are published. */
 export function notesTag(version: string): string {
   return `${version}-notes`;

@@ -19,6 +19,7 @@
  * Authorisation is the caller's: routes check `requireAccess`, the assistant
  * `assertPermission`. This function assumes the actor may make the change.
  */
+import { randomUUID } from "node:crypto";
 import { ColumnCategory, Priority, WorkCategory, type Prisma, type WorkItem } from "@prisma/client";
 import { z } from "zod";
 import { isDonePhase, isStartedPhase } from "@/lib/boards/column-phase";
@@ -28,13 +29,20 @@ import {
   PICKABLE_CANCEL_REASONS,
   cancelFieldsForUpdate,
   cancelInputError,
+  cancelReasonLabel,
   type CancelReason,
 } from "@/lib/work-items/cancel";
-import { ensureCancelledColumn } from "@/lib/work-items/cancel.server";
+import { ensureCancelledStatus } from "@/lib/workflow/statuses.server";
+import { gateChange, throwIfDenied, type Denial, type EnforcementLevel, type TransitionRequest } from "@/lib/workflow/engine.server";
+import { TransitionError } from "@/lib/workflow/contract";
+import { ProblemError } from "@/lib/openapi/problem";
+import type { FieldRef } from "@/lib/workflow/definition";
+import type { AuthContext } from "@/lib/rbac/check";
 import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
 import { setLabelsForMany, setWorkItemLabels } from "@/lib/work-items/labels";
 import { cascadeSchedule, type CascadedItem } from "@/lib/work-items/schedule-cascade-io";
-import { updateWorkItemsUnchecked } from "@/lib/work-items/write.server";
+import { changeEvents, snapshotItems, updateWorkItemsUnchecked } from "@/lib/work-items/write.server";
+import { RECORDED_BY_CALLER, recordEvents, type WriteMeta } from "@/lib/work-items/events.server";
 import type { AfterCommitEffects, ChangedItem } from "@/lib/work-items/after-commit";
 
 /** The body of `PUT …/work-items/[itemId]`: every field a person may change. */
@@ -65,6 +73,9 @@ export const workItemPatchSchema = z.object({
   actualStart: z.string().datetime().nullable().optional(),
   completedAt: z.string().datetime().nullable().optional(),
   workCategory: z.nativeEnum(WorkCategory).optional(),
+  // The outcome of a finished or cancelled item ("Fixed", "Won't do"); free
+  // text so values imported from another tracker stay as they were.
+  resolution: z.string().max(200).nullable().optional(),
   // Archive / unarchive. A timestamp in, or null to bring it back.
   //
   // It rides on this route rather than getting an endpoint of its own because
@@ -106,7 +117,7 @@ export type WorkItemPatch = Omit<z.infer<typeof workItemPatchSchema>, "cancelRea
  * workflow engine onwards, on the domain event, so automations can tell a
  * person's edit from their own.
  */
-export type ChangeSource = "API" | "BULK" | "AI" | "SYSTEM";
+export type ChangeSource = "API" | "BULK" | "AI" | "SYSTEM" | "MIGRATION";
 
 export interface ApplyChangeInput {
   actorId: string;
@@ -116,6 +127,24 @@ export interface ApplyChangeInput {
   itemIds: readonly string[];
   patch: WorkItemPatch;
   source: ChangeSource;
+  /** Set when this change is part of a larger one (a merge), so their events share it. */
+  correlationId?: string;
+  /**
+   * The person acting, for the workflow's restrictions and the override right.
+   * Null for a system change, which the workflow holds to its structure only.
+   * Optional only for the composed plugins, whose calls predate it (left out,
+   * it is a system change); every caller here passes it (write-meta.arch.test.ts).
+   */
+  actor?: AuthContext | null;
+  /** The transition named and the input it asked for, when the client sends them. */
+  transition?: TransitionRequest;
+  /** The board the move was made on. Accepted, no longer needed: hard WIP limits hold from every surface. */
+  boardId?: string;
+  /**
+   * Defaults to "none" for a workflow MIGRATION, "system" for a SYSTEM change
+   * or one with no `actor` (a composed plugin's call), and "full" otherwise.
+   */
+  level?: EnforcementLevel;
 }
 
 export interface ApplyChangeResult {
@@ -125,6 +154,11 @@ export interface ApplyChangeResult {
   scheduleCascade: CascadedItem[];
   /** Run with `runAfterCommit` once the transaction has committed. */
   effects: AfterCommitEffects;
+  /**
+   * Items the workflow refused, with why. Only a BULK change gets here with
+   * refusals: any other change throws the first one as a TransitionError.
+   */
+  denied: Denial[];
 }
 
 interface TrackedField {
@@ -173,6 +207,9 @@ export function computeItemChange(args: {
   if (primaryFromSet !== undefined && primaryFromSet !== existing.assigneeId) {
     trackFields.push({ field: "assigneeId", oldVal: existing.assigneeId, newVal: primaryFromSet });
   }
+  if (data.resolution !== undefined && (data.resolution?.trim() || null) !== existing.resolution) {
+    trackFields.push({ field: "resolution", oldVal: existing.resolution, newVal: data.resolution?.trim() || null });
+  }
   if (data.intervalId !== undefined && data.intervalId !== existing.intervalId) {
     trackFields.push({ field: "intervalId", oldVal: existing.intervalId, newVal: data.intervalId });
   }
@@ -208,6 +245,7 @@ export function computeItemChange(args: {
   if (data.actualStart !== undefined) updateData.actualStart = data.actualStart ? new Date(data.actualStart) : null;
   if (data.completedAt !== undefined) updateData.completedAt = data.completedAt ? new Date(data.completedAt) : null;
   if (data.workCategory !== undefined) updateData.workCategory = data.workCategory;
+  if (data.resolution !== undefined) updateData.resolution = data.resolution?.trim() || null;
   if (data.archivedAt !== undefined) updateData.archivedAt = data.archivedAt ? new Date(data.archivedAt) : null;
   if (data.highlight !== undefined) updateData.highlight = data.highlight;
   if (data.customFields !== undefined) {
@@ -246,6 +284,23 @@ export function computeItemChange(args: {
     }
   }
   if (data.mergedIntoId !== undefined) updateData.mergedIntoId = data.mergedIntoId;
+
+  // Resolution is the outcome of a finished or cancelled item (design §3.7):
+  // a cancel records its reason there unless the change names one, and a move
+  // anywhere that is neither Done nor Cancelled clears it, as reopening does.
+  if (data.resolution === undefined) {
+    const outcomeStatus = destCategory === ColumnCategory.DONE || destCategory === ColumnCategory.CANCELLED;
+    let resolution: string | null | undefined;
+    if (cancelFields?.cancelReason) {
+      resolution = cancelFields.cancelReason === "MERGED" ? "Duplicate" : cancelReasonLabel(cancelFields.cancelReason);
+    } else if (columnChanged && destCategory && !outcomeStatus && existing.resolution) {
+      resolution = null;
+    }
+    if (resolution !== undefined && resolution !== existing.resolution) {
+      updateData.resolution = resolution;
+      trackFields.push({ field: "resolution", oldVal: existing.resolution, newVal: resolution });
+    }
+  }
 
   // Actual End auto-capture (skipped when the request sets completedAt manually).
   if (data.completedAt === undefined) {
@@ -286,6 +341,83 @@ function updateKey(data: Prisma.WorkItemUncheckedUpdateManyInput): string {
   return JSON.stringify(Object.entries(data).sort(([a], [b]) => a.localeCompare(b)));
 }
 
+
+/** The message for an assignee who isn't in the org, whether or not the id exists. */
+const NOT_A_MEMBER = "That person isn't a member of this organization.";
+
+/**
+ * The org's members who can be given work: still in the org (not removed) and
+ * with an account that isn't deactivated, as calendar invitees are chosen.
+ */
+export function assignableMembersWhere(orgId: string, userIds: readonly string[]): Prisma.OrgMemberWhereInput {
+  return { orgId, userId: { in: [...userIds] }, removedAt: null, user: { deactivatedAt: null } };
+}
+
+/** Whether every one of these user ids is an assignable member of the org. */
+async function membersAmong(tx: Prisma.TransactionClient, orgId: string, ids: readonly string[]): Promise<boolean> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return true;
+  return (await tx.orgMember.count({ where: assignableMembersWhere(orgId, unique) })) === unique.length;
+}
+
+/**
+ * Every assignee must be a member of the item's org. An id that doesn't exist
+ * and a user from another org get the SAME 422 `assignee_not_in_org`, so the answer says nothing
+ * about which users exist on the platform, and an item is never assigned
+ * across tenants. (Before, an unknown id was a 500 and an outsider was
+ * assigned.) Used for every write that names assignees: the change service
+ * and work-item create.
+ */
+export async function assertAssigneesInOrg(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  ids: readonly (string | null | undefined)[],
+): Promise<void> {
+  const named = ids.filter((id): id is string => !!id);
+  if (!(await membersAmong(tx, orgId, named))) throw new ProblemError(422, "assignee_not_in_org", NOT_A_MEMBER);
+}
+
+/**
+ * Hold the fields a transition added to a change to the rules the request
+ * body met: the patch schema, a team of this project, assignees in this org,
+ * an interval of this project. A value the caller sent unchanged was checked
+ * by the route, so only what differs from `base` is looked up.
+ */
+async function checkTransitionPatch(
+  tx: Prisma.TransactionClient,
+  args: { orgId: string; projectId: string; base: WorkItemPatch; patch: WorkItemPatch },
+): Promise<void> {
+  const refuse = (message: string, field: FieldRef): never => {
+    throw new TransitionError({
+      error: message,
+      code: "transition_invalid",
+      reasons: [{ validator: "input", message, fields: [field] }],
+    });
+  };
+  const p = args.patch;
+  const changed = (k: keyof WorkItemPatch) => p[k] !== undefined && JSON.stringify(p[k]) !== JSON.stringify(args.base[k]);
+  const added = Object.fromEntries((Object.keys(p) as (keyof WorkItemPatch)[]).filter(changed).map((k) => [k, p[k]]));
+  const parsed = workItemPatchSchema.safeParse(added);
+  if (!parsed.success) {
+    const key = String(parsed.error.issues[0]?.path[0] ?? "");
+    const message = "A value for this step isn't valid.";
+    throw new TransitionError({ error: message, code: "transition_invalid", reasons: [{ validator: "input", message, ...(key && { fields: [{ system: key } as FieldRef] }) }] });
+  }
+
+  if (changed("teamId") && p.teamId) {
+    const team = await tx.team.count({ where: { id: p.teamId, projectId: args.projectId } });
+    if (team === 0) refuse("That team isn't part of this project.", { system: "teamId" });
+  }
+  if (changed("intervalId") && p.intervalId) {
+    const interval = await tx.interval.count({ where: { id: p.intervalId, projectId: args.projectId } });
+    if (interval === 0) refuse("That interval isn't part of this project.", { system: "intervalId" });
+  }
+  const assignees = [
+    ...(changed("assigneeId") && p.assigneeId ? [p.assigneeId] : []),
+    ...(changed("assigneeIds") ? (p.assigneeIds ?? []) : []),
+  ];
+  if (!(await membersAmong(tx, args.orgId, assignees))) refuse(NOT_A_MEMBER, { system: "assigneeId" });
+}
 /**
  * Sync the assignee SET with the patch, before the rows are read back:
  * - `assigneeIds` replaces each item's set wholesale (order = payload);
@@ -326,6 +458,8 @@ export async function applyWorkItemChange(
   input: ApplyChangeInput,
 ): Promise<ApplyChangeResult> {
   const { actorId, orgId, projectId, source } = input;
+  // One correlation id for everything this change writes, the cascade included.
+  const meta: WriteMeta = { actorId, source, correlationId: input.correlationId ?? randomUUID() };
   const patch: WorkItemPatch = { ...input.patch };
   // `columnKey: null` names no status: no move (see computeItemChange).
   if (patch.columnKey === null) delete patch.columnKey;
@@ -333,47 +467,88 @@ export async function applyWorkItemChange(
   const rows = await tx.workItem.findMany({ where: { id: { in: [...input.itemIds] }, orgId, projectId } });
   const byId = new Map(rows.map((r) => [r.id, r]));
   const items = input.itemIds.flatMap((id) => byId.get(id) ?? []);
-  const ids = items.map((i) => i.id);
 
   // A cancel names no column of its own: resolve (or create) the project's
   // Cancelled status first, so everything below treats it as a column move.
   if (patch.cancelReason) {
-    patch.columnKey = await ensureCancelledColumn(tx, projectId, patch.columnKey);
+    patch.columnKey = await ensureCancelledStatus(tx, projectId, patch.columnKey);
   }
+  // Before anything else is decided: the people named must be in this org.
+  await assertAssigneesInOrg(tx, orgId, [patch.assigneeId, ...(patch.assigneeIds ?? [])]);
+
+  const now = new Date();
+  // The workflow first: nothing is written for an item it refuses. Each item
+  // that passes carries its own patch (the transition's input and actions).
+  const gate = await gateChange(tx, {
+    orgId,
+    projectId,
+    actor: input.actor ?? null,
+    actorId,
+    level: input.level ?? (source === "MIGRATION" ? "none" : source === "SYSTEM" || input.actor === undefined ? "system" : "full"),
+    items,
+    patch,
+    transition: input.transition,
+    boardId: input.boardId,
+    now,
+  });
+  if (source !== "BULK") throwIfDenied(gate);
+  // What a transition folded in (its input, its actions) skipped the route's
+  // checks on the request body: hold it to them here, before anything is written.
+  const checked = new Set<WorkItemPatch>([patch]);
+  for (const g of gate.gates) {
+    if (checked.has(g.patch)) continue;
+    checked.add(g.patch);
+    await checkTransitionPatch(tx, { orgId, projectId, base: patch, patch: g.patch });
+  }
+  const passed = new Map(gate.gates.map((g) => [g.itemId, g]));
+  const allowed = items.filter((i) => passed.has(i.id));
+  const ids = allowed.map((i) => i.id);
+
+  // Items whose effective patches are equal are changed together.
+  const patchGroups = new Map<string, { patch: WorkItemPatch; items: WorkItem[] }>();
+  for (const item of allowed) {
+    const p = passed.get(item.id)!.patch;
+    const key = JSON.stringify(p);
+    const group = patchGroups.get(key) ?? { patch: p, items: [] };
+    group.items.push(item);
+    patchGroups.set(key, group);
+  }
+  const groupPatches = [...patchGroups.values()].map((g) => g.patch);
+  const effectivePatch = groupPatches.length === 1 ? groupPatches[0] : patch;
 
   const effects: AfterCommitEffects = {
     orgId,
     projectId,
     actorId,
     source,
-    fields: Object.keys(patch),
-    textChanged: patch.title !== undefined || patch.description !== undefined,
+    fields: [...new Set(groupPatches.length > 0 ? groupPatches.flatMap((p) => Object.keys(p)) : Object.keys(patch))],
+    textChanged: groupPatches.some((p) => p.title !== undefined || p.description !== undefined),
     columnTouched: patch.columnKey !== undefined,
-    assigneeId: patch.assigneeId,
+    assigneeId: effectivePatch.assigneeId,
     items: [],
+    workflow: { forced: gate.forced, shadow: gate.shadow },
   };
-  if (items.length === 0) return { itemIds: [], scheduleCascade: [], effects };
+  if (allowed.length === 0) return { itemIds: [], scheduleCascade: [], effects, denied: gate.denials };
 
-  // Labels are NOT written with the row. `tags` is a mirror of the
-  // work_item_labels rows now, so writing the array directly would leave the
-  // catalogue out of step — the label would filter but not exist to rename or
-  // delete. The label helpers own both sides.
-  if (patch.tags !== undefined) {
-    if (ids.length === 1) await setWorkItemLabels(tx, orgId, ids[0], patch.tags);
-    else await setLabelsForMany(tx, orgId, ids, patch.tags);
+  const changes: { existing: WorkItem; updateData: Prisma.WorkItemUncheckedUpdateManyInput; trackFields: TrackedField[] }[] = [];
+  for (const group of patchGroups.values()) {
+    const groupIds = group.items.map((i) => i.id);
+    // Labels are NOT written with the row. `tags` is a mirror of the
+    // work_item_labels rows now, so writing the array directly would leave the
+    // catalogue out of step — the label would filter but not exist to rename or
+    // delete. The label helpers own both sides.
+    if (group.patch.tags !== undefined) {
+      if (groupIds.length === 1) await setWorkItemLabels(tx, orgId, groupIds[0], group.patch.tags, RECORDED_BY_CALLER);
+      else await setLabelsForMany(tx, orgId, groupIds, group.patch.tags, RECORDED_BY_CALLER);
+    }
+    const destCategory = group.patch.columnKey
+      ? ((await loadStatusCategories(tx, projectId, [group.patch.columnKey]))[0]?.category ?? null)
+      : null;
+    for (const existing of group.items) {
+      changes.push({ existing, ...computeItemChange({ existing, patch: group.patch, destCategory, now }) });
+    }
+    await syncAssigneeSets(tx, groupIds, group.patch);
   }
-
-  const destCategory = patch.columnKey
-    ? ((await loadStatusCategories(tx, projectId, [patch.columnKey]))[0]?.category ?? null)
-    : null;
-
-  const now = new Date();
-  const changes = items.map((existing) => ({
-    existing,
-    ...computeItemChange({ existing, patch, destCategory, now }),
-  }));
-
-  await syncAssigneeSets(tx, ids, patch);
 
   // Items whose rows take identical values are written together: a bulk move
   // is one statement per distinct outcome, not one per item.
@@ -384,7 +559,7 @@ export async function applyWorkItemChange(
     group.ids.push(c.existing.id);
     groups.set(key, group);
   }
-  for (const group of groups.values()) await updateWorkItemsUnchecked(tx, group.ids, group.data);
+  for (const group of groups.values()) await updateWorkItemsUnchecked(tx, group.ids, group.data, RECORDED_BY_CALLER);
 
   const activity = changes.flatMap((c) =>
     c.trackFields.map((f) => ({
@@ -397,7 +572,29 @@ export async function applyWorkItemChange(
       newValue: f.newVal,
     })),
   );
+  // A named transition is recorded too, so history can say "Started work"
+  // (design §3.6); the open workflow's moves are only the status change.
+  for (const g of gate.gates) {
+    if (g.transitionId) {
+      activity.push({ orgId, workItemId: g.itemId, userId: actorId, action: "transitioned", field: "transition", oldValue: null, newValue: g.transitionId });
+    }
+  }
   if (activity.length > 0) await tx.activity.createMany({ data: activity });
+
+  // The transition's own comments and watchers, in the same transaction.
+  const comments = gate.gates.flatMap((g) => g.comments.map((content) => ({ orgId, workItemId: g.itemId, authorId: actorId, content })));
+  if (comments.length > 0) await tx.comment.createMany({ data: comments });
+  const watchers = gate.gates.flatMap((g) => g.watchers.map((userId) => ({ orgId, workItemId: g.itemId, userId })));
+  if (watchers.length > 0) await tx.workItemWatcher.createMany({ data: watchers, skipDuplicates: true });
+
+  // The outbox: the row writes above were RECORDED_BY_CALLER, so this records
+  // one event per item from its row before and after, a transition when its
+  // status moved. Tags are read back because the label helpers resolve them.
+  const eventFields = [...new Set([...changes.flatMap((c) => Object.keys(c.updateData)), ...(groupPatches.some((p) => p.tags !== undefined) ? ["tags"] : [])])];
+  if (eventFields.length > 0) {
+    const before = allowed as unknown as Parameters<typeof changeEvents>[0];
+    await recordEvents(tx, meta, changeEvents(before, await snapshotItems(tx, ids, eventFields), eventFields));
+  }
 
   // INTERDEPENDENT RESCHEDULING (COSMOS-154). A date edit is never about one
   // item: the epic above it claims a finish date its children no longer meet,
@@ -422,6 +619,7 @@ export async function applyWorkItemChange(
         dueShiftMs,
         userId: actorId,
         skipIds: patch.cascadeSkipIds,
+        meta,
       })),
     );
   }
@@ -447,5 +645,5 @@ export async function applyWorkItemChange(
     };
   });
 
-  return { itemIds: ids, scheduleCascade, effects };
+  return { itemIds: ids, scheduleCascade, effects, denied: gate.denials };
 }

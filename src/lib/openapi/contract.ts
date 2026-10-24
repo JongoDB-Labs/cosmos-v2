@@ -44,8 +44,10 @@ export interface RouteContract<
   /**
    * Scopes a bearer token must ALL hold. Documented in the spec as
    * `x-cosmos-scopes` and asserted before the handler's permission check.
-   * Empty means any valid token. A scope is a ceiling, never a grant: the
-   * user's own permissions still apply.
+   * Empty means NO token: an API key is refused (default-deny), and only a
+   * browser session gets through. Every stable/beta contract names at least one
+   * (coverage.arch.test.ts). A scope is a ceiling, never a grant: the user's
+   * own permissions still apply.
    */
   scopes: ApiScope[];
   request: { params?: P; query?: Q; body?: B };
@@ -53,6 +55,15 @@ export interface RouteContract<
   errors: ErrorStatus[];
   /** Lists only: `limit`/`cursor` query params plus `Link: rel="next"`. */
   pagination?: "cursor";
+  /**
+   * Fields an API token receives only when it holds `scope`; a browser session
+   * always gets them. For personal data a token should be granted explicitly
+   * (email addresses). Each path is EXACT, from the response root: dotted keys,
+   * `[]` for every element of an array (`[].user.email`,
+   * `members[].orgMember.user.email`), so an unrelated field that happens to
+   * share the name is never touched. The schema marks each such field optional.
+   */
+  scopedFields?: { scope: ApiScope; paths: string[] }[];
 }
 
 /** Identity at runtime; exists for inference, so `parseRequest` and

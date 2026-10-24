@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
+import { ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
 import {
   listItemLinks,
   linkItems,
@@ -30,6 +31,7 @@ describe("work-item link executors (e2e DB)", () => {
     const project = await prisma.project.create({
       data: { orgId: org.id, name: "P", key: `WL${stamp.slice(-4).toUpperCase()}` },
     });
+    await ensureFixtureStatuses(project.id);
     const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null } });
     const mk = (n: number) =>
       prisma.workItem.create({
@@ -133,6 +135,7 @@ describe("createWorkItem / updateWorkItem — self-assignee sentinel (e2e DB)", 
     const project = await prisma.project.create({
       data: { orgId: org.id, name: "P", key: `WM${stamp.slice(-4).toUpperCase()}` },
     });
+    await ensureFixtureStatuses(project.id);
     const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null } });
     const ctx = await memberToolCtx(org.id, owner.id);
     return { org, project, type, ctx, ownerId: owner.id };
@@ -233,6 +236,7 @@ describe("createWorkItem / updateWorkItem — assignee resolves to a person (e2e
     const project = await prisma.project.create({
       data: { orgId: org.id, name: "P", key: `WN${stamp.slice(-4).toUpperCase()}` },
     });
+    await ensureFixtureStatuses(project.id);
     const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null } });
     const ctx = await memberToolCtx(org.id, owner.id);
     return { org, project, type, ctx, owner, other, outsider };

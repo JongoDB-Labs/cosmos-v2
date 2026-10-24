@@ -1,16 +1,20 @@
 import { NextRequest } from "next/server";
+import { withStatusCategories } from "@/lib/workflow/column-categories.server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
-import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { revalidateOrgProjects } from "@/lib/cache/queries";
-import { z } from "zod";
-import { Prisma, BoardType, ProjectStatus } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { isToggleableFeature } from "@/lib/project-features";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { getProject, updateProject } from "./route.contract";
 
 // Project features that drive the optional board tabs (see board-tabs.tsx).
 // Toggleable from Project Settings; validated here so only known flags persist.
@@ -31,56 +35,12 @@ function stripLegacyKeys(settings: Record<string, unknown>): Record<string, unkn
   return rest;
 }
 
-const updateProjectSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  description: z.string().nullish(),
-  settings: z.record(z.string(), z.unknown()).optional(),
-  // Null clears the client — internal and speculative work legitimately has
-  // none, so "no client" has to be expressible, not just "some client".
-  clientId: z.string().uuid().nullable().optional(),
-  // Lifecycle state. A real enum, so an unknown spelling is a 400 here rather
-  // than a value that persists and quietly fails to match any filter — which is
-  // what the old `settings.status` string did.
-  status: z.nativeEnum(ProjectStatus).optional(),
-  archived: z.boolean().optional(),
-  // Accept any string array but FILTER to the known toggleable set rather than
-  // hard-rejecting. A project seeded/imported with a legacy flag (e.g. a RAID
-  // board's "risk") would otherwise 400 the entire update the moment the client
-  // round-trips the stored array while toggling another feature on/off. Filtering
-  // both fixes that and cleans the orphaned value out on the next save.
-  enabledFeatures: z
-    .array(z.string())
-    .transform((arr) => arr.filter(isToggleableFeature))
-    .optional(),
-  // Board view types this project may NOT create (opt-out; absent/empty = all 13
-  // allowed). Persisted under settings.disabledBoardTypes; the New-board gallery
-  // hides these and the board POST route rejects them.
-  disabledBoardTypes: z.array(z.nativeEnum(BoardType)).optional(),
-  // Which work-item TYPE the KR / objective link pickers offer first. A
-  // `workItemTypeId`, never a constructed type key — "Feature" is a CUSTOM type
-  // whose key is BARE in some orgs (see src/lib/okr/link-type-default.ts).
-  // `null` clears the setting and falls back to the type named "Feature".
-  // Not validated against work_item_types on purpose: a retired type must
-  // degrade to that fallback rather than 400 the whole update.
-  krLinkTypeId: z.string().uuid().nullable().optional(),
-  objectiveLinkTypeId: z.string().uuid().nullable().optional(),
-  // Opt-in read narrowing (#35). Off for every project until someone turns it
-  // on; see src/lib/rbac/project-access.ts. Gated below on canManageProject
-  // rather than PROJECT_UPDATE — this decides who can SEE the project, so it is
-  // an access-control change, not an ordinary settings edit.
-  teamScopedAccess: z.boolean().optional(),
-});
-
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, getProject);
+    const { params: { orgId, projectId } } = await parseRequest(getProject, request, params);
     await requireProjectRead(ctx, projectId, "PROJECT_READ");
 
     const project = await prisma.project.findFirst({
@@ -108,49 +68,45 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    if (!project) return new Response("Not found", { status: 404 });
+    if (!project) return problem(404, "not_found", undefined, { request });
 
-    return success(project);
+    // Each status column's category is its status's (column-categories.server.ts).
+    const boards = await withStatusCategories(prisma, projectId, project.boards);
+    return respond(getProject, 200, { ...project, boards }, { ctx });
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, updateProject);
+    const { params: { orgId, projectId }, body } = await parseRequest(updateProject, request, params);
     // Inheriting authority: an org-wide PROJECT_UPDATE holder OR a MANAGER of
     // THIS project may edit it — so a project-admin can run their own project
     // without org-wide grants.
     if (
       !hasPermission(ctx.permissions, Permission.PROJECT_UPDATE) &&
-      !(await canManageProject(ctx, projectId))
+      !(await canManageProject(ctx, projectId, Permission.PROJECT_UPDATE))
     ) {
-      return new Response("Forbidden", { status: 403 });
+      return problem(403, "forbidden", undefined, { request });
     }
 
     const existing = await prisma.project.findFirst({ where: { id: projectId, orgId } });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing) return problem(404, "not_found", undefined, { request });
 
-    const body = await request.json();
-    const data = updateProjectSchema.parse(body);
+    const data = {
+      ...body,
+      // Keep only the known toggleable features; see the contract.
+      ...(body.enabledFeatures && { enabledFeatures: body.enabledFeatures.filter(isToggleableFeature) }),
+    };
 
     // teamScopedAccess needs MORE than the gate above. That gate admits an
     // org-wide PROJECT_UPDATE holder, but this flag decides who can SEE the
     // project — flipping it on can hide a live project from everyone who is not
     // a member. Restrict it to the people who administer this project.
-    if (data.teamScopedAccess !== undefined && !(await canManageProject(ctx, projectId))) {
-      return new Response(
-        JSON.stringify({
-          error: "Only a project manager or org admin can change who this project is visible to.",
-        }),
-        { status: 403, headers: { "Content-Type": "application/json" } },
-      );
+    if (data.teamScopedAccess !== undefined && !(await canManageProject(ctx, projectId, Permission.PROJECT_MANAGE))) {
+      return problem(403, "forbidden", "Only a project manager or org admin can change who this project is visible to.", { request });
     }
 
     const updated = await prisma.project.update({
@@ -197,9 +153,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // Name change or archive toggle both affect the cached project list.
     revalidateOrgProjects(orgId);
 
-    return success(updated);
+    return respond(updateProject, 200, updated);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
@@ -207,14 +163,14 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, projectId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
+    if (!org) return problem(404, "not_found", undefined, { request });
 
     const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!ctx) return problem(401, "unauthorized", undefined, { request });
     requirePermission(ctx, Permission.PROJECT_DELETE);
 
     const existing = await prisma.project.findFirst({ where: { id: projectId, orgId } });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing) return problem(404, "not_found", undefined, { request });
 
     await prisma.project.delete({ where: { id: projectId } });
 
@@ -232,6 +188,6 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     return noContent();
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

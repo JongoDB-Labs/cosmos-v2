@@ -25,6 +25,16 @@
 //     published and notified like a PUT, and tags go through the label catalogue.
 //   - sprint: "sprint completion counts a custom Done column as done".
 //   - merge: "merge a duplicate": the move to Cancelled is recorded in history.
+//   - statuses (P1): "move to a key that is not a status is refused": a key must
+//     name one of the project's statuses, so a 400 and no change, where the item
+//     used to land on a key no board showed and drop out of every view.
+//   - workflow engine (P2): that move is now the workflow's refusal, a 409
+//     `transition_not_allowed` problem, before anything is written. A cancel
+//     records its reason as the item's resolution ("cancel with OBE…", "cancel
+//     with OTHER…", "cancel naming an existing Cancelled column…", "cancelling
+//     an item already cancelled…"), a merge records "Duplicate" ("merge a
+//     duplicate"), and a bulk response lists the items the workflow refused
+//     (`denied`, empty in "bulk move into Done", "bulk assignee change", "bulk tags").
 //
 // Ids and "now" are normalised (see `norm`), so a snapshot shows names, not
 // uuids, and `<now>` for any timestamp taken during the scenario.
@@ -75,6 +85,7 @@ import { POST as completeInterval } from "@/app/api/v1/orgs/[orgId]/projects/[pr
 import { updateWorkItem as aiUpdate, createWorkItem as aiCreate } from "@/lib/ai/executors/work-items";
 import { mergeWorkItems } from "@/lib/work-items/merge.server";
 import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
+import { seedBoardColumns } from "@/lib/workflow/provision.server";
 
 // ─── Fixture world ──────────────────────────────────────────────────────────
 
@@ -169,11 +180,11 @@ async function world(opts: { columns?: typeof COLUMNS } = {}): Promise<World> {
       projectId: project.id,
       name: "Kanban",
       type: "KANBAN",
-      columns: {
-        create: (opts.columns ?? COLUMNS).map((c, i) => ({ ...c, sortOrder: i })),
-      },
     },
   });
+  // Through the provisioning path, so every column's status exists (a work
+  // item's key must name one).
+  await seedBoardColumns(prisma, board, opts.columns ?? COLUMNS);
   names.set(board.id, "board");
   let ticket = 0;
   return {
@@ -421,11 +432,18 @@ describe("parity: PUT /work-items/[itemId]", () => {
     expect(norm({ res, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
   });
 
-  it("move to a key no board shows clears completion", async () => {
+  it("move to a key that is not a status is refused", async () => {
     const w = await world();
     const a = await w.item("A", { columnKey: "done", completedAt: T2 });
-    const res = await put(w, a, { columnKey: "ghost" });
-    expect(norm({ res, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
+    const res = await putItem(
+      new NextRequest(`http://localhost/api/v1/orgs/${orgId}/projects/${w.projectId}/work-items/${a}`, {
+        method: "PUT",
+        body: JSON.stringify({ columnKey: "ghost" }),
+      }),
+      { params: Promise.resolve({ orgId, projectId: w.projectId, itemId: a }) },
+    );
+    const body = { status: res.status, ...(await res.json()) };
+    expect(norm({ res: body, item: await itemState(a), effects: await sideEffects() })).toMatchSnapshot();
   });
 
   it("cancel with OBE creates the Cancelled column on first use", async () => {

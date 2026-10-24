@@ -3,7 +3,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission, type AuthContext } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { isFeedbackStaff } from "./access";
-import type { CommentViewer } from "./comments.server";
+import { markingCeiling, type CommentViewer } from "./comments.server";
 
 export interface FeedbackRouteContext {
   org: { id: string; slug: string };
@@ -44,7 +44,12 @@ export async function loadFeedbackRoute(
   });
   if (!item) return new Response("Not found", { status: 404 });
 
-  return { org, ctx, item, viewer: { userId: ctx.userId, isStaff: isFeedbackStaff(ctx) } };
+  return {
+    org,
+    ctx,
+    item,
+    viewer: { userId: ctx.userId, isStaff: isFeedbackStaff(ctx), markingCeiling: await markingCeiling(org.id) },
+  };
 }
 
 /**

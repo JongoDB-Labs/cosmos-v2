@@ -105,3 +105,70 @@ describe("KanbanColumn empty-state placeholder (COSMOS-133)", () => {
     expect(screen.getByText("Test card")).toBeInTheDocument();
   });
 });
+
+describe("KanbanColumn for an archived status", () => {
+  afterEach(() => cleanup());
+
+  const renderWith = (archived?: boolean) =>
+    render(
+      <DndContext>
+        <KanbanColumn column={makeColumn()} items={[makeItem()]} members={[]} onCardClick={() => {}} archived={archived} />
+      </DndContext>,
+    );
+
+  it("marks the column and keeps its items", () => {
+    renderWith(true);
+    expect(screen.getByText("Archived")).toBeTruthy();
+    expect(screen.getByText("Test card")).toBeTruthy();
+  });
+
+  it("is unmarked for a live status", () => {
+    renderWith();
+    expect(screen.queryByText("Archived")).toBeNull();
+  });
+});
+
+// A column's title is the board's second heading level: an h2 on a flat board
+// (under the page's h1), an h3 inside a swimlane (whose lane label is the h2),
+// so the heading outline never skips a level (axe heading-order).
+describe("KanbanColumn title heading level", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("is an h2 by default and an h3 when the board nests it in a swimlane", () => {
+    renderColumn([]);
+    expect(screen.getByRole("heading", { level: 2, name: "To do" })).toBeTruthy();
+    cleanup();
+    render(
+      <DndContext>
+        <KanbanColumn column={makeColumn()} items={[]} members={[]} onCardClick={vi.fn()} headingLevel={3} />
+      </DndContext>,
+    );
+    expect(screen.getByRole("heading", { level: 3, name: "To do" })).toBeTruthy();
+  });
+});
+
+describe("KanbanColumn while a card that can't move here is dragged", () => {
+  afterEach(() => cleanup());
+
+  it("is dimmed and says why, and is otherwise left alone", () => {
+    const { container, rerender } = render(
+      <DndContext>
+        <KanbanColumn column={makeColumn()} items={[]} members={[]} onCardClick={() => {}} unavailable />
+      </DndContext>,
+    );
+    const col = container.querySelector("[data-board-column='todo']")!;
+    expect(col.getAttribute("data-unavailable")).toBe("true");
+    expect(col.className).toContain("opacity-40");
+    expect(col.getAttribute("title")).toMatch(/workflow doesn't allow/);
+
+    rerender(
+      <DndContext>
+        <KanbanColumn column={makeColumn()} items={[]} members={[]} onCardClick={() => {}} />
+      </DndContext>,
+    );
+    expect(col.hasAttribute("data-unavailable")).toBe(false);
+    expect(col.className).not.toContain("opacity-40");
+  });
+});

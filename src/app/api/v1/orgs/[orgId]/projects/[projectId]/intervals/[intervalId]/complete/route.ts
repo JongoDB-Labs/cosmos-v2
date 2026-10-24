@@ -63,6 +63,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           tx,
           incompleteItems.map((i) => i.id),
           { intervalId: data.moveIncompleteToIntervalId ?? null },
+          { actorId: ctx.userId, source: "API" },
         );
       }
 

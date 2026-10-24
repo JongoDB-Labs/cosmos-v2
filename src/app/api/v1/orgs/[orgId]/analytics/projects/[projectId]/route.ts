@@ -22,23 +22,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
     if (!project) return new Response("Not found", { status: 404 });
 
-    const boards = await prisma.board.findMany({
-      where: { projectId },
-      select: { id: true },
-    });
-    const boardIds = boards.map((b) => b.id);
-
-    const columns = boardIds.length > 0
-      ? await prisma.boardColumn.findMany({
-          where: { boardId: { in: boardIds } },
-          select: { key: true, category: true },
-        })
-      : [];
-
+    // Each item counts under its status's category (archived statuses too:
+    // items can still be in one).
+    const statuses = await prisma.workflowStatus.findMany({ where: { projectId }, select: { key: true, category: true } });
     const columnCategoryMap: Record<string, string> = {};
-    for (const col of columns) {
-      columnCategoryMap[col.key] = col.category;
-    }
+    for (const st of statuses) columnCategoryMap[st.key] = st.category;
 
     const allItems = await prisma.workItem.findMany({
       where: { orgId, projectId },

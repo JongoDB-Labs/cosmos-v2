@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { projectKeyFromRoute } from "@/lib/feedback/route-project";
+import { ensureSubscribed } from "@/lib/feedback/subscriptions.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -167,6 +168,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         },
         select: { id: true, title: true },
       });
+      await ensureSubscribed(tx, { orgId, feedbackItemId: created.id, userId: ctx.userId, reason: "author" });
 
       return { ...created, deduped: false };
     });

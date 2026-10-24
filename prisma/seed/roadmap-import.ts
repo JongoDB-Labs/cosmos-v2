@@ -14,28 +14,11 @@
  * Idempotent: re-running replaces (default) or merges the project's roadmap.
  */
 import { makePrismaClient } from "./shared/prisma-client";
+import { loadEnvLocal } from "./shared/env-local";
 import { readFileSync } from "node:fs";
 import { upsertRoadmapNodes } from "../../src/lib/roadmap/import";
 import type { RoadmapImportNode } from "../../src/lib/roadmap/types";
 import { DEMO_APEX_ROADMAP, DEMO_APEX } from "./demo-defense-roadmap";
-
-function loadEnvLocal(): string | undefined {
-  let dbUrl: string | undefined;
-  try {
-    const txt = readFileSync(process.cwd() + "/.env.local", "utf8");
-    for (const line of txt.split("\n")) {
-      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
-      if (!m) continue;
-      let v = m[2];
-      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-      if (!process.env[m[1]]) process.env[m[1]] = v;
-      if (m[1] === "DATABASE_URL") dbUrl = v;
-    }
-  } catch {
-    /* ignore */
-  }
-  return dbUrl;
-}
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);

@@ -408,7 +408,7 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
 
       <section className="flex flex-col gap-4">
         <div>
-          <h3 className="text-sm font-semibold">Appearance</h3>
+          <h2 className="text-sm font-semibold">Appearance</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Choose your preferred theme mode (previews instantly)
           </p>
@@ -488,7 +488,7 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
 
       <section className="flex flex-col gap-4">
         <div>
-          <h3 className="text-sm font-semibold">Background</h3>
+          <h2 className="text-sm font-semibold">Background</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Upload a custom background image for each theme. JPEG or PNG, ≤5MB. Previews instantly; saves on Save.
           </p>
@@ -583,7 +583,7 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
 
       <section className="flex flex-col gap-4">
         <div>
-          <h3 className="text-sm font-semibold">Layout</h3>
+          <h2 className="text-sm font-semibold">Layout</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Configure sidebar and navigation behavior
           </p>
@@ -652,7 +652,7 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
 
       <section className="flex flex-col gap-4">
         <div>
-          <h3 className="text-sm font-semibold">Defaults</h3>
+          <h2 className="text-sm font-semibold">Defaults</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Set default values for common settings
           </p>
@@ -707,7 +707,7 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
 
       <section className="flex flex-col gap-4">
         <div>
-          <h3 className="text-sm font-semibold">Notifications</h3>
+          <h2 className="text-sm font-semibold">Notifications</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Configure push notification delivery preferences
           </p>

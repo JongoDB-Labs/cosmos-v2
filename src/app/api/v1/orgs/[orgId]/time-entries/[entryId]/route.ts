@@ -4,38 +4,24 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireAccess } from "@/lib/abac/require-access";
 import { Permission } from "@/lib/rbac/permissions";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 import { redactRates } from "@/lib/time/visibility";
 import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
 import { timesheetIdForEntry, isTimesheetOpen } from "@/lib/time/timesheet";
 import { recordRevision } from "@/lib/time/revisions";
-import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { z } from "zod";
-import { BillableType } from "@prisma/client";
-
-const updateTimeEntrySchema = z.object({
-  date: z.string().nullish(),
-  hours: z.number().positive().optional(),
-  rate: z.number().optional(),
-  client: z.string().nullish(),
-  projectId: z.string().uuid().nullish(),
-  workItemId: z.string().uuid().nullish(),
-  clinId: z.string().uuid().nullish(),
-  description: z.string().nullish(),
-  billableType: z.nativeEnum(BillableType).optional(),
-  tags: z.array(z.string()).optional(),
-});
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { getTimeEntry, updateTimeEntry } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string; entryId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, entryId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, getTimeEntry);
+    const { params: { orgId, entryId } } = await parseRequest(getTimeEntry, request, params);
     requirePermission(ctx, Permission.TIME_READ);
 
     const entry = await prisma.timeEntry.findFirst({
@@ -53,60 +39,48 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    if (!entry) return new Response("Not found", { status: 404 });
+    if (!entry) return problem(404, "not_found", undefined, { request });
 
-    return success(redactRates(ctx, [entry])[0]);
+    return respond(getTimeEntry, 200, redactRates(ctx, [entry])[0]);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, entryId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, updateTimeEntry);
+    const { params: { orgId, entryId }, body: data } = await parseRequest(updateTimeEntry, request, params);
 
     const existing = await prisma.timeEntry.findFirst({
       where: { id: entryId, orgId },
     });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing) return problem(404, "not_found", undefined, { request });
 
     // Resource-aware authz: TIME_UPDATE bitfield check + any narrowing deny
     // policy. TimeEntry ownership is userId. Identical to requirePermission
     // until a policy exists.
     await requireAccess(ctx, "TIME_UPDATE", { ownerId: existing.userId });
 
-    const isAdminOrOwner = ctx.orgRole === "ADMIN" || ctx.orgRole === "OWNER";
+    // An admin edits anyone's entries by role. A key's role counts only when
+    // its scopes would grant TIME_APPROVE (none do), so an admin's time:write
+    // key stays on its owner's own drafts.
+    const isAdminOrOwner =
+      roleCountsFor(ctx, Permission.TIME_APPROVE) && (ctx.orgRole === "ADMIN" || ctx.orgRole === "OWNER");
     if (!isAdminOrOwner) {
       if (existing.userId !== ctx.userId) {
-        return new Response(
-          JSON.stringify({ error: "You can only update your own time entries" }),
-          { status: 403, headers: { "Content-Type": "application/json" } }
-        );
+        return problem(403, "forbidden", "You can only update your own time entries", { request });
       }
       if (existing.status !== "DRAFT") {
-        return new Response(
-          JSON.stringify({ error: "Only draft entries can be updated" }),
-          { status: 400, headers: { "Content-Type": "application/json" } }
-        );
+        return problem(400, "invalid_request", "Only draft entries can be updated", { request });
       }
     }
-
-    const body = await request.json();
-    const data = updateTimeEntrySchema.parse(body);
 
     // Once a period is submitted or approved, its hours must not move — that is
     // the whole point of approving them. Checked even for admins: an approved
     // period changing silently is exactly what an audit trail exists to catch.
     if (!(await isTimesheetOpen(existing.timesheetId))) {
-      return new Response(
-        JSON.stringify({ error: "This timesheet has been submitted and can no longer be edited" }),
-        { status: 409, headers: { "Content-Type": "application/json" } },
-      );
+      return problem(409, "conflict", "This timesheet has been submitted and can no longer be edited", { request });
     }
 
     // Moving an entry's date can move it to a DIFFERENT pay period, which
@@ -116,10 +90,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (data.date) {
       const destination = await timesheetIdForEntry(orgId, existing.userId, data.date);
       if (destination !== existing.timesheetId && !(await isTimesheetOpen(destination))) {
-        return new Response(
-          JSON.stringify({ error: "That date falls in a timesheet that has already been submitted" }),
-          { status: 409, headers: { "Content-Type": "application/json" } },
-        );
+        return problem(409, "conflict", "That date falls in a timesheet that has already been submitted", { request });
       }
       timesheetId = destination;
     }
@@ -163,9 +134,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
-    return success(updated);
+    // The single rate choke point, as on the reads: an admin editing someone
+    // else's entry sees its rate only with finance access.
+    return respond(updateTimeEntry, 200, redactRates(ctx, [updated])[0]);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
@@ -173,17 +146,17 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, entryId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
+    if (!org) return problem(404, "not_found", undefined, { request });
 
     const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!ctx) return problem(401, "unauthorized", undefined, { request });
 
     const existing = await prisma.timeEntry.findFirst({
       // An already-voided entry is gone as far as callers are concerned, so
       // voiding it again is a 404 rather than a second void record.
       where: { id: entryId, orgId, voidedAt: null },
     });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing) return problem(404, "not_found", undefined, { request });
 
     // Resource-aware authz: TIME_DELETE bitfield check + any narrowing deny
     // policy. TimeEntry ownership is userId. Identical to requirePermission
@@ -191,18 +164,13 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     await requireAccess(ctx, "TIME_DELETE", { ownerId: existing.userId });
 
     if (existing.status !== "DRAFT") {
-      return new Response(
-        JSON.stringify({ error: "Only draft entries can be deleted" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
+      return problem(400, "invalid_request", "Only draft entries can be deleted", { request });
     }
 
-    const isAdminOrOwner = ctx.orgRole === "ADMIN" || ctx.orgRole === "OWNER";
+    const isAdminOrOwner =
+      roleCountsFor(ctx, Permission.TIME_APPROVE) && (ctx.orgRole === "ADMIN" || ctx.orgRole === "OWNER");
     if (existing.userId !== ctx.userId && !isAdminOrOwner) {
-      return new Response(
-        JSON.stringify({ error: "You can only delete your own time entries" }),
-        { status: 403, headers: { "Content-Type": "application/json" } }
-      );
+      return problem(403, "forbidden", "You can only delete your own time entries", { request });
     }
 
     // VOID, not DELETE. The row and its hours are retained; every read filters
@@ -227,10 +195,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       /* no body, or not JSON — caught by the check below */
     }
     if (!reason) {
-      return new Response(
-        JSON.stringify({ error: "A reason is required when removing a time entry" }),
-        { status: 400, headers: { "Content-Type": "application/json" } },
-      );
+      return problem(400, "invalid_request", "A reason is required when removing a time entry", { request });
     }
 
     const voided = await prisma.timeEntry.update({
@@ -259,6 +224,6 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     return noContent();
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

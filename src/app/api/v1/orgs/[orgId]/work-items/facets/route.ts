@@ -1,8 +1,12 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { handleApiError } from "@/lib/api-helpers";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { getWorkItemFacets } from "./route.contract";
+import { scopedRosterUserIds } from "@/lib/members/scoped-roster.server";
 import { getReadableProjectIds } from "@/lib/work-items/query";
 import { getManagedProjectIds } from "@/lib/rbac/scope";
 import { groupStatusesByProject } from "@/lib/work-items/status-facets";
@@ -20,22 +24,18 @@ type RouteParams = { params: Promise<{ orgId: string }> };
  * whole filter bar). getReadableProjectIds folds the per-project deny in and an
  * empty readable set yields empty facets, not a 403.
  */
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, getWorkItemFacets);
+    const { params: { orgId } } = await parseRequest(getWorkItemFacets, request, params);
     if (!hasPermission(ctx.permissions, Permission.ITEM_READ)) {
-      return new Response("Forbidden", { status: 403 });
+      return problem(403, "forbidden", undefined, { request });
     }
 
     const allowedProjectIds = await getReadableProjectIds(ctx);
 
     if (allowedProjectIds.length === 0) {
-      return success({ projects: [], types: [], statuses: [], statusesByProject: {}, members: [], labels: [], intervals: [], managedProjectIds: [] });
+      return respond(getWorkItemFacets, 200, { projects: [], types: [], statuses: [], statusesByProject: {}, members: [], labels: [], intervals: [], managedProjectIds: [] });
     }
 
     // Projects the actor can administer (org PROJECT_MANAGE, or project MANAGER
@@ -43,6 +43,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     // manager whose ORG role lacks BOARD_CREATE — the board POST already accepts
     // the project-manager path, the affordance just wasn't gated to match.
     const managedProjectIds = await getManagedProjectIds(ctx, allowedProjectIds);
+    // A project-scoped key sees only the people on its projects (scopes narrow).
+    const roster = await scopedRosterUserIds(ctx);
 
     const [projects, types, columns, members, intervals, tagRows] = await Promise.all([
       prisma.project.findMany({
@@ -63,16 +65,18 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         select: { id: true, key: true, name: true, icon: true, color: true },
         orderBy: [{ isBuiltIn: "desc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
       }),
-      // Distinct status lanes available across the actor's projects' boards.
-      // `board.projectId` lets us key the lanes per project so the Issues view
-      // can offer a VALID inline status change scoped to each item's own board.
-      prisma.boardColumn.findMany({
-        where: { board: { projectId: { in: allowedProjectIds } } },
-        select: { key: true, name: true, category: true, sortOrder: true, board: { select: { projectId: true } } },
-        orderBy: { sortOrder: "asc" },
-      }),
+      // The statuses of the actor's projects (project-level rows, each with
+      // its category), keyed per project so the Issues view offers a VALID
+      // inline status change: only the statuses of the item's own project.
+      prisma.workflowStatus
+        .findMany({
+          where: { projectId: { in: allowedProjectIds }, archivedAt: null },
+          select: { key: true, name: true, category: true, sortOrder: true, projectId: true },
+          orderBy: [{ sortOrder: "asc" }, { key: "asc" }],
+        })
+        .then((rows) => rows.map(({ projectId, ...r }) => ({ ...r, board: { projectId } }))),
       prisma.orgMember.findMany({
-        where: { orgId },
+        where: { orgId, ...(roster ? { userId: { in: roster } } : {}) },
         select: {
           userId: true,
           user: { select: { id: true, displayName: true, avatarUrl: true } },
@@ -106,7 +110,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       for (const t of row.tags) if (t) labelSet.add(t);
     }
 
-    return success({
+    return respond(getWorkItemFacets, 200, {
       // Flatten the template relation to a bare `sector`, so the client reads
       // one field rather than reaching through a join it has no other use for.
       projects: projects.map(({ projectTemplate, ...p }) => ({
@@ -129,6 +133,6 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       managedProjectIds: [...managedProjectIds],
     });
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

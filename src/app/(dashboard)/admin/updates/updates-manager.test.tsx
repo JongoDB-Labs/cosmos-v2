@@ -124,6 +124,78 @@ describe("UpdatesManager — the install control", () => {
   });
 });
 
+describe("UpdatesManager — reinstalling a rebuilt image", () => {
+  // A composed image carries the CORE version, so a plugin-only release
+  // republishes the tag this instance already runs. It is not "up to date", and
+  // there is nothing newer to install — reinstalling is the only way to take it.
+  const REBUILT = {
+    ...OK,
+    status: { current: "2.277.1", latest: "2.277.1", newer: [], updateAvailable: false, ahead: false },
+    candidateTag: "2.277.1-alpha",
+    rebuildAvailable: true,
+    notes: [],
+    notesOmitted: 0,
+    applyable: true,
+  };
+
+  it("says the running version was rebuilt, not that the instance is up to date", async () => {
+    stubFetch(REBUILT);
+    renderPanel();
+    expect(await screen.findByText(/has been rebuilt since this instance installed it/i)).toBeTruthy();
+    expect(screen.queryByText(/this instance is up to date/i)).toBeNull();
+  });
+
+  it("offers Reinstall, and asks for the RUNNING version", async () => {
+    const posts: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const u = String(url);
+        if (u.includes("/deploy")) {
+          if (init?.method === "POST") {
+            posts.push(String(init.body));
+            return new Response(JSON.stringify({ id: "r1" }), { status: 202 });
+          }
+          return new Response(JSON.stringify({ latest: null }), { status: 200 });
+        }
+        return new Response(JSON.stringify(REBUILT), { status: 200 });
+      }),
+    );
+    renderPanel();
+    const btn = await screen.findByRole("button", { name: /reinstall 2\.277\.1/i });
+    fireEvent.click(btn);
+    await waitFor(() => expect(posts).toEqual([JSON.stringify({ version: "2.277.1" })]));
+  });
+
+  it("keeps Reinstall disabled while a blocking check has not passed", async () => {
+    stubFetch({ ...REBUILT, applyable: false });
+    renderPanel();
+    const btn = await screen.findByRole("button", { name: /reinstall 2\.277\.1/i });
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("offers nothing when the image was not rebuilt", async () => {
+    stubFetch({ ...REBUILT, rebuildAvailable: false, preflights: [], applyable: false });
+    renderPanel();
+    expect(await screen.findByText(/this instance is up to date/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /reinstall/i })).toBeNull();
+  });
+
+  it("offers nothing when the instance does not know its own digest — unknown is not 'rebuilt'", async () => {
+    stubFetch({ ...REBUILT, rebuildAvailable: null, preflights: [], applyable: false });
+    renderPanel();
+    expect(await screen.findByText(/this instance is up to date/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /reinstall/i })).toBeNull();
+  });
+
+  it("offers the upgrade, not a reinstall, when a newer version exists too", async () => {
+    stubFetch({ ...OK, rebuildAvailable: true, applyable: true });
+    renderPanel();
+    expect(await screen.findByRole("button", { name: /install 2\.277\.1/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /reinstall/i })).toBeNull();
+  });
+});
+
 describe("UpdatesManager", () => {
   it("renders the version comparison once the check returns", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(OK), { status: 200 })));

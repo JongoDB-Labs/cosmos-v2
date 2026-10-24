@@ -164,6 +164,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         source: data.source,
         // Only meaningful alongside a source that names something.
         sourceRef: data.source === "app" ? null : (data.sourceRef ?? null),
+        // The author follows their own request, in the same write.
+        subscriptions: { create: { orgId, userId: ctx.userId, reason: "author" } },
       },
     });
 

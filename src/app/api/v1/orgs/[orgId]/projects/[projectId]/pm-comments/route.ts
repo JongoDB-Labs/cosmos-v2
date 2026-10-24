@@ -11,6 +11,7 @@ import { mentionsToPlainText, userMentionLabels } from "@/lib/mentions/plain-tex
 import { parseMentions } from "@/lib/chat/mentions";
 import { resolvePmSubject, isPmSubjectType } from "@/lib/pm/subjects";
 import { logPmActivity } from "@/lib/pm/activity-log";
+import { Permission } from "@/lib/rbac/permissions";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         })
       : [];
     const authorById = new Map(authors.map((u) => [u.id, u]));
-    const isManager = await canManageProject(ctx, projectId);
+    const isManager = await canManageProject(ctx, projectId, Permission.ITEM_DELETE);
 
     return success(
       comments.map((c) => ({

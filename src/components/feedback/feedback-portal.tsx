@@ -230,6 +230,8 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
   // inside the hook, so re-creating this object each render doesn't reopen the stream.
   useRealtimeEvents(orgId, {
     "feedback.delivered": () => void fetchItems(),
+    "feedback.merged": () => void fetchItems(),
+    "feedback.unmerged": () => void fetchItems(),
     "feedback.throttled": () => void fetchItems(),
     "feedback.gated": () => void fetchItems(),
     "feedback.flagged": () => void fetchItems(),
@@ -245,13 +247,11 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const handledDeepLinkRef = useRef<string | null>(null);
-  useEffect(() => {
-    const itemId = searchParams.get("item");
-    if (!itemId || handledDeepLinkRef.current === itemId) return;
-    handledDeepLinkRef.current = itemId;
-
-    jsonFetch<FeedbackItem>(`${basePath}/${encodeURIComponent(itemId)}`)
-      .then((item) => {
+  // Fetch one item (it may be outside the list's top 200, or merged and so
+  // hidden from it), put it in the list and open it.
+  const openItemById = useCallback(
+    (itemId: string) =>
+      jsonFetch<FeedbackItem>(`${basePath}/${encodeURIComponent(itemId)}`).then((item) => {
         // Synchronously, not via the effect: a list fetch resolving in the same
         // tick would otherwise read the stale ref and drop this item again.
         detailIdRef.current = item.id;
@@ -261,7 +261,15 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
             : [...prev, item],
         );
         setDetailId(item.id);
-      })
+      }),
+    [basePath],
+  );
+  useEffect(() => {
+    const itemId = searchParams.get("item");
+    if (!itemId || handledDeepLinkRef.current === itemId) return;
+    handledDeepLinkRef.current = itemId;
+
+    openItemById(itemId)
       .catch((err) => {
         // 403 and 404 read the same, so a link never confirms an item exists.
         const status = err instanceof FetchError ? err.status : 0;
@@ -278,7 +286,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
         router.replace(url.pathname + url.search + url.hash);
         handledDeepLinkRef.current = null;
       });
-  }, [searchParams, basePath, router]);
+  }, [searchParams, router, openItemById]);
 
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
@@ -804,6 +812,12 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
         onChangeStatus={(i, st) => void changeStatus(i, st)}
         onSaveEdit={saveEdit}
         onRequestDelete={setConfirmDeleteId}
+        candidates={items}
+        onOpenItem={(id) => void openItemById(id).catch((err) => notifyError(err, "Couldn't open that request."))}
+        onMergeChanged={(item) => {
+          void openItemById(item.id).catch(() => {});
+          void fetchItems();
+        }}
       />
 
       {/* A deep link that could not be opened says so, instead of silently

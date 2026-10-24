@@ -24,6 +24,7 @@ import {
 } from "@/lib/time/notify";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 
 type RouteParams = { params: Promise<{ orgId: string; timesheetId: string }> };
 
@@ -54,7 +55,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.TIME_READ);
+    // A write to the caller's own time. A session needs TIME_READ, as ever; a
+    // key needs TIME_CREATE (time:write), so time:read stays read-only.
+    requirePermission(ctx, ctx.isApiKey ? Permission.TIME_CREATE : Permission.TIME_READ);
 
     const sheet = await prisma.timesheet.findFirst({
       where: { id: timesheetId, orgId },
@@ -162,7 +165,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       actorUserId: ctx.userId,
       subjectUserId: sheet.userId,
       hasTimeApprove: hasPermission(ctx.permissions, Permission.TIME_APPROVE),
-      isManagerOfSubject: await isManagerOf(orgId, ctx.userId, sheet.userId),
+      // Supervising someone is a role. A key acts by it only when its scopes
+      // grant TIME_APPROVE, which none do, so a key never approves.
+      isManagerOfSubject: roleCountsFor(ctx, Permission.TIME_APPROVE) && (await isManagerOf(orgId, ctx.userId, sheet.userId)),
       subjectHasManager: await hasManager(orgId, sheet.userId),
     });
     if (!authority.allowed) {

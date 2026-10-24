@@ -35,7 +35,7 @@ export default async function TimeTrackingPage({ params }: PageParams) {
         </div>
       }
     >
-      <TimeTracker orgId={ctx.orgId} />
+      <TimeTracker orgId={ctx.orgId} selfUserId={ctx.userId} />
     </PageShell>
   );
 }

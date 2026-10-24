@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/audit";
 import { pullSoonIfStale, syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { z } from "zod";
 import { MeetingType } from "@prisma/client";
+import { allOrgMembers, attendeesNotMembers } from "@/lib/meetings/attendee-members";
 
 const createMeetingSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -108,6 +109,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = createMeetingSchema.parse(body);
+    if (data.attendeeIds && !(await allOrgMembers(orgId, data.attendeeIds))) return attendeesNotMembers();
 
     // Validate a custom type belongs to this org (defense-in-depth); when set,
     // the built-in enum is OTHER and the label comes from the custom type.

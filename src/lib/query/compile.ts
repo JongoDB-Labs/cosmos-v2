@@ -691,10 +691,21 @@ function historyPlan(n: HistoryLeaf, env: CompileEnv): HistoryPlan {
   // window's activity), or it holds v now and nothing was recorded since the
   // window closed.
   const spec: HistorySpec = { kind: "window", field: id, set, from: win.from?.toISOString() ?? null, to: win.to?.toISOString() ?? null };
+  // Only BEFORE (no lower bound): "held v when the window opened" would be the
+  // value each item started with, read off its first change ever, which is a
+  // scan of the org's whole history of the field. Instead: a recorded change
+  // before the window closed entered or left v (a per-item EXISTS on the
+  // (item, field, time) index), or nothing was recorded before it and its
+  // first change, at or after it, started from v (the prefilter, bounded by
+  // the activity since the window closed).
+  const opened = win.from
+    ? []
+    : [act({ OR: [activityMatch("oldValue", set), activityMatch("newValue", set)] })];
   return {
     specs: [spec],
     build: (idsOf) =>
       or(
+        ...opened,
         { id: { in: idsOf(spec) } },
         and(
           currentMatch(h, set),

@@ -5,6 +5,7 @@ import localFont from "next/font/local";
 import { CosmosMotionConfig } from "@/components/ui/motion-config";
 import { WebVitalsReporter } from "@/components/telemetry/web-vitals";
 import { ChunkReloadGuard } from "@/components/telemetry/chunk-reload-guard";
+import { Toaster } from "@/components/ui/sonner";
 import { getBrand } from "@/lib/brand";
 import { allSkinsCss, getSkinPreset } from "@/lib/theme/skins";
 import { RootBrandProvider } from "@/components/providers/root-brand-provider";
@@ -123,7 +124,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 // `viewportFit: "cover"` activates safe-area-inset-* CSS env vars (iOS notch
 // and home-indicator) so the mobile bottom nav and dialog bottom-sheets can
-// respect them. `app/manifest.ts` supplies the manifest link automatically.
+// respect them. The manifest link is rendered by hand in <head> below.
 // Viewport stays STATIC (build-baked themeColor): `connection()` here forces a
 // fully-dynamic viewport, which Next disallows for prerendered routes (build
 // error). themeColor is a deferred one-image minor (cosmos accent on an alternate-brand
@@ -166,12 +167,25 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
+        {/* The manifest link must be in the STATIC <head>. Next adds one for
+            app/manifest.ts, but as metadata — and generateMetadata() above awaits
+            connection(), so all metadata streams into <body>, where Chrome and
+            Edge never look for a manifest: the app was not installable.
+            The URL is fixed; the brand is resolved inside the
+            route, so a static link loses nothing. */}
+        <link rel="manifest" href="/manifest.webmanifest" />
         <style dangerouslySetInnerHTML={{ __html: skinCss }} />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="min-h-screen bg-[var(--bg)] text-[var(--text)] antialiased">
         <WebVitalsReporter />
         <ChunkReloadGuard />
+        {/* The ONE toaster, mounted beside the guard: when a deploy lands while
+            someone is typing, the guard skips the reload and shows a toast
+            instead, on every route (the sign-in pages too). sonner drops a
+            toast that has no mounted toaster, so without this one there the
+            tab would sit on a dead chunk with no notice. Mount no other. */}
+        <Toaster position="top-right" richColors />
         <CosmosMotionConfig>
           {/* fallback=null (NOT {children}): connection() defers with no I/O so
               the branded subtree resolves same-tick; rendering {children} in both

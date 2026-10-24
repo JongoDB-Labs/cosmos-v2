@@ -27,7 +27,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DeleteWorkItemDialog } from "./delete-work-item-dialog";
-import { CancelWorkItemDialog } from "./cancel-work-item-dialog";
+import { TransitionDialog, type TransitionInput } from "./transition-dialog";
+import { refusalOf, sendItemChange, TransitionBackedOut, useTransitionPrompt } from "./use-transition-prompt";
+import type { TransitionInputField } from "@/lib/workflow/contract";
 import { MergeWorkItemDialog } from "./merge-work-item-dialog";
 import { cancelReasonLabel, type PickableCancelReason } from "@/lib/work-items/cancel";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -46,6 +48,7 @@ import { WorkItemDocumentSource } from "@/components/files/work-item-document-so
 import { WorkItemAttachments } from "@/components/files/work-item-attachments";
 import { PluginSlot } from "@/components/plugins/plugin-slot";
 import { useCustomFields, fieldAppliesToType } from "@/hooks/use-custom-fields";
+import { useItemTransitions } from "@/hooks/use-item-transitions";
 import { selectableTypes, useWorkItemTypes } from "@/hooks/use-work-item-types";
 import {
   CustomFieldInput,
@@ -154,6 +157,13 @@ interface CardDetailSheetProps {
 }
 
 const priorityOptions = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
+
+/** Cancelling (COSMOS-206) as a transition: its input is the reason and an optional note. */
+const CANCEL_TRANSITION = { id: "cancel", name: "Mark cancelled" };
+const CANCEL_FIELDS: TransitionInputField[] = [
+  { field: { system: "cancelReason" }, required: true, label: "Reason" },
+  { field: { system: "cancelNote" }, required: false, label: "Note" },
+];
 
 /**
  * Save state of one of the two free-text fields (title, description).
@@ -324,6 +334,15 @@ export function CardDetailSheet({
   // Custom-field defs for this project (org-wide + project-scoped), narrowed to
   // the fields that apply to THIS item's work-item type (type bindings honored).
   const { fields: customFields } = useCustomFields(orgId, projectId);
+  const { ask: askTransition, dialog: transitionDialog } = useTransitionPrompt(customFields);
+  const reachable = useItemTransitions(orgId, projectId, item);
+  // The statuses this person may move the item to from here, by the project's
+  // workflow; one that asks for details first is marked "…".
+  const statusChoices = reachable
+    ? statusOptions.filter((c) => c.key === columnKey || reachable.has(c.key))
+    : statusOptions;
+  const statusLabel = (c: { key: string; name: string }) =>
+    `${c.name}${c.key !== columnKey && reachable?.get(c.key)?.input.some((f) => f.required) ? "…" : ""}`;
 
   /**
    * Labels, editable here.
@@ -567,13 +586,9 @@ export function CardDetailSheet({
       if (!item) return;
       const prevColumnKey = item.columnKey;
       try {
-        const res = await fetch(`${basePath}/${item.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ [field]: value, ...extra }),
-        });
-        if (!res.ok) throw new Error("Failed to update");
-        const updated: WorkItem = await res.json();
+        // The workflow may ask for more (a resolution, a required field):
+        // sendItemChange asks, then sends the change again with it.
+        const updated = await sendItemChange<WorkItem>(`${basePath}/${item.id}`, { [field]: value, ...extra }, askTransition);
         onUpdate(updated);
 
         // Re-parenting also changes BOTH parents' `children` arrays, but the PUT
@@ -630,7 +645,7 @@ export function CardDetailSheet({
           }
         }
       } catch (err) {
-        console.error(`Failed to patch ${field}:`, err);
+        if (!(err instanceof TransitionBackedOut)) console.error(`Failed to patch ${field}:`, err);
         // Revert ONLY the fields that failed back to the server value (`item` is
         // unchanged on failure since onUpdate runs only on success). Reverting
         // every field would clobber other concurrent/just-succeeded edits.
@@ -684,10 +699,10 @@ export function CardDetailSheet({
             setArchivedAt(item.archivedAt ?? null);
             break;
         }
-        notifyError(err, "Couldn't save the change.");
+        if (!(err instanceof TransitionBackedOut)) notifyError(err, "Couldn't save the change.");
       }
     },
-    [item, basePath, onUpdate, projectItems]
+    [item, basePath, onUpdate, projectItems, askTransition]
   );
 
   // Replace the assignee set (multi-assign). Optimistic; the first member
@@ -1088,6 +1103,10 @@ export function CardDetailSheet({
       (c) => c.key === columnKey && c.category === "CANCELLED",
     );
 
+  // Editing an existing reason rather than cancelling. A merge's MERGED is not
+  // a reason anyone picks, so a merged item cancels afresh.
+  const editingCancelReason = Boolean(item?.cancelReason && item.cancelReason !== "MERGED");
+
   async function submitMerge(intoId: string) {
     if (!item) return;
     setMergePending(true);
@@ -1115,8 +1134,10 @@ export function CardDetailSheet({
     }
   }
 
-  async function submitCancel(reason: PickableCancelReason, note: string) {
+  async function submitCancel(input: TransitionInput) {
     if (!item) return;
+    const reason = input["system:cancelReason"] as PickableCancelReason;
+    const note = typeof input["system:cancelNote"] === "string" ? input["system:cancelNote"] : "";
     setCancelPending(true);
     try {
       const res = await fetch(`${basePath}/${item.id}`, {
@@ -1124,7 +1145,7 @@ export function CardDetailSheet({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cancelReason: reason, cancelNote: note || null }),
       });
-      if (!res.ok) throw new Error("Failed to cancel");
+      if (!res.ok) throw (await refusalOf(res)).error;
       const updated: WorkItem = await res.json();
       setColumnKey(updated.columnKey);
       onUpdate(updated);
@@ -1485,17 +1506,20 @@ export function CardDetailSheet({
 
             <MetadataField icon={Layers} label="Status">
               <Select
+                // Every status, not just the reachable ones: this is the label
+                // lookup, and a value that drops out of it is reset to nothing.
                 items={Object.fromEntries(statusOptions.map((c) => [c.key, c.name]))}
                 value={columnKey}
-                onValueChange={(v) => handleFieldChange("columnKey", v ?? "")}
+                // An emptied select is never a status to move to.
+                onValueChange={(v) => v && handleFieldChange("columnKey", v)}
               >
                 <SelectTrigger size="sm" aria-label="Status" className="w-full text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {statusOptions.map((c) => (
+                  {statusChoices.map((c) => (
                     <SelectItem key={c.key} value={c.key}>
-                      {c.name}
+                      {statusLabel(c)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -2180,14 +2204,26 @@ export function CardDetailSheet({
         candidates={mergeCandidates}
       />
 
-      <CancelWorkItemDialog
+      {/* Cancelling is a transition into Cancelled whose input is the reason
+          and note: the same dialog as any other step that asks for details. */}
+      <TransitionDialog
         open={cancelOpen}
+        transition={CANCEL_TRANSITION}
+        fields={CANCEL_FIELDS}
+        initial={
+          editingCancelReason
+            ? { "system:cancelReason": item.cancelReason, "system:cancelNote": item.cancelNote ?? "" }
+            : undefined
+        }
+        title={editingCancelReason ? "Why was this cancelled?" : "Cancel this work?"}
+        description="It moves to Cancelled: kept and searchable, but not counted as delivered."
+        submitLabel={editingCancelReason ? "Save reason" : "Mark cancelled"}
+        closeLabel={editingCancelReason ? "Close" : "Keep it"}
         onClose={() => setCancelOpen(false)}
-        onConfirm={(reason, note) => void submitCancel(reason, note)}
+        onSubmit={(input) => void submitCancel(input)}
         pending={cancelPending}
-        initialReason={item?.cancelReason === "MERGED" ? null : (item?.cancelReason ?? null)}
-        initialNote={item?.cancelNote ?? null}
       />
+      {transitionDialog}
 
       {/* Split per assignee (COSMOS-89): say exactly who ends up where. */}
       <Dialog open={splitPrompt} onOpenChange={(o) => !o && setSplitPrompt(false)}>

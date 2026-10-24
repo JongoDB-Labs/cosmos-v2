@@ -4,14 +4,17 @@ import { OrgRole } from "@prisma/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
 
-const { prisma, getAuthContext, visibleProjectIdsForActor, getStorage, stream } = vi.hoisted(
+const { prisma, getAuthContext, getStorage, stream } = vi.hoisted(
   () => ({
     prisma: {
       organization: { findUnique: vi.fn() },
       document: { findFirst: vi.fn() },
+      // Read by the REAL getVisibleProjectIds.
+      project: { findMany: vi.fn() },
+      orgMember: { findUnique: vi.fn() },
+      projectMember: { findMany: vi.fn() },
     },
     getAuthContext: vi.fn(),
-    visibleProjectIdsForActor: vi.fn(),
     getStorage: vi.fn(),
     stream: vi.fn(),
   }),
@@ -19,7 +22,6 @@ const { prisma, getAuthContext, visibleProjectIdsForActor, getStorage, stream } 
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
-vi.mock("@/lib/rbac/project-access", () => ({ visibleProjectIdsForActor }));
 vi.mock("@/lib/storage", () => ({ getStorage }));
 
 import { GET } from "./route";
@@ -58,7 +60,16 @@ beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "o" });
   getAuthContext.mockResolvedValue(ctx("ORG_READ", "PROJECT_READ"));
-  visibleProjectIdsForActor.mockResolvedValue(new Set([OPEN_PROJECT]));
+  const projects = [
+    { id: OPEN_PROJECT, teamScopedAccess: false },
+    { id: RESTRICTED_PROJECT, teamScopedAccess: true },
+  ];
+  prisma.project.findMany.mockImplementation(async (a: { where: { id: { in: string[] } } }) =>
+    projects.filter((p) => a.where.id.in.includes(p.id)),
+  );
+  prisma.orgMember.findUnique.mockResolvedValue({ id: "member-1" });
+  // A member of neither project's team: only the open one is visible.
+  prisma.projectMember.findMany.mockResolvedValue([]);
   getStorage.mockReturnValue({ stream });
   stream.mockResolvedValue(new ReadableStream());
 });
@@ -68,7 +79,7 @@ describe("GET a library document's original bytes", () => {
     prisma.document.findFirst.mockResolvedValue(doc(null));
     const res = await GET(req(), { params });
     expect(res.status).toBe(200);
-    expect(visibleProjectIdsForActor).not.toHaveBeenCalled();
+    expect(prisma.project.findMany).not.toHaveBeenCalled();
   });
 
   it("serves a project document when the reader may see that project", async () => {
@@ -83,6 +94,13 @@ describe("GET a library document's original bytes", () => {
     // something the reader should not be able to determine — and the bytes are
     // never fetched from storage.
     expect(res.status).toBe(404);
+    expect(stream).not.toHaveBeenCalled();
+  });
+
+  it("will not serve one outside an API key's project scope", async () => {
+    getAuthContext.mockResolvedValue({ ...ctx("ORG_READ", "PROJECT_READ"), projectScope: [RESTRICTED_PROJECT] });
+    prisma.document.findFirst.mockResolvedValue(doc(OPEN_PROJECT));
+    expect((await GET(req(), { params })).status).toBe(404);
     expect(stream).not.toHaveBeenCalled();
   });
 

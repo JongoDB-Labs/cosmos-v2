@@ -4,6 +4,7 @@ import { isRouteContract, type RouteContract } from "./contract";
 import { pageQueryShape, NEXT_CURSOR_HEADER } from "./paginate";
 import { Problem } from "./schemas/common";
 import { API_VERSION } from "./version";
+import { satisfyingScopeSets } from "@/lib/auth/api-key-scopes";
 
 /**
  * Build the OpenAPI 3.1 document from the route contracts.
@@ -79,7 +80,8 @@ function register(registry: OpenAPIRegistry, c: RouteContract) {
     summary: c.summary,
     ...(c.description && { description: c.description }),
     tags: c.tags,
-    security: [{ bearerPat: c.scopes }],
+    // Alternatives: any one of these scope sets passes the gate (lib/auth/api-key-scopes.ts).
+    security: satisfyingScopeSets(c.scopes).map((set) => ({ bearerPat: set })),
     request: {
       ...(c.request.params && { params: c.request.params }),
       ...(query && { query }),
@@ -90,6 +92,7 @@ function register(registry: OpenAPIRegistry, c: RouteContract) {
     responses: responses as never,
     "x-cosmos-scopes": c.scopes,
     "x-cosmos-stability": c.stability,
+    ...(c.scopedFields && { "x-cosmos-scoped-fields": c.scopedFields }),
   });
 }
 

@@ -34,6 +34,8 @@ interface KanbanCardProps {
   /** Shift-click a card → select the contiguous range from the anchor to this
    *  card (enters select mode if needed). COSMOS-39. */
   onRangeSelect?: (id: string) => void;
+  /** The title's heading level: one below its column's (3 on a flat board, 4 in a swimlane). */
+  headingLevel?: 3 | 4;
 }
 
 type Priority = WorkItem["priority"];
@@ -64,7 +66,9 @@ export function KanbanCard({
   onToggleSelect,
   onCtrlSelect,
   onRangeSelect,
+  headingLevel = 3,
 }: KanbanCardProps) {
+  const Title = headingLevel === 4 ? "h4" : "h3";
   const {
     attributes,
     listeners,
@@ -314,9 +318,9 @@ export function KanbanCard({
           <span className="text-[11px] font-mono text-muted-foreground shrink-0">
             {ticketLabel}
           </span>
-          <h4 className="text-sm font-medium leading-snug line-clamp-2 flex-1">
+          <Title className="text-sm font-medium leading-snug line-clamp-2 flex-1">
             {item.title}
-          </h4>
+          </Title>
         </div>
 
         <div className="flex items-center justify-between gap-2">

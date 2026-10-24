@@ -35,6 +35,20 @@ updates:
           - "prisma"
           - "@prisma/*"
         update-types: ["minor", "patch"]
+      # OpenTelemetry moves as ONE family, in its own PR.
+      #
+      # Its packages peer-pin each other to narrow ranges (@vercel/otel 2.1.x
+      # wants sdk-logs/api-logs <0.300). Batched by semver range, the group
+      # moved @opentelemetry/api to ^1.10.0 and exporter-metrics-otlp-proto
+      # 0.222 -> 0.300 but left resources at 2.12.0, which wants api <1.10.0, so
+      # `npm ci` died with ERESOLVE on every job. That is #1122 (2026-10-24), and
+      # it held 45 unrelated updates hostage. Together, the family either resolves
+      # or fails on its own, naming its own cause.
+      opentelemetry:
+        patterns:
+          - "@opentelemetry/*"
+          - "@vercel/otel"
+        update-types: ["minor", "patch"]
       # Batch low-risk patch/minor bumps to keep PR noise down; majors stay
       # individual so breaking changes are reviewed in isolation.
       #
@@ -50,6 +64,8 @@ updates:
           - "next"
           - "prisma"
           - "@prisma/*"
+          - "@opentelemetry/*"
+          - "@vercel/otel"
     labels: ["dependencies", "security"]
     ignore:
       # Keep @types/node on the major that matches the Node Active-LTS runtime

@@ -7,7 +7,6 @@ import { seedConsulting } from "./sectors/consulting";
 import { seedManufacturing } from "./sectors/manufacturing";
 import { seedEducation } from "./sectors/education";
 import { seedEvent } from "./sectors/event";
-import { migrateLegacyData } from "./migrate-legacy";
 
 const prisma = makePrismaClient();
 
@@ -37,9 +36,6 @@ async function main() {
 
   console.log("Event sector:");
   await seedEvent(prisma);
-
-  console.log("\nMigrating legacy data...");
-  await migrateLegacyData(prisma);
 
   // Print final counts
   const workItemTypeCount = await prisma.workItemType.count({ where: { orgId: null } });

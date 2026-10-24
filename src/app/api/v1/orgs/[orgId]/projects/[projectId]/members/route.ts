@@ -1,3 +1,4 @@
+import { Permission } from "@/lib/rbac/permissions";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
@@ -86,7 +87,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const { orgId, projectId } = await params;
     const r = await resolve(orgId, projectId);
     if (r.error) return r.error;
-    if (!(await canManageProject(r.ctx, projectId))) return forbidden();
+    if (!(await canManageProject(r.ctx, projectId, Permission.PROJECT_MANAGE))) return forbidden();
 
     const { orgMemberId, role } = putSchema.parse(await request.json());
     // No cross-tenant assignment: the target must be a member of THIS org.
@@ -127,7 +128,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const { orgId, projectId } = await params;
     const r = await resolve(orgId, projectId);
     if (r.error) return r.error;
-    if (!(await canManageProject(r.ctx, projectId))) return forbidden();
+    if (!(await canManageProject(r.ctx, projectId, Permission.PROJECT_MANAGE))) return forbidden();
 
     const { orgMemberId } = delSchema.parse(await request.json());
     await prisma.projectMember.deleteMany({ where: { projectId, orgMemberId } });

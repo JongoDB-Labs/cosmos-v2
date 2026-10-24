@@ -17,6 +17,7 @@
  *   npx tsx prisma/seed/drift-probe.ts
  */
 import { makePrismaClient } from "./shared/prisma-client";
+import { DEFAULT_SEED_STATUSES, ensureSeedStatuses } from "./shared/statuses";
 
 const prisma = makePrismaClient();
 
@@ -109,7 +110,7 @@ async function main() {
   }
 
   // Idempotent: wipe the probe board and its items so re-running never stacks
-  // a second set of ten rows on top of the first.
+  // a second set on top of the first.
   const existing = await prisma.board.findFirst({
     where: { projectId: project.id, name: "Drift Probe" },
     select: { id: true },
@@ -128,6 +129,9 @@ async function main() {
       sortOrder: 2,
     },
   });
+
+  // Items must be in one of the project's statuses (a foreign key).
+  await ensureSeedStatuses(prisma, project.id, DEFAULT_SEED_STATUSES);
 
   for (const s of SCENARIOS) {
     const item = await prisma.workItem.create({

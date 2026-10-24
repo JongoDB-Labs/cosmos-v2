@@ -7,6 +7,7 @@ import { NextRequest } from "next/server";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
+import { projectRow } from "@/lib/openapi/testing/rows";
 
 const { getAuthContext, prisma } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
@@ -31,13 +32,10 @@ function ctx(over: Partial<AuthContext> = {}): AuthContext {
   };
 }
 
-const row = (i: number) => ({
+const row = (i: number) => projectRow({
   id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, orgId: ORG_ID, name: `P${i}`, key: `P${i}`,
-  description: null, settings: {}, status: "ACTIVE", archived: false, projectTemplateId: null,
-  projectTemplate: { sector: "software" }, enabledFeatures: ["risk"], teamScopedAccess: false, clientId: null, externalRef: null,
-  krLinkTypeId: null, objectiveLinkTypeId: null,
+  projectTemplate: { sector: "software" }, enabledFeatures: ["risk"],
   createdAt: new Date(Date.UTC(2026, 9, 30 - i)), updatedAt: new Date(Date.UTC(2026, 9, 30)),
-  _count: { boards: 1, intervals: 0, members: 1 },
 });
 
 const pagingCalls = () =>
@@ -59,7 +57,7 @@ beforeEach(() => {
 describe("GET projects: the contract", () => {
   it.each([
     ["a browser (cookie) caller", {}],
-    ["an API key that sends no paging params (existing clients)", { isApiKey: true }],
+    ["an API key that sends no paging params (existing clients)", { isApiKey: true, scopes: ["read"] }],
   ])("%s still gets every project in one array", async (_n, over) => {
     getAuthContext.mockResolvedValue(ctx(over));
     const res = await get();
@@ -79,7 +77,7 @@ describe("GET projects: the contract", () => {
   });
 
   it("a caller that asks for pages gets them, with a Link to the rest on the public origin", async () => {
-    getAuthContext.mockResolvedValue(ctx({ isApiKey: true }));
+    getAuthContext.mockResolvedValue(ctx({ isApiKey: true, scopes: ["read"] }));
     const res = await get("?limit=50", { "x-forwarded-host": "cosmos.example.gov", "x-forwarded-proto": "https" });
     expect(await res.json()).toHaveLength(50);
     expect(pagingCalls()[0].take).toBe(51);
@@ -87,7 +85,7 @@ describe("GET projects: the contract", () => {
   });
 
   it("follows a cursor with a keyset WHERE, keeping the org and archived filter", async () => {
-    getAuthContext.mockResolvedValue(ctx({ isApiKey: true }));
+    getAuthContext.mockResolvedValue(ctx({ isApiKey: true, scopes: ["read"] }));
     const cursor = (await get("?limit=2")).headers.get("cosmos-next-cursor")!;
     const second = await get(`?limit=2&cursor=${cursor}`);
     expect(second.status, JSON.stringify(await second.clone().json())).toBe(200);
@@ -137,5 +135,21 @@ describe("GET projects: the contract", () => {
     const res = await get();
     expect(res.status).toBe(401);
     expect(res.headers.get("content-type")).toBe("application/problem+json");
+  });
+});
+
+describe("GET projects: the scope gate", () => {
+  it("a token without `read` (or a write scope implying it) is refused 403 with a step-up challenge", async () => {
+    getAuthContext.mockResolvedValue(ctx({ isApiKey: true, scopes: ["time:write"] }));
+    const res = await get();
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("insufficient_scope");
+    expect(res.headers.get("www-authenticate")).toContain('error="insufficient_scope"');
+    expect(prisma.project.findMany).not.toHaveBeenCalled();
+  });
+
+  it("an items:write token passes the gate (write implies read)", async () => {
+    getAuthContext.mockResolvedValue(ctx({ isApiKey: true, scopes: ["items:write"] }));
+    expect((await get()).status).toBe(200);
   });
 });

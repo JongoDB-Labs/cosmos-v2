@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { test, expect } from "./fixtures/auth";
 
@@ -52,7 +52,7 @@ function isoDate(d: Date): string {
 
 const WEEKS_BACK = 5;
 
-const prisma = new PrismaClient({
+const prisma = new PrismaClient<Prisma.PrismaClientOptions>({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
 });
 

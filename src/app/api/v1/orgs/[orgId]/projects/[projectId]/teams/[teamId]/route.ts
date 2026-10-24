@@ -1,3 +1,4 @@
+import { Permission } from "@/lib/rbac/permissions";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
@@ -41,7 +42,7 @@ async function resolve(orgId: string, projectId: string, teamId: string) {
     select: { id: true },
   });
   if (!project) return { ok: false as const, error: new Response("Not found", { status: 404 }) };
-  if (!(await canManageProject(ctx, projectId))) return { ok: false as const, error: forbidden() };
+  if (!(await canManageProject(ctx, projectId, Permission.PROJECT_MANAGE))) return { ok: false as const, error: forbidden() };
   // Scoped by projectId so a team id from another project cannot be driven
   // through this route.
   const team = await prisma.team.findFirst({

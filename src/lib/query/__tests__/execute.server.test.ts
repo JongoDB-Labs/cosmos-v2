@@ -197,6 +197,32 @@ describe("executeCql (e2e DB)", () => {
     }
   });
 
+  it("reads statuses from the project, not its boards: one no board shows still resolves, a ceremony prompt does not", async () => {
+    const { prisma } = await import("@/lib/db/client");
+    // A status made through the API, shown by no column, with an item in it.
+    await prisma.workflowStatus.create({
+      data: { orgId: w.orgA, projectId: w.P1.id, key: "blocked", name: "Blocked", category: "IN_PROGRESS", sortOrder: 50 },
+    });
+    const board = await prisma.board.create({ data: { orgId: w.orgA, projectId: w.P1.id, name: "Retro", type: "SPRINT_REVIEW" } });
+    await prisma.boardColumn.create({ data: { boardId: board.id, key: "went-well", name: "Went well", category: "DONE", sortOrder: 0 } });
+    const row = await prisma.workItem.create({
+      data: {
+        orgId: w.orgA, projectId: w.P1.id, ticketNumber: 901, title: "stuck", description: "",
+        columnKey: "blocked", workItemTypeId: w.typeTask, createdById: w.actor.id,
+      },
+    });
+    try {
+      expect((await run("status = Blocked")).titles).toEqual(["stuck"]);
+      expect((await run("statusCategory = IN_PROGRESS")).titles).toContain("stuck");
+      const e = await err('status = "Went well"');
+      expect(e[0].code).toBe("CQL_UNKNOWN_VALUE");
+    } finally {
+      await prisma.workItem.delete({ where: { id: row.id } });
+      await prisma.board.delete({ where: { id: board.id } });
+      await prisma.workflowStatus.delete({ where: { projectId_key: { projectId: w.P1.id, key: "blocked" } } });
+    }
+  });
+
   it("a statement over budget is cancelled and reported as CQL_TIMEOUT", async () => {
     await expect(withStatementTimeout(100, (tx) => tx.$queryRaw`SELECT 1 AS x FROM pg_sleep(2)`)).rejects.toMatchObject({
       status: 422,

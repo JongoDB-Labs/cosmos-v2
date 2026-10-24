@@ -1,25 +1,15 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { z } from "zod";
 import { IntervalKind } from "@prisma/client";
-
-const createIntervalSchema = z.object({
-  name: z.string().min(1).max(100),
-  goal: z.string().nullish(),
-  startDate: z.string().datetime(),
-  endDate: z.string().datetime(),
-  intervalKind: z.nativeEnum(IntervalKind).default(IntervalKind.SPRINT),
-  // Program Increment this interval belongs to (a PI interval id). Only meaningful for
-  // sprints; a PI is top-level so it never carries a parent.
-  parentId: z.string().uuid().nullish(),
-});
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { createInterval, listIntervals } from "./route.contract";
 
 /** Validate a parentId points at a PROGRAM_INCREMENT interval in the same project.
  *  Returns an error message, or null when it's a valid PI (or no parent). */
@@ -43,24 +33,18 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, listIntervals);
+    const { params: { orgId, projectId }, query } = await parseRequest(listIntervals, request, params);
     await requireProjectRead(ctx, projectId, "SPRINT_READ");
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
-    if (!project) return new Response("Not found", { status: 404 });
-
-    const status = request.nextUrl.searchParams.get("status");
+    if (!project) return problem(404, "not_found", undefined, { request });
 
     const intervals = await prisma.interval.findMany({
       where: {
         orgId,
         projectId,
-        ...(status && { status: status as "PLANNED" | "ACTIVE" | "COMPLETED" }),
+        ...(query.status && { status: query.status }),
       },
       include: {
         _count: { select: { workItems: true } },
@@ -68,37 +52,27 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       orderBy: { number: "desc" },
     });
 
-    return success(intervals);
+    return respond(listIntervals, 200, intervals);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, createInterval);
+    const { params: { orgId, projectId }, body: data } = await parseRequest(createInterval, request, params);
     await requireProjectManage(ctx, projectId, Permission.SPRINT_CREATE);
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
-    if (!project) return new Response("Not found", { status: 404 });
-
-    const body = await request.json();
-    const data = createIntervalSchema.parse(body);
+    if (!project) return problem(404, "not_found", undefined, { request });
 
     // A PI is top-level; a sprint may nest under a PI (validated same-project).
     const parentId =
       data.intervalKind === IntervalKind.PROGRAM_INCREMENT ? null : (data.parentId ?? null);
     const parentErr = await validateParentPI(parentId, projectId);
     if (parentErr) {
-      return new Response(JSON.stringify({ error: parentErr }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      return problem(400, "invalid_request", parentErr, { request });
     }
 
     const maxNumber = await prisma.interval.aggregate({
@@ -134,8 +108,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
-    return created(interval);
+    return respond(createInterval, 201, interval);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

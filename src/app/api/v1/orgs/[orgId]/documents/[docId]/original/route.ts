@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { visibleProjectIdsForActor } from "@/lib/rbac/project-access";
+import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { getStorage } from "@/lib/storage";
 import { handleApiError } from "@/lib/api-helpers";
@@ -42,9 +42,9 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
     if (doc.projectId) {
       requirePermission(ctx, Permission.PROJECT_READ);
-      const visible = await visibleProjectIdsForActor(orgId, ctx.userId, [
-        doc.projectId,
-      ]);
+      // The AuthContext carries an API key's project scope; the user id alone
+      // would let a key scoped elsewhere download this project's files.
+      const visible = await getVisibleProjectIds(ctx, [doc.projectId]);
       if (!visible.has(doc.projectId))
         return new Response("Not found", { status: 404 });
     }

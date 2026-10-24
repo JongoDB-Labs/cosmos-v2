@@ -49,6 +49,523 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.471.0",
+    date: "2026-10-24",
+    title: "Boards and the assistant speak the query language",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Boards and the assistant now speak the Cosmos Query Language (beta): narrow any board with a query and Clear back to its own scope, ask the assistant to search across all your projects, or describe a filter in plain words and let AI write the query for you to check.",
+      },
+    ],
+  },
+  {
+    version: "2.470.2",
+    date: "2026-10-24",
+    title: "Delete an unused workflow",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Settings \u2192 Workflows can now delete a workflow that nothing follows, after a confirmation. A workflow that is a project's default or assigned to an item type can't be deleted.",
+      },
+    ],
+  },
+  {
+    version: "2.470.1",
+    date: "2026-10-24",
+    title: "Inbox links open the right item",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Clicking a notification in the Inbox now opens the item it is about. Before, every Inbox link pointed to a page that did not exist.",
+      },
+    ],
+  },
+  {
+    version: "2.470.0",
+    date: "2026-10-24",
+    title: "One category per status",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Every board, report and filter now reads a status column's category from the status itself, so a status means the same thing everywhere. Settings \u2192 Workflows \u2192 Statuses lists any status whose boards disagreed on its category and lets an admin keep the status's category or adopt a board's.",
+      },
+    ],
+  },
+  {
+    version: "2.469.0",
+    date: "2026-10-24",
+    title: "Search work items across projects in the API",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The API reference now documents searching work items across projects: GET /work-items, GET /work-items/search, and POST /work-items/search with a JSON filter. API keys need the read scope for them.",
+      },
+    ],
+  },
+  {
+    version: "2.468.1",
+    date: "2026-10-24",
+    title: "Tighter API key visibility",
+    highlights: [
+      {
+        kind: "fix",
+        text: "API keys limited to some projects now see only the people on those projects in the member list and the work-item filters. A work item's change history in the API shows before-and-after values only for the item's own reviewed fields.",
+      },
+    ],
+  },
+  {
+    version: "2.468.0",
+    date: "2026-10-24",
+    title: "Query language: history, hierarchy and richer sorting",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Query language (beta): search history with WAS and CHANGED (for example: status CHANGED FROM Review TO \"In Progress\" AFTER -14d), filter by everything under an epic (ancestor = ACME-1), by milestone, and by empty or matching custom fields, and sort by assignee, status, project or a custom field.",
+      },
+    ],
+  },
+  {
+    version: "2.467.0",
+    date: "2026-10-24",
+    title: "Edit a client after it is created",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A client's name, legal name, contact details, website, notes and active status can now be corrected after the client is created. Anyone with permission to update CRM records can make the change, and it is recorded in the audit log.",
+      },
+    ],
+  },
+  {
+    version: "2.466.0",
+    date: "2026-10-24",
+    title: "Reinstall a rebuilt release from Admin \u203a Updates",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When the image for the version you already run has been rebuilt (for example a plugin-only release), Admin \u203a Updates now says so and offers Reinstall, with the same safety checks as an upgrade. Before, such a release stayed invisible until the next core version.",
+      },
+    ],
+  },
+  {
+    version: "2.465.1",
+    date: "2026-10-24",
+    title: "Plugin versions recorded with each release",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Each release now records the exact released version of every bundled plugin alongside its pinned commit, so it is clear which plugin versions a Cosmos release contains.",
+      },
+    ],
+  },
+  {
+    version: "2.465.0",
+    date: "2026-10-24",
+    title: "Workflows you can design per project",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each project can now have its own workflows: choose which moves are allowed, who may make them, what a move asks for, what it checks and what it does (Project settings \u2192 Workflows). Workflows are edited as drafts with a live diagram and a simulator, published as versions you can restore, and can be saved as organization templates. When a new version drops a status, Cosmos asks where its items go and moves them in the background. A full column with a hard WIP limit now refuses moves from anywhere: the detail panel, bulk edits, the API and the assistant.",
+      },
+    ],
+  },
+  {
+    version: "2.464.6",
+    date: "2026-10-24",
+    title: "Clearer structure for screen readers",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The notification badge is easier to read in both themes. Settings pages and project boards use heading levels in order, and the navigation areas have names, so screen-reader users can move around the app more easily.",
+      },
+    ],
+  },
+  {
+    version: "2.464.5",
+    date: "2026-10-24",
+    title: "Security: assignees must be in your organization",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Work items can no longer be assigned to people outside their organization, or to people who have left it or been deactivated. Assigning an unknown person now gives a clear error instead of a server error.",
+      },
+    ],
+  },
+  {
+    version: "2.464.4",
+    date: "2026-10-24",
+    title: "Updates reach the deployed app again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The build that produces the deployed app was failing after the new status model landed. It builds again, so the releases since 2.455.0 can now be installed from Admin > Updates.",
+      },
+    ],
+  },
+  {
+    version: "2.464.3",
+    date: "2026-10-24",
+    title: "Internal: faster type checking",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal: type checking uses about 0.6 GB less memory and runs about 15 seconds faster. No visible change.",
+      },
+    ],
+  },
+  {
+    version: "2.464.2",
+    date: "2026-10-24",
+    title: "Easier to use with a keyboard and screen reader",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On the Outlook invitations panel and the Outlook disconnect choice, keyboard focus now lands on the right place after each step instead of jumping to the top of the page. Alerts there, and the text of pop-up notices everywhere, now meet contrast standards in light and dark themes. The Teams sign-in tab has proper page structure for screen readers.",
+      },
+    ],
+  },
+  {
+    version: "2.464.1",
+    date: "2026-10-24",
+    title: "Dependency updates",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Routine updates to 46 libraries the app is built on, including the text editor, the dialog and menu components, and the AI client. No visible change is expected.",
+      },
+    ],
+  },
+  {
+    version: "2.464.0",
+    date: "2026-10-24",
+    title: "Workflow transitions",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Moving an item to a new status now goes through its project's workflow. A transition can ask for details first, such as a resolution or a required field, and admins with the new workflow permissions can override a blocked move, which is recorded in the audit log. Projects without a custom workflow behave as before.",
+      },
+    ],
+  },
+  {
+    version: "2.463.3",
+    date: "2026-10-24",
+    title: "Internal: tidy the seed scripts",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal: the database seed scripts share one environment loader and drop a no-op legacy step. No visible change.",
+      },
+    ],
+  },
+  {
+    version: "2.463.2",
+    date: "2026-10-24",
+    title: "Internal: tidy project-management exports",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal: removes unused exports from the project-management code, and staffing no longer loads more member data than it shows. No visible change.",
+      },
+    ],
+  },
+  {
+    version: "2.463.1",
+    date: "2026-10-24",
+    title: "Internal: tidy the update checker",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal: removes dead code from the update checker and pins how it pairs app and migration images. No visible change.",
+      },
+    ],
+  },
+  {
+    version: "2.463.0",
+    date: "2026-10-24",
+    title: "Work-item reads in the public API",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The public API now documents reading work items: listing a project's items, an item's detail, its comments and its filter facets, with typed contracts. An item you can't read answers the same as one that doesn't exist, and only comments everyone may read are returned.",
+      },
+    ],
+  },
+  {
+    version: "2.462.1",
+    date: "2026-10-24",
+    title: "Notices show on every page",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Pop-up notices, including the one asking you to reload after an update, now appear on every page, not only inside the main workspace.",
+      },
+    ],
+  },
+  {
+    version: "2.462.0",
+    date: "2026-10-24",
+    title: "Work-item links in the public API",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The public API now documents the work-item links endpoints, with typed contracts, so integrations can list, create and remove links between items with the same permission checks as the app.",
+      },
+    ],
+  },
+  {
+    version: "2.461.2",
+    date: "2026-10-24",
+    title: "The installed app keeps its identity",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The web-app manifest now has a stable id, so an installed Cosmos app is recognised as the same app after an update instead of looking like a new one.",
+      },
+    ],
+  },
+  {
+    version: "2.461.1",
+    date: "2026-10-24",
+    title: "Time tracking always opens on your own week",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The time tracker's first load now asks only for your own entries and timesheet, even when the people list is slow or fails to load. Before, someone allowed to see everyone's time could briefly get the whole organization's entries in their week view and in Export CSV.",
+      },
+    ],
+  },
+  {
+    version: "2.461.0",
+    date: "2026-10-24",
+    title: "Send real Outlook invitations from a meeting",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A meeting's organizer can now send real Outlook invitations from their own mailbox. Cosmos keeps them up to date when the meeting changes and cancels them when it's stopped, cancelled or becomes restricted. Attendees outside your organization's domains are flagged before anything is sent.",
+      },
+    ],
+  },
+  {
+    version: "2.460.7",
+    date: "2026-10-24",
+    title: "Issues search updates the address bar instantly",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Running a query on the Issues page updates the URL and results immediately instead of waiting on a server round trip.",
+      },
+    ],
+  },
+  {
+    version: "2.460.6",
+    date: "2026-10-24",
+    title: "API keys stay within their projects in the document library",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An API key limited to certain projects now lists and downloads documents only from those projects.",
+      },
+    ],
+  },
+  {
+    version: "2.460.5",
+    date: "2026-10-24",
+    title: "Install Cosmos as an app in Edge and Chrome",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Edge and Chrome now offer to install Cosmos as an app: the app manifest is linked from the page head, where those browsers look for it.",
+      },
+    ],
+  },
+  {
+    version: "2.460.4",
+    date: "2026-10-24",
+    title: "New boards start with columns",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A Kanban or Scrum board created from Issues' \"Save as board\" (or the board form) now starts with the project's columns, or the defaults, instead of empty.",
+      },
+    ],
+  },
+  {
+    version: "2.460.3",
+    date: "2026-10-24",
+    title: "API keys can't act beyond their scopes",
+    highlights: [
+      {
+        kind: "fix",
+        text: "API keys can no longer edit comments, saved views, retrospectives or other people's time, create calendar feed links, use chat, or read others' private filters unless their scopes allow it. The Teams digest now needs an integration manager, or a key with rules:run and read, and posts at most once an hour.",
+      },
+    ],
+  },
+  {
+    version: "2.460.2",
+    date: "2026-10-24",
+    title: "Marked feedback comments are re-checked on a schedule",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If a lowered marking ceiling couldn't immediately hide affected feedback comments and their notifications, a background job now finishes the job within 15 minutes.",
+      },
+    ],
+  },
+  {
+    version: "2.460.1",
+    date: "2026-10-24",
+    title: "More reliable test fixtures",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Internal: test fixtures now allocate ticket numbers the same race-safe way the app does, removing an intermittent test failure. No change to the app's behaviour.",
+      },
+    ],
+  },
+  {
+    version: "2.460.0",
+    date: "2026-10-24",
+    title: "Follow feedback and merge duplicates",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Follow a feedback item to hear about new comments and status changes; you follow automatically when you post, vote, comment or are mentioned, and unfollowing sticks. Staff can merge a duplicate into another request, moving its votes and followers, and undo the merge exactly.",
+      },
+    ],
+  },
+  {
+    version: "2.459.0",
+    date: "2026-10-24",
+    title: "Per-operation API key scopes",
+    highlights: [
+      {
+        kind: "feature",
+        text: "API keys are now checked against the scopes each operation needs, and new scopes let you mint narrower keys (time, audit, planning, deletes). Keys with only rules:run or members:read can no longer list members or edit saved views, and read-only keys can no longer save, star or unstar saved views; re-mint with items:write if you relied on that.",
+      },
+    ],
+  },
+  {
+    version: "2.458.0",
+    date: "2026-10-24",
+    title: "Cosmos tabs in Microsoft Teams",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Add Cosmos to a Teams channel or your personal Teams app to see your assigned work and a project's items without leaving Teams. Sign-in uses your Microsoft account, linked through Outlook Calendar; an admin grants consent once.",
+      },
+    ],
+  },
+  {
+    version: "2.457.0",
+    date: "2026-10-24",
+    title: "API reference: OKRs, goals, KPIs, time and audit",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The API reference now covers OKRs, goals, KPIs, time entries and the audit log. Editing a time entry no longer shows its billing rate to someone without finance access.",
+      },
+    ],
+  },
+  {
+    version: "2.456.1",
+    date: "2026-10-24",
+    title: "Tighter access checks in chat and assistant search",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The assistant's search now respects project access policies for admins, and API keys can no longer post, edit, pin or react in chat.",
+      },
+    ],
+  },
+  {
+    version: "2.456.0",
+    date: "2026-10-24",
+    title: "Project statuses",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each project can now define its own workflow statuses, each mapped to a category (to do, in progress, done). Board columns follow the status categories, and every status change is recorded consistently.",
+      },
+    ],
+  },
+  {
+    version: "2.455.0",
+    date: "2026-10-24",
+    title: "CUI markings on feedback comments",
+    highlights: [
+      {
+        kind: "feature",
+        text: "For government organizations, staff can mark a feedback comment CUI. Marked comments stay internal unless the organization is cleared for them, and lowering the clearance hides them again automatically.",
+      },
+    ],
+  },
+  {
+    version: "2.454.2",
+    date: "2026-10-24",
+    title: "API keys respect their scopes",
+    highlights: [
+      {
+        kind: "fix",
+        text: "API keys now respect their scopes for project planning changes, boards, team and member management, files and chat channel administration, whatever the role of the person who created the key.",
+      },
+    ],
+  },
+  {
+    version: "2.454.1",
+    date: "2026-10-24",
+    title: "Safer web page reading in the assistant",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When the assistant reads a web page, encoded markup is now cleaned out properly instead of being turned back into tags.",
+      },
+    ],
+  },
+  {
+    version: "2.454.0",
+    date: "2026-10-24",
+    title: "More of the API on contracts",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "For API clients: projects, intervals, milestones, labels, custom fields and members now return standard problem+json errors, the members list can be paged (send limit or cursor), and member email addresses are returned only to API keys with the new members:read scope.",
+      },
+    ],
+  },
+  {
+    version: "2.453.0",
+    date: "2026-10-24",
+    title: "Team voice in feedback",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Staff can now add internal notes to feedback that only staff see, pin an official response at the top of the discussion, filter between public and internal comments, and switch a comment between the two.",
+      },
+    ],
+  },
+  {
+    version: "2.452.0",
+    date: "2026-10-23",
+    title: "Shared saved filters",
+    highlights: [
+      {
+        kind: "feature",
+        text: "With the query language on, share a saved filter with a team, a project or the whole organization, add co-editors, star filters into the sidebar, and see when you've changed the filter you loaded. Shared filters never reveal projects or people you can't see.",
+      },
+    ],
+  },
+  {
+    version: "2.451.0",
+    date: "2026-10-23",
+    title: "Cosmos for Teams",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Use Cosmos from Microsoft Teams: search work items, preview links in chat, and create a work item from a Teams message, all with your own Cosmos permissions.",
+      },
+    ],
+  },
+  {
     version: "2.450.0",
     date: "2026-10-23",
     title: "Projects API: paging and standard errors",

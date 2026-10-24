@@ -105,10 +105,8 @@ describe("evaluate.ts ≡ the database (e2e DB)", () => {
 
   it("on board-shaped rows it is undecided rather than wrong, and decides the card fields", async () => {
     // What a board row carries: the card's own columns and its assignee set.
-    const board = rows.map((r) => {
-      const { labels: _l, watchers: _w, comments: _c, incomingLinks: _i, outgoingLinks: _o, activities: _a, ...card } = r;
-      return card;
-    });
+    const RELATIONS = ["labels", "watchers", "comments", "incomingLinks", "outgoingLinks", "activities"];
+    const board = rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !RELATIONS.includes(k))) as typeof r);
     let decided = 0;
     let total = 0;
     await fc.assert(

@@ -4,6 +4,7 @@
  * To Do" and to exercise the actual-date + parent-cascade dialogs.
  */
 import { makePrismaClient } from "./shared/prisma-client";
+import { ensureSeedStatuses } from "./shared/statuses";
 
 const prisma = makePrismaClient();
 
@@ -33,6 +34,9 @@ async function main() {
       data: { boardId: board.id, color: "#94a3b8", ...c },
     });
   }
+
+  // Items must be in one of the project's statuses (a foreign key).
+  await ensureSeedStatuses(prisma, project.id);
 
   const base = {
     orgId: org.id,

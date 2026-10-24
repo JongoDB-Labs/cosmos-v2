@@ -279,6 +279,7 @@ export async function checkForUpdates(
 
   const status = updateStatus(currentVersion, versionsFromTags(tags, config.suffix));
   const auth = { username: config.username, password: config.password };
+  const registryHost = parseImageRef(config.repo).host;
 
   let candidateDigest: string | null = null;
   let candidateTag: string | null = null;
@@ -307,7 +308,6 @@ export async function checkForUpdates(
         missingSidecars = found.filter((f) => !f.ok).map((f) => f.r);
         break;
       }
-      if (app && !migrate) migrateImagePresent = false;
     }
   }
 
@@ -329,13 +329,27 @@ export async function checkForUpdates(
       if (app && migrate) {
         rebuildAvailable = app !== config.runningDigest;
         if (rebuildAvailable && !candidateDigest) {
+          // The rebuild IS the candidate when no newer version is on offer, so
+          // it is held to the same pairing the upgrade path checks above —
+          // including the sidecars, at this same tag — before it can be
+          // reinstalled.
           candidateDigest = app;
           candidateTag = tag;
+          migrateImagePresent = true;
+          const found = await Promise.all(
+            config.sidecarRepos.map((r) => deps.resolveDigest(r, tag, auth).then((d) => ({ r, ok: !!d }))),
+          );
+          missingSidecars = found.filter((f) => !f.ok).map((f) => f.r);
         }
         break;
       }
     }
   }
+
+  // A REINSTALL: no newer version, but the image for the version we run has
+  // been rebuilt. It gets the full preflights, so a reinstall is offered on the
+  // same terms as an upgrade and never unconditionally.
+  const reinstall = !status.updateAvailable && rebuildAvailable === true;
 
   const [dbReachable, currentHealthOk] = await Promise.all([
     deps.probeDb().catch(() => null),
@@ -344,25 +358,30 @@ export async function checkForUpdates(
 
   const facts: PreflightFacts = {
     currentVersion,
-    candidateVersion: status.updateAvailable ? status.latest : null,
+    candidateVersion: status.updateAvailable ? status.latest : reinstall ? currentVersion : null,
     ahead: status.ahead,
     candidateDigest,
     migrateImagePresent,
     missingSidecars,
     sidecarCount: config.sidecarRepos.length,
-    candidateRegistryHost: parseImageRef(config.repo).host,
-    expectedRegistryHost: parseImageRef(config.repo).host,
+    // Both sides of the expected-registry comparison come from the SAME parse
+    // of `config.repo`, so the in-app check can only ever pass. That is not an
+    // oversight: in-app, the candidate is resolved against the configured repo
+    // by construction, so there is no second host to disagree. The predicate
+    // earns its keep in the host-side runner, which supplies a candidate host
+    // read from the image it is actually about to pull.
+    candidateRegistryHost: registryHost,
+    expectedRegistryHost: registryHost,
     dbReachable,
     currentHealthOk,
     // Not observable from inside the application container — it has no host
     // mount. Left null on purpose so the preflight reports `unknown` rather
-    // than a comfortable lie, and so `applyable` stays false for an in-app
-    // check. The host-side actuator fills these in.
+    // than a comfortable lie. The host-side actuator fills these in.
     hostDiskFreeBytes: null,
     estimatedRequiredBytes: null,
   };
 
-  const preflights = status.updateAvailable ? evaluatePreflights(facts) : [];
+  const preflights = status.updateAvailable || reinstall ? evaluatePreflights(facts) : [];
 
   // Notes are best-effort and MUST NOT be able to fail the check. Knowing an
   // upgrade exists is the useful part; knowing what is in it is a bonus that
@@ -380,7 +399,7 @@ export async function checkForUpdates(
   //
   // Same host ⇒ same credentials. Different host ⇒ anonymous, which is what a
   // public notes repository wants anyway.
-  const sameHost = parseImageRef(config.notesRepo).host === parseImageRef(config.repo).host;
+  const sameHost = parseImageRef(config.notesRepo).host === registryHost;
   const notesAuth = sameHost ? auth : {};
 
   const { notes, omitted } = status.updateAvailable

@@ -132,3 +132,40 @@ describe("canAdministerProject — the boolean form the UI renders from", () => 
     expect(await canAdministerProject(ctx(), PROJECT_ID)).toBe(false);
   });
 });
+
+// An API key carries its minter's org role and project membership, so without a
+// cap those two paths let a `read` key minted by an admin or a project manager
+// edit the project: the key's scope mask never got a say.
+describe("an API key manages only what its scopes would allow", () => {
+  /** A key's context: the minter's permissions ∩ the scope mask, plus the scopes. */
+  const key = (scopes: string[], over: Partial<AuthContext> = {}) =>
+    ctx({ isApiKey: true, scopes, permissions: Permission.PROJECT_READ, basePermissions: Permission.PROJECT_READ, ...over });
+
+  it("an OWNER's read key cannot edit a project through the owner's role", async () => {
+    asProjectManager(false);
+    await expect(requireProjectManage(key(["read"], { orgRole: OrgRole.OWNER }), PROJECT_ID)).rejects.toThrow();
+    expect(await canAdministerProject(key(["read"], { orgRole: OrgRole.OWNER }), PROJECT_ID)).toBe(false);
+  });
+
+  it("a project MANAGER's read or rules:run key cannot edit their project", async () => {
+    asProjectManager(true);
+    await expect(requireProjectManage(key(["read"]), PROJECT_ID)).rejects.toThrow();
+    await expect(requireProjectManage(key(["rules:run"]), PROJECT_ID)).rejects.toThrow();
+  });
+
+  it("a project MANAGER's items:write key still adds milestones to their project", async () => {
+    asProjectManager(true);
+    await expect(requireProjectManage(key(["items:write"]), PROJECT_ID)).resolves.toBeUndefined();
+    expect(await canAdministerProject(key(["items:write"]), PROJECT_ID)).toBe(true);
+  });
+
+  it("the route's own bit decides: items:write carries no OKR_UPDATE, so a manager's key can't edit goals", async () => {
+    asProjectManager(true);
+    await expect(requireProjectManage(key(["items:write"]), PROJECT_ID, Permission.OKR_UPDATE)).rejects.toThrow();
+  });
+
+  it("a browser session is unchanged: an OWNER manages through their role", async () => {
+    asProjectManager(false);
+    await expect(requireProjectManage(ctx({ orgRole: OrgRole.OWNER }), PROJECT_ID)).resolves.toBeUndefined();
+  });
+});

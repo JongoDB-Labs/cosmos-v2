@@ -378,9 +378,9 @@ export async function buildCombinedWorkbook(
 
     // 2) Create + copy each sheet under its new name.
     for (const { srcSheet, newName } of planned) {
-      const dst = out.addWorksheet(newName, {
-        views: srcSheet.views?.length ? srcSheet.views : undefined,
-      });
+      // No options here: `copyWorksheet` is the single place that transfers
+      // `views` (and every other sheet-level nicety) from source to destination.
+      const dst = out.addWorksheet(newName);
       copyWorksheet(srcSheet, dst, renameMap, formulaLog);
     }
   }

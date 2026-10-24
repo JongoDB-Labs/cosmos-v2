@@ -5,6 +5,8 @@ import { connectorToolAccess, connectorToolNames, executeConnectorTool } from ".
 import {
   createWorkItem,
   updateWorkItem,
+  listTransitionsForItem,
+  transitionItem,
   deleteWorkItem,
   listWorkItems,
   listItemLinks,
@@ -341,6 +343,10 @@ async function dispatchTool(
       return createWorkItem(input, ctx);
     case "update_work_item":
       return updateWorkItem(input, ctx);
+    case "list_transitions":
+      return listTransitionsForItem(input, ctx);
+    case "transition_item":
+      return transitionItem(input, ctx);
     case "delete_work_item":
       return deleteWorkItem(input, ctx);
     case "list_work_items":
@@ -541,6 +547,7 @@ async function dispatchTool(
 const ASSISTANT_AUDIT_ACTIONS: Record<string, { action: string; entity: string }> = {
   create_work_item: { action: "assistant.work_item.created", entity: "work_item" },
   update_work_item: { action: "assistant.work_item.updated", entity: "work_item" },
+  transition_item: { action: "assistant.work_item.transitioned", entity: "work_item" },
   delete_work_item: { action: "assistant.work_item.deleted", entity: "work_item" },
   create_note: { action: "assistant.note.created", entity: "note" },
   update_note: { action: "assistant.note.updated", entity: "note" },

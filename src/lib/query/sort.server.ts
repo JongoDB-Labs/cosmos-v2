@@ -42,9 +42,9 @@ const SYS: Partial<Record<SystemFieldId, Prisma.Sql>> = {
   type: Prisma.sql`(SELECT lower(t.name) FROM work_item_types t WHERE t.id = w.work_item_type_id)`,
   // The primary assignee, by name.
   assignee: Prisma.sql`(SELECT lower(u.display_name) FROM users u WHERE u.id = w.assignee_id)`,
-  // The column's name on the item's project's board(s).
-  status: Prisma.sql`(SELECT lower(min(c.name)) FROM board_columns c JOIN boards b ON b.id = c.board_id
-                       WHERE b.project_id = w.project_id AND c.key = w.column_key)`,
+  // The status's name in the item's project: workflow_statuses is where a
+  // status lives (one per project and key), as the resolver reads it.
+  status: Prisma.sql`(SELECT lower(s.name) FROM workflow_statuses s WHERE s.project_id = w.project_id AND s.key = w.column_key)`,
   project: Prisma.sql`(SELECT p.key FROM projects p WHERE p.id = w.project_id)`,
 };
 
@@ -88,15 +88,17 @@ export async function sortedIds(
   where: Prisma.WorkItemWhereInput,
   keys: SqlSortKey[],
   page: { skip: number; take: number },
+  /** How many matching items may be ordered: SORT_MAX for a page, more for an export. */
+  max = SORT_MAX,
 ): Promise<string[]> {
-  const matching = await db.workItem.findMany({ where, select: { id: true }, take: SORT_MAX + 1 });
-  if (matching.length > SORT_MAX) {
+  const matching = await db.workItem.findMany({ where, select: { id: true }, take: max + 1 });
+  if (matching.length > max) {
     throw new CqlError(
       [
         diag(
           "",
           "CQL_SORT_TOO_BROAD",
-          `Sorting by assignee, status, project or a custom field works on up to ${SORT_MAX.toLocaleString("en-US")} items. Narrow the query, or sort by another field.`,
+          `Sorting by assignee, status, project or a custom field works on up to ${max.toLocaleString("en-US")} items. Narrow the query, or sort by another field.`,
         ),
       ],
       422,

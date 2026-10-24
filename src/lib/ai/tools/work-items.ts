@@ -46,6 +46,32 @@ export const workItemTools: ToolDefinition[] = [
     },
   },
   {
+    name: "list_transitions",
+    description:
+      "List the status changes (transitions) the user may make on a work item, from its current status, and the fields each one asks for. Use before moving an item when a move is refused, or when the user asks what they can do next.",
+    input_schema: {
+      type: "object",
+      properties: {
+        itemId: { type: "string", description: "Work item ID" },
+      },
+      required: ["itemId"],
+    },
+  },
+  {
+    name: "transition_item",
+    description:
+      "Move a work item through one of its transitions (an id from list_transitions), with the input that transition asks for, keyed `system:<field>` or `custom:<key>`. A refusal says what is missing or which checks failed.",
+    input_schema: {
+      type: "object",
+      properties: {
+        itemId: { type: "string", description: "Work item ID" },
+        transitionId: { type: "string", description: "A transition id from list_transitions" },
+        input: { type: "object", description: "Values for the fields the transition asks for, e.g. { \"system:resolution\": \"Fixed\" }" },
+      },
+      required: ["itemId", "transitionId"],
+    },
+  },
+  {
     name: "list_item_links",
     description:
       "List work-item dependency links in a project (directed edges typed BLOCKS/PREDECESSOR/RELATES/…). Optionally narrow to links touching one item.",

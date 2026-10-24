@@ -1,6 +1,7 @@
 /** Local-only: a SCRUM (Sprint) board with an active interval, mirroring the
  *  shape of the board the report came from. */
 import { makePrismaClient } from "./shared/prisma-client";
+import { ensureSeedStatuses } from "./shared/statuses";
 const prisma = makePrismaClient();
 
 async function main() {
@@ -24,6 +25,9 @@ async function main() {
   ]) {
     await prisma.boardColumn.create({ data: { boardId: board.id, color: "#94a3b8", ...c } });
   }
+
+  // Items must be in one of the project's statuses (a foreign key).
+  await ensureSeedStatuses(prisma, project.id);
 
   const maxN = await prisma.interval.aggregate({ where: { projectId: project.id }, _max: { number: true } });
   const interval = await prisma.interval.create({

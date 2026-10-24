@@ -211,7 +211,7 @@ export function AppSidebar({
       <div className="shrink-0 border-b border-[var(--border)]" />
 
       {/* Nav */}
-      <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
+      <nav aria-label="Primary" className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
         {entries.map((entry) => {
           if (entry.type === "group") {
             return (

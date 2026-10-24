@@ -3,7 +3,8 @@ import { Permission } from "@/lib/rbac/permissions";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { Visibility } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, loadActorPermissions, type ToolContext } from "./_ctx";
+import { assertPermission, loadAuthContext, type ToolContext } from "./_ctx";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 
 const createNoteSchema = z.object({
   title: z.string().min(1).max(500),
@@ -119,8 +120,10 @@ export async function deleteNote(
   if (!existing) return { error: "Note not found" };
 
   if (existing.authorId !== ctx.userId) {
-    const actor = await loadActorPermissions(ctx);
-    const isPrivileged = actor?.orgRole === "OWNER" || actor?.orgRole === "ADMIN";
+    const actor = await loadAuthContext(ctx);
+    // A key acts as an admin only when its scopes grant NOTE_DELETE (rbac/key-role.ts).
+    const isPrivileged =
+      (actor?.orgRole === "OWNER" || actor?.orgRole === "ADMIN") && roleCountsFor(actor, Permission.NOTE_DELETE);
     if (!isPrivileged) {
       return { error: "Only the author or an admin can delete this note" };
     }

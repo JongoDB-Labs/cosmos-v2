@@ -27,7 +27,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
-import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { Bookmark, ChevronDown, Trash2, Users, Lock } from "lucide-react";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 
@@ -68,8 +67,6 @@ export function SavedViewsPicker({
   const [saveOpen, setSaveOpen] = useState(false);
   const [name, setName] = useState("");
   const [shared, setShared] = useState(false);
-  // Sharing with everyone is an administrator's call (FILTER_SHARE_ORG).
-  const mayShare = usePermissions().can(Permission.FILTER_SHARE_ORG);
 
   const createView = useOrgMutation<SavedView, Error, { name: string; filter: WorkItemFilter; shared: boolean }>({
     mutationFn: (body) =>
@@ -167,9 +164,9 @@ export function SavedViewsPicker({
             <label className="flex items-center justify-between gap-3 text-sm">
               <span className="flex items-center gap-2 text-[var(--text)]">
                 {shared ? <Users className="size-4" /> : <Lock className="size-4" />}
-                {shared ? "Shared with the whole team" : mayShare ? "Only visible to me" : "Only visible to me (sharing needs an administrator)"}
+                {shared ? "Shared with the whole team" : "Only visible to me"}
               </span>
-              <ToggleSwitch checked={shared} onCheckedChange={setShared} disabled={!mayShare} aria-label="Share with the team" />
+              <ToggleSwitch checked={shared} onCheckedChange={setShared} aria-label="Share with the team" />
             </label>
           </div>
           <DialogFooter>

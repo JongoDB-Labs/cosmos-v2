@@ -125,8 +125,9 @@ const FORBIDDEN_PATH_SEGMENTS = new Set([
   "constructor",
 ]);
 
-/** Own-property-only deep get; refuses prototype-pollution + non-string paths. (R-6) */
-function safeGet(obj: unknown, path: string): unknown {
+/** Own-property-only deep get; refuses prototype-pollution + non-string paths. (R-6)
+ *  Shared with the workflow condition evaluator, which follows the same rules. */
+export function safeGet(obj: unknown, path: string): unknown {
   if (typeof path !== "string" || path.length === 0) return undefined;
   if (obj == null) return undefined;
   let cur: unknown = obj;
@@ -142,7 +143,7 @@ function safeGet(obj: unknown, path: string): unknown {
 /** Compare two PRESENT values. Numeric comparators coerce numeric strings so a
  *  deny can't silently no-op on `"5000"` vs `5000`. Returns false (not throw)
  *  on genuinely incomparable operands. */
-function compare(actual: unknown, op: AbacOperator, expected: unknown): boolean {
+export function compare(actual: unknown, op: AbacOperator, expected: unknown): boolean {
   switch (op) {
     case "eq":
       return actual === expected;

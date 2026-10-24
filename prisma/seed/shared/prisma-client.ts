@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 /**
@@ -12,7 +12,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
  * `new PrismaClient(url ? { datasourceUrl: url } : undefined)` behaviour.
  */
 export function makePrismaClient(connectionString?: string) {
-  return new PrismaClient({
+  return new PrismaClient<Prisma.PrismaClientOptions>({
     adapter: new PrismaPg({
       connectionString: connectionString || process.env.DATABASE_URL,
     }),

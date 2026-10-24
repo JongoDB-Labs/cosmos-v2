@@ -18,7 +18,7 @@ run("node", ["scripts/openapi/collect.mjs"]);
 run("npx", ["tsx", "scripts/openapi/build.mts"]);
 
 try {
-  run("git", ["diff", "--exit-code", "--stat", "--", "openapi/cosmos-v1.json", "src/lib/openapi/contracts.generated.ts"]);
+  run("git", ["diff", "--exit-code", "--stat", "--", "openapi/cosmos-v1.json", "src/lib/openapi/contracts.generated.ts", "src/lib/openapi/schemas/enums.generated.ts"]);
 } catch {
   console.error("\ncheck:openapi: the committed spec is stale. Run `npm run openapi` and commit the result.");
   process.exit(1);

@@ -289,6 +289,11 @@ model Organization {
   bankRules           BankRule[]
   bankTransactions    BankTransaction[]
   boards              Board[]
+  workflowStatuses    WorkflowStatus[]
+  domainEvents        DomainEvent[]
+  workflows           Workflow[]
+  workflowVersions    WorkflowVersion[]
+  workflowAssignments WorkflowAssignment[]
   boardTemplates      BoardTemplate[]
   clins               Clin[]
   comments            Comment[]
@@ -439,6 +444,7 @@ model User {
   timeEntryPhasesSet          TimeEntryPhase[]
   calendarFeeds               CalendarFeed[]
   externalEventLinks          ExternalEventLink[]
+  meetingInvitesOrganized     SyncMeeting[]        @relation("MeetingInviteOrganizer")
 
   @@map("users")
 }
@@ -827,6 +833,10 @@ model Project {
   members             ProjectMember[]
   teams               Team[]
   boards              Board[]
+  statuses            WorkflowStatus[]
+  workflows           Workflow[]
+  workflowAssignments WorkflowAssignment[]
+  workItems           WorkItem[]
   intervals           Interval[]
   objectives          Objective[]
   goals               Goal[]
@@ -969,14 +979,20 @@ model Board {
 }
 
 model BoardColumn {
-  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  boardId   String         @map("board_id") @db.Uuid
-  name      String
-  key       String
-  color     String         @default("#7dd3fc")
-  wipLimit  Int?           @map("wip_limit")
-  sortOrder Int            @default(0) @map("sort_order")
-  category  ColumnCategory @default(TODO)
+  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  boardId    String         @map("board_id") @db.Uuid
+  name       String
+  key        String
+  color      String         @default("#7dd3fc")
+  wipLimit   Int?           @map("wip_limit")
+  sortOrder  Int            @default(0) @map("sort_order")
+  /// DEPRECATED: a mirror of the status's `WorkflowStatus.category`, kept in step
+  /// for one release so readers not yet moved to statuses stay correct. The
+  /// status is the source of truth.
+  category   ColumnCategory @default(TODO)
+  /// The statuses this column shows. Empty means `[key]`: a column shows the
+  /// status of the same key, as every column did before statuses existed.
+  statusKeys String[]       @default([]) @map("status_keys")
 
   board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
 
@@ -984,14 +1000,185 @@ model BoardColumn {
   @@map("board_columns")
 }
 
+/// A status a project's work items can be in. Statuses used to exist only as
+/// board columns, per board, and every reader rebuilt the project's list by
+/// unioning them; this is the one project-level row they all point at.
+/// `key` is what `work_items.column_key` holds (the column keeps its historical
+/// name), and the composite foreign key from `work_items` makes a key no status
+/// defines impossible to write. Board columns are views onto statuses.
+model WorkflowStatus {
+  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String         @map("org_id") @db.Uuid
+  projectId  String         @map("project_id") @db.Uuid
+  /// Immutable in the UI; renaming it cascades to every item (ON UPDATE CASCADE).
+  key        String
+  name       String
+  color      String         @default("#94a3b8")
+  /// The one place a status's category lives.
+  category   ColumnCategory
+  sortOrder  Int            @default(0) @map("sort_order")
+  /// Hidden from pickers; items already in it keep it. An occupied status cannot
+  /// be deleted (ON DELETE RESTRICT from work_items).
+  archivedAt DateTime?      @map("archived_at")
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @default(now()) @updatedAt @map("updated_at")
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workItems WorkItem[]
+
+  @@unique([projectId, key])
+  @@index([orgId, projectId])
+  @@map("workflow_statuses")
+}
+
+/// Transactional outbox: one row per committed work-item change, written in the
+/// same transaction as the change (src/lib/work-items/write.server.ts), so an
+/// event exists exactly when its change committed. Automations and webhooks
+/// consume it; processed rows are pruned after 30 days.
+model DomainEvent {
+  id             BigInt    @id @default(autoincrement())
+  orgId          String    @map("org_id") @db.Uuid
+  projectId      String?   @map("project_id") @db.Uuid
+  /// "work_item.created" | "work_item.updated" | "work_item.transitioned" …
+  type           String
+  subjectId      String    @map("subject_id") @db.Uuid
+  /// Ids, keys and the before/after of CHANGED fields only; never titles,
+  /// descriptions or comment bodies (re-read under the consumer's own actor).
+  payload        Json      @default("{}")
+  /// Null for a write no person made (an import, a migration, the system).
+  actorId        String?   @map("actor_id") @db.Uuid
+  /// API | BULK | AI | IMPORT | SYSTEM | AUTOMATION | MIGRATION
+  source         String
+  /// The root change this belongs to; automations inherit it to detect loops.
+  correlationId  String    @default(dbgenerated("gen_random_uuid()")) @map("correlation_id") @db.Uuid
+  /// Automation chain depth: 0 for a change a person or system made.
+  depth          Int       @default(0)
+  causedByRuleId String?   @map("caused_by_rule_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at")
+  processedAt    DateTime? @map("processed_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
+  @@index([subjectId, createdAt])
+  @@map("domain_events")
+}
+
+/// A named CUSTOM workflow: the statuses a project (or one of its work-item
+/// types) uses and the transitions between them. A project or type with no
+/// assignment runs the open workflow, generated from its statuses at read time
+/// (src/lib/workflow/compile.ts buildOpenDefinition), so it has no row here.
+/// projectId null = an org-level template that projects copy, never share live.
+model Workflow {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId              String              @map("org_id") @db.Uuid
+  projectId          String?             @map("project_id") @db.Uuid
+  name               String
+  description        String              @default("")
+  /// SHADOW computes and records denials without blocking; ENFORCE blocks.
+  enforcement        WorkflowEnforcement @default(ENFORCE)
+  /// The live version; null until the first publish.
+  publishedVersionId String?             @unique @map("published_version_id") @db.Uuid
+  createdById        String              @map("created_by_id") @db.Uuid
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  org              Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project          Project?             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  publishedVersion WorkflowVersion?     @relation("PublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
+  versions         WorkflowVersion[]
+  assignments      WorkflowAssignment[]
+
+  @@unique([projectId, name])
+  // Plus a partial unique index on (org_id, name) WHERE project_id IS NULL
+  // (migration SQL): one org template per name.
+  @@index([orgId])
+  @@map("workflows")
+}
+
+enum WorkflowEnforcement {
+  SHADOW
+  ENFORCE
+
+  @@map("workflow_enforcement")
+}
+
+enum WorkflowVersionState {
+  DRAFT
+  PUBLISHED
+  SUPERSEDED
+
+  @@map("workflow_version_state")
+}
+
+/// Immutable once PUBLISHED. One DRAFT at a time per workflow.
+model WorkflowVersion {
+  id            String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String               @map("org_id") @db.Uuid
+  workflowId    String               @map("workflow_id") @db.Uuid
+  version       Int
+  state         WorkflowVersionState @default(DRAFT)
+  /// A zod-validated WorkflowDefinition (src/lib/workflow/definition.ts).
+  definition    Json
+  /// Editor-only node positions; never read by the engine.
+  layout        Json                 @default("{}")
+  /// sha256 of the canonical definition: which rules were in force for a transition.
+  checksum      String
+  /// The status migration applied on publish {fromKey: toKey}, kept forever.
+  migrationMap  Json?                @map("migration_map")
+  publishedById String?              @map("published_by_id") @db.Uuid
+  publishedAt   DateTime?            @map("published_at")
+  createdAt     DateTime             @default(now()) @map("created_at")
+
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workflow    Workflow     @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  publishedOf Workflow?    @relation("PublishedVersion")
+
+  @@unique([workflowId, version])
+  @@map("workflow_versions")
+}
+
+/// Which workflow governs (project x type). workItemTypeId null = the project
+/// default, for every type without a row of its own.
+model WorkflowAssignment {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String   @map("org_id") @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  workItemTypeId String?  @map("work_item_type_id") @db.Uuid
+  workflowId     String   @map("workflow_id") @db.Uuid
+  /// The status map {fromKey: toKey} given when this assignment was set, for
+  /// the items whose status the new workflow does not use. Kept: the
+  /// migration job moves stranded items with it until none are left.
+  migrationMap   Json?    @map("migration_map")
+  assignedAt     DateTime @default(now()) @map("assigned_at")
+
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workItemType WorkItemType? @relation(fields: [workItemTypeId], references: [id], onDelete: Cascade)
+  workflow     Workflow      @relation(fields: [workflowId], references: [id], onDelete: Restrict)
+
+  // Plus a partial unique index on (project_id) WHERE work_item_type_id IS NULL
+  // (in the migration): Postgres treats NULLs as distinct here.
+  @@unique([projectId, workItemTypeId])
+  @@map("workflow_assignments")
+}
+
 model WorkItem {
   id              String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId           String                      @map("org_id") @db.Uuid
   org             Organization                @relation(fields: [orgId], references: [id], onDelete: Cascade)
   projectId       String                      @map("project_id") @db.Uuid
+  /// Deleting a project deletes its items, as every other project-owned table
+  /// does. Before this foreign key existed, deleted projects left orphans behind.
+  project         Project                     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   title           String
   description     String                      @default("")
+  /// The item's STATUS key (the column name is historical). Must name one of
+  /// the project's statuses: a rename cascades, and an occupied status cannot be
+  /// deleted.
   columnKey       String                      @map("column_key")
+  status          WorkflowStatus              @relation(fields: [projectId, columnKey], references: [projectId, key], onUpdate: Cascade, onDelete: Restrict)
   assigneeId      String?                     @map("assignee_id") @db.Uuid
   priority        Priority                    @default(MEDIUM)
   parentId        String?                     @map("parent_id") @db.Uuid
@@ -1114,6 +1301,8 @@ model WorkItem {
   @@index([orgId, assigneeId])
   // The board team filter reads "this project's items for team X".
   @@index([projectId, teamId])
+  // Backs the status foreign key (project_id, column_key) -> workflow_statuses.
+  @@index([projectId, columnKey])
   // CQL (query design §6.7): labels, custom fields, `text ~` on titles, and
   // the scoped sorts and filters the query language makes common.
   @@index([tags], type: Gin)
@@ -1378,11 +1567,12 @@ model Activity {
 
   @@index([orgId, workItemId])
   @@index([orgId, subjectType, subjectId])
-  // CQL history (WAS / CHANGED): per item and field in time order, by time
-  // (the value each item held when a window opens), and by value.
+  // CQL history (WAS / CHANGED): per item and field in time order, and by
+  // time (the value each item held when a window opens). Never on old_value /
+  // new_value: they hold uncapped free text (PM register edits), past what a
+  // btree row can take.
   @@index([workItemId, field, createdAt])
   @@index([orgId, field, createdAt])
-  @@index([orgId, field, newValue, createdAt])
   @@map("activities")
 }
 
@@ -1875,10 +2065,11 @@ model WorkItemType {
   celebrateOnComplete  Boolean  @default(false) @map("celebrate_on_complete")
   createdAt            DateTime @default(now()) @map("created_at")
 
-  org             Organization?       @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  projectTemplate ProjectTemplate?    @relation(fields: [projectTemplateId], references: [id])
-  typeFields      WorkItemTypeField[]
-  workItems       WorkItem[]
+  org                 Organization?        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectTemplate     ProjectTemplate?     @relation(fields: [projectTemplateId], references: [id])
+  typeFields          WorkItemTypeField[]
+  workItems           WorkItem[]
+  workflowAssignments WorkflowAssignment[]
 
   @@unique([orgId, key])
   @@map("work_item_types")
@@ -2355,9 +2546,13 @@ model SyncMeeting {
   // Optional org-defined custom type. When set, `meetingType` is OTHER and this
   // carries the user-defined label; null means a built-in MeetingType.
   customTypeId       String?                     @map("custom_type_id") @db.Uuid
+  /// COSMOS-202 B2 invite mode: set while real Outlook invitations go out from
+  /// this person's calendar. Null = attendees get mirrored copies instead.
+  inviteOrganizerId  String?                     @map("invite_organizer_id") @db.Uuid
 
-  attendees  MeetingAttendee[]
-  customType MeetingTypeOption? @relation(fields: [customTypeId], references: [id], onDelete: SetNull)
+  attendees       MeetingAttendee[]
+  customType      MeetingTypeOption? @relation(fields: [customTypeId], references: [id], onDelete: SetNull)
+  inviteOrganizer User?              @relation("MeetingInviteOrganizer", fields: [inviteOrganizerId], references: [id], onDelete: SetNull)
 
   @@index([orgId, meetingDate])
   @@map("sync_meetings")

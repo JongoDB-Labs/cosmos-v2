@@ -153,3 +153,29 @@ describe("FeedbackPortal — ?item= deep link", () => {
   });
 });
 
+
+describe("FeedbackPortal — a merged request", () => {
+  const MERGED = { ...OLD_FR, id: "fr-dup", title: "Night colours please", status: "MERGED" as const, mergedIntoId: "fr-main" };
+  const MAIN = { ...OLD_FR, id: "fr-main", title: "Dark mode", status: "OPEN" as const, mergedIntoId: null };
+
+  it("can't be voted on, and links to the request it was merged into", async () => {
+    jsonFetch.mockImplementation((url: string) =>
+      url.endsWith("/feedback/fr-dup")
+        ? Promise.resolve(MERGED)
+        : url.endsWith("/feedback/fr-main")
+          ? Promise.resolve(MAIN)
+          : Promise.resolve([]),
+    );
+    nav.params = new URLSearchParams("item=fr-dup");
+    renderPortal();
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: /Upvote/ })).toBeDisabled();
+    const link = await within(dialog).findByRole("button", { name: "Dark mode" });
+    act(() => link.click());
+    await waitFor(() =>
+      expect(within(screen.getByRole("dialog")).getByRole("heading", { name: "Dark mode" })).toBeInTheDocument(),
+    );
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: /Upvote/ })).toBeEnabled();
+  });
+});

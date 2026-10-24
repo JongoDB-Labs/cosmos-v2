@@ -7,6 +7,7 @@ import { success, created, handleApiError, getIpAddress } from "@/lib/api-helper
 import { logAudit } from "@/lib/audit";
 import { syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { createNotification } from "@/lib/notifications/create";
+import { allOrgMembers, attendeesNotMembers } from "@/lib/meetings/attendee-members";
 import { z } from "zod";
 
 const addAttendeeSchema = z.object({
@@ -26,6 +27,7 @@ const bulkUpdateSchema = z.object({
 });
 
 type RouteParams = { params: Promise<{ orgId: string; meetingId: string }> };
+
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
@@ -69,6 +71,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = addAttendeeSchema.parse(body);
+    if (!(await allOrgMembers(orgId, [data.userId]))) return attendeesNotMembers();
 
     const attendee = await prisma.meetingAttendee.create({
       data: {
@@ -132,6 +135,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = bulkUpdateSchema.parse(body);
+    if (!(await allOrgMembers(orgId, data.attendees.map((a) => a.userId)))) return attendeesNotMembers();
 
     const results = await Promise.all(
       data.attendees.map((a) =>

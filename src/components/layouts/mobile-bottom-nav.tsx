@@ -53,7 +53,7 @@ export function MobileBottomNav({
   const ordered = [...left, "__chat__", ...right];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-5 border-t border-[var(--border)] bg-[var(--bg)] pb-[env(safe-area-inset-bottom)] md:hidden">
+    <nav aria-label="Primary (mobile)" className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-5 border-t border-[var(--border)] bg-[var(--bg)] pb-[env(safe-area-inset-bottom)] md:hidden">
       {ordered.map((key, i) => {
         if (key === "__chat__") {
           const active = isOpen("chat");

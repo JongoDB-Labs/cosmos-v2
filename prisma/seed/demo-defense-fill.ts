@@ -16,29 +16,17 @@
  * Run:  cd /home/deploy/cosmos-v2 && npx tsx prisma/seed/demo-defense-fill.ts
  */
 import { makePrismaClient } from "./shared/prisma-client";
-import { readFileSync } from "node:fs";
+import { loadEnvLocal } from "./shared/env-local";
+import {
+  Permission as P,
+  maskToDb,
+  type PermissionKey,
+} from "../../src/lib/rbac/permissions";
 import { createHash } from "node:crypto";
 
-function loadEnv(): string | undefined {
-  let dbUrl: string | undefined;
-  try {
-    const txt = readFileSync(process.cwd() + "/.env.local", "utf8");
-    for (const line of txt.split("\n")) {
-      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
-      if (!m) continue;
-      let v = m[2];
-      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-      if (!process.env[m[1]]) process.env[m[1]] = v;
-      if (m[1] === "DATABASE_URL") dbUrl = v;
-    }
-  } catch {
-    /* ignore */
-  }
-  return dbUrl;
-}
 // Prefer .env.local's DATABASE_URL explicitly so host runs don't fall back to
 // .env's in-container `cosmos-postgres` hostname.
-const DB_URL = loadEnv();
+const DB_URL = loadEnvLocal();
 const prisma = makePrismaClient(DB_URL);
 
 const SLUG = "apex-defense";
@@ -61,30 +49,12 @@ const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const shaBytes = (s: string): Buffer<ArrayBuffer> =>
   createHash("sha256").update(s).digest() as Buffer<ArrayBuffer>;
 
-// RBAC permission bits (from src/lib/rbac/permissions.ts) for WorkRole.grants.
-// NOTE: work_roles.grants is decimal-string TEXT (masks outgrew int8) — any bit fits.
-// We grant from this low-bit subset; the page renders these as permission names.
-const P: Record<string, bigint> = {
-  ORG_READ: 1n << 0n,
-  PROJECT_READ: 1n << 11n,
-  PROJECT_MANAGE: 1n << 14n,
-  BOARD_READ: 1n << 21n,
-  BOARD_UPDATE: 1n << 22n,
-  ITEM_CREATE: 1n << 30n,
-  ITEM_READ: 1n << 31n,
-  ITEM_UPDATE: 1n << 32n,
-  ITEM_ASSIGN: 1n << 34n,
-  ITEM_BULK_EDIT: 1n << 35n,
-  SPRINT_READ: 1n << 41n,
-  COMMENT_CREATE: 1n << 50n,
-  COMMENT_READ: 1n << 51n,
-  OKR_READ: 1n << 56n,
-  EXPENSE_APPROVE: 1n << 59n,
-  FINANCE_READ: 1n << 60n,
-  FINANCE_MANAGE: 1n << 61n,
-  CRM_READ: 1n << 62n,
-};
-const grant = (...keys: string[]) => keys.reduce((acc, k) => acc | (P[k] ?? 0n), 0n);
+// WorkRole.grants masks, built from the real bitfield (src/lib/rbac/permissions.ts)
+// rather than a local copy of the shifts — a renumbered bit must not be able to
+// drift away from the app's meaning of it. NOTE: work_roles.grants is
+// decimal-string TEXT (masks outgrew int8), so any bit fits; the page renders
+// these as permission names.
+const grant = (...keys: PermissionKey[]) => keys.reduce((acc, k) => acc | P[k], 0n);
 
 async function userByEmail(email: string) {
   const u = await prisma.user.findFirst({ where: { email: { equals: email.trim(), mode: "insensitive" } }, select: { id: true } });
@@ -382,8 +352,8 @@ async function main() {
     ];
     for (const r of roles) {
       // WorkRole.grants is decimal-string TEXT (bits >= 63 overflow BIGINT); the
-      // mask math stays bigint in memory, serialized to a string at the DB boundary.
-      const wr = await prisma.workRole.create({ data: { orgId, key: r.key, name: r.name, description: r.desc, grants: r.grants.toString(), policies: [], isBuiltIn: false } });
+      // mask math stays bigint in memory and crosses the DB boundary via maskToDb().
+      const wr = await prisma.workRole.create({ data: { orgId, key: r.key, name: r.name, description: r.desc, grants: maskToDb(r.grants), policies: [], isBuiltIn: false } });
       const mid = memberIdByUser.get(r.assign);
       if (mid) await prisma.orgMemberWorkRole.upsert({ where: { orgMemberId_workRoleId: { orgMemberId: mid, workRoleId: wr.id } }, update: {}, create: { orgMemberId: mid, workRoleId: wr.id } });
     }

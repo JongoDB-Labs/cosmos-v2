@@ -17,6 +17,8 @@ import { archiveAction, copyLinkAction } from "@/lib/work-items/item-actions";
 import { useOrgSlug } from "@/lib/query/keys";
 import { highlightRowStyle } from "@/lib/work-items/highlights";
 import { notifyError } from "@/lib/errors/notify";
+import { sendItemChange, TransitionBackedOut, useTransitionPrompt } from "@/components/work-items/use-transition-prompt";
+import { announceBulkChange, sendBulkChange } from "@/components/work-items/bulk-change";
 import { toast } from "sonner";
 import {
   createColumnHelper,
@@ -124,6 +126,8 @@ type EditingCell = {
 export function TableView({ orgId, projectId, projectKey, boardId }: TableViewProps) {
   const newIssueRef = useRef<NewIssueHandle>(null);
   const qc = useQueryClient();
+  // A bulk move the workflow wants details for, asked once per transition.
+  const { ask: askTransition, dialog: transitionDialog } = useTransitionPrompt();
   const { can } = usePermissions();
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [grouping, setGrouping] = useState<GroupingState>([]);
@@ -334,18 +338,17 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       );
 
       try {
-        await jsonFetch(`${basePath}/work-items/${rowId}`, {
-          method: "PUT",
-          body: JSON.stringify(payload),
-        });
+        await sendItemChange(`${basePath}/work-items/${rowId}`, payload, askTransition);
       } catch (err) {
-        console.error("Failed to update work item:", err);
-        notifyError(err, "Couldn't save your change.");
+        if (!(err instanceof TransitionBackedOut)) {
+          console.error("Failed to update work item:", err);
+          notifyError(err, "Couldn't save your change.");
+        }
         // Rollback by refetching
         qc.invalidateQueries({ queryKey: itemsKey });
       }
     },
-    [qc, itemsKey, basePath],
+    [qc, itemsKey, basePath, askTransition],
   );
 
   const selectedIds = useMemo(
@@ -368,10 +371,10 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       );
 
       try {
-        await jsonFetch(`${basePath}/work-items/bulk`, {
-          method: "PUT",
-          body: JSON.stringify({ ids: selectedIds, update }),
-        });
+        const result = await sendBulkChange({ basePath, ids: selectedIds, update, ask: askTransition });
+        announceBulkChange(result);
+        // The workflow may have kept some items back: show the server's truth.
+        if (result.denied.length > 0) qc.invalidateQueries({ queryKey: itemsKey });
         // Success: dismiss the floating bulk toolbar (matches bulkDelete). On
         // failure we keep the selection so the user can retry.
         setRowSelection({});
@@ -380,7 +383,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         qc.invalidateQueries({ queryKey: itemsKey });
       }
     },
-    [selectedIds, qc, itemsKey, basePath],
+    [selectedIds, qc, itemsKey, basePath, askTransition],
   );
 
   // Adding a tag must preserve each item's *own* existing tags — but the bulk
@@ -951,6 +954,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
 
   return (
     <div className="flex flex-col h-full">
+      {transitionDialog}
       {/* Toolbar */}
       <div className="flex items-center gap-3 px-4 py-2 border-b bg-background/50">
         <div className="flex items-center gap-1">

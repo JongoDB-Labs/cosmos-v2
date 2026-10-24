@@ -68,7 +68,7 @@ export function SettingsNav({
       </div>
 
       {/* Desktop (md+): grouped sidebar. */}
-      <nav className="hidden w-56 shrink-0 border-r bg-muted/30 p-4 md:flex md:flex-col md:gap-4">
+      <nav aria-label="Settings" className="hidden w-56 shrink-0 border-r bg-muted/30 p-4 md:flex md:flex-col md:gap-4">
         {groups.map((g) => (
           <div key={g.label} className="flex flex-col gap-1">
             <p className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">

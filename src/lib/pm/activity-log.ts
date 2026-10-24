@@ -35,7 +35,7 @@ export async function logPmActivity(opts: {
 }
 
 /** Stringify a value for the activity diff columns. */
-export function actVal(v: unknown): string | null {
+function actVal(v: unknown): string | null {
   if (v == null) return null;
   if (v instanceof Date) return v.toISOString().slice(0, 10);
   return String(v);

@@ -3,6 +3,7 @@
 // title out, because the calendar provider's servers are what fetch it.
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
+import { ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
 import { renderFeed } from "./feed.server";
 import { newFeedToken } from "./feed-token";
 import { withCalendarFeedsEnabled } from "./feed-settings";
@@ -24,8 +25,11 @@ describe("renderFeed (e2e DB)", () => {
     });
     orgIds.push(org.id);
     await prisma.orgMember.create({ data: { orgId: org.id, userId: owner.id, role: "MEMBER" } });
-    const mkProject = (key: string) =>
-      prisma.project.create({ data: { orgId: org.id, name: key, key: `${key}${stamp.slice(-3).toUpperCase()}` } });
+    const mkProject = async (key: string) => {
+      const project = await prisma.project.create({ data: { orgId: org.id, name: key, key: `${key}${stamp.slice(-3).toUpperCase()}` } });
+      await ensureFixtureStatuses(project.id);
+      return project;
+    };
     const open = await mkProject("OP");
     const secret = await mkProject("SC");
     await prisma.dataClassification.create({

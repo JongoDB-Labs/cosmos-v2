@@ -13,3 +13,26 @@ export function microsoftLoginOrigin(): string {
 export function microsoftGraphOrigin(): string {
   return strip(process.env.MICROSOFT_GRAPH_ORIGIN || "https://graph.microsoft.com");
 }
+
+/** Where the Bot Framework publishes the keys it signs requests to bots with. */
+export function botFrameworkLoginOrigin(): string {
+  return strip(process.env.BOT_FRAMEWORK_LOGIN_ORIGIN || "https://login.botframework.com");
+}
+
+/**
+ * Cosmos's own public origin, as configured (COSMOS_PUBLIC_URL), or null.
+ * For anything that must not trust the request's Host / X-Forwarded-Host,
+ * which the client controls: the Teams tab's App ID URI is built from this.
+ */
+export function configuredPublicOrigin(): string | null {
+  const raw = process.env.COSMOS_PUBLIC_URL?.trim();
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    const local = u.hostname === "localhost" || u.hostname === "127.0.0.1";
+    if (u.protocol !== "https:" && !(local && u.protocol === "http:")) return null;
+    return u.origin;
+  } catch {
+    return null;
+  }
+}

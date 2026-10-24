@@ -85,6 +85,13 @@ describe("CQL history (e2e DB)", () => {
     expect(await titles('status WAS "In Progress" DURING (2026-09-25, 2026-10-01)')).toEqual([]);
     // Nothing is held before the item existed.
     expect(await titles("status WAS Review BEFORE 2026-10-01")).toEqual([]);
+    // BEFORE alone: entered it, then left it, all before the end (hx-regressed
+    // is In Progress again now, but changed since, so only that counts).
+    expect(await titles('status WAS "In Progress" BEFORE 2026-09-15')).toEqual(["hx-regressed", "hx-unlogged"]);
+    // BEFORE alone: nothing recorded before the end, and the first change
+    // after it started from the value (hx-regressed, 09-05), or a change
+    // before the end left it (hx-unlogged, 09-02).
+    expect(await titles("status WAS Todo BEFORE 2026-09-04")).toEqual(["hx-regressed", "hx-unlogged"]);
     // Relative dates: 14 days before NOW is 10-01.
     expect(await titles("status WAS Done AFTER -14d")).toEqual(["hx-regressed", "hx-steady", "hx-unlogged"]);
   });

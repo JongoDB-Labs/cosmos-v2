@@ -96,6 +96,9 @@ vi.mock("@/components/settings/org-email-delivery", () => ({
   ),
 }));
 
+// A client card that gates itself on WORKFLOW_MANAGE through its own fetch.
+vi.mock("@/components/settings/workflow-settings", () => ({ WorkflowSettingsCard: () => null }));
+
 // Light stubs for layout primitives — keeps the test focused on RBAC logic.
 vi.mock("@/components/ui/page-shell", () => ({
   PageShell: ({ title, children }: { title: string; children: React.ReactNode }) => (

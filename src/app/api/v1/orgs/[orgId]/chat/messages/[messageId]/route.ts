@@ -6,6 +6,8 @@ import { canDeleteMessageGiven, loadChannelAndMembership } from "@/lib/chat/acce
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { z } from "zod";
+import { roleCountsFor } from "@/lib/rbac/key-role";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
 
 type RouteParams = { params: Promise<{ orgId: string; messageId: string }> };
 
@@ -19,6 +21,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // Chat writes need CHAT_USE, as the Chat page itself does. An API key never
+    // holds it (no scope grants it), so a key can't edit or delete messages as whoever minted it.
+    if (!hasPermission(ctx.permissions, Permission.CHAT_USE)) {
+      return new Response("Forbidden", { status: 403 });
+    }
 
     const message = await prisma.chatMessage.findUnique({
       where: { id: messageId },
@@ -66,6 +73,11 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // Chat writes need CHAT_USE, as the Chat page itself does. An API key never
+    // holds it (no scope grants it), so a key can't edit or delete messages as whoever minted it.
+    if (!hasPermission(ctx.permissions, Permission.CHAT_USE)) {
+      return new Response("Forbidden", { status: 403 });
+    }
 
     const message = await prisma.chatMessage.findUnique({
       where: { id: messageId },
@@ -90,6 +102,7 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
         viewerId: ctx.userId,
         channelMember: member,
         orgRole: ctx.orgRole,
+        roleCounts: roleCountsFor(ctx, Permission.CHAT_USE),
       })
     ) {
       return new Response("Forbidden", { status: 403 });

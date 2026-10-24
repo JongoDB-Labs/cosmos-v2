@@ -160,7 +160,7 @@ async function createIssue(
         createdById: userId,
       },
       select: { id: true, title: true, ticketNumber: true },
-    });
+    }, { actorId: userId, source: "IMPORT" });
     await tx.activity.create({
       data: { orgId, workItemId: wi.id, userId, action: "created" },
     });

@@ -49,6 +49,7 @@ import "@/lib/plugins/registry/server";
 import { resolveModelCredential } from "@/lib/ai/model-credential-provider";
 import { allocateTicketNumber, allocateSortOrder } from "@/lib/work-items/allocate";
 import { feedbackItemUrl } from "./urls";
+import { mergeFeedback, MergeError } from "./merge.server";
 
 /**
  * Auto-remediation loop (FR 695aa097) — the in-app half.
@@ -503,8 +504,8 @@ async function runFeedbackRemediationInner(
   if (!hasAi) return empty("no-ai-credential");
 
   // Resolve every project in scope ONCE (not just one hardcoded target): each
-  // becomes a delivery target if it's live in this org and has a usable board
-  // column. A project in scope but missing either is simply absent from the
+  // becomes a delivery target if it's live in this org and has a usable
+  // status. A project in scope but missing either is simply absent from the
   // map — its items fall through to the org default (or are skipped) below,
   // rather than aborting the whole run.
   const projects = await prisma.project.findMany({
@@ -513,21 +514,21 @@ async function runFeedbackRemediationInner(
       id: true,
       key: true,
       projectTemplateId: true,
-      boards: {
-        select: { columns: { select: { key: true, category: true, sortOrder: true } } },
-        orderBy: { sortOrder: "asc" },
-        take: 1,
+      // The project's statuses in workflow order: where new items can start.
+      statuses: {
+        where: { archivedAt: null },
+        select: { key: true, category: true },
+        orderBy: [{ sortOrder: "asc" }, { key: "asc" }],
       },
     },
   });
 
   const targets = new Map<string, DeliveryTarget>();
   for (const project of projects) {
-    // Land new items in the first board's leftmost TODO column (fallback: its
-    // first column outright).
-    const columns = project.boards[0]?.columns ?? [];
-    const sorted = [...columns].sort((a, b) => a.sortOrder - b.sortOrder);
-    const columnKey = (sorted.find((c) => c.category === "TODO") ?? sorted[0])?.key;
+    // Land new items in the project's first To Do status (fallback: its first
+    // status outright).
+    const statuses = project.statuses;
+    const columnKey = (statuses.find((st) => st.category === "TODO") ?? statuses[0])?.key;
     if (!columnKey) continue; // no usable column — this project's items skip below
     targets.set(project.id, { id: project.id, key: project.key, projectTemplateId: project.projectTemplateId, columnKey });
   }
@@ -842,7 +843,7 @@ async function runFeedbackRemediationInner(
             createdById: opts.actorUserId,
           },
           select: { id: true, ticketNumber: true },
-        });
+        }, { actorId: opts.actorUserId, source: "SYSTEM" });
 
         await tx.activity.create({
           data: { orgId, workItemId: workItem.id, userId: opts.actorUserId, action: "created" },
@@ -998,14 +999,13 @@ async function evaluateIntake(
 }
 
 /**
- * Link a near-duplicate feedback item to the canonical item it matched and merge
- * its votes, instead of spawning a second ticket (COSMOS-113 acceptance §1). The
- * duplicate is DECLINED (drops out of the OPEN "to-deliver" scan → idempotent),
- * `deliveredAt` stays NULL (it was never delivered), and the link is recorded on
- * `triage.duplicate`. When the match is another FEEDBACK item, its distinct voters
- * are moved onto the canonical item and the denormalized `voteCount` is bumped by
- * the number actually merged (overlapping voters aren't double-counted). A
- * work-item match is linked only (work items have no votes). Every post-commit
+ * Link a near-duplicate feedback item to the canonical item it matched instead
+ * of spawning a second ticket (COSMOS-113 acceptance §1). The link is recorded on
+ * `triage.duplicate` and `deliveredAt` stays NULL (it was never delivered). When
+ * the match is another FEEDBACK item it is MERGED into it (merge.server.ts:
+ * distinct voters and followers carried over, undoable by staff); a work-item
+ * match is linked only and the item DECLINED. Either way it leaves the OPEN
+ * "to-deliver" scan, so a rerun is idempotent. Every post-commit
  * side-effect is best-effort/guarded — a logging or notify hiccup must never abort
  * the run or re-process the item.
  */
@@ -1018,44 +1018,39 @@ export async function mergeDuplicateFeedback(
 ): Promise<void> {
   try {
     await prisma.$transaction(async (tx) => {
-      const data: Prisma.FeedbackItemUpdateInput = {
-        status: "DECLINED",
-        triage: {
-          duplicate: {
-            ref: match.ref,
-            kind: match.kind,
-            reason,
-            targetFeedbackId: match.feedbackId ?? null,
-            ticketKey: match.ticketKey ?? null,
-          },
-        } as unknown as Prisma.InputJsonValue,
-      };
+      const triage = {
+        duplicate: {
+          ref: match.ref,
+          kind: match.kind,
+          reason,
+          targetFeedbackId: match.feedbackId ?? null,
+          ticketKey: match.ticketKey ?? null,
+        },
+      } as unknown as Prisma.InputJsonValue;
+      await tx.feedbackItem.update({ where: { id: item.id }, data: { triage } });
 
+      // A duplicate of another FEEDBACK item is a real merge, through the same
+      // writer staff merges use (votes and followers carried over, undoable).
+      // A refusal (the target is gone, say) may come after the merge has
+      // already claimed the item (status MERGED, no pointer yet); the DECLINED
+      // write below overwrites that in the same transaction, so the item ends
+      // up simply linked.
       if (match.kind === "feedback" && match.feedbackId) {
-        const targetId = match.feedbackId;
-        const [dupVotes, targetVotes] = await Promise.all([
-          tx.feedbackVote.findMany({ where: { feedbackItemId: item.id }, select: { userId: true } }),
-          tx.feedbackVote.findMany({ where: { feedbackItemId: targetId }, select: { userId: true } }),
-        ]);
-        const alreadyVoted = new Set(targetVotes.map((v) => v.userId));
-        const toMove = dupVotes.filter((v) => !alreadyVoted.has(v.userId));
-        if (toMove.length > 0) {
-          await tx.feedbackVote.createMany({
-            data: toMove.map((v) => ({ feedbackItemId: targetId, userId: v.userId })),
-            skipDuplicates: true,
+        try {
+          await mergeFeedback(tx, {
+            orgId: org.id,
+            duplicateId: item.id,
+            survivorId: match.feedbackId,
+            source: "intake",
+            mergedById: null,
           });
-          await tx.feedbackItem.update({
-            where: { id: targetId },
-            data: { voteCount: { increment: toMove.length } },
-          });
+          return;
+        } catch (e) {
+          if (!(e instanceof MergeError)) throw e;
         }
-        // Votes now live on the canonical item; drop the duplicate's own rows +
-        // zero its denormalized count so nothing is double-represented.
-        await tx.feedbackVote.deleteMany({ where: { feedbackItemId: item.id } });
-        data.voteCount = 0;
       }
-
-      await tx.feedbackItem.update({ where: { id: item.id }, data });
+      // A work-item match (or an unmergeable target) is linked only.
+      await tx.feedbackItem.update({ where: { id: item.id }, data: { status: "DECLINED" } });
     });
   } catch {
     // Couldn't persist the merge — leave the item OPEN for a clean retry.

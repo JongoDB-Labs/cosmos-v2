@@ -1,54 +1,32 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission, ForbiddenError } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { redactRates } from "@/lib/time/visibility";
 import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
 import { timesheetIdForEntry } from "@/lib/time/timesheet";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { z } from "zod";
-import { BillableType } from "@prisma/client";
-
-const createTimeEntrySchema = z.object({
-  date: z.string(),
-  hours: z.number().positive(),
-  rate: z.number().optional(),
-  client: z.string().nullish(),
-  projectId: z.string().uuid().nullish(),
-  workItemId: z.string().uuid().nullish(),
-  clinId: z.string().uuid().nullish(),
-  description: z.string().nullish(),
-  billableType: z.nativeEnum(BillableType).optional(),
-  tags: z.array(z.string()).optional(),
-});
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { orgContext } from "@/lib/openapi/org-context";
+import { createTimeEntry, listTimeEntries } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, listTimeEntries);
+    const { params: { orgId }, query } = await parseRequest(listTimeEntries, request, params);
     requirePermission(ctx, Permission.TIME_READ);
 
-    const sp = request.nextUrl.searchParams;
     // `?userId=` with no value yields "", not null — and "" is NOT nullish, so
     // it survives the `??` below and would pin the query to userId="", matching
     // nothing and returning a silent empty list. Normalise to null so an empty
     // param means "unset", the way the other filters here already behave via
     // their `if (x)` guards.
-    const userId = sp.get("userId") || null;
-    const projectId = sp.get("projectId");
-    const status = sp.get("status");
-    const startDate = sp.get("startDate");
-    const endDate = sp.get("endDate");
-    const billableType = sp.get("billableType");
+    const userId = query.userId || null;
+    const { projectId, status, startDate, endDate, billableType } = query;
 
     // TIME_READ alone means "this org does timekeeping and you take part" —
     // MEMBER and VIEWER both hold it. Reading OTHER people's rows needs either
@@ -93,24 +71,17 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       prisma.timeEntry.count({ where }),
     ]);
 
-    return success({ data: redactRates(ctx, entries), total });
+    return respond(listTimeEntries, 200, { data: redactRates(ctx, entries), total });
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, createTimeEntry);
+    const { params: { orgId }, body: data } = await parseRequest(createTimeEntry, request, params);
     requirePermission(ctx, Permission.TIME_CREATE);
-
-    const body = await request.json();
-    const data = createTimeEntrySchema.parse(body);
 
     // Resolve the pay period BEFORE the insert so an entry is never briefly
     // unattached — a row with no timesheet is invisible to every period-level
@@ -145,8 +116,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
-    return created(entry);
+    return respond(createTimeEntry, 201, entry);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

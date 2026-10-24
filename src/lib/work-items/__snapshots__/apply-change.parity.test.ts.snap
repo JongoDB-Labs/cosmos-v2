@@ -468,6 +468,13 @@ exports[`parity: PUT /work-items/[itemId] > cancel with OBE creates the Cancelle
         "oldValue": "in_progress",
         "userId": "alice",
       },
+      {
+        "action": "updated",
+        "field": "resolution",
+        "newValue": "Overcome by events (OBE)",
+        "oldValue": null,
+        "userId": "alice",
+      },
     ],
     "actualStart": "2026-01-10T12:00:00.000Z",
     "archivedAt": null,
@@ -561,6 +568,13 @@ exports[`parity: PUT /work-items/[itemId] > cancel with OTHER and a note, from d
         "field": "completedAt",
         "newValue": null,
         "oldValue": "2026-02-20T12:00:00.000Z",
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "resolution",
+        "newValue": "Other",
+        "oldValue": null,
         "userId": "alice",
       },
     ],
@@ -1221,63 +1235,26 @@ exports[`parity: PUT /work-items/[itemId] > move into in_progress with a manual 
 }
 `;
 
-exports[`parity: PUT /work-items/[itemId] > move to a key no board shows clears completion 1`] = `
+exports[`parity: PUT /work-items/[itemId] > move to a key that is not a status is refused 1`] = `
 {
   "effects": {
-    "audit": [
-      {
-        "action": "work_item.updated",
-        "entity": "work_item",
-        "entityId": "item:A",
-        "metadata": {
-          "changes": "columnKey",
-        },
-        "orgId": "org",
-        "userId": "alice",
-      },
-    ],
+    "audit": [],
     "embed": [],
     "notify": [],
-    "publish": [
-      [
-        "org",
-        "work-item.updated",
-        {
-          "columnKey": "ghost",
-          "id": "item:A",
-          "projectId": "project",
-          "ticketNumber": 1,
-        },
-      ],
-    ],
+    "publish": [],
     "teams": [],
   },
   "item": {
-    "activity": [
-      {
-        "action": "updated",
-        "field": "columnKey",
-        "newValue": "ghost",
-        "oldValue": "done",
-        "userId": "alice",
-      },
-      {
-        "action": "updated",
-        "field": "completedAt",
-        "newValue": null,
-        "oldValue": "2026-02-20T12:00:00.000Z",
-        "userId": "alice",
-      },
-    ],
+    "activity": [],
     "actualStart": null,
     "archivedAt": null,
     "assigneeId": null,
     "assignees": [],
     "cancelNote": null,
     "cancelReason": null,
-    "columnEnteredAt": "<now>",
-    "columnKey": "ghost",
-    "completedAt": null,
+    "columnEnteredAt": "2026-01-10T12:00:00.000Z",
+    "columnKey": "done",
+    "completedAt": "2026-02-20T12:00:00.000Z",
     "customFields": {},
     "description": "",
     "dueDate": null,
@@ -1295,16 +1272,12 @@ exports[`parity: PUT /work-items/[itemId] > move to a key no board shows clears 
     "workCategory": "BUSINESS",
   },
   "res": {
-    "echo": {
-      "actualStart": null,
-      "assignees": [],
-      "children": [],
-      "columnKey": "ghost",
-      "completedAt": null,
-      "scheduleCascade": [],
-      "tags": [],
-    },
-    "status": 200,
+    "code": "transition_not_allowed",
+    "detail": ""ghost" is not a status in this workflow.",
+    "error": ""ghost" is not a status in this workflow.",
+    "status": 409,
+    "title": "Transition not allowed",
+    "type": "/developers/guides/errors#transition_not_allowed",
   },
 }
 `;
@@ -2716,6 +2689,13 @@ exports[`parity: PUT /work-items/[itemId], every remaining field and edge > canc
         "oldValue": "todo",
         "userId": "alice",
       },
+      {
+        "action": "updated",
+        "field": "resolution",
+        "newValue": "Overcome by events (OBE)",
+        "oldValue": null,
+        "userId": "alice",
+      },
     ],
     "actualStart": null,
     "archivedAt": null,
@@ -2795,6 +2775,13 @@ exports[`parity: PUT /work-items/[itemId], every remaining field and edge > canc
         "field": "cancelReason",
         "newValue": "OTHER",
         "oldValue": "OBE",
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "resolution",
+        "newValue": "Other",
+        "oldValue": null,
         "userId": "alice",
       },
     ],
@@ -4011,6 +3998,7 @@ exports[`parity: bulk > bulk assignee change 1`] = `
   },
   "res": {
     "body": {
+      "denied": [],
       "updated": 2,
     },
     "status": 200,
@@ -4148,6 +4136,7 @@ exports[`parity: bulk > bulk move into Done 1`] = `
   },
   "res": {
     "body": {
+      "denied": [],
       "updated": 2,
     },
     "status": 200,
@@ -4250,6 +4239,7 @@ exports[`parity: bulk > bulk tags 1`] = `
   },
   "res": {
     "body": {
+      "denied": [],
       "updated": 2,
     },
     "status": 200,
@@ -4482,6 +4472,13 @@ exports[`parity: merge and sprint > merge a duplicate 1`] = `
         "field": "columnKey",
         "newValue": "cancelled",
         "oldValue": "in_progress",
+        "userId": "alice",
+      },
+      {
+        "action": "updated",
+        "field": "resolution",
+        "newValue": "Duplicate",
+        "oldValue": null,
         "userId": "alice",
       },
     ],
