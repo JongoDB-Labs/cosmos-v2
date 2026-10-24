@@ -4,7 +4,7 @@ import { isExecutableUpload } from "@/lib/files/parsers";
 import { prisma } from "@/lib/db/client";
 import { resolveAuth } from "@/lib/auth/api-key";
 import { requirePermission } from "@/lib/rbac/check";
-import { visibleProjectIdsForActor } from "@/lib/rbac/project-access";
+import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { ingestDocument } from "@/lib/files/ingest";
@@ -51,9 +51,11 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const orgOnly = scope === "org" || scope === "firm";
 
     const all = await prisma.project.findMany({ where: { orgId }, select: { id: true } });
-    const visible = await visibleProjectIdsForActor(
-      orgId,
-      ctx.userId,
+    // From the AuthContext, not just the user id: an API key's project scope is
+    // a ceiling here as on GET /projects, so a key scoped to one project lists
+    // that project's documents and no other's.
+    const visible = await getVisibleProjectIds(
+      ctx,
       all.map((p) => p.id),
     );
 

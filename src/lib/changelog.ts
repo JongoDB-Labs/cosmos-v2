@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.460.6",
+    date: "2026-10-24",
+    title: "API keys stay within their projects in the document library",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An API key limited to certain projects now lists and downloads documents only from those projects.",
+      },
+    ],
+  },
+  {
     version: "2.460.5",
     date: "2026-10-24",
     title: "Install Cosmos as an app in Edge and Chrome",
