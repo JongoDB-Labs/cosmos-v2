@@ -13,7 +13,9 @@
  * longer has), the status change's own consequences (dates, Activity) as for
  * any move, and no notifications, automations or webhooks.
  */
+import { after } from "next/server";
 import { Prisma, type PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/db/client";
 import { applyWorkItemChange } from "@/lib/work-items/apply-change.server";
 import { workflowDefinitionSchema } from "@/lib/workflow/definition";
 import type { MigrationMap } from "@/lib/workflow/versions.server";
@@ -179,4 +181,21 @@ export async function runWorkflowMigrations(db: PrismaClient, opts: { signal?: A
     moved += await migrateProject(db, { orgId: p.orgId, projectId: p.projectId, signal: opts.signal });
   }
   return { projects: projects.length, moved };
+}
+
+/**
+ * Start a project's moves once the response is sent, so a publish doesn't wait
+ * on them. Outside a request (a script, a test) nothing starts: the periodic
+ * job picks the work up from the data either way.
+ */
+export function startMigrations(orgId: string, projectId: string): void {
+  try {
+    after(() =>
+      migrateProject(prisma, { orgId, projectId }).catch((e) => {
+        console.error("[workflow-migrations] project %s: %s", projectId, e instanceof Error ? e.message : String(e));
+      }),
+    );
+  } catch {
+    // No request scope.
+  }
 }

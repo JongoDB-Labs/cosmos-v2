@@ -145,7 +145,10 @@
               "transition_forbidden",
               "transition_invalid",
               "transition_input_required",
-              "type_change_needs_status"
+              "type_change_needs_status",
+              "workflow_invalid",
+              "migration_map_required",
+              "workflow_in_use"
             ]
           },
           "requestId": {
