@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.476.0",
+    date: "2026-10-24",
+    title: "Clear, preview and filter notifications",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Clear one notification or all of them; hover a notification to preview it, and the item it's about; filter the bell by kind.",
+      },
+    ],
+  },
+  {
     version: "2.475.1",
     date: "2026-10-24",
     title: "Team-limited projects block outside writes",

@@ -1,12 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { notificationHref } from "@/lib/notifications/href";
+import { kindLabel } from "@/lib/notifications/kind";
+import { NotificationPreview } from "./notification-preview";
+import { announceNotificationsChanged, onNotificationsChanged } from "@/lib/notifications/changed";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { LoadError } from "@/components/ui/load-error";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -28,6 +32,8 @@ type Row = {
   title: string;
   body: string;
   url: string | null;
+  refType: string | null;
+  refId: string | null;
   read: boolean;
   createdAt: string;
 };
@@ -37,14 +43,6 @@ type Page = {
   nextCursor: string | null;
   counts: { total: number; unread: number; byType: { type: string; count: number }[] };
 };
-
-/** A dotted type reads as its last word — `x.y.past_due` becomes "Past due" —
- *  so a new kind needs no lookup table, and no table can go stale. */
-export function kindLabel(type: string): string {
-  const leaf = type.split(".").pop() ?? type;
-  const words = leaf.replace(/[_-]+/g, " ").trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
 
 const when = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, {
@@ -56,6 +54,8 @@ const when = (iso: string) =>
 export function InboxWorkspace({ orgId }: { orgId: string }) {
   const orgSlug = useOrgSlug();
   const qc = useQueryClient();
+  // The bell writes too; when it does, this page's copy is stale.
+  useEffect(() => onNotificationsChanged("inbox", () => void qc.invalidateQueries({ queryKey: ["org"] })), [qc]);
   const [unreadOnly, setUnreadOnly] = useState(true);
   const [type, setType] = useState<string | null>(null);
   const key = useOrgQueryKey(["inbox", unreadOnly ? "unread" : "all", type ?? "any"]);
@@ -82,7 +82,10 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
       if (!res.ok) throw new Error((await res.text()) || "Could not mark those read");
       return res.json();
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["org"] }),
+    onSuccess: () => {
+      announceNotificationsChanged("inbox");
+      return qc.invalidateQueries({ queryKey: ["org"] });
+    },
   });
 
   // One notification at a time, through the per-row endpoints the inbox never
@@ -96,19 +99,52 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
       });
       if (!res.ok) throw new Error("Could not update that notification");
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["org"] }),
+    onSuccess: () => {
+      announceNotificationsChanged("inbox");
+      return qc.invalidateQueries({ queryKey: ["org"] });
+    },
   });
   const dismiss = useMutation({
     mutationFn: async (id: string) => {
       const res = await fetch(`/api/v1/orgs/${orgId}/notifications/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Could not clear that notification");
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["org"] }),
+    onSuccess: () => {
+      announceNotificationsChanged("inbox");
+      return qc.invalidateQueries({ queryKey: ["org"] });
+    },
+  });
+  // Clears what the view lists and nothing else: the picked kind, unread only
+  // when that is what is showing. The server applies the same filters.
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const clearView = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/v1/orgs/${orgId}/notifications/inbox`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "clear", unreadOnly, ...(type ? { type } : {}) }),
+      });
+      if (!res.ok) throw new Error((await res.text()) || "Could not clear those");
+      return res.json();
+    },
+    onSuccess: () => {
+      setConfirmingClear(false);
+      setType(null);
+      announceNotificationsChanged("inbox");
+      return qc.invalidateQueries({ queryKey: ["org"] });
+    },
   });
   const rowError = (markOne.error ?? dismiss.error) as Error | null;
 
   const rows = useMemo(() => q.data?.pages.flatMap((p) => p.data) ?? [], [q.data]);
   const counts = q.data?.pages[0]?.counts;
+  // How many the view holds: a kind's count already follows the unread toggle;
+  // with no kind picked, it is the unread or the whole total.
+  const inView = type
+    ? (counts?.byType.find((t) => t.type === type)?.count ?? 0)
+    : unreadOnly
+      ? (counts?.unread ?? 0)
+      : (counts?.total ?? 0);
 
   if (q.isLoading) return <Skeleton className="h-96 w-full" />;
   if (q.isError) return <LoadError onRetry={() => q.refetch()} />;
@@ -133,7 +169,8 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
-        {chip(null, "Everything", counts?.total)}
+        {/* The kind chips count what the toggle shows; so does this one. */}
+        {chip(null, "Everything", unreadOnly ? counts?.unread : counts?.total)}
         {(counts?.byType ?? []).map((t) => chip(t.type, kindLabel(t.type), t.count))}
         <div className="ml-auto flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setUnreadOnly((v) => !v)}>
@@ -146,8 +183,34 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
           >
             {type ? `Mark ${kindLabel(type)} read` : "Mark all read"}
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setConfirmingClear(true)} disabled={inView === 0}>
+            {type ? `Clear ${kindLabel(type)}…` : "Clear all…"}
+          </Button>
         </div>
       </div>
+
+      <Dialog open={confirmingClear} onOpenChange={(o) => !o && setConfirmingClear(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Clear {inView} {inView === 1 ? "notification" : "notifications"}?
+            </DialogTitle>
+            <DialogDescription>
+              {unreadOnly ? "Every unread" : "Every"}
+              {type ? ` “${kindLabel(type)}”` : ""} notification in this view is removed from your inbox. This can’t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {clearView.isError && <p className="text-sm text-red-500">{(clearView.error as Error).message}</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmingClear(false)} disabled={clearView.isPending}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" onClick={() => clearView.mutate()} disabled={clearView.isPending}>
+              Clear
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {readAll.isError && (
         <p className="text-sm text-red-500">{(readAll.error as Error).message}</p>
@@ -198,7 +261,8 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
             // The actions sit beside the link, not inside it, so using them
             // never navigates away from the inbox.
             return (
-              <div key={n.id} className="group flex items-start hover:bg-[var(--primary-tint)]">
+              <NotificationPreview key={n.id} orgId={orgId} notification={n} side="bottom">
+              <div className="group flex items-start hover:bg-[var(--primary-tint)]">
                 {body}
                 <div className="flex shrink-0 items-center gap-1 px-2 py-2.5">
                   <Button
@@ -223,6 +287,7 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
                   </Button>
                 </div>
               </div>
+              </NotificationPreview>
             );
           })}
         </div>
