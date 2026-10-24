@@ -184,15 +184,28 @@ describe("the open workflow", () => {
     }
   });
 
-  it("holds a board's hard WIP limit when the move comes from that board", async () => {
+  it("holds a board's hard WIP limit from every surface, not only that board", async () => {
     const w = await world({ boardConfig: { wipHardEnforce: true }, wipLimit: 1 });
     await item(w.projectId, { columnKey: "doing" });
     const b = await item(w.projectId);
-    const refused = await put(w.projectId, b, { columnKey: "doing", boardId: w.boardId });
-    expect(refused.status).toBe(422);
-    expect(refused.body).toMatchObject({ code: "transition_invalid", reasons: [{ validator: "wipLimit" }] });
-    // Not from that board (the detail sheet, the API): the board's limit is the board's.
-    expect((await put(w.projectId, b, { columnKey: "doing" })).status).toBe(200);
+    for (const body of [{ columnKey: "doing", boardId: w.boardId }, { columnKey: "doing" }]) {
+      const refused = await put(w.projectId, b, body);
+      expect(refused.status).toBe(422);
+      expect(refused.body).toMatchObject({ code: "transition_invalid", reasons: [{ validator: "wipLimit" }] });
+    }
+    expect(await columnOf(b)).toBe("todo");
+  });
+
+  it("holds a team board's limit only for that team's items", async () => {
+    const w = await world();
+    const team = await prisma.team.create({ data: { orgId, projectId: w.projectId, name: "Platform" } });
+    await prisma.board.update({ where: { id: w.boardId }, data: { teamId: team.id, config: { wipHardEnforce: true } } });
+    await prisma.boardColumn.updateMany({ where: { boardId: w.boardId, key: "doing" }, data: { wipLimit: 1 } });
+    await item(w.projectId, { columnKey: "doing", teamId: team.id });
+    const theirs = await item(w.projectId, { teamId: team.id });
+    const nobodys = await item(w.projectId);
+    expect((await put(w.projectId, theirs, { columnKey: "doing" })).status).toBe(422);
+    expect((await put(w.projectId, nobodys, { columnKey: "doing" })).status).toBe(200);
   });
 
   it("does not hold a soft WIP limit", async () => {
@@ -724,5 +737,55 @@ describe("a stored definition that doesn't parse", () => {
     } finally {
       log.mockRestore();
     }
+  });
+});
+
+describe("concurrent moves", () => {
+  /** A change held open until `release` is called, so another can run against it. */
+  function held(projectId: string, itemId: string, patch: Record<string, unknown>) {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let applied!: () => void;
+    const ready = new Promise<void>((r) => (applied = r));
+    const done = prisma.$transaction(async (tx) => {
+      await applyWorkItemChange(tx, { actorId: aliceId, orgId, projectId, itemIds: [itemId], patch, source: "API", actor: calls.ctx as AuthContext });
+      applied();
+      await gate;
+    }, { timeout: 15_000 });
+    return { ready, release, done };
+  }
+  const settledWithin = async (p: Promise<unknown>, ms: number) =>
+    Promise.race([p.then(() => true, () => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))]);
+  const move = (projectId: string, itemId: string, columnKey: string) =>
+    prisma.$transaction((tx) =>
+      applyWorkItemChange(tx, { actorId: aliceId, orgId, projectId, itemIds: [itemId], patch: { columnKey }, source: "API", actor: calls.ctx as AuthContext }),
+    );
+
+  it("take turns into a hard-WIP column, so two can't both fill its last place", async () => {
+    const w = await world({ boardConfig: { wipHardEnforce: true }, wipLimit: 1 });
+    const a = await item(w.projectId);
+    const b = await item(w.projectId);
+    const first = held(w.projectId, a, { columnKey: "doing" });
+    await first.ready;
+    const second = move(w.projectId, b, "doing");
+    expect(await settledWithin(second, 400)).toBe(false);
+    first.release();
+    await first.done;
+    await expect(second).rejects.toMatchObject({ body: { code: "transition_invalid" } });
+    expect([await columnOf(a), await columnOf(b)]).toEqual(["doing", "todo"]);
+  });
+
+  it("finishing a parent waits for a sub-item being reopened, and then sees it open", async () => {
+    const w = await world();
+    const parent = await item(w.projectId);
+    const child = await item(w.projectId, { parentId: parent, columnKey: "done" });
+    const reopen = held(w.projectId, child, { columnKey: "todo" });
+    await reopen.ready;
+    const finish = move(w.projectId, parent, "done");
+    expect(await settledWithin(finish, 400)).toBe(false);
+    reopen.release();
+    await reopen.done;
+    await expect(finish).rejects.toMatchObject({ body: { code: "transition_invalid" } });
+    expect(await columnOf(parent)).toBe("todo");
   });
 });

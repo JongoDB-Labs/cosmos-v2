@@ -293,6 +293,64 @@ describe("org templates", () => {
   });
 });
 
+describe("names", () => {
+  it("two templates saved at once under one name: the second is refused, not a server error", async () => {
+    const p = await project();
+    const id = await liveWorkflow(p);
+    const name = `Same ${Math.random()}`;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let created!: () => void;
+    const ready = new Promise<void>((r) => (created = r));
+    // The first save is open when the second checks the name, so the check passes and the index decides.
+    const first = prisma.$transaction(async (t) => {
+      await createTemplateFrom(t, { orgId, workflowId: id, name, actorId: aliceId });
+      created();
+      await gate;
+    }, { timeout: 15_000 });
+    await ready;
+    const second = tx((t) => createTemplateFrom(t, { orgId, workflowId: id, name, actorId: aliceId }));
+    await new Promise((r) => setTimeout(r, 200));
+    release();
+    await first;
+    await expect(second).rejects.toMatchObject({ code: "workflow_in_use" });
+    expect(await prisma.workflow.count({ where: { orgId, projectId: null, name } })).toBe(1);
+  });
+});
+
+describe("publishing what actions name", () => {
+  it("refuses an assignee outside the org, and a team or interval of another project", async () => {
+    const p = await project();
+    const elsewhere = await project();
+    const outsider = await prisma.user.create({ data: { email: `wfv-out-${Math.random().toString(36).slice(2, 8)}@test.local`, displayName: "Outsider" } });
+    const team = await prisma.team.create({ data: { orgId, projectId: elsewhere, name: "Elsewhere" } });
+    const interval = await prisma.interval.create({ data: { orgId, projectId: elsewhere, number: 1, name: "S1", startDate: new Date(), endDate: new Date() } });
+    try {
+      const id = await tx((t) => createWorkflow(t, { orgId, projectId: p, actorId: aliceId, name: `refs ${Math.random()}`, from: { kind: "open" } }));
+      const def = (await tx((t) => getWorkflow(t, scopeOf(p), id))).draft!.definition as WorkflowDefinition;
+      const withActions = (actions: NonNullable<WorkflowDefinition["transitions"][number]["actions"]>): WorkflowDefinition => ({
+        ...def,
+        transitions: def.transitions.map((t) => (t.to === "doing" ? { ...t, actions } : t)),
+      });
+      for (const [actions, code] of [
+        [[{ kind: "assign", to: { userId: outsider.id } }], "UNKNOWN_ASSIGNEE"],
+        [[{ kind: "setField", field: { system: "teamId" }, value: { literal: team.id } }], "UNKNOWN_TEAM"],
+        [[{ kind: "setField", field: { system: "intervalId" }, value: { literal: interval.id } }], "UNKNOWN_INTERVAL"],
+      ] as const) {
+        await tx((t) => saveDraft(t, scopeOf(p), id, { definition: withActions(actions as never) }));
+        await expect(tx((t) => publishDraft(t, scopeOf(p), id, { actorId: aliceId })), code).rejects.toMatchObject({
+          code: "workflow_invalid", extensions: { issues: [expect.objectContaining({ code })] },
+        });
+      }
+      // A member of the org is fine.
+      await tx((t) => saveDraft(t, scopeOf(p), id, { definition: withActions([{ kind: "assign", to: { userId: bobId } }]) }));
+      await expect(tx((t) => publishDraft(t, scopeOf(p), id, { actorId: aliceId }))).resolves.toMatchObject({ version: 1 });
+    } finally {
+      await prisma.user.delete({ where: { id: outsider.id } }).catch(() => undefined);
+    }
+  });
+});
+
 describe("simulate", () => {
   it("says what each transition would do for an actor, under a draft too", async () => {
     const p = await project();

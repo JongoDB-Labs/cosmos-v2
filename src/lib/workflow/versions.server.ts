@@ -12,7 +12,7 @@
  * migration job (migrate.server.ts) moves them from it until none are left.
  */
 import { createHash } from "node:crypto";
-import type { Prisma, WorkflowEnforcement } from "@prisma/client";
+import { Prisma, type WorkflowEnforcement } from "@prisma/client";
 import { NotFoundError } from "@/lib/rbac/check";
 import { WorkflowEditError } from "@/lib/workflow/contract";
 import { buildOpenDefinition } from "@/lib/workflow/compile";
@@ -256,7 +256,7 @@ export async function createWorkflow(
     }
   }
 
-  const wf = await tx.workflow.create({
+  const wf = await uniqueName("workflow", () => tx.workflow.create({
     data: {
       orgId: args.orgId,
       projectId: args.projectId,
@@ -265,7 +265,7 @@ export async function createWorkflow(
       createdById: args.actorId,
     },
     select: { id: true },
-  });
+  }));
   await tx.workflowVersion.create({
     data: {
       orgId: args.orgId,
@@ -278,6 +278,21 @@ export async function createWorkflow(
     },
   });
   return wf.id;
+}
+
+/**
+ * A name another workflow (or, for a template, another template) already
+ * has: the unique indexes decide, so two saves at once can't both take it.
+ */
+async function uniqueName<T>(what: "workflow" | "template", write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      throw new WorkflowEditError("workflow_in_use", what === "template" ? "There is already a template with that name." : "Another workflow already has that name.");
+    }
+    throw e;
+  }
 }
 
 /** Name, description and enforcement (SHADOW records refusals without blocking). */
@@ -296,7 +311,7 @@ export async function updateWorkflowMeta(
     });
     if (taken) throw new WorkflowEditError("workflow_in_use", "Another workflow already has that name.");
   }
-  await tx.workflow.update({ where: { id: workflowId }, data });
+  await uniqueName("workflow", () => tx.workflow.update({ where: { id: workflowId }, data }));
 }
 
 /** Delete a workflow nothing is assigned to. */
@@ -420,10 +435,52 @@ export async function previewPublish(tx: Tx, scope: { orgId: string; projectId: 
   const draft = wf.versions[0];
   if (!draft) throw new NotFoundError("This workflow has no draft to publish.");
   const definition = parseDefinition(draft.definition);
-  const issues = validateDefinition(definition, await statusesForValidation(tx, wf.projectId, draft.layout as VersionLayout));
+  const issues = [
+    ...validateDefinition(definition, await statusesForValidation(tx, wf.projectId, draft.layout as VersionLayout)),
+    ...(await referenceIssues(tx, scope.orgId, wf.projectId, definition)),
+  ];
   const before = wf.publishedVersion ? parseDefinition(wf.publishedVersion.definition) : null;
   const counts = await countByStatus(tx, await workflowScope(tx, workflowId));
   return { wf, draft, definition, issues, diff: diffDefinitions(before, definition, counts) };
+}
+
+/**
+ * The people, teams and intervals a definition's actions name: an assignee
+ * must be in the org, and a team or interval must belong to the project. The
+ * engine checks what a transition writes as well (checkTransitionPatch); this
+ * says so at publish, where it can be fixed, rather than on someone's move.
+ * A template has no project, so only its assignees are checked.
+ */
+async function referenceIssues(tx: Tx, orgId: string, projectId: string | null, def: WorkflowDefinition): Promise<DefinitionIssue[]> {
+  const users = new Map<string, string>();
+  const teams = new Map<string, string>();
+  const intervals = new Map<string, string>();
+  for (const t of def.transitions) {
+    for (const a of t.actions ?? []) {
+      if (a.kind === "assign" && typeof a.to === "object") users.set(a.to.userId, t.name);
+      if (a.kind === "setField" && "system" in a.field && "literal" in a.value && typeof a.value.literal === "string") {
+        const into = a.field.system === "assigneeId" ? users : a.field.system === "teamId" ? teams : a.field.system === "intervalId" ? intervals : null;
+        into?.set(a.value.literal, t.name);
+      }
+    }
+  }
+  const issues: DefinitionIssue[] = [];
+  const missing = async (refs: Map<string, string>, found: (ids: string[]) => Promise<{ id: string }[]>, code: string, what: string) => {
+    if (refs.size === 0) return;
+    const have = new Set((await found([...refs.keys()])).map((r) => r.id));
+    for (const [id, name] of refs) if (!have.has(id)) issues.push({ severity: "error", code, message: `"${name}" ${what}` });
+  };
+  await missing(
+    users,
+    async (ids) => (await tx.orgMember.findMany({ where: { orgId, userId: { in: ids } }, select: { userId: true } })).map((m) => ({ id: m.userId })),
+    "UNKNOWN_ASSIGNEE",
+    "assigns someone who isn't a member of this organization.",
+  );
+  if (projectId) {
+    await missing(teams, (ids) => tx.team.findMany({ where: { id: { in: ids }, projectId }, select: { id: true } }), "UNKNOWN_TEAM", "sets a team that isn't part of this project.");
+    await missing(intervals, (ids) => tx.interval.findMany({ where: { id: { in: ids }, projectId }, select: { id: true } }), "UNKNOWN_INTERVAL", "sets an interval that isn't part of this project.");
+  }
+  return issues;
 }
 
 /** A migration map must send every listed key to a status in `def`; extra keys are dropped. */
@@ -591,10 +648,10 @@ export async function createTemplateFrom(
     nodes: (wf.publishedVersion.layout as VersionLayout | null)?.nodes,
     statusCatalog: statuses.map((s) => ({ key: s.key, name: s.name, color: s.color, category: s.category })),
   };
-  const template = await tx.workflow.create({
+  const template = await uniqueName("template", () => tx.workflow.create({
     data: { orgId: args.orgId, projectId: null, name: args.name, description: args.description ?? "", createdById: args.actorId },
     select: { id: true },
-  });
+  }));
   const version = await tx.workflowVersion.create({
     data: {
       orgId: args.orgId,
