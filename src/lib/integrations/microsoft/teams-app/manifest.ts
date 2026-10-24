@@ -8,7 +8,7 @@ import { zipSync, zlibSync, strToU8 } from "fflate";
  * so Teams admins can tell an update from what they have.
  */
 
-export const MANIFEST_VERSION = "1.0.0";
+export const MANIFEST_VERSION = "1.1.0";
 const ACCENT = "#4F46E5";
 
 export interface ManifestArgs {
@@ -56,6 +56,15 @@ export function teamsManifest({ appId, origin }: ManifestArgs) {
         messageHandlers: [{ type: "link", value: { domains: [host] } }],
       },
     ],
+    // T1 d: the personal "My work" tab and a channel tab (pick a project),
+    // signed in with Teams SSO against our "Expose an API" scope.
+    staticTabs: [
+      { entityId: "cosmos-my-work", name: "My work", contentUrl: `${origin}/teams/tab/my-work`, websiteUrl: `${origin}/`, scopes: ["personal"] },
+    ],
+    configurableTabs: [
+      { configurationUrl: `${origin}/teams/tab/configure`, canUpdateConfiguration: true, scopes: ["team", "groupChat"] },
+    ],
+    webApplicationInfo: { id: appId, resource: `api://${host}/${appId}` },
     permissions: ["identity"],
     validDomains: [host],
   };

@@ -8,6 +8,7 @@ import { SectionCard } from "@/components/ui/section-card";
 import { cn } from "@/lib/utils";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { TEAMS_CLIENT_IDS } from "@/lib/integrations/microsoft/teams-app/teams-clients";
 
 /**
  * COSMOS-202 T1: for admins, on Integrations: what Cosmos for Teams needs, in
@@ -20,6 +21,8 @@ interface TeamsAppStatus {
   calendarReady: boolean;
   appId: string | null;
   messagingEndpoint: string;
+  publicUrlConfigured: boolean;
+  appIdUri: string | null;
 }
 
 export function TeamsAppSetup({ orgId }: { orgId: string }) {
@@ -67,6 +70,23 @@ export function TeamsAppSetup({ orgId }: { orgId: string }) {
             "Configure the Microsoft sign-in app first (Admin, Sign-in providers). The bot uses the same app."
           )}
         </li>
+        {data.appId && !data.publicUrlConfigured && (
+          <li>
+            For the tabs&apos; sign-in, your Cosmos administrator sets <code className="rounded bg-muted px-1 text-xs">COSMOS_PUBLIC_URL</code>{" "}
+            to this instance&apos;s public address (for example https://cosmos.example.com). The tabs stay signed out until then.
+          </li>
+        )}
+        {data.appIdUri && (
+          <li>
+            For the tabs&apos; sign-in, in the same Entra app registration, under Expose an API, set the Application ID URI to:
+            {code("Application ID URI", data.appIdUri)}
+            add a scope named <code className="rounded bg-muted px-1 text-xs">access_as_user</code> that only admins can
+            consent to, grant admin consent, and pre-authorize the Teams clients
+            {code("Teams desktop and mobile client ID", TEAMS_CLIENT_IDS[0])}
+            {code("Teams web client ID", TEAMS_CLIENT_IDS[1])}
+            for that scope. Tokens from any other app are refused.
+          </li>
+        )}
         <li>{data.installed ? "Cosmos for Teams is installed." : "Install \"Cosmos for Teams\" below."}</li>
         <li>
           Upload the app package in the Teams admin center (Teams apps, Manage apps, Upload new app).

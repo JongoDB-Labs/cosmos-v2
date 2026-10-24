@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.458.0",
+    date: "2026-10-24",
+    title: "Cosmos tabs in Microsoft Teams",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Add Cosmos to a Teams channel or your personal Teams app to see your assigned work and a project's items without leaving Teams. Sign-in uses your Microsoft account, linked through Outlook Calendar; an admin grants consent once.",
+      },
+    ],
+  },
+  {
     version: "2.457.0",
     date: "2026-10-24",
     title: "API reference: OKRs, goals, KPIs, time and audit",
