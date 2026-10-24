@@ -5,19 +5,22 @@ import type { AuthContext } from "@/lib/rbac/check";
 import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
 
 const {
-  prisma, resolveAuth, visibleProjectIdsForActor, ingestDocument, logAudit,
+  prisma, resolveAuth, ingestDocument, logAudit,
   isOrgAdministrator, canAdministerProject,
 } = vi.hoisted(() => ({
   prisma: {
     organization: { findUnique: vi.fn() },
     project: { findMany: vi.fn() },
+    // Membership reads made by the REAL getVisibleProjectIds for the
+    // team-scoped project.
+    orgMember: { findUnique: vi.fn() },
+    projectMember: { findMany: vi.fn() },
     document: { findMany: vi.fn() },
     // The route hydrates the uploader for the page: uploadedById has no FK, so a
     // name is resolved rather than joined.
     user: { findMany: vi.fn() },
   },
   resolveAuth: vi.fn(),
-  visibleProjectIdsForActor: vi.fn(),
   isOrgAdministrator: vi.fn(),
   canAdministerProject: vi.fn(),
   ingestDocument: vi.fn(),
@@ -26,7 +29,12 @@ const {
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/auth/api-key", () => ({ resolveAuth }));
-vi.mock("@/lib/rbac/project-access", () => ({ visibleProjectIdsForActor, isOrgAdministrator }));
+// Visibility itself runs for real (only its database is mocked), so the API
+// key's project scope is exercised rather than assumed.
+vi.mock("@/lib/rbac/project-access", async (orig) => ({
+  ...((await orig()) as Record<string, unknown>),
+  isOrgAdministrator,
+}));
 vi.mock("@/lib/files/ingest", () => ({ ingestDocument }));
 vi.mock("@/lib/audit", () => ({ logAudit }));
 vi.mock("@/lib/rbac/require-project-manage", () => ({ canAdministerProject }));
@@ -37,6 +45,7 @@ const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const ME = "22222222-2222-2222-2222-222222222222";
 const OPEN_PROJECT = "33333333-3333-3333-3333-333333333333";
 const RESTRICTED_PROJECT = "44444444-4444-4444-4444-444444444444";
+const OTHER_PROJECT = "66666666-6666-6666-6666-666666666666";
 
 const bits = (...keys: PermissionKey[]) => keys.reduce((a, k) => a | Permission[k], 0n);
 
@@ -59,9 +68,17 @@ beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "o" });
   resolveAuth.mockResolvedValue(ctx("ORG_READ", "PROJECT_READ"));
-  prisma.project.findMany.mockResolvedValue([{ id: OPEN_PROJECT }, { id: RESTRICTED_PROJECT }]);
-  // The actor is on the open project only.
-  visibleProjectIdsForActor.mockResolvedValue(new Set([OPEN_PROJECT]));
+  // Two open projects and one team-scoped one the actor is not on.
+  const projects = [
+    { id: OPEN_PROJECT, teamScopedAccess: false },
+    { id: OTHER_PROJECT, teamScopedAccess: false },
+    { id: RESTRICTED_PROJECT, teamScopedAccess: true },
+  ];
+  prisma.project.findMany.mockImplementation(async (a: { where?: { id?: { in?: string[] } } }) =>
+    a?.where?.id?.in ? projects.filter((p) => a.where!.id!.in!.includes(p.id)) : projects,
+  );
+  prisma.orgMember.findUnique.mockResolvedValue({ id: "member-1" });
+  prisma.projectMember.findMany.mockResolvedValue([{ projectId: OPEN_PROJECT }]);
   isOrgAdministrator.mockReturnValue(false);
   canAdministerProject.mockResolvedValue(false);
   prisma.document.findMany.mockResolvedValue([]);
@@ -80,7 +97,15 @@ describe("GET /orgs/[orgId]/documents — the firm library", () => {
     // The project narrowing now lives inside the INHERIT arm, because a file can
     // also be restricted independently of the project it sits on.
     const inherit = where.OR.find((c: Record<string, unknown>) => c.visibility === "INHERIT");
+    expect(inherit.OR).toEqual([{ projectId: null }, { projectId: { in: [OPEN_PROJECT, OTHER_PROJECT] } }]);
+  });
+
+  it("an API key scoped to one project lists that project's documents and no other's", async () => {
+    resolveAuth.mockResolvedValue({ ...ctx("ORG_READ", "PROJECT_READ"), projectScope: [OPEN_PROJECT] });
+    await GET(req(), { params });
+    const inherit = whereSent().OR.find((c: Record<string, unknown>) => c.visibility === "INHERIT");
     expect(inherit.OR).toEqual([{ projectId: null }, { projectId: { in: [OPEN_PROJECT] } }]);
+    expect(JSON.stringify(whereSent())).not.toContain(OTHER_PROJECT);
   });
 
   it("never asks for a restricted project's documents", async () => {
