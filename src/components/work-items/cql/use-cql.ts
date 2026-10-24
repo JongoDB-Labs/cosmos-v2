@@ -83,6 +83,8 @@ export type QueryMode = "basic" | "advanced";
 
 export function useCqlUrlState(): {
   cql: string;
+  /** `?filter=<id>`: the saved filter loaded (run by id until the text changes). */
+  filterId: string | null;
   mode: QueryMode | null;
   setCql: (cql: string) => void;
   setMode: (mode: QueryMode) => void;
@@ -93,6 +95,7 @@ export function useCqlUrlState(): {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const cql = searchParams.get("cql") ?? "";
+  const filterId = searchParams.get("filter");
   const modeParam = searchParams.get("mode");
   const mode: QueryMode | null = modeParam === "basic" || modeParam === "advanced" ? modeParam : null;
 
@@ -112,12 +115,13 @@ export function useCqlUrlState(): {
   return useMemo(
     () => ({
       cql,
+      filterId,
       mode,
       setCql: (text: string) => replace({ cql: text.trim() || null }),
       setMode: (m: QueryMode) => replace({ mode: m }),
       update: replace,
     }),
-    [cql, mode, replace],
+    [cql, filterId, mode, replace],
   );
 }
 
