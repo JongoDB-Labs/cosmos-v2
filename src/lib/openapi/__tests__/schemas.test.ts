@@ -7,6 +7,7 @@ import * as okr from "../schemas/okr";
 import * as goals from "../schemas/goals";
 import * as time from "../schemas/time";
 import * as audit from "../schemas/audit";
+import * as links from "../schemas/links";
 
 /**
  * Response schemas are projections: a column they don't declare is a column
@@ -49,6 +50,7 @@ const ENTITIES: Record<string, Entity> = {
   ...goals.entities,
   ...time.entities,
   ...audit.entities,
+  ...links.entities,
 };
 
 const models = Prisma.dmmf.datamodel.models;

@@ -26,11 +26,13 @@ import * as c22 from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/objectives/
 import * as c23 from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/route.contract";
 import * as c24 from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/statuses/[key]/route.contract";
 import * as c25 from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/statuses/route.contract";
-import * as c26 from "@/app/api/v1/orgs/[orgId]/projects/route.contract";
-import * as c27 from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/favorite/route.contract";
-import * as c28 from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/route.contract";
-import * as c29 from "@/app/api/v1/orgs/[orgId]/time-entries/[entryId]/route.contract";
-import * as c30 from "@/app/api/v1/orgs/[orgId]/time-entries/route.contract";
-import * as c31 from "@/app/api/v1/orgs/[orgId]/work-item-types/route.contract";
+import * as c26 from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-item-links/[linkId]/route.contract";
+import * as c27 from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-item-links/route.contract";
+import * as c28 from "@/app/api/v1/orgs/[orgId]/projects/route.contract";
+import * as c29 from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/favorite/route.contract";
+import * as c30 from "@/app/api/v1/orgs/[orgId]/saved-views/[viewId]/route.contract";
+import * as c31 from "@/app/api/v1/orgs/[orgId]/time-entries/[entryId]/route.contract";
+import * as c32 from "@/app/api/v1/orgs/[orgId]/time-entries/route.contract";
+import * as c33 from "@/app/api/v1/orgs/[orgId]/work-item-types/route.contract";
 
-export const contractModules: readonly Record<string, unknown>[] = [c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31];
+export const contractModules: readonly Record<string, unknown>[] = [c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33];
