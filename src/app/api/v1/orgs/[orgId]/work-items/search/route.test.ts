@@ -49,6 +49,9 @@ const MEMBER_OBJ_ID = "55555555-5555-5555-5555-555555555555";
 const P_MEMBER = "22222222-2222-2222-2222-222222222222"; // actor IS a member
 const P_OTHER = "33333333-3333-3333-3333-333333333333"; // actor is NOT a member
 const TYPE_ID = "66666666-6666-6666-6666-666666666666";
+// Work-item ids are UUIDs, as the search's response contract requires.
+const ITEM_MEM = "77777777-7777-7777-7777-777777777771";
+const ITEM_OTHER = "77777777-7777-7777-7777-777777777772";
 
 function bits(...keys: PermissionKey[]): bigint {
   return keys.reduce((acc, k) => acc | Permission[k], 0n);
@@ -98,6 +101,8 @@ function workItemRow(projectId: string, id: string, ticketNumber: number) {
     intervalId: null,
     storyPoints: null,
     tags: [],
+    highlight: null,
+    archivedAt: null,
     startDate: null,
     dueDate: null,
     completedAt: null,
@@ -105,6 +110,7 @@ function workItemRow(projectId: string, id: string, ticketNumber: number) {
     updatedAt: new Date("2026-01-01T00:00:00Z"),
     projectId,
     workItemType: { id: TYPE_ID, key: "task", name: "Task", icon: null, color: null },
+    assignees: [],
   };
 }
 
@@ -155,7 +161,7 @@ describe("GET /work-items/search — org-wide ITEM_READ gate (resource-less)", (
     // is allowed on the OTHER project → the readable set is exactly [P_OTHER].
     // The query is therefore hard-scoped to P_OTHER; return one item from it.
     prisma.workItem.findMany.mockResolvedValue([
-      workItemRow(P_OTHER, "item-other", 1),
+      workItemRow(P_OTHER, ITEM_OTHER, 1),
     ]);
     prisma.workItem.count.mockResolvedValue(1);
 
@@ -164,7 +170,7 @@ describe("GET /work-items/search — org-wide ITEM_READ gate (resource-less)", (
     expect(res.status).toBe(200); // critically: NOT 403
     const body = (await res.json()) as { data: { id: string; project: { id: string } }[]; total: number };
     expect(body.total).toBe(1);
-    expect(body.data.map((r) => r.id)).toEqual(["item-other"]);
+    expect(body.data.map((r) => r.id)).toEqual([ITEM_OTHER]);
 
     // The where-clause that hit the DB was hard-scoped to the readable set
     // (folding the in_project deny) — never the actor's denied member project.
@@ -203,8 +209,8 @@ describe("GET /work-items/search — org-wide ITEM_READ gate (resource-less)", (
       }),
     );
     prisma.workItem.findMany.mockResolvedValue([
-      workItemRow(P_MEMBER, "item-mem", 1),
-      workItemRow(P_OTHER, "item-other", 2),
+      workItemRow(P_MEMBER, ITEM_MEM, 1),
+      workItemRow(P_OTHER, ITEM_OTHER, 2),
     ]);
     prisma.workItem.count.mockResolvedValue(2);
 
@@ -259,6 +265,71 @@ describe("POST /work-items/search — filter keys the body used to lose", () => 
     const res = await POST(postRequest({ filter: { includeArchived: true } }), { params });
 
     expect(res.status).toBe(400);
+    expect(prisma.workItem.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("the search on its public contract", () => {
+  beforeEach(() => {
+    getAuthContext.mockResolvedValue(ctxWith({ permissions: bits("ITEM_READ") }));
+    prisma.workItem.findMany.mockResolvedValue([workItemRow(P_OTHER, ITEM_OTHER, 7)]);
+    prisma.workItem.count.mockResolvedValue(1);
+  });
+  const get = (qs: string) => new NextRequest(`http://localhost/api/v1/orgs/${ORG_ID}/work-items/search?${qs}`);
+
+  it("an unknown parameter is a problem+json 400 naming it, and nothing is queried", async () => {
+    const res = await GET(get("limit=5&project=" + P_OTHER), { params });
+
+    expect(res.status).toBe(400);
+    expect(res.headers.get("content-type")).toContain("application/problem+json");
+    const body = await res.json();
+    expect(body).toMatchObject({ code: "invalid_request", error: "Unknown query parameter" });
+    expect(body.issues[0]).toMatchObject({ code: "unrecognized_keys", keys: ["limit"] });
+    expect(prisma.workItem.findMany).not.toHaveBeenCalled();
+  });
+
+  it("the bare collection path answers exactly what the search does", async () => {
+    const { GET: listGet } = await import("../route");
+    const qs = `project=${P_OTHER}&pageSize=5`;
+    const viaSearch = await (await GET(get(qs), { params })).json();
+    const viaList = await listGet(new NextRequest(`http://localhost/api/v1/orgs/${ORG_ID}/work-items?${qs}`), { params });
+
+    expect(viaList.status).toBe(200);
+    expect(await viaList.json()).toEqual(viaSearch);
+    expect(viaSearch.data[0]).toMatchObject({ id: ITEM_OTHER, ticketKey: "OTH-7", project: { id: P_OTHER } });
+  });
+
+  it("a row is exactly the documented WorkItemSearchRow, nothing more", async () => {
+    const { WorkItemSearchRow } = await import("@/lib/openapi/schemas/work-item-query");
+    const body = await (await GET(get(""), { params })).json();
+
+    expect(Object.keys(body.data[0]).sort()).toEqual(Object.keys(WorkItemSearchRow.shape).sort());
+  });
+
+  it("POST with a body that isn't JSON is a 400, not an unfiltered page", async () => {
+    const req = new NextRequest(`http://localhost/api/v1/orgs/${ORG_ID}/work-items/search`, {
+      method: "POST",
+      body: "{not json",
+      headers: { "content-type": "application/json" },
+    });
+    const res = await POST(req, { params });
+
+    expect(res.status).toBe(400);
+    expect(prisma.workItem.findMany).not.toHaveBeenCalled();
+  });
+
+  it("an API key without `read` is refused on both GET paths and the POST", async () => {
+    getAuthContext.mockResolvedValue({ ...ctxWith({ permissions: bits("ITEM_READ") }), isApiKey: true, scopes: ["members:read"] });
+    const { GET: listGet } = await import("../route");
+
+    for (const res of [
+      await GET(get(""), { params }),
+      await listGet(new NextRequest(`http://localhost/api/v1/orgs/${ORG_ID}/work-items`), { params }),
+      await POST(postRequest({}), { params }),
+    ]) {
+      expect(res.status).toBe(403);
+      expect((await res.json()).code).toBe("insufficient_scope");
+    }
     expect(prisma.workItem.findMany).not.toHaveBeenCalled();
   });
 });
