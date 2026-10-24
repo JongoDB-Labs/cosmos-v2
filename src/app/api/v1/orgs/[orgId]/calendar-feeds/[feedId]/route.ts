@@ -28,6 +28,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const { orgId, feedId } = await params;
     const r = await ownFeed(orgId, feedId);
     if (!r) return new Response("Not found", { status: 404 });
+    // Browser only, like creating one: new options widen what an existing
+    // unauthenticated link exposes. Revoking (DELETE) stays open to a key.
+    if (r.ctx.isApiKey) {
+      return Response.json({ error: "Calendar feed links can only be changed from the browser." }, { status: 403 });
+    }
     const { options } = patchSchema.parse(await request.json());
     const feed = await prisma.calendarFeed.update({
       where: { id: r.feed.id },
