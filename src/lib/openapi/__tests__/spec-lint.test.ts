@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { contractModules } from "../contracts.generated";
 import { buildDocument, collectContracts } from "../registry";
 import { API_KEY_SCOPES } from "@/lib/auth/api-key-scopes";
+import { assertScopes } from "../org-context";
+import type { RouteContract } from "../contract";
 
 /**
  * House rules for the published spec, checked on the generated document
@@ -34,9 +36,15 @@ describe("published spec lint", () => {
     expect(["stable", "beta"]).toContain(op["x-cosmos-stability"]);
   });
 
-  it.each(ops)("$where: security names real scopes, the same ones as x-cosmos-scopes", ({ op }) => {
-    expect(op.security).toEqual([{ bearerPat: op["x-cosmos-scopes"] }]);
-    for (const s of op["x-cosmos-scopes"] ?? []) expect(API_KEY_SCOPES).toContain(s);
+  it.each(ops)("$where: security leads with x-cosmos-scopes, and every alternative names real scopes the gate accepts", ({ op }) => {
+    const security = (op.security ?? []) as { bearerPat: string[] }[];
+    expect(security[0]).toEqual({ bearerPat: op["x-cosmos-scopes"] });
+    for (const req of security) {
+      for (const s of req.bearerPat) expect(API_KEY_SCOPES).toContain(s);
+      const ctx = { userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes: req.bearerPat };
+      const contract = { scopes: (op["x-cosmos-scopes"] ?? []) as RouteContract["scopes"] };
+      expect(() => assertScopes(ctx as never, contract)).not.toThrow();
+    }
   });
 
   it.each(ops)("$where: documents 401 (and 403 when it needs scopes), and every error is a Problem", ({ op }) => {

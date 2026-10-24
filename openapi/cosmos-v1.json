@@ -3609,6 +3609,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -3747,6 +3762,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -3884,6 +3914,21 @@
           {
             "bearerPat": [
               "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
             ]
           }
         ],
@@ -4053,6 +4098,21 @@
           {
             "bearerPat": [
               "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
             ]
           }
         ],
@@ -4229,6 +4289,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -4417,6 +4482,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -4553,6 +4633,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -4778,6 +4863,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -4908,6 +5008,16 @@
           {
             "bearerPat": [
               "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
             ]
           }
         ],
@@ -5099,6 +5209,18 @@
               "planning:write",
               "items:delete"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write",
+              "items:delete"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:delete",
+              "items:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -5235,6 +5357,16 @@
           {
             "bearerPat": [
               "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
             ]
           }
         ],
@@ -5437,6 +5569,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -5583,6 +5730,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -5772,6 +5924,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -5908,6 +6075,16 @@
           {
             "bearerPat": [
               "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
             ]
           }
         ],
@@ -6254,6 +6431,11 @@
             "bearerPat": [
               "items:write"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -6436,6 +6618,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -6575,6 +6772,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -6762,6 +6964,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -6892,6 +7109,16 @@
           {
             "bearerPat": [
               "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
             ]
           }
         ],
@@ -7090,6 +7317,16 @@
             "bearerPat": [
               "planning:write"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -7225,6 +7462,16 @@
           {
             "bearerPat": [
               "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
             ]
           }
         ],
@@ -7426,6 +7673,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -7565,6 +7827,16 @@
           {
             "bearerPat": [
               "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
             ]
           }
         ],
@@ -7734,6 +8006,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -7865,6 +8152,16 @@
           {
             "bearerPat": [
               "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
             ]
           }
         ],
@@ -8038,6 +8335,16 @@
             "bearerPat": [
               "planning:write"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -8173,6 +8480,16 @@
           {
             "bearerPat": [
               "planning:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
             ]
           }
         ],
@@ -8369,6 +8686,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -8500,6 +8832,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -8652,6 +8989,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -8980,6 +9322,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -9116,6 +9473,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -9317,6 +9679,11 @@
             "bearerPat": [
               "items:write"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -9507,6 +9874,21 @@
             "bearerPat": [
               "read"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -9666,6 +10048,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -9861,6 +10248,11 @@
             "bearerPat": [
               "items:write"
             ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -10010,6 +10402,11 @@
           {
             "bearerPat": [
               "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
             ]
           }
         ],
@@ -10187,6 +10584,11 @@
           {
             "bearerPat": [
               "time:read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "time:write"
             ]
           }
         ],
@@ -10577,6 +10979,11 @@
             "bearerPat": [
               "time:read"
             ]
+          },
+          {
+            "bearerPat": [
+              "time:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
@@ -10926,6 +11333,21 @@
           {
             "bearerPat": [
               "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
             ]
           }
         ],

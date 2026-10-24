@@ -59,3 +59,25 @@ export function effectiveScopes(scopes: readonly string[]): Set<ApiKeyScope> {
   }
   return out;
 }
+
+/**
+ * Every minimal set of scopes that passes a gate naming `required`, the named
+ * set first. The spec lists these as alternative security requirements, so a
+ * client reading it sees what the gate actually accepts (an items:write key
+ * passes a planning:write operation). Derived from IMPLIES, never kept by hand.
+ */
+export function satisfyingScopeSets(required: readonly string[]): string[][] {
+  if (required.length === 0) return [[]];
+  const satisfiers = required.map((r) => API_KEY_SCOPES.filter((s) => effectiveScopes([s]).has(r as ApiKeyScope)));
+  let combos: Set<string>[] = [new Set()];
+  for (const options of satisfiers) combos = combos.flatMap((c) => options.map((o) => new Set([...c, o])));
+  const key = (c: Set<string>) => [...c].sort().join(" ");
+  const named = new Set(required);
+  const unique = [...new Map(combos.map((c) => [key(c), c])).values()].filter((c) => key(c) !== key(named));
+  // Drop any set that strictly contains another: it adds nothing a client needs.
+  const minimal = unique.filter((c) => !unique.some((o) => o.size < c.size && [...o].every((x) => c.has(x))));
+  minimal.sort((a, b) => a.size - b.size || key(a).localeCompare(key(b)));
+  // The contract's own set always comes first, as written, even when a smaller
+  // alternative exists (planning:write alone also covers ["read", "planning:write"]).
+  return [[...required], ...minimal.map((c) => [...c].sort())];
+}
