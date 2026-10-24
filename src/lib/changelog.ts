@@ -49,6 +49,39 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.460.4",
+    date: "2026-10-24",
+    title: "New boards start with columns",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A Kanban or Scrum board created from Issues' \"Save as board\" (or the board form) now starts with the project's columns, or the defaults, instead of empty.",
+      },
+    ],
+  },
+  {
+    version: "2.460.3",
+    date: "2026-10-24",
+    title: "API keys can't act beyond their scopes",
+    highlights: [
+      {
+        kind: "fix",
+        text: "API keys can no longer edit comments, saved views, retrospectives or other people's time, create calendar feed links, use chat, or read others' private filters unless their scopes allow it. The Teams digest now needs an integration manager, or a key with rules:run and read, and posts at most once an hour.",
+      },
+    ],
+  },
+  {
+    version: "2.460.2",
+    date: "2026-10-24",
+    title: "Marked feedback comments are re-checked on a schedule",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If a lowered marking ceiling couldn't immediately hide affected feedback comments and their notifications, a background job now finishes the job within 15 minutes.",
+      },
+    ],
+  },
+  {
     version: "2.460.1",
     date: "2026-10-24",
     title: "More reliable test fixtures",
