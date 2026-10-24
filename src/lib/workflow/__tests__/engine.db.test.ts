@@ -31,6 +31,7 @@ import { GET as getMoves } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/
 import { seedBoardColumns } from "../provision.server";
 import { listTransitionsForItem, transitionItem } from "@/lib/ai/executors/work-items";
 import { stubToolCtx } from "@/lib/testing/tool-auth";
+import { applyWorkItemChange } from "@/lib/work-items/apply-change.server";
 
 let orgId = "";
 let aliceId = "";
@@ -199,6 +200,46 @@ describe("the open workflow", () => {
     await item(w.projectId, { columnKey: "doing" });
     const b = await item(w.projectId);
     expect((await put(w.projectId, b, { columnKey: "doing", boardId: w.boardId })).status).toBe(200);
+  });
+});
+
+describe("a change with no person behind it", () => {
+  // The system's own steps (source SYSTEM, actor null) and a composed plugin's
+  // call, which passes no actor at all.
+  const systemMove = (projectId: string, itemId: string, patch: Record<string, unknown>, plugin = false) =>
+    prisma.$transaction((tx) =>
+      applyWorkItemChange(tx, {
+        actorId: aliceId, orgId, projectId, itemIds: [itemId], patch,
+        ...(plugin ? { source: "API" as const } : { source: "SYSTEM" as const, actor: null }),
+      }),
+    );
+
+  it("is still held to the parent guard", async () => {
+    const w = await world();
+    const parent = await item(w.projectId);
+    await item(w.projectId, { parentId: parent });
+    await expect(systemMove(w.projectId, parent, { columnKey: "done" })).rejects.toMatchObject({ body: { code: "transition_invalid" } });
+    await expect(systemMove(w.projectId, parent, { columnKey: "done" }, true)).rejects.toMatchObject({ body: { code: "transition_invalid" } });
+    expect(await columnOf(parent)).toBe("todo");
+  });
+
+  it("is not restricted or asked for input, and may take a hidden transition", async () => {
+    const w = await world();
+    await customWorkflow(w.projectId, GOVERNED);
+    const a = await item(w.projectId);
+    await systemMove(w.projectId, a, { columnKey: "doing" });
+    expect(await columnOf(a)).toBe("doing");
+    await systemMove(w.projectId, a, { columnKey: "done" });
+    expect(await columnOf(a)).toBe("done");
+    await systemMove(w.projectId, a, { columnKey: "cancelled", cancelReason: "OTHER" }, true);
+    expect(await columnOf(a)).toBe("cancelled");
+  });
+
+  it("still needs a transition to exist", async () => {
+    const w = await world();
+    await customWorkflow(w.projectId, GOVERNED);
+    const a = await item(w.projectId);
+    await expect(systemMove(w.projectId, a, { columnKey: "done" })).rejects.toMatchObject({ body: { code: "transition_not_allowed" } });
   });
 });
 

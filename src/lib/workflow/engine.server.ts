@@ -35,8 +35,18 @@ import { CANCEL_REASONS } from "@/lib/work-items/cancel";
 
 type Tx = Prisma.TransactionClient;
 
-/** Where a change comes from decides how much of the workflow applies (design §4.4). */
-export type EnforcementLevel = "full" | "structural";
+/**
+ * Where a change comes from decides how much of the workflow applies (design §4.4).
+ *
+ * - `full`: a person's change. Restrictions, requested input, checks, actions.
+ * - `system`: a change with no person behind it (the system's own steps, a
+ *   composed plugin's call without an actor). There is no one to restrict or
+ *   ask, so restrictions and requested input are skipped and hidden
+ *   transitions are open; the checks still run, so the parent guard and hard
+ *   WIP limits hold on every path (owner decision).
+ * - `structural`: the transition must exist, nothing more (import, migration).
+ */
+export type EnforcementLevel = "full" | "system" | "structural";
 
 export interface TransitionRequest {
   /** Name the transition; otherwise the one between the two statuses is used. */
@@ -495,10 +505,12 @@ export async function gateChange(
       continue;
     }
 
+    const person = args.level === "full";
+
     // Restrict: who may take it. Hidden transitions are for the system only.
-    if (t.hidden) {
+    if (t.hidden && person) {
       if (refuse({ error: "That transition isn't available.", code: "transition_not_allowed", transition: transitionRef })) continue;
-    } else if (t.restrict && args.actor) {
+    } else if (t.restrict && args.actor && person) {
       actorFacts ??= await conditionActor(tx, args.actor, args.projectId, usesKind(wf.compiled.definition, ["actorProjectRole", "actorInTeam"]));
       const ctx: ConditionContext = {
         actor: actorFacts,
@@ -516,7 +528,7 @@ export async function gateChange(
     let patch = applyInput(args.patch, asked, args.transition?.input ?? {});
     const proposed = conditionItem(item, assignees.get(item.id) ?? [], patch);
     const missing = asked.filter((a) => a.required && isEmpty(fieldOf(proposed, a.field)));
-    if (missing.length > 0) {
+    if (missing.length > 0 && person) {
       if (refuse({
         error: `${t.name} needs ${missing.map((m) => m.label ?? label(m.field)).join(", ")}.`,
         code: "transition_input_required",
