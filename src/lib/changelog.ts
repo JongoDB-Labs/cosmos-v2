@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.480.0",
+    date: "2026-10-24",
+    title: "Notification kinds named in full",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Notification filters now name each kind in full ('Comment added' rather than 'Added'), so different kinds no longer share a label, and plugins can label their own notification kinds.",
+      },
+    ],
+  },
+  {
     version: "2.479.1",
     date: "2026-10-24",
     title: "Feedback and expenses follow team-limited projects",
