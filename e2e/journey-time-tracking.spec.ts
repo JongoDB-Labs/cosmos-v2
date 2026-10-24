@@ -46,6 +46,17 @@ test.describe("journey — time tracking", () => {
     await page.goto(`/${ORG}/time-tracking`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("main", { timeout: 20_000 });
 
+    // Wait for the week grid before touching the form. The "Log Time" button
+    // is server-rendered, so under `next dev` it is clickable about a second
+    // before React hydrates it. A click in that window either does nothing or
+    // is replayed once hydration finishes, which reopens the dialog and wipes
+    // whatever was typed (Save then stays disabled). The grid only replaces
+    // its loading state after the client has fetched the week, so seeing it
+    // means the page is hydrated.
+    await expect(page.getByRole("cell", { name: "Daily Totals" })).toBeVisible({
+      timeout: 20_000,
+    });
+
     // Open the "Log Time" dialog and fill the create form. Hours is the only
     // required field (project is optional; date defaults to today).
     await page.getByRole("button", { name: /log time/i }).first().click();
