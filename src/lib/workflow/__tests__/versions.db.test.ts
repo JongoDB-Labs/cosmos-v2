@@ -293,6 +293,83 @@ describe("org templates", () => {
   });
 });
 
+describe("drafts and publishes at once", () => {
+  /** `fn` in a transaction held open after it runs, until `release`. */
+  function held(fn: (t: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => Promise<unknown>) {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let ran!: () => void;
+    const ready = new Promise<void>((r) => (ran = r));
+    const done = prisma.$transaction(async (t) => {
+      await fn(t);
+      ran();
+      await gate;
+    }, { timeout: 15_000 });
+    return { ready, release, done };
+  }
+  const settledWithin = (p: Promise<unknown>, ms: number) =>
+    Promise.race([p.then(() => true, () => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))]);
+
+  it("an autosave during a publish waits, then becomes the next draft, never the published version", async () => {
+    const p = await project();
+    const id = await tx((t) => createWorkflow(t, { orgId, projectId: p, actorId: aliceId, name: `race ${Math.random()}`, from: { kind: "open" } }));
+    const def = (await tx((t) => getWorkflow(t, scopeOf(p), id))).draft!.definition as WorkflowDefinition;
+    const publish = held((t) => publishDraft(t, scopeOf(p), id, { actorId: aliceId }));
+    await publish.ready;
+    const save = tx((t) => saveDraft(t, scopeOf(p), id, { definition: without(def, "review") }));
+    expect(await settledWithin(save, 300)).toBe(false);
+    publish.release();
+    await publish.done;
+    expect(await save).toMatchObject({ version: 2 });
+    const versions = await prisma.workflowVersion.findMany({ where: { workflowId: id }, orderBy: { version: "asc" } });
+    expect(versions.map((v) => [v.version, v.state])).toEqual([[1, "PUBLISHED"], [2, "DRAFT"]]);
+    expect((versions[0].definition as WorkflowDefinition).statuses.map((x) => x.key)).toContain("review");
+  });
+
+  it("two assignments of a project's default at once: the second is a 409, not a server error", async () => {
+    const p = await project();
+    const a = await tx((t) => createWorkflow(t, { orgId, projectId: p, actorId: aliceId, name: `A ${Math.random()}`, from: { kind: "open" } }));
+    const b = await tx((t) => createWorkflow(t, { orgId, projectId: p, actorId: aliceId, name: `B ${Math.random()}`, from: { kind: "open" } }));
+    for (const id of [a, b]) await tx((t) => publishDraft(t, scopeOf(p), id, { actorId: aliceId }));
+    const first = held((t) => assignWorkflow(t, { orgId, projectId: p, workItemTypeId: null, workflowId: a }));
+    await first.ready;
+    const second = tx((t) => assignWorkflow(t, { orgId, projectId: p, workItemTypeId: null, workflowId: b }));
+    await new Promise((r) => setTimeout(r, 200));
+    first.release();
+    await first.done;
+    await expect(second).rejects.toMatchObject({ code: "workflow_in_use" });
+    expect(await prisma.workflowAssignment.findMany({ where: { projectId: p }, select: { workflowId: true } })).toEqual([{ workflowId: a }]);
+  });
+
+  it("deleting a workflow while it is being assigned: the delete is a 409, and the workflow stays", async () => {
+    const p = await project();
+    const id = await tx((t) => createWorkflow(t, { orgId, projectId: p, actorId: aliceId, name: `D ${Math.random()}`, from: { kind: "open" } }));
+    await tx((t) => publishDraft(t, scopeOf(p), id, { actorId: aliceId }));
+    const assign = held((t) => assignWorkflow(t, { orgId, projectId: p, workItemTypeId: null, workflowId: id }));
+    await assign.ready;
+    const remove = tx((t) => deleteWorkflow(t, scopeOf(p), id));
+    await new Promise((r) => setTimeout(r, 200));
+    assign.release();
+    await assign.done;
+    await expect(remove).rejects.toMatchObject({ code: "workflow_in_use" });
+    expect(await prisma.workflow.count({ where: { id } })).toBe(1);
+  });
+
+  it("two publishes of one draft: the second finds nothing left to publish", async () => {
+    const p = await project();
+    const id = await tx((t) => createWorkflow(t, { orgId, projectId: p, actorId: aliceId, name: `race2 ${Math.random()}`, from: { kind: "open" } }));
+    const first = held((t) => publishDraft(t, scopeOf(p), id, { actorId: aliceId }));
+    await first.ready;
+    const second = tx((t) => publishDraft(t, scopeOf(p), id, { actorId: bobId }));
+    expect(await settledWithin(second, 300)).toBe(false);
+    first.release();
+    await first.done;
+    await expect(second).rejects.toThrow(/no draft to publish/);
+    const versions = await prisma.workflowVersion.findMany({ where: { workflowId: id } });
+    expect(versions.map((v) => [v.state, v.publishedById])).toEqual([["PUBLISHED", aliceId]]);
+  });
+});
+
 describe("names", () => {
   it("two templates saved at once under one name: the second is refused, not a server error", async () => {
     const p = await project();
@@ -342,6 +419,17 @@ describe("publishing what actions name", () => {
           code: "workflow_invalid", extensions: { issues: [expect.objectContaining({ code })] },
         });
       }
+      // A restriction to a team of another project, or a custom field the org doesn't have.
+      await tx((t) => saveDraft(t, scopeOf(p), id, {
+        definition: { ...def, transitions: def.transitions.map((t) => (t.to === "doing" ? { ...t, restrict: { kind: "actorInTeam" as const, teamId: team.id } } : t)) },
+      }));
+      await expect(tx((t) => publishDraft(t, scopeOf(p), id, { actorId: aliceId }))).rejects.toMatchObject({
+        extensions: { issues: [expect.objectContaining({ code: "UNKNOWN_TEAM" })] },
+      });
+      await tx((t) => saveDraft(t, scopeOf(p), id, { definition: withActions([{ kind: "clearField", field: { custom: "no_such_field" } }]) }));
+      await expect(tx((t) => publishDraft(t, scopeOf(p), id, { actorId: aliceId }))).rejects.toMatchObject({
+        extensions: { issues: [expect.objectContaining({ code: "UNKNOWN_FIELD" })] },
+      });
       // A member of the org is fine.
       await tx((t) => saveDraft(t, scopeOf(p), id, { definition: withActions([{ kind: "assign", to: { userId: bobId } }]) }));
       await expect(tx((t) => publishDraft(t, scopeOf(p), id, { actorId: aliceId }))).resolves.toMatchObject({ version: 1 });

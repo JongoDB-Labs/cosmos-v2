@@ -5,6 +5,10 @@
  * gates on its own bit, in its own body, where the scope tests read it:
  * reading needs ITEM_READ on the project; changing needs WORKFLOW_MANAGE or
  * the project's manager (which a key's role never counts as: roleCountsFor).
+ *
+ * The org-wide WORKFLOW_MANAGE passes requireProjectManage without a visibility
+ * check, as every org-wide bit there does: it is an admin's power over every
+ * project, and no API key scope carries it.
  */
 import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";

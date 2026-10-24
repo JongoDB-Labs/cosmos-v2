@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
 import { Permission } from "@/lib/rbac/permissions";
-import { COMPARE_OPERATORS, type ConditionNode } from "@/lib/workflow/definition";
+import { COMPARE_OPERATORS, type ConditionNode, ORG_ROLES, PROJECT_ROLES } from "@/lib/workflow/definition";
 import { FieldPicker, Pick } from "./fields";
 
 /**
@@ -50,8 +50,6 @@ export const CONDITION_KINDS: { value: string; label: string; make: () => Condit
   { value: "previousStatus", label: "The item came from", make: () => ({ kind: "previousStatus", in: [] }) },
 ];
 
-const ORG_ROLES = ["OWNER", "ADMIN", "BILLING_ADMIN", "MEMBER", "VIEWER", "GUEST"];
-const PROJECT_ROLES = ["MANAGER", "LEAD", "MEMBER", "VIEWER"];
 const OP_LABELS: Record<string, string> = {
   eq: "is", ne: "is not", in: "is one of", nin: "is none of", gt: ">", gte: "≥", lt: "<", lte: "≤",
   contains: "contains", isEmpty: "is empty", isNotEmpty: "is not empty",

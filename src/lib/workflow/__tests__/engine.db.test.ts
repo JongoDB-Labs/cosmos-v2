@@ -212,6 +212,54 @@ describe("the open workflow", () => {
     expect((await put(w.projectId, nobodys, { columnKey: "doing" })).status).toBe(200);
   });
 
+  it("admits a bulk move only up to the places left, and refuses the rest", async () => {
+    const w = await world({ boardConfig: { wipHardEnforce: true }, wipLimit: 3 });
+    await item(w.projectId, { columnKey: "doing" });
+    await item(w.projectId, { columnKey: "doing" });
+    const ids = await Promise.all(Array.from({ length: 10 }, () => item(w.projectId)));
+    const res = await bulkPut(
+      new NextRequest("http://localhost/x", { method: "PUT", body: JSON.stringify({ ids, update: { columnKey: "doing" } }) }),
+      { params: Promise.resolve({ orgId, projectId: w.projectId }) },
+    );
+    const body = await res.json();
+    // In the order given: the first takes the one place left, each of the rest is refused for the limit.
+    expect(body.updated).toBe(1);
+    expect(body.denied).toHaveLength(9);
+    expect(new Set(body.denied.map((d: { code: string }) => d.code))).toEqual(new Set(["transition_invalid"]));
+    expect(await prisma.workItem.count({ where: { projectId: w.projectId, columnKey: "doing" } })).toBe(3);
+    expect(await columnOf(ids[0])).toBe("doing");
+  });
+
+  it("holds a team board's limit when only the team changes, or an action sets it", async () => {
+    const w = await world();
+    const team = await prisma.team.create({ data: { orgId, projectId: w.projectId, name: "Platform" } });
+    await prisma.board.update({ where: { id: w.boardId }, data: { teamId: team.id, config: { wipHardEnforce: true } } });
+    await prisma.boardColumn.updateMany({ where: { boardId: w.boardId, key: "doing" }, data: { wipLimit: 1 } });
+    await item(w.projectId, { columnKey: "doing", teamId: team.id });
+
+    // Already in Doing, off the team: joining the team would put it on that full board.
+    const joining = await item(w.projectId, { columnKey: "doing" });
+    const r = await put(w.projectId, joining, { teamId: team.id });
+    expect(r.status).toBe(422);
+    expect(r.body).toMatchObject({ code: "transition_invalid", reasons: [{ validator: "wipLimit" }] });
+    expect((await prisma.workItem.findUniqueOrThrow({ where: { id: joining } })).teamId).toBeNull();
+
+    // A transition whose action sets the team: the team it ends up in is the one counted.
+    await customWorkflow(w.projectId, {
+      ...GOVERNED,
+      transitions: [{
+        id: "pick-up", name: "Pick up", from: ["todo"], to: "doing",
+        validate: [{ kind: "wipLimit", scope: "board", hard: true }],
+        actions: [{ kind: "setField", field: { system: "teamId" }, value: { literal: team.id } }],
+      }],
+    });
+    const picked = await item(w.projectId);
+    const moved = await put(w.projectId, picked, { columnKey: "doing" });
+    expect(moved.status).toBe(422);
+    expect(moved.body).toMatchObject({ code: "transition_invalid", reasons: [{ validator: "wipLimit" }] });
+    expect(await columnOf(picked)).toBe("todo");
+  });
+
   it("does not hold a soft WIP limit", async () => {
     const w = await world({ wipLimit: 1 });
     await item(w.projectId, { columnKey: "doing" });

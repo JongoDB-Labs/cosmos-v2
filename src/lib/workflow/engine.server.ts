@@ -116,31 +116,86 @@ function nodes(node: ConditionNode | undefined): ConditionNode[] {
  */
 const WIP_LOCK_NAMESPACE = 20204;
 
+type HardBoard = { id: string; name: string; teamId: string | null; columnName: string; limit: number };
+
 /**
- * Lock what a move's checks read, before any of them run, in one fixed order
- * so concurrent changes can't deadlock: the destination column's advisory lock
- * first (a change has one destination, so one lock), then every moved item and
- * every moved item's parent as rows, in id order, in one statement. The
- * open-children check reads a parent's children while the parent is held, and
- * a sub-item's move holds its parent, so a concurrent reopen is either seen or
- * waits for the parent's move to commit.
+ * A change's view of the hard WIP limits: which boards hold each column to one,
+ * and how many items this change has already let into each. A bulk change
+ * gates every item before it writes any, so the database alone would let a
+ * batch of ten through a column with one free place.
  */
-async function lockMoves(tx: Tx, projectId: string, to: string, items: readonly WorkItem[]) {
-  const moved = items.filter((i) => i.columnKey !== to);
-  if (moved.length === 0) return;
-  const hard = await tx.board.count({
-    where: {
-      projectId,
-      config: { path: ["wipHardEnforce"], equals: true },
-      columns: { some: { key: to, wipLimit: { not: null } } },
+function wipLedger(tx: Tx, projectId: string) {
+  const byColumn = new Map<string, Promise<HardBoard[]>>();
+  const admitted = new Map<string, number>();
+  const boardsFor = (column: string) => {
+    let hit = byColumn.get(column);
+    if (!hit) {
+      hit = tx.board
+        .findMany({
+          where: { projectId, config: { path: ["wipHardEnforce"], equals: true }, columns: { some: { key: column, wipLimit: { not: null } } } },
+          select: { id: true, name: true, type: true, teamId: true, columns: { where: { key: column }, select: { name: true, wipLimit: true } } },
+        })
+        .then((rows) =>
+          rows
+            .filter((b) => boardShowsStatuses(b.type))
+            .map((b) => ({ id: b.id, name: b.name, teamId: b.teamId, columnName: b.columns[0].name, limit: b.columns[0].wipLimit! })),
+        );
+      byColumn.set(column, hit);
+    }
+    return hit;
+  };
+  // A team board counts its team's items, so it holds only for an item of its team.
+  const holding = async (column: string, teamId: string | null) =>
+    (await boardsFor(column)).filter((b) => b.teamId === null || b.teamId === teamId);
+  return {
+    boardsFor,
+    /** The first board this item would overflow, or the last one checked (all have room). */
+    async check(item: WorkItem, column: string, teamId: string | null): Promise<ValidationFacts["wip"]> {
+      let fact: ValidationFacts["wip"];
+      for (const board of await holding(column, teamId)) {
+        // Archived items are off every board. The item itself, if already there, is not counted twice.
+        const inColumn = await tx.workItem.count({
+          where: { projectId, columnKey: column, archivedAt: null, id: { not: item.id }, ...(board.teamId ? { teamId: board.teamId } : {}) },
+        });
+        fact = { limit: board.limit, countAfter: inColumn + (admitted.get(board.id) ?? 0) + 1, columnName: board.columnName, boardName: board.name };
+        if (fact.countAfter > board.limit) break;
+      }
+      return fact;
     },
-  });
-  if (hard > 0) {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WIP_LOCK_NAMESPACE}::int, hashtext(${`${projectId}:${to}`}))`;
+    /** An item this change lets into `column` (with `teamId`) takes a place on each board holding it. */
+    async admit(item: WorkItem, column: string, teamId: string | null) {
+      if (item.columnKey === column && item.teamId === teamId) return;
+      for (const board of await holding(column, teamId)) admitted.set(board.id, (admitted.get(board.id) ?? 0) + 1);
+    },
+  };
+}
+type WipLedger = ReturnType<typeof wipLedger>;
+
+/**
+ * Lock what a change's checks read, before any of them run, in one fixed order
+ * so concurrent changes can't deadlock: first the advisory lock of every column
+ * an item enters or changes team in, where a board holds that column to a hard
+ * limit, in sorted order; then every changed item and every moved item's
+ * parent as rows, in id order, in one statement. The open-children check reads
+ * a parent's children while the parent is held, and a sub-item's move holds its
+ * parent, so a concurrent reopen is either seen or waits for the parent's move.
+ */
+async function lockMoves(tx: Tx, projectId: string, patch: WorkItemPatch, items: readonly WorkItem[], wip: WipLedger) {
+  const to = patch.columnKey ?? undefined;
+  const changed = items.filter((i) => (to !== undefined && i.columnKey !== to) || (patch.teamId !== undefined && i.teamId !== patch.teamId));
+  if (changed.length === 0) return;
+  const columns = [...new Set(changed.map((i) => to ?? i.columnKey))].sort();
+  for (const column of columns) {
+    if ((await wip.boardsFor(column)).length === 0) continue;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WIP_LOCK_NAMESPACE}::int, hashtext(${`${projectId}:${column}`}))`;
   }
-  const ids = [...new Set(moved.flatMap((i) => (i.parentId ? [i.id, i.parentId] : [i.id])))].sort();
+  const ids = [...new Set(changed.flatMap((i) => (to !== undefined && i.parentId ? [i.id, i.parentId] : [i.id])))].sort();
   await tx.$queryRaw`SELECT id FROM work_items WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE`;
 }
+
+/** Does the workflow hold moves into `column` to the boards' WIP limits? */
+const keepsWip = (wf: GoverningWorkflow, column: string) =>
+  wf.compiled.definition.transitions.some((t) => t.to === column && t.validate?.some((v) => v.kind === "wipLimit"));
 
 const usesKind = (def: WorkflowDefinition, kinds: readonly string[]) =>
   def.transitions.some((t) => nodes(t.restrict).some((n) => "kind" in n && kinds.includes(n.kind)));
@@ -383,6 +438,9 @@ async function validationFacts(
     patch: WorkItemPatch;
     to: string;
     wf: GoverningWorkflow;
+    wip: WipLedger;
+    /** The item's team once the change is done, its actions included. */
+    teamId: string | null;
   },
 ): Promise<ValidationFacts> {
   const kinds = new Set(args.validators.map((v) => v.kind));
@@ -415,37 +473,9 @@ async function validationFacts(
   if (kinds.has("wipLimit")) {
     // Every board in the project with a hard limit on the destination column
     // holds, whichever surface the move comes from: the detail panel, bulk, the
-    // API and the assistant as much as a drag on that board. A board scoped to
-    // a team counts that team's items, so it holds only for an item of its team.
-    const boards = await tx.board.findMany({
-      where: { projectId: args.item.projectId, columns: { some: { key: args.to, wipLimit: { not: null } } } },
-      select: { name: true, type: true, config: true, teamId: true, columns: { where: { key: args.to }, select: { name: true, wipLimit: true } } },
-    });
-    const teamId = args.patch.teamId !== undefined ? args.patch.teamId : args.item.teamId;
-    const hard = boards.filter(
-      (b) => (b.config as { wipHardEnforce?: unknown } | null)?.wipHardEnforce === true &&
-        boardShowsStatuses(b.type) && (b.teamId === null || b.teamId === teamId),
-    );
-    if (hard.length > 0) {
-      // Moves into this column take turns (lockMoves), so the count is current.
-      for (const board of hard) {
-        const column = board.columns[0];
-        // Archived items are off every board.
-        const inColumn = await tx.workItem.count({
-          where: {
-            projectId: args.item.projectId,
-            columnKey: args.to,
-            archivedAt: null,
-            id: { not: args.item.id },
-            ...(board.teamId ? { teamId: board.teamId } : {}),
-          },
-        });
-        const wip = { limit: column.wipLimit, countAfter: inColumn + 1, columnName: column.name, boardName: board.name };
-        facts.wip = wip;
-        // The first board it would overflow is the one the refusal names.
-        if (wip.limit !== null && wip.countAfter > wip.limit) break;
-      }
-    }
+    // API and the assistant as much as a drag on that board. Moves into the
+    // column take turns (lockMoves), so the count is current.
+    facts.wip = await args.wip.check(args.item, args.to, args.teamId);
   }
   if (kinds.has("intervalRequired")) {
     const [type, intervals] = await Promise.all([
@@ -497,7 +527,8 @@ export async function gateChange(
     for (const item of args.items) result.gates.push({ itemId: item.id, patch: args.patch, transitionId: null, comments: [], watchers: [] });
     return result;
   }
-  if (args.patch.columnKey) await lockMoves(tx, args.projectId, args.patch.columnKey, args.items);
+  const wip = wipLedger(tx, args.projectId);
+  if (args.patch.columnKey || args.patch.teamId !== undefined) await lockMoves(tx, args.projectId, args.patch, args.items, wip);
   const governing = workflowResolver(tx, args.orgId, args.projectId);
   const force = args.transition?.force === true;
   if (force && !(args.actor && hasPermission(args.actor.permissions, Permission.WORKFLOW_OVERRIDE))) {
@@ -560,6 +591,14 @@ export async function gateChange(
         return [];
       });
       if (args.level === "full" && reasons.length > 0 && refuse({ error: reasons[0].message, code: "transition_invalid", reasons })) continue;
+      // A new team puts the item on that team's boards, in the column it is in:
+      // their hard limits hold as for a move, where the workflow keeps WIP limits.
+      if (args.patch.teamId !== undefined && args.patch.teamId !== item.teamId && keepsWip(wf, item.columnKey)) {
+        const fact = await wip.check(item, item.columnKey, args.patch.teamId);
+        const failed = runValidators([{ kind: "wipLimit", scope: "board", hard: true }], conditionItem(item, []), { wip: fact });
+        if (failed.length > 0 && refuse({ error: failed[0].message, code: "transition_invalid", reasons: failed.map((f) => ({ validator: f.validator, message: f.message })) })) continue;
+        await wip.admit(item, item.columnKey, args.patch.teamId);
+      }
       result.gates.push({ itemId: item.id, patch: args.patch, transitionId: null, comments: [], watchers: [] });
       continue;
     }
@@ -625,12 +664,23 @@ export async function gateChange(
       })) continue;
     }
 
+    // The transition's actions, worked out now (they are pure) so a check that
+    // depends on where the item ends up sees it: a team an action sets is the
+    // team whose boards' limits hold. They join the patch once the checks pass.
+    const done = applyActions(t.actions ?? [], {
+      patch,
+      item: { createdById: item.createdById, assigneeId: item.assigneeId, tags: item.tags },
+      actorId: args.actorId,
+      now: args.now,
+    });
+    const finalTeam = done.patch.teamId !== undefined ? done.patch.teamId : item.teamId;
+
     // Validate: the transition's checks and the destination's required fields, on the item as it would be.
     const dest = wf.compiled.definition.statuses.find((s) => s.key === to);
     const required = (dest?.fieldRules ?? []).filter((r) => r.rule === "required").map((r) => r.field);
     const validators: ValidatorSpec[] = [...(t.validate ?? []), ...(required.length > 0 ? [{ kind: "fieldsRequired" as const, fields: required }] : [])];
     if (validators.length > 0) {
-      const facts = await validationFacts(tx, { validators, item, patch, to, wf });
+      const facts = await validationFacts(tx, { validators, item, patch, to, wf, wip, teamId: finalTeam });
       const failures = runValidators(validators, proposed, facts);
       if (failures.length > 0) {
         if (refuse({
@@ -643,13 +693,8 @@ export async function gateChange(
     }
 
     // Perform: the transition's actions join the patch; the system steps run after them.
-    const done = applyActions(t.actions ?? [], {
-      patch,
-      item: { createdById: item.createdById, assigneeId: item.assigneeId, tags: item.tags },
-      actorId: args.actorId,
-      now: args.now,
-    });
     patch = done.patch;
+    if (validators.some((v) => v.kind === "wipLimit")) await wip.admit(item, to, finalTeam);
     result.gates.push({ itemId: item.id, patch, transitionId: named, comments: done.comments, watchers: done.watchers });
   }
   return result;
@@ -819,6 +864,8 @@ export async function simulateTransitions(
     ...(usesKind(def, ["previousStatus", "actorIsNot"]) && { history: await conditionHistory(tx, args.item.id) }),
   };
   const settings = await governing.settings();
+  // One move at a time: nothing is admitted, and simulate takes no locks.
+  const simulatedWip = wipLedger(tx, args.projectId);
   const out: SimulatedTransition[] = [];
   for (const t of wf.compiled.from(args.item.columnKey)) {
     if (t.to === args.item.columnKey) continue;
@@ -842,7 +889,7 @@ export async function simulateTransitions(
     // A check on a field the transition asks for is the dialog's job, not a block.
     const askedKeys = new Set(asked.map((a) => JSON.stringify(a.field)));
     const failures = validators.length > 0
-      ? runValidators(validators, proposed, await validationFacts(tx, { validators, item: args.item, patch, to: t.to, wf }))
+      ? runValidators(validators, proposed, await validationFacts(tx, { validators, item: args.item, patch, to: t.to, wf, wip: simulatedWip, teamId: args.item.teamId }))
           .filter((f) => !f.fields?.length || !f.fields.every((field) => askedKeys.has(JSON.stringify(field))))
       : [];
     if (failures.length > 0) {

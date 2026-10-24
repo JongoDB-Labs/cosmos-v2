@@ -19,7 +19,9 @@ import { buildOpenDefinition } from "@/lib/workflow/compile";
 import {
   validateDefinition,
   workflowDefinitionSchema,
+  type ConditionNode,
   type DefinitionIssue,
+  type FieldRef,
   type MigrationMap,
   type StatusRef,
   type ValidatorSpec,
@@ -284,6 +286,18 @@ export async function createWorkflow(
  * A name another workflow (or, for a template, another template) already
  * has: the unique indexes decide, so two saves at once can't both take it.
  */
+/** A write that lost a race to another change's unique row or deleted key: a 409 to retry, not a 500. */
+async function raced<T>(write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && (e.code === "P2002" || e.code === "P2003")) {
+      throw new WorkflowEditError("workflow_in_use", "Someone changed this workflow's assignments at the same time. Reload and try again.");
+    }
+    throw e;
+  }
+}
+
 async function uniqueName<T>(what: "workflow" | "template", write: () => Promise<T>): Promise<T> {
   try {
     return await write();
@@ -324,7 +338,8 @@ export async function deleteWorkflow(tx: Tx, scope: { orgId: string; projectId: 
   if (wf._count.assignments > 0) {
     throw new WorkflowEditError("workflow_in_use", "Assign another workflow to the types using this one first.");
   }
-  await tx.workflow.delete({ where: { id: workflowId } });
+  // An assignment made since the count above holds the row (ON DELETE RESTRICT).
+  await raced(() => tx.workflow.delete({ where: { id: workflowId } }));
 }
 
 // ── The draft ─────────────────────────────────────────────────────────────
@@ -340,12 +355,23 @@ async function statusesForValidation(tx: Tx, projectId: string | null, layout: V
  * have errors that stop a publish; those come back as `issues`. Creates the
  * draft, as the next version, when the workflow has none.
  */
+/**
+ * Take the workflow's row for the rest of the transaction: saving, discarding,
+ * restoring and publishing a draft go one at a time, so an autosave can never
+ * land on a version a publish just made immutable, and two publishes can't
+ * both supersede the same version.
+ */
+async function lockWorkflow(tx: Tx, workflowId: string) {
+  await tx.$queryRaw`SELECT id FROM workflows WHERE id = ${workflowId}::uuid FOR UPDATE`;
+}
+
 export async function saveDraft(
   tx: Tx,
   scope: { orgId: string; projectId: string | null },
   workflowId: string,
   body: { definition: unknown; layout?: VersionLayout },
 ): Promise<{ version: number; issues: DefinitionIssue[] }> {
+  await lockWorkflow(tx, workflowId);
   const wf = await tx.workflow.findFirst({
     where: { id: workflowId, ...scope },
     select: { id: true, projectId: true, versions: { orderBy: { version: "desc" }, take: 1, select: { version: true, state: true, id: true, layout: true } } },
@@ -356,9 +382,12 @@ export async function saveDraft(
   const layout = (body.layout ?? (latest?.layout as VersionLayout | undefined) ?? {}) as VersionLayout;
   const data = { definition, layout: layout as Prisma.InputJsonValue, checksum: definitionChecksum(definition) };
   let version: number;
-  if (latest?.state === "DRAFT") {
-    await tx.workflowVersion.update({ where: { id: latest.id }, data });
-    version = latest.version;
+  // Only ever a draft: a version that stopped being one is never written again.
+  const updated = latest?.state === "DRAFT"
+    ? (await tx.workflowVersion.updateMany({ where: { id: latest.id, state: "DRAFT" }, data })).count
+    : 0;
+  if (updated > 0) {
+    version = latest!.version;
   } else {
     version = (latest?.version ?? 0) + 1;
     await tx.workflowVersion.create({ data: { orgId: scope.orgId, workflowId, version, state: "DRAFT", ...data } });
@@ -368,6 +397,7 @@ export async function saveDraft(
 }
 
 export async function discardDraft(tx: Tx, scope: { orgId: string; projectId: string | null }, workflowId: string) {
+  await lockWorkflow(tx, workflowId);
   const wf = await tx.workflow.findFirst({ where: { id: workflowId, ...scope }, select: { id: true } });
   if (!wf) throw new NotFoundError("Workflow not found");
   await tx.workflowVersion.deleteMany({ where: { workflowId, state: "DRAFT" } });
@@ -375,6 +405,7 @@ export async function discardDraft(tx: Tx, scope: { orgId: string; projectId: st
 
 /** "Restore version N": a draft with N's definition, published like any other. */
 export async function restoreVersion(tx: Tx, scope: { orgId: string; projectId: string | null }, workflowId: string, version: number) {
+  await lockWorkflow(tx, workflowId);
   const old = await tx.workflowVersion.findFirst({
     where: { workflowId, version, workflow: scope },
     select: { definition: true, layout: true, state: true },
@@ -455,8 +486,28 @@ async function referenceIssues(tx: Tx, orgId: string, projectId: string | null, 
   const users = new Map<string, string>();
   const teams = new Map<string, string>();
   const intervals = new Map<string, string>();
+  const conditionTeams = new Map<string, string>();
+  const customKeys = new Map<string, string>();
+  const custom = (f: FieldRef, name: string) => {
+    if ("custom" in f) customKeys.set(f.custom, name);
+  };
+  const walk = (n: ConditionNode, name: string): void => {
+    if ("all" in n) return n.all.forEach((c) => walk(c, name));
+    if ("any" in n) return n.any.forEach((c) => walk(c, name));
+    if ("not" in n) return walk(n.not, name);
+    if (n.kind === "actorInTeam" && n.teamId !== "item") conditionTeams.set(n.teamId, name);
+    if (n.kind === "field") custom(n.field, name);
+  };
+  for (const s of def.statuses) for (const r of s.fieldRules ?? []) custom(r.field, `The "${s.key}" status`);
   for (const t of def.transitions) {
+    if (t.restrict) walk(t.restrict, t.name);
+    for (const i of t.input ?? []) custom(i.field, t.name);
+    for (const v of t.validate ?? []) {
+      if (v.kind === "fieldsRequired") v.fields.forEach((f) => custom(f, t.name));
+      if (v.kind === "field") custom(v.field, t.name);
+    }
     for (const a of t.actions ?? []) {
+      if (a.kind === "setField" || a.kind === "clearField") custom(a.field, t.name);
       if (a.kind === "assign" && typeof a.to === "object") users.set(a.to.userId, t.name);
       if (a.kind === "setField" && "system" in a.field && "literal" in a.value && typeof a.value.literal === "string") {
         const into = a.field.system === "assigneeId" ? users : a.field.system === "teamId" ? teams : a.field.system === "intervalId" ? intervals : null;
@@ -476,8 +527,16 @@ async function referenceIssues(tx: Tx, orgId: string, projectId: string | null, 
     "UNKNOWN_ASSIGNEE",
     "assigns someone who isn't a member of this organization.",
   );
+  await missing(
+    customKeys,
+    async (keys) => (await tx.customField.findMany({ where: { orgId, key: { in: keys } }, select: { key: true } })).map((f) => ({ id: f.key })),
+    "UNKNOWN_FIELD",
+    "uses a custom field this organization doesn't have.",
+  );
   if (projectId) {
     await missing(teams, (ids) => tx.team.findMany({ where: { id: { in: ids }, projectId }, select: { id: true } }), "UNKNOWN_TEAM", "sets a team that isn't part of this project.");
+    // A restriction naming a team that isn't here would refuse everyone, for good.
+    await missing(conditionTeams, (ids) => tx.team.findMany({ where: { id: { in: ids }, projectId }, select: { id: true } }), "UNKNOWN_TEAM", "is restricted to a team that isn't part of this project.");
     await missing(intervals, (ids) => tx.interval.findMany({ where: { id: { in: ids }, projectId }, select: { id: true } }), "UNKNOWN_INTERVAL", "sets an interval that isn't part of this project.");
   }
   return issues;
@@ -513,6 +572,7 @@ export async function publishDraft(
   workflowId: string,
   args: { actorId: string; migrationMap?: MigrationMap },
 ) {
+  await lockWorkflow(tx, workflowId);
   const { draft, definition, issues, diff } = await previewPublish(tx, scope, workflowId);
   const errors = issues.filter((i) => i.severity === "error");
   if (errors.length > 0) {
@@ -604,14 +664,16 @@ export async function assignWorkflow(
     assignedAt: new Date(),
   };
   const existing = await tx.workflowAssignment.findFirst({ where, select: { id: true } });
-  if (existing) {
-    await tx.workflowAssignment.update({
-      where: { id: existing.id },
-      data: { ...data, migrationMap: data.migrationMap ?? ({} as Prisma.InputJsonValue) },
-    });
-  } else {
-    await tx.workflowAssignment.create({ data: { orgId: args.orgId, ...where, ...data } });
-  }
+  // Another assignment of the same type made since the read above, or the
+  // workflow deleted since: the indexes and keys decide, and the loser is told.
+  await raced(() =>
+    existing
+      ? tx.workflowAssignment.update({
+          where: { id: existing.id },
+          data: { ...data, migrationMap: data.migrationMap ?? ({} as Prisma.InputJsonValue) },
+        })
+      : tx.workflowAssignment.create({ data: { orgId: args.orgId, ...where, ...data } }),
+  );
   return { migrationMap };
 }
 

@@ -63,6 +63,15 @@ export function handleApiError(error: unknown, request?: Request) {
   }
   if (
     error instanceof Prisma.PrismaClientKnownRequestError &&
+    (error.code === "P2034" || (error.code === "P2010" && ["40P01", "40001"].includes(String((error.meta as { code?: unknown } | undefined)?.code))))
+  ) {
+    // Postgres gave this transaction up for another's sake (a deadlock, or a
+    // serialization failure) and rolled it back: nothing was written, and the
+    // same request will go through when sent again.
+    return problem(409, "conflict", "Conflicting concurrent request — please retry", opts);
+  }
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === "P2002"
   ) {
     // A unique-constraint race (e.g. two posts of the same source landing at once)
