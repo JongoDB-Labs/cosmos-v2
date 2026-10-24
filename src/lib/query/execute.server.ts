@@ -11,7 +11,6 @@
  * arch test asserts nothing else imports compile.ts.
  */
 import type { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { buildScopedWhere } from "@/lib/work-items/query/build-where";
@@ -22,10 +21,13 @@ import { parseCql } from "./parser";
 import { limitDiagnostics, validateAst } from "./normalize";
 import { typecheck } from "./typecheck";
 import { loadSchemaCustomFields, resolveQuery, type VarInput } from "./resolve.server";
-import { compileQuery, type Compiled } from "./compile";
+import { compileQuery, historySpecs, type Compiled } from "./compile";
+import { runHistoryPrefilters } from "./history.server";
+import { withStatementTimeout } from "./timeout.server";
+import { inOrder, sortedIds } from "./sort.server";
 import type { CompileEnv } from "./env";
 import { printCql } from "./print";
-import { CqlError, diag, hasErrors, type CqlDiagnostic, type Span } from "./errors";
+import { CqlError, diag, hasErrors, tooBroad, type CqlDiagnostic, type Span } from "./errors";
 import { isValidTimeZone } from "./dates";
 
 export interface CqlInput {
@@ -118,6 +120,7 @@ export async function prepareCql(ctx: AuthContext, input: CqlInput, opts: CqlRun
     now: opts.now ?? new Date(),
     tz,
     vars: opts.vars,
+    timeoutMs: opts.timeoutMs,
     contextProjectId: opts.contextProjectId ?? raw.context?.projectId,
     sinceLastStandup: opts.sinceLastStandup,
     mode: opts.mode === "warn" ? "warn" : "strict",
@@ -125,41 +128,54 @@ export async function prepareCql(ctx: AuthContext, input: CqlInput, opts: CqlRun
   const diagnostics = [...checked.diagnostics, ...resolved.diagnostics];
   if (hasErrors(diagnostics)) throw new CqlError(diagnostics);
 
+  // History clauses Prisma can't express become id sets first (history.server.ts).
+  const specs = historySpecs(resolved.query.where, resolved.env);
+  if (specs.length) {
+    resolved.env.history = await withStatementTimeout(opts.timeoutMs ?? 3_000, (tx) =>
+      runHistoryPrefilters(tx, specs, ctx.orgId, readable),
+    );
+  }
+
+  const compiled = compileQuery(resolved.query, resolved.env);
+  if (listValues(compiled.where) > MAX_LIST_VALUES) throw tooBroad("query");
+
   return {
     orgId: ctx.orgId,
     readable,
     query: resolved.query,
     cql: printCql(resolved.query),
     env: resolved.env,
-    compiled: compileQuery(resolved.query, resolved.env),
+    compiled,
     diagnostics,
   };
 }
 
-const TIMEOUT_RE = /statement timeout|canceling statement|57014/i;
+/**
+ * Prisma binds every value of an `in` / `notIn` list as its own parameter and
+ * Postgres takes about 32,766 per statement; past this the query is refused
+ * with advice instead of failing in the driver.
+ */
+export const MAX_LIST_VALUES = 30_000;
 
-/** Run `fn` in a transaction whose statements are cancelled after `ms`. */
-export async function withStatementTimeout<T>(ms: number, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
-  try {
-    return await prisma.$transaction(
-      async (tx) => {
-        // set_config(..., true) is SET LOCAL: it ends with this transaction.
-        // A bound parameter, so no SQL is ever built from a string.
-        await tx.$queryRaw`SELECT set_config('statement_timeout', ${String(Math.round(ms))}, true)`;
-        return fn(tx);
-      },
-      { timeout: ms + 5_000, maxWait: 5_000 },
-    );
-  } catch (e) {
-    if (TIMEOUT_RE.test(String((e as Error)?.message ?? ""))) {
-      throw new CqlError(
-        [diag("", "CQL_TIMEOUT", "This query took too long. Narrow it with a project, a sprint or a date range.")],
-        422,
-      );
+/** How many `in` / `notIn` values a where carries. Iterative: no recursion depth to blow. */
+export function listValues(where: unknown): number {
+  let n = 0;
+  const stack: unknown[] = [where];
+  while (stack.length) {
+    const v = stack.pop();
+    if (Array.isArray(v)) stack.push(...v);
+    else if (v && typeof v === "object" && !(v instanceof Date)) {
+      for (const [k, x] of Object.entries(v)) {
+        if ((k === "in" || k === "notIn") && Array.isArray(x)) n += x.length;
+        else stack.push(x);
+      }
     }
-    throw e;
   }
+  return n;
 }
+
+// Re-exported: callers and tests import it from here.
+export { withStatementTimeout } from "./timeout.server";
 
 export async function executeCql(ctx: AuthContext, input: CqlInput, opts: CqlRunOptions = {}): Promise<CqlResult> {
   const prepared = await prepareCql(ctx, input, opts);
@@ -178,14 +194,7 @@ export async function executeCql(ctx: AuthContext, input: CqlInput, opts: CqlRun
 
   const rows = () =>
     withStatementTimeout(opts.timeoutMs ?? 3_000, (tx) =>
-      fetchIssueRows(tx, {
-        where,
-        orderBy: prepared.compiled.orderBy,
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        orgId: prepared.orgId,
-        allowedProjectIds: prepared.readable,
-      }),
+      pageOfRows(tx, prepared, where, { skip: (page - 1) * pageSize, take: pageSize }),
     );
   // Counting has its own, smaller budget: a slow count must not cost the
   // rows, it just reads "1,000+".
@@ -224,14 +233,35 @@ export async function exportCql(ctx: AuthContext, input: CqlInput, opts: Omit<Cq
     user: prepared.compiled.where,
   });
   const data = await withStatementTimeout(opts.timeoutMs ?? 10_000, (tx) =>
-    fetchIssueRows(tx, {
-      where,
-      orderBy: prepared.compiled.orderBy,
-      skip: 0,
-      take: EXPORT_MAX_ROWS,
-      orgId: prepared.orgId,
-      allowedProjectIds: prepared.readable,
-    }),
+    pageOfRows(tx, prepared, where, { skip: 0, take: EXPORT_MAX_ROWS }, EXPORT_MAX_ROWS),
   );
   return { data, query: prepared.query, cql: prepared.cql };
 }
+
+/** One page of rows: Prisma's ORDER BY, or the SQL sort then hydrate by id (sort.server.ts). */
+async function pageOfRows(
+  tx: Prisma.TransactionClient,
+  prepared: PreparedCql,
+  where: Prisma.WorkItemWhereInput,
+  page: { skip: number; take: number },
+  /** The SQL sort's cap: an export sorts as many items as it may return. */
+  sortMax?: number,
+): Promise<IssueRow[]> {
+  const base = { orgId: prepared.orgId, allowedProjectIds: prepared.readable };
+  if (!prepared.compiled.sqlSort) {
+    return fetchIssueRows(tx, { ...base, where, orderBy: prepared.compiled.orderBy, ...page });
+  }
+  const ids = await sortedIds(tx, where, prepared.compiled.sqlSort, page, sortMax);
+  if (ids.length === 0) return [];
+  // Still inside the envelope: the ids came from it, and the hydrate re-checks.
+  // In chunks: Prisma binds one parameter per id, and an export's 50k would
+  // pass the driver's 32,766-parameter limit.
+  const rows: IssueRow[] = [];
+  for (let i = 0; i < ids.length; i += HYDRATE_CHUNK) {
+    const chunk = ids.slice(i, i + HYDRATE_CHUNK);
+    rows.push(...(await fetchIssueRows(tx, { ...base, where: { AND: [where, { id: { in: chunk } }] }, orderBy: [{ id: "desc" }], skip: 0, take: chunk.length })));
+  }
+  return inOrder(ids, rows);
+}
+
+const HYDRATE_CHUNK = 5_000;

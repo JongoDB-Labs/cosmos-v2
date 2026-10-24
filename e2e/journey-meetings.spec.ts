@@ -26,14 +26,20 @@ test.describe("journey — meetings", () => {
     await page.goto(`/${ORG}/meetings`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("main", { timeout: 20_000 });
 
-    // Open the create dialog ("Schedule Meeting" trigger button).
-    await page
-      .getByRole("button", { name: /schedule meeting/i })
-      .first()
-      .click();
-    await expect(
-      page.getByRole("heading", { name: /schedule meeting/i }),
-    ).toBeVisible({ timeout: 10_000 });
+    // Open the create dialog ("Schedule Meeting" trigger button). The button is
+    // server-rendered, so it is visible about 1.5s before React hydrates it
+    // under `next dev`, and a click in that window does nothing (it failed
+    // every local run; CI's retries hid it). Re-click until the dialog opens
+    // rather than sleeping: the assertion is still that the button opens it.
+    await expect(async () => {
+      await page
+        .getByRole("button", { name: /schedule meeting/i })
+        .first()
+        .click();
+      await expect(
+        page.getByRole("heading", { name: /schedule meeting/i }),
+      ).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 20_000 });
 
     // Fill the only required field — title. Type defaults to Standup and the
     // date/time defaults to "now", so a minimal path needs nothing else.

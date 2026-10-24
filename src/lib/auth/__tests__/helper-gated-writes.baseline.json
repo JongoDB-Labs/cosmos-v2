@@ -119,6 +119,12 @@
   "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/bulk": [
     "requireProjectManage"
   ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]": [
+    "requireProjectManage"
+  ],
+  "DELETE v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]/draft": [
+    "requireProjectManage"
+  ],
   "DELETE v1/orgs/[orgId]/saved-views/[viewId]": [
     "canDelete",
     "viewerScope",
@@ -187,6 +193,9 @@
     "requireProjectManage"
   ],
   "PATCH v1/orgs/[orgId]/projects/[projectId]/vendors/[vendorId]": [
+    "requireProjectManage"
+  ],
+  "PATCH v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]": [
     "requireProjectManage"
   ],
   "PATCH v1/orgs/[orgId]/saved-views/[viewId]": [
@@ -340,6 +349,18 @@
   "POST v1/orgs/[orgId]/projects/[projectId]/work-item-links": [
     "requireProjectManage"
   ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/workflow/simulate": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/workflows": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]/publish": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]/versions/[version]/restore": [
+    "requireProjectManage"
+  ],
   "POST v1/orgs/[orgId]/saved-views": [
     "viewerScope"
   ],
@@ -366,7 +387,8 @@
     "canManageProject"
   ],
   "PUT v1/orgs/[orgId]/projects/[projectId]/boards/[boardId]/columns": [
-    "canManageProject"
+    "canManageProject",
+    "requireProjectManage"
   ],
   "PUT v1/orgs/[orgId]/projects/[projectId]/boards/[boardId]/dashboard-widgets/[widgetId]": [
     "canManageProject"
@@ -381,6 +403,12 @@
     "canManageProject"
   ],
   "PUT v1/orgs/[orgId]/projects/[projectId]/work-items/bulk": [
+    "requireProjectManage"
+  ],
+  "PUT v1/orgs/[orgId]/projects/[projectId]/workflow/assignments": [
+    "requireProjectManage"
+  ],
+  "PUT v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]/draft": [
     "requireProjectManage"
   ],
   "PUT v1/orgs/[orgId]/saved-views/[viewId]": [

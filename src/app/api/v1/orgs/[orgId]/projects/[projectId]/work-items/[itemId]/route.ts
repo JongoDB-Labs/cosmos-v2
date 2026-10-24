@@ -8,44 +8,28 @@ import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamProjectError } from "@/lib/teams/item-team.server";
 import { applyWorkItemChange, workItemPatchSchema } from "@/lib/work-items/apply-change.server";
+import { changeContextSchema } from "@/lib/workflow/transition-request";
 import { runAfterCommit } from "@/lib/work-items/after-commit";
+import { loadWorkItemDetail } from "@/lib/work-items/read.server";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { getWorkItem } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; itemId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, itemId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, getWorkItem);
+    const { params: { orgId, projectId, itemId } } = await parseRequest(getWorkItem, request, params);
     await requireProjectRead(ctx, projectId, "ITEM_READ");
 
-    const item = await prisma.workItem.findFirst({
-      where: { id: itemId, orgId, projectId },
-      include: {
-        parent: { select: { id: true, title: true, ticketNumber: true, workItemTypeId: true } },
-        children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true, completedAt: true }, orderBy: { sortOrder: "asc" } },
-        comments: { orderBy: { createdAt: "asc" }, take: 50 },
-        activities: { orderBy: { createdAt: "desc" }, take: 50 },
-        workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
-        interval: { select: { id: true, name: true, number: true, status: true } },
-        assignees: {
-          orderBy: { sortOrder: "asc" },
-          select: {
-            userId: true,
-            user: { select: { id: true, displayName: true, avatarUrl: true } },
-          },
-        },
-      },
-    });
+    const item = await loadWorkItemDetail(ctx, orgId, projectId, itemId);
+    if (!item) return problem(404, "not_found", undefined, { request });
 
-    if (!item) return new Response("Not found", { status: 404 });
-
-    return success(item);
+    return respond(getWorkItem, 200, item);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
@@ -57,6 +41,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // The project first: a key's project scope and team-scoped access bind
+    // edits as they bind reads, and an item id is not confirmed to a caller
+    // who can't see its project.
+    await requireProjectRead(ctx, projectId, "ITEM_UPDATE");
 
     const existing = await prisma.workItem.findFirst({ where: { id: itemId, orgId, projectId } });
     if (!existing) return new Response("Not found", { status: 404 });
@@ -72,6 +60,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = workItemPatchSchema.parse(body);
+    const { transition, boardId } = changeContextSchema.parse(body);
 
     const teamError = await teamProjectError({ projectId, teamId: data.teamId });
     if (teamError) return Response.json({ error: teamError }, { status: 400 });
@@ -84,6 +73,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         itemIds: [itemId],
         patch: data,
         source: "API",
+        actor: ctx,
+        transition,
+        boardId,
       });
       const updated = await tx.workItem.findUniqueOrThrow({
         where: { id: itemId },

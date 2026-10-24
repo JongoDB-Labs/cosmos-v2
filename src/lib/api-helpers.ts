@@ -3,8 +3,9 @@ import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { ForbiddenError, NotFoundError, ConflictError } from "./rbac/check";
 import { serverReportError } from "./telemetry/server";
-import { problem, ProblemError } from "./openapi/problem";
+import { problem, problemBody, ProblemError, PROBLEM_CONTENT_TYPE } from "./openapi/problem";
 import { isNoModelCredentialError } from "./ai/egress/types";
+import { TransitionError, WorkflowEditError } from "@/lib/workflow/contract";
 
 export function success<T>(data: T, status = 200) {
   return NextResponse.json(data, { status });
@@ -29,6 +30,21 @@ export function handleApiError(error: unknown, request?: Request) {
   if (error instanceof ProblemError) {
     return problem(error.status, error.code, error.message, { ...opts, headers: error.headers });
   }
+  if (error instanceof TransitionError) {
+    // A workflow refusal: a problem whose code says which, with the transition,
+    // the fields to ask for or the failed checks beside it (src/lib/workflow/contract.ts).
+    const { error: detail, code, ...extensions } = error.body;
+    return NextResponse.json(
+      { ...problemBody(error.status, code, detail, opts), ...extensions },
+      { status: error.status, headers: { "Content-Type": PROBLEM_CONTENT_TYPE } },
+    );
+  }
+  if (error instanceof WorkflowEditError) {
+    return NextResponse.json(
+      { ...problemBody(error.status, error.code, error.message, opts), ...error.extensions },
+      { status: error.status, headers: { "Content-Type": PROBLEM_CONTENT_TYPE } },
+    );
+  }
   if (error instanceof ForbiddenError) {
     return problem(403, "forbidden", error.message, opts);
   }
@@ -44,6 +60,15 @@ export function handleApiError(error: unknown, request?: Request) {
     // No Claude connection is an org setup state, not a server fault: say so
     // instead of a 500 (or, before, a stale env key's raw Anthropic 401).
     return problem(409, "model_not_connected", error.message, opts);
+  }
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    (error.code === "P2034" || (error.code === "P2010" && ["40P01", "40001"].includes(String((error.meta as { code?: unknown } | undefined)?.code))))
+  ) {
+    // Postgres gave this transaction up for another's sake (a deadlock, or a
+    // serialization failure) and rolled it back: nothing was written, and the
+    // same request will go through when sent again.
+    return problem(409, "conflict", "Conflicting concurrent request — please retry", opts);
   }
   if (
     error instanceof Prisma.PrismaClientKnownRequestError &&

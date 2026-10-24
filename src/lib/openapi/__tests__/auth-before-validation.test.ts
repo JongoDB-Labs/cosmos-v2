@@ -34,6 +34,8 @@ import { POST as createTimeEntry } from "@/app/api/v1/orgs/[orgId]/time-entries/
 import { PUT as updateTimeEntry } from "@/app/api/v1/orgs/[orgId]/time-entries/[entryId]/route";
 import { POST as createStatus } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/statuses/route";
 import { PATCH as updateStatus } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/statuses/[key]/route";
+import { POST as createLink } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-item-links/route";
+import { DELETE as deleteLink } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-item-links/[linkId]/route";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const ID = "22222222-2222-4222-8222-222222222222";
@@ -61,6 +63,7 @@ const ROUTES: [string, Handler, string, Record<string, string>][] = [
   ["PUT time entry", updateTimeEntry as unknown as Handler, "PUT", { orgId: ORG, entryId: ID }],
   ["POST statuses", createStatus as unknown as Handler, "POST", { orgId: ORG, projectId: ID }],
   ["PATCH status", updateStatus as unknown as Handler, "PATCH", { orgId: ORG, projectId: ID, key: "todo" }],
+  ["POST work-item links", createLink as unknown as Handler, "POST", { orgId: ORG, projectId: ID }],
 ];
 
 /** A body every one of these routes refuses: an array where each expects an object. */
@@ -108,5 +111,17 @@ describe("mutating routes authenticate before they validate", () => {
     const res = await call(handler, method, params);
     expect(res.status).toBe(400);
     expect((await res.json()).issues?.length).toBeGreaterThan(0);
+  });
+});
+
+describe("DELETE work-item link (no body) authenticates before it reads its path", () => {
+  it("no credential and a bad link id is a 401 that describes nothing", async () => {
+    h.getAuthContext.mockResolvedValue(null);
+    const res = await (deleteLink as unknown as Handler)(
+      new NextRequest(`http://localhost/api/v1/orgs/${ORG}/x`, { method: "DELETE" }),
+      { params: Promise.resolve({ orgId: ORG, projectId: ID, linkId: "nope" }) },
+    );
+    expect(res.status).toBe(401);
+    expect(await res.json()).not.toHaveProperty("issues");
   });
 });

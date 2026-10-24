@@ -4,6 +4,8 @@ import { applyWorkItemChange } from "@/lib/work-items/apply-change.server";
 import type { WriteMeta } from "@/lib/work-items/events.server";
 import { updateWorkItems } from "@/lib/work-items/write.server";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
+import { hardWipColumns, lockInOrder } from "@/lib/workflow/engine.server";
+import { ensureCancelledStatus } from "@/lib/workflow/statuses.server";
 
 /**
  * COSMOS-207: merge a duplicate into the item that survives.
@@ -63,6 +65,18 @@ export async function mergeWorkItems(
   if (b.mergedIntoId || b.cancelReason) {
     throw new MergeError("Merge into an open item, not one that was cancelled or merged.");
   }
+  // Lock everything this merge writes, first and in the one order every change
+  // takes (lockInOrder): it fills the survivor and moves the duplicate's
+  // sub-items before the cancel below, and a bulk move taking the same rows in
+  // the other order would otherwise deadlock with it.
+  const cancelled = await ensureCancelledStatus(tx, projectId);
+  const subItems = await tx.workItem.findMany({ where: { parentId: aId }, select: { id: true } });
+  await lockInOrder(
+    tx,
+    projectId,
+    await hardWipColumns(tx, projectId, [cancelled]),
+    [aId, bId, ...(a.parentId ? [a.parentId] : []), ...(b.parentId ? [b.parentId] : []), ...subItems.map((c) => c.id)],
+  );
   const project = await tx.project.findUniqueOrThrow({ where: { id: projectId }, select: { key: true } });
   const ref = (n: number) => `${project.key}-${n}`;
 
@@ -193,6 +207,8 @@ export async function mergeWorkItems(
     patch: { cancelReason: "MERGED", cancelNote: `Merged into ${ref(b.ticketNumber)}`, mergedIntoId: bId },
     source: "SYSTEM",
     correlationId: meta.correlationId,
+    // The system's own cancel: held to the workflow's structure, not a person's rights.
+    actor: null,
   });
   await tx.activity.createMany({
     data: [
