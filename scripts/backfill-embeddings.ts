@@ -15,11 +15,11 @@
 // TODO(rag): once we have a job queue, schedule this as a periodic sweep
 // instead of a manual ops command.
 
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { storeEmbedding, type EmbeddableTable } from "../src/lib/rag/embed";
 
-const prisma = new PrismaClient({
+const prisma = new PrismaClient<Prisma.PrismaClientOptions>({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
 });
 
