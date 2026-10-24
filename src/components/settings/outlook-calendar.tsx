@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { SectionCard } from "@/components/ui/section-card";
 import { cn } from "@/lib/utils";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { notifyError } from "@/lib/errors/notify";
@@ -66,11 +66,21 @@ function useCalendarStatus(orgId: string) {
 export function OutlookCalendarSection({ orgId }: { orgId: string }) {
   const { data } = useCalendarStatus(orgId);
   const outcome = OUTCOMES[useLandingParam("outlook") ?? ""];
+  // Set when the server asks what happens to invitations this person sent.
+  const [liveInvites, setLiveInvites] = useState<number | null>(null);
   const disconnect = useOrgMutation({
-    mutationFn: () => jsonFetch(`/api/v1/orgs/${orgId}/microsoft/calendar`, { method: "DELETE" }),
+    mutationFn: (invites?: "keep" | "cancel") =>
+      jsonFetch(`/api/v1/orgs/${orgId}/microsoft/calendar${invites ? `?invites=${invites}` : ""}`, { method: "DELETE" }),
     invalidate: [["outlook-calendar"]],
-    onSuccess: () => toast.success("Outlook Calendar disconnected"),
-    onError: (e) => notifyError(e, "Couldn't disconnect."),
+    onSuccess: () => {
+      setLiveInvites(null);
+      toast.success("Outlook Calendar disconnected");
+    },
+    onError: (e) => {
+      const live = e instanceof FetchError && e.status === 409 ? (e.body as { liveInvites?: number } | null)?.liveInvites : undefined;
+      if (typeof live === "number") setLiveInvites(live);
+      else notifyError(e, "Couldn't disconnect.");
+    },
   });
   const syncNow = useOrgMutation({
     mutationFn: () => jsonFetch(`/api/v1/orgs/${orgId}/microsoft/calendar/sync`, { method: "POST" }),
@@ -134,10 +144,36 @@ export function OutlookCalendarSection({ orgId }: { orgId: string }) {
                 {syncNow.isPending ? "Syncing…" : "Sync now"}
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={() => disconnect.mutate()} disabled={disconnect.isPending}>
+            <Button variant="outline" size="sm" onClick={() => disconnect.mutate(undefined)} disabled={disconnect.isPending || liveInvites !== null}>
               Disconnect
             </Button>
           </div>
+          {liveInvites !== null && (
+            <div role="group" aria-label="Your Outlook invitations" className="flex flex-col gap-2 rounded-md border p-3">
+              <p className="text-sm">
+                You sent Outlook invitations for {liveInvites === 1 ? "1 upcoming meeting" : `${liveInvites} upcoming meetings`}.
+                What should happen to them?
+              </p>
+              <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                <li>Cancel: attendees get a cancellation in Outlook, and the meetings go back to their Cosmos calendars.</li>
+                <li>
+                  Keep: the invitations stay in Outlook, but Cosmos will no longer update them. Changes made in
+                  Cosmos won&apos;t reach the attendees, and you&apos;ll have to update or cancel them in Outlook yourself.
+                </li>
+              </ul>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="destructive" onClick={() => disconnect.mutate("cancel")} disabled={disconnect.isPending}>
+                  Cancel invitations and disconnect
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => disconnect.mutate("keep")} disabled={disconnect.isPending}>
+                  Keep invitations and disconnect
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setLiveInvites(null)} disabled={disconnect.isPending}>
+                  Don&apos;t disconnect
+                </Button>
+              </div>
+            </div>
+          )}
           <p className="text-xs text-muted-foreground">
             Meetings you attend appear in your &quot;Cosmos&quot; calendar. A time or title change you make there
             comes back to Cosmos if you can edit that meeting; otherwise the Cosmos version is put back. Deleting

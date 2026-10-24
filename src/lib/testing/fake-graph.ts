@@ -40,6 +40,8 @@ export function fakeGraph(origin = "https://graph.microsoft.com") {
   let n = 0;
   let throttle: { count: number; retryAfter: string } | null = null;
   const deltaWindows: { from: string; to: string }[] = [];
+  /** Every cancellation an organizer sent: what the attendees were told. */
+  const cancellations: { eventId: string; subject: string; comment: string; attendees: unknown[] }[] = [];
   const sleeps: number[] = [];
 
   const bump = (e: FakeEvent) => {
@@ -108,6 +110,15 @@ export function fakeGraph(origin = "https://graph.microsoft.com") {
       events.set(e.id, e);
       return reply(201, view(e));
     }
+    if ((m = path.match(/^\/me\/events\/([^/]+)\/cancel$/)) && method === "POST") {
+      // The organizer cancels: attendees are sent a cancellation, and it leaves their calendar.
+      const e = events.get(decodeURIComponent(m[1]));
+      if (!e || e.removed || !mine(e.calendarId)) return reply(404, { error: { code: "ErrorItemNotFound" } });
+      cancellations.push({ eventId: e.id, subject: e.subject, comment: String(body?.comment ?? ""), attendees: (e as { attendees?: unknown[] }).attendees ?? [] });
+      e.removed = true;
+      e.seq = ++seq;
+      return reply(202);
+    }
     if ((m = path.match(/^\/me\/events\/([^/]+)$/))) {
       const e = events.get(decodeURIComponent(m[1]));
       if (!e || e.removed || !mine(e.calendarId)) return reply(404, { error: { code: "ErrorItemNotFound" } });
@@ -168,6 +179,7 @@ export function fakeGraph(origin = "https://graph.microsoft.com") {
       events.set(e.id, e);
       return e.id;
     },
+    cancellations,
     /** The window of every delta read, in order. */
     deltaWindows,
     sleep: async (ms: number) => void sleeps.push(ms),

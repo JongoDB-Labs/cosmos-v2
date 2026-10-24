@@ -1,23 +1,22 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
-import { noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { deleteWorkItemLink } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; linkId: string }> };
 
 /** DELETE — remove a work-item dependency link (scoped to this org+project). */
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, linkId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, deleteWorkItemLink);
+    const { params: { orgId, projectId, linkId } } = await parseRequest(deleteWorkItemLink, request, params);
     await requireProjectManage(ctx, projectId, Permission.ITEM_UPDATE);
 
     // Scope the delete to a link in THIS org whose source item is in THIS
@@ -26,7 +25,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       where: { id: linkId, orgId, sourceItem: { projectId } },
       select: { id: true, sourceItemId: true, targetItemId: true, type: true },
     });
-    if (!link) return new Response("Not found", { status: 404 });
+    if (!link) return problem(404, "not_found", undefined, { request });
 
     await prisma.workItemLink.delete({ where: { id: linkId } });
 
@@ -41,8 +40,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     });
     publishToOrg(orgId, "work-item-link.deleted", { projectId, linkId });
 
-    return noContent();
+    return respond(deleteWorkItemLink, 204, undefined);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

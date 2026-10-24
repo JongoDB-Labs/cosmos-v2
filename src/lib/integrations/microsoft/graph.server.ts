@@ -24,6 +24,8 @@ export interface GraphDeps {
   fetch?: FetchFn;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  /** Acting for a connection that is being removed (see onCalendarOffboard). */
+  offboarding?: boolean;
 }
 
 const TIMEOUT_MS = 15_000;
@@ -55,7 +57,7 @@ export async function graphRequest<T = unknown>(
   let throttled = 0;
   let reauthed = false;
   for (;;) {
-    const token = await calendarAccessToken(orgId, userId, { fetch: deps.fetch, now: deps.now });
+    const token = await calendarAccessToken(orgId, userId, { fetch: deps.fetch, now: deps.now, offboarding: deps.offboarding });
     const res = await f(url, {
       method,
       headers: {

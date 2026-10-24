@@ -66,6 +66,8 @@ interface Clin {
 
 interface TimeTrackerProps {
   orgId: string;
+  /** The signed-in user, from the server's auth context. */
+  selfUserId: string;
 }
 
 type ViewMode = "week" | "list";
@@ -263,7 +265,7 @@ const emptyForm: EntryFormData = {
   tags: "",
 };
 
-export function TimeTracker({ orgId }: TimeTrackerProps) {
+export function TimeTracker({ orgId, selfUserId }: TimeTrackerProps) {
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -313,9 +315,12 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
   // "" means ME, and ME has to be sent EXPLICITLY. A TIME_READ_ALL holder who
   // sends no userId gets every entry in the org, and the week grid would sum
   // all of it into "your week" — the arithmetic bug this picker exists to fix,
-  // still present in the default state. Resolved from the people list rather
-  // than threaded in as a prop, so there is one source of "who am I".
-  const selfUserId = people.find((p) => p.isSelf)?.userId ?? "";
+  // still present in the default state. It comes from the server's session
+  // as a prop, so it is known on the FIRST render: deriving it from the people
+  // list left it "" until that fetch resolved (and for good if it failed), and
+  // the entries and timesheet requests fired unscoped in that window, so the
+  // grid summed the whole org and Export CSV could write everyone's rows
+  // under the viewer's name.
   const shownUserId = personId || selfUserId;
 
   useEffect(() => {
