@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
+import { orgContext } from "@/lib/openapi/org-context";
+import type { AuthContext } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError, getIpAddress } from "@/lib/api-helpers";
@@ -12,12 +13,8 @@ import { deleteStatus, updateStatus } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; key: string }> };
 
-/** Resolve the org, actor and status, and check the actor may manage the project's statuses. */
-async function authorize(request: NextRequest, p: { orgId: string; projectId: string; key: string }) {
-  const org = await prisma.organization.findUnique({ where: { id: p.orgId } });
-  if (!org) return { ok: false as const, error: problem(404, "not_found", "Organization not found", { request }) };
-  const ctx = await getAuthContext(org.slug);
-  if (!ctx) return { ok: false as const, error: problem(401, "unauthorized", undefined, { request }) };
+/** Resolve the status, and check the actor may manage the project's statuses. */
+async function authorize(request: NextRequest, ctx: AuthContext, p: { orgId: string; projectId: string; key: string }) {
   const project = await prisma.project.findFirst({ where: { id: p.projectId, orgId: p.orgId }, select: { id: true } });
   if (!project) return { ok: false as const, error: problem(404, "not_found", "Project not found", { request }) };
   // The same authority as editing a board's columns: org-wide board update, or project manager.
@@ -31,8 +28,10 @@ async function authorize(request: NextRequest, p: { orgId: string; projectId: st
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
+    // Authenticate (and hold a key to the contract's scopes) before validating.
+    const { ctx } = await orgContext((await params).orgId, updateStatus);
     const { params: p, body } = await parseRequest(updateStatus, request, params);
-    const auth = await authorize(request, p);
+    const auth = await authorize(request, ctx, p);
     if (!auth.ok) return auth.error;
 
     const row = await prisma.$transaction(async (tx) => {
@@ -76,8 +75,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId, deleteStatus);
     const { params: p } = await parseRequest(deleteStatus, request, params);
-    const auth = await authorize(request, p);
+    const auth = await authorize(request, ctx, p);
     if (!auth.ok) return auth.error;
 
     const items = await prisma.workItem.count({ where: { projectId: p.projectId, columnKey: p.key } });
