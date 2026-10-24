@@ -130,7 +130,7 @@
           },
           "code": {
             "type": "string",
-            "enum": [
+            "x-extensible-enum": [
               "invalid_request",
               "unauthorized",
               "forbidden",
@@ -139,7 +139,13 @@
               "conflict",
               "model_not_connected",
               "rate_limited",
-              "internal_error"
+              "internal_error",
+              "transition_not_allowed",
+              "transition_ambiguous",
+              "transition_forbidden",
+              "transition_invalid",
+              "transition_input_required",
+              "type_change_needs_status"
             ]
           },
           "requestId": {
@@ -4390,6 +4396,107 @@
           "authorAvatarUrl",
           "canEdit",
           "canDelete"
+        ]
+      },
+      "Transition": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Send as `transition.id` with the move to take this transition."
+          },
+          "name": {
+            "type": "string",
+            "example": "Resolve"
+          },
+          "to": {
+            "type": "string",
+            "description": "The status key the transition leads to.",
+            "example": "done"
+          },
+          "toCategory": {
+            "type": "string",
+            "enum": [
+              "TODO",
+              "IN_PROGRESS",
+              "DONE",
+              "CANCELLED"
+            ]
+          },
+          "input": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "system": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "system"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "custom": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "custom"
+                      ]
+                    }
+                  ],
+                  "description": "A system field (`{ system: \"resolution\" }`) or a custom field by key (`{ custom: \"root_cause\" }`)."
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "hint": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "value",
+                      "label"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "field",
+                "required"
+              ]
+            },
+            "description": "Fields the transition asks for. Send their values as `transition.input`, keyed `system:<field>` or `custom:<key>`; a move without a required one is refused with `transition_input_required` and this same list."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "to",
+          "toCategory",
+          "input"
         ]
       },
       "TimeEntryList": {
@@ -13176,6 +13283,145 @@
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/projects/{projectId}/work-items/{itemId}/transitions": {
+      "get": {
+        "operationId": "listItemTransitions",
+        "summary": "List the transitions available on a work item",
+        "description": "The status changes the caller may make on the item from its current status, under the workflow that governs the item's project and type, with what each asks for. Restrictions are already applied; a transition's checks run when the move is made.",
+        "tags": [
+          "Workflows"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "read"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "planning:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "read"
+        ],
+        "x-cosmos-stability": "beta",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "itemId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List the transitions available on a work item",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Transition"
+                  }
                 }
               }
             }

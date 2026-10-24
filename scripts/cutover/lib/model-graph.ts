@@ -678,6 +678,9 @@ export const BARE_USER_REF_COLUMNS: ReadonlyMap<string, readonly string[]> = new
   ["audit_logs", ["user_id"]],
   // Workflow outbox: who caused the event (null for system and automation).
   ["domain_events", ["actor_id"]],
+  // Workflow P2: who created a workflow, who published a version.
+  ["workflows", ["created_by_id"]],
+  ["workflow_versions", ["published_by_id"]],
   ["notifications", ["user_id"]],
   ["objectives", ["owner_id"]],
   ["key_results", ["owner_id"]],

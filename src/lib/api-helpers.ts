@@ -3,8 +3,9 @@ import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { ForbiddenError, NotFoundError, ConflictError } from "./rbac/check";
 import { serverReportError } from "./telemetry/server";
-import { problem, ProblemError } from "./openapi/problem";
+import { problem, problemBody, ProblemError, PROBLEM_CONTENT_TYPE } from "./openapi/problem";
 import { isNoModelCredentialError } from "./ai/egress/types";
+import { TransitionError } from "@/lib/workflow/contract";
 
 export function success<T>(data: T, status = 200) {
   return NextResponse.json(data, { status });
@@ -28,6 +29,15 @@ export function handleApiError(error: unknown, request?: Request) {
   const opts = { request };
   if (error instanceof ProblemError) {
     return problem(error.status, error.code, error.message, { ...opts, headers: error.headers });
+  }
+  if (error instanceof TransitionError) {
+    // A workflow refusal: a problem whose code says which, with the transition,
+    // the fields to ask for or the failed checks beside it (src/lib/workflow/contract.ts).
+    const { error: detail, code, ...extensions } = error.body;
+    return NextResponse.json(
+      { ...problemBody(error.status, code, detail, opts), ...extensions },
+      { status: error.status, headers: { "Content-Type": PROBLEM_CONTENT_TYPE } },
+    );
   }
   if (error instanceof ForbiddenError) {
     return problem(403, "forbidden", error.message, opts);

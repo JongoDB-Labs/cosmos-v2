@@ -290,6 +290,9 @@ model Organization {
   boards              Board[]
   workflowStatuses    WorkflowStatus[]
   domainEvents        DomainEvent[]
+  workflows           Workflow[]
+  workflowVersions    WorkflowVersion[]
+  workflowAssignments WorkflowAssignment[]
   boardTemplates      BoardTemplate[]
   clins               Clin[]
   comments            Comment[]
@@ -828,6 +831,8 @@ model Project {
   teams               Team[]
   boards              Board[]
   statuses            WorkflowStatus[]
+  workflows           Workflow[]
+  workflowAssignments WorkflowAssignment[]
   workItems           WorkItem[]
   intervals           Interval[]
   objectives          Objective[]
@@ -882,11 +887,11 @@ model Team {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  members   TeamMember[]
-  boards    Board[]
-  workItems WorkItem[]
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project    Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  members    TeamMember[]
+  boards     Board[]
+  workItems  WorkItem[]
   savedViews SavedView[]
   // @plugin-backrel:Team
 
@@ -1054,6 +1059,105 @@ model DomainEvent {
   @@index([orgId, createdAt])
   @@index([subjectId, createdAt])
   @@map("domain_events")
+}
+
+/// A named CUSTOM workflow: the statuses a project (or one of its work-item
+/// types) uses and the transitions between them. A project or type with no
+/// assignment runs the open workflow, generated from its statuses at read time
+/// (src/lib/workflow/compile.ts buildOpenDefinition), so it has no row here.
+/// projectId null = an org-level template that projects copy, never share live.
+model Workflow {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId              String              @map("org_id") @db.Uuid
+  projectId          String?             @map("project_id") @db.Uuid
+  name               String
+  description        String              @default("")
+  /// SHADOW computes and records denials without blocking; ENFORCE blocks.
+  enforcement        WorkflowEnforcement @default(ENFORCE)
+  /// The live version; null until the first publish.
+  publishedVersionId String?             @unique @map("published_version_id") @db.Uuid
+  createdById        String              @map("created_by_id") @db.Uuid
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  org              Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project          Project?             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  publishedVersion WorkflowVersion?     @relation("PublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
+  versions         WorkflowVersion[]
+  assignments      WorkflowAssignment[]
+
+  @@unique([projectId, name])
+  // Plus a partial unique index on (org_id, name) WHERE project_id IS NULL
+  // (migration SQL): one org template per name.
+  @@index([orgId])
+  @@map("workflows")
+}
+
+enum WorkflowEnforcement {
+  SHADOW
+  ENFORCE
+
+  @@map("workflow_enforcement")
+}
+
+enum WorkflowVersionState {
+  DRAFT
+  PUBLISHED
+  SUPERSEDED
+
+  @@map("workflow_version_state")
+}
+
+/// Immutable once PUBLISHED. One DRAFT at a time per workflow.
+model WorkflowVersion {
+  id            String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String               @map("org_id") @db.Uuid
+  workflowId    String               @map("workflow_id") @db.Uuid
+  version       Int
+  state         WorkflowVersionState @default(DRAFT)
+  /// A zod-validated WorkflowDefinition (src/lib/workflow/definition.ts).
+  definition    Json
+  /// Editor-only node positions; never read by the engine.
+  layout        Json                 @default("{}")
+  /// sha256 of the canonical definition: which rules were in force for a transition.
+  checksum      String
+  /// The status migration applied on publish {fromKey: toKey}, kept forever.
+  migrationMap  Json?                @map("migration_map")
+  publishedById String?              @map("published_by_id") @db.Uuid
+  publishedAt   DateTime?            @map("published_at")
+  createdAt     DateTime             @default(now()) @map("created_at")
+
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workflow    Workflow     @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  publishedOf Workflow?    @relation("PublishedVersion")
+
+  @@unique([workflowId, version])
+  @@map("workflow_versions")
+}
+
+/// Which workflow governs (project x type). workItemTypeId null = the project
+/// default, for every type without a row of its own.
+model WorkflowAssignment {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String   @map("org_id") @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  workItemTypeId String?  @map("work_item_type_id") @db.Uuid
+  workflowId     String   @map("workflow_id") @db.Uuid
+  /// The status map {fromKey: toKey} given when this assignment was set, for
+  /// the items whose status the new workflow does not use. Kept: the
+  /// migration job moves stranded items with it until none are left.
+  migrationMap   Json?    @map("migration_map")
+  assignedAt     DateTime @default(now()) @map("assigned_at")
+
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workItemType WorkItemType? @relation(fields: [workItemTypeId], references: [id], onDelete: Cascade)
+  workflow     Workflow      @relation(fields: [workflowId], references: [id], onDelete: Restrict)
+
+  // Plus a partial unique index on (project_id) WHERE work_item_type_id IS NULL
+  // (in the migration): Postgres treats NULLs as distinct here.
+  @@unique([projectId, workItemTypeId])
+  @@map("workflow_assignments")
 }
 
 model WorkItem {
@@ -1881,10 +1985,11 @@ model WorkItemType {
   celebrateOnComplete  Boolean  @default(false) @map("celebrate_on_complete")
   createdAt            DateTime @default(now()) @map("created_at")
 
-  org             Organization?       @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  projectTemplate ProjectTemplate?    @relation(fields: [projectTemplateId], references: [id])
-  typeFields      WorkItemTypeField[]
-  workItems       WorkItem[]
+  org                 Organization?        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectTemplate     ProjectTemplate?     @relation(fields: [projectTemplateId], references: [id])
+  typeFields          WorkItemTypeField[]
+  workItems           WorkItem[]
+  workflowAssignments WorkflowAssignment[]
 
   @@unique([orgId, key])
   @@map("work_item_types")
