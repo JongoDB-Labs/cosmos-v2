@@ -130,7 +130,7 @@
           },
           "code": {
             "type": "string",
-            "enum": [
+            "x-extensible-enum": [
               "invalid_request",
               "unauthorized",
               "forbidden",
