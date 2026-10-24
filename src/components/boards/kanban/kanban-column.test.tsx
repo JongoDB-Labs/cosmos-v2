@@ -125,6 +125,8 @@ describe("KanbanColumn for an archived status", () => {
   it("is unmarked for a live status", () => {
     renderWith();
     expect(screen.queryByText("Archived")).toBeNull();
+  });
+});
 
 describe("KanbanColumn while a card that can't move here is dragged", () => {
   afterEach(() => cleanup());
