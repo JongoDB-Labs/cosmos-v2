@@ -13,6 +13,7 @@ import { NextRequest } from "next/server";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
+import { projectRow } from "@/lib/openapi/testing/rows";
 
 const { getAuthContext, prisma } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
@@ -45,6 +46,7 @@ function ctx(over: Partial<AuthContext> = {}): AuthContext {
 }
 
 const params = Promise.resolve({ orgId: ORG_ID });
+
 const listReq = () => new NextRequest(`http://localhost/api/v1/orgs/${ORG_ID}/projects`);
 
 async function listedIds(res: Response): Promise<string[]> {
@@ -59,8 +61,8 @@ beforeEach(() => {
   // The org has one ordinary project and one limited to its members.
   prisma.project.findMany.mockImplementation(() => {
     const rows = [
-      { id: OPEN, orgId: ORG_ID, teamScopedAccess: false, name: "Open", key: "OPN", _count: {} },
-      { id: RESTRICTED, orgId: ORG_ID, teamScopedAccess: true, name: "Secret", key: "SEC", _count: {} },
+      projectRow({ orgId: ORG_ID, projectTemplate: null, id: OPEN, teamScopedAccess: false, name: "Open", key: "OPN" }),
+      projectRow({ orgId: ORG_ID, projectTemplate: null, id: RESTRICTED, teamScopedAccess: true, name: "Secret", key: "SEC" }),
     ];
     return Promise.resolve(rows);
   });
@@ -115,7 +117,7 @@ describe("GET projects — team-scoped projects stay out of the list", () => {
     // The no-opt-in case is every existing org; it must not lose a project or
     // pay for a membership lookup.
     prisma.project.findMany.mockResolvedValue([
-      { id: OPEN, orgId: ORG_ID, teamScopedAccess: false, name: "Open", key: "OPN", _count: {} },
+      projectRow({ orgId: ORG_ID, projectTemplate: null, id: OPEN, teamScopedAccess: false, name: "Open", key: "OPN" }),
     ]);
     getAuthContext.mockResolvedValue(ctx());
     const ids = await listedIds(await GET(listReq(), { params }));
@@ -172,5 +174,73 @@ describe("GET projects — a project-scoped API key cannot enumerate the others"
     getAuthContext.mockResolvedValue(ctx({ orgRole: OrgRole.OWNER }));
     expect((await listedIds(await GET(listReq(), { params }))).sort())
       .toEqual([OPEN, RESTRICTED].sort());
+  });
+});
+
+describe("GET projects — a hidden project never reaches the cursor", () => {
+  // The cursor is the sort key of a page's LAST row. When visibility was
+  // filtered after the fetch, a hidden project could be that row, and its id
+  // and createdAt went out in `Link` / `Cosmos-Next-Cursor` (base64 JSON) to
+  // the very caller it is hidden from.
+  const HIDDEN_AT = new Date("2026-10-03T00:00:00Z");
+  const rows = [
+    projectRow({ id: RESTRICTED, orgId: ORG_ID, teamScopedAccess: true, name: "Secret", key: "SEC" }),
+    projectRow({ id: OPEN, orgId: ORG_ID, teamScopedAccess: false, name: "Open", key: "OPN" }),
+    projectRow({ id: "55555555-5555-4555-8555-555555555555", orgId: ORG_ID, teamScopedAccess: false, name: "Older", key: "OLD" }),
+  ];
+  rows[0].createdAt = HIDDEN_AT; // newest: it would end page 1 of size 1
+  rows[1].createdAt = new Date("2026-10-02T00:00:00Z");
+  rows[2].createdAt = new Date("2026-10-01T00:00:00Z");
+
+  /** findMany as Prisma would answer it: honours `id in`, the order and `take`. */
+  function prismaLike(args: {
+    where?: { id?: { in: string[] }; AND?: [{ id?: { in: string[] } }, { OR?: Record<string, unknown>[] }] };
+    select?: Record<string, true>;
+    take?: number;
+  }) {
+    const allowed = args.where?.AND?.[0]?.id?.in ?? args.where?.id?.in;
+    // The keyset clause: (a < x) OR (a = x AND b < y), as paginate.ts builds it.
+    const cmp = (v: unknown) => (v instanceof Date ? v.getTime() : (v as string));
+    const holds = (r: (typeof rows)[number], clause: Record<string, unknown>) =>
+      Object.entries(clause).every(([k, want]) => {
+        const have = cmp(r[k as keyof typeof r]);
+        if (want && typeof want === "object" && !(want instanceof Date)) {
+          const [op, v] = Object.entries(want)[0];
+          return op === "lt" ? have < cmp(v) : have > cmp(v);
+        }
+        return have === cmp(want);
+      });
+    const keyset = args.where?.AND?.[1]?.OR;
+    const out = rows
+      .filter((r) => !allowed || allowed.includes(r.id))
+      .filter((r) => !keyset || keyset.some((c) => holds(r, c)))
+      .sort((a, b) => (b.createdAt as Date).getTime() - (a.createdAt as Date).getTime())
+      .slice(0, args.take ?? rows.length);
+    const select = args.select;
+    return Promise.resolve(select
+      ? out.map((r) => Object.fromEntries(Object.keys(select).map((k) => [k, r[k as keyof typeof r]])))
+      : out);
+  }
+
+  const decode = (c: string | null) => (c ? Buffer.from(c, "base64url").toString("utf8") : "");
+
+  it("page by page, the cursor and Link only ever carry visible rows", async () => {
+    prisma.project.findMany.mockImplementation(prismaLike);
+    getAuthContext.mockResolvedValue(ctx()); // a member of nothing
+    const seen: string[] = [];
+    let url = `http://localhost/api/v1/orgs/${ORG_ID}/projects?limit=1`;
+    for (let i = 0; i < 5 && url; i++) {
+      const res = await GET(new NextRequest(url), { params });
+      const cursor = res.headers.get("cosmos-next-cursor");
+      const link = res.headers.get("link") ?? "";
+      for (const leak of [decode(cursor), link]) {
+        expect(leak).not.toContain(RESTRICTED);
+        expect(leak).not.toContain(HIDDEN_AT.toISOString());
+      }
+      seen.push(...(await listedIds(res)));
+      url = link.match(/<([^>]+)>/)?.[1] ?? "";
+    }
+    // Full pages, every visible project once, the hidden one never.
+    expect(seen).toEqual([OPEN, "55555555-5555-4555-8555-555555555555"]);
   });
 });

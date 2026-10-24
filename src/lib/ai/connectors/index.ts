@@ -37,6 +37,7 @@ registerConnector(nangoConnector);
 export {
   connectorToolDefs,
   connectorToolNames,
+  connectorToolAccess,
   executeConnectorTool,
   connectorEgressMaps,
   getConnectorDescriptors,

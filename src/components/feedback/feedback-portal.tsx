@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, FetchError } from "@/lib/query/json-fetcher";
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,70 +35,17 @@ import {
 import { notifyError } from "@/lib/errors/notify";
 import { reportError } from "@/lib/telemetry/error-report";
 import { describeUploadError, networkUploadError } from "./upload-error";
-import { ChevronUp, Plus, Bug, Lightbulb, Megaphone, Pencil, Trash2 } from "lucide-react";
-
-type FType = "BUG" | "FEATURE";
-type FStatus = "OPEN" | "PLANNED" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "DECLINED";
-
-interface FeedbackAttachment {
-  id: string;
-  kind: string;
-  url: string;
-  filename: string;
-  contentType: string;
-  size: number;
-}
-
-interface FeedbackItem {
-  id: string;
-  type: FType;
-  title: string;
-  description: string;
-  status: FStatus;
-  voteCount: number;
-  hasVoted: boolean;
-  // True when the current user authored this item — they own its title/
-  // description and may delete it, regardless of ORG_UPDATE.
-  isMine: boolean;
-  createdAt: string;
-  attachments?: FeedbackAttachment[];
-  projectId?: string | null;
-  // Submitter identity (resolved server-side — FeedbackItem has no User
-  // relation). Prefer the display name, falling back to email; either can be
-  // null if the author's User row no longer exists.
-  authorName?: string | null;
-  authorEmail?: string | null;
-  // Intake decision surfaced by the guardrail pipeline (Phase 3c): accepted /
-  // held / rejected / throttled / gated + reason (+ score). Null until intake ran.
-  intake?: IntakeDecision | null;
-}
-
-type IntakeState = "accepted" | "held" | "rejected" | "throttled" | "gated";
-
-interface IntakeDecision {
-  state: IntakeState;
-  label: string;
-  reason: string;
-  score: number | null;
-  categories?: string[];
-}
-
-// Badge tone per intake state — accepted reads positive, the safety parks read
-// as review/blocked, a throttle is neutral.
-const INTAKE_BADGE_VARIANT: Record<IntakeState, "done" | "review" | "blocked" | "neutral"> = {
-  accepted: "done",
-  held: "review",
-  rejected: "blocked",
-  throttled: "neutral",
-  gated: "review",
-};
-
-/** "Reported by <name>", preferring display name and falling back to email.
- *  Returns null when neither resolved (e.g. the author's User row is gone). */
-function reporterLabel(item: Pick<FeedbackItem, "authorName" | "authorEmail">): string | null {
-  const who = item.authorName || item.authorEmail;
-  return who ? `Reported by ${who}` : null;
-}
+import { FeedbackDetailDialog } from "./feedback-detail-dialog";
+import {
+  INTAKE_BADGE_VARIANT,
+  STATUS_LABELS,
+  STATUS_ORDER,
+  reporterLabel,
+  type FeedbackItem,
+  type FStatus,
+  type FType,
+} from "./feedback-types";
+import { ChevronUp, Plus, Bug, Lightbulb, Megaphone, MessageSquare } from "lucide-react";
 
 // Shape of /api/v1/orgs/[orgId]/projects — `success(projects)` returns a bare
 // array (jsonFetch unwraps the `{ data }` envelope), so this is one element.
@@ -107,23 +55,6 @@ type OrgProject = { id: string; key: string; name: string };
 // org-level surface with no implicit "current project" to default to.
 const NO_PROJECT = "__none__";
 
-const STATUS_LABELS: Record<FStatus, string> = {
-  OPEN: "Open",
-  PLANNED: "Planned",
-  IN_PROGRESS: "In progress",
-  IN_REVIEW: "In review",
-  DONE: "Done",
-  DECLINED: "Declined",
-};
-
-const STATUS_ORDER: FStatus[] = [
-  "OPEN",
-  "PLANNED",
-  "IN_PROGRESS",
-  "IN_REVIEW",
-  "DONE",
-  "DECLINED",
-];
 
 export function FeedbackPortal({ orgId }: { orgId: string }) {
   const { can } = usePermissions();
@@ -154,10 +85,12 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
   const detailItem = detailId
     ? items.find((i) => i.id === detailId) ?? null
     : null;
-  // Manager edit/delete of an item from the detail modal.
-  const [editing, setEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState("");
-  const [editDesc, setEditDesc] = useState("");
+  // Read by fetchItems, which must not drop the open item (see there).
+  const detailIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    detailIdRef.current = detailId;
+  }, [detailId]);
+  const [deepLinkError, setDeepLinkError] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Filter + sort (FR: organize/filter FRs & BRs by status and type).
@@ -272,7 +205,16 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
     try {
       const res = await fetch(basePath);
       if (!res.ok) throw new Error("Failed to load feedback");
-      setItems(await res.json());
+      const list: FeedbackItem[] = await res.json();
+      // The list is the top 200. An item opened from a deep link can sit
+      // outside it, and a refetch (any realtime event) would otherwise drop it
+      // and close the dialog out from under the reader.
+      setItems((prev) => {
+        const openId = detailIdRef.current;
+        if (!openId || list.some((i) => i.id === openId)) return list;
+        const open = prev.find((i) => i.id === openId);
+        return open ? [...list, open] : list;
+      });
     } catch (err) {
       notifyError(err, "Couldn't load feedback.");
       setError(true);
@@ -288,13 +230,63 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
   // inside the hook, so re-creating this object each render doesn't reopen the stream.
   useRealtimeEvents(orgId, {
     "feedback.delivered": () => void fetchItems(),
+    "feedback.merged": () => void fetchItems(),
+    "feedback.unmerged": () => void fetchItems(),
     "feedback.throttled": () => void fetchItems(),
     "feedback.gated": () => void fetchItems(),
     "feedback.flagged": () => void fetchItems(),
     "feedback.duplicate": () => void fetchItems(),
-    "feedback.rejected": () => void fetchItems(),
     "work-item.created": () => void fetchItems(),
   });
+
+  // Deep link: `/feedback?item=<id>` opens that item, which every feedback
+  // notification now links to. Fetch the single item (it may be outside the
+  // list's top 200), open it, then strip the param so closing does not reopen
+  // it. Same shape as the Issues view's `?item=` (COSMOS-191), guard included:
+  // the strip re-runs this effect, and the guard keeps it from refetching.
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const handledDeepLinkRef = useRef<string | null>(null);
+  // Fetch one item (it may be outside the list's top 200, or merged and so
+  // hidden from it), put it in the list and open it.
+  const openItemById = useCallback(
+    (itemId: string) =>
+      jsonFetch<FeedbackItem>(`${basePath}/${encodeURIComponent(itemId)}`).then((item) => {
+        // Synchronously, not via the effect: a list fetch resolving in the same
+        // tick would otherwise read the stale ref and drop this item again.
+        detailIdRef.current = item.id;
+        setItems((prev) =>
+          prev.some((i) => i.id === item.id)
+            ? prev.map((i) => (i.id === item.id ? item : i))
+            : [...prev, item],
+        );
+        setDetailId(item.id);
+      }),
+    [basePath],
+  );
+  useEffect(() => {
+    const itemId = searchParams.get("item");
+    if (!itemId || handledDeepLinkRef.current === itemId) return;
+    handledDeepLinkRef.current = itemId;
+
+    openItemById(itemId)
+      .catch((err) => {
+        // 403 and 404 read the same, so a link never confirms an item exists.
+        const status = err instanceof FetchError ? err.status : 0;
+        setDeepLinkError(
+          status === 404 || status === 403
+            ? "That feedback no longer exists, or you don't have access to it."
+            : "Couldn't open that feedback. Check your connection and try the link again.",
+        );
+      })
+      .finally(() => {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("item");
+        // Keep the hash: `#c-<id>` points the thread at one comment.
+        router.replace(url.pathname + url.search + url.hash);
+        handledDeepLinkRef.current = null;
+      });
+  }, [searchParams, router, openItemById]);
 
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
@@ -373,7 +365,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
   // so a rejected save surfaces the API's specific reason (e.g. a 403 "Only the
   // author or an admin can edit…" or a validation message) via notifyError,
   // instead of a generic fallback — the "clear message" the ACs call for.
-  async function saveEdit(item: FeedbackItem, title: string, description: string) {
+  async function saveEdit(item: FeedbackItem, title: string, description: string): Promise<boolean> {
     setBusyId(item.id);
     try {
       await jsonFetch(`${basePath}/${item.id}`, {
@@ -385,9 +377,10 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
           i.id === item.id ? { ...i, title: title.trim(), description } : i,
         ),
       );
-      setEditing(false);
+      return true;
     } catch (err) {
       notifyError(err, "Couldn't save the changes.");
+      return false;
     } finally {
       setBusyId(null);
     }
@@ -605,6 +598,15 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                     <h3 className="font-medium text-sm truncate group-hover/fb:underline">
                       {item.title}
                     </h3>
+                    {(item.commentCount ?? 0) > 0 && (
+                      <span
+                        className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground"
+                        aria-label={`${item.commentCount} comment${item.commentCount === 1 ? "" : "s"}`}
+                      >
+                        <MessageSquare className="h-3 w-3" aria-hidden />
+                        {item.commentCount}
+                      </span>
+                    )}
                     {reporterLabel(item) && (
                       <span className="text-[10px] text-muted-foreground">
                         {reporterLabel(item)}
@@ -800,225 +802,37 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
       </Dialog>
 
       {/* Detail dialog — full view of a single item (FR: "click on the FR → modal with all the details"). */}
-      <Dialog
-        open={detailItem !== null}
-        onOpenChange={(o) => {
-          if (!o) {
-            setDetailId(null);
-            setEditing(false);
-          }
+      <FeedbackDetailDialog
+        orgId={orgId}
+        item={detailItem}
+        canManage={canManage}
+        busyId={busyId}
+        onClose={() => setDetailId(null)}
+        onToggleVote={(i) => void toggleVote(i)}
+        onChangeStatus={(i, st) => void changeStatus(i, st)}
+        onSaveEdit={saveEdit}
+        onRequestDelete={setConfirmDeleteId}
+        candidates={items}
+        onOpenItem={(id) => void openItemById(id).catch((err) => notifyError(err, "Couldn't open that request."))}
+        onMergeChanged={(item) => {
+          void openItemById(item.id).catch(() => {});
+          void fetchItems();
         }}
-      >
-        <DialogContent className="sm:max-w-lg">
-          {detailItem && (
-            <>
-              <DialogHeader>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="neutral" className="gap-1 text-[10px]">
-                    {detailItem.type === "BUG" ? (
-                      <Bug className="h-3 w-3" />
-                    ) : (
-                      <Lightbulb className="h-3 w-3" />
-                    )}
-                    {detailItem.type === "BUG" ? "Bug" : "Feature"}
-                  </Badge>
-                  <Badge
-                    variant={detailItem.status === "DONE" ? "progress" : detailItem.status === "IN_REVIEW" ? "review" : "neutral"}
-                    className="text-[10px]"
-                  >
-                    {STATUS_LABELS[detailItem.status]}
-                  </Badge>
-                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                    <ChevronUp className="h-3 w-3" />
-                    {detailItem.voteCount}
-                  </span>
-                </div>
-                <DialogTitle className="pt-1 text-base">
-                  {detailItem.title}
-                </DialogTitle>
-                <DialogDescription>
-                  Submitted{" "}
-                  {new Date(detailItem.createdAt).toLocaleDateString(undefined, {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                  })}
-                  {reporterLabel(detailItem) && ` · ${reporterLabel(detailItem)}`}
-                </DialogDescription>
-              </DialogHeader>
+      />
 
-              <div className="max-h-[55vh] space-y-4 overflow-y-auto">
-                {editing ? (
-                  <div className="space-y-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="fb-edit-title">Title</Label>
-                      <Input
-                        id="fb-edit-title"
-                        value={editTitle}
-                        onChange={(e) => setEditTitle(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="fb-edit-desc">Details</Label>
-                      <Textarea
-                        id="fb-edit-desc"
-                        value={editDesc}
-                        onChange={(e) => setEditDesc(e.target.value)}
-                        className="min-h-[120px]"
-                      />
-                    </div>
-                  </div>
-                ) : detailItem.description ? (
-                  <p className="text-sm whitespace-pre-wrap text-foreground/90">
-                    {detailItem.description}
-                  </p>
-                ) : (
-                  <p className="text-sm text-muted-foreground italic">
-                    No additional details were provided.
-                  </p>
-                )}
-
-                {!editing && detailItem.intake && (
-                  <div className="rounded-md border bg-muted/30 p-3">
-                    <div className="flex items-center gap-2">
-                      <Badge variant={INTAKE_BADGE_VARIANT[detailItem.intake.state]} className="text-[10px]">
-                        {detailItem.intake.label}
-                      </Badge>
-                      {detailItem.intake.score != null && (
-                        <span className="text-[11px] text-muted-foreground">
-                          score {detailItem.intake.score.toFixed(2)}
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-1.5 text-xs text-muted-foreground">{detailItem.intake.reason}</p>
-                  </div>
-                )}
-
-                {detailItem.attachments && detailItem.attachments.length > 0 && (
-                  <div className="space-y-1.5">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      Attachments
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {detailItem.attachments.map((a) =>
-                        a.kind === "image" ? (
-                          <a
-                            key={a.id}
-                            href={a.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title={a.filename}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={a.url}
-                              alt={a.filename}
-                              className="h-24 w-24 rounded border object-cover transition-opacity hover:opacity-80"
-                            />
-                          </a>
-                        ) : (
-                          <a
-                            key={a.id}
-                            href={a.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs underline underline-offset-2"
-                          >
-                            {a.filename}
-                          </a>
-                        ),
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <DialogFooter className="sm:justify-between">
-                <button
-                  type="button"
-                  disabled={busyId === detailItem.id}
-                  onClick={() => toggleVote(detailItem)}
-                  aria-pressed={detailItem.hasVoted}
-                  className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors ${
-                    detailItem.hasVoted
-                      ? "border-primary/50 bg-primary/10 text-primary"
-                      : "hover:bg-muted text-muted-foreground"
-                  }`}
-                >
-                  <ChevronUp className="h-4 w-4" />
-                  {detailItem.hasVoted ? "Voted" : "Upvote"} · {detailItem.voteCount}
-                </button>
-                {/* Content edits + delete are owned by the author OR a manager
-                    (admins may edit/delete any FR/BR — COSMOS-49); status
-                    triage is manager-only. Each control shows only for the
-                    authority that backs it, mirroring the API. */}
-                {(canManage || detailItem.isMine) &&
-                  (editing ? (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setEditing(false)}
-                        disabled={busyId === detailItem.id}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => saveEdit(detailItem, editTitle, editDesc)}
-                        disabled={busyId === detailItem.id || !editTitle.trim()}
-                      >
-                        Save
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      {(canManage || detailItem.isMine) && (
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label="Edit"
-                          title="Edit"
-                          onClick={() => {
-                            setEditTitle(detailItem.title);
-                            setEditDesc(detailItem.description ?? "");
-                            setEditing(true);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Delete"
-                        title="Delete"
-                        onClick={() => setConfirmDeleteId(detailItem.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                      {canManage && (
-                        <Select
-                          value={detailItem.status}
-                          onValueChange={(v) => v && changeStatus(detailItem, v as FStatus)}
-                        >
-                          <SelectTrigger size="sm" className="h-8 w-32 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {STATUS_ORDER.map((s) => (
-                              <SelectItem key={s} value={s}>
-                                {STATUS_LABELS[s]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    </div>
-                  ))}
-              </DialogFooter>
-            </>
-          )}
+      {/* A deep link that could not be opened says so, instead of silently
+          leaving the reader on the board. */}
+      <Dialog open={deepLinkError !== null} onOpenChange={(o) => !o && setDeepLinkError(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Couldn&apos;t open that feedback</DialogTitle>
+            <DialogDescription>{deepLinkError}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeepLinkError(null)}>
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

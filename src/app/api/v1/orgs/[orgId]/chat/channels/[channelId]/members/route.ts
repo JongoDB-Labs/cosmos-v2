@@ -6,6 +6,8 @@ import { canManageChannelGiven, loadChannelAndMembership } from "@/lib/chat/acce
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { z } from "zod";
+import { roleCountsFor } from "@/lib/rbac/key-role";
+import { Permission } from "@/lib/rbac/permissions";
 
 type RouteParams = { params: Promise<{ orgId: string; channelId: string }> };
 
@@ -66,7 +68,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
     if (!channel || channel.orgId !== orgId) return new Response("Not found", { status: 404 });
-    if (!canManageChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole })) {
+    if (!canManageChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole, roleCounts: roleCountsFor(ctx, Permission.CHAT_USE) })) {
       return new Response("Forbidden", { status: 403 });
     }
 

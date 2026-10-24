@@ -7,7 +7,8 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { success, handleApiError } from "@/lib/api-helpers";
-import { describeIntakeDecision } from "@/lib/feedback/intake-decision";
+import { hasPermission } from "@/lib/rbac/permissions";
+import { FEEDBACK_ROW_SELECT, toFeedbackDto } from "@/lib/feedback/feedback-dto";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -29,26 +30,37 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       // a release's feedback can be read as a set — the question this queue
       // exists to answer once people comment through the walkthrough.
       sourceRef: z.string().max(200).optional(),
+      // Merged duplicates live on in their survivor; staff can ask for them.
+      includeMerged: z.enum(["1"]).optional(),
     });
-    const { type, status, source, sourceRef } = querySchema.parse({
+    const { type, status, source, sourceRef, includeMerged } = querySchema.parse({
       type: request.nextUrl.searchParams.get("type") ?? undefined,
       status: request.nextUrl.searchParams.get("status") ?? undefined,
       source: request.nextUrl.searchParams.get("source") ?? undefined,
       sourceRef: request.nextUrl.searchParams.get("sourceRef") ?? undefined,
+      includeMerged: request.nextUrl.searchParams.get("includeMerged") ?? undefined,
     });
+    const showMerged = includeMerged === "1" && hasPermission(ctx.permissions, Permission.ORG_UPDATE);
 
     const items = await prisma.feedbackItem.findMany({
       where: {
         orgId,
         ...(type ? { type } : {}),
-        ...(status ? { status } : {}),
+        // Merged items are hidden, except from staff who ask for them and from
+        // the item's own author, who should still see "duplicate of …".
+        ...(status
+          ? { status }
+          : showMerged
+            ? {}
+            : { OR: [{ status: { not: "MERGED" } }, { authorId: ctx.userId }] }),
         ...(source ? { source } : {}),
         // Prefix match, so a tour id alone returns every step's feedback.
         ...(sourceRef ? { sourceRef: { startsWith: sourceRef } } : {}),
       },
       orderBy: [{ voteCount: "desc" }, { createdAt: "desc" }],
       take: 200,
-      include: {
+      select: {
+        ...FEEDBACK_ROW_SELECT,
         attachments: {
           select: { id: true, kind: true, url: true, filename: true, contentType: true, size: true },
         },
@@ -77,20 +89,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       : [];
     const authorById = new Map(authors.map((u) => [u.id, u]));
 
+    // Explicit per-viewer shape — never the raw row (see feedback-dto.ts).
+    const viewer = {
+      userId: ctx.userId,
+      isStaff: hasPermission(ctx.permissions, Permission.ORG_UPDATE),
+    };
     return success(
       items.map((i) => ({
-        ...i,
+        ...toFeedbackDto(i, viewer, authorById.get(i.authorId)),
+        attachments: i.attachments,
         hasVoted: voted.has(i.id),
-        // The author owns the item's title/description (and can delete it), so
-        // the portal shows those controls only on the current user's own items.
-        isMine: i.authorId === ctx.userId,
-        authorName: authorById.get(i.authorId)?.displayName ?? null,
-        authorEmail: authorById.get(i.authorId)?.email ?? null,
-        // Intake decision (Phase 3c): accepted / held / rejected / throttled /
-        // gated + reason (+ score), derived from the recorded triage so the board
-        // can show WHY an item was auto-accepted or pulled aside. `null` until the
-        // item has been through intake.
-        intake: describeIntakeDecision({ triage: i.triage, deliveredAt: i.deliveredAt }),
       })),
     );
   } catch (e) {
@@ -156,6 +164,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         source: data.source,
         // Only meaningful alongside a source that names something.
         sourceRef: data.source === "app" ? null : (data.sourceRef ?? null),
+        // The author follows their own request, in the same write.
+        subscriptions: { create: { orgId, userId: ctx.userId, reason: "author" } },
       },
     });
 
@@ -184,7 +194,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       });
     }
 
-    return success({ ...created, hasVoted: false, attachments });
+    const author = await prisma.user.findUnique({
+      where: { id: ctx.userId },
+      select: { displayName: true, email: true },
+    });
+    return success({
+      ...toFeedbackDto(
+        created,
+        { userId: ctx.userId, isStaff: hasPermission(ctx.permissions, Permission.ORG_UPDATE) },
+        author,
+      ),
+      hasVoted: false,
+      attachments,
+    });
   } catch (e) {
     return handleApiError(e);
   }

@@ -257,6 +257,16 @@ export function ProjectBoardTabs({
     });
   }
 
+  // Saved filters shared with this project. Not a template feature: it comes
+  // with the org's query language switch (the layout adds "filters").
+  if (enabledFeatures.includes("filters")) {
+    featureTabs.push({
+      feature: "filters",
+      label: "Filters",
+      href: `/${orgSlug}/projects/${projectKey}/filters`,
+    });
+  }
+
   // ── Unified Tab model ───────────────────────────────────────────────────
   // Every board (visible + hidden) and every ENABLED feature tab become a Tab
   // with a stable `token`. featureTabLabels override the rendered label.

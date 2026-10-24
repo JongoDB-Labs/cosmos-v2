@@ -12,7 +12,6 @@ import {
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   DndContext,
-  closestCorners,
   DragEndEvent,
   DragOverEvent,
   DragOverlay,
@@ -23,7 +22,12 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { KanbanColumn } from "./kanban-column";
-import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
+import {
+  NewIssueButton,
+  type NewIssueHandle,
+} from "@/components/boards/shared/new-issue-button";
+import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
+import { columnCollision } from "@/components/boards/shared/column-collision";
 import { KanbanCard } from "./kanban-card";
 import {
   FilterBar,
@@ -34,9 +38,12 @@ import {
   type BoardFilters,
 } from "@/components/boards/shared/filter-bar";
 import { useCustomFields } from "@/hooks/use-custom-fields";
+import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import { boardBaseline, matchesFilters } from "@/lib/work-items/board-filters";
+import { boardScope, inBoardScope } from "@/lib/boards/saved-filter";
+import { BoardScopeNotice } from "@/components/boards/shared/board-scope-notice";
 import { presentLabels } from "@/lib/work-items/label-filter";
 import {
   blockedItemIds,
@@ -212,6 +219,7 @@ function KanbanBoardInner({
   // Bulk-select mode: toggling it disables drag (the DndContext gets no sensors)
   // and turns cards into checkbox toggles, so selection never fights dnd-kit.
   const { can } = usePermissions();
+  const newIssueRef = useRef<NewIssueHandle>(null);
   const canBulkEdit = can(Permission.ITEM_BULK_EDIT);
   const canBulkDelete = can(Permission.ITEM_DELETE);
   const [selectMode, setSelectMode] = useState(false);
@@ -232,6 +240,13 @@ function KanbanBoardInner({
   // Custom-field defs for this project — drives the FilterBar's per-field
   // controls and the client-side custom-field predicate below.
   const { fields: projectCustomFields } = useCustomFields(orgId, projectId);
+  // A column whose status was archived stays on the board (its items are still
+  // there) and is marked; nothing about saving the board brings it back.
+  const liveStatuses = useProjectStatuses(orgId, projectId);
+  const liveStatusKeys = useMemo(
+    () => (liveStatuses.length > 0 ? new Set(liveStatuses.map((s) => s.key)) : null),
+    [liveStatuses],
+  );
 
   // Board data is cached in React Query (keyed per org/project) so switching
   // between a project's boards reuses it instead of refetching everything each
@@ -492,7 +507,11 @@ function KanbanBoardInner({
   // something different depending on which board you are looking at is worse
   // than no filter at all. A team's work is still a membership test, so an item
   // owned by someone on two teams matches both.
+  // The board's own scope (a board saved from Issues) comes first; the filter
+  // bar narrows within it. See lib/boards/saved-filter.
+  const scope = useMemo(() => boardScope(board?.config), [board]);
   const filteredItems = items.filter((item) =>
+    inBoardScope(scope, item) &&
     matchesFilters(item, filters, projectCustomFields, teamsByUserId, filterNow, {
       blocked: blockedIds,
       milestones: milestoneMap,
@@ -539,10 +558,10 @@ function KanbanBoardInner({
           label: memberName(item.assigneeId) ?? "Unassigned",
         };
       case "team":
-        // One lane per card: the assignee's alphabetically-first team. See
-        // lib/teams/item-teams for why filtering may match several but a lane
-        // cannot.
-        return teamLaneFor(item.assigneeId, teamsByUserId);
+        // One lane per card: the item's own team, else the assignee's
+        // alphabetically-first one. See lib/teams/item-teams for why filtering
+        // may match several but a lane cannot.
+        return teamLaneFor(item, teamsByUserId, teams);
       case "priority":
         return { id: item.priority, label: titleCase(item.priority) };
       case "type": {
@@ -627,6 +646,14 @@ function KanbanBoardInner({
     useSensor(TouchSensor, {
       activationConstraint: { delay: 250, tolerance: 5 },
     }),
+  );
+
+  const collisionDetection = useMemo(
+    () =>
+      columnCollision((id) =>
+        columns.some((c) => c.key === resolveColumnKey(id)),
+      ),
+    [columns],
   );
 
   function handleDragStart(event: DragStartEvent) {
@@ -1012,6 +1039,7 @@ function KanbanBoardInner({
         baseFilters={baseFilters}
         showSwimlane
       />
+      <BoardScopeNotice scope={scope} />
 
       {/* Board toolbar: create, then bulk-select. "Select" enters a mode where
           drag is OFF and cards toggle; the action bar appears once something's
@@ -1021,6 +1049,7 @@ function KanbanBoardInner({
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-1.5">
         {!selectMode && (
           <NewIssueButton
+            ref={newIssueRef}
             orgId={orgId}
             projectId={projectId}
             projectKey={projectKey}
@@ -1176,11 +1205,18 @@ function KanbanBoardInner({
         // No sensors while selecting → drag is fully disabled, so toggling a
         // card can never start a drag.
         sensors={selectMode ? [] : sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={collisionDetection}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
+        {/* Right-click a column (or the space between) to create into it
+            (COSMOS-88). Off in select mode, which hides "New issue". */}
+        <BoardCreateMenu
+          columns={columns}
+          disabled={selectMode}
+          onCreate={(seed) => newIssueRef.current?.open(seed)}
+        >
         {columns.length === 0 ? (
           <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm p-4">
             This board has no columns configured.
@@ -1210,6 +1246,7 @@ function KanbanBoardInner({
                     <KanbanColumn
                       key={`${lane.id}${LANE_SEP}${col.id}`}
                       column={col}
+                      archived={liveStatusKeys !== null && !liveStatusKeys.has(col.key)}
                       droppableId={`${lane.id}${LANE_SEP}${col.key}`}
                       items={itemsForColumnInLane(col.key, lane.items)}
                       members={members}
@@ -1239,6 +1276,7 @@ function KanbanBoardInner({
               <KanbanColumn
                 key={col.id}
                 column={col}
+                archived={liveStatusKeys !== null && !liveStatusKeys.has(col.key)}
                 items={itemsForColumn(col.key)}
                 members={members}
                 onCardClick={handleCardClick}
@@ -1251,6 +1289,7 @@ function KanbanBoardInner({
             ))}
           </div>
         )}
+        </BoardCreateMenu>
 
         <DragOverlay>
           {activeItem && (
@@ -1297,8 +1336,10 @@ function KanbanBoardInner({
         projectId={projectId}
         members={members}
         intervals={intervals}
+        teams={teams}
         columns={columns}
         onUpdate={handleItemUpdate}
+        onStatusesChanged={() => void fetchData({ silent: true, fresh: true })}
         onDelete={handleItemDeleted}
         onDuplicate={handleItemDuplicated}
         projectItems={items}

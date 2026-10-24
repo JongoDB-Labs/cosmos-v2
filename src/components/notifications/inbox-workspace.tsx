@@ -10,7 +10,7 @@ import { LoadError } from "@/components/ui/load-error";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
-import { Inbox as InboxIcon } from "lucide-react";
+import { Inbox as InboxIcon, Mail, MailOpen, X } from "lucide-react";
 
 /**
  * Everything waiting on you.
@@ -84,6 +84,28 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["org"] }),
   });
 
+  // One notification at a time, through the per-row endpoints the inbox never
+  // used: there was "Mark all read" and nothing for the one you meant.
+  const markOne = useMutation({
+    mutationFn: async ({ id, read }: { id: string; read: boolean }) => {
+      const res = await fetch(`/api/v1/orgs/${orgId}/notifications/${id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ read }),
+      });
+      if (!res.ok) throw new Error("Could not update that notification");
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["org"] }),
+  });
+  const dismiss = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/v1/orgs/${orgId}/notifications/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Could not clear that notification");
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["org"] }),
+  });
+  const rowError = (markOne.error ?? dismiss.error) as Error | null;
+
   const rows = useMemo(() => q.data?.pages.flatMap((p) => p.data) ?? [], [q.data]);
   const counts = q.data?.pages[0]?.counts;
 
@@ -129,6 +151,7 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
       {readAll.isError && (
         <p className="text-sm text-red-500">{(readAll.error as Error).message}</p>
       )}
+      {rowError && <p className="text-sm text-red-500">{rowError.message}</p>}
 
       {rows.length === 0 ? (
         <EmptyState
@@ -161,16 +184,44 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
                 </div>
               </div>
             );
-            return n.url ? (
+            const body = n.url ? (
               <Link
-                key={n.id}
                 href={n.url.startsWith("/") ? `/${orgSlug}${n.url}` : n.url}
-                className="block hover:bg-[var(--primary-tint)]"
+                className="block min-w-0 flex-1"
               >
                 {inner}
               </Link>
             ) : (
-              <div key={n.id}>{inner}</div>
+              <div className="min-w-0 flex-1">{inner}</div>
+            );
+            // The actions sit beside the link, not inside it, so using them
+            // never navigates away from the inbox.
+            return (
+              <div key={n.id} className="group flex items-start hover:bg-[var(--primary-tint)]">
+                {body}
+                <div className="flex shrink-0 items-center gap-1 px-2 py-2.5">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={n.read ? `Mark "${n.title}" unread` : `Mark "${n.title}" read`}
+                    title={n.read ? "Mark unread" : "Mark read"}
+                    disabled={markOne.isPending}
+                    onClick={() => markOne.mutate({ id: n.id, read: !n.read })}
+                  >
+                    {n.read ? <Mail className="size-4" /> : <MailOpen className="size-4" />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Clear "${n.title}"`}
+                    title="Clear from inbox"
+                    disabled={dismiss.isPending}
+                    onClick={() => dismiss.mutate(n.id)}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              </div>
             );
           })}
         </div>

@@ -8,15 +8,7 @@ import { cn } from "@/lib/utils";
 import { activateOnKey } from "@/lib/a11y/keyboard";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { DeleteWorkItemDialog } from "@/components/work-items/delete-work-item-dialog";
 import { usePermissions } from "@/components/providers/permissions-provider";
 import { Permission } from "@/lib/rbac/permissions";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -378,44 +370,14 @@ export function KanbanCard({
       </div>
       </ActionMenu>
 
-      <Dialog
+      <DeleteWorkItemDialog
         open={confirmDelete}
-        onOpenChange={(open) => {
-          if (!open) setConfirmDelete(false);
-        }}
-      >
-        <DialogContent
-          // The card is a draggable button; keep dialog interactions from
-          // bubbling up and re-triggering its open/drag handlers.
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
-          <DialogHeader>
-            <DialogTitle>Delete work item?</DialogTitle>
-            <DialogDescription>
-              This will permanently delete {ticketLabel}
-              {item.title ? ` "${item.title}"` : ""}. This action cannot be
-              undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setConfirmDelete(false)}
-              disabled={deleteMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteMutation.mutate()}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? "Deleting…" : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={() => deleteMutation.mutate()}
+        pending={deleteMutation.isPending}
+        ticketLabel={ticketLabel}
+        title={item.title}
+      />
     </>
   );
 }

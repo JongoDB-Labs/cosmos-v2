@@ -90,11 +90,12 @@ test.describe("chat phase 4 — slash commands + pins", () => {
         alice.getByText(new RegExp(`say hello ${stamp}`)).first(),
       ).toBeVisible({ timeout: 10_000 });
 
-      // Then either an ASSISTANT reply (🤖 Assistant badge) or a SYSTEM unavailable notice
-      // commands/route.ts line 122: "🤖 AI is unavailable right now."
+      // Then either an ASSISTANT reply (🤖 Assistant badge) or a SYSTEM notice from
+      // bot-runner's aiFailureNotice: "🤖 Claude isn't connected…" when the org has
+      // no model credential (as in CI), else "🤖 AI is unavailable right now."
       await expect(
         alice.getByText(/🤖 Assistant/).first().or(
-          alice.getByText(/🤖 AI is unavailable right now\./).first(),
+          alice.getByText(/🤖 (AI is unavailable right now\.|Claude isn't connected\.)/).first(),
         ),
       ).toBeVisible({ timeout: 70_000 });
     } finally {

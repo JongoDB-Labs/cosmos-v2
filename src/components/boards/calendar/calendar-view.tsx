@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -9,7 +9,11 @@ import { useOrgQueryKey } from "@/lib/query/keys";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
-import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
+import {
+  NewIssueButton,
+  type NewIssueHandle,
+} from "@/components/boards/shared/new-issue-button";
+import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -71,6 +75,7 @@ function isSameDay(a: Date, b: Date) {
 }
 
 export function CalendarView({ orgId, projectId, projectKey, boardId }: CalendarViewProps) {
+  const newIssueRef = useRef<NewIssueHandle>(null);
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
 
@@ -209,6 +214,7 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
         </div>
         <div className="flex items-center gap-2">
           <NewIssueButton
+            ref={newIssueRef}
             orgId={orgId}
             projectId={projectId}
             projectKey={projectKey}
@@ -228,6 +234,7 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
         </div>
       </div>
 
+      <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       <div className="flex-1 overflow-auto p-4">
         {/* Weekday headers */}
         <div className="grid grid-cols-7 gap-px mb-1">
@@ -262,6 +269,8 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
             return (
               <div
                 key={cell.key}
+                // A right-click on the day creates an issue planned for it (COSMOS-88).
+                data-board-date={`${year}-${String(month + 1).padStart(2, "0")}-${String(cell.day).padStart(2, "0")}`}
                 className={cn(
                   "min-h-[100px] bg-background p-1.5 transition-colors",
                   isWeekend && "bg-muted/20",
@@ -394,6 +403,7 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
           </div>
         )}
       </div>
+      </BoardCreateMenu>
 
       <BoardItemDetailSheet
         itemId={detailId}

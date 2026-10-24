@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { handleApiError } from "@/lib/api-helpers";
 import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
-import { checkForUpdates, updateConfigFromEnv } from "@/lib/updates/check";
+import { checkForUpdates, resolveUpdateConfig } from "@/lib/updates/check";
 import { listTags, resolveDigest } from "@/lib/updates/registry";
 import { fetchReleaseNotes } from "@/lib/updates/notes";
 import { CURRENT_VERSION } from "@/lib/changelog";
@@ -23,8 +23,9 @@ import { CURRENT_VERSION } from "@/lib/changelog";
  * bitfield is entirely per-org, and inventing an org-scoped bit for an
  * instance-wide control would recreate the same escalation.
  *
- * THE REGISTRY COMES FROM THE ENVIRONMENT, NEVER THE REQUEST. This route reads
- * no query parameters and no body on purpose. A caller-supplied registry host
+ * THE REGISTRY COMES FROM CONFIGURATION, NEVER THE REQUEST — the environment,
+ * or registry settings a system admin saved on this page (resolveUpdateConfig).
+ * This route reads no query parameters and no body on purpose. A caller-supplied registry host
  * would turn an authenticated admin endpoint into an SSRF primitive that also
  * attaches the deployment's registry credentials to the outbound call.
  */
@@ -35,7 +36,7 @@ export async function GET() {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const result = await checkForUpdates(CURRENT_VERSION, updateConfigFromEnv(), {
+    const result = await checkForUpdates(CURRENT_VERSION, await resolveUpdateConfig(), {
       listTags,
       resolveDigest,
       fetchReleaseNotes,

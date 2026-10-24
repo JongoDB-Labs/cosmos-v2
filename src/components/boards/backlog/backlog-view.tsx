@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -27,6 +27,8 @@ import {
   ListChecks,
   MoveRight,
   Inbox,
+  PanelRightOpen,
+  Trash2,
 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -51,9 +53,15 @@ import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
+import { DeleteWorkItemDialog } from "@/components/work-items/delete-work-item-dialog";
+import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
-import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
+import {
+  NewIssueButton,
+  type NewIssueHandle,
+} from "@/components/boards/shared/new-issue-button";
+import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import { useCurrentUserId } from "@/lib/hooks/use-current-user";
 import { formatDateShortStable } from "@/lib/format/stable-date";
@@ -64,6 +72,7 @@ import type {
   OrgMember,
   Interval,
 } from "@/types/models";
+import { useProjectTeams } from "@/hooks/use-project-teams";
 
 interface BacklogViewProps {
   orgId: string;
@@ -132,6 +141,7 @@ export function BacklogView({
   projectKey,
   boardId,
 }: BacklogViewProps) {
+  const newIssueRef = useRef<NewIssueHandle>(null);
   const qc = useQueryClient();
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
   const currentUserId = useCurrentUserId();
@@ -185,6 +195,8 @@ export function BacklogView({
   // board. Layered on top of whatever the board itself already narrows.
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
   const projectStatuses = useProjectStatuses(orgId, projectId);
+  // The Team picker on the detail sheet (COSMOS-204).
+  const { data: detailTeams } = useProjectTeams(orgId, projectId);
   // Derived from the shared bar rather than a second piece of state that could
   // disagree with it. Only drives empty-state copy now.
   const assignedToMe = Boolean(
@@ -282,6 +294,27 @@ export function BacklogView({
   });
 
   const orgSlug = useOrgSlug();
+  const { can } = usePermissions();
+  const canUpdate = can(Permission.ITEM_UPDATE);
+  const canDelete = can(Permission.ITEM_DELETE);
+
+  // The row menu's Delete asks first, exactly as the Kanban card's does.
+  const [pendingDelete, setPendingDelete] = useState<WorkItem | null>(null);
+  const removeFromList = useCallback(
+    (id: string) =>
+      qc.setQueryData<WorkItem[]>(itemsKey, (prev) => (prev ?? []).filter((i) => i.id !== id)),
+    [qc, itemsKey],
+  );
+  const deleteMutation = useOrgMutation<unknown, Error, string>({
+    mutationFn: (id) => jsonFetch(`${basePath}/work-items/${id}`, { method: "DELETE" }),
+    invalidate: [["work-items", projectId]],
+    onSuccess: (_res, id) => {
+      removeFromList(id);
+      setPendingDelete(null);
+      setDetailItem((cur) => (cur?.id === id ? null : cur));
+    },
+    onError: (err) => notifyError(err, "Couldn't delete that item."),
+  });
 
   const archiveMutation = useOrgMutation<
     unknown,
@@ -467,8 +500,12 @@ export function BacklogView({
           : []),
         ...targets,
       ];
+      // Gated like the Kanban card: viewing and copying a link are open to
+      // anyone who can see the row, every change takes ITEM_UPDATE, and Delete
+      // takes ITEM_DELETE. The menu used to offer all of them to everyone.
       return [
-        { label: "Move to sprint", items },
+        { items: [{ label: "Open", icon: PanelRightOpen, onClick: () => openDetail(item) }] },
+        { label: "Move to sprint", items: canUpdate ? items : [] },
         {
           items: [
             ...copyLinkAction(
@@ -477,7 +514,7 @@ export function BacklogView({
             ),
             ...archiveAction({
               item,
-              canEdit: true,
+              canEdit: canUpdate,
               pending: archiveMutation.isPending,
               onToggle: (next) =>
                 archiveMutation.mutate({ id: item.id, archivedAt: next }),
@@ -486,13 +523,29 @@ export function BacklogView({
         },
         highlightMenuGroup({
           current: item.highlight,
+          canEdit: canUpdate,
           disabled: highlightMutation.isPending,
           onPick: (next) =>
             highlightMutation.mutate({ id: item.id, highlight: next }),
         }),
+        {
+          items: canDelete
+            ? [
+                {
+                  label: "Delete",
+                  icon: Trash2,
+                  variant: "destructive" as const,
+                  onClick: () => setPendingDelete(item),
+                },
+              ]
+            : [],
+        },
       ];
     },
-    [intervals, assignMutation, highlightMutation, archiveMutation, orgSlug],
+    [
+      intervals, assignMutation, highlightMutation, archiveMutation, orgSlug,
+      openDetail, canUpdate, canDelete, projectKey,
+    ],
   );
 
   if (loading) return <BacklogSkeleton />;
@@ -534,6 +587,7 @@ export function BacklogView({
             included. */}
         <div className="ml-auto flex items-center gap-3">
           <NewIssueButton
+            ref={newIssueRef}
             orgId={orgId}
             projectId={projectId}
             projectKey={projectKey}
@@ -552,6 +606,7 @@ export function BacklogView({
         </div>
       </div>
 
+      <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       {items.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
           <EmptyState
@@ -664,6 +719,7 @@ export function BacklogView({
           </DndContext>
         </div>
       )}
+      </BoardCreateMenu>
 
       <CardDetailSheet
         statusColumns={projectStatuses}
@@ -674,13 +730,10 @@ export function BacklogView({
         projectId={projectId}
         members={members}
         intervals={intervals}
+        teams={detailTeams}
         columns={columns}
         onUpdate={handleItemUpdate}
-        onDelete={(id) =>
-          qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
-            (prev ?? []).filter((i) => i.id !== id),
-          )
-        }
+        onDelete={removeFromList}
         onDuplicate={(dupe) => {
           qc.setQueryData<WorkItem[]>(itemsKey, (prev) => [...(prev ?? []), dupe]);
           setDetailItem(dupe);
@@ -691,6 +744,19 @@ export function BacklogView({
           qc.setQueryData<WorkItem[]>(itemsKey, (prev) => [...(prev ?? []), child])
         }
         onOpenItem={openItemById}
+      />
+
+      <DeleteWorkItemDialog
+        open={pendingDelete !== null}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => pendingDelete && deleteMutation.mutate(pendingDelete.id)}
+        pending={deleteMutation.isPending}
+        ticketLabel={
+          pendingDelete
+            ? `${projectKey ? `${projectKey}-` : "#"}${pendingDelete.ticketNumber}`
+            : "this item"
+        }
+        title={pendingDelete?.title}
       />
     </div>
   );

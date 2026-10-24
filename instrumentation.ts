@@ -33,5 +33,13 @@ export async function register(): Promise<void> {
     } catch (err) {
       console.error("[boot] plugin server-hooks registration failed (intake AI degrades):", err);
     }
+    // Periodic jobs (src/lib/jobs). Off with JOBS_DISABLED=1 and during
+    // `next build`; a failure here must never break boot either.
+    try {
+      const { startJobs } = await import("./src/lib/jobs/start");
+      await startJobs();
+    } catch (err) {
+      console.error("[boot] jobs runner failed to start:", err);
+    }
   }
 }

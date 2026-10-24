@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
@@ -9,6 +10,8 @@ import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
+import { teamProjectError } from "@/lib/teams/item-team.server";
+import { intervalRequirementError } from "@/lib/work-items/interval-required.server";
 import {
   allocateTicketNumber,
   allocateSortOrder,
@@ -28,6 +31,8 @@ const createItemSchema = z.object({
   assigneeIds: z.array(z.string().uuid()).max(50).optional(),
   priority: z.nativeEnum(Priority).default(Priority.MEDIUM),
   intervalId: z.string().uuid().nullable().optional(),
+  // COSMOS-204: the owning team, independent of the assignee.
+  teamId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
   storyPoints: z.number().int().min(0).nullable().optional(),
   dueDate: z.string().datetime().nullable().optional(),
@@ -184,6 +189,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    const teamError = await teamProjectError({ projectId, teamId: data.teamId });
+    if (teamError) return NextResponse.json({ error: teamError }, { status: 400 });
+
+    // A Story or Feature needs an interval in a project that has any (COSMOS-205).
+    const needsInterval = await intervalRequirementError({
+      projectId,
+      workItemTypeId: resolvedTypeId!,
+      intervalId: data.intervalId,
+    });
+    if (needsInterval) {
+      return NextResponse.json({ error: needsInterval }, { status: 400 });
+    }
+
     const item = await prisma.$transaction(async (tx) => {
       const ticketNumber = await allocateTicketNumber(tx, { orgId, projectId });
       const sortOrder = await allocateSortOrder(tx, {
@@ -197,7 +215,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const assigneeIds =
         data.assigneeIds ?? (data.assigneeId ? [data.assigneeId] : []);
 
-      const created = await tx.workItem.create({
+      const created = await createWorkItemRow(tx, {
         data: {
           orgId,
           projectId,
@@ -211,6 +229,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           },
           priority: data.priority,
           intervalId: data.intervalId ?? null,
+          teamId: data.teamId ?? null,
           parentId: data.parentId ?? null,
           ticketNumber,
           storyPoints: data.storyPoints ?? null,
@@ -243,7 +262,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           },
           _count: { select: { comments: true, activities: true } },
         },
-      });
+      }, { actorId: ctx.userId, source: "API" });
 
       // Labels go through the catalogue, so a ticket created with one produces a
       // real Label row rather than a string only this item knows about. The
@@ -251,7 +270,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // differ from what the caller sent — asking for "security" when the org's
       // label is "Security" stores, and should return, "Security".
       if (data.tags !== undefined && data.tags.length > 0) {
-        const labels = await setWorkItemLabels(tx, orgId, created.id, data.tags);
+        const labels = await setWorkItemLabels(tx, orgId, created.id, data.tags, { actorId: ctx.userId, source: "API" });
         created.tags = labels.map((l) => l.name);
       }
 

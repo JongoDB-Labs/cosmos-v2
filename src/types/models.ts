@@ -54,6 +54,8 @@ export interface WorkItem {
   assigneeId: string | null;
   priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   intervalId: string | null;
+  /** The team that owns this item, set apart from who it's assigned to. */
+  teamId?: string | null;
   parentId: string | null;
   ticketNumber: number;
   storyPoints: number | null;
@@ -77,6 +79,11 @@ export interface WorkItem {
   highlight?: string | null;
   /** Archived (out of the way, not deleted); null when active. */
   archivedAt?: string | null;
+  /** Why it was cancelled (COSMOS-206); null when not cancelled with a reason. */
+  cancelReason?: "OBE" | "OTHER" | "MERGED" | null;
+  cancelNote?: string | null;
+  /** Set when this item was merged into another (COSMOS-207). */
+  mergedIntoId?: string | null;
   customFields: Record<string, unknown>;
   createdById: string;
   createdAt: string;
