@@ -49,6 +49,83 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.460.7",
+    date: "2026-10-24",
+    title: "Issues search updates the address bar instantly",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Running a query on the Issues page updates the URL and results immediately instead of waiting on a server round trip.",
+      },
+    ],
+  },
+  {
+    version: "2.460.6",
+    date: "2026-10-24",
+    title: "API keys stay within their projects in the document library",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An API key limited to certain projects now lists and downloads documents only from those projects.",
+      },
+    ],
+  },
+  {
+    version: "2.460.5",
+    date: "2026-10-24",
+    title: "Install Cosmos as an app in Edge and Chrome",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Edge and Chrome now offer to install Cosmos as an app: the app manifest is linked from the page head, where those browsers look for it.",
+      },
+    ],
+  },
+  {
+    version: "2.460.4",
+    date: "2026-10-24",
+    title: "New boards start with columns",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A Kanban or Scrum board created from Issues' \"Save as board\" (or the board form) now starts with the project's columns, or the defaults, instead of empty.",
+      },
+    ],
+  },
+  {
+    version: "2.460.3",
+    date: "2026-10-24",
+    title: "API keys can't act beyond their scopes",
+    highlights: [
+      {
+        kind: "fix",
+        text: "API keys can no longer edit comments, saved views, retrospectives or other people's time, create calendar feed links, use chat, or read others' private filters unless their scopes allow it. The Teams digest now needs an integration manager, or a key with rules:run and read, and posts at most once an hour.",
+      },
+    ],
+  },
+  {
+    version: "2.460.2",
+    date: "2026-10-24",
+    title: "Marked feedback comments are re-checked on a schedule",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If a lowered marking ceiling couldn't immediately hide affected feedback comments and their notifications, a background job now finishes the job within 15 minutes.",
+      },
+    ],
+  },
+  {
+    version: "2.460.1",
+    date: "2026-10-24",
+    title: "More reliable test fixtures",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Internal: test fixtures now allocate ticket numbers the same race-safe way the app does, removing an intermittent test failure. No change to the app's behaviour.",
+      },
+    ],
+  },
+  {
     version: "2.460.0",
     date: "2026-10-24",
     title: "Follow feedback and merge duplicates",

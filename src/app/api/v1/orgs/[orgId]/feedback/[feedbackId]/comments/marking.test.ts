@@ -30,7 +30,8 @@ import {
 import { POST as SET_CLASSIFICATION } from "../../../classifications/route";
 import { PATCH as SET_TENANT_CLASS } from "@/app/api/internal/orgs/[orgId]/tenant-class/route";
 import { GET as POLICY } from "../../comment-policy/route";
-import { CommentChangeError, setVisibility } from "@/lib/feedback/comments.server";
+import { CommentChangeError, setVisibility, sweepAllMarkedComments } from "@/lib/feedback/comments.server";
+import { appJobRunner } from "@/lib/jobs/runner";
 
 const PREFIX = "[fb-marking-test]";
 let govOrg: string;
@@ -330,6 +331,43 @@ describe("comment markings (e2e DB)", () => {
         expect(res.status, verb).toBeLessThan(300);
         await expectWithdrawn(c, reply, note, "ceiling_changed");
       }
+    });
+
+    it("withdraws them on the scheduled sweep when the in-request sweep never ran", async () => {
+      inOrg(govOrg, govItem);
+      await setCeiling("CUI");
+      const { c, reply, note } = await markedWithReply();
+      // Lowered behind the routes' back: no in-request sweep happens.
+      await prisma.dataClassification.deleteMany({ where: { orgId: govOrg, projectId: null } });
+      expect((await prisma.comment.findUniqueOrThrow({ where: { id: c.id } })).visibility).toBe("PUBLIC");
+
+      logAudit.mockClear();
+      const r = await sweepAllMarkedComments();
+      expect(r.comments).toBeGreaterThanOrEqual(1);
+      await expectWithdrawn(c, reply, note, "scheduled");
+      const entry = logAudit.mock.calls.map(([e]) => e as { action: string; orgId: string; userId?: string })
+        .find((e) => e.action === "feedback.comments.marking_sweep" && e.orgId === govOrg);
+      expect(entry?.userId).toBeUndefined(); // nobody did it
+    });
+
+    it("stops before the next org once the job is cancelled", async () => {
+      inOrg(govOrg, govItem);
+      await setCeiling("CUI");
+      const { c } = await markedWithReply();
+      await prisma.dataClassification.deleteMany({ where: { orgId: govOrg, projectId: null } });
+      const cancelled = new AbortController();
+      cancelled.abort();
+      const r = await sweepAllMarkedComments({ signal: cancelled.signal });
+      expect(r).toMatchObject({ comments: 0, replies: 0 });
+      expect((await prisma.comment.findUniqueOrThrow({ where: { id: c.id } })).visibility).toBe("PUBLIC");
+      // The next tick picks it up.
+      await sweepAllMarkedComments();
+      expect((await prisma.comment.findUniqueOrThrow({ where: { id: c.id } })).visibility).toBe("INTERNAL");
+    });
+
+    it("runs the scheduled sweep as a registered job", async () => {
+      await import("@/lib/jobs/jobs");
+      expect(appJobRunner().status().map((j) => j.name)).toContain("feedback-marking-sweep");
     });
 
     it("withdraws them when the tenant stops being a gov tenant", async () => {

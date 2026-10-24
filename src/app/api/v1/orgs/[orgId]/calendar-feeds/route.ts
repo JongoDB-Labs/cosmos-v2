@@ -49,6 +49,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const r = await resolve((await params).orgId);
     if (!r) return new Response("Unauthorized", { status: 401 });
+    // Browser only. The link is an unauthenticated feed of its owner's items,
+    // meetings and sprints: it ignores a key's projectScope and outlives the
+    // key's revocation, so a key minting one would escape both.
+    if (r.ctx.isApiKey) {
+      return NextResponse.json({ error: "Calendar feed links can only be created from the browser." }, { status: 403 });
+    }
     if (!calendarFeedsEnabled(r.org.settings)) {
       return NextResponse.json({ error: "Calendar feeds are turned off for this organization." }, { status: 403 });
     }
