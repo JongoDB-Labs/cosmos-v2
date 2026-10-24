@@ -7,6 +7,7 @@ import * as okr from "../schemas/okr";
 import * as goals from "../schemas/goals";
 import * as time from "../schemas/time";
 import * as audit from "../schemas/audit";
+import * as workItems from "../schemas/work-items";
 import * as links from "../schemas/links";
 
 /**
@@ -50,6 +51,7 @@ const ENTITIES: Record<string, Entity> = {
   ...goals.entities,
   ...time.entities,
   ...audit.entities,
+  ...workItems.entities,
   ...links.entities,
 };
 

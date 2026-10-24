@@ -34,7 +34,10 @@ export const Problem = z.object({
   title: z.string(),
   status: z.number().int(),
   detail: z.string().optional(),
-  code: z.enum(Object.keys(PROBLEM_CODES) as [keyof typeof PROBLEM_CODES, ...(keyof typeof PROBLEM_CODES)[]]),
+  // An extensible enum: the set of codes grows as features add refusals of
+  // their own, and a client must treat an unknown code by its `status`. As a
+  // closed `enum`, every new code was a breaking change to every operation.
+  code: z.string().meta({ "x-extensible-enum": Object.keys(PROBLEM_CODES) }),
   requestId: z.string().optional().describe("The `X-Request-Id` of the request. Quote it to support."),
   issues: z.array(z.unknown()).optional().describe("Validation failures, on 400 `invalid_request`."),
   error: z.string().describe("Deprecated: same text as `detail` (or `title`). Kept for existing clients."),
@@ -58,6 +61,24 @@ export const QueryDate = z
   .string()
   .refine((s) => !Number.isNaN(Date.parse(s)), "Not a date")
   .meta({ format: "date-time", example: "2026-11-01" });
+
+/**
+ * A query parameter given more than once (`?search=a&search=b`) reads as its
+ * first value, as `searchParams.get()` did before these routes had contracts.
+ * Documented as the inner schema.
+ */
+export const firstOf = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((v) => (Array.isArray(v) ? v[0] : v), schema);
+
+/**
+ * An id FILTER in a query string. Blank (`?assigneeId=`) means "no filter",
+ * as these routes read it before they had contracts; anything else must be an
+ * id (it used to reach Prisma and fail as a 500).
+ */
+export const QueryId = z
+  .string()
+  .refine((s) => s === "" || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s), "Not an id")
+  .meta({ format: "uuid" });
 
 /**
  * A query integer clamped into [min, max] rather than refused, as these routes

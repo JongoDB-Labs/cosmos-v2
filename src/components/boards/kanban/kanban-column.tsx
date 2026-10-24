@@ -35,6 +35,8 @@ interface KanbanColumnProps {
    * page's h1), 3 inside a swimlane, whose lane label is the h2.
    */
   headingLevel?: 2 | 3;
+  /** The card being dragged can't move here under the project's workflow: dimmed, still droppable (the server decides). */
+  unavailable?: boolean;
 }
 
 export function KanbanColumn({
@@ -50,6 +52,7 @@ export function KanbanColumn({
   onCtrlSelect,
   onRangeSelect,
   headingLevel = 2,
+  unavailable = false,
 }: KanbanColumnProps) {
   const Heading = headingLevel === 3 ? "h3" : "h2";
   const { setNodeRef, isOver } = useDroppable({ id: droppableId ?? column.key });
@@ -65,7 +68,10 @@ export function KanbanColumn({
     <div
       // A right-click anywhere in the column creates into it (COSMOS-88).
       data-board-column={column.key}
+      data-unavailable={unavailable || undefined}
+      title={unavailable ? "This card's workflow doesn't allow a move here" : undefined}
       className={cn(
+        unavailable && "opacity-40",
         // Near-full-width columns on phones (with a peek of the next), w-72 at
         // sm+. Avoids the 288px-on-375px unusable horizontal scroll.
         "flex w-[84vw] max-w-[19rem] shrink-0 flex-col rounded-lg bg-muted/30 border sm:w-72",

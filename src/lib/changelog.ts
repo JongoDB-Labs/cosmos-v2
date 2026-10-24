@@ -49,6 +49,94 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.464.2",
+    date: "2026-10-24",
+    title: "Easier to use with a keyboard and screen reader",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On the Outlook invitations panel and the Outlook disconnect choice, keyboard focus now lands on the right place after each step instead of jumping to the top of the page. Alerts there, and the text of pop-up notices everywhere, now meet contrast standards in light and dark themes. The Teams sign-in tab has proper page structure for screen readers.",
+      },
+    ],
+  },
+  {
+    version: "2.464.1",
+    date: "2026-10-24",
+    title: "Dependency updates",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Routine updates to 46 libraries the app is built on, including the text editor, the dialog and menu components, and the AI client. No visible change is expected.",
+      },
+    ],
+  },
+  {
+    version: "2.464.0",
+    date: "2026-10-24",
+    title: "Workflow transitions",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Moving an item to a new status now goes through its project's workflow. A transition can ask for details first, such as a resolution or a required field, and admins with the new workflow permissions can override a blocked move, which is recorded in the audit log. Projects without a custom workflow behave as before.",
+      },
+    ],
+  },
+  {
+    version: "2.463.3",
+    date: "2026-10-24",
+    title: "Internal: tidy the seed scripts",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal: the database seed scripts share one environment loader and drop a no-op legacy step. No visible change.",
+      },
+    ],
+  },
+  {
+    version: "2.463.2",
+    date: "2026-10-24",
+    title: "Internal: tidy project-management exports",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal: removes unused exports from the project-management code, and staffing no longer loads more member data than it shows. No visible change.",
+      },
+    ],
+  },
+  {
+    version: "2.463.1",
+    date: "2026-10-24",
+    title: "Internal: tidy the update checker",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal: removes dead code from the update checker and pins how it pairs app and migration images. No visible change.",
+      },
+    ],
+  },
+  {
+    version: "2.463.0",
+    date: "2026-10-24",
+    title: "Work-item reads in the public API",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The public API now documents reading work items: listing a project's items, an item's detail, its comments and its filter facets, with typed contracts. An item you can't read answers the same as one that doesn't exist, and only comments everyone may read are returned.",
+      },
+    ],
+  },
+  {
+    version: "2.462.1",
+    date: "2026-10-24",
+    title: "Notices show on every page",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Pop-up notices, including the one asking you to reload after an update, now appear on every page, not only inside the main workspace.",
+      },
+    ],
+  },
+  {
     version: "2.462.0",
     date: "2026-10-24",
     title: "Work-item links in the public API",
