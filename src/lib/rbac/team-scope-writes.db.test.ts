@@ -23,16 +23,21 @@ import { POST as createBoard } from "@/app/api/v1/orgs/[orgId]/projects/[project
 import { POST as createObjective } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/objectives/route";
 import { DELETE as deleteById } from "@/app/api/v1/orgs/[orgId]/work-items/[itemId]/route";
 import { POST as commentById } from "@/app/api/v1/orgs/[orgId]/work-items/[itemId]/comments/route";
+import { POST as createMilestone } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/milestones/route";
+import { POST as createWorkflow } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/workflows/route";
+import { PUT as bulkUpdate, DELETE as bulkDelete } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/bulk/route";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const SECRET_TITLE = `restricted-${stamp}`;
-let orgId = "", restricted = "", open = "", outsider = "", insider = "", typeId = "";
+let orgId = "", restricted = "", open = "", outsider = "", insider = "", admin = "", typeId = "";
 
 beforeAll(async () => {
   outsider = (await prisma.user.create({ data: { email: `out-${stamp}@tsw.test`, displayName: "Outsider" } })).id;
   insider = (await prisma.user.create({ data: { email: `in-${stamp}@tsw.test`, displayName: "Insider" } })).id;
+  admin = (await prisma.user.create({ data: { email: `admin-${stamp}@tsw.test`, displayName: "Admin" } })).id;
   orgId = (await prisma.organization.create({ data: { name: `tsw ${stamp}`, slug: `tsw-${stamp}` } })).id;
   await prisma.orgMember.create({ data: { orgId, userId: outsider, role: "MEMBER", permissions: "0" } });
+  await prisma.orgMember.create({ data: { orgId, userId: admin, role: "ADMIN", permissions: "0" } });
   const insiderMembership = await prisma.orgMember.create({ data: { orgId, userId: insider, role: "MEMBER", permissions: "0" } });
   const key = stamp.slice(0, 3).toUpperCase();
   restricted = (await prisma.project.create({ data: { orgId, name: "R", key: `TR${key}`, teamScopedAccess: true } })).id;
@@ -45,7 +50,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma.organization.deleteMany({ where: { id: orgId } }).catch(() => undefined);
-  await prisma.user.deleteMany({ where: { id: { in: [outsider, insider] } } }).catch(() => undefined);
+  await prisma.user.deleteMany({ where: { id: { in: [outsider, insider, admin] } } }).catch(() => undefined);
 });
 
 /** An ordinary member's session: the MEMBER role's bits, plus any a work role adds. */
@@ -129,5 +134,38 @@ describe("everyone else is unaffected", () => {
     const a = await item(open);
     expect((await comment(req("POST", { content: "hi" }), onItem(open, a.id))).status).toBe(201);
     expect((await createObjective(req("POST", { title: "o" }), inProject(open))).status).toBe(200);
+  });
+});
+
+describe("an org-wide elevated bit doesn't reach a team-scoped project either", () => {
+  // A work role can hand these out org-wide; requireProjectManage passes on
+  // them without asking whether the holder is on the project's team.
+  const elevated = Permission.PROJECT_UPDATE | Permission.WORKFLOW_MANAGE | Permission.ITEM_BULK_EDIT | Permission.ITEM_DELETE;
+  const milestone = () => ({ title: "m", dueDate: "2027-01-01T00:00:00.000Z" });
+  const workflow = () => ({ name: `wf ${Math.random().toString(36).slice(2, 6)}`, from: { kind: "open" } });
+
+  it("a work role holding PROJECT_UPDATE, WORKFLOW_MANAGE and the bulk bits changes nothing there", async () => {
+    const a = await item(restricted);
+    h.ctx = member(outsider, elevated);
+    expect((await createMilestone(req("POST", milestone()), inProject(restricted))).status).toBe(403);
+    expect((await createWorkflow(req("POST", workflow()), inProject(restricted))).status).toBe(403);
+    expect((await bulkUpdate(req("PUT", { ids: [a.id], update: { priority: "LOW" } }), inProject(restricted))).status).toBe(403);
+    expect((await bulkDelete(req("DELETE", { ids: [a.id] }), inProject(restricted))).status).toBe(403);
+    expect(await prisma.milestone.count({ where: { projectId: restricted } })).toBe(0);
+    expect(await prisma.workItem.findUniqueOrThrow({ where: { id: a.id }, select: { priority: true } })).toEqual({ priority: "MEDIUM" });
+  });
+
+  it("an org admin outside the team still can: owners and admins see every project", async () => {
+    const a = await item(restricted);
+    h.ctx = { ...member(admin, RolePermissions.ADMIN), orgRole: "ADMIN" };
+    expect((await createMilestone(req("POST", milestone()), inProject(restricted))).status).toBe(200);
+    expect((await bulkUpdate(req("PUT", { ids: [a.id], update: { priority: "LOW" } }), inProject(restricted))).status).toBe(200);
+  });
+
+  it("the same work role on a project that isn't team-scoped acts as before", async () => {
+    const a = await item(open);
+    h.ctx = member(outsider, elevated);
+    expect((await createMilestone(req("POST", milestone()), inProject(open))).status).toBe(200);
+    expect((await bulkUpdate(req("PUT", { ids: [a.id], update: { priority: "LOW" } }), inProject(open))).status).toBe(200);
   });
 });

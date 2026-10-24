@@ -52,6 +52,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, deleteGoal);
     const { params: { orgId, projectId, goalId } } = await parseRequest(deleteGoal, request, params);
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.OKR_DELETE);
 
     const existing = await prisma.goal.findFirst({

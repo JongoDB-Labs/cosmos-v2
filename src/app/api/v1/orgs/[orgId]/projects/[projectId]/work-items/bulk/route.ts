@@ -13,6 +13,7 @@ import { mergeEffects, runAfterCommit, type AfterCommitEffects } from "@/lib/wor
 import { z } from "zod";
 import { Priority } from "@prisma/client";
 import { publishToOrg } from "@/lib/realtime/broker";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 // Bulk ops accept a large selection: "select all N matching" (v2.128.0) spans
 // the ENTIRE result set, not just the visible page, so a project with hundreds
@@ -58,6 +59,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.ITEM_BULK_EDIT);
 
     const body = await request.json();
@@ -117,6 +119,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.ITEM_DELETE);
 
     const body = await request.json();
