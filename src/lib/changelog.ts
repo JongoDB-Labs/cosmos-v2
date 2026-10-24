@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.478.2",
+    date: "2026-10-24",
+    title: "Team-limited projects: the remaining writes",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security: meetings, time entries, contracts and custom fields in a project limited to its team can no longer be created or changed by people outside the team. Before, these writes skipped the project's visibility check.",
+      },
+    ],
+  },
+  {
     version: "2.478.1",
     date: "2026-10-24",
     title: "Event worker health in Admin",
