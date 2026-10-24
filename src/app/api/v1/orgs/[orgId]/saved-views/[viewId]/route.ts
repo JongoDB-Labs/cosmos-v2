@@ -4,7 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { cqlEnabled } from "@/lib/query/flag";
@@ -25,7 +25,6 @@ import {
 } from "@/lib/query/saved-filters.server";
 import { SAVED_VIEW_SELECT, toDto, type SavedViewRow } from "@/lib/query/saved-filter-dto.server";
 import { cfTypesFor, editorAccessProblem, editorProblem } from "@/lib/query/saved-filter-input.server";
-import { isOrgAdministrator } from "@/lib/rbac/project-access";
 
 type RouteParams = { params: Promise<{ orgId: string; viewId: string }> };
 
@@ -63,8 +62,10 @@ async function load(orgId: string, viewId: string): Promise<{ error: Response } 
   const view = await prisma.savedView.findFirst({ where: { id: viewId, orgId }, select: SAVED_VIEW_SELECT });
   const s = await viewerScope(ctx);
   // Administrators manage every filter (change owner when someone leaves),
-  // so they can load any; everyone else only what they can see.
-  if (!view || (!canSee(s, view) && !isOrgAdministrator(ctx.orgRole))) {
+  // so they can load any; everyone else only what they can see. s.isAdmin, not
+  // the raw role: an admin's API key counts as one only when its scopes would
+  // grant FILTER_SHARE_ORG (none do), so it can't read others' private filters.
+  if (!view || (!canSee(s, view) && !s.isAdmin)) {
     return { error: new Response("Not found", { status: 404 }) };
   }
   return { s, view, org };
@@ -103,6 +104,11 @@ async function update(request: NextRequest, { params }: RouteParams) {
   const r = await load(orgId, viewId);
   if ("error" in r) return r.error;
   const { s, view } = r;
+  // Editing is a write: a key needs ITEM_UPDATE (items:write) on top of the
+  // ITEM_READ load() checks, like DELETE below and the contracted writes.
+  if (!hasPermission(s.ctx.permissions, s.ctx.isApiKey ? Permission.ITEM_UPDATE : Permission.ITEM_READ)) {
+    return json({ error: "Changing a saved filter needs the items:write scope." }, 403);
+  }
   const data = patchSchema.parse(await request.json());
 
   if (!canEdit(s, view)) return json({ error: "Only the owner, its editors or an administrator can change this filter." }, 403);
@@ -225,6 +231,11 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     const { orgId, viewId } = await params;
     const r = await load(orgId, viewId);
     if ("error" in r) return r.error;
+    // Deleting is a write: a key needs ITEM_UPDATE (items:write) on top of the
+    // ITEM_READ load() checks, as the contracted saved-view writes do.
+    if (!hasPermission(r.s.ctx.permissions, r.s.ctx.isApiKey ? Permission.ITEM_UPDATE : Permission.ITEM_READ)) {
+      return json({ error: "Deleting a saved filter needs the items:write scope." }, 403);
+    }
     if (!canDelete(r.s, r.view)) return json({ error: "Only the owner or an administrator can delete this filter." }, 403);
     await prisma.savedView.delete({ where: { id: viewId } });
     return noContent();

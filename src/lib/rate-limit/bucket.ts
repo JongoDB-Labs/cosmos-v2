@@ -73,6 +73,15 @@ export function rateLimit(
 }
 
 /**
+ * Give back the token a successful `rateLimit` call spent, when the work it
+ * guarded didn't happen (a failed post), so a retry isn't refused for it.
+ */
+export function refundRateLimit(key: string, opts: RateLimitOptions): void {
+  const bucket = BUCKETS.get(key);
+  if (bucket) bucket.tokens = Math.min(opts.capacity, bucket.tokens + 1);
+}
+
+/**
  * Pull a stable IP from forwarded headers. Falls back to a placeholder so the
  * bucket still rate-limits unidentified callers as a group rather than letting
  * them slip past.

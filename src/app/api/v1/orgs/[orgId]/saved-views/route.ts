@@ -116,7 +116,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.ITEM_READ);
+    // A saved view is the caller's own, but creating, deleting or starring one
+    // is still a write: a key needs ITEM_UPDATE (items:write), as the contracted
+    // saved-view writes do. A session keeps ITEM_READ.
+    requirePermission(ctx, ctx.isApiKey ? Permission.ITEM_UPDATE : Permission.ITEM_READ);
 
     const data = createSchema.parse(await request.json());
     if ((data.cql !== undefined || data.query !== undefined) && !cqlEnabled(org.settings)) {
