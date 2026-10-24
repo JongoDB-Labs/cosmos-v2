@@ -3,9 +3,9 @@
 // No key minted before per-operation scopes loses anything (ops' condition on
 // PR4a). Two halves:
 //
-//   1. Each scope that existed before keeps exactly its mask (frozen below from
-//      main as of 2.454): `read` gains ORG_READ and ANALYTICS_READ, which the
-//      spec documents as reads; the rest are byte-identical.
+//   1. Each scope that existed before keeps exactly its mask, byte-identical
+//      (frozen below from main as of 2.454). A bit added to a mask reaches every
+//      existing key on every route, including the ones the gate doesn't cover.
 //   2. No loss against the mask: for every contracted operation and every
 //      pre-existing scope, if the old mask held every bit the handler checks
 //      (read from its source), the new scope gate passes.
@@ -41,14 +41,21 @@ const BEFORE: Record<string, bigint> = {
   "documents:write": P.PROJECT_READ | P.PROJECT_UPDATE | P.ITEM_READ | P.ITEM_CREATE,
   "rules:run": P.RULES_RUN,
 };
-const NO_READ = new Set(["rules:run", "members:read"]);
+/**
+ * Exception 1, pinned: the operations whose handlers check no bit, and the
+ * pre-existing scopes (no `read` in them) that lose them. A new zero-bit
+ * handler is not exempt: it fails this test until it is listed here.
+ */
+const LOST_WITHOUT_READ: Record<string, string[]> = {
+  listMembers: ["rules:run", "members:read"],
+  updateSavedView: ["rules:run", "members:read"],
+};
 /** Exception 2: writes with no bit check that now need a write scope. */
 const SAVED_VIEW_WRITES = new Set(["starSavedView", "unstarSavedView", "updateSavedView"]);
 
 describe("pre-existing scopes keep their masks", () => {
   it.each(Object.keys(BEFORE))("%s", (scope) => {
-    const extra = scope === "read" ? P.ORG_READ | P.ANALYTICS_READ : 0n;
-    expect(scopeMask([scope])).toBe(BEFORE[scope] | extra);
+    expect(scopeMask([scope])).toBe(BEFORE[scope]);
   });
 });
 
@@ -90,13 +97,13 @@ function bitsChecked(src: string, method: string): bigint {
 
 describe("no pre-existing scope loses an operation its mask reached", () => {
   const ctx = (scopes: string[]) =>
-    ({ userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes }) as never;
+    ({ userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes, isApiKey: true }) as never;
   const all = contracts();
   const cases = all.flatMap(({ contract, src }) => {
     const need = bitsChecked(src, contract.method);
     return Object.keys(BEFORE)
       .filter((s) => (BEFORE[s] & need) === need) // the old mask reached it
-      .filter((s) => !(need === 0n && NO_READ.has(s))) // exception 1
+      .filter((s) => !LOST_WITHOUT_READ[contract.operationId]?.includes(s)) // exception 1
       .filter((s) => !(SAVED_VIEW_WRITES.has(contract.operationId) && s === "read")) // exception 2
       .map((s) => [contract.operationId, s, contract] as const);
   });
@@ -113,13 +120,18 @@ describe("no pre-existing scope loses an operation its mask reached", () => {
 
 describe("the named exceptions are exactly what they say", () => {
   const ctx = (scopes: string[]) =>
-    ({ userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes }) as never;
+    ({ userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes, isApiKey: true }) as never;
   const byId = new Map(contracts().map(({ contract }) => [contract.operationId, contract]));
 
   it.each([...SAVED_VIEW_WRITES])("%s needs items:write; a read key is refused", (op) => {
     const c = byId.get(op)!;
     expect(() => assertScopes(ctx(["read"]), c)).toThrow();
     expect(() => assertScopes(ctx(["items:write"]), c)).not.toThrow();
+  });
+
+  it.each(Object.entries(LOST_WITHOUT_READ))("%s: each listed scope is refused", (op, scopes) => {
+    const c = byId.get(op)!;
+    for (const s of scopes) expect(() => assertScopes(ctx([s]), c)).toThrow();
   });
 
   it("the member list needs read; rules:run and a bare members:read are refused", () => {

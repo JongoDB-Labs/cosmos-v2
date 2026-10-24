@@ -41,7 +41,7 @@ describe("published spec lint", () => {
     expect(security[0]).toEqual({ bearerPat: op["x-cosmos-scopes"] });
     for (const req of security) {
       for (const s of req.bearerPat) expect(API_KEY_SCOPES).toContain(s);
-      const ctx = { userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes: req.bearerPat };
+      const ctx = { userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes: req.bearerPat, isApiKey: true };
       const contract = { scopes: (op["x-cosmos-scopes"] ?? []) as RouteContract["scopes"] };
       expect(() => assertScopes(ctx as never, contract)).not.toThrow();
     }

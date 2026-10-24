@@ -18,13 +18,14 @@ const SCOPE_MASK: Record<ApiKeyScope, bigint> = {
   // comment (with items:write) and then be denied its own reply on the way back
   // out — "Access denied by policy" on a GET the caller had just written to.
   //
-  // ORG_READ and ANALYTICS_READ joined `read` with the public API: labels and
-  // custom fields gate on ORG_READ, and KPIs on ANALYTICS_READ, so a read token
-  // could not reach operations the spec documents as reads.
+  // Deliberately NOT ORG_READ or ANALYTICS_READ. The mask is recomputed from a
+  // key's scopes on every request, so a bit added here reaches every existing
+  // read key on every route, including writes that gate on ORG_READ alone
+  // (scope-compat.test.ts checks that no bit here gates a write). The reads that
+  // need ORG_READ ask a key for PROJECT_READ instead (labels, custom fields).
   read:
-    Permission.ORG_READ | Permission.PROJECT_READ | Permission.ITEM_READ |
-    Permission.COMMENT_READ | Permission.OKR_READ | Permission.SPRINT_READ |
-    Permission.ANALYTICS_READ,
+    Permission.PROJECT_READ | Permission.ITEM_READ | Permission.COMMENT_READ |
+    Permission.OKR_READ | Permission.SPRINT_READ,
   // Write means write: CREATE alone let a key file an item and then never touch
   // it again — no status change, no re-assign, no comment — which is most of
   // what "work the board without a browser" actually is. ITEM_UPDATE and

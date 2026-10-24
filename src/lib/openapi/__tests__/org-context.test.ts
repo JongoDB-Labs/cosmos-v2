@@ -48,8 +48,18 @@ describe("orgContext: the org id's shape", () => {
 });
 
 describe("assertScopes: a token holds what the operation names", () => {
-  const ctx = (scopes?: string[]) => ({ userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes }) as never;
+  const ctx = (scopes?: string[]) => ({ userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes, isApiKey: scopes !== undefined }) as never;
   const err = (fn: () => void) => { try { fn(); } catch (e) { return e as ProblemError; } throw new Error("did not throw"); };
+
+  it("an operation that names no scope refuses every key (default-deny), but not a session", () => {
+    expect(err(() => assertScopes(ctx(["read", "items:write", "items:delete"]), { scopes: [] })).status).toBe(403);
+    expect(() => assertScopes(ctx(undefined), { scopes: [] })).not.toThrow();
+  });
+
+  it("a key context without its scopes is refused, not waved through", () => {
+    const keyWithoutScopes = { userId: "u", orgId: "o", orgRole: "OWNER", permissions: -1n, basePermissions: -1n, abacRules: [], isApiKey: true } as never;
+    expect(err(() => assertScopes(keyWithoutScopes, { scopes: ["read"] })).code).toBe("insufficient_scope");
+  });
 
   it("a browser session (no scopes) is not checked: it carries the user's own permissions", () => {
     expect(() => assertScopes(ctx(undefined), { scopes: ["items:delete"] })).not.toThrow();
@@ -88,7 +98,7 @@ describe("assertScopes: a token holds what the operation names", () => {
 });
 
 describe("keys minted before the new scopes keep what they could do", () => {
-  const key = (scopes: string[]) => ({ userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes }) as never;
+  const key = (scopes: string[]) => ({ userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes, isApiKey: true }) as never;
 
   // These gate on PROJECT_UPDATE, which items:write carries: an items:write key
   // could create, edit and delete milestones and KPIs before planning:write

@@ -36,7 +36,13 @@ export async function orgContext(orgId: string, contract: Pick<RouteContract, "s
  * for a token that covers what it was missing.
  */
 export function assertScopes(ctx: AuthContext, contract: Pick<RouteContract, "scopes">) {
-  if (!ctx.scopes) return;
+  // A browser session holds its user's own permissions and has no scopes.
+  if (!ctx.isApiKey) return;
+  // A key context always carries its scopes (apiKeyAuthContext). One without
+  // them, or an operation that names none, is refused rather than waved through.
+  if (!ctx.scopes || contract.scopes.length === 0) {
+    throw new ProblemError(403, "insufficient_scope", "This operation is not available to API keys");
+  }
   const held = effectiveScopes(ctx.scopes);
   const missing = contract.scopes.filter((s) => !held.has(s));
   if (missing.length === 0) return;

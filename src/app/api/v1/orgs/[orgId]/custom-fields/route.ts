@@ -29,7 +29,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, listCustomFields);
     const { params: { orgId }, query: { projectId } } = await parseRequest(listCustomFields, request, params);
-    requirePermission(ctx, Permission.ORG_READ);
+    // ORG_READ for a session; a key's `read` scope deliberately lacks it (see
+    // SCOPE_MASK in lib/auth/api-key.ts), so a key reads this with PROJECT_READ.
+    requirePermission(ctx, ctx.isApiKey ? Permission.PROJECT_READ : Permission.ORG_READ);
 
     const where: Prisma.CustomFieldWhereInput = {
       orgId,

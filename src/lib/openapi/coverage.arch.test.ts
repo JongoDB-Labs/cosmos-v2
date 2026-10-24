@@ -79,6 +79,11 @@ describe("contracts", () => {
     }
     expect(missing).toEqual([]);
   });
+
+  it("a stable or beta operation names at least one scope (empty refuses every key)", () => {
+    const empty = contracts.filter((c) => c.stability !== "internal" && c.scopes.length === 0).map((c) => c.operationId);
+    expect(empty).toEqual([]);
+  });
 });
 
 describe("openapi/cosmos-v1.json", () => {

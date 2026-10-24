@@ -5729,17 +5729,22 @@
         "security": [
           {
             "bearerPat": [
-              "items:write"
+              "planning:write"
             ]
           },
           {
             "bearerPat": [
               "documents:write"
             ]
+          },
+          {
+            "bearerPat": [
+              "items:write"
+            ]
           }
         ],
         "x-cosmos-scopes": [
-          "items:write"
+          "planning:write"
         ],
         "x-cosmos-stability": "stable",
         "parameters": [

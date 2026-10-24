@@ -137,9 +137,9 @@ describe("the public-API scopes grant what their names say, and no more", () => 
     expect(scopeMask(["webhooks:manage"])).toBe(Permission.WEBHOOK_MANAGE);
   });
 
-  it("read now covers the org-level and KPI reads the spec documents as reads", () => {
-    expect(has("read", Permission.ORG_READ)).toBe(true);
-    expect(has("read", Permission.ANALYTICS_READ)).toBe(true);
+  it("read carries no org-level or analytics bit (they would reach every existing key)", () => {
+    expect(has("read", Permission.ORG_READ)).toBe(false);
+    expect(has("read", Permission.ANALYTICS_READ)).toBe(false);
     expect(has("read", Permission.AUDIT_LOG_READ)).toBe(false);
     expect(has("read", Permission.TIME_READ)).toBe(false);
   });
