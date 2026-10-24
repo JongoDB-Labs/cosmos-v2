@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.479.0",
+    date: "2026-10-24",
+    title: "Make someone else an owner",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An owner can now make another member an owner from Manage roles, with a confirmation that names the person. An organization always keeps at least one owner, even when two owners change roles at the same moment.",
+      },
+    ],
+  },
+  {
     version: "2.478.2",
     date: "2026-10-24",
     title: "Team-limited projects: the remaining writes",
