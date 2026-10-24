@@ -5,6 +5,7 @@ import { success, created } from "@/lib/api-helpers";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { cqlErrorResponse, cqlGate } from "@/lib/query/route.server";
 import { canSee, viewerScope } from "@/lib/query/saved-filters.server";
+import { createFilterSubscription, listFilterSubscriptions } from "./route.contract";
 import { createSubscription, listSubscriptions, loadView, subscriptionProblem } from "@/lib/query/subscriptions.server";
 
 type RouteParams = { params: Promise<{ orgId: string; viewId: string }> };
@@ -31,7 +32,7 @@ const subscriptionBody = z.strictObject({
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, viewId } = await params;
-    const gate = await cqlGate(orgId);
+    const gate = await cqlGate(orgId, listFilterSubscriptions);
     if ("response" in gate) return gate.response;
     const s = await viewerScope(gate.ctx);
     const view = await loadView(orgId, viewId);
@@ -47,7 +48,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, viewId } = await params;
-    const gate = await cqlGate(orgId);
+    const gate = await cqlGate(orgId, createFilterSubscription);
     if ("response" in gate) return gate.response;
     const s = await viewerScope(gate.ctx);
     const view = await loadView(orgId, viewId);

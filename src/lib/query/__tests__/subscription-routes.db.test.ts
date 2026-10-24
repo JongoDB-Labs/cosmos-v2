@@ -94,6 +94,27 @@ describe("subscription routes", () => {
     expect(await prisma.filterSubscription.count({ where: { id: subscription.id } })).toBe(0);
   });
 
+  it("an API key needs the contract's scopes: a read key can list, not subscribe, change or delete", async () => {
+    await as(w.actor.id);
+    const { subscription } = (await (
+      await create(req("POST", "x", { recipient: { kind: "me" }, cron: "0 10 * * *", timezone: "UTC" }), p())
+    ).json()) as { subscription: { id: string } };
+    const asKey = (scopes: string[]) =>
+      getAuthContext.mockImplementation(async () => ({ ...(await loadMemberAuthContext(w.orgA, w.actor.id)), isApiKey: true, scopes }));
+    try {
+      asKey(["read"]);
+      expect((await list(req("GET", "x"), p())).status).toBe(200);
+      expect((await create(req("POST", "x", { recipient: { kind: "me" }, cron: "0 8 * * *", timezone: "UTC" }), p())).status).toBe(403);
+      expect((await patch(req("PATCH", "x", { enabled: false }), ps(subscription.id))).status).toBe(403);
+      expect((await del(req("DELETE", "x"), ps(subscription.id))).status).toBe(403);
+      asKey(["items:write"]);
+      expect((await patch(req("PATCH", "x", { enabled: false }), ps(subscription.id))).status).toBe(200);
+      expect((await del(req("DELETE", "x"), ps(subscription.id))).status).toBe(204);
+    } finally {
+      await as(w.actor.id);
+    }
+  });
+
   it("all of it is a 404 with the switch off", async () => {
     await as(w.actor.id);
     await prisma.organization.update({ where: { id: w.orgA }, data: { settings: {} } });

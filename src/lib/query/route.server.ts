@@ -10,6 +10,10 @@
  * resource, and a resource-less ABAC check cannot resolve an `in_project` deny
  * and fails closed (see work-items/search/route.ts). Per-project narrowing
  * happens inside executeCql via getReadableProjectIds.
+ *
+ * Given its contract, a route's API-key scopes are checked too (as orgContext
+ * does): without it, a `read` key could call a route whose contract says
+ * `items:write`.
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
@@ -21,9 +25,12 @@ import { handleApiError } from "@/lib/api-helpers";
 import { cqlEnabled } from "./flag";
 import { CqlError } from "./errors";
 import { CQL_LIMITS } from "./ast";
+import { assertScopes } from "@/lib/openapi/org-context";
+import type { RouteContract } from "@/lib/openapi/contract";
 
 export async function cqlGate(
   orgId: string,
+  contract?: Pick<RouteContract, "scopes">,
 ): Promise<{ ctx: AuthContext; org: { id: string; slug: string } } | { response: Response }> {
   const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { id: true, slug: true, settings: true } });
   // Off: the routes do not exist yet for this org.
@@ -31,6 +38,13 @@ export async function cqlGate(
   const ctx = await getAuthContext(org.slug);
   if (!ctx) return { response: new Response("Unauthorized", { status: 401 }) };
   if (!hasPermission(ctx.permissions, Permission.ITEM_READ)) return { response: new Response("Forbidden", { status: 403 }) };
+  if (contract) {
+    try {
+      assertScopes(ctx, contract);
+    } catch (e) {
+      return { response: handleApiError(e) };
+    }
+  }
   return { ctx, org: { id: org.id, slug: org.slug } };
 }
 

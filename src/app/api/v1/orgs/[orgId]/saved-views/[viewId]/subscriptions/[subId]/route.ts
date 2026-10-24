@@ -3,9 +3,11 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { success, noContent } from "@/lib/api-helpers";
 import { getPublicOrigin } from "@/lib/auth/public-url";
+import type { RouteContract } from "@/lib/openapi/contract";
 import { cqlErrorResponse, cqlGate } from "@/lib/query/route.server";
 import { canSee, viewerScope } from "@/lib/query/saved-filters.server";
 import { checkSchedule } from "@/lib/query/schedule";
+import { deleteFilterSubscription, updateFilterSubscription } from "./route.contract";
 import { canManageSubscription, deleteSubscription, loadView, updateSubscription } from "@/lib/query/subscriptions.server";
 
 type RouteParams = { params: Promise<{ orgId: string; viewId: string; subId: string }> };
@@ -20,8 +22,8 @@ const patchBody = z.strictObject({
 });
 
 /** The subscription, when the caller may manage it; otherwise it reads as absent. */
-async function load(orgId: string, viewId: string, subId: string) {
-  const gate = await cqlGate(orgId);
+async function load(orgId: string, viewId: string, subId: string, contract: Pick<RouteContract, "scopes">) {
+  const gate = await cqlGate(orgId, contract);
   if ("response" in gate) return gate;
   const s = await viewerScope(gate.ctx);
   const view = await loadView(orgId, viewId);
@@ -40,7 +42,7 @@ async function load(orgId: string, viewId: string, subId: string) {
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, viewId, subId } = await params;
-    const r = await load(orgId, viewId, subId);
+    const r = await load(orgId, viewId, subId, updateFilterSubscription);
     if ("response" in r) return r.response;
     const body = patchBody.parse(await request.json().catch(() => ({})));
     const sched = checkSchedule(body.cron ?? r.sub.cron, body.timezone ?? r.sub.timezone);
@@ -54,7 +56,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, viewId, subId } = await params;
-    const r = await load(orgId, viewId, subId);
+    const r = await load(orgId, viewId, subId, deleteFilterSubscription);
     if ("response" in r) return r.response;
     await deleteSubscription(r.s, r.sub);
     return noContent();
