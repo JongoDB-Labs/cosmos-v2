@@ -66,11 +66,12 @@ export function TourAsk({
     try {
       let conversationId = thread.conversationId;
       if (!conversationId) {
-        // Named, so that while it exists it reads as what it is.
+        // Archived from the start: it is temporary, and does not belong in
+        // the reader's assistant history while it exists.
         const convRes = await fetch(`/api/v1/orgs/${orgId}/assistant/conversations`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: `${tourName}: ${step.title}` }),
+          body: JSON.stringify({ title: `${tourName}: ${step.title}`, archived: true }),
           signal: ctl.signal,
         });
         if (convRes.status === 403) throw new Error("forbidden");

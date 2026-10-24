@@ -171,6 +171,8 @@ describe("a conversation, not one question at a time", () => {
       "/api/v1/orgs/o1/assistant/conversations/c1/messages",
       "/api/v1/orgs/o1/assistant/conversations/c1/messages",
     ]);
+    // Created out of the reader's assistant history.
+    expect(created()[0].body).toEqual({ title: "Phase health: Runway", archived: true });
     // The step's context rides with the first question only; the follow-up is
     // just the question, the conversation carries the rest.
     expect(String(sent[0].body?.content)).toContain("Context:");
@@ -210,6 +212,21 @@ describe("a conversation, not one question at a time", () => {
     expect(await screen.findByText("answer 1")).toBeInTheDocument();
     window.dispatchEvent(new Event("pagehide"));
     expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(1);
+  });
+
+  // Switching to another tab and back must not cost the reader their thread:
+  // only the page actually going away (pagehide) deletes it.
+  it("keeps the conversation when the tab is merely hidden", async () => {
+    const { calls } = api();
+    render(<Ask />);
+    await ask("First?");
+    expect(await screen.findByText("answer 1")).toBeInTheDocument();
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("blur"));
+    expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
+    expect(screen.getByText("answer 1")).toBeInTheDocument();
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
   });
 
   it("keeps each step's conversation to that step", async () => {
