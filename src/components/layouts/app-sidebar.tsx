@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Fragment, Suspense, useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion as fm, AnimatePresence } from "framer-motion";
@@ -41,6 +41,7 @@ import {
 import { composeSidebarNav } from "./nav-plugins";
 import { isHrefActive, resolveHref, hrefFor } from "./nav-active";
 import { NavGroup } from "./nav-group";
+import { SidebarFilters } from "@/components/work-items/cql/sidebar-filters";
 import { visibleTopbarNav } from "./topbar-nav";
 import { useNavGroups } from "@/lib/hooks/use-nav-groups";
 import { useDrawers, type DrawerTool } from "@/components/drawers/drawer-provider";
@@ -233,7 +234,7 @@ export function AppSidebar({
             allLeafHrefs,
           );
           const Icon = entry.icon;
-          return (
+          const link = (
             <Link
               key={entry.id}
               href={hrefFor(orgSlug, entry.href)}
@@ -250,6 +251,19 @@ export function AppSidebar({
               {open && <span className="truncate">{entry.label}</span>}
             </Link>
           );
+          // Starred saved filters sit under Issues (query language orgs only).
+          // Suspense: they read the URL's ?filter= to mark the open one.
+          if (entry.id === "issues" && open && currentOrg) {
+            return (
+              <Fragment key={entry.id}>
+                {link}
+                <Suspense fallback={null}>
+                  <SidebarFilters orgId={currentOrg.id} orgSlug={currentOrg.slug} />
+                </Suspense>
+              </Fragment>
+            );
+          }
+          return link;
         })}
 
         {/* Workspace section: the topbar-only destinations, surfaced here on

@@ -20,6 +20,7 @@
  */
 
 import { formatDateStable } from "@/lib/format/stable-date";
+import { cancelReasonLabel } from "@/lib/work-items/cancel";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -27,12 +28,17 @@ const FIELD_LABELS: Record<string, string> = {
   assigneeId: "assignee",
   columnKey: "status",
   intervalId: "interval",
+  teamId: "team",
   workItemTypeId: "type",
   parentId: "parent",
   storyPoints: "story points",
   dueDate: "due date",
   startDate: "start date",
   columnEnteredAt: "column entered",
+  cancelReason: "cancellation reason",
+  // COSMOS-207: recorded with the other item's ticket ref as the value.
+  mergedIntoId: "merged into",
+  mergedFrom: "merged in",
 };
 
 /** Friendly name for an activity's changed field (e.g. "assigneeId" → "assignee"). */
@@ -44,6 +50,7 @@ export function activityFieldLabel(field: string): string {
 export interface ActivityValueResolvers {
   user?: (id: string) => string | undefined;
   interval?: (id: string) => string | undefined;
+  team?: (id: string) => string | undefined;
   type?: (id: string) => string | undefined;
   column?: (key: string) => string | undefined;
 }
@@ -69,6 +76,9 @@ export function activityValueLabel(
     case "intervalId":
       resolved = resolvers.interval?.(value);
       break;
+    case "teamId":
+      resolved = resolvers.team?.(value);
+      break;
     case "workItemTypeId":
       resolved = resolvers.type?.(value);
       break;
@@ -80,6 +90,8 @@ export function activityValueLabel(
     case "actualStart":
     case "completedAt":
       return formatDateStable(value) || value;
+    case "cancelReason":
+      return cancelReasonLabel(value) ?? value;
     case "columnKey":
       // columnKey is a slug (e.g. "in_progress"), not a GUID — resolve to the
       // column's display name when known, else show the slug itself.

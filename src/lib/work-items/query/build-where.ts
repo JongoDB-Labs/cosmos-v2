@@ -197,10 +197,36 @@ export function buildWorkItemWhere(args: BuildWhereArgs): Prisma.WorkItemWhereIn
   return where;
 }
 
+/**
+ * THE scope envelope for a CQL query (and anything else that compiles a user
+ * predicate). The user's predicate is placed ONLY inside `AND: [user]`, under
+ * the org and readable-project keys, so an OR the user writes is nested below
+ * the scope and can never widen it: the SQL equivalent of always wrapping the
+ * user's clause in parentheses. An empty readable set matches nothing.
+ *
+ * `prefilterIds` is the intersection of raw id-prefilters (history, recursive
+ * hierarchy), or null when there are none.
+ */
+export function buildScopedWhere(a: {
+  orgId: string;
+  allowedProjectIds: string[];
+  archived: "active" | "only" | "all";
+  user: Prisma.WorkItemWhereInput;
+  prefilterIds?: string[] | null;
+}): Prisma.WorkItemWhereInput {
+  return {
+    orgId: a.orgId,
+    projectId: { in: clean(a.allowedProjectIds) },
+    ...(a.archived === "only" ? { archivedAt: { not: null } } : a.archived === "active" ? { archivedAt: null } : {}),
+    ...(a.prefilterIds ? { id: { in: a.prefilterIds } } : {}),
+    AND: [a.user],
+  };
+}
+
 /** Translate a DateRange into a Prisma DateTime filter, or null if both edges
  *  are absent / invalid. Invalid date strings are ignored (treated as absent)
  *  rather than throwing — the caller validates inputs at the edge. */
-function buildDateRange(
+export function buildDateRange(
   range: { from?: string; to?: string } | undefined,
 ): { gte?: Date; lte?: Date } | undefined {
   // A plain { gte?, lte? } is structurally assignable to BOTH Prisma's

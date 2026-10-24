@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/auth";
 import { runAxe, blocking } from "./fixtures/axe";
+import { openIssues, resetQueryLanguage, setQueryLanguage } from "./fixtures/issues-query";
 
 /**
  * Accessibility regression harness (ported from cosmos-prod). Signs in and runs
@@ -62,7 +63,10 @@ const PAGES: Array<{ name: string; path: string; redirects?: true }> = [
   { name: "meetings", path: "/meetings" },
   { name: "notes", path: "/notes" },
   { name: "team", path: "/team" },
-  { name: "assistant", path: "/assistant" },
+  // The full-page assistant was retired for the drawer (scanned below); the old
+  // path redirects to the org home.
+  { name: "assistant (redirects to overview)", path: "/assistant", redirects: true },
+  { name: "pm-dashboard", path: "/pm-dashboard" },
   // Settings.
   // /settings is now a redirect to the viewer's first accessible page (profile
   // for the e2e admin). Kept as a surface to guard that the redirect lands on
@@ -182,4 +186,70 @@ test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {
       ).toHaveLength(0);
     });
   }
+});
+
+// The query language bar (query design §14.3): both modes, with chips and the
+// CodeMirror editor on screen. The beta is off by default, so it is switched
+// on for these two scans and back off after.
+test.describe("a11y — Issues query language", () => {
+  test.afterAll(async ({ browser }) => {
+    await resetQueryLanguage(browser);
+  });
+
+  for (const mode of ["basic", "advanced"] as const) {
+    test(`issues (query language, ${mode}) has no serious/critical axe violations`, async ({ page, signInAs }) => {
+      await signInAs(EMAIL);
+      await setQueryLanguage(page.request, true);
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await openIssues(page, { cql: "assignee = me AND priority IN (HIGH, CRITICAL)", mode });
+      if (mode === "advanced") await expect(page.getByRole("textbox", { name: "Query" })).toBeVisible({ timeout: 20_000 });
+      else await expect(page.getByRole("group", { name: "Filter: Priority" })).toBeVisible();
+      await page.waitForTimeout(500);
+      const serious = blocking(await runAxe(page));
+      expect(
+        serious,
+        serious.map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets[0]}`).join("\n"),
+      ).toHaveLength(0);
+    });
+  }
+
+  test("project Filters tab (query language) has no serious/critical axe violations", async ({ page, signInAs }) => {
+    await signInAs(EMAIL);
+    await setQueryLanguage(page.request, true);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto(`/${ORG}/projects/${KEY}/filters`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("link", { name: "Filters" })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/No filters shared with this project|Project filters/).first()).toBeVisible({ timeout: 20_000 });
+    await page.waitForTimeout(500);
+    const serious = blocking(await runAxe(page));
+    expect(serious, serious.map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets[0]}`).join("\n")).toHaveLength(0);
+  });
+});
+
+test.describe("a11y — the assistant drawer", () => {
+  test("assistant drawer has no serious/critical axe violations", async ({
+    page,
+    signInAs,
+  }) => {
+    await signInAs(EMAIL);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    // A full load, not "domcontentloaded": the drawer opens from a client
+    // handler, so clicking before hydration does nothing.
+    await page.goto(`/${ORG}`);
+    await page.waitForSelector("main", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Open assistant" }).click();
+    await expect(page.getByPlaceholder(/type a message/i).first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.waitForTimeout(500);
+
+    const serious = blocking(await runAxe(page));
+    expect(
+      serious,
+      "serious/critical a11y violations with the assistant drawer open:\n" +
+        serious
+          .map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets[0]}`)
+          .join("\n"),
+    ).toHaveLength(0);
+  });
 });

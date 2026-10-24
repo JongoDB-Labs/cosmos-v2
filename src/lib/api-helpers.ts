@@ -3,6 +3,8 @@ import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { ForbiddenError, NotFoundError, ConflictError } from "./rbac/check";
 import { serverReportError } from "./telemetry/server";
+import { problem, ProblemError } from "./openapi/problem";
+import { isNoModelCredentialError } from "./ai/egress/types";
 
 export function success<T>(data: T, status = 200) {
   return NextResponse.json(data, { status });
@@ -16,26 +18,32 @@ export function noContent() {
   return new NextResponse(null, { status: 204 });
 }
 
-export function handleApiError(error: unknown) {
+/**
+ * Map a thrown error to an RFC 9457 problem+json response (the legacy
+ * `error` key keeps its old text; see lib/openapi/problem.ts). Pass the
+ * request to put its `X-Request-Id` in the body; the header is on every
+ * response regardless (the proxy sets it).
+ */
+export function handleApiError(error: unknown, request?: Request) {
+  const opts = { request };
+  if (error instanceof ProblemError) {
+    return problem(error.status, error.code, error.message, { ...opts, headers: error.headers });
+  }
   if (error instanceof ForbiddenError) {
-    return NextResponse.json(
-      { error: error.message },
-      { status: 403 }
-    );
+    return problem(403, "forbidden", error.message, opts);
   }
   if (error instanceof NotFoundError) {
-    return NextResponse.json(
-      { error: error.message },
-      { status: 404 }
-    );
+    return problem(404, "not_found", error.message, opts);
   }
   if (error instanceof ConflictError) {
     // Business-rule / state violations (e.g. "payment exceeds balance") are client
     // errors — a 409, not a 500 that pollutes the error budget.
-    return NextResponse.json(
-      { error: error.message },
-      { status: 409 }
-    );
+    return problem(409, "conflict", error.message, opts);
+  }
+  if (isNoModelCredentialError(error)) {
+    // No Claude connection is an org setup state, not a server fault: say so
+    // instead of a 500 (or, before, a stale env key's raw Anthropic 401).
+    return problem(409, "model_not_connected", error.message, opts);
   }
   if (
     error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -43,26 +51,29 @@ export function handleApiError(error: unknown) {
   ) {
     // A unique-constraint race (e.g. two posts of the same source landing at once)
     // is a conflict, not a server error.
+    return problem(409, "conflict", "Conflicting concurrent request — please retry", opts);
+  }
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2003" &&
+    JSON.stringify(error.meta ?? {}).includes("column_key")
+  ) {
+    // work_items(project_id, column_key) references the project's statuses: a
+    // status the project does not define is the caller's mistake, not a crash.
     return NextResponse.json(
-      { error: "Conflicting concurrent request — please retry" },
-      { status: 409 }
+      { error: "That status doesn't exist in this project." },
+      { status: 400 }
     );
   }
   if (error instanceof ZodError) {
     // Input-validation failures are client errors, not server errors —
     // returning 500 here masked real bugs (and confused clients) for every
     // route that did `schema.parse(body)` inside a try/catch.
-    return NextResponse.json(
-      { error: "Invalid request", issues: error.issues },
-      { status: 400 }
-    );
+    return problem(400, "invalid_request", "Invalid request", { ...opts, issues: error.issues });
   }
   console.error("[api:500]", error);
   serverReportError(error, { scope: "api" });
-  return NextResponse.json(
-    { error: "Internal server error" },
-    { status: 500 }
-  );
+  return problem(500, "internal_error", undefined, opts);
 }
 
 export function getIpAddress(request: Request): string | undefined {

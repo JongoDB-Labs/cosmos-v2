@@ -1,7 +1,8 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
+import { ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
 import { createProject, updateProject, updateInterval, completeInterval, listProjects } from "./projects";
-import type { ToolContext } from "./_ctx";
+import { memberToolCtx } from "@/lib/testing/tool-auth";
 
 const NON_MEMBER = "00000000-0000-0000-0000-000000000000";
 
@@ -19,8 +20,8 @@ describe("projects + intervals executors (e2e DB)", () => {
     });
     cleanup.orgIds.push(org.id);
     await prisma.orgMember.create({ data: { orgId: org.id, userId: owner.id, role: "OWNER" } });
-    const ctx: ToolContext = { orgId: org.id, userId: owner.id };
-    const denyCtx: ToolContext = { orgId: org.id, userId: NON_MEMBER };
+    const ctx = await memberToolCtx(org.id, owner.id);
+    const denyCtx = await memberToolCtx(org.id, NON_MEMBER);
     return { org, ctx, denyCtx, ownerId: owner.id };
   }
 
@@ -43,6 +44,7 @@ describe("projects + intervals executors (e2e DB)", () => {
   it("update_project changes name + archived", async () => {
     const { ctx, org } = await makeOrg();
     const project = await prisma.project.create({ data: { orgId: org.id, name: "Old", key: "UPDKEY" } });
+    await ensureFixtureStatuses(project.id);
     const res = (await updateProject({ projectId: project.id, name: "Renamed", archived: true }, ctx)) as {
       updated: boolean;
     };
@@ -55,6 +57,7 @@ describe("projects + intervals executors (e2e DB)", () => {
   it("update_interval nests a sprint under a Program Increment", async () => {
     const { ctx, org } = await makeOrg();
     const project = await prisma.project.create({ data: { orgId: org.id, name: "P", key: "CYCKEY" } });
+    await ensureFixtureStatuses(project.id);
     const pi = await prisma.interval.create({
       data: {
         orgId: org.id, projectId: project.id, number: 1, name: "PI-1", intervalKind: "PROGRAM_INCREMENT",
@@ -82,6 +85,7 @@ describe("projects + intervals executors (e2e DB)", () => {
   it("complete_interval reports velocity and clears incomplete items", async () => {
     const { ctx, org, ownerId } = await makeOrg();
     const project = await prisma.project.create({ data: { orgId: org.id, name: "P", key: "DONEKEY" } });
+    await ensureFixtureStatuses(project.id);
     const interval = await prisma.interval.create({
       data: {
         orgId: org.id, projectId: project.id, number: 1, name: "S", intervalKind: "SPRINT", status: "ACTIVE",

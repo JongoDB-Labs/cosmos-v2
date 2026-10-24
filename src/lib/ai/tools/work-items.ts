@@ -9,7 +9,7 @@ export const workItemTools: ToolDefinition[] = [
   {
     name: "list_work_items",
     description:
-      "List work items in a project with optional filters. Returns id, ticketNumber, title, columnKey, priority, assigneeId, assigneeName (the assignee's display name — use it when you name the person, never the id), intervalId, dueDate, storyPoints.",
+      "List work items in a project with optional filters. Returns id, ticketNumber, title, columnKey, priority, assigneeId, assigneeName (the assignee's display name — use it when you name the person, never the id), intervalId, parentId (the item it sits under, or null), teamId (the team that owns it, or null), dueDate, storyPoints.",
     input_schema: {
       type: "object",
       properties: {
@@ -22,6 +22,12 @@ export const workItemTools: ToolDefinition[] = [
             "Filter by work item type — pass the work item TYPE KEY (e.g. 'software.task') or work-item-type id.",
         },
         search: { type: "string", description: "Case-insensitive title contains" },
+        parentId: { type: "string", description: "Only the direct children of this work item (e.g. an epic's id)" },
+        teamId: {
+          type: "string",
+          description:
+            "Only this team's work (an id from list_teams): items the team owns, plus unowned items assigned to its members",
+        },
         limit: { type: "number", description: "Max results (default 50, cap 100)" },
       },
       required: ["projectId"],

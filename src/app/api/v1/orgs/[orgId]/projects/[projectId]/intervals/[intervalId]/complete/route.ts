@@ -6,7 +6,9 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { isDoneColumnKey } from "@/lib/intervals/sprint-review";
+import { isDoneStatus } from "@/lib/work-items/done-state";
+import { loadStatusCategories } from "@/lib/boards/status-categories.server";
+import { updateWorkItems } from "@/lib/work-items/write.server";
 import { buildIntervalReport } from "@/lib/intervals/interval-report";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -46,24 +48,23 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const completed = await prisma.$transaction(async (tx) => {
       const items = interval.workItems;
-      const incompleteItems = items.filter((i) => !isDoneColumnKey(i.columnKey));
+      // Done is the status's CATEGORY, so a team-named done lane counts.
+      const statuses = await loadStatusCategories(tx, projectId);
+      const incompleteItems = items.filter((i) => !isDoneStatus(i.columnKey, statuses));
 
       // Built BEFORE the reassignment below, and it records which items carried.
       // Completing the sprint severs their link to it, so after this transaction
       // nothing else can answer "what rolled into the next sprint" — the review
       // board would derive an empty list.
-      const report = buildIntervalReport(items, new Date().toISOString());
+      const report = buildIntervalReport(items, new Date().toISOString(), statuses);
 
-      if (incompleteItems.length > 0 && data.moveIncompleteToIntervalId) {
-        await tx.workItem.updateMany({
-          where: { id: { in: incompleteItems.map((i) => i.id) } },
-          data: { intervalId: data.moveIncompleteToIntervalId },
-        });
-      } else if (incompleteItems.length > 0) {
-        await tx.workItem.updateMany({
-          where: { id: { in: incompleteItems.map((i) => i.id) } },
-          data: { intervalId: null },
-        });
+      if (incompleteItems.length > 0) {
+        await updateWorkItems(
+          tx,
+          incompleteItems.map((i) => i.id),
+          { intervalId: data.moveIncompleteToIntervalId ?? null },
+          { actorId: ctx.userId, source: "API" },
+        );
       }
 
       return tx.interval.update({

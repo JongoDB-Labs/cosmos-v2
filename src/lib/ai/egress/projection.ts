@@ -29,14 +29,19 @@ const _connectorEgress = connectorEgressMaps();
  */
 const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // listWorkItems/queryWorkItems return `id, ticketNumber, columnKey?, priority,
-  // assigneeId, intervalId, storyPoints, dueDate, workItemTypeId, completedAt?, tags`.
+  // assigneeId, intervalId, parentId, storyPoints, dueDate, workItemTypeId,
+  // completedAt?, tags`. `parentId` is a uuid like `intervalId`: structural, and
+  // what lets the agent walk an epic's children (COSMOS-177).
   // `columnKey` (FIX A) is unconstrained free text → dropped (orchestrate via id/status).
   // `title`/`description`/`tags` are content/arrays → never allowlisted/kept.
   work_item: [
     "id", "ticketNumber", "status", "priority", "storyPoints",
     "dueDate", "startDate", "completedAt", "assigneeId", "projectId",
-    "workItemTypeId", "intervalId", "createdAt", "updatedAt",
+    "workItemTypeId", "intervalId", "parentId", "teamId", "createdAt", "updatedAt",
   ],
+  // listTeams returns `id, projectId, name, key, memberCount, isMine`. `name`/`key`
+  // are name-derived (dropped, as for project); the rest is structural.
+  team: ["id", "projectId", "memberCount", "isMine"],
   // createNote/updateNote/deleteNote return `id, title, visibility`. The Note model
   // has NO projectId column (executor ignores the arg) → projectId removed (FIX C).
   // `title` is content → excluded. authorId/timestamps appear on richer shapes.
@@ -261,6 +266,7 @@ const NATIVE_TOOL_ENTITY: Record<string, string> = {
   create_key_result: "key_result", update_key_result: "key_result",
   add_kr_checkin: "kr_checkin", link_key_result_item: "key_result_link",
   // Milestones.
+  list_teams: "team",
   list_milestones: "milestone", create_milestone: "milestone",
   update_milestone: "milestone", delete_milestone: "milestone",
   // Feedback (title/description withheld for gov — see feedback exposable comment).

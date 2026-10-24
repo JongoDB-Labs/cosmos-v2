@@ -173,6 +173,12 @@ export const Permission = {
   //
   // The same own/all split TIME_READ and TIME_READ_ALL already make.
   FINANCE_READ_PROJECT: 1n << 121n,
+
+  // Share a saved filter with the WHOLE org (query design §10.2). Sharing with
+  // a team or a project needs only the right to see it; org-wide sharing puts
+  // a filter in every member's "Shared with me", so it is an administrator's
+  // call by default, delegable to a work role.
+  FILTER_SHARE_ORG: 1n << 122n,
 } as const;
 
 export type PermissionKey = keyof typeof Permission;
@@ -228,6 +234,7 @@ export const RolePermissions = {
     Permission.ITEM_DELETE,
     Permission.ITEM_ASSIGN,
     Permission.ITEM_BULK_EDIT,
+    Permission.FILTER_SHARE_ORG,
     Permission.SPRINT_CREATE,
     Permission.SPRINT_READ,
     Permission.SPRINT_UPDATE,
@@ -338,6 +345,10 @@ export const RolePermissions = {
     Permission.TIME_CREATE,
     Permission.TIME_READ,
     Permission.TIME_UPDATE,
+    // Removing an entry is a VOID with a reason, and the route confines a
+    // non-admin to their own DRAFT entries. Without this bit a member's
+    // "Remove" ended in a 403 every time.
+    Permission.TIME_DELETE,
     Permission.MEETING_CREATE,
     Permission.MEETING_READ,
     Permission.MEETING_UPDATE,

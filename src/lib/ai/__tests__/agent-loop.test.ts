@@ -1,5 +1,6 @@
 // src/lib/ai/__tests__/agent-loop.test.ts
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { stubAuth } from "@/lib/testing/tool-auth";
 
 // vi.hoisted keeps the spies safe to reference inside the hoisted mock factory.
 const { runModelTurn, executeTool, effectiveCeiling, getRuntimeConfig, getAgentPolicy, logEgressDecision } = vi.hoisted(() => ({
@@ -46,11 +47,11 @@ describe("runAgentLoop (native tool_use)", () => {
 
     const { runAgentLoop } = await import("../agent-loop");
     const res = await runAgentLoop({
-      orgId: "o1", userId: "u1", tenantClass: "commercial",
+      orgId: "o1", userId: "u1", auth: stubAuth("o1", "u1"), tenantClass: "commercial",
       systemPrompt: "sys", initialPrompt: "list projects", conversationId: "c1",
     });
 
-    expect(executeTool).toHaveBeenCalledWith("list_projects", {}, { orgId: "o1", userId: "u1", tenantClass: "commercial", conversationId: "c1", enabled: { enabledConnectors: null, breadthEnabled: true } });
+    expect(executeTool).toHaveBeenCalledWith("list_projects", {}, { orgId: "o1", userId: "u1", auth: stubAuth("o1", "u1"), offered: expect.any(Set), tenantClass: "commercial", conversationId: "c1", enabled: { enabledConnectors: null, breadthEnabled: true } });
     expect(res.text).toBe("You have 2 projects.");
     expect(res.toolCalls).toHaveLength(1);
     expect(res.toolCalls[0].name).toBe("list_projects");
@@ -59,6 +60,70 @@ describe("runAgentLoop (native tool_use)", () => {
     expect(JSON.stringify(secondCallMessages)).toContain("tool_result");
     // commercial + UNCLASSIFIED ceiling => the result is EXPOSED (not withheld).
     expect(JSON.stringify(secondCallMessages)).toContain("p1");
+  });
+});
+
+// ── Streaming across turns ──────────────────────────────────────────────────
+// The assistant route forwards `textSoFar.slice(lastSent.length)` and drops any
+// update no longer than the last one, so it relies on every onDelta value
+// EXTENDING the previous one. When the text restarted on each model turn, a
+// tool turn's preamble ("Let me check…") swallowed the start of the final
+// answer, which then surfaced mid-sentence and snapped into place at `done`.
+describe("runAgentLoop — onDelta across model turns", () => {
+  beforeEach(() => {
+    runModelTurn.mockReset(); executeTool.mockReset();
+    effectiveCeiling.mockReset().mockResolvedValue("UNCLASSIFIED");
+    getRuntimeConfig.mockReset().mockResolvedValue({ enabledConnectors: null, breadthEnabled: true, mcpEnabled: false });
+    getAgentPolicy.mockReset().mockResolvedValue(PERMISSIVE);
+  });
+
+  /** A model turn that streams `chunks` through onTextDelta, then replies. */
+  function streamingTurn(chunks: string[], toolUses: unknown[] = []) {
+    return async ({ onTextDelta }: { onTextDelta?: (d: string) => void }) => {
+      for (const c of chunks) onTextDelta?.(c);
+      return { text: chunks.join(""), toolUses, stopReason: toolUses.length ? "tool_use" : "end_turn" };
+    };
+  }
+
+  it("every update extends the previous one, through a tool turn", async () => {
+    runModelTurn
+      .mockImplementationOnce(streamingTurn(["Let me look ", "that up."], [{ id: "tu1", name: "list_projects", input: {} }]))
+      .mockImplementationOnce(streamingTurn(["You have ", "2 projects."]));
+    executeTool.mockResolvedValue({ projects: [] });
+
+    const seen: string[] = [];
+    const { runAgentLoop } = await import("../agent-loop");
+    const res = await runAgentLoop({
+      orgId: "o1", userId: "u1", auth: stubAuth("o1", "u1"), tenantClass: "commercial",
+      systemPrompt: "sys", initialPrompt: "list projects", conversationId: "c1",
+      onDelta: (t) => seen.push(t),
+    });
+
+    for (let i = 1; i < seen.length; i++) {
+      expect(seen[i].startsWith(seen[i - 1])).toBe(true);
+      expect(seen[i].length).toBeGreaterThan(seen[i - 1].length);
+    }
+    expect(seen.at(-1)).toBe("Let me look that up.\n\nYou have 2 projects.");
+    // `text` is still the final turn alone; `transcript` is what streamed.
+    expect(res.text).toBe("You have 2 projects.");
+    expect(res.transcript).toBe(seen.at(-1));
+  });
+
+  it("adds no separator when the tool turn streamed nothing", async () => {
+    runModelTurn
+      .mockImplementationOnce(streamingTurn([], [{ id: "tu1", name: "list_projects", input: {} }]))
+      .mockImplementationOnce(streamingTurn(["You have ", "2 projects."]));
+    executeTool.mockResolvedValue({ projects: [] });
+
+    const seen: string[] = [];
+    const { runAgentLoop } = await import("../agent-loop");
+    await runAgentLoop({
+      orgId: "o1", userId: "u1", auth: stubAuth("o1", "u1"), tenantClass: "commercial",
+      systemPrompt: "sys", initialPrompt: "list projects", conversationId: "c1",
+      onDelta: (t) => seen.push(t),
+    });
+
+    expect(seen).toEqual(["You have ", "You have 2 projects."]);
   });
 });
 
@@ -86,12 +151,13 @@ describe("runAgentLoop — D5 commercial-only tool-list filter", () => {
       toolDefs: [{ name: "broker_fixture_proxy", description: "p", input_schema: { type: "object", properties: {}, required: [] } }],
       execute: async () => ({}),
       egress: {},
+      access: {},
     });
     // One turn, no tool use → the loop returns immediately after building `tools`.
     runModelTurn.mockResolvedValueOnce({ text: "ok", toolUses: [], stopReason: "end_turn" });
     const { runAgentLoop } = await import("../agent-loop");
     await runAgentLoop({
-      orgId: "o1", userId: "u1", tenantClass,
+      orgId: "o1", userId: "u1", auth: stubAuth("o1", "u1"), tenantClass,
       systemPrompt: "sys", initialPrompt: "hi", conversationId: "c1",
     });
     const tools = runModelTurn.mock.calls[0][0].tools as { name: string }[];
@@ -131,17 +197,17 @@ describe("runAgentLoop — per-org runtime-config gating", () => {
     registerConnector({
       provider: "github",
       toolDefs: [{ name: "github_list_issues", description: "i", input_schema: { type: "object", properties: {}, required: [] } }],
-      execute: async () => ({}), egress: {},
+      execute: async () => ({}), egress: {}, access: {},
     });
     registerConnector({
       provider: "jira",
       toolDefs: [{ name: "jira_search_issues", description: "i", input_schema: { type: "object", properties: {}, required: [] } }],
-      execute: async () => ({}), egress: {},
+      execute: async () => ({}), egress: {}, access: {},
     });
     getRuntimeConfig.mockReset().mockResolvedValue(config);
     runModelTurn.mockResolvedValueOnce({ text: "ok", toolUses: [], stopReason: "end_turn" });
     const { runAgentLoop } = await import("../agent-loop");
-    await runAgentLoop({ orgId: "o1", userId: "u1", tenantClass: "commercial", systemPrompt: "s", initialPrompt: "hi", conversationId: "c1" });
+    await runAgentLoop({ orgId: "o1", userId: "u1", auth: stubAuth("o1", "u1"), tenantClass: "commercial", systemPrompt: "s", initialPrompt: "hi", conversationId: "c1" });
     const tools = runModelTurn.mock.calls[0][0].tools as { name: string }[];
     resetConnectors();
     for (const d of saved) registerConnector(d);
@@ -182,7 +248,7 @@ describe("runAgentLoop — AgentPolicy enforcement (the middle gate)", () => {
       .mockResolvedValueOnce({ text: "done", toolUses: [], stopReason: "end_turn" });
     const { runAgentLoop } = await import("../agent-loop");
     const res = await runAgentLoop({
-      orgId: "o1", userId: "u1", tenantClass: "commercial",
+      orgId: "o1", userId: "u1", auth: stubAuth("o1", "u1"), tenantClass: "commercial",
       systemPrompt: "sys", initialPrompt: "go", conversationId: "c1",
     });
     const secondTurnMessages = runModelTurn.mock.calls[1]?.[0]?.messages;

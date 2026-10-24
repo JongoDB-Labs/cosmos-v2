@@ -9,9 +9,9 @@ import type { TeamLike } from "./item-teams";
  * ceremony. Capacity in particular is meaningless at project scope: a team
  * cannot commit on behalf of people it does not run.
  *
- * A team's PEOPLE are its `TeamMember` rows. A team's WORK is whatever its
- * people are assigned — items carry no team of their own — which is the same
- * rule the board filters use (see `itemMatchesTeam`).
+ * A team's PEOPLE are its `TeamMember` rows. A team's WORK is the items that
+ * name it, plus, for items that name no team, whatever its people are
+ * assigned: the same rule the board filters use (see `itemMatchesTeam`).
  */
 
 /** The sentinel a picker uses for "don't scope this" — distinct from "unset". */

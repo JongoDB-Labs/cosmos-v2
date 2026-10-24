@@ -31,8 +31,9 @@ import type { ModelCredential } from "@/lib/ai/egress/types";
  *   - openaiApiKey:    { sealed: <sealed-key>, baseUrl: <str>, model: <str> }
  *
  * Unseal failures NEVER throw to the caller — a corrupt/rotated envelope degrades
- * to `undefined` (the egress layer then falls back to the env ANTHROPIC_API_KEY),
- * so a broken org credential can never widen egress or crash a turn.
+ * to `undefined` (the egress layer then refuses the call with NoModelCredentialError
+ * unless the operator opted in to the env key), so a broken org credential can never
+ * widen egress or crash a turn.
  */
 
 /* -------------------------------------------------------------------------- */

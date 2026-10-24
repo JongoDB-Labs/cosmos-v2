@@ -48,11 +48,14 @@ export function SavedViewsPicker({
   orgId,
   currentFilter,
   onApply,
+  saveDisabledReason,
 }: {
   orgId: string;
   /** The live filter bar state, serialized — saved verbatim on "Save". */
   currentFilter: WorkItemFilter;
   onApply: (filter: WorkItemFilter) => void;
+  /** Why the current filter can't be saved (a CQL query the stored shape can't say); disables "Save". */
+  saveDisabledReason?: string;
 }) {
   const key = useOrgQueryKey("saved-views");
   const { data: views = [] } = useQuery({
@@ -113,7 +116,7 @@ export function SavedViewsPicker({
           <ChevronDown className="h-3.5 w-3.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-56">
-          <DropdownMenuItem onClick={() => setSaveOpen(true)}>
+          <DropdownMenuItem onClick={() => setSaveOpen(true)} disabled={!!saveDisabledReason} title={saveDisabledReason}>
             <Bookmark className="mr-2 h-3.5 w-3.5" /> Save current filter…
           </DropdownMenuItem>
           {(mine.length > 0 || sharedByOthers.length > 0) && <DropdownMenuSeparator />}

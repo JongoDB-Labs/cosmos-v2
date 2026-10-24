@@ -85,6 +85,37 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: OpenAPI contract gate
+        # The committed openapi/cosmos-v1.json must be what the route contracts
+        # build, and openapi/internal-routes.txt (v1 operations with no
+        # contract yet) may only shrink. See scripts/openapi/check.mjs. The
+        # structural rules run with the unit tests (coverage.arch, spec-lint).
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            git fetch --quiet --depth=1 origin "$BASE_REF"
+            export OPENAPI_BASE=FETCH_HEAD
+          fi
+          npm run check:openapi
+
+      - name: OpenAPI breaking-change gate
+        # A published operation must not break existing clients: oasdiff's
+        # breaking rules (removed field, new required param, narrowed type, ...)
+        # against the base branch's spec. A deliberate break ships behind a new
+        # date version and carries the `api-breaking` label, which skips this.
+        # Go is preinstalled on the runner; the module proxy + checksum DB pin
+        # the release.
+        if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'api-breaking')
+        run: |
+          if ! git cat-file -e FETCH_HEAD:openapi/cosmos-v1.json 2>/dev/null; then
+            echo "No published spec on the base branch yet; nothing to compare."
+            exit 0
+          fi
+          git show FETCH_HEAD:openapi/cosmos-v1.json > "$RUNNER_TEMP/base-openapi.json"
+          go install github.com/oasdiff/oasdiff@v1.33.0
+          "$(go env GOPATH)/bin/oasdiff" breaking "$RUNNER_TEMP/base-openapi.json" openapi/cosmos-v1.json --fail-on ERR
+
       - name: Prepare test DB
         # BEFORE the unit run, so any DB-touching spec just works — the exclude
         # list below is no longer a hand-maintained registry of every DB spec
@@ -230,6 +261,8 @@ jobs:
       ALLOWED_EMAILS: ci@example.com
       # Enables the /api/testenv/sign-in route the Playwright fixtures use.
       E2E_TEST_AUTH: "1"
+      # No periodic jobs (src/lib/jobs) against the shared CI database.
+      JOBS_DISABLED: "1"
       # Use the PRODUCTION realtime adapter (Postgres LISTEN/NOTIFY) in e2e. The
       # default in dev/test is the in-process memory bus, whose module-level
       # singleton is NOT reliably shared across next-dev's per-route module graphs
@@ -326,6 +359,8 @@ jobs:
       ALLOWED_EMAILS: ci@example.com
       # Enables the /api/testenv/sign-in route the Playwright fixtures use.
       E2E_TEST_AUTH: "1"
+      # No periodic jobs (src/lib/jobs) against the shared CI database.
+      JOBS_DISABLED: "1"
       # Opts the e2e/interaction/** specs back IN (testIgnore drops them by
       # default — see playwright.config.ts).
       E2E_INCLUDE_INTERACTION: "1"

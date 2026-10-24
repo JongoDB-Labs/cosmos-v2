@@ -75,12 +75,16 @@ const CHECK_ONLY = process.argv.includes("--check");
 //   - mcp_servers.env_enc / headers_enc     — sealed MCP env / auth-header JSON. Nullable
 //                                            and always written sealed, so no legacy
 //                                            plaintext path (allowLegacyPlaintext off).
+//   - update_settings.registry_password_enc — the update registry password an admin
+//                                            saved on /admin/updates. Nullable and always
+//                                            written sealed (allowLegacyPlaintext off).
 const SEALED_COLUMNS = [
   { table: "idp_connections", pk: "id", column: "client_secret_enc" },
   { table: "connector_credentials", pk: "id", column: "secret_enc" },
   { table: "webhooks", pk: "id", column: "secret", allowLegacyPlaintext: true },
   { table: "mcp_servers", pk: "id", column: "env_enc" },
   { table: "mcp_servers", pk: "id", column: "headers_enc" },
+  { table: "update_settings", pk: "id", column: "registry_password_enc" },
 ];
 
 function reqEnv(name) {

@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import type { Prisma } from "@prisma/client";
 import { sumMoney, moneyToNumber } from "@/lib/money";
-import { connectorToolNames, executeConnectorTool } from "./connectors";
+import { connectorToolAccess, connectorToolNames, executeConnectorTool } from "./connectors";
 import {
   createWorkItem,
   updateWorkItem,
@@ -29,7 +29,12 @@ import { fetchUrl } from "./executors/utility";
 import { semanticSearch } from "./executors/rag";
 import { canonicalizeStageFilter } from "@/lib/crm/stages";
 import { Permission } from "@/lib/rbac/permissions";
-import { assertPermission, assertProjectRead, loadAuthContext } from "./executors/_ctx";
+import {
+  assertPermission,
+  assertProjectRead,
+  loadAuthContext,
+  type ToolContext as ExecutorToolContext,
+} from "./executors/_ctx";
 import { isOptionalUuid } from "@/lib/ids";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { logAudit } from "@/lib/audit";
@@ -65,6 +70,7 @@ import {
   updateMilestone,
   deleteMilestone,
 } from "./executors/milestones";
+import { listTeams, teamFilter } from "./executors/teams";
 import { listFeedback, createFeedback, setFeedbackStatus } from "./executors/feedback";
 import {
   listMeetings,
@@ -89,9 +95,19 @@ import {
   listProducts,
 } from "./executors/crm";
 
-interface ToolContext {
-  orgId: string;
-  userId: string;
+/**
+ * The executor context (`orgId`, `userId` and the caller's own `auth`) plus the
+ * dispatch-layer extras. `auth` is REQUIRED and is what every permission check
+ * runs against — see `executors/_ctx.ts`; there is no fallback to the user's
+ * own permissions.
+ */
+interface ToolContext extends ExecutorToolContext {
+  /**
+   * The tool names the model was offered this run. Connector dispatch refuses a
+   * name outside it, and every connector call when it's absent (fail closed). The
+   * agent loop always supplies it (and refuses a not-offered native tool itself).
+   */
+  offered?: ReadonlySet<string>;
   /**
    * The org's data-sensitivity class — threaded through so the connector dispatch
    * layer can enforce the D5 commercial-only gov-block (LAYER 2). OPTIONAL: callers
@@ -297,6 +313,10 @@ async function dispatchTool(
       // The org's runtime-config enablement — so dispatch hard-refuses a disabled
       // connector (defense in depth behind the tool-list filter).
       enabled: ctx.enabled,
+      // Only a tool the model was offered may run (absent ⇒ refused).
+      offered: ctx.offered,
+      // The caller's own auth: dispatch decides the Cosmos permission from it.
+      auth: ctx.auth,
     });
   }
 
@@ -441,6 +461,10 @@ async function dispatchTool(
     case "link_key_result_item":
       return linkKeyResultItem(input, ctx);
 
+    // Teams
+    case "list_teams":
+      return listTeams(input, ctx);
+
     // Milestones
     case "list_milestones":
       return listMilestones(input, ctx);
@@ -564,6 +588,10 @@ const ASSISTANT_AUDIT_ACTIONS: Record<string, { action: string; entity: string }
   update_calendar_event: { action: "assistant.calendar_event.updated", entity: "calendar_event" },
   delete_calendar_event: { action: "assistant.calendar_event.deleted", entity: "calendar_event" },
   create_drive_folder: { action: "assistant.drive_folder.created", entity: "drive_folder" },
+  jira_create_issue: { action: "assistant.jira_issue.created", entity: "jira_issue" },
+  slack_post_message: { action: "assistant.slack_message.posted", entity: "slack_message" },
+  // Audited only when it writes (any method but GET/HEAD); see auditAssistantToolUse.
+  nango_proxy_request: { action: "assistant.nango_request.sent", entity: "nango_request" },
 };
 
 /** Best-effort entity-id extraction from a tool result of unknown shape. */
@@ -605,6 +633,8 @@ async function auditAssistantToolUse(
 ): Promise<void> {
   const mapping = ASSISTANT_AUDIT_ACTIONS[name];
   if (!mapping) return;
+  // An input-dependent connector tool (the Nango proxy) is audited when it wrote.
+  if (connectorToolAccess(name, input) === "read") return;
   // Don't record an audit entry for a tool call that failed.
   if (result && typeof result === "object" && "error" in (result as Record<string, unknown>)) return;
   try {
@@ -651,14 +681,26 @@ async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) 
   // These land in `uuid` columns unvalidated, so a model-invented id raises
   // P2007 rather than returning nothing. `projectId` above is compared against
   // `readable` first, which is a string match and so already safe.
-  for (const field of ["assigneeId", "intervalId", "workItemTypeId"] as const) {
+  for (const field of ["assigneeId", "intervalId", "workItemTypeId", "parentId", "teamId"] as const) {
     if (!isOptionalUuid(input[field])) return invalidIdError(field);
   }
   if (input.assigneeId) where.assigneeId = input.assigneeId as string;
   if (input.priority) where.priority = input.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   if (input.intervalId) where.intervalId = input.intervalId as string;
   if (input.workItemTypeId) where.workItemTypeId = input.workItemTypeId as string;
+  if (input.parentId) where.parentId = input.parentId as string;
   if (input.query) where.title = { contains: input.query as string, mode: "insensitive" };
+  if (input.teamId) {
+    // Only a team in a project this query may already read (COSMOS-222).
+    const team = await teamFilter(
+      ctx.orgId,
+      input.teamId as string,
+      input.projectId ? [input.projectId as string] : readable,
+    );
+    if ("error" in team) return team;
+    where.projectId = team.projectId;
+    where.AND = [team.where];
+  }
 
   const items = await prisma.workItem.findMany({
     where,
@@ -666,8 +708,8 @@ async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) 
     orderBy: { updatedAt: "desc" },
     select: {
       id: true, title: true, workItemTypeId: true, columnKey: true,
-      priority: true, assigneeId: true, intervalId: true,
-      storyPoints: true, dueDate: true, completedAt: true,
+      priority: true, assigneeId: true, intervalId: true, parentId: true,
+      teamId: true, storyPoints: true, dueDate: true, completedAt: true,
       ticketNumber: true, tags: true,
     },
   });

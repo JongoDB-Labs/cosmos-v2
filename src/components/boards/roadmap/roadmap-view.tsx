@@ -24,6 +24,7 @@ import { highlightLabel, highlightStyle } from "@/lib/work-items/highlights";
 import type { WorkItem, OrgMember, Interval, Board, BoardColumn } from "@/types/models";
 import { bareTypeKey } from "@/components/boards/shared/filter-bar";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
+import { useProjectTeams } from "@/hooks/use-project-teams";
 
 interface RoadmapViewProps {
   orgId: string;
@@ -77,6 +78,8 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
   // board. Layered on top of whatever the board itself already narrows.
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
   const projectStatuses = useProjectStatuses(orgId, projectId);
+  // The Team picker on the detail sheet (COSMOS-204).
+  const { data: detailTeams } = useProjectTeams(orgId, projectId);
   const visibleItems = useMemo(
     () => items.filter((it) => matchesFilters(it, filters)),
     [items, filters],
@@ -340,6 +343,7 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
         projectId={projectId}
         members={members}
         intervals={intervals}
+        teams={detailTeams}
         columns={columns}
         projectItems={items}
         onUpdate={(updated) =>

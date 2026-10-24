@@ -105,3 +105,25 @@ describe("KanbanColumn empty-state placeholder (COSMOS-133)", () => {
     expect(screen.getByText("Test card")).toBeInTheDocument();
   });
 });
+
+describe("KanbanColumn for an archived status", () => {
+  afterEach(() => cleanup());
+
+  const renderWith = (archived?: boolean) =>
+    render(
+      <DndContext>
+        <KanbanColumn column={makeColumn()} items={[makeItem()]} members={[]} onCardClick={() => {}} archived={archived} />
+      </DndContext>,
+    );
+
+  it("marks the column and keeps its items", () => {
+    renderWith(true);
+    expect(screen.getByText("Archived")).toBeTruthy();
+    expect(screen.getByText("Test card")).toBeTruthy();
+  });
+
+  it("is unmarked for a live status", () => {
+    renderWith();
+    expect(screen.queryByText("Archived")).toBeNull();
+  });
+});

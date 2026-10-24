@@ -98,3 +98,6 @@ prisma/seed/real/
 # never become committable by an absent-minded `git add -A`.
 /scratch/
 /mono-fixtures/
+
+# Full internal OpenAPI surface (staff only); built by `npm run openapi`, never committed.
+/openapi/cosmos-v1.internal.json

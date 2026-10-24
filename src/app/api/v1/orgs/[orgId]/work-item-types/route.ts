@@ -1,9 +1,13 @@
 import { NextRequest } from "next/server";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { listWorkItemTypes } from "./route.contract";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 
@@ -19,14 +23,10 @@ const createWorkItemTypeSchema = z.object({
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, listWorkItemTypes);
+    const { params: { orgId } } = await parseRequest(listWorkItemTypes, request, params);
     requirePermission(ctx, Permission.PROJECT_READ);
 
     const types = await prisma.workItemType.findMany({
@@ -36,9 +36,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       orderBy: [{ isBuiltIn: "desc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
     });
 
-    return success(types);
+    return respond(listWorkItemTypes, 200, types);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
@@ -46,10 +46,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
+    if (!org) return problem(404, "not_found", undefined, { request });
 
     const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!ctx) return problem(401, "unauthorized", undefined, { request });
     requirePermission(ctx, Permission.ORG_MANAGE_TEMPLATES);
 
     const body = await request.json();
@@ -60,10 +60,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       where: { orgId, key: data.key },
     });
     if (existing) {
-      return new Response(
-        JSON.stringify({ error: "Work item type key already exists in this org" }),
-        { status: 409, headers: { "Content-Type": "application/json" } }
-      );
+      return problem(409, "conflict", "Work item type key already exists in this org", { request });
     }
 
     const maxSort = await prisma.workItemType.aggregate({
@@ -98,6 +95,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     return created(workItemType);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

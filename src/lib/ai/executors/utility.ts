@@ -9,27 +9,37 @@ const fetchUrlSchema = z.object({
 const MAX_BYTES = 1_000_000; // 1 MB
 const TIMEOUT_MS = 30_000;
 
+const NAMED_ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+
+/** HTML entities, decoded in one pass (so "&amp;lt;" is "&lt;", not "<"). */
+function decodeEntities(s: string): string {
+  return s.replace(/&(?:([a-z]+)|#(\d{1,7})|#x([0-9a-f]{1,6}));/gi, (m, name: string | undefined, dec: string | undefined, hex: string | undefined) => {
+    if (name) return NAMED_ENTITIES[name.toLowerCase()] ?? m;
+    const cp = dec ? Number(dec) : parseInt(hex!, 16);
+    return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
+  });
+}
+
 /**
- * Naive HTML → text. Strips `<script>` / `<style>` blocks first, then all
- * remaining tags, then decodes a small set of named/numeric entities and
- * collapses whitespace. Good enough for "give the model the gist" — we are
- * not trying to be a perfect renderer.
+ * Naive HTML → text. Drops `<script>` / `<style>` blocks and comments, then
+ * decodes entities, then strips tags until nothing changes, and collapses
+ * whitespace. Decoding comes BEFORE stripping, and stripping repeats: an
+ * encoded "&lt;img onerror&gt;" would otherwise come out as a real tag, and
+ * removing one tag can join two halves into another ("<scr<script>ipt>").
+ * Good enough for "give the model the gist" — we are not trying to be a
+ * perfect renderer.
  */
-function stripHtmlToText(html: string): string {
-  return html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<\/?[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(Number(n)))
-    .replace(/\s+/g, " ")
-    .trim();
+export function stripHtmlToText(html: string): string {
+  let s = html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ");
+  s = decodeEntities(s);
+  for (let prev = ""; prev !== s; ) {
+    prev = s;
+    s = s.replace(/<[^<>]*>/g, " ");
+  }
+  return s.replace(/\s+/g, " ").trim();
 }
 
 /**

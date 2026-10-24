@@ -215,6 +215,32 @@ describe("claude-oauth-core", () => {
       const store = fakeStore(null);
       expect(await getClaudeTokenCore(store)).toBeNull();
     });
+
+    it("returns null, not the dead token, when an EXPIRED token's refresh fails", async () => {
+      // Handing back the stored token after a failed refresh is right while it
+      // is still valid, but past its expiry it can only 401. Worse, a non-null
+      // personal token wins credential resolution, so the org credential was
+      // never tried and every agent request failed until a manual reconnect.
+      const store = fakeStore({
+        access: { sealed: sealSecret("EXPIRED") },
+        refresh: { sealed: sealSecret("RT-REVOKED") },
+        expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      });
+      vi.stubGlobal("fetch", tokenResponse({ error: "invalid_grant" }, 400));
+
+      expect(await getClaudeTokenCore(store)).toBeNull();
+    });
+
+    it("still returns a not-yet-expired token when a refresh inside the skew window fails", async () => {
+      const store = fakeStore({
+        access: { sealed: sealSecret("STILL-VALID") },
+        refresh: { sealed: sealSecret("RT") },
+        expiresAt: new Date(Date.now() + 60 * 1000), // inside the 5-min window
+      });
+      vi.stubGlobal("fetch", tokenResponse({ error: "temporarily_unavailable" }, 503));
+
+      expect(await getClaudeTokenCore(store)).toBe("STILL-VALID");
+    });
   });
 
   describe("getClaudeCredsCore", () => {

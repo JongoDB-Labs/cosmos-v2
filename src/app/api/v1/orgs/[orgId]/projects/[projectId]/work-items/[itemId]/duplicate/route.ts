@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
@@ -8,6 +9,7 @@ import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { allocateTicketNumber } from "@/lib/work-items/allocate";
+import { copyFields } from "@/lib/work-items/copy-fields";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; itemId: string }>;
@@ -66,26 +68,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       });
       const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
 
-      const dupe = await tx.workItem.create({
+      const dupe = await createWorkItemRow(tx, {
         data: {
+          ...copyFields(source),
           orgId,
           projectId,
-          workItemTypeId: source.workItemTypeId,
           title: `Copy of ${source.title}`,
-          description: source.description,
-          columnKey: source.columnKey,
-          assigneeId: source.assigneeId,
-          priority: source.priority,
-          intervalId: source.intervalId,
-          parentId: source.parentId,
           ticketNumber,
-          storyPoints: source.storyPoints,
           sortOrder,
-          dueDate: source.dueDate,
-          startDate: source.startDate,
-          columnEnteredAt: new Date(),
-          tags: source.tags,
-          customFields: source.customFields ?? undefined,
           createdById: ctx.userId,
         },
         include: {
@@ -93,14 +83,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
           _count: { select: { comments: true, activities: true } },
         },
-      });
+      }, { actorId: ctx.userId, source: "API" });
 
       // The copied tags name real labels, but a copy needs its OWN join rows —
       // otherwise the duplicate shows the label on its card while the catalogue
       // has no record of it carrying one, and renaming that label later would
       // skip the copy.
       if (source.tags.length > 0) {
-        await setWorkItemLabels(tx, orgId, dupe.id, source.tags);
+        await setWorkItemLabels(tx, orgId, dupe.id, source.tags, { actorId: ctx.userId, source: "API" });
       }
 
       await tx.activity.create({
@@ -121,31 +111,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           orderBy: { sortOrder: "asc" },
         });
         for (const kid of kids) {
-          const child = await tx.workItem.create({
+          const child = await createWorkItemRow(tx, {
             data: {
+              ...copyFields(kid),
               orgId,
               projectId,
-              workItemTypeId: kid.workItemTypeId,
               title: kid.title,
-              description: kid.description,
-              columnKey: kid.columnKey,
-              assigneeId: kid.assigneeId,
-              priority: kid.priority,
-              intervalId: kid.intervalId,
               parentId: dupe.id,
               ticketNumber: nextTicket++,
-              storyPoints: kid.storyPoints,
               sortOrder: kid.sortOrder,
-              dueDate: kid.dueDate,
-              startDate: kid.startDate,
-              columnEnteredAt: new Date(),
-              tags: kid.tags,
-              customFields: kid.customFields ?? undefined,
               createdById: ctx.userId,
             },
-          });
+          }, { actorId: ctx.userId, source: "API" });
           if (kid.tags.length > 0) {
-            await setWorkItemLabels(tx, orgId, child.id, kid.tags);
+            await setWorkItemLabels(tx, orgId, child.id, kid.tags, { actorId: ctx.userId, source: "API" });
           }
           await tx.activity.create({
             data: {
