@@ -51,11 +51,11 @@ const RELEASES: Release[] = [
   {
     version: "2.464.5",
     date: "2026-10-24",
-    title: "Clearer structure for screen readers",
+    title: "Security: assignees must be in your organization",
     highlights: [
       {
         kind: "fix",
-        text: "The notification badge is easier to read in both themes. Settings pages and project boards use heading levels in order, and the navigation areas have names, so screen-reader users can move around the app more easily.",
+        text: "Work items can no longer be assigned to people outside their organization, or to people who have left it or been deactivated. Assigning an unknown person now gives a clear error instead of a server error.",
       },
     ],
   },

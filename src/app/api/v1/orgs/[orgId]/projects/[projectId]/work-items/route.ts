@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
+import { assertAssigneesInOrg } from "@/lib/work-items/apply-change.server";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
@@ -215,6 +216,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // becomes a one-member set. First member is the primary.
       const assigneeIds =
         data.assigneeIds ?? (data.assigneeId ? [data.assigneeId] : []);
+      // Every assignee must be in this org: the same 422 for an unknown id and
+      // for a user elsewhere (no 500, no cross-tenant assignment).
+      await assertAssigneesInOrg(tx, orgId, assigneeIds);
 
       const created = await createWorkItemRow(tx, {
         data: {

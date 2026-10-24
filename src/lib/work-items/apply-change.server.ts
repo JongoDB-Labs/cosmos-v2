@@ -35,6 +35,7 @@ import {
 import { ensureCancelledStatus } from "@/lib/workflow/statuses.server";
 import { gateChange, throwIfDenied, type Denial, type EnforcementLevel, type TransitionRequest } from "@/lib/workflow/engine.server";
 import { TransitionError } from "@/lib/workflow/contract";
+import { ProblemError } from "@/lib/openapi/problem";
 import type { FieldRef } from "@/lib/workflow/definition";
 import type { AuthContext } from "@/lib/rbac/check";
 import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
@@ -341,6 +342,41 @@ function updateKey(data: Prisma.WorkItemUncheckedUpdateManyInput): string {
 }
 
 
+/** The message for an assignee who isn't in the org, whether or not the id exists. */
+const NOT_A_MEMBER = "That person isn't a member of this organization.";
+
+/**
+ * The org's members who can be given work: still in the org (not removed) and
+ * with an account that isn't deactivated, as calendar invitees are chosen.
+ */
+export function assignableMembersWhere(orgId: string, userIds: readonly string[]): Prisma.OrgMemberWhereInput {
+  return { orgId, userId: { in: [...userIds] }, removedAt: null, user: { deactivatedAt: null } };
+}
+
+/** Whether every one of these user ids is an assignable member of the org. */
+async function membersAmong(tx: Prisma.TransactionClient, orgId: string, ids: readonly string[]): Promise<boolean> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return true;
+  return (await tx.orgMember.count({ where: assignableMembersWhere(orgId, unique) })) === unique.length;
+}
+
+/**
+ * Every assignee must be a member of the item's org. An id that doesn't exist
+ * and a user from another org get the SAME 422 `assignee_not_in_org`, so the answer says nothing
+ * about which users exist on the platform, and an item is never assigned
+ * across tenants. (Before, an unknown id was a 500 and an outsider was
+ * assigned.) Used for every write that names assignees: the change service
+ * and work-item create.
+ */
+export async function assertAssigneesInOrg(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  ids: readonly (string | null | undefined)[],
+): Promise<void> {
+  const named = ids.filter((id): id is string => !!id);
+  if (!(await membersAmong(tx, orgId, named))) throw new ProblemError(422, "assignee_not_in_org", NOT_A_MEMBER);
+}
+
 /**
  * Hold the fields a transition added to a change to the rules the request
  * body met: the patch schema, a team of this project, assignees in this org,
@@ -380,11 +416,7 @@ async function checkTransitionPatch(
     ...(changed("assigneeId") && p.assigneeId ? [p.assigneeId] : []),
     ...(changed("assigneeIds") ? (p.assigneeIds ?? []) : []),
   ];
-  if (assignees.length > 0) {
-    const unique = [...new Set(assignees)];
-    const members = await tx.orgMember.count({ where: { orgId: args.orgId, userId: { in: unique } } });
-    if (members !== unique.length) refuse("That person isn't a member of this organization.", { system: "assigneeId" });
-  }
+  if (!(await membersAmong(tx, args.orgId, assignees))) refuse(NOT_A_MEMBER, { system: "assigneeId" });
 }
 /**
  * Sync the assignee SET with the patch, before the rows are read back:
@@ -441,6 +473,8 @@ export async function applyWorkItemChange(
   if (patch.cancelReason) {
     patch.columnKey = await ensureCancelledStatus(tx, projectId, patch.columnKey);
   }
+  // Before anything else is decided: the people named must be in this org.
+  await assertAssigneesInOrg(tx, orgId, [patch.assigneeId, ...(patch.assigneeIds ?? [])]);
 
   const now = new Date();
   // The workflow first: nothing is written for an item it refuses. Each item
