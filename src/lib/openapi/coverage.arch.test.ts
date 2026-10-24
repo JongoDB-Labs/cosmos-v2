@@ -57,7 +57,7 @@ describe("contracts", () => {
   it("contract files stay pure: zod, lib/openapi and the scope list only", () => {
     // The spec build runs them in plain node, and the docs page imports them.
     // A prisma or next import here would drag a server into both.
-    const allowed = /^(zod|@\/lib\/openapi\/(contract|problem-codes|version|schemas\/[\w-]+)|@\/lib\/auth\/api-key-scopes|\.\.?\/.*route\.contract)$/;
+    const allowed = /^(zod|@\/lib\/openapi\/(contract|problem-codes|version|schemas\/[\w.-]+)|@\/lib\/auth\/api-key-scopes|\.\.?\/.*route\.contract)$/;
     const bad = contractFiles().flatMap((f) =>
       [...readFileSync(f, "utf8").matchAll(/from\s+"([^"]+)"/g)]
         .map((m) => m[1]).filter((spec) => !allowed.test(spec)).map((spec) => `${f}: ${spec}`),

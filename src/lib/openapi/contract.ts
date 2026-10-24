@@ -53,6 +53,15 @@ export interface RouteContract<
   errors: ErrorStatus[];
   /** Lists only: `limit`/`cursor` query params plus `Link: rel="next"`. */
   pagination?: "cursor";
+  /**
+   * Fields an API token receives only when it holds `scope`; a browser session
+   * always gets them. For personal data a token should be granted explicitly
+   * (email addresses). Each path is EXACT, from the response root: dotted keys,
+   * `[]` for every element of an array (`[].user.email`,
+   * `members[].orgMember.user.email`), so an unrelated field that happens to
+   * share the name is never touched. The schema marks each such field optional.
+   */
+  scopedFields?: { scope: ApiScope; paths: string[] }[];
 }
 
 /** Identity at runtime; exists for inference, so `parseRequest` and
