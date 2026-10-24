@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import type { ColumnCategory } from "@prisma/client";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
+import { allocateTicketNumber } from "@/lib/work-items/allocate";
 import { DEFAULT_COLUMNS } from "@/lib/boards/default-columns";
 import { ensureStatuses } from "@/lib/workflow/statuses.server";
 
@@ -34,10 +35,14 @@ import { ensureStatuses } from "@/lib/workflow/statuses.server";
  * note about a DIFFERENT symptom of the same shared database (timeouts under
  * contention, fixed by raising testTimeout to 30s); this is the other half.
  *
- * A retry rather than a random high number: random still collides, just rarely
- * enough to be mystifying when it does. Re-reading the max on each attempt
- * converges under any amount of contention, and the offset means two workers
- * retrying in lockstep do not simply collide again.
+ * The fix is the one production uses: `allocateTicketNumber`, which takes the
+ * project's advisory lock for the transaction. An earlier version of this
+ * helper retried on the unique violation instead. That made the fixture itself
+ * converge, but it never took the lock, so it still raced every production path
+ * that does: convert or the work-items route read the max under the lock, the
+ * fixture (in another worker) inserted that number first, and the production
+ * path, which rightly does not retry, failed with P2002. Observed in
+ * `convert.test.ts` under a parallel run of the whole suite.
  */
 
 /**
@@ -67,16 +72,6 @@ export async function ensureFixtureStatuses(
   );
 }
 
-/** Prisma's code for a unique-constraint violation. */
-const UNIQUE_VIOLATION = "P2002";
-
-function isUniqueViolation(e: unknown): boolean {
-  return (
-    typeof e === "object" && e !== null && "code" in e &&
-    (e as { code?: unknown }).code === UNIQUE_VIOLATION
-  );
-}
-
 export interface FixtureWorkItemInput {
   orgId: string;
   projectId: string;
@@ -88,30 +83,18 @@ export interface FixtureWorkItemInput {
 }
 
 /**
- * Create a work item with a ticket number that will not collide with a spec
- * running in another worker.
- *
- * Returns the created row. Throws anything that is not a ticket-number
- * collision immediately — a retry loop that swallows real errors would turn a
- * broken fixture into a timeout.
+ * Create a work item with the next ticket number in its project, allocated the
+ * way production allocates it: under the project's advisory lock, inside one
+ * transaction with the insert, so no other writer, fixture or product code, can
+ * take the same number in between.
  */
-export async function createFixtureWorkItem(
-  input: FixtureWorkItemInput,
-  attempts = 8,
-) {
+export async function createFixtureWorkItem(input: FixtureWorkItemInput) {
   await ensureFixtureStatuses(input.projectId, [input.columnKey]);
-  let lastError: unknown;
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    const last = await prisma.workItem.findFirst({
-      where: { projectId: input.projectId },
-      orderBy: { ticketNumber: "desc" },
-      select: { ticketNumber: true },
-    });
-    // The offset matters: without it two workers that collide once re-read the
-    // same max and collide again on every retry, in lockstep.
-    const ticketNumber = (last?.ticketNumber ?? 0) + 1 + attempt;
-    try {
-      return await createWorkItemRow(prisma, {
+  return prisma.$transaction(async (tx) => {
+    const ticketNumber = await allocateTicketNumber(tx, { orgId: input.orgId, projectId: input.projectId });
+    return createWorkItemRow(
+      tx,
+      {
         data: {
           orgId: input.orgId,
           projectId: input.projectId,
@@ -122,11 +105,8 @@ export async function createFixtureWorkItem(
           columnKey: input.columnKey,
           ticketNumber,
         },
-      }, { actorId: null, source: "SYSTEM" });
-    } catch (e) {
-      if (!isUniqueViolation(e)) throw e;
-      lastError = e;
-    }
-  }
-  throw lastError;
+      },
+      { actorId: null, source: "SYSTEM" },
+    );
+  });
 }
