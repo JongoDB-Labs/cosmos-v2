@@ -166,8 +166,15 @@ const LOADS_A_PROJECT_MODEL = new RegExp(
   `\\b(?:prisma|tx)\\.(?:${PROJECT_MODELS.join("|")})\\.(?:findFirst|findUnique|findFirstOrThrow|findUniqueOrThrow)\\(`,
 );
 const WRITES_ANYTHING = /\b(?:prisma|tx)\.\w+\.(?:create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$transaction\(/;
-/** Saved views gate through the viewer's readable projects. */
-const VISIBLE_ANYWHERE = new RegExp(`${VISIBLE.source}|\\b(?:getReadableProjectIds|getVisibleProjectIds|visibleProjectIdsForActor|viewerScope)\\(`);
+/**
+ * Saved views gate through the viewer's readable projects; list and bulk writes
+ * through the hidden set (`hiddenProjectIds`, `visibleProjectRecordsWhere`);
+ * feedback's by-id routes through `loadFeedbackRoute`, which 404s an item under
+ * a hidden project (pinned below).
+ */
+const VISIBLE_ANYWHERE = new RegExp(
+  `${VISIBLE.source}|\\b(?:getReadableProjectIds|getVisibleProjectIds|visibleProjectIdsForActor|viewerScope|hiddenProjectIds|visibleProjectRecordsWhere|loadFeedbackRoute)\\(`,
+);
 
 /**
  * Modules whose READS aren't team-scoped either: anyone with the module's bit
@@ -189,23 +196,6 @@ const NOT_TEAM_SCOPED = new Set([
   "PUT /v1/orgs/[orgId]/classifications/[classificationId]/route.ts",
   "PATCH /v1/orgs/[orgId]/classifications/[classificationId]/route.ts",
   "DELETE /v1/orgs/[orgId]/classifications/[classificationId]/route.ts",
-  // Feedback: an org-wide board; a project is where a report is routed.
-  "POST /v1/orgs/[orgId]/feedback/route.ts",
-  "PUT /v1/orgs/[orgId]/feedback/[feedbackId]/route.ts",
-  "DELETE /v1/orgs/[orgId]/feedback/[feedbackId]/route.ts",
-  "POST /v1/orgs/[orgId]/feedback/[feedbackId]/vote/route.ts",
-  "DELETE /v1/orgs/[orgId]/feedback/[feedbackId]/vote/route.ts",
-  "DELETE /v1/orgs/[orgId]/feedback/[feedbackId]/comments/[commentId]/route.ts",
-  "POST /v1/orgs/[orgId]/feedback/[feedbackId]/merge/route.ts",
-  "PUT /v1/orgs/[orgId]/feedback/remediation-config/route.ts",
-  // Expenses: finance roles read every expense in the org.
-  "POST /v1/orgs/[orgId]/finance/expenses/route.ts",
-  "PUT /v1/orgs/[orgId]/finance/expenses/[expenseId]/route.ts",
-  "DELETE /v1/orgs/[orgId]/finance/expenses/[expenseId]/route.ts",
-  "POST /v1/orgs/[orgId]/finance/expenses/[expenseId]/approve/route.ts",
-  "POST /v1/orgs/[orgId]/finance/expenses/[expenseId]/submit/route.ts",
-  "POST /v1/orgs/[orgId]/finance/expenses/bulk-approve/route.ts",
-  "POST /v1/orgs/[orgId]/import/json/route.ts",
 ]);
 
 /** Writes the scan flags that write to no project the caller chooses, and why. */
@@ -257,6 +247,11 @@ describe("writes outside projects/[projectId] that touch a project are gated too
   it("every one checks visibility, or is listed with its reason", () => {
     const ungated = flagged.filter((h) => !h.gated).map((h) => h.at);
     expect(ungated.filter((at) => !NOT_TEAM_SCOPED.has(at) && !(at in NOT_A_PROJECT_WRITE))).toEqual([]);
+  });
+
+  it("loadFeedbackRoute, which the rule trusts, still refuses an item under a hidden project", () => {
+    const src = readFileSync("src/lib/feedback/route-context.server.ts", "utf8");
+    expect(src).toMatch(/!\(await inVisibleProject\(ctx, item\.projectId\)\)/);
   });
 
   it("the lists are exact: every entry is real and still ungated", () => {

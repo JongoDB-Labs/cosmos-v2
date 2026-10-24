@@ -49,6 +49,28 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.479.1",
+    date: "2026-10-24",
+    title: "Feedback and expenses follow team-limited projects",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security: feedback and expenses filed under a project limited to its team are now visible only to that team, including in the feedback inbox counts, finance totals and data exports. Feedback and expenses under no project stay visible to the whole organization.",
+      },
+    ],
+  },
+  {
+    version: "2.479.0",
+    date: "2026-10-24",
+    title: "Make someone else an owner",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An owner can now make another member an owner from Manage roles, with a confirmation that names the person. An organization always keeps at least one owner, even when two owners change roles at the same moment.",
+      },
+    ],
+  },
+  {
     version: "2.478.2",
     date: "2026-10-24",
     title: "Team-limited projects: the remaining writes",
