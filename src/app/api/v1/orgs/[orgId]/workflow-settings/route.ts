@@ -13,7 +13,8 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 /**
  * The org's workflow settings (src/lib/workflow/settings.ts).
  *
- * GET  the settings and whether the caller may change them, for any member.
+ * GET  the settings and whether the caller may change them, for anyone who
+ *      reads items (the transition prompt offers the resolutions).
  * PUT  a partial update with WORKFLOW_MANAGE; audited.
  */
 async function load(orgId: string) {
@@ -32,6 +33,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const { org, ctx } = await load((await params).orgId);
     if (!org) return new Response("Not found", { status: 404 });
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    requirePermission(ctx, Permission.ITEM_READ);
     return success({ ...workflowSettings(org.settings), canManage: hasPermission(ctx.permissions, Permission.WORKFLOW_MANAGE) });
   } catch (error) {
     return handleApiError(error);
