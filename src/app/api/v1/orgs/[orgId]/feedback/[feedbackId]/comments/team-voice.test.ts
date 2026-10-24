@@ -8,12 +8,14 @@ import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { NextRequest } from "next/server";
 import { RolePermissions } from "@/lib/rbac/permissions";
 
-const { getAuthContext } = vi.hoisted(() => ({ getAuthContext: vi.fn() }));
+const { getAuthContext, publishToOrg } = vi.hoisted(() => ({ getAuthContext: vi.fn(), publishToOrg: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
+vi.mock("@/lib/realtime/broker", () => ({ publishToOrg }));
 
 import { prisma } from "@/lib/db/client";
 import { GET, POST } from "./route";
 import { PATCH, DELETE } from "./[commentId]/route";
+import { GET as REVISIONS } from "./[commentId]/revisions/route";
 
 const PREFIX = "[fb-team-voice-test]";
 let orgId: string;
@@ -164,5 +166,65 @@ describe("team voice (e2e DB)", () => {
 
     // Members can't moderate.
     expect((await patch(pub, { visibility: "INTERNAL" })).status).toBe(403);
+  });
+
+  it("takes back the notifications quoting a comment once it goes internal", async () => {
+    as(alice, "ADMIN");
+    const c = (await body(await post({ content: `Heads up <@${bob}> <@${carol}>` }))).id;
+    const other = (await body(await post({ content: `Unrelated <@${carol}>` }))).id;
+    const anchor = (id: string) => ({ orgId, url: { endsWith: `#c-${id}` } });
+    expect(await prisma.notification.count({ where: anchor(c) })).toBe(2);
+    // A teammate's copy stays: they can still read the note.
+    await prisma.notification.create({
+      data: { orgId, userId: alice, type: "feedback.comment.mentioned", title: "t", refId: itemId, url: `/x#c-${c}` },
+    });
+
+    expect((await patch(c, { visibility: "INTERNAL" })).status).toBe(200);
+    const left = await prisma.notification.findMany({ where: anchor(c), select: { userId: true } });
+    expect(left.map((n) => n.userId)).toEqual([alice]);
+    expect(await prisma.notification.count({ where: { ...anchor(other), userId: carol } })).toBe(1);
+  });
+
+  it("redacts an internal note's edit history when it goes public", async () => {
+    as(alice, "ADMIN");
+    const n = (await body(await post({ content: "draft: blocked on legal", visibility: "INTERNAL" }))).id;
+    expect((await patch(n, { content: "We're looking into this." })).status).toBe(200);
+    expect((await patch(n, { visibility: "PUBLIC" })).status).toBe(200);
+
+    as(carol, "MEMBER");
+    const revs = await body(await REVISIONS(req("GET"), p({ commentId: n })));
+    expect(revs).toHaveLength(1);
+    expect(revs[0]).toMatchObject({ content: null, redacted: true });
+  });
+
+  it("lets only staff edit the official response while it is pinned", async () => {
+    as(carol, "MEMBER");
+    const c = (await body(await post({ content: "Workaround: export to CSV first." }))).id;
+    as(alice, "ADMIN");
+    expect((await patch(c, { official: true })).status).toBe(200);
+
+    as(carol, "MEMBER");
+    const mine = flat(await body(await GET(req("GET"), p()))).find((x) => x.id === c) as unknown as { canEdit: boolean };
+    expect(mine.canEdit).toBe(false);
+    expect((await patch(c, { content: "Ignore the team, this is wontfix." })).status).toBe(403);
+    expect((await prisma.comment.findUniqueOrThrow({ where: { id: c } })).content).toBe("Workaround: export to CSV first.");
+
+    as(alice, "ADMIN");
+    expect((await patch(c, { official: false })).status).toBe(200);
+    as(carol, "MEMBER");
+    expect((await patch(c, { content: "Workaround: export to CSV, then print." })).status).toBe(200);
+  });
+
+  it("never announces an internal note on the org-wide channel", async () => {
+    as(alice, "ADMIN");
+    const announced = () => publishToOrg.mock.calls.map((c) => (c[2] as { commentId: string }).commentId);
+    publishToOrg.mockClear();
+    const n = (await body(await post({ content: "staff only", visibility: "INTERNAL" }))).id;
+    await patch(n, { content: "staff only, edited" });
+    await DELETE(req("DELETE"), p({ commentId: n }));
+    expect(announced()).not.toContain(n);
+
+    const pubId = (await body(await post({ content: "for everyone" }))).id;
+    expect(announced()).toContain(pubId);
   });
 });

@@ -54,6 +54,10 @@ type Audience = "PUBLIC" | "INTERNAL";
 type ShowFilter = "all" | "public" | "internal";
 const TAB_KEY = "cosmos:feedback-composer-tab";
 
+export const MAKE_INTERNAL_CONFIRM =
+  "Make this comment internal? From now on only the feedback team will see it, and the notifications " +
+  "that quote it are taken back from everyone else. Push alerts already delivered can't be recalled.";
+
 /** The staff composer's last tab, remembered per browser as a convenience. */
 function readTab(): Audience {
   try {
@@ -280,6 +284,7 @@ export function FeedbackThread({
                 <button
                   type="button"
                   className="hover:text-foreground"
+                  title={c.kind === "OFFICIAL" ? "Unpin to let its author edit it again" : undefined}
                   onClick={() =>
                     void moderate(c.id, { official: c.kind !== "OFFICIAL" }, "Couldn't change the official response.")
                   }
@@ -291,13 +296,15 @@ export function FeedbackThread({
                 <button
                   type="button"
                   className="hover:text-foreground"
-                  onClick={() =>
+                  onClick={() => {
+                    const toInternal = c.visibility !== "INTERNAL";
+                    if (toInternal && !window.confirm(MAKE_INTERNAL_CONFIRM)) return;
                     void moderate(
                       c.id,
-                      { visibility: c.visibility === "INTERNAL" ? "PUBLIC" : "INTERNAL" },
+                      { visibility: toInternal ? "INTERNAL" : "PUBLIC" },
                       "Couldn't change who can see this comment.",
-                    )
-                  }
+                    );
+                  }}
                 >
                   {c.visibility === "INTERNAL" ? "Make public" : "Make internal"}
                 </button>

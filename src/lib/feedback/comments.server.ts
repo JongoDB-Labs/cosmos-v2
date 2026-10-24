@@ -113,10 +113,19 @@ function toDto(
     editedAt: row.editedAt,
     revisionCount: row._count.revisions,
     originSubjectId: row.originSubjectId,
-    canEdit: !deleted && mine && (row.kind === "COMMENT" || row.kind === "OFFICIAL"),
+    canEdit: !deleted && mine && canEditKind(row.kind, viewer),
     canDelete: !deleted && (mine || viewer.isStaff) && row.kind !== "STATUS_CHANGE",
     replies: [],
   };
+}
+
+/**
+ * Which kinds an author may rewrite. The pinned official response speaks for
+ * the team, so while it is pinned only staff edit it: a member whose comment
+ * was pinned can edit it again once it is unpinned.
+ */
+export function canEditKind(kind: CommentKind, viewer: CommentViewer): boolean {
+  return kind === "COMMENT" || (kind === "OFFICIAL" && viewer.isStaff);
 }
 
 /**
@@ -320,6 +329,12 @@ export async function setVisibility(
       }
     }
     await tx.comment.update({ where: { id: input.commentId }, data: { visibility: "PUBLIC" } });
+    // Its edits were made while only the team could read it: the history
+    // keeps who and when, not the earlier words.
+    await tx.commentRevision.updateMany({
+      where: { commentId: input.commentId, redactedAt: null },
+      data: { redactedAt: new Date() },
+    });
     const n = live(c.deletedAt);
     if (n) {
       await tx.feedbackItem.update({ where: { id: input.feedbackItemId }, data: { commentCount: { increment: n } } });
@@ -344,6 +359,24 @@ export async function setVisibility(
   }
   // References from internal notes are never shown as backlinks, so drop them.
   await tx.reference.deleteMany({ where: { orgId: input.orgId, sourceType: "comment", sourceId: { in: ids } } });
+  await withdrawNotifications(tx, input.orgId, ids);
+}
+
+/**
+ * Take back the notifications that quote these comments from everyone not on
+ * the team now: they carry a snippet of words those people may no longer
+ * read. Matched on the comment anchor every comment notification links to.
+ * A push or live event already delivered can't be recalled.
+ */
+async function withdrawNotifications(tx: Prisma.TransactionClient, orgId: string, commentIds: string[]) {
+  const rows = await tx.notification.findMany({
+    where: { orgId, OR: commentIds.map((id) => ({ url: { endsWith: `#c-${id}` } })) },
+    select: { id: true, userId: true },
+  });
+  if (rows.length === 0) return;
+  const staff = await currentStaff(orgId, rows.map((r) => r.userId));
+  const drop = rows.filter((r) => !staff.has(r.userId)).map((r) => r.id);
+  if (drop.length > 0) await tx.notification.deleteMany({ where: { id: { in: drop } } });
 }
 
 /**

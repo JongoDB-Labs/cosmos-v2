@@ -33,7 +33,7 @@ vi.mock("@/components/notes/editor/rich-text-editor", () => ({
 }));
 
 import { Permission } from "@/lib/rbac/permissions";
-import { FeedbackThread, type FeedbackComment } from "./feedback-thread";
+import { FeedbackThread, MAKE_INTERNAL_CONFIRM, type FeedbackComment } from "./feedback-thread";
 
 const c = (over: Partial<FeedbackComment>): FeedbackComment => ({
   id: "c1",
@@ -222,6 +222,7 @@ describe("FeedbackThread", () => {
     });
 
     it("lets staff pin a comment, move it between public and internal, and filter", async () => {
+      const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
       thread = [c({ id: "a", content: "public one" }), c({ id: "n", content: "a note", visibility: "INTERNAL" })];
       renderThread();
       await screen.findByText("public one");
@@ -235,9 +236,24 @@ describe("FeedbackThread", () => {
           [`${BASE}/n`, { visibility: "PUBLIC" }],
         ]),
       );
+      // Only going internal asks first.
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(confirm).toHaveBeenCalledWith(MAKE_INTERNAL_CONFIRM);
+      confirm.mockRestore();
       fireEvent.click(screen.getByRole("button", { name: "Internal" }));
       expect(screen.queryByText("public one")).toBeNull();
       expect(screen.getByText("a note")).toBeInTheDocument();
+    });
+
+    it("warns before making a comment internal that delivered alerts stay, and backs off on cancel", async () => {
+      const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+      thread = [c({ id: "a", content: "public one" })];
+      renderThread();
+      await screen.findByText("public one");
+      fireEvent.click(screen.getByRole("button", { name: "Make internal" }));
+      expect(confirm.mock.calls[0][0]).toMatch(/can't be recalled/);
+      expect(patched()).toEqual([]);
+      confirm.mockRestore();
     });
 
     it("shows none of it to members", async () => {

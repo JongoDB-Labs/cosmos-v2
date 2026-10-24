@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/audit";
 import {
   CommentChangeError,
   FEEDBACK_COMMENT_SELECT,
+  canEditKind,
   feedbackCommentDto,
   getFeedbackComment,
   notifyCommentAudience,
@@ -66,6 +67,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         metadata: { feedbackId, ...staffChange.data },
         ipAddress: getIpAddress(request),
       }).catch(() => {});
+      // Every staff change touches a comment that is or was public, so the
+      // whole org's view has to follow it.
       try {
         publishToOrg(orgId, "feedback.comment.updated", { feedbackId, commentId });
       } catch {
@@ -87,6 +90,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     if (existing.authorId !== ctx.userId || (existing.kind !== "COMMENT" && existing.kind !== "OFFICIAL")) {
       return json(403, { error: "Only the author can edit this comment." });
+    }
+    if (!canEditKind(existing.kind, viewer)) {
+      return json(403, { error: "This is pinned as the team's official response. It can be edited once it's unpinned." });
     }
     const { content } = editSchema.parse(body);
     if (content === existing.content) {
@@ -115,10 +121,12 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         visibility: existing.visibility,
       }).catch(() => {});
     }
-    try {
-      publishToOrg(orgId, "feedback.comment.updated", { feedbackId, commentId });
-    } catch {
-      /* realtime is best-effort */
+    if (existing.visibility === "PUBLIC") {
+      try {
+        publishToOrg(orgId, "feedback.comment.updated", { feedbackId, commentId });
+      } catch {
+        /* realtime is best-effort */
+      }
     }
     void syncReferences({
       orgId,
@@ -183,10 +191,12 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         ipAddress: getIpAddress(request),
       }).catch(() => {});
     }
-    try {
-      publishToOrg(orgId, "feedback.comment.deleted", { feedbackId, commentId });
-    } catch {
-      /* realtime is best-effort */
+    if (existing.visibility === "PUBLIC") {
+      try {
+        publishToOrg(orgId, "feedback.comment.deleted", { feedbackId, commentId });
+      } catch {
+        /* realtime is best-effort */
+      }
     }
     return success({ id: commentId });
   } catch (e) {

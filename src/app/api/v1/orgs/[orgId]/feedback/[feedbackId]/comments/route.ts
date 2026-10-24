@@ -94,10 +94,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }),
     );
 
-    try {
-      publishToOrg(orgId, "feedback.comment.created", { feedbackId, commentId: comment.id });
-    } catch {
-      /* realtime is best-effort */
+    // The org-wide channel reaches everyone, so an internal note is never
+    // announced on it: even ids would tell the rest that one was written.
+    if (visibility === "PUBLIC") {
+      try {
+        publishToOrg(orgId, "feedback.comment.created", { feedbackId, commentId: comment.id });
+      } catch {
+        /* realtime is best-effort */
+      }
     }
     await notifyCommentAudience({
       org,
