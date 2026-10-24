@@ -37,6 +37,27 @@ describe("suggestValues (e2e DB)", () => {
     expect(sprint.detail).toContain(w.P1.key);
   });
 
+  it("statuses come from the project: one no board shows is offered, a ceremony prompt and an archived status are not", async () => {
+    const { prisma } = await import("@/lib/db/client");
+    await prisma.workflowStatus.createMany({
+      data: [
+        { orgId: w.orgA, projectId: w.P1.id, key: "blocked", name: "Blocked", category: "IN_PROGRESS", sortOrder: 50 },
+        { orgId: w.orgA, projectId: w.P1.id, key: "old", name: "Old lane", category: "TODO", sortOrder: 51, archivedAt: new Date() },
+      ],
+    });
+    const board = await prisma.board.create({ data: { orgId: w.orgA, projectId: w.P1.id, name: "Retro", type: "SPRINT_REVIEW" } });
+    await prisma.boardColumn.create({ data: { boardId: board.id, key: "went-well", name: "Went well", category: "TODO", sortOrder: 0 } });
+    try {
+      const got = await labels("status", "", "status");
+      expect(got).toContain("Blocked");
+      expect(got).not.toContain("Went well");
+      expect(got).not.toContain("Old lane");
+    } finally {
+      await prisma.board.delete({ where: { id: board.id } });
+      await prisma.workflowStatus.deleteMany({ where: { projectId: w.P1.id, key: { in: ["blocked", "old"] } } });
+    }
+  });
+
   it("people: two with one name are inserted by email; me comes first", async () => {
     const alex = await s("assignee", "Alex");
     expect(alex).toHaveLength(2);

@@ -104,14 +104,20 @@ ON CONFLICT (project_id, key) DO NOTHING;
 
 -- Keys items hold that no status board shows (a deleted or renamed column, or a
 -- key only a ceremony board has): an ARCHIVED status, so the item keeps its
--- status and the foreign key can hold. Its category follows the items: DONE if
--- any finished, CANCELLED if any carries a cancel reason, else TODO. Archived
--- statuses are hidden from pickers and listed for an admin to map or restore.
+-- status and the foreign key can hold. Archived statuses are hidden from
+-- pickers and listed for an admin to map or restore; a board column that names
+-- one later restores it (ensureStatuses).
+--
+-- Its category comes from the key's spelling only, the same words
+-- isDoneStatus falls back on (src/lib/work-items/done-state.ts): never from
+-- the items. completed_at is an Actual End people set by hand, so "any item
+-- has one" would mark a Timeline project's open "todo" as DONE and count all
+-- its work as finished.
 INSERT INTO workflow_statuses (org_id, project_id, key, name, category, sort_order, archived_at)
 SELECT p.org_id, w.project_id, w.column_key, w.column_key,
        CASE
-           WHEN bool_or(w.completed_at IS NOT NULL) THEN 'DONE'::"ColumnCategory"
-           WHEN bool_or(w.cancel_reason IS NOT NULL) THEN 'CANCELLED'::"ColumnCategory"
+           WHEN lower(w.column_key) LIKE '%cancel%' THEN 'CANCELLED'::"ColumnCategory"
+           WHEN lower(w.column_key) ~ '(done|completed|closed|finished)' THEN 'DONE'::"ColumnCategory"
            ELSE 'TODO'::"ColumnCategory"
        END,
        1000,
@@ -172,9 +178,12 @@ AND NOT EXISTS (
 
 -- ── Foreign keys ────────────────────────────────────────────────────────────
 --
--- Added NOT VALID: enforced at once for every new or changed row, without a
--- long scan-and-lock of work_items. Each is then VALIDATEd only when no existing
--- row violates it. The one row that can: an item whose project was deleted
+-- Added NOT VALID: enforced at once for every new or changed row, and the
+-- existing rows are checked separately. Prisma runs this whole file as one
+-- transaction, so the ADDs' locks are held until it commits either way; what
+-- NOT VALID buys here is that a violating legacy row does not fail the
+-- migration. Each constraint is then VALIDATEd only when no existing row
+-- violates it. The one row that can: an item whose project was deleted
 -- before work_items had this foreign key (it cannot get a status either, its
 -- project being gone). Those are left as they are, counted per org in the audit
 -- log, and the constraint stays unvalidated until they are dealt with; deleting

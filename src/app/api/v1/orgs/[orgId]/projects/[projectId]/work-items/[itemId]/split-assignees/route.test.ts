@@ -14,6 +14,9 @@ const { prisma, tx, getAuthContext, requireAccess } = vi.hoisted(() => {
       create: vi.fn(),
       // The single writer reads rows around a write for their outbox events.
       findMany: vi.fn(async () => []),
+      findUniqueOrThrow: vi.fn(async () => ({
+        orgId: "o1", projectId: "p1", ticketNumber: 100, columnKey: "todo", workItemTypeId: "t1", parentId: null,
+      })),
     },
     workItemAssignee: { deleteMany: vi.fn(), create: vi.fn() },
     workItemLink: { create: vi.fn() },

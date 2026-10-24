@@ -185,9 +185,13 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
       ? prisma.workItemType.findMany({ where: { OR: [{ orgId }, { orgId: null }] }, select: { id: true, key: true, name: true } })
       : [],
     wanted.status.size || needsStatusCategories
-      ? prisma.boardColumn.findMany({
-          where: { board: { projectId: { in: readableIds } } },
-          select: { key: true, name: true, category: true, sortOrder: true, board: { select: { projectId: true } } },
+      ? // The project's statuses (archived ones too: items can sit in them).
+        // Board columns are views onto these; reading them instead let a
+        // ceremony board's prompts resolve as statuses and missed statuses no
+        // board shows.
+        prisma.workflowStatus.findMany({
+          where: { projectId: { in: readableIds } },
+          select: { key: true, name: true, category: true, sortOrder: true, projectId: true },
           orderBy: { sortOrder: "asc" },
         })
       : [],
@@ -488,10 +492,10 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
   // ── 6. Status categories per readable project ──────────────────────────────
   const statusCategories: CompileEnv["statusCategories"] = { TODO: [], IN_PROGRESS: [], DONE: [], CANCELLED: [] };
   if (needsStatusCategories) {
-    // First-seen (lowest sortOrder) category wins per project+key, as in status-facets.
+    // One status per project+key, so one category.
     const seen = new Map<string, Map<string, StatusCategory>>();
     for (const c of columns) {
-      const pid = c.board.projectId;
+      const pid = c.projectId;
       const m = seen.get(pid) ?? new Map<string, StatusCategory>();
       if (!m.has(c.key)) m.set(c.key, c.category as StatusCategory);
       seen.set(pid, m);

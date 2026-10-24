@@ -90,6 +90,12 @@ export function toStatusDto(row: StatusRow, items?: number) {
  * keeps its name, colour and order (statuses are shared, and one board's
  * spelling must not rename them for every board).
  *
+ * An ARCHIVED status that a spec names is restored: a column showing it is the
+ * decision to use it again. Its category is then the spec's, where the spec
+ * gives one (the archived row's category was a guess from its key, in the
+ * backfill, or belongs to the status's earlier life), and every column showing
+ * it follows.
+ *
  * `writeCategory` also writes each spec's category, where it gives one, onto an
  * existing status and every column showing it: the board column editor still
  * edits a column's category, and the status is now where that lives. A spec
@@ -104,7 +110,7 @@ export async function ensureStatuses(
   if (specs.length === 0) return;
   const existing = await tx.workflowStatus.findMany({
     where: { projectId: scope.projectId, key: { in: specs.map((s) => s.key) } },
-    select: { key: true, category: true, sortOrder: true },
+    select: { key: true, category: true, sortOrder: true, archivedAt: true },
   });
   const have = new Map(existing.map((s) => [s.key, s]));
   const nextOrder =
@@ -128,20 +134,34 @@ export async function ensureStatuses(
     });
   }
 
-  if (opts.writeCategory) {
-    for (const spec of specs) {
-      const row = have.get(spec.key);
-      if (!row || !spec.category || row.category === spec.category) continue;
+  for (const spec of specs) {
+    const row = have.get(spec.key);
+    if (!row) continue;
+    const restoring = row.archivedAt !== null;
+    const recategorise = Boolean(spec.category) && row.category !== spec.category && (restoring || opts.writeCategory);
+    if (!restoring && !recategorise) continue;
+    if (restoring) {
       await tx.workflowStatus.update({
         where: { projectId_key: { projectId: scope.projectId, key: spec.key } },
-        data: { category: spec.category },
-      });
-      await tx.boardColumn.updateMany({
-        where: { key: spec.key, board: { projectId: scope.projectId, type: { in: STATUS_BOARD_TYPES } } },
-        data: { category: spec.category },
+        data: { archivedAt: null },
       });
     }
+    if (recategorise) await setStatusCategory(tx, scope.projectId, spec.key, spec.category!);
   }
+}
+
+/** A status's category, and the (deprecated) mirror of it on every column showing it. */
+export async function setStatusCategory(
+  tx: Prisma.TransactionClient,
+  projectId: string,
+  key: string,
+  category: ColumnCategory,
+): Promise<void> {
+  await tx.workflowStatus.update({ where: { projectId_key: { projectId, key } }, data: { category } });
+  await tx.boardColumn.updateMany({
+    where: { key, board: { projectId, type: { in: STATUS_BOARD_TYPES } } },
+    data: { category },
+  });
 }
 
 /**

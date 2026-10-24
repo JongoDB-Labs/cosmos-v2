@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
 import { ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
-import { createWorkItemRow, rebuildTagMirror, updateWorkItems } from "./write.server";
+import { createWorkItemRow, rebuildTagMirror, updateWorkItems, updateWorkItemsUnchecked } from "./write.server";
 import { applyWorkItemChange } from "./apply-change.server";
 import { EVENT_RETENTION_DAYS, pruneDomainEvents, type WriteMeta } from "./events.server";
 
@@ -64,16 +64,43 @@ describe("the work-item outbox", () => {
     expect(e.processedAt).toBeNull();
   });
 
-  it("records a write that names no one (a composed plugin's) as PLUGIN, with no actor", async () => {
-    await createWorkItemRow(prisma, {
-      data: {
-        orgId, projectId, workItemTypeId: typeId, createdById: userId,
-        title: "from a plugin", description: "", columnKey: "todo", ticketNumber: ++ticket,
+  it("keeps a composed plugin's create exactly as it was: a PrismaPromise, batchable, with no event", async () => {
+    const [row] = await prisma.$transaction([
+      // write-meta: plugin form
+      createWorkItemRow(prisma, {
+        data: {
+          orgId, projectId, workItemTypeId: typeId, createdById: userId,
+          title: "from a plugin", description: "", columnKey: "todo", ticketNumber: ++ticket,
+        },
+      }),
+    ]);
+    expect(await eventsFor(row.id)).toEqual([]);
+  });
+
+  it("records a plugin's update (no meta) as PLUGIN, with no actor", async () => {
+    await create();
+    const id = await lastCreatedId();
+    // write-meta: plugin form
+    await updateWorkItems(prisma, [id], { storyPoints: 2 });
+    expect((await eventsFor(id)).at(-1)).toMatchObject({ type: "work_item.updated", actorId: null, source: "PLUGIN" });
+  });
+
+  it("records a create made with connect forms, its ids read back from the row", async () => {
+    await createWorkItemRow(
+      prisma,
+      {
+        data: {
+          org: { connect: { id: orgId } }, project: { connect: { id: projectId } },
+          status: { connect: { projectId_key: { projectId, key: "todo" } } },
+          workItemType: { connect: { id: typeId } }, createdById: userId,
+          title: "connected", description: "", ticketNumber: ++ticket,
+        },
+        select: { id: true },
       },
-    // A plugin's call passes no meta; explicit here so the arch test sees it was meant.
-    }, undefined);
-    const [e] = await eventsFor(await lastCreatedId());
-    expect(e).toMatchObject({ type: "work_item.created", actorId: null, source: "PLUGIN" });
+      META,
+    );
+    const id = await lastCreatedId();
+    expect((await eventsFor(id))[0]).toMatchObject({ orgId, projectId, type: "work_item.created", payload: { columnKey: "todo" } });
   });
 
   it("records an update's before and after, names free text without copying it, and skips a no-op", async () => {
@@ -87,6 +114,36 @@ describe("the work-item outbox", () => {
       changes: { title: { from: null, to: null }, storyPoints: { from: null, to: 5 } },
     });
     expect(JSON.stringify(events.map((e) => e.payload)).toLowerCase()).not.toContain("secret");
+  });
+
+  it("never copies free text: an import's raw record, notes, resolution and custom fields are named, not valued", async () => {
+    await create();
+    const id = await lastCreatedId();
+    await updateWorkItemsUnchecked(
+      prisma,
+      [id],
+      {
+        sourceRecord: { Summary: "Secret plans for the CUI program", Description: "Classified detail" },
+        cancelNote: "Secret reason",
+        resolution: "Secret outcome",
+        customFields: { root_cause: "Secret cause" },
+        externalId: "SECRET-1",
+        storyPoints: 3,
+      },
+      META,
+    );
+    const e = (await eventsFor(id)).at(-1)!;
+    expect(e.payload).toEqual({
+      changes: {
+        sourceRecord: { from: null, to: null },
+        cancelNote: { from: null, to: null },
+        resolution: { from: null, to: null },
+        customFields: { from: null, to: null },
+        externalId: { from: null, to: null },
+        storyPoints: { from: null, to: 3 },
+      },
+    });
+    expect(JSON.stringify(e.payload).toLowerCase()).not.toContain("secret");
   });
 
   it("rolls the event back with the write, inside a caller's transaction", async () => {
@@ -119,7 +176,8 @@ describe("the work-item outbox", () => {
     const label = await prisma.label.create({ data: { orgId, name: `L${ticket}` } });
     await prisma.workItemLabel.create({ data: { orgId, workItemId: id, labelId: label.id } });
     await rebuildTagMirror(prisma, [id], META);
-    expect((await eventsFor(id)).at(-1)?.payload).toEqual({ changes: { tags: { from: [], to: [`L${ticket}`] } } });
+    // Label names are people's words: named, not valued.
+    expect((await eventsFor(id)).at(-1)?.payload).toEqual({ changes: { tags: { from: null, to: null } } });
   });
 
   it("records a status change as a transition, one per item, under one correlation id", async () => {

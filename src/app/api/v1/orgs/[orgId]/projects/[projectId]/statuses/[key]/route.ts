@@ -7,7 +7,7 @@ import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
-import { STATUS_BOARD_TYPES, ensureStatuses, toStatusDto } from "@/lib/workflow/statuses.server";
+import { STATUS_BOARD_TYPES, setStatusCategory, toStatusDto } from "@/lib/workflow/statuses.server";
 import { deleteStatus, updateStatus } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; key: string }> };
@@ -36,12 +36,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (!auth.ok) return auth.error;
 
     const row = await prisma.$transaction(async (tx) => {
-      // The category goes through ensureStatuses so the board columns showing
-      // the status keep their (deprecated) mirror of it in step.
-      if (body.category) {
-        await ensureStatuses(tx, { orgId: p.orgId, projectId: p.projectId }, [
-          { key: p.key, name: auth.status.name, category: body.category },
-        ], { writeCategory: true });
+      // The board columns showing the status keep their (deprecated) mirror
+      // of its category in step. Archived stays archived: this is an edit.
+      if (body.category && body.category !== auth.status.category) {
+        await setStatusCategory(tx, p.projectId, p.key, body.category);
       }
       return tx.workflowStatus.update({
         where: { id: auth.status.id },

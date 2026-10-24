@@ -60,37 +60,63 @@ export class StatusFieldWriteError extends Error {
   }
 }
 
-/** Create one work item row, and its `work_item.created` event. */
+// The type a plain `workItem.create(args)` returns: a PrismaPromise, which a
+// caller can put in an array `$transaction([...])`.
+declare const workItemDelegate: PrismaClient["workItem"];
+type PlainCreate<T extends Prisma.WorkItemCreateArgs> = ReturnType<typeof workItemDelegate.create<T>>;
+
+/**
+ * Create one work item row, and its `work_item.created` event.
+ *
+ * Without `meta` (a composed plugin's call, written before the outbox) this is
+ * exactly the plain create it always was, PrismaPromise and all, so a plugin
+ * that batches it in an array `$transaction([...])` keeps working; such a write
+ * records no event until it passes meta. Every call in this repository passes
+ * it (write-meta.arch.test.ts).
+ */
 export function createWorkItemRow<T extends Prisma.WorkItemCreateArgs>(
   db: WorkItemDb,
   args: Prisma.SelectSubset<T, Prisma.WorkItemCreateArgs>,
-  meta: WriteMeta = PLUGIN_WRITE,
-) {
-  const data = args.data as Prisma.WorkItemUncheckedCreateInput;
-  if (!data.orgId || !data.projectId) {
-    throw new Error("createWorkItemRow needs orgId and projectId as plain fields, for the item's event.");
-  }
+): PlainCreate<T>;
+export function createWorkItemRow<T extends Prisma.WorkItemCreateArgs>(
+  db: WorkItemDb,
+  args: Prisma.SelectSubset<T, Prisma.WorkItemCreateArgs>,
+  meta: WriteMeta | undefined,
+): Promise<Awaited<PlainCreate<T>>>;
+export function createWorkItemRow<T extends Prisma.WorkItemCreateArgs>(
+  db: WorkItemDb,
+  args: Prisma.SelectSubset<T, Prisma.WorkItemCreateArgs>,
+  meta?: WriteMeta,
+): PlainCreate<T> | Promise<Awaited<PlainCreate<T>>> {
+  if (meta === undefined) return db.workItem.create<T>(args);
   // The id is chosen here so the event can name the row whatever `select` the
-  // caller asked for.
+  // caller asked for; the rest of the event is read back from the row, so a
+  // `project: { connect }` form works like a plain projectId.
+  const data = args.data as { id?: string };
   const id = data.id ?? randomUUID();
-  return inTransaction(db, async (tx) => {
-    const row = await tx.workItem.create<T>({ ...args, data: { ...data, id } } as Prisma.SelectSubset<T, Prisma.WorkItemCreateArgs>);
+  const write = inTransaction(db, async (tx) => {
+    const row = await tx.workItem.create<T>({ ...args, data: { ...args.data, id } } as Prisma.SelectSubset<T, Prisma.WorkItemCreateArgs>);
+    const created = await tx.workItem.findUniqueOrThrow({
+      where: { id },
+      select: { orgId: true, projectId: true, ticketNumber: true, columnKey: true, workItemTypeId: true, parentId: true },
+    });
     await recordEvents(tx, meta, [
       {
-        orgId: data.orgId,
-        projectId: data.projectId,
+        orgId: created.orgId,
+        projectId: created.projectId,
         type: "work_item.created",
         subjectId: id,
         payload: {
-          ticketNumber: data.ticketNumber,
-          columnKey: data.columnKey ?? null,
-          workItemTypeId: data.workItemTypeId,
-          parentId: data.parentId ?? null,
+          ticketNumber: created.ticketNumber,
+          columnKey: created.columnKey,
+          workItemTypeId: created.workItemTypeId,
+          parentId: created.parentId,
         },
       },
     ]);
     return row;
   });
+  return write as unknown as Promise<Awaited<PlainCreate<T>>>;
 }
 
 type ItemSnapshot = { id: string; orgId: string; projectId: string } & Record<string, unknown>;

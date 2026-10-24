@@ -45,7 +45,7 @@ interface ValidSets {
 }
 
 async function loadValidSets(ctx: EngineCtx): Promise<ValidSets> {
-  const [members, types, project, intervals] = await Promise.all([
+  const [members, types, statuses, intervals] = await Promise.all([
     prisma.orgMember.findMany({
       where: { orgId: ctx.orgId },
       select: {
@@ -57,17 +57,19 @@ async function loadValidSets(ctx: EngineCtx): Promise<ValidSets> {
       where: { OR: [{ orgId: ctx.orgId }, { orgId: null, isBuiltIn: true }] },
       select: { id: true },
     }),
-    prisma.project.findUnique({
-      where: { id: ctx.projectId },
-      select: { boards: { select: { columns: { select: { key: true } } } } },
+    // The statuses an item may be put in: the project's live ones (a ceremony
+    // board's prompts are columns, not statuses, and an archived status is
+    // hidden from people, so an import should not fill it either).
+    prisma.workflowStatus.findMany({
+      where: { projectId: ctx.projectId, archivedAt: null },
+      select: { key: true },
     }),
     prisma.interval.findMany({
       where: { projectId: ctx.projectId },
       select: { id: true, name: true, number: true },
     }),
   ]);
-  const columnKeys = new Set<string>();
-  for (const b of project?.boards ?? []) for (const c of b.columns) columnKeys.add(c.key);
+  const columnKeys = new Set(statuses.map((st) => st.key));
 
   const memberByToken = new Map<string, string>();
   for (const m of members) {
@@ -248,7 +250,9 @@ function normalizeRows(req: ImportRequest, sets: ValidSets): NormalizedRow[] {
       ? "Missing title (Summary)"
       : !workItemTypeId
         ? "No valid work-item type"
-        : null;
+        : !sets.columnKeys.has(columnKey)
+          ? `No status "${columnKey}" in this project — map the status column or pick another default`
+          : null;
 
     return {
       rowNum,

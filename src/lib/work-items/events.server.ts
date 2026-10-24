@@ -10,9 +10,10 @@
  * richer ones (the status a transition left and entered) and says so with
  * `RECORDED_BY_CALLER`.
  *
- * A payload carries ids, keys and the before/after of changed fields; never a
- * title, description or comment body. Consumers re-read what they show under
- * their own actor, so an event is never a way around read permissions.
+ * A payload carries ids, keys and the before/after of changed structural
+ * fields (VALUE_FIELDS); any other field is named, never valued. Consumers
+ * re-read what they show under their own actor, so an event is never a way
+ * around read permissions.
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
 
@@ -52,12 +53,30 @@ export interface DomainEventInput {
   payload: Prisma.InputJsonObject;
 }
 
-/** Fields whose values are never copied into a payload, only named. */
-const TEXT_FIELDS = new Set(["title", "description"]);
+/**
+ * The only fields whose VALUES an event copies: ids, the status key, enums,
+ * numbers and dates. Every other field (title, description, notes, the cancel
+ * note, resolution, custom fields, tags, an import's raw source record) is
+ * named in the payload with a null value, so free text, which can be CUI,
+ * never lands in the outbox. An allowlist, not a denylist: a column added to
+ * work_items later is named and not valued until someone adds it here.
+ */
+export const VALUE_FIELDS: ReadonlySet<string> = new Set([
+  // ids
+  "assigneeId", "parentId", "intervalId", "teamId", "workItemTypeId", "createdById", "mergedIntoId", "projectId",
+  // the status
+  "columnKey",
+  // enums
+  "priority", "workCategory", "cancelReason",
+  // numbers
+  "storyPoints", "sortOrder", "ticketNumber", "originalEstimate", "remainingEstimate", "timeSpent",
+  // dates
+  "dueDate", "startDate", "actualStart", "completedAt", "columnEnteredAt", "archivedAt",
+]);
 
-/** A payload value for one changed field: the value, or nothing for free text. */
+/** A payload value for one changed field: the value for an allowlisted field, else null. */
 export function eventValue(field: string, value: unknown): Prisma.InputJsonValue | null {
-  if (TEXT_FIELDS.has(field) || value === undefined || value === null) return null;
+  if (!VALUE_FIELDS.has(field) || value === undefined || value === null) return null;
   if (value instanceof Date) return value.toISOString();
   if (typeof value === "bigint") return value.toString();
   return value as Prisma.InputJsonValue;
@@ -105,6 +124,10 @@ export const EVENT_RETENTION_DAYS = 30;
 /**
  * Delete events older than the retention window, a batch at a time so a large
  * backlog never holds one long lock on the table. Returns how many went.
+ *
+ * Nothing consumes events yet, so age alone decides. When the automation
+ * worker (workflow P4) starts marking events processed, this must delete only
+ * processed ones, or a backlog older than the window would be lost unread.
  */
 export async function pruneDomainEvents(
   db: PrismaClient,

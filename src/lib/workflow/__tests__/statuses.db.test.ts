@@ -150,6 +150,30 @@ describe("ensureStatuses", () => {
   });
 });
 
+describe("archived statuses", () => {
+  it("come back when a new board's column names them, with the column's category", async () => {
+    const p = await project();
+    // As the backfill leaves an orphan key: archived, with a guessed category.
+    await prisma.workflowStatus.create({
+      data: { orgId, projectId: p.id, key: "todo", name: "todo", category: "DONE", sortOrder: 1000, archivedAt: new Date() },
+    });
+    const kanban = await board(p.id, "KANBAN");
+    expect((await statusesOf(p.id)).find((s) => s.key === "todo")).toMatchObject({ category: "TODO", archived: false });
+    expect((await columnsOf(kanban.id)).find((c) => c.key === "todo")?.category).toBe("TODO");
+  });
+
+  it("stay archived when only their category is edited", async () => {
+    const p = await project();
+    await board(p.id, "KANBAN");
+    await prisma.workflowStatus.update({ where: { projectId_key: { projectId: p.id, key: "doing" } }, data: { archivedAt: new Date() } });
+    const res = await patchStatus(
+      req("PATCH", { category: "DONE" }),
+      { params: Promise.resolve({ orgId, projectId: p.id, key: "doing" }) },
+    );
+    expect(await res.json()).toMatchObject({ category: "DONE", archived: true });
+  });
+});
+
 describe("renameStatusIfUnshared", () => {
   it("renames the status when no other board shows it, and its items follow", async () => {
     const p = await project();

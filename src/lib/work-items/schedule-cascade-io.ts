@@ -12,7 +12,7 @@
 import { Prisma } from "@prisma/client";
 import { planScheduleCascade } from "@/lib/work-items/schedule-cascade";
 import { updateWorkItems } from "@/lib/work-items/write.server";
-import type { WriteMeta } from "@/lib/work-items/events.server";
+import { PLUGIN_WRITE, type WriteMeta } from "@/lib/work-items/events.server";
 
 type Db = Prisma.TransactionClient;
 
@@ -27,8 +27,8 @@ export interface CascadeScheduleArgs {
   userId: string;
   /** Other items the SAME user action is writing by hand — see the planner. */
   skipIds?: readonly string[];
-  /** The saving change's, so each moved item's event belongs to it. */
-  meta: WriteMeta;
+  /** The saving change's, so each moved item's event belongs to it. Optional for composed plugins. */
+  meta?: WriteMeta;
 }
 
 /** One item the cascade moved, with the dates it moved FROM.
@@ -51,7 +51,7 @@ const isoOrNull = (d: Date | null): string | null => (d ? d.toISOString() : null
  * when nothing had to), each with its before/after dates.
  */
 export async function cascadeSchedule(db: Db, args: CascadeScheduleArgs): Promise<CascadedItem[]> {
-  const { orgId, projectId, itemId, dueShiftMs, userId, skipIds, meta } = args;
+  const { orgId, projectId, itemId, dueShiftMs, userId, skipIds, meta = PLUGIN_WRITE } = args;
 
   // Archived items are out of the plan — moving one would resurrect a date
   // nobody is looking at, and it can't be seen on the Gantt to be corrected.

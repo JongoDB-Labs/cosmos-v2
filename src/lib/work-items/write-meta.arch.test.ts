@@ -50,7 +50,12 @@ export function callsWithoutMeta(source: string, fileName: string): string[] {
       const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : null;
       const arity = name ? META_ARITY[name] : undefined;
       // A spread could carry anything; none of these are called that way.
-      if (arity !== undefined && node.arguments.length < arity && !node.arguments.some(ts.isSpreadElement)) {
+      // A test of the plugin form itself says so on the line above.
+      const marked = (() => {
+        const line = sf.getLineAndCharacterOfPosition(node.getStart()).line;
+        return line > 0 && source.split("\n")[line - 1].includes("write-meta: plugin form");
+      })();
+      if (arity !== undefined && !marked && node.arguments.length < arity && !node.arguments.some(ts.isSpreadElement)) {
         found.push(`${fileName}:${sf.getLineAndCharacterOfPosition(node.getStart()).line + 1} ${name}`);
       }
     }
@@ -79,6 +84,8 @@ describe("every in-repo write through the single writer names its actor and sour
       await labels.setWorkItemLabels(tx, orgId, id, names);
       await createWorkItemRow(tx, { data }, { actorId: null, source: "SYSTEM" });
       await updateWorkItemsUnchecked(tx, ids, data, RECORDED_BY_CALLER);
+      // write-meta: plugin form
+      await createWorkItemRow(tx, { data });
     `;
     expect(callsWithoutMeta(planted, "x.ts")).toEqual(["x.ts:2 createWorkItemRow", "x.ts:3 updateWorkItems", "x.ts:8 setWorkItemLabels"]);
   });
