@@ -1,7 +1,8 @@
 // @vitest-environment node
 //
-// Chat writes (create a channel or a DM, post a message, upload an attachment)
-// checked no permission bit, so any API key could create channels and post as
+// Chat writes (create a channel or a DM, post, edit or delete a message, pin
+// and unpin, react, upload an attachment, run a channel command) checked no
+// permission bit, so any API key could create channels and post as
 // whoever minted it. They now need CHAT_USE, as the Chat page itself does
 // (topbar-nav.ts). No scope grants CHAT_USE, so a key never has it; a MEMBER's
 // session does, and a VIEWER's never reached chat in the UI.
@@ -30,17 +31,31 @@ import { POST as createChannel } from "./channels/route";
 import { POST as createDm } from "./dms/route";
 import { POST as postMessage } from "./channels/[channelId]/messages/route";
 import { POST as upload } from "./attachments/route";
+import { PATCH as editMessage, DELETE as deleteMessage } from "./messages/[messageId]/route";
+import { POST as pin } from "./channels/[channelId]/pins/route";
+import { DELETE as unpin } from "./channels/[channelId]/pins/[messageId]/route";
+import { POST as react } from "./messages/[messageId]/reactions/route";
+import { POST as runCommand } from "./channels/[channelId]/commands/route";
 
 type Handler = (req: NextRequest, c: { params: Promise<Record<string, string>> }) => Promise<Response>;
-const ROUTES: [string, Handler, Record<string, string>][] = [
-  ["create a channel", createChannel as unknown as Handler, {}],
-  ["open a DM", createDm as unknown as Handler, {}],
-  ["post a message", postMessage as unknown as Handler, { channelId: "ch1" }],
-  ["upload an attachment", upload as unknown as Handler, {}],
+const BODY = { name: "c", content: "hi", userIds: [], emoji: "👍", command: "leave", args: "" };
+const ROUTES: [string, Handler, Record<string, string>, string][] = [
+  ["create a channel", createChannel as unknown as Handler, {}, "POST"],
+  ["open a DM", createDm as unknown as Handler, {}, "POST"],
+  ["post a message", postMessage as unknown as Handler, { channelId: "ch1" }, "POST"],
+  ["upload an attachment", upload as unknown as Handler, {}, "POST"],
+  ["edit a message", editMessage as unknown as Handler, { messageId: "m1" }, "PATCH"],
+  ["delete a message", deleteMessage as unknown as Handler, { messageId: "m1" }, "DELETE"],
+  ["pin a message", pin as unknown as Handler, { channelId: "ch1" }, "POST"],
+  ["unpin a message", unpin as unknown as Handler, { channelId: "ch1", messageId: "m1" }, "DELETE"],
+  ["react to a message", react as unknown as Handler, { messageId: "m1" }, "POST"],
+  ["run /leave", runCommand as unknown as Handler, { channelId: "ch1" }, "POST"],
 ];
-const call = (handler: Handler, extra: Record<string, string>) =>
+const call = (handler: Handler, extra: Record<string, string>, method = "POST", body: unknown = BODY) =>
   handler(
-    new NextRequest("http://localhost/x", { method: "POST", body: JSON.stringify({ name: "c", content: "hi", userIds: [] }), headers: { "Content-Type": "application/json" } }),
+    new NextRequest("http://localhost/x", {
+      method, ...(method === "DELETE" ? {} : { body: JSON.stringify(body), headers: { "Content-Type": "application/json" } }),
+    }),
     { params: Promise.resolve({ orgId: ORG, ...extra }) },
   );
 const as = (orgRole: OrgRole, permissions: bigint, over: Partial<AuthContext> = {}): AuthContext => ({
@@ -54,20 +69,28 @@ beforeEach(() => {
 });
 
 describe("chat writes need CHAT_USE", () => {
-  it.each(ROUTES)("an OWNER's items:write key can't %s", async (_n, handler, extra) => {
+  it.each(ROUTES)("an OWNER's items:write key can't %s", async (_n, handler, extra, method) => {
     // An OWNER's key: the owner's permissions cut to the scope mask, which has no CHAT_USE.
     h.getAuthContext.mockResolvedValue(as(OrgRole.OWNER, Permission.ITEM_CREATE | Permission.ITEM_UPDATE, { isApiKey: true, scopes: ["items:write"] }));
-    expect((await call(handler, extra)).status).toBe(403);
+    expect((await call(handler, extra, method)).status).toBe(403);
     expect(h.writes).toEqual([]);
   });
 
-  it.each(ROUTES)("a VIEWER's session can't %s (the Chat page was never theirs)", async (_n, handler, extra) => {
+  it.each(ROUTES)("a VIEWER's session can't %s (the Chat page was never theirs)", async (_n, handler, extra, method) => {
     h.getAuthContext.mockResolvedValue(as(OrgRole.VIEWER, Permission.ORG_READ | Permission.PROJECT_READ));
-    expect((await call(handler, extra)).status).toBe(403);
+    expect((await call(handler, extra, method)).status).toBe(403);
   });
 
-  it.each(ROUTES)("a MEMBER's session gets past the gate to %s", async (_n, handler, extra) => {
+  it.each(ROUTES)("a MEMBER's session gets past the gate to %s", async (_n, handler, extra, method) => {
     h.getAuthContext.mockResolvedValue(as(OrgRole.MEMBER, MEMBER));
-    expect((await call(handler, extra)).status).not.toBe(403);
+    expect((await call(handler, extra, method)).status).not.toBe(403);
+  });
+});
+
+describe("/mute stays open: it only changes the caller's own notifications", () => {
+  it("a VIEWER's session can still mute", async () => {
+    h.getAuthContext.mockResolvedValue(as(OrgRole.VIEWER, Permission.ORG_READ | Permission.PROJECT_READ));
+    const res = await call(runCommand as unknown as Handler, { channelId: "ch1" }, "POST", { command: "mute", args: "" });
+    expect(res.status).not.toBe(403);
   });
 });

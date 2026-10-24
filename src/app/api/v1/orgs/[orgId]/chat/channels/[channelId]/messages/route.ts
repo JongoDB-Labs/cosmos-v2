@@ -146,7 +146,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // over budget so the human message still posts. The bot runs through v2's
     // CUI-blind agent loop (egress-gated) — never a raw model call.
     const bot = await resolveBotMention(orgId, parsed.data.content);
-    if (bot && hasPermission(ctx.permissions, Permission.CHAT_USE)) {
+    // CHAT_USE is checked at the top of the handler, so any poster may summon one.
+    if (bot) {
       const botLimited = checkRateLimit(req, "chat.ai", ctx.userId, {
         capacity: 5,
         refillPerSecond: 0.0833,

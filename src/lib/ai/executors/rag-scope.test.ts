@@ -1,9 +1,10 @@
 // @vitest-environment node
 //
 // The assistant's semantic search over work items used to scope by the DB role
-// alone (OWNER/ADMIN = every project, else memberships), so a project-scoped
-// API key searched every project its minter could, and team-scoped projects
-// leaked to non-members. It now intersects with getReadableProjectIds on the
+// alone (OWNER/ADMIN = every project, else memberships): an ADMIN session
+// searched projects an ABAC deny on ITEM_READ had taken away, and a
+// project-scoped API key searched every project its minter could (defence in
+// depth: no real key holds ORG_READ, and the assistant needs CHAT_USE). It now intersects with getReadableProjectIds on the
 // CALLER's context, the rule GET /work-items uses. Narrowing only.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { OrgRole } from "@prisma/client";
@@ -66,11 +67,15 @@ describe("assistant work-item search follows the caller's readable projects", ()
     expect(searched()).toEqual([P2]);
   });
 
-  it("a team-scoped project the member isn't on stays out, even if listed as a membership elsewhere", async () => {
-    h.memberOf.value = [P2];
-    h.projects.value = [{ id: P1, teamScopedAccess: false }, { id: P2, teamScopedAccess: false }, { id: P3, teamScopedAccess: true }];
-    await search(auth());
-    expect(searched()).toEqual([P2]);
+  it("an ADMIN session loses a project an ABAC deny on ITEM_READ takes away", async () => {
+    // The role path alone (OWNER/ADMIN = every project) never consulted policy;
+    // getReadableProjectIds does, as GET /work-items always has.
+    h.role.value = "ADMIN";
+    await search(auth({
+      orgRole: OrgRole.ADMIN,
+      abacRules: [{ effect: "deny", actions: ["ITEM_READ"], conditions: [{ attr: "projectId", op: "eq", value: P2 }] }],
+    } as Partial<AuthContext>));
+    expect(searched()).toEqual([P1, P3]);
   });
 
   it("an OWNER's browser session still searches every project", async () => {
