@@ -27,6 +27,7 @@ import { PUT as putItem } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/w
 import { PUT as bulkPut } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/bulk/route";
 import { GET as getTransitions } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/transitions/route";
 import { PUT as putSettings } from "@/app/api/v1/orgs/[orgId]/workflow-settings/route";
+import { GET as getMoves } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/workflow/moves/route";
 import { seedBoardColumns } from "../provision.server";
 import { listTransitionsForItem, transitionItem } from "@/lib/ai/executors/work-items";
 import { stubToolCtx } from "@/lib/testing/tool-auth";
@@ -483,5 +484,33 @@ describe("the assistant", () => {
     const r = (await transitionItem({ itemId: parent, transitionId: "open:done" }, ctx)) as Record<string, unknown>;
     expect(r).toMatchObject({ code: "transition_invalid", failedChecks: ["childrenSettled"] });
     expect(JSON.stringify(r)).not.toContain("SECRET");
+  });
+});
+
+describe("the moves map a board dims columns with", () => {
+  const moves = async (projectId: string) =>
+    (await getMoves(new NextRequest("http://localhost/x"), { params: Promise.resolve({ orgId, projectId }) })).json();
+
+  it("is null (anything goes) for the open workflow", async () => {
+    const w = await world();
+    expect(await moves(w.projectId)).toEqual({ default: null, byType: {} });
+  });
+
+  it("lists where each status leads, keeping item-dependent moves and dropping ones the person can never take", async () => {
+    const w = await world();
+    await customWorkflow(w.projectId, {
+      ...GOVERNED,
+      transitions: [
+        ...GOVERNED.transitions,
+        // OWNER only: an admin can never take it, whatever the item.
+        { id: "skip", name: "Skip ahead", from: ["todo"], to: "done", restrict: { kind: "actorOrgRole", in: ["OWNER"] } },
+      ],
+    });
+    await customWorkflow(w.projectId, { ...GOVERNED, transitions: [] }, { workItemTypeId: otherTypeId });
+    expect(await moves(w.projectId)).toEqual({
+      // "start" depends on who is assigned: possible. "abandon" is hidden.
+      default: { todo: ["doing"], doing: ["done"], done: ["todo"], cancelled: [] },
+      byType: { [otherTypeId]: { todo: [], doing: [], done: [], cancelled: [] } },
+    });
   });
 });

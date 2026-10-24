@@ -71,6 +71,7 @@ import { useOrgSlug } from "@/lib/query/keys";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 import { sendItemChange, TransitionBackedOut, useTransitionPrompt } from "@/components/work-items/use-transition-prompt";
+import { useWorkflowMoves } from "@/hooks/use-workflow-moves";
 import { announceBulkChange, sendBulkChange } from "@/components/work-items/bulk-change";
 import { toast } from "sonner";
 import {
@@ -251,6 +252,8 @@ function KanbanBoardInner({
   );
   // A move the workflow wants details for (a resolution, a required field).
   const { ask: askTransition, dialog: transitionDialog } = useTransitionPrompt(projectCustomFields);
+  // Where the dragged card's workflow lets it go, to dim the other columns.
+  const allowedFrom = useWorkflowMoves(orgId, projectId);
 
   // Board data is cached in React Query (keyed per org/project) so switching
   // between a project's boards reuses it instead of refetching everything each
@@ -918,6 +921,12 @@ function KanbanBoardInner({
     [items, columns, basePath, board, applyItems, askTransition]
   );
 
+  // A column the dragged card's workflow doesn't lead to from where it started
+  // (`activeItem` is the card as it was when the drag began).
+  const dragAllowed = activeItem ? allowedFrom(activeItem.workItemTypeId, activeItem.columnKey) : null;
+  const isUnavailable = (key: string) =>
+    dragAllowed !== null && key !== activeItem?.columnKey && !dragAllowed.has(key);
+
   function handleCardCreated(item: WorkItem) {
     applyItems((prev) => [...prev, item]);
   }
@@ -1268,6 +1277,7 @@ function KanbanBoardInner({
                       onToggleSelect={toggleSelect}
                       onCtrlSelect={ctrlSelect}
                       onRangeSelect={handleRangeSelect}
+                      unavailable={isUnavailable(col.key)}
                     />
                   ))}
                 </div>
@@ -1297,6 +1307,7 @@ function KanbanBoardInner({
                 onToggleSelect={toggleSelect}
                 onCtrlSelect={ctrlSelect}
                 onRangeSelect={handleRangeSelect}
+                unavailable={isUnavailable(col.key)}
               />
             ))}
           </div>

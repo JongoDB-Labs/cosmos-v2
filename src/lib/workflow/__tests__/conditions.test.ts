@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Permission } from "@/lib/rbac/permissions";
-import { evaluateCondition, restrictionAllows, type ConditionContext } from "../conditions";
+import { evaluateCondition, restrictionAllows, restrictionMayAllow, type ConditionContext } from "../conditions";
 import type { ConditionNode } from "../definition";
 
 const ALICE = "alice";
@@ -94,5 +94,31 @@ describe("evaluateCondition", () => {
   it("no restriction allows; an empty-handed actor is not elevated by one", () => {
     expect(restrictionAllows(undefined, ctx())).toBe(true);
     expect(restrictionAllows({ kind: "actorHasPermission", permission: "PROJECT_MANAGE" }, ctx())).toBe(false);
+  });
+});
+
+describe("restrictionMayAllow (no item)", () => {
+  const actor = ctx().actor;
+  it("is false only when the actor can never take it", () => {
+    expect(restrictionMayAllow(undefined, actor)).toBe(true);
+    expect(restrictionMayAllow({ kind: "actorOrgRole", in: ["OWNER"] }, actor)).toBe(false);
+    expect(restrictionMayAllow({ kind: "actorHasPermission", permission: "ITEM_DELETE" }, actor)).toBe(false);
+  });
+
+  it("counts what depends on the item as possible, negated or not", () => {
+    for (const n of [
+      { kind: "actorIsAssignee" },
+      { not: { kind: "actorIsCreator" } },
+      { kind: "field", field: { system: "priority" }, op: "eq", value: "HIGH" },
+      { kind: "actorInTeam", teamId: "item" },
+    ] as ConditionNode[]) {
+      expect(restrictionMayAllow(n, actor)).toBe(true);
+    }
+    // ...but an AND with a definite no is still no.
+    expect(restrictionMayAllow({ all: [{ kind: "actorIsAssignee" }, { kind: "actorOrgRole", in: ["OWNER"] }] }, actor)).toBe(false);
+  });
+
+  it("never lets an item-free answer decide a real move", () => {
+    expect(restrictionAllows({ kind: "actorIsAssignee" }, { actor })).toBe(false);
   });
 });

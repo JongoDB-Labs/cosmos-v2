@@ -25,7 +25,7 @@ import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import type { WorkItemPatch } from "@/lib/work-items/apply-change.server";
 import { loadStatuses } from "@/lib/workflow/statuses.server";
 import { buildOpenDefinition, compiledVersion, compileWorkflow, openTransitionId, resolveTransition, type CompiledWorkflow } from "@/lib/workflow/compile";
-import { restrictionAllows, type ConditionActor, type ConditionContext, type ConditionHistory, type ConditionItem } from "@/lib/workflow/conditions";
+import { restrictionAllows, restrictionMayAllow, type ConditionActor, type ConditionContext, type ConditionHistory, type ConditionItem } from "@/lib/workflow/conditions";
 import { runValidators, type ValidationFacts } from "@/lib/workflow/validators";
 import { applyActions, applyInput } from "@/lib/workflow/actions";
 import { TransitionError, type AvailableTransition, type TransitionErrorBody, type TransitionInputField } from "@/lib/workflow/contract";
@@ -635,4 +635,46 @@ export async function listTransitions(
     });
   }
   return out;
+}
+
+/** For each status, the statuses a move from it may lead to. */
+export type MoveMap = Record<string, string[]>;
+
+/**
+ * Where an actor could move items, per type, so a board can dim the columns a
+ * dragged card can't go to before the drop. Null means the open workflow
+ * (anything to anything) governs. A transition whose restriction depends on
+ * the item counts as possible: this map never decides a move, the server does.
+ */
+export async function allowedMoves(
+  tx: Tx,
+  args: { orgId: string; projectId: string; actor: AuthContext },
+): Promise<{ default: MoveMap | null; byType: Record<string, MoveMap | null> }> {
+  const assignments = await tx.workflowAssignment.findMany({
+    where: { projectId: args.projectId },
+    select: { workItemTypeId: true },
+  });
+  if (assignments.length === 0) return { default: null, byType: {} };
+  const governing = workflowResolver(tx, args.orgId, args.projectId);
+  let actor: ConditionActor | null = null;
+  const movesOf = async (wf: GoverningWorkflow): Promise<MoveMap | null> => {
+    if (wf.workflowId === null) return null;
+    const def = wf.compiled.definition;
+    actor ??= await conditionActor(tx, args.actor, args.projectId, usesKind(def, ["actorProjectRole", "actorInTeam"]));
+    const map: MoveMap = {};
+    for (const status of wf.compiled.statusKeys) {
+      const to = wf.compiled
+        .from(status)
+        .filter((t) => !t.hidden && t.to !== status && restrictionMayAllow(t.restrict, actor!))
+        .map((t) => t.to);
+      map[status] = [...new Set(to)];
+    }
+    return map;
+  };
+  // A type without a row of its own follows the project default.
+  const byType: Record<string, MoveMap | null> = {};
+  for (const a of assignments) {
+    if (a.workItemTypeId) byType[a.workItemTypeId] = await movesOf(await governing(a.workItemTypeId));
+  }
+  return { default: await movesOf(await governing(null)), byType };
 }
