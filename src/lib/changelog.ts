@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.477.0",
+    date: "2026-10-24",
+    title: "Automation rules (API)",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Automation rules (API, with the settings screen to follow). When an item is created, changed or moved, or on a schedule, and it matches a query, a rule can move it, set fields, assign it, label it, comment, notify people, send a webhook or archive it. Rules act with their owner's access, follow the project's workflow, and switch themselves off rather than loop.",
+      },
+    ],
+  },
+  {
     version: "2.476.1",
     date: "2026-10-24",
     title: "Org-wide permissions stop at team-limited projects",

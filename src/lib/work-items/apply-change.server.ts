@@ -63,7 +63,7 @@ export type WorkItemPatch = Omit<z.infer<typeof workItemPatchSchema>, "cancelRea
  * workflow engine onwards, on the domain event, so automations can tell a
  * person's edit from their own.
  */
-export type ChangeSource = "API" | "BULK" | "AI" | "SYSTEM" | "MIGRATION";
+export type ChangeSource = "API" | "BULK" | "AI" | "SYSTEM" | "MIGRATION" | "AUTOMATION";
 
 export interface ApplyChangeInput {
   actorId: string;
@@ -75,6 +75,12 @@ export interface ApplyChangeInput {
   source: ChangeSource;
   /** Set when this change is part of a larger one (a merge), so their events share it. */
   correlationId?: string;
+  /**
+   * An automation's own change: the rule that made it and how deep in a chain
+   * of automations it is. Recorded on the change's events, which is how a rule
+   * is kept from firing on its own changes and a chain from running forever.
+   */
+  chain?: { depth: number; causedByRuleId: string };
   /**
    * The person acting, for the workflow's restrictions and the override right.
    * Null for a system change, which the workflow holds to its structure only.
@@ -405,7 +411,7 @@ export async function applyWorkItemChange(
 ): Promise<ApplyChangeResult> {
   const { actorId, orgId, projectId, source } = input;
   // One correlation id for everything this change writes, the cascade included.
-  const meta: WriteMeta = { actorId, source, correlationId: input.correlationId ?? randomUUID() };
+  const meta: WriteMeta = { actorId, source, correlationId: input.correlationId ?? randomUUID(), ...input.chain };
   const patch: WorkItemPatch = { ...input.patch };
   // `columnKey: null` names no status: no move (see computeItemChange).
   if (patch.columnKey === null) delete patch.columnKey;
