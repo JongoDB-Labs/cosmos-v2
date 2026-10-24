@@ -4,7 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { cqlEnabled } from "@/lib/query/flag";
@@ -225,6 +225,11 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     const { orgId, viewId } = await params;
     const r = await load(orgId, viewId);
     if ("error" in r) return r.error;
+    // Deleting is a write: a key needs ITEM_UPDATE (items:write) on top of the
+    // ITEM_READ load() checks, as the contracted saved-view writes do.
+    if (!hasPermission(r.s.ctx.permissions, r.s.ctx.isApiKey ? Permission.ITEM_UPDATE : Permission.ITEM_READ)) {
+      return json({ error: "Deleting a saved filter needs the items:write scope." }, 403);
+    }
     if (!canDelete(r.s, r.view)) return json({ error: "Only the owner or an administrator can delete this filter." }, 403);
     await prisma.savedView.delete({ where: { id: viewId } });
     return noContent();

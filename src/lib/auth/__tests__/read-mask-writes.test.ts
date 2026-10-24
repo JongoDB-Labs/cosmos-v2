@@ -22,25 +22,16 @@ import BASELINE_BY_SCOPE from "./scope-writes.baseline.json";
 
 /**
  * Handlers that already met that bar before scopes were enforced. Each acts on
- * the caller's own state (their comments, watches, saved views, tab layout) or
- * is a read sent as POST; the comment edits, saved-view writes and the Teams
- * digest are tightened in a follow-up (ops' #1135 review). Frozen: a new entry
- * fails the test, so it is a decision, not drift.
+ * the caller's own state (watching an item, their tab layout) or is a read sent
+ * as POST (search); the Teams digest awaits ops' call on its scheduled caller.
+ * Frozen: a new entry fails the test, so it is a decision, not drift.
  */
 const BASELINE = [
-  "DELETE v1/orgs/[orgId]/projects/[projectId]/pm-comments/[commentId]",
-  "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]",
   "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
-  "DELETE v1/orgs/[orgId]/saved-views/[viewId]",
-  "DELETE v1/orgs/[orgId]/saved-views/[viewId]/favorite",
-  "PATCH v1/orgs/[orgId]/projects/[projectId]/pm-comments/[commentId]",
-  "PATCH v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]",
   "POST v1/orgs/[orgId]/integrations/teams/digest",
   "POST v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
-  "POST v1/orgs/[orgId]/saved-views",
   "POST v1/orgs/[orgId]/work-items/search",
   "PUT v1/orgs/[orgId]/projects/[projectId]/tab-prefs",
-  "PUT v1/orgs/[orgId]/saved-views/[viewId]/favorite",
 ];
 
 /** Every write handler a key holding exactly `mask` could pass on bits alone. */

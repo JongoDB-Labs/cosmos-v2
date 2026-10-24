@@ -1,18 +1,10 @@
 {
   "read": [
-    "DELETE v1/orgs/[orgId]/projects/[projectId]/pm-comments/[commentId]",
-    "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]",
     "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
-    "DELETE v1/orgs/[orgId]/saved-views/[viewId]",
-    "DELETE v1/orgs/[orgId]/saved-views/[viewId]/favorite",
-    "PATCH v1/orgs/[orgId]/projects/[projectId]/pm-comments/[commentId]",
-    "PATCH v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]",
     "POST v1/orgs/[orgId]/integrations/teams/digest",
     "POST v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
-    "POST v1/orgs/[orgId]/saved-views",
     "POST v1/orgs/[orgId]/work-items/search",
-    "PUT v1/orgs/[orgId]/projects/[projectId]/tab-prefs",
-    "PUT v1/orgs/[orgId]/saved-views/[viewId]/favorite"
+    "PUT v1/orgs/[orgId]/projects/[projectId]/tab-prefs"
   ],
   "items:write": [
     "DELETE v1/orgs/[orgId]/projects/[projectId]/blockers/[blockerId]",
@@ -116,8 +108,6 @@
     "DELETE v1/orgs/[orgId]/projects/[projectId]/schedule/[milestoneId]",
     "DELETE v1/orgs/[orgId]/projects/[projectId]/vendors/[vendorId]",
     "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
-    "DELETE v1/orgs/[orgId]/saved-views/[viewId]",
-    "DELETE v1/orgs/[orgId]/saved-views/[viewId]/favorite",
     "PATCH v1/orgs/[orgId]/projects/[projectId]/blockers/[blockerId]",
     "PATCH v1/orgs/[orgId]/projects/[projectId]/changes/[changeId]",
     "PATCH v1/orgs/[orgId]/projects/[projectId]/clins/[clinId]",
@@ -156,15 +146,13 @@
     "POST v1/orgs/[orgId]/projects/[projectId]/schedule",
     "POST v1/orgs/[orgId]/projects/[projectId]/vendors",
     "POST v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
-    "POST v1/orgs/[orgId]/saved-views",
     "POST v1/orgs/[orgId]/work-items/search",
     "PUT v1/orgs/[orgId]/projects/[projectId]",
     "PUT v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]",
     "PUT v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/capacity",
     "PUT v1/orgs/[orgId]/projects/[projectId]/key-results/[krId]",
     "PUT v1/orgs/[orgId]/projects/[projectId]/objectives/[objectiveId]",
-    "PUT v1/orgs/[orgId]/projects/[projectId]/tab-prefs",
-    "PUT v1/orgs/[orgId]/saved-views/[viewId]/favorite"
+    "PUT v1/orgs/[orgId]/projects/[projectId]/tab-prefs"
   ],
   "documents:write": [
     "DELETE v1/orgs/[orgId]/projects/[projectId]/blockers/[blockerId]",
@@ -181,8 +169,6 @@
     "DELETE v1/orgs/[orgId]/projects/[projectId]/schedule/[milestoneId]",
     "DELETE v1/orgs/[orgId]/projects/[projectId]/vendors/[vendorId]",
     "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
-    "DELETE v1/orgs/[orgId]/saved-views/[viewId]",
-    "DELETE v1/orgs/[orgId]/saved-views/[viewId]/favorite",
     "PATCH v1/orgs/[orgId]/projects/[projectId]/blockers/[blockerId]",
     "PATCH v1/orgs/[orgId]/projects/[projectId]/changes/[changeId]",
     "PATCH v1/orgs/[orgId]/projects/[projectId]/clins/[clinId]",
@@ -218,11 +204,9 @@
     "POST v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/duplicate",
     "POST v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
     "POST v1/orgs/[orgId]/projects/[projectId]/work-items/import",
-    "POST v1/orgs/[orgId]/saved-views",
     "POST v1/orgs/[orgId]/work-items/search",
     "PUT v1/orgs/[orgId]/projects/[projectId]",
-    "PUT v1/orgs/[orgId]/projects/[projectId]/tab-prefs",
-    "PUT v1/orgs/[orgId]/saved-views/[viewId]/favorite"
+    "PUT v1/orgs/[orgId]/projects/[projectId]/tab-prefs"
   ],
   "time:read": [],
   "time:write": [
