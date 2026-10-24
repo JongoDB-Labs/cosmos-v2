@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.461.1",
+    date: "2026-10-24",
+    title: "Time tracking always opens on your own week",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The time tracker's first load now asks only for your own entries and timesheet, even when the people list is slow or fails to load. Before, someone allowed to see everyone's time could briefly get the whole organization's entries in their week view and in Export CSV.",
+      },
+    ],
+  },
+  {
     version: "2.461.0",
     date: "2026-10-24",
     title: "Send real Outlook invitations from a meeting",
