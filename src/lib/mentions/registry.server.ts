@@ -381,12 +381,20 @@ export async function resolveBacklinks(opts: {
   const feedbackComments = comments.filter(
     (c) => c.subjectType === FEEDBACK_SUBJECT && c.subjectId && c.visibility === "PUBLIC" && !c.deletedAt,
   );
-  const feedbackItems = feedbackComments.length
+  const feedbackRows = feedbackComments.length
     ? await prisma.feedbackItem.findMany({
         where: { id: { in: feedbackComments.map((c) => c.subjectId as string) }, orgId: opts.orgId },
-        select: { id: true, title: true },
+        select: { id: true, title: true, projectId: true },
       })
     : [];
+  // A team-scoped project's feedback is dropped for anyone who can't see it,
+  // as the feedback board itself drops it.
+  const feedbackProjects = await visibleProjectIdsForActor(
+    opts.orgId,
+    opts.userId,
+    [...new Set(feedbackRows.map((f) => f.projectId).filter((id): id is string => !!id))],
+  );
+  const feedbackItems = feedbackRows.filter((f) => !f.projectId || feedbackProjects.has(f.projectId));
   const feedbackById = new Map(feedbackItems.map((f) => [f.id, f]));
   const commentToFeedback = new Map(
     feedbackComments.map((c) => [c.id, feedbackById.get(c.subjectId as string)]),
