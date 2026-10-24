@@ -4,9 +4,11 @@
  * Client hooks for CQL on the Issues view.
  *
  *   useCqlSchema   what a query can say here (fields, custom fields,
- *                  functions); `enabled: false` when the org has CQL off
- *                  (the schema route 404s), so callers fall back to the
- *                  legacy filter bar without a second flag.
+ *                  functions); `enabled: false` when the org has CQL off,
+ *                  so callers fall back to the legacy filter bar. It reads
+ *                  the org's switch first and asks for the schema only when
+ *                  it's on: the schema route 404s while CQL is off, and the
+ *                  browser logs that 404 on every page that asks.
  *   useCqlUrlState the query lives in the URL (`?cql=`, `&mode=`), so a
  *                  filtered list is shareable and survives a reload. Other
  *                  params (`?item=` deep links) are left alone.
@@ -30,24 +32,33 @@ export interface CqlClientSchema {
 }
 
 export function useCqlSchema(orgId: string): { enabled: boolean; schema: CqlClientSchema | null; isLoading: boolean } {
-  const key = useOrgQueryKey("cql-schema");
+  // The same query (and cache entry) as the org settings card, so turning CQL
+  // on or off there refreshes this too.
+  const flag = useQuery({
+    queryKey: useOrgQueryKey("query-language"),
+    queryFn: () => jsonFetch<{ enabled: boolean; canManage: boolean }>(`/api/v1/orgs/${orgId}/query-language`),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const on = flag.data?.enabled === true;
   const q = useQuery({
-    queryKey: key,
+    queryKey: useOrgQueryKey("cql-schema"),
     queryFn: async () => {
       try {
         return await jsonFetch<CqlClientSchema>(`/api/v1/orgs/${orgId}/cql/schema`);
       } catch (e) {
-        // Off for this org: not an error, just the legacy filter bar.
+        // Switched off since the flag was read: not an error, just the legacy bar.
         if (e instanceof FetchError && e.status === 404) return null;
         throw e;
       }
     },
+    enabled: on,
     staleTime: 5 * 60_000,
     retry: false,
   });
   // Only a real schema switches CQL on; anything else is the legacy bar.
-  const schema = q.data && q.data.version === 1 && Array.isArray(q.data.fields) ? q.data : null;
-  return { enabled: !!schema, schema, isLoading: q.isLoading };
+  const schema = on && q.data && q.data.version === 1 && Array.isArray(q.data.fields) ? q.data : null;
+  return { enabled: !!schema, schema, isLoading: flag.isLoading || (on && q.isLoading) };
 }
 
 export interface CqlValidation {

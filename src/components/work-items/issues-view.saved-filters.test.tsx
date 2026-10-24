@@ -68,6 +68,7 @@ let detail = filterDto();
 function serve() {
   vi.mocked(jsonFetch).mockImplementation((async (url: string, init?: RequestInit) => {
     if (url.endsWith("/facets")) return FACETS;
+    if (url.endsWith("/query-language")) return { enabled: true, canManage: false };
     if (url.endsWith("/cql/schema")) return SCHEMA;
     if (url.endsWith("/cql/validate")) return { valid: true, diagnostics: [] };
     if (url.includes("/cql/suggest")) return { items: [] };
