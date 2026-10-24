@@ -19,10 +19,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const sp = request.nextUrl.searchParams;
     const unreadOnly = sp.get("unreadOnly") === "true";
-    // Optional, and the response is still a bare array either way — the bell
-    // reads this endpoint and shows ten, so it asks for ten rather than
-    // fetching an entire inbox to discard it. The paged, counted view the
-    // inbox PAGE needs lives at ./inbox.
+    // Optional, and the response is still a bare array either way, so a
+    // caller that wants the newest few can ask for a few. The paged, counted
+    // view the bell and the inbox page read lives at ./inbox.
     const raw = Number(sp.get("limit"));
     const limit = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 200) : undefined;
 
