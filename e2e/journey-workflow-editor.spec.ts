@@ -63,10 +63,10 @@ test.describe("journey — workflow editor", () => {
     await cell.uncheck();
     await expect(page.getByRole("status").filter({ hasText: "Draft saved" })).toBeVisible({ timeout: 15_000 });
 
-    // The diagram shows the same draft: every status, the "any" node, laid out by ELK.
+    // The diagram shows the same draft: every status, the "any" node, laid out in bands.
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
-    page.on("console", (m) => m.type() === "error" && /elk|worker|layout/i.test(m.text()) && errors.push(m.text()));
+    page.on("console", (m) => m.type() === "error" && /layout/i.test(m.text()) && errors.push(m.text()));
     await page.getByRole("tab", { name: "Diagram" }).click();
     const diagram = page.getByRole("region", { name: /Workflow diagram/ });
     await expect(diagram.locator(".react-flow__node")).toHaveCount(7, { timeout: 20_000 });

@@ -138,7 +138,7 @@ export interface ApplyChangeInput {
   actor?: AuthContext | null;
   /** The transition named and the input it asked for, when the client sends them. */
   transition?: TransitionRequest;
-  /** The board the move was made on, for its hard WIP limits. */
+  /** The board the move was made on. Accepted, no longer needed: hard WIP limits hold from every surface. */
   boardId?: string;
   /**
    * Defaults to "none" for a workflow MIGRATION, "system" for a SYSTEM change

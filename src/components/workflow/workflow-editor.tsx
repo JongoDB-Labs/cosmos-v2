@@ -27,7 +27,7 @@ import { StatusesPanel } from "./statuses-panel";
 import { TransitionMatrix } from "./transition-matrix";
 import { TransitionPanel } from "./transition-panel";
 
-// React Flow and ELK are ~150 kB: only for those who open the diagram.
+// React Flow is ~150 kB: only for those who open the diagram.
 const WorkflowCanvas = dynamic(() => import("./workflow-canvas").then((m) => m.WorkflowCanvas), {
   ssr: false,
   loading: () => <Skeleton className="h-[560px] w-full" />,

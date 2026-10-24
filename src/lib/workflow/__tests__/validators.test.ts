@@ -39,8 +39,8 @@ describe("runValidators", () => {
 
   it("wipLimit fails only above the limit, and only when a board was named", () => {
     const v = [{ kind: "wipLimit" as const, scope: "board" as const, hard: true as const }];
-    expect(runValidators(v, item(), { wip: { limit: 3, countAfter: 3, columnName: "Doing" } })).toEqual([]);
-    expect(runValidators(v, item(), { wip: { limit: 3, countAfter: 4, columnName: "Doing" } })[0].message).toContain("Doing");
+    expect(runValidators(v, item(), { wip: { limit: 3, countAfter: 3, columnName: "Doing", boardName: "Delivery" } })).toEqual([]);
+    expect(runValidators(v, item(), { wip: { limit: 3, countAfter: 4, columnName: "Doing", boardName: "Delivery" } })[0].message).toBe('"Doing" on Delivery is at its WIP limit (3) — move blocked.');
     expect(runValidators(v, item(), {})).toEqual([]);
   });
 

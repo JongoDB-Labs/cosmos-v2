@@ -3,8 +3,8 @@ import { z } from "zod";
 /**
  * What a client may send beside a work-item patch to steer the workflow: the
  * transition it means, the values that transition asked for, an override, and
- * the board the move was made on (for that board's hard WIP limits). Not
- * stored on the item.
+ * the board the move was made on (accepted; hard WIP limits now hold from every
+ * surface, so it is no longer needed). Not stored on the item.
  */
 export const transitionRequestSchema = z
   .object({

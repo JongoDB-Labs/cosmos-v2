@@ -12,8 +12,8 @@
  *
  * A project or type with no workflow assigned runs the OPEN workflow, generated
  * from its statuses: any status to any status, the optional cancel reason, and,
- * unless the org turned it off, the parent guard. Hard WIP limits apply when
- * the move comes from a board that enforces them. So a project nobody has
+ * unless the org turned it off, the parent guard. A board's hard WIP limits
+ * hold for every move into its columns, whatever surface it comes from. So a project nobody has
  * configured behaves as the board always did, now on every path.
  *
  * Refusals are `TransitionError`s (one item) or per-item denials (bulk). A
@@ -108,8 +108,39 @@ function nodes(node: ConditionNode | undefined): ConditionNode[] {
   return [node];
 }
 
-/** pg_advisory_xact_lock namespace for moves into a hard-WIP column (see allocate.ts for the others). */
+/**
+ * pg_advisory_xact_lock namespace for moves into a hard-WIP column (see
+ * allocate.ts for the others). The two-int form, (namespace, hashtext(project:column)):
+ * a collision of the 32-bit hash only makes two columns take turns needlessly.
+ * The same column always hashes the same, so it can never under-lock.
+ */
 const WIP_LOCK_NAMESPACE = 20204;
+
+/**
+ * Lock what a move's checks read, before any of them run, in one fixed order
+ * so concurrent changes can't deadlock: the destination column's advisory lock
+ * first (a change has one destination, so one lock), then every moved item and
+ * every moved item's parent as rows, in id order, in one statement. The
+ * open-children check reads a parent's children while the parent is held, and
+ * a sub-item's move holds its parent, so a concurrent reopen is either seen or
+ * waits for the parent's move to commit.
+ */
+async function lockMoves(tx: Tx, projectId: string, to: string, items: readonly WorkItem[]) {
+  const moved = items.filter((i) => i.columnKey !== to);
+  if (moved.length === 0) return;
+  const hard = await tx.board.count({
+    where: {
+      projectId,
+      config: { path: ["wipHardEnforce"], equals: true },
+      columns: { some: { key: to, wipLimit: { not: null } } },
+    },
+  });
+  if (hard > 0) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WIP_LOCK_NAMESPACE}::int, hashtext(${`${projectId}:${to}`}))`;
+  }
+  const ids = [...new Set(moved.flatMap((i) => (i.parentId ? [i.id, i.parentId] : [i.id])))].sort();
+  await tx.$queryRaw`SELECT id FROM work_items WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE`;
+}
 
 const usesKind = (def: WorkflowDefinition, kinds: readonly string[]) =>
   def.transitions.some((t) => nodes(t.restrict).some((n) => "kind" in n && kinds.includes(n.kind)));
@@ -360,10 +391,7 @@ async function validationFacts(
     new Set([...args.wf.categories].filter(([, c]) => c === cat).map(([k]) => k));
 
   if (kinds.has("childrenSettled")) {
-    // Hold the parent while its children are read: a sub-item's move takes this
-    // row FOR SHARE (gateChange), so one reopened concurrently either
-    // commits first and is seen here, or waits for this change to commit.
-    await tx.$queryRaw`SELECT id FROM work_items WHERE id = ${args.item.id}::uuid FOR UPDATE`;
+    // The item and its parent rows are locked for the change (lockMoves).
     const children = await tx.workItem.findMany({
       where: { parentId: args.item.id, archivedAt: null },
       orderBy: { sortOrder: "asc" },
@@ -391,7 +419,7 @@ async function validationFacts(
     // a team counts that team's items, so it holds only for an item of its team.
     const boards = await tx.board.findMany({
       where: { projectId: args.item.projectId, columns: { some: { key: args.to, wipLimit: { not: null } } } },
-      select: { type: true, config: true, teamId: true, columns: { where: { key: args.to }, select: { name: true, wipLimit: true } } },
+      select: { name: true, type: true, config: true, teamId: true, columns: { where: { key: args.to }, select: { name: true, wipLimit: true } } },
     });
     const teamId = args.patch.teamId !== undefined ? args.patch.teamId : args.item.teamId;
     const hard = boards.filter(
@@ -399,9 +427,7 @@ async function validationFacts(
         boardShowsStatuses(b.type) && (b.teamId === null || b.teamId === teamId),
     );
     if (hard.length > 0) {
-      // One move into this column at a time, so two concurrent moves can't both
-      // see room for one more. Held to commit.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WIP_LOCK_NAMESPACE}::int, hashtext(${`${args.item.projectId}:${args.to}`}))`;
+      // Moves into this column take turns (lockMoves), so the count is current.
       for (const board of hard) {
         const column = board.columns[0];
         // Archived items are off every board.
@@ -414,7 +440,7 @@ async function validationFacts(
             ...(board.teamId ? { teamId: board.teamId } : {}),
           },
         });
-        const wip = { limit: column.wipLimit, countAfter: inColumn + 1, columnName: column.name };
+        const wip = { limit: column.wipLimit, countAfter: inColumn + 1, columnName: column.name, boardName: board.name };
         facts.wip = wip;
         // The first board it would overflow is the one the refusal names.
         if (wip.limit !== null && wip.countAfter > wip.limit) break;
@@ -471,6 +497,7 @@ export async function gateChange(
     for (const item of args.items) result.gates.push({ itemId: item.id, patch: args.patch, transitionId: null, comments: [], watchers: [] });
     return result;
   }
+  if (args.patch.columnKey) await lockMoves(tx, args.projectId, args.patch.columnKey, args.items);
   const governing = workflowResolver(tx, args.orgId, args.projectId);
   const force = args.transition?.force === true;
   if (force && !(args.actor && hasPermission(args.actor.permissions, Permission.WORKFLOW_OVERRIDE))) {
@@ -498,11 +525,6 @@ export async function gateChange(
     const typeId = args.patch.workItemTypeId ?? item.workItemTypeId;
     const wf = await governing(typeId);
     const to = args.patch.columnKey ?? item.columnKey;
-    if (item.parentId && to !== item.columnKey) {
-      // A sub-item's move waits for a parent move whose open-children check is
-      // in flight, and holds the parent until it commits (see validationFacts).
-      await tx.$queryRaw`SELECT id FROM work_items WHERE id = ${item.parentId}::uuid FOR SHARE`;
-    }
     const refuse = (body: TransitionErrorBody) => {
       const d = deny(item.id, body);
       if (force && body.code !== "transition_not_allowed") {

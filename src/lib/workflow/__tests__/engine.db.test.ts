@@ -191,7 +191,11 @@ describe("the open workflow", () => {
     for (const body of [{ columnKey: "doing", boardId: w.boardId }, { columnKey: "doing" }]) {
       const refused = await put(w.projectId, b, body);
       expect(refused.status).toBe(422);
-      expect(refused.body).toMatchObject({ code: "transition_invalid", reasons: [{ validator: "wipLimit" }] });
+      // Named as the board names it, with the board: the move may not have come from it.
+      expect(refused.body).toMatchObject({
+        code: "transition_invalid",
+        reasons: [{ validator: "wipLimit", message: '"Doing" on Board is at its WIP limit (1) — move blocked.' }],
+      });
     }
     expect(await columnOf(b)).toBe("todo");
   });
@@ -773,6 +777,23 @@ describe("concurrent moves", () => {
     await first.done;
     await expect(second).rejects.toMatchObject({ body: { code: "transition_invalid" } });
     expect([await columnOf(a), await columnOf(b)]).toEqual(["doing", "todo"]);
+  });
+
+  it("two bulk moves of the same items in opposite orders both finish, without a deadlock", async () => {
+    const w = await world({ boardConfig: { wipHardEnforce: true }, wipLimit: 50 });
+    const p1 = await item(w.projectId);
+    const p2 = await item(w.projectId);
+    const ids = [await item(w.projectId, { parentId: p1 }), await item(w.projectId, { parentId: p2 }), await item(w.projectId), await item(w.projectId)];
+    const bulk = (itemIds: string[], columnKey: string) =>
+      prisma.$transaction((tx) =>
+        applyWorkItemChange(tx, { actorId: aliceId, orgId, projectId: w.projectId, itemIds, patch: { columnKey }, source: "BULK", actor: calls.ctx as AuthContext }),
+      );
+    for (let round = 0; round < 8; round++) {
+      const to = round % 2 === 0 ? "doing" : "todo";
+      const results = await Promise.allSettled([bulk(ids, to), bulk([...ids].reverse(), to), bulk([ids[1], ids[3], ids[0], ids[2]], to)]);
+      expect(results.filter((r) => r.status === "rejected").map((r) => String((r as PromiseRejectedResult).reason))).toEqual([]);
+    }
+    expect(new Set(await Promise.all(ids.map(columnOf)))).toEqual(new Set(["todo"]));
   });
 
   it("finishing a parent waits for a sub-item being reopened, and then sees it open", async () => {

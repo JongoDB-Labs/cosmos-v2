@@ -19,7 +19,7 @@ import { LayoutGrid } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isPlainTransition, setGlobal, setMove } from "@/lib/workflow/draft-edit";
 import type { VersionLayout, WorkflowDefinition } from "@/lib/workflow/definition";
-import { ANY_NODE, BAND_ORDER, layoutWorkflow } from "./elk-layout";
+import { ANY_NODE, BAND_ORDER, layoutWorkflow } from "./layered-layout";
 
 interface StatusInfo {
   key: string;
@@ -66,7 +66,7 @@ const NODE_TYPES = { status: StatusNode, any: AnyNode };
  * "◎ any" node. Drag from a node's right handle to another node to allow that
  * move; select an edge and press Delete to remove it; click an edge to open
  * its transition. Positions are kept with the draft (`layout.nodes`); the
- * first open, and "Auto-layout", place them with ELK.
+ * first open, and "Auto-layout", place them in bands (layered-layout.ts).
  *
  * A second view of the same draft: the matrix is the accessible one.
  */
