@@ -1,3 +1,4 @@
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
@@ -17,6 +18,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // Chat writes need CHAT_USE, as the Chat page itself does. An API key never
+    // holds it (no scope grants it), so a key can't mark channels read.
+    if (!hasPermission(ctx.permissions, Permission.CHAT_USE)) {
+      return new Response("Forbidden", { status: 403 });
+    }
 
     const parsed = schema.safeParse(await req.json().catch(() => null));
     if (!parsed.success) return new Response("Bad Request", { status: 400 });
@@ -28,12 +34,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     });
     if (!channel || channel.orgId !== orgId) return new Response("Not found", { status: 404 });
 
-    await prisma.chatChannelMember
-      .update({
-        where: { channelId_userId: { channelId, userId: ctx.userId } },
-        data: { lastReadMessageId: parsed.data.messageId, lastReadAt: new Date() },
-      })
-      .catch(() => {/* not a member — quietly no-op */});
+    // Only a member has a read position. A non-member is a 404 and nothing is
+    // broadcast: the receipt below would otherwise show them in the channel.
+    const marked = await prisma.chatChannelMember.updateMany({
+      where: { channelId, userId: ctx.userId },
+      data: { lastReadMessageId: parsed.data.messageId, lastReadAt: new Date() },
+    });
+    if (marked.count === 0) return new Response("Not found", { status: 404 });
 
     // Tell my other tabs to clear the badge for this channel too.
     void getBus().publish(topics.user(ctx.userId), "chat.read.updated", {

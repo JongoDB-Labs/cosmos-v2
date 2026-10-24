@@ -38,9 +38,12 @@ import {
   type BoardFilters,
 } from "@/components/boards/shared/filter-bar";
 import { useCustomFields } from "@/hooks/use-custom-fields";
+import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import { boardBaseline, matchesFilters } from "@/lib/work-items/board-filters";
+import { boardScope, inBoardScope } from "@/lib/boards/saved-filter";
+import { BoardScopeNotice } from "@/components/boards/shared/board-scope-notice";
 import { presentLabels } from "@/lib/work-items/label-filter";
 import {
   blockedItemIds,
@@ -237,6 +240,13 @@ function KanbanBoardInner({
   // Custom-field defs for this project — drives the FilterBar's per-field
   // controls and the client-side custom-field predicate below.
   const { fields: projectCustomFields } = useCustomFields(orgId, projectId);
+  // A column whose status was archived stays on the board (its items are still
+  // there) and is marked; nothing about saving the board brings it back.
+  const liveStatuses = useProjectStatuses(orgId, projectId);
+  const liveStatusKeys = useMemo(
+    () => (liveStatuses.length > 0 ? new Set(liveStatuses.map((s) => s.key)) : null),
+    [liveStatuses],
+  );
 
   // Board data is cached in React Query (keyed per org/project) so switching
   // between a project's boards reuses it instead of refetching everything each
@@ -497,7 +507,11 @@ function KanbanBoardInner({
   // something different depending on which board you are looking at is worse
   // than no filter at all. A team's work is still a membership test, so an item
   // owned by someone on two teams matches both.
+  // The board's own scope (a board saved from Issues) comes first; the filter
+  // bar narrows within it. See lib/boards/saved-filter.
+  const scope = useMemo(() => boardScope(board?.config), [board]);
   const filteredItems = items.filter((item) =>
+    inBoardScope(scope, item) &&
     matchesFilters(item, filters, projectCustomFields, teamsByUserId, filterNow, {
       blocked: blockedIds,
       milestones: milestoneMap,
@@ -1025,6 +1039,7 @@ function KanbanBoardInner({
         baseFilters={baseFilters}
         showSwimlane
       />
+      <BoardScopeNotice scope={scope} />
 
       {/* Board toolbar: create, then bulk-select. "Select" enters a mode where
           drag is OFF and cards toggle; the action bar appears once something's
@@ -1231,6 +1246,7 @@ function KanbanBoardInner({
                     <KanbanColumn
                       key={`${lane.id}${LANE_SEP}${col.id}`}
                       column={col}
+                      archived={liveStatusKeys !== null && !liveStatusKeys.has(col.key)}
                       droppableId={`${lane.id}${LANE_SEP}${col.key}`}
                       items={itemsForColumnInLane(col.key, lane.items)}
                       members={members}
@@ -1260,6 +1276,7 @@ function KanbanBoardInner({
               <KanbanColumn
                 key={col.id}
                 column={col}
+                archived={liveStatusKeys !== null && !liveStatusKeys.has(col.key)}
                 items={itemsForColumn(col.key)}
                 members={members}
                 onCardClick={handleCardClick}

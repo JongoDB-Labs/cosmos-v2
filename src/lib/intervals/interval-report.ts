@@ -1,4 +1,4 @@
-import { isDoneColumnKey } from "./sprint-review";
+import { isDoneStatus, type DoneStateColumn } from "@/lib/work-items/done-state";
 
 /**
  * The report recorded on `intervals.report` when a sprint is completed.
@@ -43,12 +43,14 @@ export interface IntervalReport {
 
 export function buildIntervalReport(
   items: IntervalReportItem[],
-  completedAt: string
+  completedAt: string,
+  /** The project's statuses with their categories. */
+  columns: readonly DoneStateColumn[],
 ): IntervalReport {
   // One definition of "done", shared with the review, so a report and the board
   // that produced it cannot disagree about what shipped.
-  const doneItems = items.filter((i) => isDoneColumnKey(i.columnKey));
-  const carried = items.filter((i) => !isDoneColumnKey(i.columnKey));
+  const doneItems = items.filter((i) => isDoneStatus(i.columnKey, columns));
+  const carried = items.filter((i) => !isDoneStatus(i.columnKey, columns));
 
   return {
     completedAt,

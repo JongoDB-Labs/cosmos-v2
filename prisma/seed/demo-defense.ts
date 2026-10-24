@@ -13,6 +13,7 @@
  */
 import { Prisma } from "@prisma/client";
 import { makePrismaClient } from "./shared/prisma-client";
+import { DEFAULT_SEED_STATUSES, ensureSeedStatuses } from "./shared/statuses";
 import { readFileSync } from "node:fs";
 import { upsertRoadmapNodes } from "../../src/lib/roadmap/import";
 import { DEMO_APEX_ROADMAP } from "./demo-defense-roadmap";
@@ -231,6 +232,8 @@ async function main() {
       { t: "Author incident-response runbook for CUI spillage", pts: 3, col: "review", done: null, due: d(2), who: dana.id, pri: "MEDIUM", cui: true },
       { t: "Supply-chain risk assessment (NIST SP 800-161) for subcontractors", pts: 5, col: "todo", done: null, due: d(5), who: marcus.id, pri: "MEDIUM", cui: false },
     ];
+    // Items must be in one of the project's statuses (a foreign key).
+    await ensureSeedStatuses(prisma, projectId, DEFAULT_SEED_STATUSES);
     await prisma.workItem.createMany({
       data: items.map((it, i) => ({
         orgId: org.id,

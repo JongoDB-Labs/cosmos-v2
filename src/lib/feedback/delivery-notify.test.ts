@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
+import { ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
 import { notifyDeliveryEvent } from "./delivery-notify";
 
 /** e2e-DB test against an ISOLATED throwaway org per fixture — the shared
@@ -28,6 +29,7 @@ describe("notifyDeliveryEvent (e2e DB)", () => {
     const project = await prisma.project.create({
       data: { orgId: org.id, name: "P", key: `NT${stamp.slice(-4).toUpperCase()}` },
     });
+    await ensureFixtureStatuses(project.id);
     const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null } });
     const wi = await prisma.workItem.create({
       data: {

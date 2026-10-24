@@ -27,6 +27,16 @@ for (const m of ["hasPointerCapture", "setPointerCapture", "releasePointerCaptur
   }
 }
 
+// The project's statuses: "shipped" is a team-named done lane, which the review
+// must count as done by its CATEGORY (its key says nothing about being done).
+vi.mock("@/hooks/use-project-statuses", () => ({
+  useProjectStatuses: () => [
+    { key: "todo", name: "To Do", sortOrder: 0, category: "TODO" },
+    { key: "done", name: "Done", sortOrder: 1, category: "DONE" },
+    { key: "shipped", name: "Shipped", sortOrder: 2, category: "DONE" },
+  ],
+}));
+
 // Grant every permission, but keep the real Permission enum the component reads.
 vi.mock("@/components/providers/permissions-provider", async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
@@ -184,9 +194,10 @@ const ACTIVE_SPRINT = {
 };
 
 // 3 items, 2 done; points 5 + 3 done of 5 + 3 + 2 committed → 8/10 pts = 80%.
+// One done item sits in "shipped": done by category, not by its key.
 const REVIEW_ITEMS = [
   { storyPoints: 5, columnKey: "done" },
-  { storyPoints: 3, columnKey: "done" },
+  { storyPoints: 3, columnKey: "shipped" },
   { storyPoints: 2, columnKey: "todo" },
 ];
 

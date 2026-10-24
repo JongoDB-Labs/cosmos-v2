@@ -1,31 +1,28 @@
 import { NextRequest } from "next/server";
-import { z } from "zod";
-import { GoalStatus, GoalProgressMode } from "@prisma/client";
+import { GoalProgressMode } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { handleApiError } from "@/lib/api-helpers";
 import { computeAutoProgress, type GoalWithLinks } from "@/lib/goals/rollup";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { createGoal, listGoals } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, listGoals);
+    const { params: { orgId, projectId } } = await parseRequest(listGoals, request, params);
     await requireProjectRead(ctx, projectId, "OKR_READ");
 
     const project = await prisma.project.findFirst({
       where: { id: projectId, orgId },
     });
-    if (!project) return new Response("Not found", { status: 404 });
+    if (!project) return problem(404, "not_found", undefined, { request });
 
     const goals = await prisma.goal.findMany({
       where: { orgId, projectId },
@@ -34,9 +31,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     });
 
     const withProgress = await applyAutoProgress(orgId, goals);
-    return success(withProgress);
+    return respond(listGoals, 200, withProgress);
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }
 
@@ -89,31 +86,16 @@ async function applyAutoProgress(orgId: string, goals: GoalWithLinks[]) {
   });
 }
 
-const createSchema = z.object({
-  title: z.string().min(1).max(200),
-  description: z.string().nullish(),
-  status: z.nativeEnum(GoalStatus).default(GoalStatus.PLANNED),
-  targetDate: z.string().datetime().nullish(),
-  progressMode: z.nativeEnum(GoalProgressMode).default(GoalProgressMode.MANUAL),
-  ownerId: z.string().uuid().nullish(),
-});
-
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, createGoal);
+    const { params: { orgId, projectId }, body: data } = await parseRequest(createGoal, request, params);
     await requireProjectManage(ctx, projectId, Permission.OKR_CREATE);
 
     const project = await prisma.project.findFirst({
       where: { id: projectId, orgId },
     });
-    if (!project) return new Response("Not found", { status: 404 });
-
-    const data = createSchema.parse(await request.json());
+    if (!project) return problem(404, "not_found", undefined, { request });
 
     const maxSort = await prisma.goal.aggregate({
       where: { orgId, projectId },
@@ -137,8 +119,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       include: { links: { orderBy: { createdAt: "asc" } } },
     });
 
-    return success(created);
+    return respond(createGoal, 200, created);
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }

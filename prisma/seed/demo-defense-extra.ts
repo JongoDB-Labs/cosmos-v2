@@ -13,6 +13,7 @@
  *   cd /home/deploy/cosmos-saas && npx tsx prisma/seed/demo-defense-extra.ts
  */
 import { makePrismaClient } from "./shared/prisma-client";
+import { DEFAULT_SEED_STATUSES, ensureSeedStatuses } from "./shared/statuses";
 import { readFileSync } from "node:fs";
 
 function loadEnv(): string | undefined {
@@ -118,6 +119,7 @@ async function main() {
         priority: "MEDIUM" as const, assigneeId: eng[(ci + i) % eng.length], storyPoints: pts as number,
         completedAt: d(sp.e - 1), createdById: jon.id, tags: [] as string[],
       }));
+      await ensureSeedStatuses(prisma, projectId, DEFAULT_SEED_STATUSES);
       await prisma.workItem.createMany({ data: rows });
       made += rows.length;
     }
@@ -146,7 +148,8 @@ async function main() {
       ticketNumber: ++ticket, sortOrder: i, priority: pri as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
       assigneeId: i % 4 === 0 ? null : eng[i % eng.length], storyPoints: pts, createdById: jon.id, tags: [] as string[],
     }));
-    await prisma.workItem.createMany({ data: rows });
+    await ensureSeedStatuses(prisma, projectId, DEFAULT_SEED_STATUSES);
+      await prisma.workItem.createMany({ data: rows });
     return `${rows.length} backlog items`;
   });
 

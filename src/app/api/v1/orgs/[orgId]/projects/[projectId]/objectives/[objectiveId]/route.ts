@@ -1,11 +1,12 @@
 import { NextRequest } from "next/server";
-import { z } from "zod";
-import { ObjectiveStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requireAccess } from "@/lib/abac/require-access";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { handleApiError } from "@/lib/api-helpers";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { deleteObjective, getObjective, updateObjective } from "./route.contract";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; objectiveId: string }>;
@@ -17,54 +18,31 @@ async function loadObjective(orgId: string, projectId: string, objectiveId: stri
   });
 }
 
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, objectiveId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, getObjective);
+    const { params: { orgId, projectId, objectiveId } } = await parseRequest(getObjective, request, params);
     await requireProjectRead(ctx, projectId, "OKR_READ");
 
     const objective = await prisma.objective.findFirst({
       where: { id: objectiveId, orgId, projectId },
       include: { keyResults: { orderBy: { sortOrder: "asc" } } },
     });
-    if (!objective) return new Response("Not found", { status: 404 });
+    if (!objective) return problem(404, "not_found", undefined, { request });
 
-    return success(objective);
+    return respond(getObjective, 200, objective);
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }
 
-const updateSchema = z.object({
-  title: z.string().min(1).max(200).optional(),
-  description: z.string().nullish(),
-  period: z.string().nullish(),
-  status: z.nativeEnum(ObjectiveStatus).optional(),
-  // Alignment parent; null unsets it. Guarded against self/intervals below.
-  parentId: z.string().uuid().nullable().optional(),
-  // Target/end date for health (FR a94ff583); null clears it.
-  targetDate: z.string().datetime().nullable().optional(),
-  // Timebox (PI / sprint); null unsets it. Validated to this project below.
-  intervalId: z.string().uuid().nullable().optional(),
-  // SAFe committed vs uncommitted (stretch).
-  committed: z.boolean().optional(),
-});
-
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, objectiveId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, updateObjective);
+    const { params: { orgId, projectId, objectiveId }, body: data } = await parseRequest(updateObjective, request, params);
 
     const existing = await loadObjective(orgId, projectId, objectiveId);
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing) return problem(404, "not_found", undefined, { request });
 
     // Resource-aware authz: OKR_UPDATE in the bitfield AND any narrowing deny
     // policy (by ownership / project membership). Identical to requirePermission
@@ -74,23 +52,21 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       projectId,
     });
 
-    const data = updateSchema.parse(await request.json());
-
     // Alignment validation: a same-project parent, never itself, never a
     // descendant (which would make a cycle and break the tree/rollup).
     if (data.parentId) {
       if (data.parentId === objectiveId) {
-        return new Response("An objective can't align to itself", { status: 400 });
+        return problem(400, "invalid_request", "An objective can't align to itself", { request });
       }
       const parent = await prisma.objective.findFirst({
         where: { id: data.parentId, orgId, projectId },
         select: { parentId: true },
       });
-      if (!parent) return new Response("Parent objective not found", { status: 400 });
+      if (!parent) return problem(400, "invalid_request", "Parent objective not found", { request });
       let cur = parent.parentId;
       for (let guard = 0; cur && guard < 100; guard++) {
         if (cur === objectiveId) {
-          return new Response("That alignment would create an interval", { status: 400 });
+          return problem(400, "invalid_request", "That alignment would create an interval", { request });
         }
         const next = await prisma.objective.findUnique({
           where: { id: cur },
@@ -131,23 +107,19 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       include: { keyResults: { orderBy: { sortOrder: "asc" } } },
     });
 
-    return success(updated);
+    return respond(updateObjective, 200, updated);
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, objectiveId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, deleteObjective);
+    const { params: { orgId, projectId, objectiveId } } = await parseRequest(deleteObjective, request, params);
 
     const existing = await loadObjective(orgId, projectId, objectiveId);
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing) return problem(404, "not_found", undefined, { request });
 
     // Resource-aware authz (OKR_DELETE + any narrowing deny policy).
     await requireAccess(ctx, "OKR_DELETE", {
@@ -158,8 +130,8 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     // Key results cascade-delete via the FK.
     await prisma.objective.delete({ where: { id: objectiveId } });
 
-    return success({ id: objectiveId });
+    return respond(deleteObjective, 200, { id: objectiveId });
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }

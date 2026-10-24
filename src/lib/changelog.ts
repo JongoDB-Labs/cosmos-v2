@@ -49,6 +49,468 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.460.5",
+    date: "2026-10-24",
+    title: "Install Cosmos as an app in Edge and Chrome",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Edge and Chrome now offer to install Cosmos as an app: the app manifest is linked from the page head, where those browsers look for it.",
+      },
+    ],
+  },
+  {
+    version: "2.460.4",
+    date: "2026-10-24",
+    title: "New boards start with columns",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A Kanban or Scrum board created from Issues' \"Save as board\" (or the board form) now starts with the project's columns, or the defaults, instead of empty.",
+      },
+    ],
+  },
+  {
+    version: "2.460.3",
+    date: "2026-10-24",
+    title: "API keys can't act beyond their scopes",
+    highlights: [
+      {
+        kind: "fix",
+        text: "API keys can no longer edit comments, saved views, retrospectives or other people's time, create calendar feed links, use chat, or read others' private filters unless their scopes allow it. The Teams digest now needs an integration manager, or a key with rules:run and read, and posts at most once an hour.",
+      },
+    ],
+  },
+  {
+    version: "2.460.2",
+    date: "2026-10-24",
+    title: "Marked feedback comments are re-checked on a schedule",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If a lowered marking ceiling couldn't immediately hide affected feedback comments and their notifications, a background job now finishes the job within 15 minutes.",
+      },
+    ],
+  },
+  {
+    version: "2.460.1",
+    date: "2026-10-24",
+    title: "More reliable test fixtures",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Internal: test fixtures now allocate ticket numbers the same race-safe way the app does, removing an intermittent test failure. No change to the app's behaviour.",
+      },
+    ],
+  },
+  {
+    version: "2.460.0",
+    date: "2026-10-24",
+    title: "Follow feedback and merge duplicates",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Follow a feedback item to hear about new comments and status changes; you follow automatically when you post, vote, comment or are mentioned, and unfollowing sticks. Staff can merge a duplicate into another request, moving its votes and followers, and undo the merge exactly.",
+      },
+    ],
+  },
+  {
+    version: "2.459.0",
+    date: "2026-10-24",
+    title: "Per-operation API key scopes",
+    highlights: [
+      {
+        kind: "feature",
+        text: "API keys are now checked against the scopes each operation needs, and new scopes let you mint narrower keys (time, audit, planning, deletes). Keys with only rules:run or members:read can no longer list members or edit saved views, and read-only keys can no longer save, star or unstar saved views; re-mint with items:write if you relied on that.",
+      },
+    ],
+  },
+  {
+    version: "2.458.0",
+    date: "2026-10-24",
+    title: "Cosmos tabs in Microsoft Teams",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Add Cosmos to a Teams channel or your personal Teams app to see your assigned work and a project's items without leaving Teams. Sign-in uses your Microsoft account, linked through Outlook Calendar; an admin grants consent once.",
+      },
+    ],
+  },
+  {
+    version: "2.457.0",
+    date: "2026-10-24",
+    title: "API reference: OKRs, goals, KPIs, time and audit",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The API reference now covers OKRs, goals, KPIs, time entries and the audit log. Editing a time entry no longer shows its billing rate to someone without finance access.",
+      },
+    ],
+  },
+  {
+    version: "2.456.1",
+    date: "2026-10-24",
+    title: "Tighter access checks in chat and assistant search",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The assistant's search now respects project access policies for admins, and API keys can no longer post, edit, pin or react in chat.",
+      },
+    ],
+  },
+  {
+    version: "2.456.0",
+    date: "2026-10-24",
+    title: "Project statuses",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each project can now define its own workflow statuses, each mapped to a category (to do, in progress, done). Board columns follow the status categories, and every status change is recorded consistently.",
+      },
+    ],
+  },
+  {
+    version: "2.455.0",
+    date: "2026-10-24",
+    title: "CUI markings on feedback comments",
+    highlights: [
+      {
+        kind: "feature",
+        text: "For government organizations, staff can mark a feedback comment CUI. Marked comments stay internal unless the organization is cleared for them, and lowering the clearance hides them again automatically.",
+      },
+    ],
+  },
+  {
+    version: "2.454.2",
+    date: "2026-10-24",
+    title: "API keys respect their scopes",
+    highlights: [
+      {
+        kind: "fix",
+        text: "API keys now respect their scopes for project planning changes, boards, team and member management, files and chat channel administration, whatever the role of the person who created the key.",
+      },
+    ],
+  },
+  {
+    version: "2.454.1",
+    date: "2026-10-24",
+    title: "Safer web page reading in the assistant",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When the assistant reads a web page, encoded markup is now cleaned out properly instead of being turned back into tags.",
+      },
+    ],
+  },
+  {
+    version: "2.454.0",
+    date: "2026-10-24",
+    title: "More of the API on contracts",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "For API clients: projects, intervals, milestones, labels, custom fields and members now return standard problem+json errors, the members list can be paged (send limit or cursor), and member email addresses are returned only to API keys with the new members:read scope.",
+      },
+    ],
+  },
+  {
+    version: "2.453.0",
+    date: "2026-10-24",
+    title: "Team voice in feedback",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Staff can now add internal notes to feedback that only staff see, pin an official response at the top of the discussion, filter between public and internal comments, and switch a comment between the two.",
+      },
+    ],
+  },
+  {
+    version: "2.452.0",
+    date: "2026-10-23",
+    title: "Shared saved filters",
+    highlights: [
+      {
+        kind: "feature",
+        text: "With the query language on, share a saved filter with a team, a project or the whole organization, add co-editors, star filters into the sidebar, and see when you've changed the filter you loaded. Shared filters never reveal projects or people you can't see.",
+      },
+    ],
+  },
+  {
+    version: "2.451.0",
+    date: "2026-10-23",
+    title: "Cosmos for Teams",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Use Cosmos from Microsoft Teams: search work items, preview links in chat, and create a work item from a Teams message, all with your own Cosmos permissions.",
+      },
+    ],
+  },
+  {
+    version: "2.450.0",
+    date: "2026-10-23",
+    title: "Projects API: paging and standard errors",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "For API clients: the projects list can now be paged (send limit or cursor; without them you still get the full list), unknown query parameters are ignored, and errors come back as standard problem+json.",
+      },
+    ],
+  },
+  {
+    version: "2.449.1",
+    date: "2026-10-23",
+    title: "Consistent work item updates",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Bulk edits now work like editing each item, recording actual dates and history, and a custom-named Done column (such as \"Shipped\") counts as done in sprint completion, reviews and reports. Changes made by the assistant appear in an item's history and update open boards live.",
+      },
+    ],
+  },
+  {
+    version: "2.449.0",
+    date: "2026-10-23",
+    title: "Feedback discussions",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Feedback threads now notify you when someone mentions you or replies to your comment.",
+      },
+    ],
+  },
+  {
+    version: "2.448.0",
+    date: "2026-10-23",
+    title: "Query language editor (beta)",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Organisations can turn on the Cosmos Query Language in Settings \u2192 Organization, then search Issues with queries like assignee = me AND priority IN (HIGH, CRITICAL), with suggestions as you type and shareable links.",
+      },
+    ],
+  },
+  {
+    version: "2.447.1",
+    date: "2026-10-23",
+    title: "Outlook sync recognises your calendar",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Outlook calendar sync now recognises its Cosmos calendar when your sign-in name differs from your email address, so reconnecting no longer creates extra calendars.",
+      },
+    ],
+  },
+  {
+    version: "2.447.0",
+    date: "2026-10-23",
+    title: "Outlook calendar sync",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Connect Outlook Calendar and your Cosmos meetings appear in a Cosmos calendar in Outlook. Changes stay in sync both ways, and your own calendars are never touched.",
+      },
+    ],
+  },
+  {
+    version: "2.446.1",
+    date: "2026-10-23",
+    title: "Faster team lookups in the assistant",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Asking the assistant about your org's teams now takes one step instead of checking each project in turn.",
+      },
+    ],
+  },
+  {
+    version: "2.446.0",
+    date: "2026-10-23",
+    title: "Open feedback from a link",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Notifications and shared links now open the exact feedback item, even if it isn't near the top of the list.",
+      },
+    ],
+  },
+  {
+    version: "2.445.0",
+    date: "2026-10-23",
+    title: "Query language groundwork",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Groundwork for the Cosmos Query Language: a Jira-style query language for work items (assignee = me AND priority IN (HIGH, CRITICAL) ORDER BY due), available through the API to organisations that switch it on. The editor and saved filters follow.",
+      },
+    ],
+  },
+  {
+    version: "2.444.1",
+    date: "2026-10-23",
+    title: "Connector tools check your permissions",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: connector tools (email, Slack, Jira, calendar, GitHub) now require assistant access, and anything that sends or changes data outside Cosmos can't be done with an API key.",
+      },
+    ],
+  },
+  {
+    version: "2.444.0",
+    date: "2026-10-23",
+    title: "API errors you can act on",
+    highlights: [
+      {
+        kind: "feature",
+        text: "API errors now come back in a standard format (RFC 9457 problem+json) with a request ID you can quote to support, and every response carries an X-Request-Id header.",
+      },
+    ],
+  },
+  {
+    version: "2.443.2",
+    date: "2026-10-23",
+    title: "Background job runner",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Behind the scenes: periodic background work now runs on exactly one server at a time, with automatic failover. It's groundwork for calendar sync and automations.",
+      },
+    ],
+  },
+  {
+    version: "2.443.1",
+    date: "2026-10-23",
+    title: "Assistant tools respect API key limits",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: the assistant's tools now act with exactly the permissions you signed in with, so an API key's scope and project limit also bind on anything the assistant does.",
+      },
+    ],
+  },
+  {
+    version: "2.443.0",
+    date: "2026-10-23",
+    title: "Sprints fill in empty dates",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Picking a sprint or interval on an issue now fills in its planned start and end dates when they're empty, and leaves dates you've already set alone.",
+      },
+    ],
+  },
+  {
+    version: "2.442.0",
+    date: "2026-10-23",
+    title: "Connect your Outlook calendar",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each person can connect their own Microsoft 365 account, once an admin has approved the app, so Cosmos can work with their Outlook calendar.",
+      },
+    ],
+  },
+  {
+    version: "2.441.1",
+    date: "2026-10-23",
+    title: "Stuck installs no longer block updates",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An install whose installer stopped responding no longer blocks every later install: it's marked abandoned after 30 minutes without a heartbeat, and a new install can start.",
+      },
+    ],
+  },
+  {
+    version: "2.441.0",
+    date: "2026-10-23",
+    title: "Split an issue per assignee",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An issue with several assignees can now be split into one linked copy per extra assignee, with the same fields and parent, from the issue's actions menu.",
+      },
+    ],
+  },
+  {
+    version: "2.440.0",
+    date: "2026-10-23",
+    title: "Ask the assistant about your team's work",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The assistant can now list your teams and filter work items by team, so you can ask things like \"what's my team working on this sprint?\"",
+      },
+    ],
+  },
+  {
+    version: "2.439.12",
+    date: "2026-10-23",
+    title: "PM Dashboard in the sidebar",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The PM Dashboard portfolio roll-up is now in the sidebar, and shows only the projects you can see; the old full-page assistant now opens the home page (use the assistant drawer).",
+      },
+    ],
+  },
+  {
+    version: "2.439.11",
+    date: "2026-10-23",
+    title: "Clear message when Claude isn't connected",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Claude isn't connected, AI features now tell you so and point you to Settings \u2192 AI / Model, instead of showing a confusing API-key error.",
+      },
+    ],
+  },
+  {
+    version: "2.439.10",
+    date: "2026-10-23",
+    title: "Bots only use the tools they're given",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security fix: read-only chat bots, the note-taker and meeting summaries can no longer send email, post to Slack or Jira, or write to calendars, and the assistant refuses any tool it wasn't offered in that conversation.",
+      },
+    ],
+  },
+  {
+    version: "2.439.9",
+    date: "2026-10-23",
+    title: "Saved boards keep their filter",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A board saved from the Issues view now shows only the issues that matched your filters when you saved it, instead of every issue in the project.",
+      },
+    ],
+  },
+  {
+    version: "2.439.8",
+    date: "2026-10-23",
+    title: "Classified exports are marked and gated",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Issues CSV exports in government workspaces now include each item's classification, carry a CUI banner when they contain controlled information, and require the Org export permission for that data.",
+      },
+    ],
+  },
+  {
+    version: "2.439.7",
+    date: "2026-10-23",
+    title: "Search filters in API requests",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Searching work items through the API now honours the archived, id and \"watching\" filters in a POST body, and rejects filter keys it doesn't recognise instead of ignoring them.",
+      },
+    ],
+  },
+  {
     version: "2.439.6",
     date: "2026-10-23",
     title: "Saved views respect project access",

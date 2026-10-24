@@ -6,7 +6,7 @@ import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 import { checkForUpdates, resolveUpdateConfig } from "@/lib/updates/check";
 import { listTags, resolveDigest } from "@/lib/updates/registry";
 import { fetchReleaseNotes } from "@/lib/updates/notes";
-import { decideDeploy, refusalStatus, UNIQUE_VIOLATION } from "@/lib/updates/deploy-request";
+import { abandonStaleClaims, decideDeploy, refusalStatus, UNIQUE_VIOLATION } from "@/lib/updates/deploy-request";
 import { CURRENT_VERSION } from "@/lib/changelog";
 
 /**
@@ -77,6 +77,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: decision.detail, reason: decision.reason }, { status: refusalStatus(decision.reason) });
     }
 
+    // A runner that died mid-deploy leaves its row RUNNING forever, and the
+    // single-flight index would then refuse every install from here on. Retire
+    // dead claims first; a claim with a fresh heartbeat is untouched and still
+    // produces the 409 below.
+    await abandonStaleClaims(prisma);
+
     try {
       const created = await prisma.deployRequest.create({
         data: {
@@ -114,6 +120,10 @@ export async function GET() {
   try {
     const user = await requireSystemAdmin();
     if (!user) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+    // Same reconciliation as POST, so the page stops showing a dead install as
+    // "installing" without anyone having to click Install to find out.
+    await abandonStaleClaims(prisma);
 
     const latest = await prisma.deployRequest.findFirst({
       orderBy: { requestedAt: "desc" },

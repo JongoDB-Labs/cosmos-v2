@@ -1,12 +1,17 @@
 import { prisma } from "@/lib/db/client";
 import { firePluginProjectCreate } from "@/lib/plugins/enablement";
-import { visibleProjectIdsForActor } from "@/lib/rbac/project-access";
+import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { IntervalKind, SprintStatus, type Prisma } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 import { DEFAULT_COLUMNS } from "@/lib/boards/default-columns";
+import { loadStatusCategories } from "@/lib/boards/status-categories.server";
+import { seedBoardColumns } from "@/lib/workflow/provision.server";
+import { buildIntervalReport } from "@/lib/intervals/interval-report";
+import { isDoneStatus } from "@/lib/work-items/done-state";
+import { updateWorkItems } from "@/lib/work-items/write.server";
 
 const listProjectsSchema = z.object({
   includeArchived: z.boolean().optional(),
@@ -92,11 +97,15 @@ export async function listProjects(
     },
   });
 
-  // The assistant must not narrate a project the asker cannot open. Same rule
-  // as every other surface; short-circuits when nothing in the org is limited.
-  const visible = await visibleProjectIdsForActor(
-    ctx.orgId,
-    ctx.userId,
+  // The assistant must not narrate a project the asker cannot open. Same
+  // helper GET /projects uses, fed the CALLER's AuthContext — so a key scoped to
+  // one project lists that project only. The user-id variant this replaced
+  // (`visibleProjectIdsForActor`) rebuilt the actor from the user and so listed
+  // every project to a project-limited key.
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
+  const visible = await getVisibleProjectIds(
+    auth,
     allProjects.map((p) => p.id),
   );
   const projects = allProjects.filter((p) => visible.has(p.id));
@@ -236,11 +245,9 @@ export async function createProject(input: Record<string, unknown>, ctx: ToolCon
     // Seed the default board + columns (non-template path of the route).
     const board = await tx.board.create({
       data: { orgId: ctx.orgId, projectId: proj.id, name: "Board", type: "KANBAN", sortOrder: 0 },
-      select: { id: true },
+      select: { id: true, orgId: true, projectId: true, type: true },
     });
-    await tx.boardColumn.createMany({
-      data: DEFAULT_COLUMNS.map((col) => ({ boardId: board.id, ...col })),
-    });
+    await seedBoardColumns(tx, board, DEFAULT_COLUMNS);
 
     // Add the actor as a project MANAGER when they are an org member.
     const orgMember = await tx.orgMember.findUnique({
@@ -407,27 +414,11 @@ export async function completeInterval(input: Record<string, unknown>, ctx: Tool
 
   const completed = await prisma.$transaction(async (tx) => {
     const items = interval.workItems;
-    const isDone = (columnKey: string) =>
-      ["done", "completed", "closed"].some((k) => columnKey.toLowerCase().includes(k));
-    const doneItems = items.filter((i) => isDone(i.columnKey));
-    const incompleteItems = items.filter((i) => !isDone(i.columnKey));
-
-    const totalPoints = items.reduce((sum, i) => sum + (i.storyPoints ?? 0), 0);
-    const completedPoints = doneItems.reduce((sum, i) => sum + (i.storyPoints ?? 0), 0);
-
-    const report = {
-      completedAt: new Date().toISOString(),
-      totalItems: items.length,
-      completedItems: doneItems.length,
-      incompleteItems: incompleteItems.length,
-      totalStoryPoints: totalPoints,
-      completedStoryPoints: completedPoints,
-      velocity: completedPoints,
-      itemsByPriority: items.reduce((acc, i) => {
-        acc[i.priority] = (acc[i.priority] ?? 0) + 1;
-        return acc;
-      }, {} as Record<string, number>),
-    };
+    // The same report the Complete button records: done is the status's
+    // CATEGORY, and the carried ids are kept for the review board.
+    const statuses = await loadStatusCategories(tx, interval.projectId);
+    const incompleteItems = items.filter((i) => !isDoneStatus(i.columnKey, statuses));
+    const report = buildIntervalReport(items, new Date().toISOString(), statuses);
 
     if (incompleteItems.length > 0) {
       // Harden beyond the HTTP route (review finding): the destination interval is
@@ -442,15 +433,12 @@ export async function completeInterval(input: Record<string, unknown>, ctx: Tool
         if (!dest) throw new Error("moveIncompleteToIntervalId is not an interval in this project");
         destination = dest.id;
       }
-      await tx.workItem.updateMany({
-        where: { id: { in: incompleteItems.map((i) => i.id) } },
-        data: { intervalId: destination },
-      });
+      await updateWorkItems(tx, incompleteItems.map((i) => i.id), { intervalId: destination }, { actorId: ctx.userId, source: "AI" });
     }
 
     const row = await tx.interval.update({
       where: { id: interval.id },
-      data: { status: "COMPLETED", report },
+      data: { status: "COMPLETED", report: report as unknown as Prisma.InputJsonValue },
       select: CYCLE_SELECT,
     });
     return { row, report };

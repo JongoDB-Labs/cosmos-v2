@@ -11,6 +11,7 @@ import { publishToOrg } from "@/lib/realtime/broker";
 import { parseMentions } from "@/lib/chat/mentions";
 import { syncReferences } from "@/lib/mentions/references";
 import { z } from "zod";
+import { Permission } from "@/lib/rbac/permissions";
 
 const createCommentSchema = z.object({
   content: z.string().min(1).max(10000),
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         })
       : [];
     const authorById = new Map(authors.map((u) => [u.id, u]));
-    const isManager = await canManageProject(ctx, projectId);
+    const isManager = await canManageProject(ctx, projectId, Permission.ITEM_DELETE);
 
     return success(
       comments.map((c) => ({

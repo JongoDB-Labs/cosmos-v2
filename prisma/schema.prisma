@@ -288,6 +288,8 @@ model Organization {
   bankRules           BankRule[]
   bankTransactions    BankTransaction[]
   boards              Board[]
+  workflowStatuses    WorkflowStatus[]
+  domainEvents        DomainEvent[]
   boardTemplates      BoardTemplate[]
   clins               Clin[]
   comments            Comment[]
@@ -301,6 +303,8 @@ model Organization {
   employeeSupervisors EmployeeSupervisor[]
   expenses            Expense[]
   feedbackAttachments FeedbackAttachment[]
+  feedbackSubscribers FeedbackSubscription[]
+  feedbackMerges      FeedbackMerge[]
   frozenOrgs          FrozenOrg[]
   invoices            Invoice[]
   journalEntries      JournalEntry[]
@@ -349,6 +353,7 @@ model Organization {
   timeOffRequests     TimeOffRequest[]
   bills               Bill[]
   calendarFeeds       CalendarFeed[]
+  externalEventLinks  ExternalEventLink[]
 
   @@map("organizations")
 }
@@ -426,10 +431,13 @@ model User {
   workItemAssignments WorkItemAssignee[]
   workItemWatches     WorkItemWatcher[]
   savedViews          SavedView[]
+  savedViewFavorites  SavedViewFavorite[]
+  savedViewEdits      SavedViewEditor[]
   retroNotes          RetroNote[]
   retroActionItems    RetroActionItem[]
   timeEntryPhasesSet  TimeEntryPhase[]
   calendarFeeds       CalendarFeed[]
+  externalEventLinks  ExternalEventLink[]
 
   @@map("users")
 }
@@ -521,17 +529,17 @@ model AuthProviderConfig {
 }
 
 model OrgMember {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String   @map("org_id") @db.Uuid
-  userId      String   @map("user_id") @db.Uuid
-  role        OrgRole  @default(MEMBER)
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String    @map("org_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  role        OrgRole   @default(MEMBER)
   // Permission bitmask stored as a decimal STRING in a TEXT column: the bitfield
   // (src/lib/rbac/permissions.ts) has bits >= 63, which overflow Postgres BIGINT.
   // All in-memory math stays on `bigint` — cross the boundary with
   // maskFromDb()/maskToDb(). Never serialize this raw into a response payload.
-  permissions String   @default("0")
-  abacRules   Json     @default("{}") @map("abac_rules")
-  joinedAt    DateTime @default(now()) @map("joined_at")
+  permissions String    @default("0")
+  abacRules   Json      @default("{}") @map("abac_rules")
+  joinedAt    DateTime  @default(now()) @map("joined_at")
   // Set when the person is removed from the org; the row is RETAINED so their
   // history stays attributable (and so ProjectMember / OrgMemberWorkRole, which
   // cascade from this row, survive the removal). Reads go through a Prisma client
@@ -818,6 +826,8 @@ model Project {
   members             ProjectMember[]
   teams               Team[]
   boards              Board[]
+  statuses            WorkflowStatus[]
+  workItems           WorkItem[]
   intervals           Interval[]
   objectives          Objective[]
   goals               Goal[]
@@ -843,6 +853,7 @@ model Project {
 
   staffingAllocations StaffingAllocation[]
 
+  savedViews SavedView[]
   // @plugin-backrel:Project
 
   expenses Expense[]
@@ -870,11 +881,12 @@ model Team {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  members TeamMember[]
-  boards  Board[]
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  members   TeamMember[]
+  boards    Board[]
   workItems WorkItem[]
+  savedViews SavedView[]
   // @plugin-backrel:Team
 
   @@unique([projectId, name])
@@ -957,14 +969,20 @@ model Board {
 }
 
 model BoardColumn {
-  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  boardId   String         @map("board_id") @db.Uuid
-  name      String
-  key       String
-  color     String         @default("#7dd3fc")
-  wipLimit  Int?           @map("wip_limit")
-  sortOrder Int            @default(0) @map("sort_order")
-  category  ColumnCategory @default(TODO)
+  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  boardId    String         @map("board_id") @db.Uuid
+  name       String
+  key        String
+  color      String         @default("#7dd3fc")
+  wipLimit   Int?           @map("wip_limit")
+  sortOrder  Int            @default(0) @map("sort_order")
+  /// DEPRECATED: a mirror of the status's `WorkflowStatus.category`, kept in step
+  /// for one release so readers not yet moved to statuses stay correct. The
+  /// status is the source of truth.
+  category   ColumnCategory @default(TODO)
+  /// The statuses this column shows. Empty means `[key]`: a column shows the
+  /// status of the same key, as every column did before statuses existed.
+  statusKeys String[]       @default([]) @map("status_keys")
 
   board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
 
@@ -972,14 +990,86 @@ model BoardColumn {
   @@map("board_columns")
 }
 
+/// A status a project's work items can be in. Statuses used to exist only as
+/// board columns, per board, and every reader rebuilt the project's list by
+/// unioning them; this is the one project-level row they all point at.
+/// `key` is what `work_items.column_key` holds (the column keeps its historical
+/// name), and the composite foreign key from `work_items` makes a key no status
+/// defines impossible to write. Board columns are views onto statuses.
+model WorkflowStatus {
+  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String         @map("org_id") @db.Uuid
+  projectId  String         @map("project_id") @db.Uuid
+  /// Immutable in the UI; renaming it cascades to every item (ON UPDATE CASCADE).
+  key        String
+  name       String
+  color      String         @default("#94a3b8")
+  /// The one place a status's category lives.
+  category   ColumnCategory
+  sortOrder  Int            @default(0) @map("sort_order")
+  /// Hidden from pickers; items already in it keep it. An occupied status cannot
+  /// be deleted (ON DELETE RESTRICT from work_items).
+  archivedAt DateTime?      @map("archived_at")
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @default(now()) @updatedAt @map("updated_at")
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workItems WorkItem[]
+
+  @@unique([projectId, key])
+  @@index([orgId, projectId])
+  @@map("workflow_statuses")
+}
+
+/// Transactional outbox: one row per committed work-item change, written in the
+/// same transaction as the change (src/lib/work-items/write.server.ts), so an
+/// event exists exactly when its change committed. Automations and webhooks
+/// consume it; processed rows are pruned after 30 days.
+model DomainEvent {
+  id             BigInt    @id @default(autoincrement())
+  orgId          String    @map("org_id") @db.Uuid
+  projectId      String?   @map("project_id") @db.Uuid
+  /// "work_item.created" | "work_item.updated" | "work_item.transitioned" …
+  type           String
+  subjectId      String    @map("subject_id") @db.Uuid
+  /// Ids, keys and the before/after of CHANGED fields only; never titles,
+  /// descriptions or comment bodies (re-read under the consumer's own actor).
+  payload        Json      @default("{}")
+  /// Null for a write no person made (an import, a migration, the system).
+  actorId        String?   @map("actor_id") @db.Uuid
+  /// API | BULK | AI | IMPORT | SYSTEM | AUTOMATION | MIGRATION
+  source         String
+  /// The root change this belongs to; automations inherit it to detect loops.
+  correlationId  String    @default(dbgenerated("gen_random_uuid()")) @map("correlation_id") @db.Uuid
+  /// Automation chain depth: 0 for a change a person or system made.
+  depth          Int       @default(0)
+  causedByRuleId String?   @map("caused_by_rule_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at")
+  processedAt    DateTime? @map("processed_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
+  @@index([subjectId, createdAt])
+  @@map("domain_events")
+}
+
 model WorkItem {
   id              String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId           String                      @map("org_id") @db.Uuid
   org             Organization                @relation(fields: [orgId], references: [id], onDelete: Cascade)
   projectId       String                      @map("project_id") @db.Uuid
+  /// Deleting a project deletes its items, as every other project-owned table
+  /// does. Before this foreign key existed, deleted projects left orphans behind.
+  project         Project                     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   title           String
   description     String                      @default("")
+  /// The item's STATUS key (the column name is historical). Must name one of
+  /// the project's statuses: a rename cascades, and an occupied status cannot be
+  /// deleted.
   columnKey       String                      @map("column_key")
+  status          WorkflowStatus              @relation(fields: [projectId, columnKey], references: [projectId, key], onUpdate: Cascade, onDelete: Restrict)
   assigneeId      String?                     @map("assignee_id") @db.Uuid
   priority        Priority                    @default(MEDIUM)
   parentId        String?                     @map("parent_id") @db.Uuid
@@ -1069,18 +1159,18 @@ model WorkItem {
   remainingEstimate Int?    @map("remaining_estimate")
   timeSpent         Int?    @map("time_spent")
 
-  parent           WorkItem?            @relation("WorkItemHierarchy", fields: [parentId], references: [id])
-  children         WorkItem[]           @relation("WorkItemHierarchy")
-  mergedInto       WorkItem?            @relation("WorkItemMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
-  mergedFrom       WorkItem[]           @relation("WorkItemMerge")
-  workItemType     WorkItemType         @relation(fields: [workItemTypeId], references: [id])
-  interval         Interval?            @relation(fields: [intervalId], references: [id])
-  team             Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  parent           WorkItem?          @relation("WorkItemHierarchy", fields: [parentId], references: [id])
+  children         WorkItem[]         @relation("WorkItemHierarchy")
+  mergedInto       WorkItem?          @relation("WorkItemMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom       WorkItem[]         @relation("WorkItemMerge")
+  workItemType     WorkItemType       @relation(fields: [workItemTypeId], references: [id])
+  interval         Interval?          @relation(fields: [intervalId], references: [id])
+  team             Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
   activities       Activity[]
   comments         Comment[]
   // Prod-parity back-relations (dependency links + attachments).
-  outgoingLinks    WorkItemLink[]       @relation("WorkItemLinkSource")
-  incomingLinks    WorkItemLink[]       @relation("WorkItemLinkTarget")
+  outgoingLinks    WorkItemLink[]     @relation("WorkItemLinkSource")
+  incomingLinks    WorkItemLink[]     @relation("WorkItemLinkTarget")
   /// Files attached to this item: documents in the project's library carrying this
   /// item's id. There was a second, older `attachments` relation to a
   /// WorkItemAttachment table — a url and an external ref, no bytes of ours and no
@@ -1102,6 +1192,8 @@ model WorkItem {
   @@index([orgId, assigneeId])
   // The board team filter reads "this project's items for team X".
   @@index([projectId, teamId])
+  // Backs the status foreign key (project_id, column_key) -> workflow_statuses.
+  @@index([projectId, columnKey])
   @@map("work_items")
 }
 
@@ -1197,22 +1289,85 @@ model WorkItemLabel {
 // WorkItemFilter (lib/work-items/query/filter.ts). `shared` = visible to the
 // whole org (personal otherwise); only the owner (or an org admin) may edit or
 // delete. Names are unique per owner so "my Bugs" can't collide with itself.
+/// A saved filter (UI name). Evolved in place from the Issues "saved view"
+/// (query design §10): `query` (a resolved CqlQuery) is the source of truth;
+/// `filter` and `shared` are the legacy shape, kept and derived for one
+/// release so older clients keep working, then dropped.
 model SavedView {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId     String   @map("org_id") @db.Uuid
-  ownerId   String   @map("owner_id") @db.Uuid
-  name      String
-  filter    Json     @default("{}")
-  shared    Boolean  @default(false)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String           @map("org_id") @db.Uuid
+  ownerId     String           @map("owner_id") @db.Uuid
+  name        String
+  description String           @default("")
+  /// LEGACY WorkItemFilter. Written alongside `query` while it can say it.
+  filter      Json             @default("{}")
+  /// CqlQuery v1, refs resolved to ids. Null only on rows from before query
+  /// phase 3 until the backfill runs; readers derive it from `filter`.
+  query       Json?
+  /// The text as last typed, for display before the query is re-printed.
+  cqlText     String?          @map("cql_text")
+  /// Columns, grouping and sort preferences for the view.
+  display     Json             @default("{}")
+  visibility  FilterVisibility @default(PRIVATE)
+  /// Required when visibility = PROJECT.
+  projectId   String?          @map("project_id") @db.Uuid
+  /// Required when visibility = TEAM. A deleted team leaves the filter visible
+  /// to its owner only (fail closed), never to everyone.
+  teamId      String?          @map("team_id") @db.Uuid
+  /// LEGACY: true exactly when visibility = ORG.
+  shared      Boolean          @default(false)
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
 
-  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  owner User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  org       Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner     User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  project   Project?            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  team      Team?               @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  favorites SavedViewFavorite[]
+  editors   SavedViewEditor[]
 
   @@unique([ownerId, name])
-  @@index([orgId])
+  @@index([orgId, visibility])
+  @@index([projectId])
   @@map("saved_views")
+}
+
+/// Who can see a saved filter besides its owner (and its editors).
+enum FilterVisibility {
+  PRIVATE
+  TEAM
+  PROJECT
+  ORG
+}
+
+/// A user's star on a saved filter, and its place in their sidebar.
+model SavedViewFavorite {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  savedViewId String   @map("saved_view_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  savedView SavedView @relation(fields: [savedViewId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([savedViewId, userId])
+  @@index([userId])
+  @@map("saved_view_favorites")
+}
+
+/// Explicit co-editors of a saved filter (Jira's "edit permissions").
+model SavedViewEditor {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  savedViewId String @map("saved_view_id") @db.Uuid
+  userId      String @map("user_id") @db.Uuid
+
+  savedView SavedView @relation(fields: [savedViewId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([savedViewId, userId])
+  @@index([userId])
+  @@map("saved_view_editors")
 }
 
 model Activity {
@@ -1248,10 +1403,82 @@ model Comment {
   createdAt   DateTime     @default(now()) @map("created_at")
   updatedAt   DateTime     @updatedAt @map("updated_at")
 
-  workItem WorkItem? @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  // Discussion fields (feedback discussion, Phase 1). Generic and nullable or
+  // defaulted, so existing work-item, PM-register and document comments read
+  // exactly as before: PUBLIC, plain COMMENTs, never edited/deleted/hidden.
+  /// One level of replies; a reply to a reply attaches to the same top level.
+  parentId        String?              @map("parent_id") @db.Uuid
+  visibility      CommentVisibility    @default(PUBLIC)
+  kind            CommentKind          @default(COMMENT)
+  /// STATUS_CHANGE: {from,to,source}; MERGE: {duplicateId,title,description,authorId}.
+  meta            Json?
+  /// Set on a content edit only (updatedAt also moves on hide/react).
+  editedAt        DateTime?            @map("edited_at")
+  /// Soft delete: a comment with replies leaves a tombstone.
+  deletedAt       DateTime?            @map("deleted_at")
+  deletedById     String?              @map("deleted_by_id") @db.Uuid
+  hiddenAt        DateTime?            @map("hidden_at")
+  hiddenById      String?              @map("hidden_by_id") @db.Uuid
+  /// off_topic | outdated | resolved | spam | abuse
+  hiddenReason    String?              @map("hidden_reason")
+  /// Set when a merge moved this comment here from another subject.
+  originSubjectId String?              @map("origin_subject_id") @db.Uuid
+  /// Opt-in marking. Never defaulted (classification.arch.test.ts).
+  classification  ClassificationLevel?
 
-  @@index([orgId, subjectType, subjectId])
+  workItem    WorkItem?            @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  parent      Comment?             @relation("CommentReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies     Comment[]            @relation("CommentReplies")
+  revisions   CommentRevision[]
+  reactions   CommentReaction[]
+  attachments FeedbackAttachment[]
+  officialFor FeedbackItem[]       @relation("FeedbackOfficialComment")
+
+  @@index([orgId, subjectType, subjectId, createdAt])
+  @@index([parentId])
   @@map("comments")
+}
+
+enum CommentVisibility {
+  PUBLIC
+  INTERNAL
+}
+
+enum CommentKind {
+  COMMENT
+  OFFICIAL
+  STATUS_CHANGE
+  MERGE
+  SYSTEM
+}
+
+/// Edit history (GitHub-style): the content as it was BEFORE each edit.
+model CommentRevision {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  commentId  String    @map("comment_id") @db.Uuid
+  content    String
+  editedById String    @map("edited_by_id") @db.Uuid
+  redactedAt DateTime? @map("redacted_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@index([commentId, createdAt])
+  @@map("comment_revisions")
+}
+
+/// Mirrors ChatMessageReaction.
+model CommentReaction {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  commentId String   @map("comment_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  emoji     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId, emoji])
+  @@map("comment_reactions")
 }
 
 model PushSubscription {
@@ -2108,6 +2335,8 @@ model SyncMeeting {
   projectId          String?                     @map("project_id") @db.Uuid
   sprintId           String?                     @map("sprint_id") @db.Uuid
   meetingDate        DateTime                    @map("meeting_date")
+  /// How long it runs (COSMOS-202 B2): calendars need an end time.
+  durationMinutes    Int                         @default(30) @map("duration_minutes")
   meetingType        MeetingType                 @default(STANDUP) @map("meeting_type")
   status             MeetingStatus               @default(SCHEDULED)
   transcript         String?
@@ -3405,6 +3634,8 @@ enum FeedbackStatus {
   IN_REVIEW
   DONE
   DECLINED
+  /// Set ONLY by a merge (FeedbackMerge); the status PUT refuses it.
+  MERGED
 }
 
 model FeedbackItem {
@@ -3449,6 +3680,21 @@ model FeedbackItem {
   votes       FeedbackVote[]
   attachments FeedbackAttachment[]
 
+  // Discussion (feedback discussion, Phase 1).
+  mergedIntoId      String?   @map("merged_into_id") @db.Uuid
+  /// The current pinned official response.
+  officialCommentId String?   @map("official_comment_id") @db.Uuid
+  /// PUBLIC, non-deleted comments only; denormalised for the list card.
+  commentCount      Int       @default(0) @map("comment_count")
+  lastActivityAt    DateTime? @map("last_activity_at")
+  lockedAt          DateTime? @map("locked_at")
+  lockedById        String?   @map("locked_by_id") @db.Uuid
+
+  mergedInto      FeedbackItem?          @relation("FeedbackMergedInto", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom      FeedbackItem[]         @relation("FeedbackMergedInto")
+  officialComment Comment?               @relation("FeedbackOfficialComment", fields: [officialCommentId], references: [id], onDelete: SetNull)
+  subscriptions   FeedbackSubscription[]
+
   @@index([orgId, status])
   // Backs the poller's "OPEN + not yet delivered" scan.
   @@index([orgId, deliveredAt])
@@ -3475,12 +3721,63 @@ model FeedbackAttachment {
   size           Int
   uploadedById   String       @map("uploaded_by_id") @db.Uuid
   createdAt      DateTime     @default(now()) @map("created_at")
+  /// Set when the file belongs to a comment; feedbackItemId stays set as well.
+  commentId      String?      @map("comment_id") @db.Uuid
 
   feedbackItem FeedbackItem? @relation(fields: [feedbackItemId], references: [id], onDelete: Cascade)
+  comment      Comment?      @relation(fields: [commentId], references: [id], onDelete: Cascade)
 
   @@index([feedbackItemId])
   @@index([uploadedById, createdAt])
+  @@index([commentId])
   @@map("feedback_attachments")
+}
+
+/// Who hears about a feedback item.
+model FeedbackSubscription {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String       @map("org_id") @db.Uuid
+  org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  feedbackItemId String       @map("feedback_item_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  /// author | voter | commenter | mention | manual | merged (the FIRST reason)
+  reason         String
+  /// Explicit opt-out. Never re-subscribed automatically.
+  unsubscribedAt DateTime?    @map("unsubscribed_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  feedbackItem FeedbackItem @relation(fields: [feedbackItemId], references: [id], onDelete: Cascade)
+
+  @@unique([feedbackItemId, userId])
+  @@index([orgId, userId])
+  @@map("feedback_subscriptions")
+}
+
+/// Makes feedback merges auditable and reversible.
+model FeedbackMerge {
+  id                 String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId              String          @map("org_id") @db.Uuid
+  org                Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  duplicateId        String          @map("duplicate_id") @db.Uuid
+  survivorId         String          @map("survivor_id") @db.Uuid
+  /// Only the votes that did not already exist on the survivor.
+  movedVoteUserIds   String[]        @map("moved_vote_user_ids") @db.Uuid
+  movedCommentIds    String[]        @map("moved_comment_ids") @db.Uuid
+  movedAttachmentIds String[]        @map("moved_attachment_ids") @db.Uuid
+  addedSubscriberIds String[]        @map("added_subscriber_ids") @db.Uuid
+  /// The duplicate's status before the merge, restored on undo.
+  previousStatus     FeedbackStatus? @map("previous_status")
+  /// manual | intake
+  source             String
+  /// Null for an intake merge: the dedup judge, not a person, made it.
+  mergedById         String?         @map("merged_by_id") @db.Uuid
+  createdAt          DateTime        @default(now()) @map("created_at")
+  undoneAt           DateTime?       @map("undone_at")
+  undoneById         String?         @map("undone_by_id") @db.Uuid
+
+  @@index([orgId, survivorId])
+  @@index([duplicateId])
+  @@map("feedback_merges")
 }
 
 model FeedbackVote {
@@ -3801,7 +4098,6 @@ model WorkItemLink {
   @@index([orgId, sourceItemId])
   @@map("work_item_links")
 }
-
 
 // ─── Finance (SCHEMA-ONLY in v2; empty in prod — UI/routes deferred) ───────────
 
@@ -4146,9 +4442,9 @@ enum DocumentVisibility {
 /// "why can she see this" is the question asked afterwards, and the answer has to
 /// name somebody.
 model DocumentShare {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId      String   @map("org_id") @db.Uuid
-  documentId String   @map("document_id") @db.Uuid
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String @map("org_id") @db.Uuid
+  documentId String @map("document_id") @db.Uuid
 
   /// The person it is shared WITH. Bare uuid, no foreign key, for the same reason
   /// as uploadedById: a grant outlives the account it names, and a departing
@@ -5533,4 +5829,33 @@ model CalendarFeed {
 
   @@index([orgId, userId])
   @@map("calendar_feeds")
+}
+
+/// A Cosmos record mirrored as an event in someone's external calendar
+/// (COSMOS-202 B2), so the sync can update or remove that event, and recognise
+/// the echo of its own writes: `changeKey` is the one the provider returned for
+/// OUR last write; any other value means the person changed it there.
+model ExternalEventLink {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId              String   @map("org_id") @db.Uuid
+  userId             String   @map("user_id") @db.Uuid
+  provider           String
+  externalCalendarId String   @map("external_calendar_id")
+  externalEventId    String   @map("external_event_id")
+  changeKey          String?  @map("change_key")
+  /// Hash of the event body we last wrote, so an unchanged meeting isn't re-sent.
+  contentHash        String?  @map("content_hash")
+  /// "meeting" for now.
+  entityType         String   @map("entity_type")
+  entityId           String   @map("entity_id") @db.Uuid
+  lastSyncedAt       DateTime @default(now()) @map("last_synced_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, provider, userId, externalEventId])
+  @@unique([orgId, provider, userId, entityType, entityId])
+  @@index([orgId, entityType, entityId])
+  @@map("external_event_links")
 }

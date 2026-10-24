@@ -31,7 +31,6 @@ import { CancelWorkItemDialog } from "./cancel-work-item-dialog";
 import { MergeWorkItemDialog } from "./merge-work-item-dialog";
 import { cancelReasonLabel, type PickableCancelReason } from "@/lib/work-items/cancel";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
@@ -39,9 +38,6 @@ import { usePermissions } from "@/components/providers/permissions-provider";
 import { Permission } from "@/lib/rbac/permissions";
 import { useOrgMembers } from "@/components/chat/mention-typeahead";
 import { useRefResolver } from "@/components/mentions/hooks";
-import { MarkdownContent } from "@/components/chat/markdown-content";
-import { NoteRichTextEditor } from "@/components/notes/editor/rich-text-editor";
-import { COMMENT_EDITOR_SIZING } from "@/components/notes/editor/sizing";
 import { MentionedIn } from "@/components/mentions/mentioned-in";
 import { refKey, type ResolvedEntity } from "@/lib/mentions/refs";
 import { WorkItemLinksSection } from "@/components/work-items/links-section";
@@ -58,7 +54,6 @@ import {
 import {
   MessageSquare,
   History,
-  Send,
   Loader2,
   Calendar,
   User,
@@ -76,12 +71,12 @@ import {
   CornerDownRight,
   GripVertical,
   Plus,
-  Pencil,
   Flag,
   Link2,
   Archive,
   Ban,
   Merge,
+  Split,
   ArchiveRestore,
   X,
 } from "lucide-react";
@@ -99,12 +94,14 @@ import {
   activityValueLabel,
 } from "@/lib/work-items/activity-label";
 import { formatDateStable } from "@/lib/format/stable-date";
-import { LocalTimestamp } from "@/components/ui/local-timestamp";
+import { CommentItem } from "@/components/comments/comment-item";
+import { CommentComposer } from "@/components/comments/comment-composer";
 import { isWorkItemDone } from "@/lib/work-items/done-state";
 import { memberPickerOptions } from "@/lib/org/member-picker";
 import { entityUrl } from "@/lib/mentions/urls";
 import { useOrgSlug } from "@/lib/query/keys";
 import { toast } from "sonner";
+import { datesFromInterval, plannedDayToIso } from "@/lib/intervals/fill-dates";
 import {
   WORK_ITEM_HIGHLIGHTS,
   WORK_ITEM_HIGHLIGHT_ORDER,
@@ -190,7 +187,9 @@ export function CardDetailSheet({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dupPrompt, setDupPrompt] = useState(false);
   const [dragChildIdx, setDragChildIdx] = useState<number | null>(null);
-  const [actionPending, setActionPending] = useState<null | "delete" | "duplicate">(null);
+  const [actionPending, setActionPending] = useState<null | "delete" | "duplicate" | "split">(null);
+  // COSMOS-89: confirm before turning one shared item into one per assignee.
+  const [splitPrompt, setSplitPrompt] = useState(false);
   // Synchronous re-entrancy guard for duplication. `actionPending` (state) can't
   // fully guard the trigger: the on-item effect below resets it to null whenever
   // the `item` prop reference changes — which happens the instant a duplicate
@@ -250,8 +249,6 @@ export function CardDetailSheet({
 
   const [tab, setTab] = useState<"comments" | "activity">("comments");
   const [comments, setComments] = useState<Comment[]>([]);
-  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
-  const [editDraft, setEditDraft] = useState("");
   const [activities, setActivities] = useState<Activity[]>([]);
   const [newComment, setNewComment] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -446,12 +443,11 @@ export function CardDetailSheet({
       setActionPending(null);
       // Reset per-item interaction state too, so switching items (via duplicate,
       // a linked-item/sub-item click, or board navigation) never carries a draft
-      // comment, an open comment-edit, or the Activity tab over to the next item
+      // comment or the Activity tab over to the next item (an open comment-edit
+      // lives in its CommentItem, which unmounts with the old item's comments)
       // — a stale `newComment` could otherwise be posted to the WRONG work item.
       setNewComment("");
       setTab("comments");
-      setEditingCommentId(null);
-      setEditDraft("");
     }
     // Keyed on the ID, not the object. Every inline save PUTs one field and
     // feeds the server's full row back down as a NEW `item` reference — so a
@@ -565,14 +561,16 @@ export function CardDetailSheet({
 
   // Immediately persist a single field change via PUT and update parent cache.
   const patchField = useCallback(
-    async (field: string, value: unknown) => {
+    // `extra` rides in the SAME request: fields a change implies (an interval's
+    // dates, COSMOS-223) must not race the change itself as separate PUTs.
+    async (field: string, value: unknown, extra?: Record<string, unknown>) => {
       if (!item) return;
       const prevColumnKey = item.columnKey;
       try {
         const res = await fetch(`${basePath}/${item.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ [field]: value }),
+          body: JSON.stringify({ [field]: value, ...extra }),
         });
         if (!res.ok) throw new Error("Failed to update");
         const updated: WorkItem = await res.json();
@@ -633,10 +631,11 @@ export function CardDetailSheet({
         }
       } catch (err) {
         console.error(`Failed to patch ${field}:`, err);
-        // Revert ONLY the field that failed back to the server value (`item` is
+        // Revert ONLY the fields that failed back to the server value (`item` is
         // unchanged on failure since onUpdate runs only on success). Reverting
         // every field would clobber other concurrent/just-succeeded edits.
-        switch (field) {
+        for (const failed of [field, ...Object.keys(extra ?? {})])
+        switch (failed) {
           case "priority":
             setPriority(item.priority);
             break;
@@ -970,9 +969,8 @@ export function CardDetailSheet({
     });
   }
 
-  async function handleSaveCommentEdit(id: string) {
-    const content = editDraft.trim();
-    if (!content || !item) return;
+  async function handleSaveCommentEdit(id: string, content: string): Promise<boolean> {
+    if (!content || !item) return false;
     try {
       const res = await fetch(`${basePath}/${item.id}/comments/${id}`, {
         method: "PATCH",
@@ -984,10 +982,10 @@ export function CardDetailSheet({
       setComments((prev) =>
         prev.map((c) => (c.id === id ? { ...c, content: updated.content } : c)),
       );
-      setEditingCommentId(null);
-      setEditDraft("");
+      return true;
     } catch (err) {
       notifyError(err, "Couldn't save the edit.");
+      return false;
     }
   }
 
@@ -1001,6 +999,35 @@ export function CardDetailSheet({
       setComments((prev) => prev.filter((c) => c.id !== id));
     } catch (err) {
       notifyError(err, "Couldn't delete the comment.");
+    }
+  }
+
+  // Split per assignee (COSMOS-89): this item keeps its first assignee and each
+  // of the others gets their own copy. The new items reach every open board
+  // through the work-item.created events the route publishes.
+  async function handleSplit() {
+    if (!item || actionPending) return;
+    setActionPending("split");
+    try {
+      const res = await fetch(`${basePath}/${item.id}/split-assignees`, { method: "POST" });
+      if (!res.ok) throw new Error(`Failed to split (HTTP ${res.status})`);
+      const result: {
+        keptAssigneeId: string;
+        copies: { id: string; ticketNumber: number }[];
+      } = await res.json();
+      setAssigneeIds([result.keptAssigneeId]);
+      setAssigneeId(result.keptAssigneeId);
+      setSplitPrompt(false);
+      const fresh = await fetch(`${basePath}/${item.id}`);
+      if (fresh.ok) onUpdate((await fresh.json()) as WorkItem);
+      toast.success(
+        `Split into ${result.copies.length + 1} issues`,
+        { description: `New: ${result.copies.map((c) => `#${c.ticketNumber}`).join(", ")}` },
+      );
+    } catch (err) {
+      notifyError(err, "Couldn't split this item.");
+    } finally {
+      setActionPending(null);
     }
   }
 
@@ -1594,6 +1621,18 @@ export function CardDetailSheet({
                 onValueChange={(ids) => void patchAssignees(ids)}
                 options={assigneeOptions}
               />
+              {assigneeIds.length > 1 && canEditItem && canDuplicate && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 h-6 gap-1.5 px-1.5 text-xs text-muted-foreground"
+                  onClick={() => setSplitPrompt(true)}
+                  disabled={actionPending !== null}
+                >
+                  <Split className="h-3.5 w-3.5" />
+                  Split per assignee
+                </Button>
+              )}
             </MetadataField>
 
             <MetadataField icon={Hash} label="Points">
@@ -1687,12 +1726,21 @@ export function CardDetailSheet({
                     ...Object.fromEntries(intervals.map((s) => [s.id, s.name])),
                   }}
                   value={intervalId ?? "__none__"}
-                  onValueChange={(v) =>
-                    handleFieldChange(
-                      "intervalId",
-                      (v === "__none__" ? null : v) as string | null
-                    )
-                  }
+                  onValueChange={(v) => {
+                    const next = (v === "__none__" ? null : v) as string | null;
+                    setIntervalId(next);
+                    // Fill only the planned dates that are still empty (COSMOS-223).
+                    const fill = datesFromInterval(
+                      { startDate, dueDate },
+                      intervals.find((s) => s.id === next),
+                    );
+                    if (fill.startDate) setStartDate(fill.startDate);
+                    if (fill.dueDate) setDueDate(fill.dueDate);
+                    void patchField("intervalId", next, {
+                      ...(fill.startDate && { startDate: plannedDayToIso(fill.startDate) }),
+                      ...(fill.dueDate && { dueDate: plannedDayToIso(fill.dueDate) }),
+                    });
+                  }}
                 >
                   <SelectTrigger size="sm" aria-label="Interval" className="w-full text-xs">
                     <SelectValue />
@@ -2015,105 +2063,22 @@ export function CardDetailSheet({
                   No comments yet
                 </p>
               )}
-              {comments.map((c) => {
-                const name =
-                  c.authorName ?? c.author?.user?.displayName ?? "Unknown";
-                const isEditing = editingCommentId === c.id;
-                const edited =
-                  !!c.updatedAt && c.updatedAt !== c.createdAt;
-                return (
-                  <div key={c.id} className="group/comment flex gap-2">
-                    <Avatar size="sm">
-                      <AvatarFallback>
-                        {name.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium">{name}</span>
-                        {/* BR: "could you ensure there are timestamps on each
-                            comment as well rather than only the date itself."
-                            <LocalTimestamp> and not formatDateTimeStable: the
-                            stable formatters are all pinned to UTC, which is
-                            right for a coarse due date but tells a reader west
-                            of UTC the wrong hour for an instant. The component
-                            renders the pinned string for the first paint (so
-                            hydration matches) and swaps to the viewer's own
-                            zone after mount. */}
-                        <span className="text-[10px] text-muted-foreground">
-                          <LocalTimestamp value={c.createdAt} />
-                          {edited ? " · edited" : ""}
-                        </span>
-                        {!isEditing && (c.canEdit || c.canDelete) && (
-                          <span className="ml-auto flex items-center gap-1.5 opacity-0 transition-opacity group-hover/comment:opacity-100">
-                            {c.canEdit && (
-                              <button
-                                type="button"
-                                aria-label="Edit comment"
-                                className="text-muted-foreground hover:text-foreground"
-                                onClick={() => {
-                                  setEditingCommentId(c.id);
-                                  setEditDraft(c.content);
-                                }}
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </button>
-                            )}
-                            {c.canDelete && (
-                              <button
-                                type="button"
-                                aria-label="Delete comment"
-                                className="text-muted-foreground hover:text-destructive"
-                                onClick={() => void handleDeleteComment(c.id)}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            )}
-                          </span>
-                        )}
-                      </div>
-                      {isEditing ? (
-                        <div className="mt-1 space-y-1.5">
-                          <div className="rounded-lg border border-input px-2.5 py-1.5 text-sm">
-                            <NoteRichTextEditor
-                              key={`edit-${c.id}`}
-                              initialMarkdown={editDraft}
-                              orgId={orgId}
-                              mentionLabels={commentMentionLabels}
-                              onChange={setEditDraft}
-                              ariaLabel="Edit comment"
-                              sizing={COMMENT_EDITOR_SIZING}
-                            />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              size="xs"
-                              onClick={() => void handleSaveCommentEdit(c.id)}
-                              disabled={!editDraft.trim()}
-                            >
-                              Save
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="ghost"
-                              onClick={() => {
-                                setEditingCommentId(null);
-                                setEditDraft("");
-                              }}
-                            >
-                              Cancel
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-sm text-muted-foreground mt-0.5">
-                          <MarkdownContent content={c.content} refMap={commentRefMap} />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+              {comments.map((c) => (
+                <CommentItem
+                  key={c.id}
+                  authorName={c.authorName ?? c.author?.user?.displayName ?? "Unknown"}
+                  createdAt={c.createdAt}
+                  edited={!!c.updatedAt && c.updatedAt !== c.createdAt}
+                  content={c.content}
+                  refMap={commentRefMap}
+                  orgId={orgId}
+                  mentionLabels={commentMentionLabels}
+                  canEdit={!!c.canEdit}
+                  canDelete={!!c.canDelete}
+                  onSave={(content) => handleSaveCommentEdit(c.id, content)}
+                  onDelete={() => void handleDeleteComment(c.id)}
+                />
+              ))}
 
               {item && (
                 <MentionedIn
@@ -2124,29 +2089,15 @@ export function CardDetailSheet({
                 />
               )}
 
-              <div className="relative flex gap-2">
-                <div className="min-w-0 flex-1 rounded-lg border border-input px-2.5 py-1.5 text-sm focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50">
-                  <NoteRichTextEditor
-                    key={`comment-${commentEditorKey}`}
-                    initialMarkdown={newComment}
-                    orgId={orgId}
-                    mentionLabels={commentMentionLabels}
-                    onChange={setNewComment}
-                    placeholder="Write a comment… (@ to mention)"
-                    ariaLabel="Comment"
-                    sizing={COMMENT_EDITOR_SIZING}
-                  />
-                </div>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Add comment"
-                  onClick={handleAddComment}
-                  disabled={!newComment.trim() || isPending}
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
-              </div>
+              <CommentComposer
+                orgId={orgId}
+                value={newComment}
+                resetKey={commentEditorKey}
+                onChange={setNewComment}
+                onSubmit={handleAddComment}
+                mentionLabels={commentMentionLabels}
+                disabled={isPending}
+              />
             </div>
           )}
 
@@ -2237,6 +2188,32 @@ export function CardDetailSheet({
         initialReason={item?.cancelReason === "MERGED" ? null : (item?.cancelReason ?? null)}
         initialNote={item?.cancelNote ?? null}
       />
+
+      {/* Split per assignee (COSMOS-89): say exactly who ends up where. */}
+      <Dialog open={splitPrompt} onOpenChange={(o) => !o && setSplitPrompt(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Split into one issue per assignee?</DialogTitle>
+            <DialogDescription>
+              #{item.ticketNumber} stays with{" "}
+              {assigneeOptions.find((o) => o.value === assigneeIds[0])?.label ?? "its first assignee"}.{" "}
+              {assigneeIds
+                .slice(1)
+                .map((id) => assigneeOptions.find((o) => o.value === id)?.label ?? "a member")
+                .join(", ")}{" "}
+              each get their own copy, with the same fields and parent, linked back to this one.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSplitPrompt(false)} disabled={actionPending === "split"}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleSplit()} disabled={actionPending === "split"}>
+              {actionPending === "split" ? "Splitting…" : `Split into ${assigneeIds.length} issues`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Duplicate-with-children prompt (only when the item has sub-items). */}
       <Dialog open={dupPrompt} onOpenChange={(o) => !o && setDupPrompt(false)}>

@@ -23,6 +23,7 @@ import { IntegrationRegistry } from "../../src/lib/integrations/registry";
 import { splitConfigSecrets } from "../../src/lib/integrations/config-secrets";
 import { setOrgCredential, getOrgCredential } from "../../src/lib/integrations/credentials";
 import { executeTool } from "../../src/lib/ai/tool-executor";
+import type { AuthContext } from "../../src/lib/rbac/check";
 import { projectForModel, projectResult, entityTypeForTool } from "../../src/lib/ai/egress";
 import type { EgressContext, TenantClass } from "../../src/lib/ai/egress";
 
@@ -34,6 +35,16 @@ function check(label: string, cond: boolean, detail?: unknown) {
 }
 function section(title: string) {
   console.log(`\n──────────────────────────────────────────────────────────\n${title}\n──────────────────────────────────────────────────────────`);
+}
+
+/**
+ * The caller AuthContext for a connector-routing call. Connector dispatch does
+ * not consult RBAC, so this grants NOTHING — it exists because every tool call
+ * must carry its caller's context, and inventing permissions here would be the
+ * very fallback the executors refuse.
+ */
+function noGrantAuth(orgId: string, userId: string): AuthContext {
+  return { orgId, userId, orgRole: "VIEWER", permissions: 0n, basePermissions: 0n, abacRules: [] };
 }
 
 const JIRA_TOKEN = "JIRATEST";
@@ -103,8 +114,8 @@ async function main() {
 
   // 2a. not-connected for a FRESH org with no creds installed → graceful error.
   const freshOrg = await prisma.organization.create({ data: { name: "Fresh", slug: `fresh-${Date.now()}` } });
-  const jiraNC = (await executeTool("jira_search_issues", {}, { orgId: freshOrg.id, userId: user.id, tenantClass: "gov" })) as { error?: string };
-  const slackNC = (await executeTool("slack_list_channels", {}, { orgId: freshOrg.id, userId: user.id, tenantClass: "gov" })) as { error?: string };
+  const jiraNC = (await executeTool("jira_search_issues", {}, { orgId: freshOrg.id, userId: user.id, auth: noGrantAuth(freshOrg.id, user.id), tenantClass: "gov" })) as { error?: string };
+  const slackNC = (await executeTool("slack_list_channels", {}, { orgId: freshOrg.id, userId: user.id, auth: noGrantAuth(freshOrg.id, user.id), tenantClass: "gov" })) as { error?: string };
   check("jira_search_issues on a not-connected org → graceful 'Jira is not connected'", typeof jiraNC.error === "string" && jiraNC.error.includes("Jira is not connected"), jiraNC);
   check("slack_list_channels on a not-connected org → graceful 'Slack is not connected'", typeof slackNC.error === "string" && slackNC.error.includes("Slack is not connected"), slackNC);
 
@@ -138,8 +149,8 @@ async function main() {
   let jiraSearch: Record<string, unknown>;
   let slackSearch: Record<string, unknown>;
   try {
-    jiraSearch = (await executeTool("jira_search_issues", {}, { orgId: org.id, userId: user.id, tenantClass: "commercial" })) as Record<string, unknown>;
-    slackSearch = (await executeTool("slack_search_messages", { query: "exfil" }, { orgId: org.id, userId: user.id, tenantClass: "commercial" })) as Record<string, unknown>;
+    jiraSearch = (await executeTool("jira_search_issues", {}, { orgId: org.id, userId: user.id, auth: noGrantAuth(org.id, user.id), tenantClass: "commercial" })) as Record<string, unknown>;
+    slackSearch = (await executeTool("slack_search_messages", { query: "exfil" }, { orgId: org.id, userId: user.id, auth: noGrantAuth(org.id, user.id), tenantClass: "commercial" })) as Record<string, unknown>;
   } finally {
     globalThis.fetch = realFetch;
   }

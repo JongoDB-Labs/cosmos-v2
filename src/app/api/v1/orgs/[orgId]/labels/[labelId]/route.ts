@@ -79,7 +79,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         await tx.label.update({ where: { id: labelId }, data: { color: data.color } });
       }
 
-      await recomputeTagMirror(tx, [...touched]);
+      await recomputeTagMirror(tx, [...touched], { actorId: ctx.userId, source: "API" });
       return {
         label: await tx.label.findUniqueOrThrow({ where: { id: survivingId } }),
         merged,
@@ -135,7 +135,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       });
       await tx.label.delete({ where: { id: labelId } });
       const ids = affected.map((r) => r.workItemId);
-      await recomputeTagMirror(tx, ids);
+      await recomputeTagMirror(tx, ids, { actorId: ctx.userId, source: "API" });
       return ids.length;
     });
 

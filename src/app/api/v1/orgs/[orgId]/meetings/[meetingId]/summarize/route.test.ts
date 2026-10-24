@@ -18,6 +18,7 @@ vi.mock("@/lib/ai/agent-loop", () => ({
 }));
 
 import { POST } from "./route";
+import { runAgentLoop } from "@/lib/ai/agent-loop";
 const params = Promise.resolve({ orgId: "o", meetingId: "m" });
 
 beforeEach(() => {
@@ -41,4 +42,15 @@ it("400s when there's nothing to summarize", async () => {
   prisma.syncMeeting.findFirst.mockResolvedValue({ id: "m", createdById: "u", projectId: null, notes: "", transcript: null, attendees: [] });
   const res = await POST(new NextRequest("http://localhost/x", { method: "POST" }), { params });
   expect(res.status).toBe(400);
+});
+
+// The loop still appends the org's connector tools even with `tools: []`, so
+// it must run under the caller's own context — an API key's narrowed one when
+// that is who called — never one rebuilt from the user id.
+it("runs the agent loop with the caller's own AuthContext", async () => {
+  const keyCtx = { userId: "u", orgId: "o", orgRole: "OWNER", permissions: 1n, isApiKey: true, projectScope: ["p"] };
+  getAuthContext.mockResolvedValue(keyCtx);
+  prisma.syncMeeting.findFirst.mockResolvedValue({ id: "m", createdById: "u", projectId: null, notes: "n", transcript: null, attendees: [] });
+  await POST(new NextRequest("http://localhost/x", { method: "POST" }), { params });
+  expect(vi.mocked(runAgentLoop).mock.calls[0][0].auth).toBe(keyCtx);
 });

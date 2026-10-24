@@ -1,58 +1,41 @@
 import { NextRequest } from "next/server";
-import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { handleApiError } from "@/lib/api-helpers";
 import { loadMilestonesWithDerived } from "@/lib/pm/schedule";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { createMilestone, listMilestones } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, listMilestones);
+    const { params: { orgId, projectId } } = await parseRequest(listMilestones, request, params);
     await requireProjectRead(ctx, projectId, "PROJECT_READ");
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
-    if (!project) return new Response("Not found", { status: 404 });
+    if (!project) return problem(404, "not_found", undefined, { request });
 
     const withDerived = await loadMilestonesWithDerived(orgId, projectId);
-    return success(withDerived);
+    return respond(listMilestones, 200, withDerived);
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }
 
-const createSchema = z.object({
-  title: z.string().min(1).max(200),
-  description: z.string().nullish(),
-  dueDate: z.string().datetime(),
-  ownerId: z.string().uuid().nullish(),
-  autoStatus: z.boolean().optional(),
-});
-
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, createMilestone);
+    const { params: { orgId, projectId }, body: data } = await parseRequest(createMilestone, request, params);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
-    if (!project) return new Response("Not found", { status: 404 });
-
-    const data = createSchema.parse(await request.json());
+    if (!project) return problem(404, "not_found", undefined, { request });
 
     const maxSort = await prisma.milestone.aggregate({
       where: { orgId, projectId },
@@ -74,8 +57,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       include: { links: true },
     });
 
-    return success(createdMilestone);
+    return respond(createMilestone, 200, createdMilestone);
   } catch (e) {
-    return handleApiError(e);
+    return handleApiError(e, request);
   }
 }

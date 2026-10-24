@@ -27,6 +27,8 @@
  *     dragging it would be ambiguous.
  */
 
+import type { Prisma } from "@prisma/client";
+
 /** The two facts about an item that decide its team. */
 export interface TeamOwned {
   assigneeId?: string | null;
@@ -92,4 +94,18 @@ export function itemMatchesTeam(
   if (item.teamId) return item.teamId === teamId;
   if (!item.assigneeId) return false;
   return (byUser.get(item.assigneeId) ?? []).some((t) => t.id === teamId);
+}
+
+/**
+ * `itemMatchesTeam` as a query, for callers that ask the database rather than
+ * filter a list already in memory (the assistant's work-item tools). Same rule:
+ * an item naming this team, or a team-less item assigned to one of its people.
+ */
+export function teamWorkItemWhere(
+  teamId: string,
+  memberUserIds: string[],
+): Prisma.WorkItemWhereInput {
+  const own: Prisma.WorkItemWhereInput = { teamId };
+  if (memberUserIds.length === 0) return own;
+  return { OR: [own, { teamId: null, assigneeId: { in: memberUserIds } }] };
 }
