@@ -49,6 +49,39 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.460.2",
+    date: "2026-10-24",
+    title: "Marked feedback comments are re-checked on a schedule",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If a lowered marking ceiling couldn't immediately hide affected feedback comments and their notifications, a background job now finishes the job within 15 minutes.",
+      },
+    ],
+  },
+  {
+    version: "2.460.1",
+    date: "2026-10-24",
+    title: "More reliable test fixtures",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Internal: test fixtures now allocate ticket numbers the same race-safe way the app does, removing an intermittent test failure. No change to the app's behaviour.",
+      },
+    ],
+  },
+  {
+    version: "2.460.0",
+    date: "2026-10-24",
+    title: "Follow feedback and merge duplicates",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Follow a feedback item to hear about new comments and status changes; you follow automatically when you post, vote, comment or are mentioned, and unfollowing sticks. Staff can merge a duplicate into another request, moving its votes and followers, and undo the merge exactly.",
+      },
+    ],
+  },
+  {
     version: "2.459.0",
     date: "2026-10-24",
     title: "Per-operation API key scopes",

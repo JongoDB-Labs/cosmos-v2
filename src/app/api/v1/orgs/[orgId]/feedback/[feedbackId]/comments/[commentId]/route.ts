@@ -145,6 +145,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         comment: { id: commentId, content, authorId: ctx.userId },
         mentionIds: added,
         visibility: existing.visibility,
+        classification: existing.classification,
       }).catch(() => {});
     }
     if (existing.visibility === "PUBLIC") {
