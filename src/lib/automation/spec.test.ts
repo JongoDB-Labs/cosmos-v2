@@ -31,6 +31,15 @@ describe("automationSpecSchema", () => {
     expect(ok({ trigger: schedule, actions: [{ kind: "assign", to: "triggerActor" }] })).toBe(false);
   });
 
+  it("takes a query, a children check or both as its condition, but not an empty one", () => {
+    const rule = (condition: unknown) => ({ trigger: { on: "item.transitioned" }, scope: "parent", condition, actions: [{ kind: "archive" }] });
+    expect(ok(rule({ childrenAll: { categories: ["DONE", "CANCELLED"] } }))).toBe(true);
+    expect(ok(rule({ cql: "priority = HIGH", childrenAll: { categories: ["DONE"] } }))).toBe(true);
+    expect(ok(rule({}))).toBe(false);
+    expect(ok(rule({ childrenAll: { categories: [] } }))).toBe(false);
+    expect(ok(rule({ childrenAll: { categories: ["SHIPPED"] } }))).toBe(false);
+  });
+
   it("offers exactly the priorities the database has", () => {
     const offered = (actionSchema.options[1] as { options: { shape: { field: { value: string }; value: { options: string[] } } }[] }).options
       .find((o) => o.shape.field.value === "priority")!.shape.value.options;

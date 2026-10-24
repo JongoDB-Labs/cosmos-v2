@@ -22,7 +22,7 @@
  * commonest and where nothing happened, are the run row only).
  */
 import { randomUUID } from "crypto";
-import { Prisma, type AutomationRunStatus } from "@prisma/client";
+import { Prisma, type AutomationRunStatus, type ColumnCategory } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { logAudit } from "@/lib/audit";
 import { recordAutomationRun } from "@/lib/observability/metrics";
@@ -117,9 +117,10 @@ async function runForEvent(rule: Rule, spec: AutomationSpec, e: RuleEvent, now: 
 
   try {
     const scope = await scopeIds(e.subjectId, spec.scope);
-    const matched = spec.condition
-      ? await matchingItemIds(ctx, { cql: spec.condition.cql }, { within: scope, now: now(), contextProjectId: rule.projectId ?? undefined })
-      : scope;
+    const cql = spec.condition?.cql;
+    const queried = cql ? await matchingItemIds(ctx, { cql }, { within: scope, now: now(), contextProjectId: rule.projectId ?? undefined }) : scope;
+    const childrenAll = spec.condition?.childrenAll;
+    const matched = childrenAll ? await childrenAllIn(queried, childrenAll.categories) : queried;
     if (matched.length === 0) {
       await finish("NO_MATCH");
       return true;
@@ -265,6 +266,18 @@ async function scopeIds(subjectId: string, scope: AutomationSpec["scope"]): Prom
   }
   const children = await prisma.workItem.findMany({ where: { parentId: subjectId }, select: { id: true }, orderBy: { id: "asc" }, take: AUTOMATION_LIMITS.scopedItems });
   return children.map((c) => c.id);
+}
+
+/** The items, of `ids`, with at least one child and every child (archived ones aside) in one of `categories`. */
+async function childrenAllIn(ids: string[], categories: readonly ColumnCategory[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const children = await prisma.workItem.findMany({
+    where: { parentId: { in: ids }, archivedAt: null },
+    select: { parentId: true, status: { select: { category: true } } },
+  });
+  const ok = new Map<string, boolean>();
+  for (const c of children) ok.set(c.parentId!, (ok.get(c.parentId!) ?? true) && categories.includes(c.status.category));
+  return ids.filter((id) => ok.get(id) === true);
 }
 
 async function disable(rule: Rule, reason: string) {

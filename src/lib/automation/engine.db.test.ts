@@ -17,6 +17,7 @@ import { runDueSchedules, runRulesForEvents, RULE_RUNS_PER_5_MIN, type RuleEvent
 import { createRule, ruleWarnings, updateRule } from "./rules.server";
 import { automationUserId } from "./principal.server";
 import { AUTOMATION_LIMITS, type AutomationSpec } from "./spec";
+import { AUTOMATION_TEMPLATES, templateByKey, type AutomationTemplate } from "./templates";
 
 let orgId = "";
 let aliceId = "";
@@ -29,6 +30,7 @@ const STATUSES: { key: string; name: string; category: ColumnCategory }[] = [
   { key: "todo", name: "To Do", category: "TODO" },
   { key: "doing", name: "Doing", category: "IN_PROGRESS" },
   { key: "done", name: "Done", category: "DONE" },
+  { key: "cancelled", name: "Cancelled", category: "CANCELLED" },
 ];
 
 beforeAll(async () => {
@@ -169,6 +171,62 @@ describe("rules fired by changes", () => {
     expect((await prisma.workItem.findUniqueOrThrow({ where: { id: parent } })).columnKey).toBe("doing");
     // The parent's move was the rule's own change: it doesn't fire the rule again.
     expect((await runsOf(r.id)).map((x) => x.status)).toEqual(["SUCCESS", "SKIPPED_SELF"]);
+  });
+
+  it("moves a parent to Done only once every child is done or cancelled (childrenAll), archived ones aside, and never a childless item", async () => {
+    const p = await project();
+    const parent = await item(p);
+    const [a, b] = [await item(p, { parentId: parent }), await item(p, { parentId: parent })];
+    await item(p, { parentId: parent, archivedAt: new Date() }); // still To Do, but archived: it doesn't count
+    const leaf = await item(p);
+    const r = await rule(p, {
+      trigger: { on: "item.transitioned", toCategory: ["DONE"] },
+      scope: "parent",
+      condition: { childrenAll: { categories: ["DONE", "CANCELLED"] } },
+      actions: [{ kind: "transition", to: "done" }],
+    });
+    const self = await rule(p, {
+      trigger: { on: "item.transitioned", toCategory: ["DONE"] },
+      condition: { childrenAll: { categories: ["DONE"] } },
+      actions: [{ kind: "addLabels", labels: ["all-children-done"] }],
+    }, { allowChain: true }); // the parent's move is the other rule's
+    await settle();
+    const status = async (id: string) => (await prisma.workItem.findUniqueOrThrow({ where: { id } })).columnKey;
+    await move(p, a, "doing");
+    await move(p, a, "done");
+    await settle();
+    expect(await status(parent)).toBe("todo");
+    expect((await runsOf(r.id)).map((x) => x.status)).toEqual(["NO_MATCH"]);
+    await move(p, b, "doing");
+    await move(p, b, "done");
+    await settle();
+    expect(await status(parent)).toBe("done");
+    // A done item with no children has nothing to be all done.
+    await move(p, leaf, "doing");
+    await move(p, leaf, "done");
+    await settle();
+    expect((await prisma.workItem.findUniqueOrThrow({ where: { id: leaf } })).tags).toEqual([]);
+    expect((await prisma.workItem.findUniqueOrThrow({ where: { id: parent } })).tags).toEqual(["all-children-done"]);
+    expect((await runsOf(self.id)).map((x) => x.status).filter((s) => s === "SUCCESS")).toHaveLength(1);
+  });
+
+  it("cancels with the reason it names, and records no reason on a move that isn't a cancel", async () => {
+    const p = await project();
+    await rule(p, {
+      trigger: { on: "item.created" },
+      condition: { cql: "priority = LOW" },
+      actions: [{ kind: "transition", to: "cancelled", cancel: { reason: "OBE" } }],
+    });
+    await rule(p, {
+      trigger: { on: "item.created" },
+      condition: { cql: "priority = HIGH" },
+      actions: [{ kind: "transition", to: "doing", cancel: { reason: "OBE" } }],
+    });
+    const [stale, hot] = [await item(p, { priority: "LOW" }), await item(p, { priority: "HIGH" })];
+    await settle();
+    const fields = { columnKey: true, cancelReason: true } as const;
+    expect(await prisma.workItem.findUniqueOrThrow({ where: { id: stale }, select: fields })).toEqual({ columnKey: "cancelled", cancelReason: "OBE" });
+    expect(await prisma.workItem.findUniqueOrThrow({ where: { id: hot }, select: fields })).toEqual({ columnKey: "doing", cancelReason: null });
   });
 
   it("runs a rule once per event, even when the event is processed again", async () => {
@@ -385,7 +443,12 @@ describe("saving a rule", () => {
         spec: {
           trigger: { on: "item.transitioned", to: ["ghost"] },
           condition: { cql: "nonsense ~~ 1" },
-          actions: [{ kind: "webhook", webhookId: crypto.randomUUID() }, { kind: "addComment", body: "{{item.secret}}" }],
+          actions: [
+            { kind: "webhook", webhookId: crypto.randomUUID() },
+            { kind: "addComment", body: "{{item.secret}}" },
+            { kind: "transition", to: "done", cancel: { reason: "OBE" } },
+            { kind: "transition", to: "cancelled", cancel: { reason: "OTHER" } },
+          ],
         },
       }),
     ).rejects.toMatchObject({
@@ -396,6 +459,8 @@ describe("saving a rule", () => {
           expect.objectContaining({ path: "actions.0" }),
           expect.objectContaining({ path: "actions.1" }),
           expect.objectContaining({ path: "condition.cql" }),
+          expect.objectContaining({ path: "actions.2.cancel", message: expect.stringMatching(/only for a move to a Cancelled/) }),
+          expect.objectContaining({ path: "actions.3.cancel", message: expect.stringMatching(/note/) }),
         ]),
       },
     });
@@ -415,5 +480,52 @@ describe("saving a rule", () => {
     expect(await prisma.automationRule.findUniqueOrThrow({ where: { id: created.id }, select: { actorCap: true } })).toEqual({ actorCap: maskToDb(bob.permissions) });
     // A save on a revision someone else already moved on from is refused.
     await expect(updateRule(bob, { id: created.id, projectId: p, revision: 1 }, { name: "stale" })).rejects.toMatchObject({ status: 409 });
+  });
+});
+
+describe("templates (§5.3)", () => {
+  const pick = (cats: readonly string[]) => STATUSES.find((s) => cats.includes(s.category))!.key;
+  const valuesFor = (t: AutomationTemplate) =>
+    Object.fromEntries(t.params.map((p) => [p.key, p.kind === "status" ? pick(p.categories) : p.default]));
+
+  it("each builds a rule the server saves for a project: its statuses exist and its query compiles", async () => {
+    const p = await project();
+    const ctx = await aliceCtx();
+    for (const t of AUTOMATION_TEMPLATES) {
+      const saved = await createRule(ctx, { projectId: p, name: t.name, spec: t.build(valuesFor(t)), templateKey: t.key });
+      expect(saved.templateKey).toBe(t.key);
+    }
+    expect(await prisma.automationRule.count({ where: { projectId: p } })).toBe(AUTOMATION_TEMPLATES.length);
+  });
+
+  it("close stale: cancels, as overcome by events, open items untouched for the days given, and leaves recent ones", async () => {
+    const p = await project();
+    const t = templateByKey("close-stale")!;
+    const saved = await createRule(await aliceCtx(), { projectId: p, name: t.name, spec: t.build({ ...valuesFor(t), days: 30 }) });
+    const [old, fresh] = [await item(p), await item(p)];
+    await prisma.$executeRaw`UPDATE work_items SET updated_at = now() - interval '40 days' WHERE id = ${old}::uuid`;
+    const six = new Date();
+    six.setUTCHours(6, 5, 0, 0);
+    expect(await runDueSchedules({ orgId, now: () => six })).toBe(1);
+    const fields = { columnKey: true, cancelReason: true } as const;
+    expect(await prisma.workItem.findUniqueOrThrow({ where: { id: old }, select: fields })).toEqual({ columnKey: "cancelled", cancelReason: "OBE" });
+    expect(await prisma.workItem.findUniqueOrThrow({ where: { id: fresh }, select: fields })).toEqual({ columnKey: "todo", cancelReason: null });
+    expect((await prisma.comment.findFirstOrThrow({ where: { workItemId: old } })).content).toBe(`Cancelled by "${t.name}": no one had updated it for 30 days.`);
+    expect((await runsOf(saved.id)).map((r) => r.status)).toEqual(["SUCCESS"]);
+  });
+
+  it("parent follows children: the parent is done when its last child is, and not before", async () => {
+    const p = await project();
+    const t = templateByKey("parent-done-with-children")!;
+    await createRule(await aliceCtx(), { projectId: p, name: t.name, spec: t.build(valuesFor(t)) });
+    const parent = await item(p);
+    const [a, b] = [await item(p, { parentId: parent }), await item(p, { parentId: parent })];
+    await settle();
+    await move(p, a, "cancelled");
+    await settle();
+    expect((await prisma.workItem.findUniqueOrThrow({ where: { id: parent } })).columnKey).toBe("todo");
+    await move(p, b, "done");
+    await settle();
+    expect((await prisma.workItem.findUniqueOrThrow({ where: { id: parent } })).columnKey).toBe("done");
   });
 });

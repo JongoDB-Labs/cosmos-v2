@@ -17,6 +17,7 @@ import { isProjectVisible } from "@/lib/rbac/project-access";
 import { loadMemberAuthContext } from "@/lib/rbac/effective-permissions";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { applyWorkItemChange, type WorkItemPatch } from "@/lib/work-items/apply-change.server";
+import { loadStatusCategories } from "@/lib/boards/status-categories.server";
 import { runAfterCommit } from "@/lib/work-items/after-commit";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
 import type { WriteMeta } from "@/lib/work-items/events.server";
@@ -100,6 +101,11 @@ async function runAction(run: ActionRun, item: Item, action: AutomationAction): 
   switch (action.kind) {
     case "transition":
       if (item.columnKey === action.to) return true;
+      if (action.cancel) {
+        // A reason only goes with a cancel: on any other move it would stick to the item.
+        const [dest] = await loadStatusCategories(prisma, item.projectId, [action.to]);
+        if (dest?.category === "CANCELLED") return change(run, item, { columnKey: action.to, cancelReason: action.cancel.reason, cancelNote: action.cancel.note ?? null });
+      }
       return change(run, item, { columnKey: action.to });
     case "setField": {
       if (action.field === "teamId") {
