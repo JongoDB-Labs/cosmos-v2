@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "@/lib/openapi/contract";
-import { Uuid } from "@/lib/openapi/schemas/common";
+import { Uuid, firstOf } from "@/lib/openapi/schemas/common";
 import * as E from "@/lib/openapi/schemas/enums.generated";
 import { CreatedWorkItemLink, WorkItemLinkRow } from "@/lib/openapi/schemas/links";
 
@@ -20,8 +20,7 @@ export const listWorkItemLinks = defineRoute({
     query: z.object({
       // As before contracts: blank means no filter, and a repeated one reads
       // as its first value (searchParams.get()).
-      item: z
-        .preprocess((v) => (Array.isArray(v) ? v[0] : v), z.union([Uuid, z.literal("")]).optional())
+      item: firstOf(z.union([Uuid, z.literal("")]).optional())
         .describe("A work item id: only the links it is the source or target of."),
     }),
   },
