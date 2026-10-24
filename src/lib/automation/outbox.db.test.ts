@@ -93,6 +93,10 @@ describe("the outbox worker", () => {
     // The move into Done is both: a subscriber to every transition still gets it.
     expect((await deliveriesOf(both.id)).map((d) => d.event).sort()).toEqual(["work_item.completed", "work_item.transitioned", "work_item.transitioned"]);
     expect((await deliveriesOf(done.id)).map((d) => [d.event, (d.payload as { change: { to: string } }).change.to])).toEqual([["work_item.completed", "done"]]);
+    // Each delivery names itself, so the two for the one move into Done can be told apart.
+    const ids = (await deliveriesOf(both.id)).map((d) => [d.id, (d.payload as { id: string }).id]);
+    for (const [row, inPayload] of ids) expect(inPayload).toBe(row);
+    expect(new Set(ids.map(([row]) => row)).size).toBe(3);
   });
 
   it("delivers nothing for a MIGRATION move or to a switched-off webhook, and still marks the events processed", async () => {

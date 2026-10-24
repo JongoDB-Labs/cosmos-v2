@@ -16,6 +16,7 @@
  * reach no consumer: they're bookkeeping, not something that happened to an
  * item, and a publish can move thousands at once.
  */
+import { randomUUID } from "crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { webhookEventsFor } from "@/lib/webhooks/events";
 
@@ -113,7 +114,11 @@ async function webhookDeliveries(tx: Prisma.TransactionClient, events: EventRow[
       if (hook.orgId !== e.org_id) continue;
       for (const name of names) {
         if (!hook.events.includes(name)) continue;
+        // The delivery's own id, in the payload too: one change can be two
+        // deliveries (transitioned and completed), and a receiver dedupes on this.
+        const id = randomUUID();
         rows.push({
+          id,
           webhookId: hook.id,
           event: name,
           eventId: e.id,
@@ -121,6 +126,7 @@ async function webhookDeliveries(tx: Prisma.TransactionClient, events: EventRow[
           nextAttemptAt: now,
           // Ids, keys and the outbox's own payload (allowlisted values only): never a title or body.
           payload: {
+            id,
             eventId: e.id.toString(),
             type: name,
             occurredAt: e.created_at.toISOString(),
