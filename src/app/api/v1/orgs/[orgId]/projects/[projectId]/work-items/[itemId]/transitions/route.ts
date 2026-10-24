@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
+import { orgContext } from "@/lib/openapi/org-context";
 import { requireAccess } from "@/lib/abac/require-access";
 import { handleApiError } from "@/lib/api-helpers";
 import { parseRequest, respond } from "@/lib/openapi/respond";
@@ -13,10 +13,7 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string; itemId:
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: p } = await parseRequest(listItemTransitions, request, params);
-    const org = await prisma.organization.findUnique({ where: { id: p.orgId } });
-    if (!org) return problem(404, "not_found", "Organization not found", { request });
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return problem(401, "unauthorized", undefined, { request });
+    const { ctx } = await orgContext(p.orgId, listItemTransitions);
 
     const item = await prisma.workItem.findFirst({ where: { id: p.itemId, orgId: p.orgId, projectId: p.projectId } });
     if (!item) return problem(404, "not_found", "Work item not found", { request });
