@@ -13,6 +13,7 @@ import { z } from "zod";
 import { FieldType } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
+import { requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
 
 const createFieldSchema = z.object({
   name: z.string().min(1).max(100),
@@ -69,6 +70,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = createFieldSchema.parse(body);
+    // A project's field is part of that project.
+    await requireProjectVisibleIf(ctx, data.projectId);
 
     const projectId = data.projectId ?? null;
 

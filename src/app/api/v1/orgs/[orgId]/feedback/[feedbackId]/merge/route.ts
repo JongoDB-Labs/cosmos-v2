@@ -9,6 +9,7 @@ import { createNotification } from "@/lib/notifications/create";
 import { feedbackItemUrl } from "@/lib/feedback/urls";
 import { json, loadFeedbackRoute } from "@/lib/feedback/route-context.server";
 import { isTxConflict, mergeFeedback, MergeError, undoMerge } from "@/lib/feedback/merge.server";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string; feedbackId: string }> };
 
@@ -33,9 +34,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // ABAC rules on its author apply as well. Another org's id is simply not found.
     const survivorRow = await prisma.feedbackItem.findFirst({
       where: { id: survivorId, orgId },
-      select: { authorId: true },
+      select: { authorId: true, projectId: true },
     });
-    if (!survivorRow) return json(404, { error: "The request to merge into was not found.", code: "not-found" });
+    if (!survivorRow || !(await inVisibleProject(route.ctx, survivorRow.projectId))) return json(404, { error: "The request to merge into was not found.", code: "not-found" });
     await requireAccess(route.ctx, "ORG_UPDATE", { createdById: survivorRow.authorId });
 
     let result: Awaited<ReturnType<typeof mergeFeedback>>;

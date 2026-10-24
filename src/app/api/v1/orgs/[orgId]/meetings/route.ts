@@ -10,6 +10,7 @@ import { pullSoonIfStale, syncMeetingSoon } from "@/lib/integrations/microsoft/c
 import { z } from "zod";
 import { MeetingType } from "@prisma/client";
 import { allOrgMembers, attendeesNotMembers } from "@/lib/meetings/attendee-members";
+import { requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
 
 const createMeetingSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -109,6 +110,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = createMeetingSchema.parse(body);
+    // Filing it under a project is writing to that project.
+    await requireProjectVisibleIf(ctx, data.projectId);
     if (data.attendeeIds && !(await allOrgMembers(orgId, data.attendeeIds))) return attendeesNotMembers();
 
     // Validate a custom type belongs to this org (defense-in-depth); when set,

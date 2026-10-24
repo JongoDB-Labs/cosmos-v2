@@ -6,6 +6,7 @@ import { getMeetClient } from "@/lib/integrations/google";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { Prisma } from "@prisma/client";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string; meetingId: string }> };
 
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
 
     const existing = await prisma.syncMeeting.findFirst({ where: { id: meetingId, orgId } });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
     await requireAccess(ctx, "MEETING_UPDATE", {
       createdById: existing.createdById,
       projectId: existing.projectId,
