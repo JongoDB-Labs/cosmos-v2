@@ -20,7 +20,7 @@ export interface ValidationFacts {
   /** Items linked from this one, by link type, with whether each is settled. */
   links?: Readonly<Record<string, readonly { title: string; settled: boolean }[]>>;
   /** The destination column's WIP limit and how many items it would hold after the move. */
-  wip?: { limit: number | null; countAfter: number; columnName: string };
+  wip?: { limit: number | null; countAfter: number; columnName: string; boardName: string };
   /** The item's type key and whether the project plans in intervals. */
   interval?: { typeKey: string | null; projectHasIntervals: boolean };
   /** The cancel reason and note the change carries. */
@@ -82,10 +82,11 @@ export function runValidators(
         break;
       }
       case "wipLimit": {
-        // No board in the request, or no limit on the column: nothing to enforce.
+        // No board with a hard limit on the column: nothing to enforce.
         if (!facts.wip || facts.wip.limit === null) break;
         if (facts.wip.countAfter > facts.wip.limit) {
-          failures.push({ validator: v.kind, message: `${facts.wip.columnName} is at its limit of ${facts.wip.limit}.` });
+          // The board's own wording, plus which board: the move may not have come from it.
+          failures.push({ validator: v.kind, message: `"${facts.wip.columnName}" on ${facts.wip.boardName} is at its WIP limit (${facts.wip.limit}) — move blocked.` });
         }
         break;
       }

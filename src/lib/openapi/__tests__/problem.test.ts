@@ -59,6 +59,8 @@ describe("handleApiError keeps every legacy body", () => {
     ["Conflict", new ConflictError("payment exceeds balance"), 409, "conflict", "payment exceeds balance"],
     ["NoModelCredential", new NoModelCredentialError(), 409, "model_not_connected", new NoModelCredentialError().message],
     ["P2002", p2002, 409, "conflict", "Conflicting concurrent request — please retry"],
+    ["deadlock", new Prisma.PrismaClientKnownRequestError("deadlock", { code: "P2010", clientVersion: "x", meta: { code: "40P01" } }), 409, "conflict", "Conflicting concurrent request — please retry"],
+    ["write conflict", new Prisma.PrismaClientKnownRequestError("conflict", { code: "P2034", clientVersion: "x" }), 409, "conflict", "Conflicting concurrent request — please retry"],
     ["unknown", new Error("db exploded: password=hunter2"), 500, "internal_error", "Internal server error"],
   ] as const)("%s keeps its status, code and legacy text", async (_n, err, status, code, legacy) => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});

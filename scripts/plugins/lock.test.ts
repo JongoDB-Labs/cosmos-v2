@@ -21,7 +21,7 @@ describe("plugins.lock.json", () => {
   });
 
   const lock = JSON.parse(readFileSync(LOCK, "utf8")) as {
-    plugins: Record<string, { ref: string }>;
+    plugins: Record<string, { ref: string; version?: string }>;
   };
 
   it("pins at least one plugin", () => {
@@ -31,6 +31,22 @@ describe("plugins.lock.json", () => {
   it("pins every plugin to a full SHA or an explicit 'main'", () => {
     for (const [slug, entry] of Object.entries(lock.plugins)) {
       expect(entry.ref, `${slug} ref must be a 40-char SHA or 'main'`).toMatch(REF_RE);
+    }
+  });
+
+  it("records a version only as a vX.Y.Z tag against a SHA pin", () => {
+    for (const [slug, entry] of Object.entries(lock.plugins)) {
+      if (entry.version === undefined) continue;
+      expect(entry.version, `${slug} version must be vX.Y.Z`).toMatch(/^v[0-9]+\.[0-9]+\.[0-9]+$/);
+      expect(entry.ref, `${slug} version needs a SHA pin, not 'main'`).not.toBe("main");
+    }
+  });
+
+  it("names only public plugins — this file ships in the public core", () => {
+    // Mirrors PUBLIC_PLUGINS in scripts/plugins/lock-merge.mjs. A private plugin
+    // is pinned only by the private assembly and must never appear here.
+    for (const slug of Object.keys(lock.plugins)) {
+      expect(["foreman", "pi-planning", "whiteboard"], `${slug} is not a public plugin`).toContain(slug);
     }
   });
 
