@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.463.3",
+    date: "2026-10-24",
+    title: "Internal: tidy the seed scripts",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal: the database seed scripts share one environment loader and drop a no-op legacy step. No visible change.",
+      },
+    ],
+  },
+  {
     version: "2.463.2",
     date: "2026-10-24",
     title: "Internal: tidy project-management exports",
