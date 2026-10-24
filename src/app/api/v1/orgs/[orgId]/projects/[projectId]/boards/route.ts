@@ -22,6 +22,13 @@ const createBoardSchema = z.object({
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
+/**
+ * Delivery boards that start with the project's workflow as their columns
+ * (COSMOS-231). Their columns come from seedBoardColumns, never also from the
+ * registry's defaultColumns, so a type can't get both.
+ */
+const SEEDED_FROM_PROJECT = new Set<BoardType>([BoardType.KANBAN, BoardType.SCRUM]);
+
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, projectId } = await params;
@@ -88,6 +95,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
 
     const slug = await uniqueBoardSlug(data.name, projectId);
+    const seeded = SEEDED_FROM_PROJECT.has(data.type);
     const board = await prisma.$transaction(async (tx) => {
       const row = await tx.board.create({
         data: {
@@ -102,17 +110,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           // board with no columns opens with nowhere to put a note, which reads
           // as a broken feature rather than an unconfigured one.
           columns: {
-            create: (BOARD_TYPE_REGISTRY[data.type].defaultColumns ?? []).map(
+            create: (seeded ? [] : (BOARD_TYPE_REGISTRY[data.type].defaultColumns ?? [])).map(
               (c, i) => ({ ...c, sortOrder: i })
             ),
           },
         },
       });
-      // A new Kanban board (Issues' "Save as board", or the board form) shows
-      // the project's workflow: the main Kanban board's columns, or the
+      // A new Kanban or Scrum board (Issues' "Save as board", the gallery)
+      // shows the project's workflow: the main Kanban board's columns, or the
       // default ones. Through the status provisioning path, so every column
       // is a view onto a status that exists.
-      if (data.type === BoardType.KANBAN) {
+      if (seeded) {
         await seedBoardColumns(tx, row, await kanbanColumnsFor(tx, projectId));
       }
       return tx.board.findUniqueOrThrow({

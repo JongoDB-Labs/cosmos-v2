@@ -63,6 +63,8 @@ describe("POST /boards (e2e DB)", () => {
     );
 
     const board = await create(pid, { name: "My saved view", type: "KANBAN" });
+    // Exactly the seeded set: never registry defaults on top of it.
+    expect(new Set(board.columns.map((c) => c.key)).size).toBe(board.columns.length);
     expect(board.columns.map((c) => [c.key, c.name, c.category])).toEqual([
       ["ideas", "Ideas", "TODO"],
       ["building", "Building", "IN_PROGRESS"],
@@ -78,6 +80,24 @@ describe("POST /boards (e2e DB)", () => {
     expect(board.columns.map((c) => c.key)).toEqual(DEFAULT_COLUMNS.map((c) => c.key));
     const keys = await statusKeys(pid);
     for (const c of board.columns) expect(keys.has(c.key)).toBe(true); // no orphan column
+  });
+
+  it("seeds a new Scrum board the same way", async () => {
+    const withMain = await project("KBD");
+    const main = await prisma.board.create({ data: { orgId, projectId: withMain, name: "Main", type: "KANBAN", sortOrder: 0 } });
+    await prisma.$transaction((tx) =>
+      seedBoardColumns(tx, { ...main, projectId: withMain }, [
+        { name: "Open", key: "open", category: "TODO" },
+        { name: "Closed", key: "closed", category: "DONE" },
+      ]),
+    );
+    expect((await create(withMain, { name: "Sprint", type: "SCRUM" })).columns.map((c) => c.key)).toEqual(["open", "closed"]);
+
+    const bare = await project("KBE");
+    const board = await create(bare, { name: "Sprint", type: "SCRUM" });
+    expect(board.columns.map((c) => c.key)).toEqual(DEFAULT_COLUMNS.map((c) => c.key));
+    const keys = await statusKeys(bare);
+    for (const c of board.columns) expect(keys.has(c.key)).toBe(true);
   });
 
   it("leaves a ceremony board with its own columns", async () => {
