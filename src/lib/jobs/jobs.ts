@@ -2,6 +2,7 @@ import { registerJob } from "./runner";
 import { runCalendarPulls } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { prisma } from "@/lib/db/client";
 import { pruneDomainEvents } from "@/lib/work-items/events.server";
+import { runWorkflowMigrations } from "@/lib/workflow/migrate.server";
 
 /**
  * Every periodic job the app runs, registered on the shared runner
@@ -30,5 +31,19 @@ registerJob({
   run: async ({ signal }) => {
     const deleted = await pruneDomainEvents(prisma, { signal });
     return deleted ? { deleted } : undefined;
+  },
+});
+
+// Workflow P3: move items out of statuses a published workflow (or a new
+// assignment) dropped, from the map stored with that change. Resumable: the
+// work is read from the data on every run. A publish also starts it at once.
+registerJob({
+  name: "workflow-migrations",
+  everyMs: 60_000,
+  jitterMs: 10_000,
+  timeoutMs: 5 * 60_000,
+  run: async ({ signal }) => {
+    const r = await runWorkflowMigrations(prisma, { signal });
+    return r.moved > 0 ? r : undefined;
   },
 });
