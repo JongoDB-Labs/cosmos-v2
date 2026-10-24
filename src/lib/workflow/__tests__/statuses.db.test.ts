@@ -151,6 +151,32 @@ describe("ensureStatuses", () => {
 });
 
 describe("archived statuses", () => {
+  it("are not restored, nor recategorised, by a spec that does not ask to restore them", async () => {
+    const p = await project();
+    await board(p.id, "KANBAN");
+    await prisma.workflowStatus.update({ where: { projectId_key: { projectId: p.id, key: "doing" } }, data: { archivedAt: new Date() } });
+    await prisma.$transaction((tx) =>
+      ensureStatuses(tx, { orgId, projectId: p.id }, [{ key: "doing", name: "Doing" }]),
+    );
+    expect((await statusesOf(p.id)).find((s) => s.key === "doing")).toMatchObject({ archived: true, category: "IN_PROGRESS" });
+  });
+
+  it("a new board's column without a category leaves the status's category as it is", async () => {
+    const p = await project();
+    await board(p.id, "KANBAN");
+    await board(p.id, "TABLE", [{ key: "done", name: "Done" }]);
+    expect((await statusesOf(p.id)).find((s) => s.key === "done")?.category).toBe("DONE");
+  });
+
+  it("a new board's column without a category restores a status with the category it had", async () => {
+    const p = await project();
+    await prisma.workflowStatus.create({
+      data: { orgId, projectId: p.id, key: "shipped", name: "Shipped", category: "DONE", sortOrder: 5, archivedAt: new Date() },
+    });
+    await board(p.id, "TABLE", [{ key: "shipped", name: "Shipped" }]);
+    expect((await statusesOf(p.id)).find((s) => s.key === "shipped")).toMatchObject({ archived: false, category: "DONE" });
+  });
+
   it("come back when a new board's column names them, with the column's category", async () => {
     const p = await project();
     // As the backfill leaves an orphan key: archived, with a guessed category.
@@ -366,5 +392,56 @@ describe("board column editor", () => {
     // The column went; the status and the item in it stay.
     expect(statuses.find((s) => s.key === "doing")).toBeTruthy();
     expect((await prisma.workItem.findUniqueOrThrow({ where: { id: wi.id } })).columnKey).toBe("doing");
+  });
+
+  // Every save sends every column, so a save must not undo what was decided
+  // about a status elsewhere.
+  const save = (projectId: string, boardId: string, columns: unknown[]) =>
+    putColumns(req("PUT", { columns }), pb(projectId, boardId));
+  const archive = (projectId: string, key: string) =>
+    prisma.workflowStatus.update({ where: { projectId_key: { projectId, key } }, data: { archivedAt: new Date() } });
+
+  it("keeps an archived status archived when the board's columns are reordered or renamed", async () => {
+    const p = await project();
+    const kanban = await board(p.id, "KANBAN");
+    await archive(p.id, "doing");
+    const cols = await prisma.boardColumn.findMany({ where: { boardId: kanban.id }, orderBy: { sortOrder: "asc" } });
+    const res = await save(p.id, kanban.id, [...cols].reverse().map((c, i) => ({
+      id: c.id, name: c.key === "todo" ? "Backlog" : c.name, key: c.key, sortOrder: i, category: c.category,
+    })));
+    expect(res.status).toBe(200);
+    expect((await statusesOf(p.id)).find((s) => s.key === "doing")).toMatchObject({ archived: true, category: "IN_PROGRESS" });
+  });
+
+  it("leaves an existing status's category alone when a save gives none", async () => {
+    const p = await project();
+    const kanban = await board(p.id, "KANBAN");
+    const table = await board(p.id, "TABLE", [{ key: "todo", name: "To Do", category: "TODO" }]);
+    const cols = await prisma.boardColumn.findMany({ where: { boardId: kanban.id }, orderBy: { sortOrder: "asc" } });
+    // The board's columns sent back without categories.
+    expect((await save(p.id, kanban.id, cols.map((c) => ({ id: c.id, name: c.name, key: c.key, sortOrder: c.sortOrder })))).status).toBe(200);
+    // Another board starts showing "done", without a category.
+    const [todo] = await prisma.boardColumn.findMany({ where: { boardId: table.id } });
+    expect((await save(p.id, table.id, [
+      { id: todo.id, name: todo.name, key: todo.key, sortOrder: 0 },
+      { name: "Shipped", key: "done", sortOrder: 1 },
+    ])).status).toBe(200);
+    expect((await statusesOf(p.id)).find((s) => s.key === "done")?.category).toBe("DONE");
+    expect((await columnsOf(table.id)).find((c) => c.key === "done")?.category).toBe("DONE");
+  });
+
+  it("restores an archived status when a column is re-keyed to show it", async () => {
+    const p = await project();
+    const kanban = await board(p.id, "KANBAN");
+    await prisma.workflowStatus.create({
+      data: { orgId, projectId: p.id, key: "qa", name: "qa", category: "TODO", sortOrder: 1000, archivedAt: new Date() },
+    });
+    const cols = await prisma.boardColumn.findMany({ where: { boardId: kanban.id }, orderBy: { sortOrder: "asc" } });
+    const res = await save(p.id, kanban.id, cols.map((c) => ({
+      id: c.id, name: c.key === "doing" ? "QA" : c.name, key: c.key === "doing" ? "qa" : c.key,
+      sortOrder: c.sortOrder, category: c.key === "doing" ? "IN_PROGRESS" : c.category,
+    })));
+    expect(res.status).toBe(200);
+    expect((await statusesOf(p.id)).find((s) => s.key === "qa")).toMatchObject({ archived: false, category: "IN_PROGRESS" });
   });
 });

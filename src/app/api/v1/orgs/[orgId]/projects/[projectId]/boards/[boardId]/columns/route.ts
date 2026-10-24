@@ -53,7 +53,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const result = await prisma.$transaction(async (tx) => {
       const existingColumns = await tx.boardColumn.findMany({
         where: { boardId },
-        select: { id: true, key: true },
+        select: { id: true, key: true, category: true },
       });
       const existingIds = existingColumns.map((c) => c.id);
 
@@ -75,9 +75,24 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         await ensureStatuses(
           tx,
           { orgId, projectId },
-          columns.map((c) => ({ key: c.key, name: c.name, color: c.color, category: c.category, sortOrder: c.sortOrder })),
-          // Only an explicit category is written to an existing status; a
-          // payload without one must not reset it to the TODO default.
+          columns.map((c) => {
+            const before = existingColumns.find((e) => e.id === c.id);
+            // A save sends every column. Only a column that starts showing a
+            // status here (new, or re-keyed) may restore it from the archive;
+            // only a category this request changes is written, so a column
+            // sent back as it was, or without a category, leaves its status
+            // alone.
+            const shows = !before || before.key !== c.key;
+            const categoryChanged = c.category !== undefined && (shows || c.category !== before?.category);
+            return {
+              key: c.key,
+              name: c.name,
+              color: c.color,
+              category: categoryChanged ? c.category : undefined,
+              sortOrder: c.sortOrder,
+              restore: shows,
+            };
+          }),
           { writeCategory: true },
         );
       }

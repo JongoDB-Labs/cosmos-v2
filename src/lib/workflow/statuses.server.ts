@@ -19,9 +19,15 @@ export interface StatusSpec {
   key: string;
   name: string;
   color?: string | null;
-  /** Required to create; for an existing status, see `writeCategory`. */
+  /** Required to create; for an existing status, see `ensureStatuses`. */
   category?: ColumnCategory;
   sortOrder?: number;
+  /**
+   * Restore the status if it is archived. Only a column that starts showing
+   * the status in this request (a new column, or one re-keyed to it) sets
+   * this: a column that already showed it is not a decision to use it again.
+   */
+  restore?: boolean;
 }
 
 export interface StatusRow {
@@ -86,20 +92,25 @@ export function toStatusDto(row: StatusRow, items?: number) {
 }
 
 /**
- * Make sure each spec's status exists. A missing one is created; an existing one
- * keeps its name, colour and order (statuses are shared, and one board's
- * spelling must not rename them for every board).
+ * Make sure each spec's status exists. A missing one is created (as TODO when
+ * the spec gives no category); an existing one keeps its name, colour and
+ * order (statuses are shared, and one board's spelling must not rename them
+ * for every board).
  *
- * An ARCHIVED status that a spec names is restored: a column showing it is the
- * decision to use it again. Its category is then the spec's, where the spec
- * gives one (the archived row's category was a guess from its key, in the
- * backfill, or belongs to the status's earlier life), and every column showing
- * it follows.
+ * An existing status changes in two cases only, so that saving a board's
+ * columns, which sends every column, never undoes a decision made elsewhere:
  *
- * `writeCategory` also writes each spec's category, where it gives one, onto an
- * existing status and every column showing it: the board column editor still
- * edits a column's category, and the status is now where that lives. A spec
- * without a category creates its status as TODO and changes nothing else.
+ * - A spec with `restore` restores the status if it is archived, and the
+ *   spec's category, where it gives one, becomes the status's (the archived
+ *   row's category was a guess from its key, in the backfill, or belongs to
+ *   the status's earlier life).
+ * - With `writeCategory`, a spec's category, where it gives one, is written
+ *   to the status: the board column editor still edits a column's category,
+ *   and the status is now where that lives. The caller passes a category only
+ *   when the request changes it; a spec without one never resets a status to
+ *   the TODO default.
+ *
+ * A category written to a status is written to every column showing it.
  */
 export async function ensureStatuses(
   tx: Prisma.TransactionClient,
@@ -137,9 +148,9 @@ export async function ensureStatuses(
   for (const spec of specs) {
     const row = have.get(spec.key);
     if (!row) continue;
-    const restoring = row.archivedAt !== null;
-    const recategorise = Boolean(spec.category) && row.category !== spec.category && (restoring || opts.writeCategory);
-    if (!restoring && !recategorise) continue;
+    const restoring = Boolean(spec.restore) && row.archivedAt !== null;
+    const recategorise =
+      spec.category !== undefined && row.category !== spec.category && (restoring || Boolean(opts.writeCategory));
     if (restoring) {
       await tx.workflowStatus.update({
         where: { projectId_key: { projectId: scope.projectId, key: spec.key } },

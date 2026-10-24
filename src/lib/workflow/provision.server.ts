@@ -31,7 +31,10 @@ export async function seedBoardColumns(
     await ensureStatuses(
       tx,
       { orgId: board.orgId, projectId: board.projectId },
-      columns.map((c, i) => ({ key: c.key, name: c.name, color: c.color, category: c.category ?? "TODO", sortOrder: c.sortOrder ?? i })),
+      // Every column here is new, so it restores an archived status it names.
+      // Its category is passed as given: a default must not overwrite an
+      // existing status's category.
+      columns.map((c, i) => ({ key: c.key, name: c.name, color: c.color, category: c.category, sortOrder: c.sortOrder ?? i, restore: true })),
     );
     const rows = await tx.workflowStatus.findMany({
       where: { projectId: board.projectId, key: { in: columns.map((c) => c.key) } },
