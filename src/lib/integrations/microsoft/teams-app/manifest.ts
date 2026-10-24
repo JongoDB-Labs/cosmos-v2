@@ -8,7 +8,7 @@ import { zipSync, zlibSync, strToU8 } from "fflate";
  * so Teams admins can tell an update from what they have.
  */
 
-export const MANIFEST_VERSION = "1.1.0";
+export const MANIFEST_VERSION = "1.2.0";
 const ACCENT = "#4F46E5";
 
 export interface ManifestArgs {
@@ -27,11 +27,30 @@ export function teamsManifest({ appId, origin }: ManifestArgs) {
     developer: { name: "Cosmos", websiteUrl: `${origin}/`, privacyUrl: `${origin}/`, termsOfUseUrl: `${origin}/` },
     name: { short: "Cosmos", full: "Cosmos for Teams" },
     description: {
-      short: "Cosmos items in Teams: link cards, create from a message, search.",
-      full: "Paste a Cosmos item link to show it as a card, turn any message into a Cosmos item, and search Cosmos items from the compose box. You see only what you can see in Cosmos; restricted items show only their key.",
+      short: "Cosmos items in Teams: link cards, create from a message, search, notifications.",
+      full: "Paste a Cosmos item link to show it as a card, turn any message into a Cosmos item, and search Cosmos items from the compose box. Get your Cosmos notifications in a chat with Cosmos, and a project's new items and status changes in a channel. You see only what you can see in Cosmos; restricted items show only their key.",
     },
     icons: { color: "color.png", outline: "outline.png" },
     accentColor: ACCENT,
+    // T2: a chat with Cosmos for your notifications, and "@Cosmos link KEY" in a channel.
+    bots: [
+      {
+        botId: appId,
+        scopes: ["personal", "team"],
+        isNotificationOnly: false,
+        supportsFiles: false,
+        commandLists: [
+          { scopes: ["personal"], commands: [{ title: "help", description: "What Cosmos sends here" }] },
+          {
+            scopes: ["team"],
+            commands: [
+              { title: "link", description: "link KEY: post this project's new items and status changes here" },
+              { title: "unlink", description: "Stop posting Cosmos updates here" },
+            ],
+          },
+        ],
+      },
+    ],
     composeExtensions: [
       {
         botId: appId,

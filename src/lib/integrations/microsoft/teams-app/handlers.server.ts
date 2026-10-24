@@ -9,6 +9,8 @@ import {
   connectCard, createForm, itemCard, messageText, noticeCard, restrictedCard, statusLabel, type Attachment,
 } from "./cards";
 import { teamsOrgsForTenant, teamsUsers, type TeamsUser } from "./identity.server";
+import { capturePersonal, forgetConversation, handleChannelMessage, handlePersonalMessage, type InboundActivity } from "./conversations.server";
+import type { ConnectorDeps } from "./bot-connector.server";
 
 /**
  * COSMOS-202 T1: what the Cosmos for Teams app does with a verified Bot
@@ -22,15 +24,11 @@ import { teamsOrgsForTenant, teamsUsers, type TeamsUser } from "./identity.serve
  * restricted item never leaves as more than its key.
  */
 
-export interface Activity {
-  type?: string;
+export interface Activity extends InboundActivity {
   name?: string;
   value?: unknown;
   channelId?: string;
-  serviceUrl?: string;
-  from?: { aadObjectId?: string };
-  channelData?: { tenant?: { id?: string } };
-  conversation?: { tenantId?: string };
+  action?: string;
 }
 
 export interface BotReply {
@@ -75,7 +73,7 @@ async function cards(u: TeamsUser, rows: IssueRow[], origin: string, opts: { dro
 }
 
 /** An item by key ("ACME-12") or id, if this person may read it. */
-async function findItem(u: TeamsUser, ref: string): Promise<IssueRow | null> {
+export async function findItem(u: TeamsUser, ref: string): Promise<IssueRow | null> {
   if (!hasPermission(u.auth.permissions, Permission.ITEM_READ)) return null;
   const readable = await getReadableProjectIds(u.auth);
   if (!readable.length) return null;
@@ -213,11 +211,24 @@ async function submit(users: TeamsUser[], value: unknown, origin: string, connec
  * Answer one verified activity. `origin` is Cosmos's public origin (links in
  * cards, and the only host whose links unfurl).
  */
-export async function handleActivity(activity: Activity, origin: string): Promise<BotReply> {
+export async function handleActivity(activity: Activity, origin: string, deps: ConnectorDeps = {}): Promise<BotReply> {
   const tenant = tenantOf(activity);
   const orgs = await teamsOrgsForTenant(tenant);
   if (!orgs.length) return { status: 403 };
-  // T1 is message extensions only: conversation and install events are acknowledged, not answered.
+  // T2: the bot in a personal chat or a channel. Replies go out through the
+  // Bot Connector (to the serviceUrl of this verified activity); the HTTP answer is empty.
+  if (activity.type === "message") {
+    const scope = activity.conversation?.conversationType;
+    if (scope === "personal") await handlePersonalMessage(activity, tenant, orgs, deps);
+    else if (scope === "channel") await handleChannelMessage(activity, tenant, orgs, deps);
+    return { status: 200 };
+  }
+  if (activity.type === "installationUpdate" || activity.type === "conversationUpdate") {
+    // Installed in someone's personal scope: remember the chat (nothing is sent until they choose to).
+    if (activity.action === "remove") await forgetConversation(activity, orgs);
+    else await capturePersonal(activity, tenant, orgs);
+    return { status: 200 };
+  }
   if (activity.type !== "invoke") return { status: 200 };
   const users = await teamsUsers(orgs, tenant, activity.from?.aadObjectId ?? "");
   const connect = connectCard(orgs.length === 1 ? `${origin}/${orgs[0].slug}/settings/preferences` : `${origin}/`);
