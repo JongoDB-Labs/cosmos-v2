@@ -71,7 +71,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     await requireProjectVisible(ctx, projectId);
-    await requireProjectVisible(ctx, projectId);
     // Inheriting authority, now including the PROJECT role: an org-wide
     // BOARD_CREATE holder, or a MANAGER/LEAD of this project. A project VIEWER
     // is refused even holding the org bit — that is what the label promises.
