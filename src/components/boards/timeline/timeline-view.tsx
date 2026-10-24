@@ -25,6 +25,7 @@ import {
   Minimize2,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { announceSchedule, type ScheduleAction } from "./schedule-announcement";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -746,6 +747,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   type ScheduleEdit = { items: ItemDateSnapshot[] };
   const [undoStack, setUndoStack] = useState<ScheduleEdit[]>([]);
   const [redoStack, setRedoStack] = useState<ScheduleEdit[]>([]);
+  // What the polite live region says after a drop, an undo or a redo. Cleared
+  // first and set a tick later, so the same sentence twice in a row (undo, redo,
+  // undo) is still read out: a live region only speaks when its text changes.
+  const [announcement, setAnnouncement] = useState("");
+  const announceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (announceTimer.current) clearTimeout(announceTimer.current);
+  }, []);
   const loading = itemsQ.isLoading || membersQ.isLoading;
   const error = itemsQ.error
     ? itemsQ.error instanceof Error
@@ -1000,6 +1009,20 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // The cost is a request chain rather than a fan-out. A wrong plan is worse
   // than a slow one, and "how far did that item move?" had no stable answer at
   // all while these raced.
+  const announce = useCallback(
+    (action: ScheduleAction, edit: ScheduleEdit) => {
+      const label = (id: string) => {
+        const it = items.find((x) => x.id === id);
+        return it ? `${projectKey}-${it.ticketNumber}, ${it.title}` : "the item";
+      };
+      const text = announceSchedule(action, edit, label);
+      setAnnouncement("");
+      if (announceTimer.current) clearTimeout(announceTimer.current);
+      announceTimer.current = setTimeout(() => setAnnouncement(text), 50);
+    },
+    [items, projectKey],
+  );
+
   const commitSchedule = useCallback(
     async (targets: Array<{ id: string; dates: DateRange }>): Promise<ItemDateSnapshot[]> => {
       if (targets.length === 0) return [];
@@ -1092,10 +1115,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       // take back until the save has happened.
       void (async () => {
         const cascaded = await commitSchedule([{ id: d.id, dates: after }]);
-        setUndoStack((prev) => [...prev, { items: [{ id: d.id, before, after }, ...cascaded] }]);
+        const edit = { items: [{ id: d.id, before, after }, ...cascaded] };
+        setUndoStack((prev) => [...prev, edit]);
+        announce("moved", edit);
       })();
     },
-    [dayWidth, commitSchedule],
+    [dayWidth, commitSchedule, announce],
   );
 
   // Undo/redo restore the WHOLE snapshot — the bar plus everything its cascade
@@ -1107,14 +1132,16 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     void commitSchedule(op.items.map((i) => ({ id: i.id, dates: i.before })));
     setUndoStack((s) => s.slice(0, -1));
     setRedoStack((r) => [...r, op]);
-  }, [undoStack, commitSchedule]);
+    announce("undo", op);
+  }, [undoStack, commitSchedule, announce]);
   const redo = useCallback(() => {
     if (redoStack.length === 0) return;
     const op = redoStack[redoStack.length - 1];
     void commitSchedule(op.items.map((i) => ({ id: i.id, dates: i.after })));
     setRedoStack((s) => s.slice(0, -1));
     setUndoStack((u) => [...u, op]);
-  }, [redoStack, commitSchedule]);
+    announce("redo", op);
+  }, [redoStack, commitSchedule, announce]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
@@ -1629,6 +1656,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         fullscreen && "fixed inset-0 z-50 bg-background",
       )}
     >
+      <div role="status" aria-live="polite" className="sr-only" data-testid="gantt-announcer">
+        {announcement}
+      </div>
       {fullscreen && (
         <Button
           variant="outline"
