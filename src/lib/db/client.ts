@@ -69,9 +69,14 @@ const activeOrgMembersOnly = Prisma.defineExtension({
   },
 });
 
-const base =
+// The explicit type argument is load-bearing for the type checker, not the runtime.
+// Inferred, the options make this a different `PrismaClient` instantiation from the
+// `globalForPrisma` side of the `??`, and tsc compares the two structurally, every
+// model delegate: 14 s and 42% of the program's types. See
+// prisma-client-instantiation.arch.test.ts.
+const base: PrismaClient =
   globalForPrisma.prisma ??
-  new PrismaClient({
+  new PrismaClient<Prisma.PrismaClientOptions>({
     adapter,
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
   });

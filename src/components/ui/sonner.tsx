@@ -25,6 +25,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
           <Loader2Icon className="size-4 animate-spin" />
         ),
       }}
+      // Text takes the -text tokens (AA on the toast's background in both
+      // themes); the fills stay on the border and the progress bar.
       style={
         {
           "--normal-bg": "var(--overlay)",
@@ -33,16 +35,16 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--border-radius": "var(--radius)",
           "--success-bg": "var(--overlay)",
           "--success-border": "var(--status-done)",
-          "--success-text": "var(--status-done)",
+          "--success-text": "var(--status-done-text)",
           "--error-bg": "var(--overlay)",
           "--error-border": "var(--status-critical)",
-          "--error-text": "var(--status-critical)",
+          "--error-text": "var(--status-critical-text)",
           "--info-bg": "var(--overlay)",
           "--info-border": "var(--status-progress)",
-          "--info-text": "var(--status-progress)",
+          "--info-text": "var(--status-progress-text)",
           "--warning-bg": "var(--overlay)",
           "--warning-border": "var(--status-blocked)",
-          "--warning-text": "var(--status-blocked)",
+          "--warning-text": "var(--status-blocked-text)",
         } as React.CSSProperties
       }
       toastOptions={{
