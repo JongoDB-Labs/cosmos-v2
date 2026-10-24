@@ -49,6 +49,39 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.460.6",
+    date: "2026-10-24",
+    title: "API keys stay within their projects in the document library",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An API key limited to certain projects now lists and downloads documents only from those projects.",
+      },
+    ],
+  },
+  {
+    version: "2.460.5",
+    date: "2026-10-24",
+    title: "Install Cosmos as an app in Edge and Chrome",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Edge and Chrome now offer to install Cosmos as an app: the app manifest is linked from the page head, where those browsers look for it.",
+      },
+    ],
+  },
+  {
+    version: "2.460.4",
+    date: "2026-10-24",
+    title: "New boards start with columns",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A Kanban or Scrum board created from Issues' \"Save as board\" (or the board form) now starts with the project's columns, or the defaults, instead of empty.",
+      },
+    ],
+  },
+  {
     version: "2.460.3",
     date: "2026-10-24",
     title: "API keys can't act beyond their scopes",

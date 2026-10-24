@@ -42,6 +42,7 @@
     "PATCH v1/orgs/[orgId]/projects/[projectId]/vendors/[vendorId]",
     "PATCH v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]",
     "PATCH v1/orgs/[orgId]/saved-views/[viewId]",
+    "PATCH v1/orgs/[orgId]/work-items/[itemId]",
     "POST v1/orgs/[orgId]/feedback/remediate",
     "POST v1/orgs/[orgId]/labels",
     "POST v1/orgs/[orgId]/projects/[projectId]/blockers",
@@ -79,19 +80,22 @@
     "POST v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
     "POST v1/orgs/[orgId]/projects/[projectId]/work-items/import",
     "POST v1/orgs/[orgId]/saved-views",
+    "POST v1/orgs/[orgId]/work-items/[itemId]/comments",
     "POST v1/orgs/[orgId]/work-items/search",
     "PUT v1/orgs/[orgId]/projects/[projectId]",
     "PUT v1/orgs/[orgId]/projects/[projectId]/tab-prefs",
     "PUT v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]",
     "PUT v1/orgs/[orgId]/saved-views/[viewId]",
-    "PUT v1/orgs/[orgId]/saved-views/[viewId]/favorite"
+    "PUT v1/orgs/[orgId]/saved-views/[viewId]/favorite",
+    "PUT v1/orgs/[orgId]/work-items/[itemId]"
   ],
   "items:delete": [
     "DELETE v1/orgs/[orgId]/projects/[projectId]/goals/[goalId]",
     "DELETE v1/orgs/[orgId]/projects/[projectId]/key-results/[krId]",
     "DELETE v1/orgs/[orgId]/projects/[projectId]/objectives/[objectiveId]",
     "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]",
-    "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/bulk"
+    "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/bulk",
+    "DELETE v1/orgs/[orgId]/work-items/[itemId]"
   ],
   "planning:write": [
     "DELETE v1/orgs/[orgId]/projects/[projectId]/blockers/[blockerId]",
