@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.464.3",
+    date: "2026-10-24",
+    title: "Internal: faster type checking",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal: type checking uses about 0.6 GB less memory and runs about 15 seconds faster. No visible change.",
+      },
+    ],
+  },
+  {
     version: "2.464.2",
     date: "2026-10-24",
     title: "Easier to use with a keyboard and screen reader",
