@@ -128,6 +128,27 @@ describe("KanbanColumn for an archived status", () => {
   });
 });
 
+// A column's title is the board's second heading level: an h2 on a flat board
+// (under the page's h1), an h3 inside a swimlane (whose lane label is the h2),
+// so the heading outline never skips a level (axe heading-order).
+describe("KanbanColumn title heading level", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("is an h2 by default and an h3 when the board nests it in a swimlane", () => {
+    renderColumn([]);
+    expect(screen.getByRole("heading", { level: 2, name: "To do" })).toBeTruthy();
+    cleanup();
+    render(
+      <DndContext>
+        <KanbanColumn column={makeColumn()} items={[]} members={[]} onCardClick={vi.fn()} headingLevel={3} />
+      </DndContext>,
+    );
+    expect(screen.getByRole("heading", { level: 3, name: "To do" })).toBeTruthy();
+  });
+});
+
 describe("KanbanColumn while a card that can't move here is dragged", () => {
   afterEach(() => cleanup());
 
