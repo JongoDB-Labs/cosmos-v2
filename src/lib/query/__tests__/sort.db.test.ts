@@ -44,9 +44,18 @@ describe("CQL two-phase sort (e2e DB)", () => {
     expect(await titles(`${p1()} ORDER BY assignee ASC NULLS FIRST`)).toEqual([...asc.slice(2), ...asc.slice(0, 2)]);
   });
 
-  it("status: by the column's name", async () => {
+  it("status: by the status's name in the item's project", async () => {
     // Cancelled, Done, In Progress, Review, To Do.
     expect(await titles(`${p1()} ORDER BY status`)).toEqual(["p1-child", "p1-done", "p1-login-bug", "p1-coowned", "p1-unassigned"]);
+    // The name is the project's workflow status (where a status lives since
+    // workflow P1), not a board column that happens to share its key.
+    const s = await prisma.workflowStatus.findUniqueOrThrow({ where: { projectId_key: { projectId: w.P1.id, key: "todo" } } });
+    await prisma.workflowStatus.update({ where: { id: s.id }, data: { name: "Aaa backlog" } });
+    try {
+      expect((await titles(`${p1()} ORDER BY status`))[0]).toBe("p1-unassigned");
+    } finally {
+      await prisma.workflowStatus.update({ where: { id: s.id }, data: { name: s.name } });
+    }
   });
 
   it("pages of a SQL sort are slices of the whole order", async () => {
@@ -88,5 +97,11 @@ describe("CQL two-phase sort (e2e DB)", () => {
     expect((err as CqlError).diagnostics[0].code).toBe("CQL_SORT_TOO_BROAD");
     // An ordinary sort of the same set is fine.
     expect((await executeCql(admin, { cql: `project = ${w.P3.key} ORDER BY due` }, { pageSize: 5 })).data).toHaveLength(5);
-  }, 60_000);
+    // An export may return 50,000 rows, so it sorts that many: all of these,
+    // in order, hydrated in chunks.
+    const exported = await exportCql(admin, { cql: `project = ${w.P3.key} AND summary ~ "bulk" ORDER BY key DESC, assignee` });
+    expect(exported.data).toHaveLength(SORT_MAX + 1);
+    const tickets = exported.data.map((r) => r.ticketNumber);
+    expect(tickets).toEqual([...tickets].sort((a, b) => b - a));
+  }, 120_000);
 });

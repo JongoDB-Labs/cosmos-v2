@@ -114,6 +114,28 @@ describe("CQL hierarchy and milestones (e2e DB)", () => {
     expect(await titles(`milestone IN ("Beta ${w.stamp}", EMPTY) AND project = ${w.P1.key}`)).toContain("p1-done");
   });
 
+  it("variables (a dashboard's filters) work as the literals they stand for", async () => {
+    const withVars = async (cql: string, vars: Record<string, string | string[]>, ctx = w.ctx()) =>
+      (await executeCql(ctx, { cql }, { now: NOW, pageSize: 100, vars })).data.map((r) => r.title).sort();
+    // Each must equal the literal query, and not be empty: an id set the
+    // resolver never gathered makes a variable quietly match nothing.
+    const cases: [string, Record<string, string | string[]>, string][] = [
+      ["ancestor = $epic", { epic: login() }, `ancestor = ${login()}`],
+      ["milestone = $m", { m: `Beta ${w.stamp}` }, `milestone = "Beta ${w.stamp}"`],
+      ["milestone IN $ms", { ms: [beta] }, `milestone IN ("${beta}")`],
+    ];
+    for (const [cql, vars, literal] of cases) {
+      const expected = await titles(literal);
+      expect(expected.length, literal).toBeGreaterThan(0);
+      expect(await withVars(cql, vars), cql).toEqual(expected);
+    }
+    // `!=` needs every linked item as well as the named one's.
+    const admin = w.ctx({ role: OrgRole.ADMIN });
+    expect(await withVars("milestone != $m", { m: `Beta ${w.stamp}` }, admin)).toEqual(["p1-unassigned"]);
+    // A restricted milestone through a variable is as unknown as typed.
+    await expect(withVars("milestone = $m", { m: secretMilestone })).rejects.toThrow(/No milestone named/);
+  });
+
   it("a milestone in a restricted project is unknown, by name and by id, and never named back", async () => {
     for (const v of [`"Secretmilestone ${w.stamp}"`, `"${secretMilestone}"`]) {
       try {

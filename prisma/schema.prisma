@@ -1502,11 +1502,12 @@ model Activity {
 
   @@index([orgId, workItemId])
   @@index([orgId, subjectType, subjectId])
-  // CQL history (WAS / CHANGED): per item and field in time order, by time
-  // (the value each item held when a window opens), and by value.
+  // CQL history (WAS / CHANGED): per item and field in time order, and by
+  // time (the value each item held when a window opens). Never on old_value /
+  // new_value: they hold uncapped free text (PM register edits), past what a
+  // btree row can take.
   @@index([workItemId, field, createdAt])
   @@index([orgId, field, createdAt])
-  @@index([orgId, field, newValue, createdAt])
   @@map("activities")
 }
 
