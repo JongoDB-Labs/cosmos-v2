@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.464.5",
+    date: "2026-10-24",
+    title: "Security: assignees must be in your organization",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Work items can no longer be assigned to people outside their organization, or to people who have left it or been deactivated. Assigning an unknown person now gives a clear error instead of a server error.",
+      },
+    ],
+  },
+  {
     version: "2.464.4",
     date: "2026-10-24",
     title: "Updates reach the deployed app again",
