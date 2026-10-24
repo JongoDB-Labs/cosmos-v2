@@ -38,6 +38,7 @@ let predicate: unknown = {};
 let ids: string[] = [];
 function serve(cqlOn = true) {
   vi.mocked(jsonFetch).mockImplementation((async (url: string) => {
+    if (url.endsWith("/query-language")) return { enabled: cqlOn, canManage: false };
     if (url.endsWith("/cql/schema")) {
       if (!cqlOn) throw new FetchError(404, { error: "Not found" }, "Not found");
       return SCHEMA;
@@ -96,8 +97,10 @@ describe("useBoardQuery", () => {
   it("with the query language off it is disabled and the board keeps its legacy filter", async () => {
     serve(false);
     const { result } = run();
-    await waitFor(() => expect(calls("/cql/schema").length).toBe(1));
+    await waitFor(() => expect(calls("/query-language").length).toBe(1));
     expect(result.current.enabled).toBe(false);
+    // Off: the schema (a 404 while off) is never asked for.
+    expect(calls("/cql/schema")).toHaveLength(0);
   });
 
   it("no baseline and no query: every row, no predicate request", async () => {
