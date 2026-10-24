@@ -20,6 +20,18 @@ import { POST as createInterval } from "@/app/api/v1/orgs/[orgId]/projects/[proj
 import { PUT as updateInterval } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/route";
 import { POST as createMilestone } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/milestones/route";
 import { PATCH as updateMilestone } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/milestones/[milestoneId]/route";
+import { POST as createGoal } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/goals/route";
+import { PATCH as updateGoal } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/goals/[goalId]/route";
+import { POST as createObjective, PATCH as reorderObjectives } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/objectives/route";
+import { PUT as updateObjective } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/objectives/[objectiveId]/route";
+import { POST as createKeyResult } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/objectives/[objectiveId]/key-results/route";
+import { PUT as updateKeyResult } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/key-results/[krId]/route";
+import { POST as createCheckin } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/key-results/[krId]/checkins/route";
+import { POST as createKpi } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/kpis/route";
+import { PATCH as updateKpi } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/kpis/[kpiId]/route";
+import { POST as createDataPoint } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/kpis/[kpiId]/data-points/route";
+import { POST as createTimeEntry } from "@/app/api/v1/orgs/[orgId]/time-entries/route";
+import { PUT as updateTimeEntry } from "@/app/api/v1/orgs/[orgId]/time-entries/[entryId]/route";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const ID = "22222222-2222-4222-8222-222222222222";
@@ -32,10 +44,23 @@ const ROUTES: [string, Handler, string, Record<string, string>][] = [
   ["PUT interval", updateInterval as unknown as Handler, "PUT", { orgId: ORG, projectId: ID, intervalId: ID }],
   ["POST milestones", createMilestone as unknown as Handler, "POST", { orgId: ORG, projectId: ID }],
   ["PATCH milestone", updateMilestone as unknown as Handler, "PATCH", { orgId: ORG, projectId: ID, milestoneId: ID }],
+  ["POST goals", createGoal as unknown as Handler, "POST", { orgId: ORG, projectId: ID }],
+  ["PATCH goal", updateGoal as unknown as Handler, "PATCH", { orgId: ORG, projectId: ID, goalId: ID }],
+  ["POST objectives", createObjective as unknown as Handler, "POST", { orgId: ORG, projectId: ID }],
+  ["PATCH objectives (reorder)", reorderObjectives as unknown as Handler, "PATCH", { orgId: ORG, projectId: ID }],
+  ["PUT objective", updateObjective as unknown as Handler, "PUT", { orgId: ORG, projectId: ID, objectiveId: ID }],
+  ["POST key results", createKeyResult as unknown as Handler, "POST", { orgId: ORG, projectId: ID, objectiveId: ID }],
+  ["PUT key result", updateKeyResult as unknown as Handler, "PUT", { orgId: ORG, projectId: ID, krId: ID }],
+  ["POST check-ins", createCheckin as unknown as Handler, "POST", { orgId: ORG, projectId: ID, krId: ID }],
+  ["POST kpis", createKpi as unknown as Handler, "POST", { orgId: ORG, projectId: ID }],
+  ["PATCH kpi", updateKpi as unknown as Handler, "PATCH", { orgId: ORG, projectId: ID, kpiId: ID }],
+  ["POST kpi data points", createDataPoint as unknown as Handler, "POST", { orgId: ORG, projectId: ID, kpiId: ID }],
+  ["POST time entries", createTimeEntry as unknown as Handler, "POST", { orgId: ORG }],
+  ["PUT time entry", updateTimeEntry as unknown as Handler, "PUT", { orgId: ORG, entryId: ID }],
 ];
 
-/** A body every one of these routes refuses: wrong types for their fields. */
-const BAD = JSON.stringify({ name: 42, key: 7, title: 42, startDate: "soon", dueDate: "soon", settings: "x" });
+/** A body every one of these routes refuses: an array where each expects an object. */
+const BAD = JSON.stringify([{ name: 42, title: 42 }]);
 
 const call = (handler: Handler, method: string, params: Record<string, string>) =>
   handler(
