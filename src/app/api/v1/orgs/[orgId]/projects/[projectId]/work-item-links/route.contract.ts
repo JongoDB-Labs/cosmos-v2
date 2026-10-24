@@ -18,8 +18,11 @@ export const listWorkItemLinks = defineRoute({
   request: {
     params,
     query: z.object({
-      // Blank means no filter, as before contracts.
-      item: z.union([Uuid, z.literal("")]).optional().describe("A work item id: only the links it is the source or target of."),
+      // As before contracts: blank means no filter, and a repeated one reads
+      // as its first value (searchParams.get()).
+      item: z
+        .preprocess((v) => (Array.isArray(v) ? v[0] : v), z.union([Uuid, z.literal("")]).optional())
+        .describe("A work item id: only the links it is the source or target of."),
     }),
   },
   responses: { 200: z.array(WorkItemLinkRow) },
