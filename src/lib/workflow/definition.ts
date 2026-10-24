@@ -21,9 +21,17 @@ export const LIMITS = {
   transitions: 500,
   actionsPerTransition: 20,
   conditionDepth: 8,
+  /** Children of an all/any group, and values in a list (`in`, a field's list value). */
+  conditionItems: 50,
+  /** Every node in one transition's restriction, groups included. */
+  conditionNodes: 200,
 } as const;
 
-const SYSTEM_FIELDS = [
+/** The org and project roles a restriction can name: a typo is refused, not a silent permanent "no". */
+export const ORG_ROLES = ["OWNER", "ADMIN", "BILLING_ADMIN", "MEMBER", "VIEWER", "GUEST"] as const;
+export const PROJECT_ROLES = ["MANAGER", "LEAD", "MEMBER", "VIEWER"] as const;
+
+export const SYSTEM_FIELDS = [
   "assigneeId",
   "priority",
   "storyPoints",
@@ -55,9 +63,9 @@ const permissionKeySchema = z
   .string()
   .refine((k): k is PermissionKey => Object.prototype.hasOwnProperty.call(Permission, k), "Unknown permission");
 
-const LINK_TYPES = ["BLOCKS", "BLOCKED_BY", "RELATES", "DUPLICATES", "PREDECESSOR", "SUCCESSOR", "CLONES"] as const;
+export const LINK_TYPES = ["BLOCKS", "BLOCKED_BY", "RELATES", "DUPLICATES", "PREDECESSOR", "SUCCESSOR", "CLONES"] as const;
 
-const conditionValue = z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.union([z.string(), z.number()]))]);
+const conditionValue = z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.union([z.string(), z.number()])).max(LIMITS.conditionItems)]);
 
 export type ConditionNode =
   | { all: ConditionNode[] }
@@ -75,11 +83,12 @@ export type ConditionNode =
 
 export const conditionSchema: z.ZodType<ConditionNode> = z.lazy(() =>
   z.union([
-    z.object({ all: z.array(conditionSchema).min(1) }).strict(),
-    z.object({ any: z.array(conditionSchema).min(1) }).strict(),
+    z.object({ all: z.array(conditionSchema).min(1).max(LIMITS.conditionItems) }).strict(),
+    z.object({ any: z.array(conditionSchema).min(1).max(LIMITS.conditionItems) }).strict(),
     z.object({ not: conditionSchema }).strict(),
     z.object({ kind: z.literal("actorHasPermission"), permission: permissionKeySchema }).strict(),
-    z.object({ kind: z.enum(["actorOrgRole", "actorProjectRole"]), in: z.array(z.string()).min(1) }).strict(),
+    z.object({ kind: z.literal("actorOrgRole"), in: z.array(z.enum(ORG_ROLES)).min(1).max(LIMITS.conditionItems) }).strict(),
+    z.object({ kind: z.literal("actorProjectRole"), in: z.array(z.enum(PROJECT_ROLES)).min(1).max(LIMITS.conditionItems) }).strict(),
     // "item" = the item's own team.
     z.object({ kind: z.literal("actorInTeam"), teamId: z.string().min(1) }).strict(),
     z.object({ kind: z.enum(["actorIsAssignee", "actorIsCreator"]) }).strict(),
@@ -92,7 +101,7 @@ export const conditionSchema: z.ZodType<ConditionNode> = z.lazy(() =>
         value: conditionValue.optional(),
       })
       .strict(),
-    z.object({ kind: z.literal("previousStatus"), in: z.array(z.string()).min(1) }).strict(),
+    z.object({ kind: z.literal("previousStatus"), in: z.array(z.string()).min(1).max(LIMITS.conditionItems) }).strict(),
   ]),
 ) as z.ZodType<ConditionNode>;
 
@@ -162,6 +171,10 @@ export const transitionSchema = z
   .strict()
   // Enforced on every parse, not only at publish, so a stored or posted
   // definition can't carry a condition tree deeper than the evaluator allows.
+  .refine((t) => !t.restrict || conditionNodes(t.restrict) <= LIMITS.conditionNodes, {
+    message: `Conditions have more than ${LIMITS.conditionNodes} parts.`,
+    path: ["restrict"],
+  })
   .refine((t) => !t.restrict || conditionDepth(t.restrict) <= LIMITS.conditionDepth, {
     message: `Conditions nest more than ${LIMITS.conditionDepth} deep.`,
     path: ["restrict"],
@@ -212,6 +225,22 @@ export interface DefinitionIssue {
   message: string;
 }
 
+/** The checks in a restriction, without the groups around them. */
+function conditionLeaves(node: ConditionNode | undefined): Exclude<ConditionNode, { all: unknown } | { any: unknown } | { not: unknown }>[] {
+  if (!node) return [];
+  if ("all" in node) return node.all.flatMap(conditionLeaves);
+  if ("any" in node) return node.any.flatMap(conditionLeaves);
+  if ("not" in node) return conditionLeaves(node.not);
+  return [node];
+}
+
+function conditionNodes(node: ConditionNode): number {
+  if ("all" in node) return 1 + node.all.reduce((n, c) => n + conditionNodes(c), 0);
+  if ("any" in node) return 1 + node.any.reduce((n, c) => n + conditionNodes(c), 0);
+  if ("not" in node) return 1 + conditionNodes(node.not);
+  return 1;
+}
+
 function conditionDepth(node: ConditionNode): number {
   if ("all" in node) return 1 + Math.max(0, ...node.all.map(conditionDepth));
   if ("any" in node) return 1 + Math.max(0, ...node.any.map(conditionDepth));
@@ -255,6 +284,15 @@ export function validateDefinition(def: WorkflowDefinition, statuses: readonly S
         if (!used.has(f)) error("UNKNOWN_SOURCE", `"${t.name}" starts from "${f}", which this workflow does not use.`);
       }
     }
+    for (const n of conditionLeaves(t.restrict)) {
+      // A restriction naming something the workflow doesn't have is a "no" for everyone, for good.
+      if (n.kind === "previousStatus") {
+        for (const k of n.in) if (!projectStatus.has(k)) error("UNKNOWN_STATUS", `"${t.name}" checks a previous status "${k}" that doesn't exist in this project.`);
+      }
+      if (n.kind === "actorIsNot" && !def.transitions.some((o) => o.id === n.transitionId)) {
+        error("UNKNOWN_TRANSITION", `"${t.name}" refers to a transition "${n.transitionId}" this workflow doesn't have.`);
+      }
+    }
     if (t.restrict && conditionDepth(t.restrict) > LIMITS.conditionDepth) {
       error("CONDITION_TOO_DEEP", `"${t.name}" nests its conditions more than ${LIMITS.conditionDepth} deep.`);
     }
@@ -292,4 +330,16 @@ export function validateDefinition(def: WorkflowDefinition, statuses: readonly S
   }
 
   return issues;
+}
+
+/** {from status key: to status key}, for items in statuses a change drops. */
+export type MigrationMap = Record<string, string>;
+
+/**
+ * Editor-only data kept with a version (never read by the engine): node
+ * positions, and on a template the statuses it brings into a project.
+ */
+export interface VersionLayout {
+  nodes?: Record<string, { x: number; y: number }>;
+  statusCatalog?: { key: string; name: string; color: string; category: StatusRef["category"] }[];
 }

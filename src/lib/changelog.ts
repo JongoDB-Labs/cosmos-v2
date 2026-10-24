@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.465.0",
+    date: "2026-10-24",
+    title: "Workflows you can design per project",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each project can now have its own workflows: choose which moves are allowed, who may make them, what a move asks for, what it checks and what it does (Project settings \u2192 Workflows). Workflows are edited as drafts with a live diagram and a simulator, published as versions you can restore, and can be saved as organization templates. When a new version drops a status, Cosmos asks where its items go and moves them in the background. A full column with a hard WIP limit now refuses moves from anywhere: the detail panel, bulk edits, the API and the assistant.",
+      },
+    ],
+  },
+  {
     version: "2.464.6",
     date: "2026-10-24",
     title: "Clearer structure for screen readers",

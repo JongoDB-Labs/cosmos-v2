@@ -5,7 +5,7 @@ import { ForbiddenError, NotFoundError, ConflictError } from "./rbac/check";
 import { serverReportError } from "./telemetry/server";
 import { problem, problemBody, ProblemError, PROBLEM_CONTENT_TYPE } from "./openapi/problem";
 import { isNoModelCredentialError } from "./ai/egress/types";
-import { TransitionError } from "@/lib/workflow/contract";
+import { TransitionError, WorkflowEditError } from "@/lib/workflow/contract";
 
 export function success<T>(data: T, status = 200) {
   return NextResponse.json(data, { status });
@@ -39,6 +39,12 @@ export function handleApiError(error: unknown, request?: Request) {
       { status: error.status, headers: { "Content-Type": PROBLEM_CONTENT_TYPE } },
     );
   }
+  if (error instanceof WorkflowEditError) {
+    return NextResponse.json(
+      { ...problemBody(error.status, error.code, error.message, opts), ...error.extensions },
+      { status: error.status, headers: { "Content-Type": PROBLEM_CONTENT_TYPE } },
+    );
+  }
   if (error instanceof ForbiddenError) {
     return problem(403, "forbidden", error.message, opts);
   }
@@ -54,6 +60,15 @@ export function handleApiError(error: unknown, request?: Request) {
     // No Claude connection is an org setup state, not a server fault: say so
     // instead of a 500 (or, before, a stale env key's raw Anthropic 401).
     return problem(409, "model_not_connected", error.message, opts);
+  }
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    (error.code === "P2034" || (error.code === "P2010" && ["40P01", "40001"].includes(String((error.meta as { code?: unknown } | undefined)?.code))))
+  ) {
+    // Postgres gave this transaction up for another's sake (a deadlock, or a
+    // serialization failure) and rolled it back: nothing was written, and the
+    // same request will go through when sent again.
+    return problem(409, "conflict", "Conflicting concurrent request — please retry", opts);
   }
   if (
     error instanceof Prisma.PrismaClientKnownRequestError &&
