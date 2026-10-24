@@ -51,6 +51,19 @@ describe("workflowDefinitionSchema", () => {
     expect(workflowDefinitionSchema.safeParse(bad).success).toBe(false);
   });
 
+  it("refuses a role that doesn't exist, and caps how big a restriction can be", () => {
+    const withRestrict = (restrict: unknown) => def({ transitions: [{ id: "t", name: "T", from: "*", to: "done", restrict: restrict as never }] });
+    expect(workflowDefinitionSchema.safeParse(withRestrict({ kind: "actorOrgRole", in: ["ADMIN"] })).success).toBe(true);
+    expect(workflowDefinitionSchema.safeParse(withRestrict({ kind: "actorOrgRole", in: ["ADMN"] })).success).toBe(false);
+    expect(workflowDefinitionSchema.safeParse(withRestrict({ kind: "actorProjectRole", in: ["OWNER"] })).success).toBe(false);
+    const leaf = { kind: "actorIsAssignee" };
+    expect(workflowDefinitionSchema.safeParse(withRestrict({ any: Array(50).fill(leaf) })).success).toBe(true);
+    expect(workflowDefinitionSchema.safeParse(withRestrict({ any: Array(51).fill(leaf) })).success).toBe(false);
+    // Within each group's cap, but 1 + 5 × (1 + 40) = 206 parts in all.
+    const wide = { all: Array(5).fill({ any: Array(40).fill(leaf) }) };
+    expect(workflowDefinitionSchema.safeParse(withRestrict(wide)).success).toBe(false);
+  });
+
   it("caps condition nesting on every parse, not only at publish", () => {
     const nested = (depth: number) => {
       let node: object = { kind: "actorIsAssignee" };
@@ -117,6 +130,16 @@ describe("validateDefinition", () => {
       transitions: [...def().transitions, { id: "c", name: "Cancel", from: "*", to: "done", validate: [{ kind: "cancelReason" }] }],
     });
     expect(codes(d)).toContain("error:CANCEL_REASON_TARGET");
+  });
+
+  it("refuses a restriction on a status or transition the workflow doesn't have", () => {
+    const d = def({
+      transitions: [
+        ...def().transitions,
+        { id: "x", name: "X", from: "*", to: "done", restrict: { all: [{ kind: "previousStatus", in: ["reveiw"] }, { kind: "actorIsNot", ref: "lastTransitionActor", transitionId: "aprove" }] } },
+      ],
+    });
+    expect(codes(d)).toEqual(expect.arrayContaining(["error:UNKNOWN_STATUS", "error:UNKNOWN_TRANSITION"]));
   });
 
   it("caps condition nesting", () => {

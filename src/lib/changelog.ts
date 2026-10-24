@@ -49,6 +49,39 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.466.0",
+    date: "2026-10-24",
+    title: "Reinstall a rebuilt release from Admin \u203a Updates",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When the image for the version you already run has been rebuilt (for example a plugin-only release), Admin \u203a Updates now says so and offers Reinstall, with the same safety checks as an upgrade. Before, such a release stayed invisible until the next core version.",
+      },
+    ],
+  },
+  {
+    version: "2.465.1",
+    date: "2026-10-24",
+    title: "Plugin versions recorded with each release",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Each release now records the exact released version of every bundled plugin alongside its pinned commit, so it is clear which plugin versions a Cosmos release contains.",
+      },
+    ],
+  },
+  {
+    version: "2.465.0",
+    date: "2026-10-24",
+    title: "Workflows you can design per project",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each project can now have its own workflows: choose which moves are allowed, who may make them, what a move asks for, what it checks and what it does (Project settings \u2192 Workflows). Workflows are edited as drafts with a live diagram and a simulator, published as versions you can restore, and can be saved as organization templates. When a new version drops a status, Cosmos asks where its items go and moves them in the background. A full column with a hard WIP limit now refuses moves from anywhere: the detail panel, bulk edits, the API and the assistant.",
+      },
+    ],
+  },
+  {
     version: "2.464.6",
     date: "2026-10-24",
     title: "Clearer structure for screen readers",

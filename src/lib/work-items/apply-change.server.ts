@@ -117,7 +117,7 @@ export type WorkItemPatch = Omit<z.infer<typeof workItemPatchSchema>, "cancelRea
  * workflow engine onwards, on the domain event, so automations can tell a
  * person's edit from their own.
  */
-export type ChangeSource = "API" | "BULK" | "AI" | "SYSTEM";
+export type ChangeSource = "API" | "BULK" | "AI" | "SYSTEM" | "MIGRATION";
 
 export interface ApplyChangeInput {
   actorId: string;
@@ -138,11 +138,11 @@ export interface ApplyChangeInput {
   actor?: AuthContext | null;
   /** The transition named and the input it asked for, when the client sends them. */
   transition?: TransitionRequest;
-  /** The board the move was made on, for its hard WIP limits. */
+  /** The board the move was made on. Accepted, no longer needed: hard WIP limits hold from every surface. */
   boardId?: string;
   /**
-   * Defaults to "system" for a SYSTEM change or one with no `actor` (a
-   * composed plugin's call), and "full" otherwise.
+   * Defaults to "none" for a workflow MIGRATION, "system" for a SYSTEM change
+   * or one with no `actor` (a composed plugin's call), and "full" otherwise.
    */
   level?: EnforcementLevel;
 }
@@ -484,7 +484,7 @@ export async function applyWorkItemChange(
     projectId,
     actor: input.actor ?? null,
     actorId,
-    level: input.level ?? (source === "SYSTEM" || input.actor === undefined ? "system" : "full"),
+    level: input.level ?? (source === "MIGRATION" ? "none" : source === "SYSTEM" || input.actor === undefined ? "system" : "full"),
     items,
     patch,
     transition: input.transition,

@@ -83,3 +83,29 @@ export interface BulkDenial {
   transition?: { id: string; name: string; to: string };
   fields?: TransitionInputField[];
 }
+
+export type WorkflowEditErrorCode = "workflow_invalid" | "migration_map_required" | "workflow_in_use";
+
+const EDIT_STATUS: Record<WorkflowEditErrorCode, number> = {
+  workflow_invalid: 422,
+  migration_map_required: 409,
+  workflow_in_use: 409,
+};
+
+/**
+ * A workflow edit refused: a draft with errors, statuses that still hold items
+ * and need a new one, or a workflow something still uses. `extensions` go
+ * beside the problem's fields (the issues, the statuses to map).
+ */
+export class WorkflowEditError extends Error {
+  readonly status: number;
+  constructor(
+    readonly code: WorkflowEditErrorCode,
+    message: string,
+    readonly extensions: Record<string, unknown> = {},
+  ) {
+    super(message);
+    this.name = "WorkflowEditError";
+    this.status = EDIT_STATUS[code];
+  }
+}

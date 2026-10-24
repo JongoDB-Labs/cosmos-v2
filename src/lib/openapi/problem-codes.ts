@@ -19,6 +19,10 @@ export const PROBLEM_CODES = {
   // An assignee who isn't a member of the item's org; the same answer whether
   // or not the user exists (src/lib/work-items/apply-change.server.ts).
   assignee_not_in_org: "Assignee not in this organization",
+  // An edit to a workflow refused (src/lib/workflow/contract.ts WorkflowEditError).
+  workflow_invalid: "Workflow has errors",
+  migration_map_required: "Items need a new status",
+  workflow_in_use: "Workflow in use",
 } as const;
 
 export type ProblemCode = keyof typeof PROBLEM_CODES;
