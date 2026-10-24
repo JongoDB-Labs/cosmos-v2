@@ -50,13 +50,25 @@ export function callsWithoutMeta(source: string, fileName: string): string[] {
       const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : null;
       const arity = name ? META_ARITY[name] : undefined;
       // A spread could carry anything; none of these are called that way.
+      const line = () => `${fileName}:${sf.getLineAndCharacterOfPosition(node.getStart()).line + 1} ${name}`;
       // A test of the plugin form itself says so on the line above.
       const marked = (() => {
-        const line = sf.getLineAndCharacterOfPosition(node.getStart()).line;
-        return line > 0 && source.split("\n")[line - 1].includes("write-meta: plugin form");
+        const n = sf.getLineAndCharacterOfPosition(node.getStart()).line;
+        return n > 0 && source.split("\n")[n - 1].includes("write-meta: plugin form");
       })();
       if (arity !== undefined && !marked && node.arguments.length < arity && !node.arguments.some(ts.isSpreadElement)) {
-        found.push(`${fileName}:${sf.getLineAndCharacterOfPosition(node.getStart()).line + 1} ${name}`);
+        found.push(line());
+      }
+      // The change service takes its actor in the input object: it must name one (null for the system).
+      if (name === "applyWorkItemChange") {
+        const input = node.arguments[1];
+        const named =
+          input &&
+          (!ts.isObjectLiteralExpression(input) ||
+            input.properties.some(
+              (p) => ts.isSpreadAssignment(p) || ((ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) && p.name.getText(sf) === "actor"),
+            ));
+        if (!named) found.push(line());
       }
     }
     ts.forEachChild(node, visit);
@@ -86,7 +98,14 @@ describe("every in-repo write through the single writer names its actor and sour
       await updateWorkItemsUnchecked(tx, ids, data, RECORDED_BY_CALLER);
       // write-meta: plugin form
       await createWorkItemRow(tx, { data });
+      await applyWorkItemChange(tx, { actorId, orgId, projectId, itemIds, patch, source: "API" });
+      await applyWorkItemChange(tx, { actorId, orgId, projectId, itemIds, patch, source: "SYSTEM", actor: null });
     `;
-    expect(callsWithoutMeta(planted, "x.ts")).toEqual(["x.ts:2 createWorkItemRow", "x.ts:3 updateWorkItems", "x.ts:8 setWorkItemLabels"]);
+    expect(callsWithoutMeta(planted, "x.ts")).toEqual([
+      "x.ts:2 createWorkItemRow",
+      "x.ts:3 updateWorkItems",
+      "x.ts:8 setWorkItemLabels",
+      "x.ts:13 applyWorkItemChange",
+    ]);
   });
 });

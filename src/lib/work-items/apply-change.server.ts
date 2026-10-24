@@ -129,8 +129,10 @@ export interface ApplyChangeInput {
   /**
    * The person acting, for the workflow's restrictions and the override right.
    * Null for a system change, which the workflow holds to its structure only.
+   * Optional only for the composed plugins, whose calls predate it (left out,
+   * it is a system change); every caller here passes it (write-meta.arch.test.ts).
    */
-  actor: AuthContext | null;
+  actor?: AuthContext | null;
   /** The transition named and the input it asked for, when the client sends them. */
   transition?: TransitionRequest;
   /** The board the move was made on, for its hard WIP limits. */
@@ -395,9 +397,9 @@ export async function applyWorkItemChange(
   const gate = await gateChange(tx, {
     orgId,
     projectId,
-    actor: input.actor,
+    actor: input.actor ?? null,
     actorId,
-    level: input.level ?? (source === "SYSTEM" ? "structural" : "full"),
+    level: input.level ?? (source === "SYSTEM" || input.actor === undefined ? "structural" : "full"),
     items,
     patch,
     transition: input.transition,
