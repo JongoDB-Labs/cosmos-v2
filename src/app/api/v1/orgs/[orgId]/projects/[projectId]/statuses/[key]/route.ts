@@ -10,6 +10,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { STATUS_BOARD_TYPES, setStatusCategory, toStatusDto } from "@/lib/workflow/statuses.server";
 import { deleteStatus, updateStatus } from "./route.contract";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; key: string }> };
 
@@ -31,6 +32,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     // Authenticate (and hold a key to the contract's scopes) before validating.
     const { ctx } = await orgContext((await params).orgId, updateStatus);
     const { params: p, body } = await parseRequest(updateStatus, request, params);
+    await requireProjectVisible(ctx, p.projectId);
     const auth = await authorize(request, ctx, p);
     if (!auth.ok) return auth.error;
 
@@ -77,6 +79,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, deleteStatus);
     const { params: p } = await parseRequest(deleteStatus, request, params);
+    await requireProjectVisible(ctx, p.projectId);
     const auth = await authorize(request, ctx, p);
     if (!auth.ok) return auth.error;
 

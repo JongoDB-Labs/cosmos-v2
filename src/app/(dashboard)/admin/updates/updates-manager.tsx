@@ -332,6 +332,8 @@ type UpdateSettingsPayload = {
   updatedAt: string | null;
   reconcile?: ReconcileStatusDto | null;
   reconcileHealth?: { tone: HealthTone; headline: string; detail: string | null };
+  /** Whether the outbox worker (webhooks, automations) is keeping up. */
+  eventBacklog?: { tone: HealthTone; headline: string; detail: string | null };
   registry?: {
     imageRepo: RegistryField;
     tagSuffix: RegistryField;
@@ -389,6 +391,26 @@ function InstallerHealth({ data }: { data: UpdateSettingsPayload }) {
             {data.reconcile.source && <> · looking in {data.reconcile.source}</>}
           </p>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Whether the background worker that sends webhooks and runs automations is
+ * keeping up with changes. On a deployment whose logs nobody can read, a stopped
+ * worker would otherwise show nowhere: webhooks and rules would just go quiet.
+ */
+function EventWorkerHealth({ data }: { data: UpdateSettingsPayload }) {
+  const health = data.eventBacklog;
+  if (!health) return null;
+  const Icon = HEALTH_ICON[health.tone];
+  return (
+    <div className="mt-3 flex gap-3 border-t pt-3" data-testid="event-worker-health" data-tone={health.tone}>
+      <Icon className={cn("mt-0.5 size-4 shrink-0", HEALTH_CLASS[health.tone])} aria-hidden />
+      <div className="min-w-0 space-y-0.5">
+        <p className={cn("text-sm font-medium", HEALTH_CLASS[health.tone])}>{health.headline}</p>
+        {health.detail && <p className="text-xs text-muted-foreground">{health.detail}</p>}
       </div>
     </div>
   );
@@ -460,6 +482,7 @@ function UpdateModeCard() {
             </p>
           )}
           <InstallerHealth data={data} />
+          <EventWorkerHealth data={data} />
         </>
       )}
     </SectionCard>
