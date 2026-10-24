@@ -41,6 +41,8 @@ import { isProjectVisible } from "@/lib/rbac/project-access";
 import { canManageProject, getManagedProjectIds } from "@/lib/rbac/scope";
 import { canManageBoardsInProject, canWriteInProject } from "@/lib/rbac/project-role";
 import { canAdministerProject } from "@/lib/rbac/require-project-manage";
+import { requireAccess } from "@/lib/abac/require-access";
+import { inKeyProjectScope } from "@/lib/rbac/check";
 
 const owner = (projectScope?: string[]): AuthContext =>
   ({
@@ -127,5 +129,21 @@ describe("the write-side gates hold the same ceiling", () => {
   it("lists as managed only the projects inside the ceiling", async () => {
     expect([...(await getManagedProjectIds(owner(["p2"]), ["p1", "p2", "p3"]))]).toEqual(["p2"]);
     expect([...(await getManagedProjectIds(owner(), ["p1", "p2"]))]).toEqual(["p1", "p2"]);
+  });
+});
+
+describe("an unresolved project fails closed for a scoped key", () => {
+  it("inKeyProjectScope: no project id is outside any ceiling, and inside none", () => {
+    expect(inKeyProjectScope(owner(["p2"]), null)).toBe(false);
+    expect(inKeyProjectScope(owner(["p2"]), "")).toBe(false);
+    expect(inKeyProjectScope(owner(), null)).toBe(true);
+  });
+
+  it("requireAccess refuses a resource whose project couldn't be resolved, for a scoped key only", async () => {
+    await expect(requireAccess(owner(["p2"]), "ITEM_UPDATE", { projectId: null })).rejects.toThrow("Access denied by policy");
+    await expect(requireAccess(owner(["p2"]), "ITEM_UPDATE", { projectId: undefined })).rejects.toThrow("Access denied by policy");
+    await expect(requireAccess(owner(), "ITEM_UPDATE", { projectId: null })).resolves.toBeUndefined();
+    // An action that names no project at all (an org-level one) is not a project route.
+    await expect(requireAccess(owner(["p2"]), "ITEM_UPDATE", { createdById: "u1" })).resolves.toBeUndefined();
   });
 });

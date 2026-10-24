@@ -24,10 +24,10 @@ const SCOPE_GATE = new RegExp(
 
 const ROUTES = "src/app/api/v1/orgs/[[]orgId]/projects/[[]projectId]/**/route.ts";
 
-function unscopedWrites(): string[] {
+/** The write handlers among these route modules that reach no scope gate. */
+function unscopedWritesIn(routes: { file: string; src: string }[]): string[] {
   const out: string[] = [];
-  for (const file of globSync(ROUTES)) {
-    const src = readFileSync(file, "utf8");
+  for (const { file, src } of routes) {
     for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
       const code = handlerCode(src, method, file);
       if (code && !SCOPE_GATE.test(code)) out.push(`${method} ${file.replace(/^src\/app\/api\//, "")}`);
@@ -35,6 +35,10 @@ function unscopedWrites(): string[] {
   }
   return out.sort();
 }
+
+const unscopedWrites = () => unscopedWritesIn(globSync(ROUTES).map((file) => ({ file, src: readFileSync(file, "utf8") })));
+
+const PLANTED = "src/app/api/v1/orgs/[orgId]/projects/[projectId]/planted/route.ts";
 
 describe("project writes hold a key to its projects", () => {
   it("scans a real surface (not vacuous)", () => {
@@ -47,6 +51,25 @@ describe("project writes hold a key to its projects", () => {
 
   it("every write handler reaches a scope-enforcing gate", () => {
     expect(unscopedWrites()).toEqual([]);
+  });
+
+  it("catches a planted write that gates on bits alone, beside one that doesn't", () => {
+    const ungated = `import { requirePermission } from "@/lib/rbac/check";
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  const { projectId } = await params;
+  requirePermission(ctx, Permission.ITEM_DELETE);
+  await prisma.workItem.deleteMany({ where: { projectId } });
+}
+export async function POST(request: NextRequest, { params }: RouteParams) {
+  const { projectId } = await params;
+  await removeAll(projectId);
+}
+async function removeAll(projectId: string) {
+  await requireProjectManage(ctx, projectId, Permission.ITEM_DELETE);
+}`;
+    expect(unscopedWritesIn([{ file: PLANTED, src: ungated }])).toEqual([
+      "DELETE v1/orgs/[orgId]/projects/[projectId]/planted/route.ts",
+    ]);
   });
 
   it("would catch a write that gates on bits alone", () => {

@@ -23,6 +23,9 @@ import { DELETE as bulkDelete } from "@/app/api/v1/orgs/[orgId]/projects/[projec
 import { DELETE as deleteItemById } from "@/app/api/v1/orgs/[orgId]/work-items/[itemId]/route";
 import { POST as createMilestone } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/milestones/route";
 import { readableDocument } from "@/lib/files/access";
+import { POST as createInterval } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/route";
+import { POST as addComment } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/route";
+import { DELETE as deleteDocument } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/documents/[docId]/route";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 let orgId = "", p1 = "", p2 = "", owner = "", typeId = "";
@@ -87,6 +90,38 @@ describe("a key limited to P1 can't write in P2", () => {
     const res = await createMilestone(json("POST", { title: "M", dueDate: "2026-12-01T00:00:00.000Z" }), { params: Promise.resolve({ orgId, projectId: p2 }) });
     expect(res.status).toBe(403);
     expect(await prisma.milestone.count({ where: { projectId: p2 } })).toBe(0);
+  });
+});
+
+describe("beyond work items", () => {
+  const sprint = (name: string) => ({ name, startDate: "2026-11-02T00:00:00.000Z", endDate: "2026-11-13T00:00:00.000Z" });
+
+  it("a sprint (planning:write): refused in P2, created in P1", async () => {
+    h.ctx = key(["planning:write"], [p1]);
+    expect((await createInterval(json("POST", sprint("S2")), { params: Promise.resolve({ orgId, projectId: p2 }) })).status).toBe(403);
+    expect(await prisma.interval.count({ where: { projectId: p2 } })).toBe(0);
+    expect((await createInterval(json("POST", sprint("S1")), { params: Promise.resolve({ orgId, projectId: p1 }) })).status).toBe(201);
+  });
+
+  it("a comment (items:write): refused on a P2 item, posted on a P1 item", async () => {
+    h.ctx = P1_KEY();
+    const a = await item(p2);
+    const b = await item(p1);
+    expect((await addComment(json("POST", { content: "hi" }), { params: Promise.resolve({ orgId, projectId: p2, itemId: a.id }) })).status).toBeGreaterThanOrEqual(403);
+    expect(await prisma.comment.count({ where: { workItemId: a.id } })).toBe(0);
+    expect((await addComment(json("POST", { content: "hi" }), { params: Promise.resolve({ orgId, projectId: p1, itemId: b.id }) })).status).toBe(201);
+  });
+
+  it("a file the key's minter uploaded: not deletable in P2, deletable in P1", async () => {
+    h.ctx = P1_KEY();
+    const file = (projectId: string) => prisma.document.create({
+      data: { orgId, projectId, title: "f", storageKey: `k-${projectId}-${Math.random()}`, filename: "f.txt", contentType: "text/plain", size: 1, uploadedById: owner },
+    });
+    const inP2 = await file(p2);
+    expect((await deleteDocument(json("DELETE"), { params: Promise.resolve({ orgId, projectId: p2, docId: inP2.id }) })).status).toBe(404);
+    expect(await prisma.document.count({ where: { id: inP2.id } })).toBe(1);
+    const inP1 = await file(p1);
+    expect((await deleteDocument(json("DELETE"), { params: Promise.resolve({ orgId, projectId: p1, docId: inP1.id }) })).status).toBeLessThan(300);
   });
 });
 
