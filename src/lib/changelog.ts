@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.484.0",
+    date: "2026-10-25",
+    title: "Dashboard panel engine (beta)",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Dashboards groundwork (beta): the panel engine that turns a saved query into a chart or table, previewed as you build it. Every viewer sees only the items they can open.",
+      },
+    ],
+  },
+  {
     version: "2.483.0",
     date: "2026-10-25",
     title: "Gantt: overlapping phases ask first",
