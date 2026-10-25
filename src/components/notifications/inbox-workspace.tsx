@@ -162,7 +162,7 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
       )}
     >
       {label}
-      {n !== undefined && <span className="ml-1.5 tabular-nums opacity-70">{n}</span>}
+      {n !== undefined && <span className="ml-1.5 tabular-nums">{n}</span>}
     </button>
   );
 

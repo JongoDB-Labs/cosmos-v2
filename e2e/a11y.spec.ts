@@ -253,3 +253,32 @@ test.describe("a11y — the assistant drawer", () => {
     ).toHaveLength(0);
   });
 });
+
+test.describe("a11y — the notifications panel", () => {
+  test("open notifications panel has no serious/critical axe violations", async ({
+    page,
+    signInAs,
+  }) => {
+    await signInAs(EMAIL);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    // A full load: the panel opens from a client handler.
+    await page.goto(`/${ORG}`);
+    await page.waitForSelector("main", { timeout: 20_000 });
+    await page.getByRole("button", { name: /^Notifications/ }).click();
+    // A dialog, not a menu: it holds buttons, chips and a link, which
+    // role="menu" may not own (axe aria-required-children).
+    await expect(page.getByRole("dialog", { name: "Notifications" })).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.waitForTimeout(500);
+
+    const serious = blocking(await runAxe(page));
+    expect(
+      serious,
+      "serious/critical a11y violations with the notifications panel open:\n" +
+        serious
+          .map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets[0]}`)
+          .join("\n"),
+    ).toHaveLength(0);
+  });
+});
