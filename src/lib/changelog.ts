@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.481.0",
+    date: "2026-10-25",
+    title: "Ask about a walkthrough step as a conversation",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Ask about this is now a conversation: follow-up questions keep the earlier answers in context, with a New conversation reset, and the thread is cleared when the walkthrough closes. Closing a walkthrough part-way offers Resume at the same step.",
+      },
+    ],
+  },
+  {
     version: "2.480.0",
     date: "2026-10-24",
     title: "Notification kinds named in full",
