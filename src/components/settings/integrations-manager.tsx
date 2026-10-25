@@ -68,13 +68,13 @@ interface AvailableProvider {
 
 const statusConfig = {
   ACTIVE: {
-    color: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+    color: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
     icon: CheckCircle2,
     label: "Active",
   },
   INACTIVE: { color: "bg-muted text-muted-foreground", icon: Clock, label: "Inactive" },
   ERROR: {
-    color: "bg-red-500/15 text-red-600 dark:text-red-400",
+    color: "bg-red-500/15 text-red-700 dark:text-red-400",
     icon: XCircle,
     label: "Error",
   },
@@ -405,7 +405,7 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
                   </div>
                   <div>
                     <p className="text-sm font-medium">{provider.name}</p>
-                    <span className="mt-0.5 inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-600 dark:text-emerald-400">
+                    <span className="mt-0.5 inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-700 dark:text-emerald-400">
                       <CheckCircle2 className="h-3 w-3" />
                       Connected via Google
                     </span>
