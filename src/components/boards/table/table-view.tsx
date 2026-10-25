@@ -630,13 +630,15 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
             <button
               type="button"
               className="text-left w-full truncate hover:text-primary transition-colors"
-              onClick={() =>
-                setEditingCell({
-                  rowId: info.row.original.id,
-                  columnId: "title",
-                  value: info.getValue(),
-                })
-              }
+              // Opens the item, and only that. It used to start the inline
+              // title edit while the click also bubbled to the row and opened
+              // the sheet, so closing the sheet left the row mid-edit and
+              // focus with nowhere to return. "Edit title" in the row's
+              // actions menu still edits in place.
+              onClick={(e) => {
+                e.stopPropagation();
+                setDetailId(info.row.original.id);
+              }}
             >
               <span className="text-muted-foreground mr-1.5 text-xs">
                 {projectKey}-{info.row.original.ticketNumber}
