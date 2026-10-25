@@ -19,7 +19,7 @@ import { Permission, hasPermission, maskFromDb } from "@/lib/rbac/permissions";
  *     history: reorganise the org chart and last quarter's timesheets would
  *     silently claim they had been routed to someone who was not there yet.
  *
- * So both are recorded. `approverId` is who we asked, fixed at submit time;
+ * So both are recorded. `approverIds` is who we asked, fixed at submit time;
  * `laborApprovedById` is who actually signed. An auditor needs both, and they
  * are not always the same person.
  */
@@ -32,12 +32,6 @@ export type RouteReason =
   | "none";
 
 export interface ApprovalRoute {
-  /**
-   * The designated approver when the org chart names exactly one, else null.
-   * Only ever used for wording ("Submitted to Jane"); the authoritative record
-   * of who was asked is `notify`, which is what gets stamped on the sheet.
-   */
-  approverId: string | null;
   /** Everyone asked, and everyone notified. Never includes the worker. */
   notify: string[];
   reason: RouteReason;
@@ -68,13 +62,7 @@ export function routeFor(params: {
   );
 
   if (supervisors.length > 0) {
-    return {
-      // Named only when exactly one, and used for wording alone. With several
-      // there is no "the" approver, and inventing one would misreport the chart.
-      approverId: supervisors.length === 1 ? supervisors[0] : null,
-      notify: supervisors,
-      reason: "manager",
-    };
+    return { notify: supervisors, reason: "manager" };
   }
 
   // Self is filtered from the pool: telling someone their own timesheet needs
@@ -82,10 +70,10 @@ export function routeFor(params: {
   // sign it themselves anyway.
   const pool = [...new Set(approverUserIds)].filter((id) => id !== subjectUserId);
   if (pool.length > 0) {
-    return { approverId: null, notify: pool, reason: "admin_pool" };
+    return { notify: pool, reason: "admin_pool" };
   }
 
-  return { approverId: null, notify: [], reason: "none" };
+  return { notify: [], reason: "none" };
 }
 
 /**
