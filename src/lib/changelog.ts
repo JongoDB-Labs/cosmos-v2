@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.482.5",
+    date: "2026-10-25",
+    title: "UI component cleanup",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Internal cleanup of unused UI components. No visible change.",
+      },
+    ],
+  },
+  {
     version: "2.482.4",
     date: "2026-10-25",
     title: "Time tracking code cleanup",
