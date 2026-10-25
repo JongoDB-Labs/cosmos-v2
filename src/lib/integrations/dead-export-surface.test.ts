@@ -1,6 +1,6 @@
 // @vitest-environment node
 //
-// CLEANUP-14 removed three unreachable surfaces from src/lib/integrations. An export
+// CLEANUP-14 removed unreachable surfaces from src/lib/integrations. An export
 // with no importer reads as a supported API — the next person wires a feature to it
 // and inherits code nothing has ever exercised. These tests pin the module surfaces
 // so a deleted entry point cannot quietly reappear, and assert the LIVE neighbours
@@ -14,11 +14,13 @@ import * as graph from "./microsoft-graph";
 import { IntegrationRegistry } from "./registry";
 
 describe("mcp-secrets surface", () => {
-  it("exports the seal + the two accessors, and no third unseal wrapper", () => {
+  it("exports the seal, the two accessors, and the unseal a composed plugin uses", () => {
+    // unsealMcpJson has no importer in core; the Foreman plugin imports it.
     expect(Object.keys(mcpSecrets).sort()).toEqual([
       "getMcpEnv",
       "getMcpHeaders",
       "sealMcpJson",
+      "unsealMcpJson",
     ]);
   });
 });
