@@ -30,6 +30,7 @@ import { canSee, storedQuery, viewerScope, type ViewAccessRow, type ViewerScope 
 import { cqlEmailTitles, cqlEnabled } from "./flag";
 import { checkSchedule, nextRun, parseSchedule } from "./schedule";
 import { CqlError } from "./errors";
+import { tooLateToSend } from "@/lib/jobs/side-effect-window";
 import { buildSubscriptionEmail, unsubscribeToken, type EmailRow } from "./subscription-email";
 
 /** Ids kept per recipient for "only new items". */
@@ -214,17 +215,25 @@ export interface RunSummary {
   skipped: number;
   disabled: number;
   failed: number;
+  /** Slots missed by more than the window (the jobs were down): moved on, not sent late. */
+  missed: number;
 }
 
 interface Claimed {
   id: string;
 }
 
+interface ClaimedRun {
+  id: string;
+  /** Its slot passed more than SIDE_EFFECT_WINDOW_MS ago. */
+  late: boolean;
+}
+
 /** Claim due subscriptions and move their next run on, atomically. */
-async function claim(now: Date): Promise<string[]> {
+async function claim(now: Date): Promise<ClaimedRun[]> {
   return prisma.$transaction(async (tx) => {
-    const due = await tx.$queryRaw<(Claimed & { cron: string; timezone: string })[]>(Prisma.sql`
-      SELECT id, cron, timezone FROM filter_subscriptions
+    const due = await tx.$queryRaw<(Claimed & { cron: string; timezone: string; next_run_at: Date })[]>(Prisma.sql`
+      SELECT id, cron, timezone, next_run_at FROM filter_subscriptions
       WHERE next_run_at <= ${now} AND disabled_at IS NULL
       ORDER BY next_run_at
       LIMIT ${BATCH}
@@ -239,7 +248,7 @@ async function claim(now: Date): Promise<string[]> {
           : { lastRunAt: now, disabledAt: now, disabledReason: "schedule no longer runs" },
       });
     }
-    return due.map((d) => d.id);
+    return due.map((d) => ({ id: d.id, late: tooLateToSend(d.next_run_at, now) }));
   });
 }
 
@@ -247,14 +256,20 @@ async function claim(now: Date): Promise<string[]> {
 export async function runDueSubscriptions(opts: { now?: Date; signal?: AbortSignal; send?: SendFn } = {}): Promise<RunSummary> {
   const now = opts.now ?? new Date();
   const send: SendFn = opts.send ?? ((m) => sendAppEmail(m));
-  const summary: RunSummary = { subscriptions: 0, sent: 0, skipped: 0, disabled: 0, failed: 0 };
+  const summary: RunSummary = { subscriptions: 0, sent: 0, skipped: 0, disabled: 0, failed: 0, missed: 0 };
   for (;;) {
     if (opts.signal?.aborted) break;
     const ids = await claim(now);
     if (ids.length === 0) break;
-    for (const id of ids) {
+    for (const { id, late } of ids) {
       if (opts.signal?.aborted) break;
       summary.subscriptions++;
+      // Its slot went by while the jobs were down: the claim already moved it
+      // to the next one, and yesterday's digest today would be noise.
+      if (late) {
+        summary.missed++;
+        continue;
+      }
       try {
         const r = await runOne(id, send);
         summary.sent += r.sent;

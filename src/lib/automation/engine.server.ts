@@ -28,6 +28,7 @@ import { logAudit } from "@/lib/audit";
 import { recordAutomationRun } from "@/lib/observability/metrics";
 import { createNotification } from "@/lib/notifications/create";
 import { matchingItemIds } from "@/lib/query/execute.server";
+import { tooLateToSend } from "@/lib/jobs/side-effect-window";
 import { AUTOMATION_LIMITS, automationSpecSchema, type AutomationSpec } from "./spec";
 import { scheduleDue, triggerMatches } from "./trigger";
 import { automationUserId, ruleContext } from "./principal.server";
@@ -51,6 +52,8 @@ export interface RuleEvent {
   causedByRuleId: string | null;
   fromCategory?: string | null;
   toCategory?: string | null;
+  /** When the change committed. Past SIDE_EFFECT_WINDOW_MS a rule still runs, but sends nothing. */
+  occurredAt?: Date;
 }
 
 type Rule = { id: string; orgId: string; projectId: string | null; name: string; spec: Prisma.JsonValue; revision: number; actorCap: string; ownerId: string | null; allowChain: boolean };
@@ -132,6 +135,8 @@ async function runForEvent(rule: Rule, spec: AutomationSpec, e: RuleEvent, now: 
       correlationId: e.correlationId,
       depth: e.depth + 1,
       now: now(),
+      // Catching up after the jobs were down: the rule's changes still happen, its messages don't.
+      quiet: e.occurredAt ? tooLateToSend(e.occurredAt, now()) : false,
     };
     const outcomes: ActionOutcome[] = [];
     for (const id of matched) outcomes.push(...(await runActions(run, id, spec.actions)));

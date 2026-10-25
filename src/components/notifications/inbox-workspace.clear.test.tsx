@@ -72,8 +72,8 @@ describe("InboxWorkspace — clearing the view", () => {
 
   it("clears only the picked kind", async () => {
     renderInbox();
-    fireEvent.click(await screen.findByRole("button", { name: /^Past due/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Clear Past due…" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Alerts past due/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Clear Alerts past due…" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Clear 9 notifications?")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Clear" }));
@@ -127,7 +127,7 @@ describe("InboxWorkspace preview", () => {
     fireEvent.pointerEnter(row, { pointerType: "mouse" });
     fireEvent.mouseEnter(row);
     const popup = await screen.findByTestId("notification-preview", {}, { timeout: 2000 });
-    expect(popup).toHaveTextContent("Past due");
+    expect(popup).toHaveTextContent("Alerts past due");
   });
 });
 
