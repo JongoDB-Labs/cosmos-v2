@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.481.3",
+    date: "2026-10-25",
+    title: "Keyboard scrolling on long pages",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Keyboard users can scroll long pages: the main content area now takes focus (with a visible ring), and Skip to content moves focus there.",
+      },
+    ],
+  },
+  {
     version: "2.481.2",
     date: "2026-10-25",
     title: "Teams channels skip old changes",
