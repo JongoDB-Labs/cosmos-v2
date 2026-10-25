@@ -20,10 +20,14 @@ vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 vi.mock("@/components/boards/shared/new-issue-button", () => ({
   NewIssueButton: () => null,
 }));
-const sheet = vi.hoisted(() => ({ itemId: null as string | null }));
+const sheet = vi.hoisted(() => ({
+  itemId: null as string | null,
+  finalFocus: undefined as undefined | (() => unknown),
+}));
 vi.mock("@/components/work-items/board-item-detail-sheet", () => ({
-  BoardItemDetailSheet: ({ itemId }: { itemId: string | null }) => {
-    sheet.itemId = itemId;
+  BoardItemDetailSheet: (props: { itemId: string | null; finalFocus?: () => unknown }) => {
+    sheet.itemId = props.itemId;
+    sheet.finalFocus = props.finalFocus;
     return null;
   },
 }));
@@ -110,5 +114,12 @@ describe("TableView title button", () => {
     // The title cell is still the button, not an edit box.
     expect(screen.queryByDisplayValue("Item 2")).toBeNull();
     expect(screen.getByRole("button", { name: /Item 2/ })).toBeTruthy();
+  });
+
+  it("tells the sheet to hand focus back to that row's title button", async () => {
+    renderTable();
+    fireEvent.click(await screen.findByRole("button", { name: /Item 2/ }));
+    // Looked up when the sheet closes, so a re-rendered button is still found.
+    expect(sheet.finalFocus?.()).toBe(screen.getByRole("button", { name: /Item 2/ }));
   });
 });
