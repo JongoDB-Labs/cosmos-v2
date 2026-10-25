@@ -28,6 +28,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { announceSchedule, type ScheduleAction } from "./schedule-announcement";
 import { findCollisions, type Collision } from "./schedule-collisions";
 import { ScheduleCollisionDialog } from "./schedule-collision-dialog";
+import { ScheduleImpactDialog } from "./schedule-impact-dialog";
+import { coreImpactSections, type PreviewForDialog } from "./schedule-impact-sections";
+import type { ImpactSection } from "@/lib/work-items/schedule-impact";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -753,6 +756,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // first and set a tick later, so the same sentence twice in a row (undo, redo,
   // undo) is still read out: a live region only speaks when its text changes.
   const [announcement, setAnnouncement] = useState("");
+  // A drop held at the confirm step because the preview found it moves more
+  // than the dragged bars, loads someone up, or a plugin had something to say.
+  const [pendingImpact, setPendingImpact] = useState<{
+    main: ItemDateSnapshot;
+    pushed: ItemDateSnapshot[];
+    sections: ImpactSection[];
+  } | null>(null);
   // A drop held back because it newly overlaps a sibling (schedule-collisions).
   const [pendingCollision, setPendingCollision] = useState<{
     id: string;
@@ -1095,7 +1105,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // undo the drag while leaving the cascade in place. Undo therefore arms a
   // moment after the drop, which is also honest — there is nothing to take
   // back until the save has happened.
-  const commitDrop = useCallback(
+  const saveDrop = useCallback(
     (main: ItemDateSnapshot, pushed: ItemDateSnapshot[]) => {
       setRedoStack([]);
       void (async () => {
@@ -1109,6 +1119,36 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       })();
     },
     [commitSchedule, announce],
+  );
+
+  // Before saving a drop, ask what it would do (schedule-preview: the cascade,
+  // people's load, plugin rows). A plain move saves at once; anything more
+  // waits at the confirm step. The preview is advice: if it can't be had, the
+  // drop saves as before, and the save is checked on its own either way.
+  const commitDrop = useCallback(
+    (main: ItemDateSnapshot, pushed: ItemDateSnapshot[]) => {
+      void (async () => {
+        try {
+          const preview = await jsonFetch<(PreviewForDialog & { needsConfirm?: boolean }) | null>(
+            `${basePath}/work-items/schedule-preview`,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                changes: [main, ...pushed].map((c) => ({ id: c.id, ...c.after })),
+              }),
+            },
+          );
+          if (preview?.needsConfirm) {
+            setPendingImpact({ main, pushed, sections: coreImpactSections(preview, labelFor) });
+            return;
+          }
+        } catch {
+          // Fall through and save: see above.
+        }
+        saveDrop(main, pushed);
+      })();
+    },
+    [basePath, labelFor, saveDrop],
   );
 
   const onDragEnd = useCallback(
@@ -1725,6 +1765,18 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       <div role="status" aria-live="polite" className="sr-only" data-testid="gantt-announcer">
         {announcement}
       </div>
+      {pendingImpact && (
+        <ScheduleImpactDialog
+          open
+          sections={pendingImpact.sections}
+          onConfirm={() => {
+            const p = pendingImpact;
+            setPendingImpact(null);
+            saveDrop(p.main, p.pushed);
+          }}
+          onCancel={() => setPendingImpact(null)}
+        />
+      )}
       {pendingCollision && (
         <ScheduleCollisionDialog
           open

@@ -49,6 +49,28 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.485.0",
+    date: "2026-10-25",
+    title: "See a schedule change's impact before saving",
+    highlights: [
+      {
+        kind: "feature",
+        text: "See what a schedule change does before you save it. When you drag an item on the Gantt and it pushes other items, widens a parent, or gives someone more to do at once, Cosmos shows what will change and asks before saving. Plugins can add their own rows, such as fees, rates or hours. A plain move still saves straight away.",
+      },
+    ],
+  },
+  {
+    version: "2.484.0",
+    date: "2026-10-25",
+    title: "Dashboard panel engine (beta)",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Dashboards groundwork (beta): the panel engine that turns a saved query into a chart or table, previewed as you build it. Every viewer sees only the items they can open.",
+      },
+    ],
+  },
+  {
     version: "2.483.0",
     date: "2026-10-25",
     title: "Gantt: overlapping phases ask first",
