@@ -152,6 +152,19 @@ export function CreateWorkItemDialog({
   onCreated?: () => void;
 }) {
   const isDuplicate = Boolean(duplicateSource);
+  // Every opener drives this dialog through `open` rather than a
+  // Dialog.Trigger, so base-ui has no trigger to hand focus back to and closing
+  // dropped it on <body>. Remember what had focus as it opened (the New issue
+  // button, or wherever the keyboard was) and return there on close.
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      const active = document.activeElement;
+      setOpener(active instanceof HTMLElement && active !== document.body ? active : null);
+    }
+  }
   // Primitive forms of the two array props, so effects can depend on their
   // VALUES rather than identities that change whenever a parent re-renders or a
   // lazy fetch resolves. See the reset effect below for why that matters.
@@ -545,7 +558,12 @@ export function CreateWorkItemDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent
+        className="sm:max-w-lg"
+        // An opener that has since unmounted (a row menu item) falls back to
+        // base-ui's default.
+        finalFocus={() => (opener?.isConnected ? opener : true)}
+      >
         <DialogHeader>
           <DialogTitle>{isDuplicate ? "Duplicate issue" : "New issue"}</DialogTitle>
           <DialogDescription>
