@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.482.4",
+    date: "2026-10-25",
+    title: "Time tracking code cleanup",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Internal cleanup of time tracking code. No visible change.",
+      },
+    ],
+  },
+  {
     version: "2.482.3",
     date: "2026-10-25",
     title: "Group a table board by Type",

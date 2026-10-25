@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { periodFor, samePeriod } from "./period";
+import { periodFor } from "./period";
 
 /**
  * Pinned to a negative-offset zone for the same reason as date-only.test.ts:
@@ -188,22 +188,5 @@ describe("periodFor — SEMIMONTHLY", () => {
       start: "2026-12-16",
       end: "2026-12-31",
     });
-  });
-});
-
-describe("samePeriod", () => {
-  it("splits a single WEEK across two semi-monthly periods", () => {
-    // The decision this whole design rests on: the week of Mon 2026-07-13
-    // contains the 15th, so Mon-Wed and Thu-Sun are DIFFERENT pay periods.
-    // Resolving per entry is what gets this right; snapping to the week's
-    // Monday would drag the whole week into the first half.
-    expect(samePeriod("2026-07-13", "2026-07-15", "SEMIMONTHLY")).toBe(true);
-    expect(samePeriod("2026-07-15", "2026-07-16", "SEMIMONTHLY")).toBe(false);
-    // ...while weekly keeps them together, as it should.
-    expect(samePeriod("2026-07-15", "2026-07-16", "WEEKLY")).toBe(true);
-  });
-
-  it("is false across a weekly boundary", () => {
-    expect(samePeriod("2026-07-26", "2026-07-27", "WEEKLY")).toBe(false);
   });
 });

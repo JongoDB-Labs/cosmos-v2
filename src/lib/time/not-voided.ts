@@ -24,15 +24,3 @@
  * new query forgets it.
  */
 export const NOT_VOIDED = { voidedAt: null } as const;
-
-/**
- * Merge `NOT_VOIDED` into an existing where-clause.
- *
- * Use when the clause is built dynamically; spread `...NOT_VOIDED` directly
- * when it is a literal. Both are greppable, which is what the arch test keys on.
- */
-export function excludeVoided<T extends Record<string, unknown>>(
-  where: T,
-): T & { voidedAt: null } {
-  return { ...where, ...NOT_VOIDED };
-}

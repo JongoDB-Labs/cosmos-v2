@@ -53,7 +53,6 @@ beforeEach(() => {
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
   getAuthContext.mockResolvedValue(ctx);
   resolveApprovalRoute.mockResolvedValue({
-    approverId: BOSS,
     notify: [BOSS],
     reason: "manager",
   });
@@ -95,7 +94,6 @@ describe("GET /time-entries/my-approvers", () => {
 
   it("reports 'none' with an empty list when nobody can approve", async () => {
     resolveApprovalRoute.mockResolvedValue({
-      approverId: null,
       notify: [],
       reason: "none",
     });
@@ -122,7 +120,6 @@ describe("GET /time-entries/my-approvers", () => {
     // other. Here approvers exist and none of them supervises this worker,
     // which is exactly what the gate refuses.
     resolveApprovalRoute.mockResolvedValue({
-      approverId: null,
       notify: [BOSS],
       reason: "admin_pool",
     });
