@@ -302,4 +302,38 @@ describe("Cosmos bot in Teams (e2e DB)", () => {
     expect(await s.conv({ projectId: s.project.id })).toBeNull();
     expect(await prisma.auditLog.count({ where: { orgId: s.org.id, action: "teams.channel_stopped" } })).toBe(1);
   });
+
+  it("channel updates: after a gap, changes over 2 hours old are skipped, not posted; newer ones still are", async () => {
+    const s = await setup();
+    await handleActivity(s.channel("alice", `link ${s.key}`) as never, ORIGIN, { fetch: fakeBotConnector().fetch });
+    const old = await s.item("Old news", s.alice);
+    const fresh = await s.item("Fresh news", s.alice);
+    const at = (type: string, subjectId: string, ageMs: number) =>
+      prisma.domainEvent.create({ data: { orgId: s.org.id, projectId: s.project.id, type, subjectId, source: "API", createdAt: new Date(Date.now() - ageMs) } });
+    // Jobs weren't running: two changes from yesterday, one from a minute ago.
+    await at("work_item.created", old.id, 26 * 3600_000);
+    await at("work_item.transitioned", old.id, 25 * 3600_000);
+    await at("work_item.created", fresh.id, 60_000);
+
+    // The first pass skips the stale backlog and posts nothing for it.
+    expect(await queueChannelDigests()).toEqual({ queued: 0, skipped: 1 });
+    expect(await prisma.teamsOutbox.count({ where: { orgId: s.org.id } })).toBe(0);
+    // The next posts only the fresh change.
+    expect(await queueChannelDigests()).toEqual({ queued: 1, skipped: 0 });
+    const f = fakeBotConnector();
+    await drainTeamsOutbox({ origin: ORIGIN, deps: { fetch: f.fetch } });
+    expect(f.texts()).toHaveLength(1);
+    expect(f.texts()[0]).toContain("Fresh news");
+    expect(f.texts()[0]).not.toContain("Old news");
+    // Nothing is left over.
+    expect(await queueChannelDigests()).toEqual({ queued: 0, skipped: 0 });
+  });
+
+  it("channel updates: a change just under 2 hours old is still posted", async () => {
+    const s = await setup();
+    await handleActivity(s.channel("alice", `link ${s.key}`) as never, ORIGIN, { fetch: fakeBotConnector().fetch });
+    const item = await s.item("Recent enough", s.alice);
+    await prisma.domainEvent.create({ data: { orgId: s.org.id, projectId: s.project.id, type: "work_item.created", subjectId: item.id, source: "API", createdAt: new Date(Date.now() - 2 * 3600_000 + 60_000) } });
+    expect(await queueChannelDigests()).toEqual({ queued: 1, skipped: 0 });
+  });
 });

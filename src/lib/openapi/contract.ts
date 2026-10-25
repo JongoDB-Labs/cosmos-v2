@@ -84,3 +84,8 @@ export function isRouteContract(v: unknown): v is RouteContract {
   return typeof c.operationId === "string" && typeof c.method === "string" && typeof c.path === "string"
     && !!c.responses && !!c.request;
 }
+
+/** Whether a contract's body may be left out: its schema accepts `undefined`. */
+export function bodyIsOptional(body: z.ZodType): boolean {
+  return body.safeParse(undefined).success;
+}
