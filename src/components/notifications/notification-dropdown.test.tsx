@@ -512,7 +512,7 @@ describe("NotificationDropdown filter by kind", () => {
       "aria-pressed",
       "true",
     );
-    fireEvent.click(within(group).getByRole("button", { name: /^Assigned\s*1$/ }));
+    fireEvent.click(within(group).getByRole("button", { name: /^Work item assigned\s*1$/ }));
     await waitFor(() =>
       expect(screen.getAllByRole("menuitem")).toHaveLength(1),
     );
@@ -549,7 +549,7 @@ describe("NotificationDropdown filter by kind", () => {
     });
     render(<NotificationDropdown orgId={ORG_ID} />);
     await openBell();
-    fireEvent.click(await screen.findByRole("button", { name: /^Mentioned\s*2$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Comment mentioned\s*2$/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Load older" }));
     expect(await screen.findByText("Title m2")).toBeInTheDocument();
     expect(
@@ -576,7 +576,7 @@ describe("NotificationDropdown filter by kind", () => {
     });
     render(<NotificationDropdown orgId={ORG_ID} />);
     await openBell();
-    fireEvent.click(await screen.findByRole("button", { name: /^Mentioned\s*2$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Comment mentioned\s*2$/ }));
     await waitFor(() =>
       expect(screen.getAllByRole("menuitem")).toHaveLength(1),
     );
