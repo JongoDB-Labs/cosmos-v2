@@ -109,6 +109,21 @@ describe("Idempotency-Key", () => {
     await prisma.apiIdempotencyKey.deleteMany({ where: { credential: `key:${other.credential.keyId}` } });
   });
 
+  it("a browser session's keys are per org: the same key in another org is unrelated", async () => {
+    const key = randomUUID();
+    const userId = randomUUID();
+    const other = await prisma.organization.create({ data: { name: "idem other", slug: `idem-${key.slice(0, 8)}` } });
+    const session = (o: string): AuthContext => ({ userId, orgId: o, orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [] });
+    try {
+      await idempotent({ request: post(key, `/api/v1/orgs/${orgId}/goals`), ctx: session(orgId), orgId, body: {} }, created());
+      await idempotent({ request: post(key, `/api/v1/orgs/${other.id}/goals`), ctx: session(other.id), orgId: other.id, body: {} }, created());
+      expect(runs).toBe(2);
+    } finally {
+      await prisma.apiIdempotencyKey.deleteMany({ where: { key } });
+      await prisma.organization.delete({ where: { id: other.id } });
+    }
+  });
+
   it("an expired key is free again", async () => {
     const key = randomUUID();
     await idempotent({ request: post(key), ctx, orgId, body: {} }, created());

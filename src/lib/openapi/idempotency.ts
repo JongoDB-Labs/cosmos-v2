@@ -10,7 +10,7 @@ import { ProblemError } from "./problem";
  * semantics): a client that times out can retry with the same key and get the
  * first answer back, instead of creating the thing twice.
  *
- *  - Scoped to the credential: a key means nothing across tokens or users.
+ *  - Scoped to the credential: a key means nothing across tokens, users or orgs.
  *  - Same key, different method/path/body: 422 `idempotency_key_reused`.
  *  - Same key while the first request is still running: 409.
  *  - Only a 2xx is kept (sealed, 24 hours) and replayed, marked
@@ -32,7 +32,11 @@ export async function idempotent(
     throw new ProblemError(400, "invalid_request", "Idempotency-Key must be 1–255 printable characters");
   }
 
-  const credential = opts.ctx.credential ? `key:${opts.ctx.credential.keyId}` : `user:${opts.ctx.userId}`;
+  // A token is bound to one org already; a browser session is not, so its
+  // namespace is the user within this org.
+  const credential = opts.ctx.credential
+    ? `key:${opts.ctx.credential.keyId}`
+    : `user:${opts.ctx.userId}@${opts.orgId}`;
   const url = new URL(opts.request.url);
   const requestHash = createHash("sha256")
     .update(`${opts.request.method} ${url.pathname}\n${JSON.stringify(opts.body ?? null)}`)
