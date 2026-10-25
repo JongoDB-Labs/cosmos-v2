@@ -67,11 +67,6 @@ export interface BoardFilters {
   assigneeId: string | null;
   intervalId: string | null;
   /**
-   * Show only work belonging to this team, or null for all teams. A team's
-   * work is what is assigned to its members — items carry no team of their
-   * own — so an item can match more than one team. See lib/teams/item-teams.
-   */
-  /**
    * Selected labels. An item matches if it carries ANY of them — unlike Type or
    * Priority, an item has many labels, so this is an intersection rather than a
    * membership test. See lib/work-items/label-filter.
@@ -93,6 +88,11 @@ export interface BoardFilters {
   storyPoints: string[];
   /** Time-tracking estimate, as a size band rather than a comparator. */
   estimate: EstimateBand;
+  /**
+   * Show only work belonging to this team, or null for all teams. An item
+   * with its own team matches only that team; one without matches every team
+   * its assignee is on. See lib/teams/item-teams.
+   */
   teamId: string | null;
   swimlaneBy: SwimlaneKey;
   /**
@@ -975,6 +975,13 @@ export function FilterBar({
   );
 }
 
+/** True when a custom-field value counts as "set"/used on an item. */
+export function customFieldHasValue(v: unknown): boolean {
+  if (v === null || v === undefined || v === "" || v === false) return false;
+  if (Array.isArray(v)) return v.length > 0;
+  return true;
+}
+
 /**
  * Client-side predicate: does an item's stored custom-field values satisfy the
  * active `customFields` filter map? Used by board views that filter loaded
@@ -985,13 +992,6 @@ export function FilterBar({
  *   - CHECKBOX → the stored value is exactly `true` (filter value "true").
  * An unknown key or a field kind we don't filter on is treated as a pass-through.
  */
-/** True when a custom-field value counts as "set"/used on an item. */
-export function customFieldHasValue(v: unknown): boolean {
-  if (v === null || v === undefined || v === "" || v === false) return false;
-  if (Array.isArray(v)) return v.length > 0;
-  return true;
-}
-
 export function matchesCustomFieldFilters(
   itemCustomFields: Record<string, unknown> | null | undefined,
   active: Record<string, string>,
