@@ -90,6 +90,7 @@ import {
 } from "@/components/boards/shared/new-issue-button";
 import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
+import { WorkItemMenu, WorkItemMenuAt } from "@/components/work-items/work-item-menu";
 import { planDriftPhantoms, type DriftColor } from "@/lib/boards/plan-drift";
 import { paintedSpan, solidSpan } from "@/lib/boards/timeline-span";
 import {
@@ -701,6 +702,18 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // Tracked by id + derived from the live items so edits/deletes stay in sync.
   const [detailId, setDetailId] = useState<string | null>(null);
 
+  // Right-click on a bar opens the item's menu at the cursor (COSMOS-211), with
+  // Open first; double-click and the row label still open the sheet directly.
+  // Bars are SVG, so the menu is positioned rather than wrapped around them.
+  const [barMenu, setBarMenu] = useState<{ item: WorkItem; x: number; y: number } | null>(null);
+  const closeBarMenu = useCallback(() => setBarMenu(null), []);
+  const openBarMenu = (item: WorkItem, e: React.MouseEvent) => {
+    e.preventDefault();
+    if (dragRef.current) return;
+    setHoveredItem(null);
+    setBarMenu({ item, x: e.clientX, y: e.clientY });
+  };
+
   // Resizable Work Items column (persisted) — drag the handle on its right edge.
   const [nameColW, setNameColW] = useState<number>(() => {
     if (typeof window === "undefined") return 260;
@@ -963,7 +976,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
   const beginDrag = useCallback(
     (item: WorkItem, mode: DragMode, e: React.PointerEvent) => {
-      if (!canEdit) return;
+      // Primary button only: a right-click's pointerdown would otherwise start a
+      // drag, and the item menu that follows it stands aside mid-drag.
+      if (!canEdit || e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
       const { start, end } = itemSpan(item);
@@ -2196,7 +2211,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               <div
                 key={item.id}
                 className={cn(
-                  "group/gantt-row flex w-full items-center border-b border-border/30 transition-colors",
+                  "group/gantt-row group/action relative flex w-full items-center border-b border-border/30 transition-colors",
                   isSelected ? "bg-[var(--primary)]/10" : "hover:bg-muted/30",
                 )}
                 style={{ height: ROW_HEIGHT, paddingLeft: 6 }}
@@ -2263,28 +2278,35 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 ) : (
                   <span className="w-[22px] shrink-0" />
                 )}
-                <button
-                  type="button"
-                  onClick={() => setDetailId(item.id)}
-                  title={`${projectKey}-${item.ticketNumber}: ${item.title}`}
-                  className="flex h-full min-w-0 flex-1 items-center gap-2 pr-3 text-left"
+                <WorkItemMenu
+                  item={item}
+                  onOpen={setDetailId}
+                  ticketLabel={`${projectKey}-${item.ticketNumber}`}
+                  triggerClassName="absolute right-1 top-1/2 -translate-y-1/2"
                 >
-                  <div
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{ backgroundColor: colors.fill }}
-                  />
-                  <div className="min-w-0 flex-1">
-                    {/* em, not text-xs: a rem-based Tailwind size would OVERRIDE
-                        the zoom-scaled fontSize on the column and the label
-                        would never move. 0.75em reproduces text-xs at 100%. */}
-                    <p className="truncate" style={{ fontSize: "0.75em" }}>
-                      <span className="text-muted-foreground mr-1">
-                        {projectKey}-{item.ticketNumber}
-                      </span>
-                      {item.title}
-                    </p>
-                  </div>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setDetailId(item.id)}
+                    title={`${projectKey}-${item.ticketNumber}: ${item.title}`}
+                    className="flex h-full min-w-0 flex-1 items-center gap-2 pr-3 text-left"
+                  >
+                    <div
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: colors.fill }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      {/* em, not text-xs: a rem-based Tailwind size would OVERRIDE
+                          the zoom-scaled fontSize on the column and the label
+                          would never move. 0.75em reproduces text-xs at 100%. */}
+                      <p className="truncate" style={{ fontSize: "0.75em" }}>
+                        <span className="text-muted-foreground mr-1">
+                          {projectKey}-{item.ticketNumber}
+                        </span>
+                        {item.title}
+                      </p>
+                    </div>
+                  </button>
+                </WorkItemMenu>
               </div>
             );
           })}
@@ -2785,11 +2807,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     onPointerCancel={onDragCancel}
                     onClick={(e) => onBarClick(item, e)}
                     onDoubleClick={() => setDetailId(item.id)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setHoveredItem(null);
-                      setDetailId(item.id);
-                    }}
+                    onContextMenu={(e) => openBarMenu(item, e)}
                     data-testid={`gantt-bar-${item.id}`}
                     data-selected={isSelected || undefined}
                     style={{ touchAction: canEdit ? "none" : undefined }}
@@ -2899,11 +2917,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     onMouseLeave={() => setHoveredItem(null)}
                     onClick={(e) => onBarClick(item, e)}
                     onDoubleClick={() => setDetailId(item.id)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setHoveredItem(null);
-                      setDetailId(item.id);
-                    }}
+                    onContextMenu={(e) => openBarMenu(item, e)}
                     data-testid={`gantt-bar-${item.id}`}
                     data-undated="true"
                     data-selected={isSelected || undefined}
@@ -2982,11 +2996,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       onPointerCancel={onDragCancel}
                       onClick={(e) => onBarClick(item, e)}
                       onDoubleClick={() => setDetailId(item.id)}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setHoveredItem(null);
-                        setDetailId(item.id);
-                      }}
+                      onContextMenu={(e) => openBarMenu(item, e)}
                       data-testid={`gantt-bar-${item.id}`}
                       data-selected={isSelected || undefined}
                       style={{ touchAction: canEdit ? "none" : undefined }}
@@ -3076,11 +3086,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       opacity={1 * lensDim}
                       onClick={(e) => onBarClick(item, e)}
                       onDoubleClick={() => setDetailId(item.id)}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setHoveredItem(null);
-                        setDetailId(item.id);
-                      }}
+                      onContextMenu={(e) => openBarMenu(item, e)}
                       data-testid={`gantt-bar-${item.id}`}
                       data-selected={isSelected || undefined}
                       className="cursor-pointer"
@@ -3392,6 +3398,17 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         onChildrenReordered={() => qc.invalidateQueries({ queryKey: itemsKey })}
         onOpenItem={(id) => setDetailId(id)}
       />
+      {barMenu && (
+        <WorkItemMenuAt
+          // A new right-click remounts it, so it reopens at the new point.
+          key={`${barMenu.item.id}:${barMenu.x}:${barMenu.y}`}
+          item={barMenu.item}
+          at={barMenu}
+          onOpen={setDetailId}
+          ticketLabel={`${projectKey}-${barMenu.item.ticketNumber}`}
+          onClose={closeBarMenu}
+        />
+      )}
     </div>
   );
 }

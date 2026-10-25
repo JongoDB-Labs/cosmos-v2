@@ -12,7 +12,7 @@
 // impossible: a single scroll container, both panes as its direct children, and
 // no independently-scrollable label column.
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 vi.mock("next/navigation", () => ({
@@ -68,6 +68,8 @@ vi.mock("@/components/boards/shared/filter-bar", async (importOriginal) => {
 
 const item = (n: number, start: string, due: string) => ({
   id: `i${n}`,
+  orgId: "o1",
+  projectId: "p1",
   ticketNumber: 100 + n,
   title: `Item ${n}`,
   createdAt: start,
@@ -931,13 +933,16 @@ describe("TimelineView — one selection model, shared by the checkboxes and the
     expect(screen.getByTestId("detail-sheet")).toHaveTextContent("i2");
   });
 
-  it("still opens the detail sheet on right-click, and from the ticket label", async () => {
+  it("still opens the detail sheet from right-click's Open, and from the ticket label", async () => {
     renderTimeline();
     await screen.findByTestId("gantt-chart");
 
-    // Taking plain-click away from the sheet is only acceptable because none of
-    // its other routes moved.
+    // Taking plain-click away from the sheet is only acceptable because it stays
+    // one step away everywhere else. Right-click opens the item's menu
+    // (COSMOS-211), whose first row is Open.
     fireEvent.contextMenu(bar("i3"));
+    expect(screen.queryByTestId("detail-sheet")).toBeNull();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Open" }));
     expect(screen.getByTestId("detail-sheet")).toHaveTextContent("i3");
 
     fireEvent.click(screen.getByTitle(/^FSC-101:/));
@@ -1014,5 +1019,67 @@ describe("TimelineView — bars still open the ticket for a read-only viewer", (
 
     fireEvent.click(screen.getByTestId("gantt-bar-i1"));
     expect(screen.getByTestId("detail-sheet")).toHaveTextContent("i1");
+  });
+});
+
+// ── COSMOS-211/212: the item menu on bars and row labels ─────────────────
+describe("TimelineView — a bar's right-click opens the item's menu", () => {
+  afterEach(() => {
+    cleanup();
+    perms.canEdit = false;
+    vi.clearAllMocks();
+  });
+
+  const bar = (id: string) => screen.getByTestId(`gantt-bar-${id}`);
+  const labels = async () =>
+    within(await screen.findByRole("menu"))
+      .getAllByRole("menuitem")
+      .map((el) => el.textContent?.trim() ?? "");
+  const itemFetches = () =>
+    vi.mocked(jsonFetch).mock.calls.filter(
+      ([url, init]) => String(url).endsWith("/work-items") && !(init as RequestInit | undefined)?.method,
+    ).length;
+
+  it("a viewer gets Open and Copy link only", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+    fireEvent.contextMenu(bar("i2"));
+    expect(await labels()).toEqual(["Open", "Copy link"]);
+  });
+
+  it("each row label has the same menu behind a named button", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+    fireEvent.click(screen.getByRole("button", { name: "Actions for FSC-102" }));
+    expect(await labels()).toEqual(["Open", "Copy link"]);
+  });
+
+  it("an editor's right-click opens the menu: its pointerdown starts no drag", async () => {
+    perms.canEdit = true;
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+    // A real right-click: pointerdown with the secondary button, then contextmenu.
+    fireEvent.pointerDown(bar("i2"), { button: 2, clientX: 10 });
+    fireEvent.contextMenu(bar("i2"));
+    expect(await labels()).toEqual(expect.arrayContaining(["Open", "Archive"]));
+  });
+
+  it("an editor's Archive saves and the chart refetches its items, no reload", async () => {
+    perms.canEdit = true;
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+    const before = itemFetches();
+
+    fireEvent.contextMenu(bar("i2"));
+    expect(await labels()).toEqual(expect.arrayContaining(["Open", "Copy link", "Archive", "Delete"]));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+
+    await waitFor(() =>
+      expect(jsonFetch).toHaveBeenCalledWith(
+        "/api/v1/orgs/o1/projects/p1/work-items/i2",
+        expect.objectContaining({ method: "PUT", body: expect.stringContaining('"archivedAt":"') }),
+      ),
+    );
+    await waitFor(() => expect(itemFetches()).toBeGreaterThan(before));
   });
 });

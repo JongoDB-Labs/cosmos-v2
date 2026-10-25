@@ -16,6 +16,7 @@ import {
   type NewIssueHandle,
 } from "@/components/boards/shared/new-issue-button";
 import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
+import { WorkItemMenu } from "@/components/work-items/work-item-menu";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -310,25 +311,33 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
                 {/* Show up to 3 items */}
                 <div className="space-y-0.5">
                   {dayItems.slice(0, 3).map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setDetailId(item.id)}
-                      data-highlight={item.highlight ?? undefined}
-                      style={calendarHighlightStyle(item.highlight)}
-                      className={cn(
-                        "w-full text-left text-[10px] leading-tight px-1.5 py-0.5 rounded border-l-2 truncate bg-muted/40 hover:bg-muted",
-                        priorityBorderMap[item.priority]
-                      )}
-                      title={[
-                        `${projectKey}-${item.ticketNumber}: ${item.title}`,
-                        highlightLabel(item.highlight),
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    >
-                      {item.title}
-                    </button>
+                    <div key={item.id} className="group/action relative">
+                      <WorkItemMenu
+                        item={item}
+                        onOpen={setDetailId}
+                        ticketLabel={`${projectKey}-${item.ticketNumber}`}
+                        triggerClassName="absolute right-0 top-1/2 -translate-y-1/2 p-0"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setDetailId(item.id)}
+                          data-highlight={item.highlight ?? undefined}
+                          style={calendarHighlightStyle(item.highlight)}
+                          className={cn(
+                            "w-full text-left text-[10px] leading-tight px-1.5 py-0.5 rounded border-l-2 truncate bg-muted/40 hover:bg-muted",
+                            priorityBorderMap[item.priority]
+                          )}
+                          title={[
+                            `${projectKey}-${item.ticketNumber}: ${item.title}`,
+                            highlightLabel(item.highlight),
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        >
+                          {item.title}
+                        </button>
+                      </WorkItemMenu>
+                    </div>
                   ))}
                   {dayItems.length > 3 && (
                     <button
@@ -375,37 +384,45 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
             </div>
             <div className="space-y-2">
               {expandedDayItems.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setDetailId(item.id)}
-                  data-highlight={item.highlight ?? undefined}
-                  style={calendarHighlightStyle(item.highlight)}
-                  title={highlightLabel(item.highlight) ?? undefined}
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-md border p-2 border-l-4 text-left hover:bg-muted/50",
-                    priorityBorderMap[item.priority]
-                  )}
-                >
-                  <div
-                    className={cn(
-                      "w-2 h-2 rounded-full shrink-0",
-                      priorityColorMap[item.priority]
-                    )}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{item.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {projectKey}-{item.ticketNumber}
-                      {item.assigneeId && (
-                        <> &middot; {memberMap.get(item.assigneeId) ?? "Unknown"}</>
+                <div key={item.id} className="group/action relative">
+                  <WorkItemMenu
+                    item={item}
+                    onOpen={setDetailId}
+                    ticketLabel={`${projectKey}-${item.ticketNumber}`}
+                    triggerClassName="absolute right-1 top-1"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setDetailId(item.id)}
+                      data-highlight={item.highlight ?? undefined}
+                      style={calendarHighlightStyle(item.highlight)}
+                      title={highlightLabel(item.highlight) ?? undefined}
+                      className={cn(
+                        "flex w-full items-center gap-3 rounded-md border p-2 border-l-4 text-left hover:bg-muted/50",
+                        priorityBorderMap[item.priority]
                       )}
-                    </p>
-                  </div>
-                  <Badge className={cn("text-[10px] shrink-0", priorityColorMap[item.priority] === "bg-red-500" ? "bg-red-500/20 text-red-400" : priorityColorMap[item.priority] === "bg-orange-500" ? "bg-orange-500/20 text-orange-400" : priorityColorMap[item.priority] === "bg-blue-500" ? "bg-blue-500/20 text-blue-400" : "bg-muted text-muted-foreground")}>
-                    {item.priority}
-                  </Badge>
-                </button>
+                    >
+                      <div
+                        className={cn(
+                          "w-2 h-2 rounded-full shrink-0",
+                          priorityColorMap[item.priority]
+                        )}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{item.title}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {projectKey}-{item.ticketNumber}
+                          {item.assigneeId && (
+                            <> &middot; {memberMap.get(item.assigneeId) ?? "Unknown"}</>
+                          )}
+                        </p>
+                      </div>
+                      <Badge className={cn("text-[10px] shrink-0", priorityColorMap[item.priority] === "bg-red-500" ? "bg-red-500/20 text-red-400" : priorityColorMap[item.priority] === "bg-orange-500" ? "bg-orange-500/20 text-orange-400" : priorityColorMap[item.priority] === "bg-blue-500" ? "bg-blue-500/20 text-blue-400" : "bg-muted text-muted-foreground")}>
+                        {item.priority}
+                      </Badge>
+                    </button>
+                  </WorkItemMenu>
+                </div>
               ))}
             </div>
           </div>

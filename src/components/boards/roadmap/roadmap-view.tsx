@@ -26,6 +26,7 @@ import { highlightLabel, highlightStyle } from "@/lib/work-items/highlights";
 import type { WorkItem, OrgMember, Interval, Board, BoardColumn } from "@/types/models";
 import { bareTypeKey } from "@/components/boards/shared/filter-bar";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
+import { WorkItemMenu } from "@/components/work-items/work-item-menu";
 import { useProjectTeams } from "@/hooks/use-project-teams";
 
 interface RoadmapViewProps {
@@ -57,7 +58,7 @@ function fmtRange(start: string, end: string): string {
     : `${mon(s)} '${yy(s)} – ${mon(e)} '${yy(e)}`;
 }
 
-export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
+export function RoadmapView({ orgId, projectId, projectKey, boardId }: RoadmapViewProps) {
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
   const qc = useQueryClient();
   const itemsKey = useOrgQueryKey("work-items", projectId);
@@ -281,7 +282,7 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
                   )}
                   style={{ borderLeft: `3px solid ${accent}` }}
                 >
-                  <div className="flex items-start gap-1">
+                  <div className="group/action relative flex items-start gap-1">
                     <button
                       onClick={() => toggle(epic.id)}
                       aria-label={isCollapsed ? "Expand epic" : "Collapse epic"}
@@ -293,15 +294,22 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
                         <ChevronDown className="size-4" />
                       )}
                     </button>
-                    <button
-                      onClick={() => setDetailId(epic.id)}
-                      className="min-w-0 flex-1 text-left"
+                    <WorkItemMenu
+                      item={epic}
+                      onOpen={setDetailId}
+                      ticketLabel={`${projectKey}-${epic.ticketNumber}`}
+                      triggerClassName="absolute right-0 top-0"
                     >
-                      <span className="line-clamp-2 text-sm font-medium text-[var(--text)] hover:underline">
-                        {epic.title}
-                      </span>
-                      <span className="text-[11px] text-[var(--text-muted)]">#{epic.ticketNumber}</span>
-                    </button>
+                      <button
+                        onClick={() => setDetailId(epic.id)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <span className="line-clamp-2 text-sm font-medium text-[var(--text)] hover:underline">
+                          {epic.title}
+                        </span>
+                        <span className="text-[11px] text-[var(--text-muted)]">#{epic.ticketNumber}</span>
+                      </button>
+                    </WorkItemMenu>
                   </div>
                   {/* roll-up */}
                   <div className="mt-1.5 flex items-center gap-2 pl-5">
@@ -335,7 +343,12 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
                             </div>
                           )
                         : feats.map((f) => (
-                            <FeatureCard key={f.id} item={f} onClick={() => setDetailId(f.id)} />
+                            <FeatureCard
+                              key={f.id}
+                              item={f}
+                              ticketLabel={`${projectKey}-${f.ticketNumber}`}
+                              onOpen={setDetailId}
+                            />
                           ))}
                     </div>
                   );
@@ -374,37 +387,51 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
   );
 }
 
-function FeatureCard({ item, onClick }: { item: WorkItem; onClick: () => void }) {
+function FeatureCard({
+  item,
+  ticketLabel,
+  onOpen,
+}: {
+  item: WorkItem;
+  ticketLabel: string;
+  onOpen: (id: string) => void;
+}) {
   const done = !!item.completedAt;
   return (
-    <button
-      onClick={onClick}
-      data-highlight={item.highlight ?? undefined}
-      // Read-only here: this card has no context menu, so the highlight is set
-      // from the detail sheet this button opens (or from any board that does
-      // have one) and rendered here.
-      style={highlightStyle(item.highlight)}
-      title={highlightLabel(item.highlight) ?? undefined}
-      className={cn(
-        "flex w-full items-start gap-1.5 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-left text-xs transition-colors hover:border-[var(--primary)]",
-        done && "opacity-70",
-      )}
-    >
-      <span
-        className={cn(
-          "mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-full",
-          done ? "bg-[var(--status-ok,#22c55e)] text-white" : "border border-[var(--border)]",
-        )}
+    <div className="group/action relative">
+      <WorkItemMenu
+        item={item}
+        onOpen={onOpen}
+        ticketLabel={ticketLabel}
+        triggerClassName="absolute right-0.5 top-0.5 bg-[var(--bg)]"
       >
-        {done && <Check className="size-2.5" />}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className={cn("line-clamp-2 text-[var(--text)]", done && "line-through")}>
-          {item.title}
-        </span>
-        <span className="text-[10px] text-[var(--text-muted)]">#{item.ticketNumber}</span>
-      </span>
-    </button>
+        <button
+          onClick={() => onOpen(item.id)}
+          data-highlight={item.highlight ?? undefined}
+          style={highlightStyle(item.highlight)}
+          title={highlightLabel(item.highlight) ?? undefined}
+          className={cn(
+            "flex w-full items-start gap-1.5 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-left text-xs transition-colors hover:border-[var(--primary)]",
+            done && "opacity-70",
+          )}
+        >
+          <span
+            className={cn(
+              "mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-full",
+              done ? "bg-[var(--status-ok,#22c55e)] text-white" : "border border-[var(--border)]",
+            )}
+          >
+            {done && <Check className="size-2.5" />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className={cn("line-clamp-2 text-[var(--text)]", done && "line-through")}>
+              {item.title}
+            </span>
+            <span className="text-[10px] text-[var(--text-muted)]">#{item.ticketNumber}</span>
+          </span>
+        </button>
+      </WorkItemMenu>
+    </div>
   );
 }
 
