@@ -11,6 +11,8 @@ import type { IntegrationProvider } from "@/lib/integrations/registry";
 import type { PrismaClient } from "@prisma/client";
 import type { z } from "zod";
 import type { ToolContext as CoreToolContext } from "@/lib/ai/executors/_ctx";
+import type { AuthContext } from "@/lib/rbac/check";
+import type { ImpactSection, PluginScheduleChange, ScheduleChange } from "@/lib/work-items/schedule-impact";
 
 /**
  * PLUGIN REGISTRY (ADR 0003) — the packaging rung above sector templates and
@@ -194,6 +196,31 @@ export type PluginImportWriter = (args: {
   commit: boolean;
 }) => Promise<{ created: number; updated: number; skipped: number; errors: { row: number; message: string }[] }>;
 
+/** What `scheduleImpact` is told about a proposed reschedule. */
+export type ScheduleImpactContext = {
+  orgId: string;
+  /** The one project the change and its cascade live in; readable by the caller. */
+  projectId: string;
+  userId: string;
+  /** The caller's own permissions (mask, role, API-key flag), so a hook can gate
+   *  money on FINANCE_READ without a member lookup inside its time budget. */
+  auth: AuthContext;
+  /** The items the person moved, before and after. */
+  changes: ScheduleChange[];
+  /** What core's cascade would move as a result (parents widened, successors
+   *  shifted). Part of the impact: a pushed phase costs as much as a dragged one. */
+  cascaded: ScheduleChange[];
+  /**
+   * Changes to THIS plugin's own kinds ("<slug>.<name>", e.g. its phases),
+   * passed through untouched; another plugin's kinds are never included. Core
+   * knows nothing about these ids beyond the project read on the route: check
+   * the caller may change them, and resolve them within `projectId`, yourself.
+   * Return their knock-on effects (what else a moved phase shifts) as your own
+   * section; the dialog shows it alongside core's.
+   */
+  pluginChanges: PluginScheduleChange[];
+};
+
 export type PluginServerHooks = {
   /** Must match a registered manifest slug. */
   slug: string;
@@ -265,6 +292,25 @@ export type PluginServerHooks = {
    * claims success hides a rule that stopped working months ago.
    */
   runRules?: (prisma: PrismaClient, orgId: string) => Promise<RuleRunSummary[]>;
+  /**
+   * Add rows to the confirm step shown before a Gantt reschedule is saved:
+   * what the change does to fees, rates or hours, which core cannot know.
+   *
+   * A DRY RUN: nothing has been written, and nothing here may write. Called
+   * only while the plugin is enabled and licensed for the org, with a time
+   * budget (SCHEDULE_IMPACT_BUDGET_MS); a slow or throwing hook loses its
+   * section and never blocks the save. What it returns is validated
+   * (ImpactSectionSchema) and each section key is prefixed with the slug.
+   *
+   * ACCESS CONTROL: core has already confirmed the caller may read `projectId`
+   * and holds ITEM_UPDATE on every changed item, and the cascade never leaves
+   * that project. Return rows about this project only, and gate anything
+   * beyond the schedule itself (money, rates) on `auth` yourself, e.g.
+   * FINANCE_READ via its permission mask. No other project's data, ever: the
+   * same rule as the read routes (a project the caller can't see is not
+   * confirmed to exist).
+   */
+  scheduleImpact?: (prisma: PrismaClient, ctx: ScheduleImpactContext) => Promise<ImpactSection[]>;
   /** Adapter/integration descriptors, forwarded to IntegrationRegistry.register()
    *  by registry/server.ts (they carry sector tags the integrations UI already
    *  understands). */
