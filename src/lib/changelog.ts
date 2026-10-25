@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.481.2",
+    date: "2026-10-25",
+    title: "Teams channels skip old changes",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Teams channels don't post a backlog of old changes. After an outage, a channel linked to a project skips changes more than two hours old instead of posting a card a minute about each of them.",
+      },
+    ],
+  },
+  {
     version: "2.481.1",
     date: "2026-10-25",
     title: "Background jobs run in production",
