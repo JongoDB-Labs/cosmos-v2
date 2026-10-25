@@ -663,7 +663,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
                 }}
                 onBlur={() => setEditingCell(null)}
                 autoFocus
-                className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
+                className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               >
                 {["CRITICAL", "HIGH", "MEDIUM", "LOW"].map((p) => (
                   <option key={p} value={p}>
@@ -708,7 +708,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
                 }}
                 onBlur={() => setEditingCell(null)}
                 autoFocus
-                className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
+                className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               >
                 {columns.map((c) => (
                   <option key={c.key} value={c.key}>
@@ -752,7 +752,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
                 }}
                 onBlur={() => setEditingCell(null)}
                 autoFocus
-                className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
+                className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               >
                 <option value="">Unassigned</option>
                 {members.map((m) => (
@@ -948,14 +948,14 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       {transitionDialog}
       {/* Toolbar */}
       <div className="flex items-center gap-3 px-4 py-2 border-b bg-background/50">
-        <div className="flex items-center gap-1">
+        <label className="flex items-center gap-1">
           <span className="text-xs text-muted-foreground mr-1">Group by:</span>
           <select
             value={grouping[0] ?? ""}
             onChange={(e) =>
               setGrouping(e.target.value ? [e.target.value] : [])
             }
-            className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
+            className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             {GROUPING_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -963,7 +963,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
               </option>
             ))}
           </select>
-        </div>
+        </label>
 
         {/* Type filter (FR debd4e39): scope the board to specific item types. */}
         {typeOptions.length > 1 && (

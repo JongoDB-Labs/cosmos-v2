@@ -141,4 +141,11 @@ describe("TableView group-by", () => {
     expect(headers).toContain("To Do (2)");
     expect(headers).toContain("Done (1)");
   });
+
+  it("names the Group by control, so a screen reader announces what it changes", async () => {
+    renderTable();
+    await screen.findByText("Item 1");
+    // axe select-name: a bare <select> next to a "Group by:" span has no name.
+    expect(screen.getByRole("combobox", { name: "Group by:" })).toBeTruthy();
+  });
 });
