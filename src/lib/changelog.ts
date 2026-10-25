@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.486.1",
+    date: "2026-10-25",
+    title: "Table board Group by is announced",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Screen readers now announce the table board's Group by control, and it shows a focus ring.",
+      },
+    ],
+  },
+  {
     version: "2.486.0",
     date: "2026-10-25",
     title: "Automations in project settings",
