@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.482.2",
+    date: "2026-10-25",
+    title: "RAID card menu matches your role",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The RAID log's card menu matches your role. Anyone can open an item or copy its link from the RAID log. Recategorizing, highlighting and archiving need edit rights, and deleting needs delete rights. Delete asks first.",
+      },
+    ],
+  },
+  {
     version: "2.482.1",
     date: "2026-10-25",
     title: "Missed weekly digests still send",
