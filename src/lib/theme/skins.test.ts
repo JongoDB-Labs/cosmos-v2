@@ -2,6 +2,37 @@ import { describe, expect, it } from "vitest";
 import { SKIN_PRESETS, DEFAULT_SKIN_ID, getSkinPreset, allSkinsCss } from "./skins";
 import { contrastRatio, passesAA } from "./contrast";
 
+describe("skin contrast", () => {
+  // Every preset, both modes: the pairs the app actually draws. A primary
+  // button is --primary-foreground on --primary; links and active tabs are
+  // --primary on the page or a card; body and secondary text sit on both.
+  const PAIRS: [string, string][] = [
+    ["--primary-foreground", "--primary"],
+    ["--primary", "--bg"],
+    ["--primary", "--surface"],
+    ["--text", "--bg"],
+    ["--text", "--surface"],
+    ["--text-muted", "--bg"],
+    ["--text-muted", "--surface"],
+  ];
+  const hex = (v: string | undefined) => (v && /^#[0-9a-f]{6}$/i.test(v) ? v : null);
+  for (const p of SKIN_PRESETS) {
+    for (const mode of ["light", "dark"] as const) {
+      it(`${p.id} ${mode} meets WCAG AA for text`, () => {
+        const vars = p[mode] as Record<string, string>;
+        const failing = PAIRS.flatMap(([fg, bg]) => {
+          const f = hex(vars[fg]);
+          const b = hex(vars[bg]);
+          if (!f || !b) return [];
+          const ratio = contrastRatio(f, b);
+          return passesAA(f, b) ? [] : [`${fg} on ${bg}: ${ratio.toFixed(2)}:1`];
+        });
+        expect(failing).toEqual([]);
+      });
+    }
+  }
+});
+
 describe("skin registry", () => {
   it("ships all presets with unique ids and both modes", () => {
     const ids = SKIN_PRESETS.map((p) => p.id);
