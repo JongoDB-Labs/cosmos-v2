@@ -21,6 +21,8 @@ import {
   Check,
   Tag as TagIcon,
   GripVertical,
+  PanelRightOpen,
+  Trash2,
   type LucideIcon,
 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -32,6 +34,11 @@ import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
+import { archiveAction, copyLinkAction } from "@/lib/work-items/item-actions";
+import { useOrgSlug } from "@/lib/query/keys";
+import { usePermissions } from "@/components/providers/permissions-provider";
+import { Permission } from "@/lib/rbac/permissions";
+import { DeleteWorkItemDialog } from "@/components/work-items/delete-work-item-dialog";
 import { highlightLabel, highlightStyle } from "@/lib/work-items/highlights";
 import {
   NewIssueButton,
@@ -570,12 +577,44 @@ function RaidCard({
     },
   });
 
+  const { can } = usePermissions();
+  const canUpdate = can(Permission.ITEM_UPDATE);
+  const canDelete = can(Permission.ITEM_DELETE);
+  const orgSlug = useOrgSlug();
+  const itemPath = `/api/v1/orgs/${item.orgId}/projects/${item.projectId}/work-items/${item.id}`;
+
+  const [archivedDraft, setArchivedDraft] = useState<string | null | undefined>(undefined);
+  const archivedAt = archivedDraft === undefined ? item.archivedAt : archivedDraft;
+  const archiveMutation = useOrgMutation<unknown, Error, string | null>({
+    mutationFn: (next) =>
+      jsonFetch(itemPath, { method: "PUT", body: JSON.stringify({ archivedAt: next }) }),
+    invalidate: [["work-items", item.projectId]],
+    onError: (err) => {
+      setArchivedDraft(undefined);
+      notifyError(err, "Couldn't archive that item.");
+    },
+  });
+
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteMutation = useOrgMutation<unknown, Error, void>({
+    mutationFn: () => jsonFetch(itemPath, { method: "DELETE" }),
+    invalidate: [["work-items", item.projectId]],
+    onSuccess: () => setConfirmDelete(false),
+    onError: (err) => notifyError(err, "Couldn't delete that item."),
+  });
+
+  // Gated like the Kanban card (COSMOS-210): Open and Copy link for anyone who
+  // can see the card, every change behind ITEM_UPDATE, and Delete (with a
+  // confirm) behind ITEM_DELETE. The menu used to offer Categorize, Clear and
+  // Highlight to everyone, and had no way to open, link or delete the item.
+  //
   // Selector: the 4 RAID categories (current one check-marked + disabled),
   // then a "Clear" action when the item currently sits in a RAID column.
   const menuGroups: ActionMenuGroup[] = [
+    { items: [{ label: "Open", icon: PanelRightOpen, onClick: () => onOpen(item.id) }] },
     {
       label: "Categorize",
-      items: RAID_CATEGORIES.map((cat) => ({
+      items: !canUpdate ? [] : RAID_CATEGORIES.map((cat) => ({
         label: cat.label,
         icon: cat.key === currentCategory ? Check : (TagIcon as LucideIcon),
         disabled: cat.key === currentCategory || isPending,
@@ -584,7 +623,7 @@ function RaidCard({
     },
     {
       items:
-        currentCategory !== null
+        canUpdate && currentCategory !== null
           ? [
               {
                 label: "Clear",
@@ -596,15 +635,43 @@ function RaidCard({
     },
     highlightMenuGroup({
       current: highlight,
+      canEdit: canUpdate,
       disabled: highlightMutation.isPending,
       onPick: (next) => {
         setHighlightDraft(next);
         highlightMutation.mutate(next);
       },
     }),
+    {
+      items: [
+        ...copyLinkAction({ id: item.id, ticketKey: projectKey ? ticketLabel : null }, orgSlug),
+        ...archiveAction({
+          item: { id: item.id, archivedAt },
+          canEdit: canUpdate,
+          pending: archiveMutation.isPending,
+          onToggle: (next) => {
+            setArchivedDraft(next);
+            archiveMutation.mutate(next);
+          },
+        }),
+      ],
+    },
+    {
+      items: canDelete
+        ? [
+            {
+              label: "Delete",
+              icon: Trash2,
+              variant: "destructive" as const,
+              onClick: () => setConfirmDelete(true),
+            },
+          ]
+        : [],
+    },
   ];
 
   return (
+    <>
     <ActionMenu groups={menuGroups}>
       <div
         ref={setNodeRef}
@@ -677,6 +744,16 @@ function RaidCard({
         </div>
       </div>
     </ActionMenu>
+
+    <DeleteWorkItemDialog
+      open={confirmDelete}
+      onCancel={() => setConfirmDelete(false)}
+      onConfirm={() => deleteMutation.mutate()}
+      pending={deleteMutation.isPending}
+      ticketLabel={ticketLabel}
+      title={item.title}
+    />
+    </>
   );
 }
 

@@ -215,7 +215,7 @@ export interface RunSummary {
   skipped: number;
   disabled: number;
   failed: number;
-  /** Slots missed by more than the window (the jobs were down): moved on, not sent late. */
+  /** Slots missed by more than the window (the jobs were down) with the next within a day: moved on, not sent late. */
   missed: number;
 }
 
@@ -225,9 +225,12 @@ interface Claimed {
 
 interface ClaimedRun {
   id: string;
-  /** Its slot passed more than SIDE_EFFECT_WINDOW_MS ago. */
+  /** Its slot passed more than SIDE_EFFECT_WINDOW_MS ago, and the next one is within STAND_IN_MS. */
   late: boolean;
 }
+
+/** A missed slot is skipped only if the next one is at most this far off. */
+const STAND_IN_MS = 24 * 3_600_000;
 
 /** Claim due subscriptions and move their next run on, atomically. */
 async function claim(now: Date): Promise<ClaimedRun[]> {
@@ -238,9 +241,15 @@ async function claim(now: Date): Promise<ClaimedRun[]> {
       ORDER BY next_run_at
       LIMIT ${BATCH}
       FOR UPDATE SKIP LOCKED`);
+    const claimed: ClaimedRun[] = [];
     for (const d of due) {
       const sched = parseSchedule(d.cron);
       const next = "error" in sched ? null : nextRun(sched, d.timezone, now);
+      // Late, and skipped, only when the next slot comes soon enough to stand
+      // in for it: a weekly or monthly digest whose slot fell in an outage
+      // still goes out late, rather than leave a week or a month without one.
+      const late = tooLateToSend(d.next_run_at, now) && next !== null && next.getTime() - now.getTime() <= STAND_IN_MS;
+      claimed.push({ id: d.id, late });
       await tx.filterSubscription.update({
         where: { id: d.id },
         data: next
@@ -248,7 +257,7 @@ async function claim(now: Date): Promise<ClaimedRun[]> {
           : { lastRunAt: now, disabledAt: now, disabledReason: "schedule no longer runs" },
       });
     }
-    return due.map((d) => ({ id: d.id, late: tooLateToSend(d.next_run_at, now) }));
+    return claimed;
   });
 }
 
