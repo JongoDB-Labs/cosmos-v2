@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.482.3",
+    date: "2026-10-25",
+    title: "Group a table board by Type",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Grouping a table board by Type now works: rows group under each type's name.",
+      },
+    ],
+  },
+  {
     version: "2.482.2",
     date: "2026-10-25",
     title: "RAID card menu matches your role",
