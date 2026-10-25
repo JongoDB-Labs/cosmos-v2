@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/auth";
 import { openIssues, resetQueryLanguage, setQueryLanguage } from "./fixtures/issues-query";
+import { runAxe, blocking } from "./fixtures/axe";
 
 /**
  * Boards on the query language (query design §12.1, §14.3): save an Issues
@@ -43,6 +44,10 @@ test.describe("Boards — query language", () => {
     const card = (title: string) => page.getByRole("cell", { name: title });
     await expect(card("Falcon radar upgrade")).toBeVisible({ timeout: 20_000 });
     await expect(card("Falcon telemetry pipeline")).toBeHidden();
+
+    // The table board itself passes axe (its toolbar "Group by" select was unnamed).
+    await expect(page.getByRole("combobox", { name: "Group by:" })).toBeVisible();
+    expect(blocking(await runAxe(page))).toEqual([]);
 
     // Narrow within it from the bar: nothing is HIGH.
     await page.goto(`${boardUrl}?cql=${encodeURIComponent("priority = HIGH")}&mode=advanced`);
