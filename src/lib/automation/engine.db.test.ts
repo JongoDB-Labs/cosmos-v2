@@ -171,6 +171,22 @@ describe("rules fired by changes", () => {
     expect((await runsOf(r.id)).map((x) => x.status)).toEqual(["SUCCESS", "SKIPPED_SELF"]);
   });
 
+  it("still makes its changes for an event over an hour old, but sends no notification for it", async () => {
+    const p = await project();
+    const r = await rule(p, {
+      trigger: { on: "item.created" },
+      actions: [{ kind: "addLabels", labels: ["seen"] }, { kind: "notify", to: { userIds: [bobId] }, message: "{{item.key}} is new" }],
+    });
+    const id = await item(p);
+    await prisma.domainEvent.updateMany({ where: { subjectId: id }, data: { createdAt: new Date(Date.now() - 2 * 3_600_000) } });
+    await settle();
+    expect((await prisma.workItem.findUniqueOrThrow({ where: { id } })).tags).toEqual(["seen"]);
+    expect(await prisma.notification.count({ where: { orgId, userId: bobId, refId: id } })).toBe(0);
+    const [run] = await runsOf(r.id);
+    expect(run.status).toBe("SUCCESS");
+    expect(run.actions).toEqual([expect.objectContaining({ kind: "addLabels", ok: true }), expect.objectContaining({ kind: "notify", ok: true, skipped: "late" })]);
+  });
+
   it("runs a rule once per event, even when the event is processed again", async () => {
     const p = await project();
     const r = await rule(p, { trigger: { on: "item.created" }, actions: [{ kind: "addComment", body: "hi" }] });

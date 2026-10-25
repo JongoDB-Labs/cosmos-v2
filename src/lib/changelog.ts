@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.481.1",
+    date: "2026-10-25",
+    title: "Background jobs run in production",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Background jobs (webhooks, automations, Teams and Outlook sync, filter emails, cleanup) now run in production; they never started there before. Admin \u2192 Updates shows each job's status, and the first run skips stale notifications instead of sending a burst.",
+      },
+    ],
+  },
+  {
     version: "2.481.0",
     date: "2026-10-25",
     title: "Ask about a walkthrough step as a conversation",
