@@ -119,6 +119,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+
+/** The notification rows: buttons named by their title (the read/clear
+ *  toggles beside them are named "Mark …" / "Clear …"). */
+const rows = () => screen.queryAllByRole("button", { name: /^Title / });
+
 describe("NotificationDropdown bell button", () => {
   it('exposes an accessible name of "Notifications" before anything loads', () => {
     mockFetch([]);
@@ -135,6 +140,27 @@ describe("NotificationDropdown bell button", () => {
     expect(
       await screen.findByRole("button", { name: "Notifications, 2 unread" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("NotificationDropdown panel semantics", () => {
+  it("is a dialog named Notifications, not a menu holding buttons and links", async () => {
+    mockInbox({ "": { data: [notif("a", false)], nextCursor: null } });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    expect(
+      await screen.findByRole("dialog", { name: "Notifications" }),
+    ).toBeInTheDocument();
+    // axe aria-required-children: role="menu" may only own menu items.
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("closes when a notification is opened", async () => {
+    mockInbox({ "": { data: [notif("a", true)], nextCursor: null } });
+    render(<NotificationDropdown orgId={ORG_ID} />);
+    await openBell();
+    fireEvent.click(await screen.findByRole("button", { name: /^Title a\b/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 });
 
@@ -158,7 +184,7 @@ describe("NotificationDropdown feed", () => {
     render(<NotificationDropdown orgId={ORG_ID} />);
     await openBell();
     expect(await screen.findByText("Title n20")).toBeInTheDocument();
-    expect(screen.getAllByRole("menuitem")).toHaveLength(20);
+    expect(rows()).toHaveLength(20);
     expect(screen.getByText("No older notifications")).toBeInTheDocument();
   });
 
@@ -171,7 +197,7 @@ describe("NotificationDropdown feed", () => {
     await openBell();
     fireEvent.click(await screen.findByRole("button", { name: "Load older" }));
     expect(await screen.findByText("Title p2-5")).toBeInTheDocument();
-    expect(screen.getAllByRole("menuitem")).toHaveLength(25);
+    expect(rows()).toHaveLength(25);
     expect(
       fetchMock.mock.calls.some(([u]) => String(u).includes("cursor=c1")),
     ).toBe(true);
@@ -316,7 +342,7 @@ describe("NotificationDropdown read and unread", () => {
     const fetchMock = mockInbox({ "": { data: [withUrl], nextCursor: null } });
     render(<NotificationDropdown orgId={ORG_ID} />);
     await openBell();
-    fireEvent.click(await screen.findByRole("menuitem", { name: /Title a/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Title a\b/ }));
     expect(push).toHaveBeenCalledWith("/acme/issues?item=a");
     expect(putBodies(fetchMock)).toEqual([]);
   });
@@ -380,7 +406,7 @@ describe("NotificationDropdown clearing", () => {
     expect(
       screen.getByRole("button", { name: "Clear all…" }),
     ).toBeInTheDocument();
-    expect(screen.getAllByRole("menuitem")).toHaveLength(3);
+    expect(rows()).toHaveLength(3);
     expect(calls(fetchMock, "POST")).toEqual([]);
   });
 
@@ -465,7 +491,7 @@ describe("NotificationDropdown preview", () => {
       </QueryClientProvider>,
     );
     await openBell();
-    const row = (await screen.findByRole("menuitem", { name: /Title a/ }))
+    const row = (await screen.findByRole("button", { name: /^Title a\b/ }))
       .parentElement!;
     fireEvent.pointerEnter(row, { pointerType: "mouse" });
     fireEvent.mouseEnter(row);
@@ -514,7 +540,7 @@ describe("NotificationDropdown filter by kind", () => {
     );
     fireEvent.click(within(group).getByRole("button", { name: /^Work item assigned\s*1$/ }));
     await waitFor(() =>
-      expect(screen.getAllByRole("menuitem")).toHaveLength(1),
+      expect(rows()).toHaveLength(1),
     );
     expect(screen.getByText("Title a1")).toBeInTheDocument();
     expect(
@@ -525,7 +551,7 @@ describe("NotificationDropdown filter by kind", () => {
     // And back.
     fireEvent.click(within(group).getByRole("button", { name: "All" }));
     await waitFor(() =>
-      expect(screen.getAllByRole("menuitem")).toHaveLength(3),
+      expect(rows()).toHaveLength(3),
     );
   });
 
@@ -578,7 +604,7 @@ describe("NotificationDropdown filter by kind", () => {
     await openBell();
     fireEvent.click(await screen.findByRole("button", { name: /^Comment mentioned\s*2$/ }));
     await waitFor(() =>
-      expect(screen.getAllByRole("menuitem")).toHaveLength(1),
+      expect(rows()).toHaveLength(1),
     );
     act(() => sse.emit!(of("a9", "work_item.assigned", false)));
     expect(
