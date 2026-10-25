@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.482.1",
+    date: "2026-10-25",
+    title: "Missed weekly digests still send",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A weekly or monthly emailed saved filter whose send time fell during an outage now goes out late, instead of skipping its whole period.",
+      },
+    ],
+  },
+  {
     version: "2.482.0",
     date: "2026-10-25",
     title: "Work-item actions in the API reference",

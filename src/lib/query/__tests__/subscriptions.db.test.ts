@@ -145,6 +145,19 @@ describe("the run", () => {
     await prisma.filterSubscription.deleteMany({ where: { savedViewId: v.id } });
   });
 
+  it("still sends a missed weekly digest late: its next slot is too far off to stand in for it", async () => {
+    outbox.length = 0;
+    const v = await filter("priority = CRITICAL");
+    await createSubscription(actorScope, v, { recipient: { kind: "me" }, cron: "0 8 * * 1", timezone: "UTC" }, ORIGIN);
+    // A Wednesday: the next Monday 08:00 is five days off.
+    const now = new Date("2026-10-28T10:00:00.000Z");
+    await prisma.filterSubscription.updateMany({ where: { savedViewId: v.id }, data: { nextRunAt: new Date(now.getTime() - 2 * 3_600_000) } });
+    expect(await runDueSubscriptions({ now, send })).toMatchObject({ missed: 0 });
+    expect(mailTo(actorEmail).filter((m) => m.subject.startsWith(v.name))).toHaveLength(1);
+    expect((await prisma.filterSubscription.findFirstOrThrow({ where: { savedViewId: v.id } })).nextRunAt.toISOString()).toBe("2026-11-02T08:00:00.000Z");
+    await prisma.filterSubscription.deleteMany({ where: { savedViewId: v.id } });
+  });
+
   it("titles when the org allows them; a marked title or filter name is never sent", async () => {
     outbox.length = 0;
     await prisma.organization.update({ where: { id: w.orgA }, data: { settings: withCqlEmailTitles(withCqlEnabled({}, true), true) as object } });
