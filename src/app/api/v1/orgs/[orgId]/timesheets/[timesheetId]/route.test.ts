@@ -107,7 +107,6 @@ beforeEach(() => {
   isManagerOf.mockResolvedValue(false);
   hasManager.mockResolvedValue(false);
   resolveApprovalRoute.mockResolvedValue({
-    approverId: BOSS,
     notify: [BOSS],
     reason: "manager",
   });
@@ -170,7 +169,6 @@ describe("POST /timesheets/[id] — submit routes and notifies", () => {
     // supervisors. Recording one of them would discard the record of who was
     // actually asked — the opposite of an audit trail.
     resolveApprovalRoute.mockResolvedValue({
-      approverId: null,
       notify: [BOSS, THEM],
       reason: "admin_pool",
     });
@@ -187,7 +185,6 @@ describe("POST /timesheets/[id] — submit routes and notifies", () => {
     // Written rather than skipped: a resubmission must not inherit the
     // approvers of a previous one.
     resolveApprovalRoute.mockResolvedValue({
-      approverId: null,
       notify: [],
       reason: "none",
     });
@@ -233,7 +230,6 @@ describe("POST /timesheets/[id] — submit routes and notifies", () => {
     // blocking it would strand the hours — but the response must not imply
     // somebody was asked.
     resolveApprovalRoute.mockResolvedValue({
-      approverId: null,
       notify: [],
       reason: "none",
     });

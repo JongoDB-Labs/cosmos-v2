@@ -30,9 +30,6 @@ export type TransitionOk = { ok: true; next: TimesheetStatus };
 export type TransitionErr = { ok: false; reason: string };
 export type Transition = TransitionOk | TransitionErr;
 
-/** Statuses a worker may still edit entries in. */
-export const EDITABLE_STATUSES: TimesheetStatus[] = ["OPEN", "REJECTED"];
-
 /** Submitting hands the period to an approver. Only from a state the worker owns. */
 export function submitTransition(current: TimesheetStatus): Transition {
   if (current === "OPEN" || current === "REJECTED") {

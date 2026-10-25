@@ -21,17 +21,21 @@ import {
  * and the second is an accusation the data does not support.
  */
 
-/** Shared bar-chart row, so the two views read as one design. */
-function TrendBars({
+/**
+ * Shared bar-chart row, so the two views read as one design. Generic in the
+ * point type so a caller reads its own fields straight off `p` instead of
+ * looking the element back up in the array it came from.
+ */
+function TrendBars<T extends { id: string; name: string }>({
   points,
   max,
   valueOf,
   labelOf,
 }: {
-  points: { id: string; name: string }[];
+  points: T[];
   max: number;
-  valueOf: (p: { id: string }) => number;
-  labelOf: (p: { id: string }) => string;
+  valueOf: (p: T) => number;
+  labelOf: (p: T) => string;
 }) {
   return (
     <ul className="space-y-2">
@@ -97,8 +101,8 @@ export function SprintTrendView({ intervals }: { intervals: TrendIntervalLike[] 
         <TrendBars
           points={points}
           max={maxVelocity}
-          valueOf={(p) => points.find((x) => x.id === p.id)!.velocity}
-          labelOf={(p) => `${points.find((x) => x.id === p.id)!.velocity} pts`}
+          valueOf={(p) => p.velocity}
+          labelOf={(p) => `${p.velocity} pts`}
         />
       </section>
 
@@ -109,11 +113,8 @@ export function SprintTrendView({ intervals }: { intervals: TrendIntervalLike[] 
         <TrendBars
           points={points}
           max={100}
-          valueOf={(p) => points.find((x) => x.id === p.id)!.completionPct}
-          labelOf={(p) => {
-            const x = points.find((y) => y.id === p.id)!;
-            return `${x.completionPct}% · ${x.completedItems}/${x.totalItems}`;
-          }}
+          valueOf={(p) => p.completionPct}
+          labelOf={(p) => `${p.completionPct}% · ${p.completedItems}/${p.totalItems}`}
         />
       </section>
     </div>
@@ -162,8 +163,8 @@ export function PiRollupView({
               <TrendBars
                 points={r.sprints}
                 max={Math.max(...r.sprints.map((s) => s.velocity), 1)}
-                valueOf={(p) => r.sprints.find((x) => x.id === p.id)!.velocity}
-                labelOf={(p) => `${r.sprints.find((x) => x.id === p.id)!.velocity} pts`}
+                valueOf={(p) => p.velocity}
+                labelOf={(p) => `${p.velocity} pts`}
               />
             ) : (
               <p className="text-sm text-[var(--text-muted)]">
