@@ -1,10 +1,12 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { canManageProject } from "@/lib/rbac/scope";
-import { success, noContent, handleApiError } from "@/lib/api-helpers";
-import { z } from "zod";
+import { handleApiError } from "@/lib/api-helpers";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem, ProblemError } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { deleteWorkItemComment, updateWorkItemComment } from "./route.contract";
 import { Permission } from "@/lib/rbac/permissions";
 
 /**
@@ -15,8 +17,6 @@ import { Permission } from "@/lib/rbac/permissions";
  * a project manager (moderation). COMMENT_READ is the membership baseline.
  */
 
-const updateCommentSchema = z.object({ content: z.string().min(1).max(10000) });
-
 type RouteParams = {
   params: Promise<{
     orgId: string;
@@ -26,70 +26,61 @@ type RouteParams = {
   }>;
 };
 
+/**
+ * The comment, if it is on the path's item and that item is in the path's
+ * project: the gates judge that project, so a comment on another project's
+ * item is not this route's.
+ */
+async function findComment(ids: { orgId: string; projectId: string; itemId: string; commentId: string }) {
+  const { orgId, projectId, itemId, commentId } = ids;
+  const existing = await prisma.comment.findFirst({
+    where: { id: commentId, orgId, workItemId: itemId, workItem: { projectId } },
+  });
+  if (!existing) throw new ProblemError(404, "not_found");
+  return existing;
+}
+
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, itemId, commentId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, updateWorkItemComment);
+    const { params: ids, body } = await parseRequest(updateWorkItemComment, request, params);
     // Editing or removing a comment is a write: a session needs COMMENT_READ
     // plus authorship, as ever; a key also needs COMMENT_CREATE (items:write),
     // so a read key can't rewrite or erase what its minter published.
-    await requireProjectRead(ctx, projectId, ctx.isApiKey ? "COMMENT_CREATE" : "COMMENT_READ");
+    await requireProjectRead(ctx, ids.projectId, ctx.isApiKey ? "COMMENT_CREATE" : "COMMENT_READ");
 
-    const existing = await prisma.comment.findFirst({
-      // The item must be in the path's project: the gates above judge that
-      // project, so a comment on another project's item is not this route's.
-      where: { id: commentId, orgId, workItemId: itemId, workItem: { projectId } },
-    });
-    if (!existing) return new Response("Not found", { status: 404 });
+    const existing = await findComment(ids);
     // Editing is author-only — you can only change your own words.
     if (existing.authorId !== ctx.userId) {
-      return new Response("Forbidden", { status: 403 });
+      return problem(403, "forbidden", "Only the comment's author can edit it", { request });
     }
 
-    const data = updateCommentSchema.parse(await request.json());
     const updated = await prisma.comment.update({
-      where: { id: commentId },
-      data: { content: data.content },
+      where: { id: ids.commentId },
+      data: { content: body.content },
     });
-    return success(updated);
+    return respond(updateWorkItemComment, 200, updated);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, itemId, commentId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
+    const { ctx } = await orgContext((await params).orgId, deleteWorkItemComment);
+    const { params: ids } = await parseRequest(deleteWorkItemComment, request, params);
+    await requireProjectRead(ctx, ids.projectId, ctx.isApiKey ? "COMMENT_CREATE" : "COMMENT_READ");
 
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
-    // Editing or removing a comment is a write: a session needs COMMENT_READ
-    // plus authorship, as ever; a key also needs COMMENT_CREATE (items:write),
-    // so a read key can't rewrite or erase what its minter published.
-    await requireProjectRead(ctx, projectId, ctx.isApiKey ? "COMMENT_CREATE" : "COMMENT_READ");
-
-    const existing = await prisma.comment.findFirst({
-      // The item must be in the path's project: the gates above judge that
-      // project, so a comment on another project's item is not this route's.
-      where: { id: commentId, orgId, workItemId: itemId, workItem: { projectId } },
-    });
-    if (!existing) return new Response("Not found", { status: 404 });
-
+    const existing = await findComment(ids);
     // The author can remove their own comment; a project manager can moderate.
     const allowed =
       existing.authorId === ctx.userId ||
-      (await canManageProject(ctx, projectId, Permission.ITEM_DELETE));
-    if (!allowed) return new Response("Forbidden", { status: 403 });
+      (await canManageProject(ctx, ids.projectId, Permission.ITEM_DELETE));
+    if (!allowed) return problem(403, "forbidden", "Only the comment's author or a project manager can delete it", { request });
 
-    await prisma.comment.delete({ where: { id: commentId } });
-    return noContent();
+    await prisma.comment.delete({ where: { id: ids.commentId } });
+    return respond(deleteWorkItemComment, 204, null);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

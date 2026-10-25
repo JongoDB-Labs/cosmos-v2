@@ -27,7 +27,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
-  WIDGET_DEFINITIONS,
   getWidgetDefinitions,
   type WidgetDefinition,
 } from "@/lib/boards/widget-definitions";
@@ -83,11 +82,6 @@ function toPaletteWidget(def: WidgetDefinition): PaletteWidget {
     defaultH: def.defaultH,
   };
 }
-
-// Keep the named export so any legacy import of `paletteWidgets` still works.
-export const paletteWidgets: PaletteWidget[] = WIDGET_DEFINITIONS.filter(
-  (w) => !w.sector
-).map(toPaletteWidget);
 
 // ── Category metadata ──────────────────────────────────────────────────────────
 const GENERIC_CATEGORY_LABELS: Record<string, string> = {

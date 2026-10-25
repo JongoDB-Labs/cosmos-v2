@@ -1,6 +1,6 @@
 import { OpenAPIRegistry, OpenApiGeneratorV31 } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
-import { isRouteContract, type RouteContract } from "./contract";
+import { bodyIsOptional, isRouteContract, type RouteContract } from "./contract";
 import { pageQueryShape, NEXT_CURSOR_HEADER } from "./paginate";
 import { Problem } from "./schemas/common";
 import { API_VERSION } from "./version";
@@ -86,7 +86,7 @@ function register(registry: OpenAPIRegistry, c: RouteContract) {
       ...(c.request.params && { params: c.request.params }),
       ...(query && { query }),
       ...(c.request.body && {
-        body: { required: true, content: { "application/json": { schema: c.request.body } } },
+        body: { required: !bodyIsOptional(c.request.body), content: { "application/json": { schema: c.request.body } } },
       }),
     },
     responses: responses as never,

@@ -83,7 +83,6 @@ interface ProjectBoardTabsProps {
   /** Per-feature custom labels (`{ goal: "Objectives" }`) — EFFECTIVE (user ??
    *  project). Rendered label is featureTabLabels[key] ?? <defaultLabel>. */
   featureTabLabels?: Record<string, string>;
-  templateDefaultConfig?: Record<string, unknown> | null;
 }
 
 interface FeatureTab {
@@ -900,23 +899,21 @@ function TabItem({ tab, isActive, isDefault, groups, dnd }: TabItemProps & { dnd
   );
   return (
     <div className={cn("group/action relative flex items-center", dnd?.isDragging && "z-20")}>
-      {groups.length > 0 ? (
-        // Unlike the app-wide hover-reveal ⋯ (dense table rows / kanban cards),
-        // project tabs are a low-count primary-nav surface: keep the kebab
-        // persistently visible (opacity-70, →100 on hover/focus/open) so the
-        // edit/delete/move affordance is DISCOVERABLE without hovering — the
-        // reporter's actual complaint (COSMOS-57). Right-click still opens the
-        // same menu. No layout shift: the trigger already reserves its slot.
-        <ActionMenu
-          groups={groups}
-          triggerLabel={`Tab actions for ${tab.label}`}
-          triggerClassName="opacity-70"
-        >
-          {link}
-        </ActionMenu>
-      ) : (
-        link
-      )}
+      {/* Unlike the app-wide hover-reveal ⋯ (dense table rows / kanban cards),
+          project tabs are a low-count primary-nav surface: keep the kebab
+          persistently visible (opacity-70, →100 on hover/focus/open) so the
+          edit/delete/move affordance is DISCOVERABLE without hovering — the
+          reporter's actual complaint (COSMOS-57). Right-click still opens the
+          same menu. No layout shift: the trigger already reserves its slot.
+          Always wrapped: buildTabGroups unconditionally emits the Move and
+          hide groups, so every tab has a menu. */}
+      <ActionMenu
+        groups={groups}
+        triggerLabel={`Tab actions for ${tab.label}`}
+        triggerClassName="opacity-70"
+      >
+        {link}
+      </ActionMenu>
     </div>
   );
 }

@@ -12,6 +12,8 @@ import { Permission } from "@/lib/rbac/permissions";
 import { useAnchor, scrollAnchorIntoView } from "./use-anchor";
 import { TourAsk } from "./tour-ask";
 import { TourFeedback } from "./tour-feedback";
+import { useAskThreads, EMPTY_THREAD } from "./ask-threads";
+import { toast } from "sonner";
 
 const CARD_W = 380;
 const GAP = 16;
@@ -27,7 +29,14 @@ const GAP = 16;
  * because the drawer they used to open covered the very thing being pointed at.
  */
 export function TourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
-  const { tour, index, next, back, stop } = useTour();
+  const { tour } = useTour();
+  // Mounted only while a walkthrough is open, so what it holds — the questions
+  // asked in it — goes when the card does.
+  return tour ? <OpenTourCard key={tour.id} orgId={orgId} orgSlug={orgSlug} /> : null;
+}
+
+function OpenTourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
+  const { tour, index, next, back, stop, start } = useTour();
   const { tool, width } = useDrawers();
   const router = useRouter();
   const pathname = usePathname();
@@ -38,6 +47,8 @@ export function TourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string })
   const step = tour ? tour.steps[index] : null;
   const target = step?.href ? `/${orgSlug}${step.href}` : null;
   const box = useAnchor(step?.anchor);
+  // Questions asked in this card, per step, gone when the card closes.
+  const asks = useAskThreads(orgId);
 
   // Only when they are not already there: re-pushing the same route every
   // render would fight their scrolling and make the page feel possessed.
@@ -71,6 +82,25 @@ export function TourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string })
     setPanel("none");
     back();
   };
+
+  // Closing part-way is easy to do by accident and was hard to undo: the way
+  // back was a menu the reader may never have noticed. So closing says where it
+  // went and offers to pick up at the same step.
+  const close = () => {
+    // The step it was on, not the saved progress: that is only written on
+    // Next/Back, so a walkthrough opened at a step and closed there would
+    // otherwise resume from the start.
+    const closed = tour;
+    const at = index;
+    stop();
+    toast("Walkthrough closed", {
+      description: "Reopen it any time from Walkthroughs in the top bar.",
+      action: { label: "Resume", onClick: () => start(closed, at) },
+    });
+  };
+
+  const askKey = `${tour.id}:${step.id}`;
+  const thread = asks.threads[askKey] ?? EMPTY_THREAD;
 
   const drawerInset = tool ? width : 0;
   const isLast = index === tour.steps.length - 1;
@@ -132,7 +162,7 @@ export function TourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string })
             </p>
             <p className="truncate text-sm font-semibold">{step.title}</p>
           </div>
-          <Button variant="ghost" size="icon-xs" onClick={stop} aria-label="Close the walkthrough">
+          <Button variant="ghost" size="icon-xs" onClick={close} aria-label="Close the walkthrough">
             <X className="size-3.5" />
           </Button>
         </div>
@@ -168,7 +198,16 @@ export function TourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string })
             </Button>
           </div>
 
-          {panel === "ask" && canAsk && <TourAsk orgId={orgId} step={step} tourName={tour.name} />}
+          {panel === "ask" && canAsk && (
+            <TourAsk
+              orgId={orgId}
+              step={step}
+              tourName={tour.name}
+              thread={thread}
+              onThread={(fn) => asks.update(askKey, fn)}
+              onReset={() => asks.reset(askKey, thread.conversationId)}
+            />
+          )}
           {panel === "feedback" && (
             <TourFeedback orgId={orgId} step={step} tourName={tour.name} tourId={tour.id} />
           )}

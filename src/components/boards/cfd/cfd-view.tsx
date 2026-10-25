@@ -32,7 +32,6 @@ const categoryOrder = ["DONE", "IN_PROGRESS", "TODO", "CANCELLED"];
 
 export function CfdView({ orgId, projectId, projectKey, boardId }: CfdViewProps) {
   const [items, setItems] = useState<WorkItem[]>([]);
-  const [board, setBoard] = useState<Board | null>(null);
   const [columns, setColumns] = useState<BoardColumn[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +59,6 @@ export function CfdView({ orgId, projectId, projectKey, boardId }: CfdViewProps)
 
         if (cancelled) return;
 
-        setBoard(boardData);
         setColumns(
           (boardData.columns ?? []).sort((a, b) => a.sortOrder - b.sortOrder)
         );
