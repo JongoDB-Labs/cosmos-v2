@@ -7,6 +7,7 @@ import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 const updateExpenseSchema = z.object({
   amount: z.number().positive().optional(),
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: { id: expenseId, orgId },
     });
 
-    if (!expense) return new Response("Not found", { status: 404 });
+    if (!expense || !(await inVisibleProject(ctx, expense.projectId))) return new Response("Not found", { status: 404 });
 
     return success(expense);
   } catch (error) {
@@ -58,7 +59,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.expense.findFirst({
       where: { id: expenseId, orgId },
     });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
 
     // Resource-aware authz: checks FINANCE_MANAGE in the bitfield AND applies any
     // work-role/member deny policy that references it (narrowing by ownership).
@@ -127,7 +128,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.expense.findFirst({
       where: { id: expenseId, orgId },
     });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
 
     // Resource-aware authz: FINANCE_MANAGE bitfield check + any narrowing deny
     // policy (by ownership). Identical to requirePermission until a policy exists.

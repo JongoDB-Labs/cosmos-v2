@@ -145,28 +145,18 @@ export function ProjectMetadataStep({
 
       <div className="grid gap-8 lg:grid-cols-[1fr_320px]">
         <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="space-y-2">
-            <FormField label="Project name" required error={errors.name}>
-              {(p) => (
-                <Input
-                  {...p}
-                  value={name}
-                  onChange={(e) => handleNameChange(e.target.value)}
-                  placeholder="My Project"
-                  required
-                  disabled={isPending}
-                />
-              )}
-            </FormField>
-            {name.trim() && (
-              <p className="text-xs text-[var(--text-muted)]">
-                Slug:{" "}
-                <span className="font-mono">
-                  {name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}
-                </span>
-              </p>
+          <FormField label="Project name" required error={errors.name}>
+            {(p) => (
+              <Input
+                {...p}
+                value={name}
+                onChange={(e) => handleNameChange(e.target.value)}
+                placeholder="My Project"
+                required
+                disabled={isPending}
+              />
             )}
-          </div>
+          </FormField>
 
           <div className="space-y-2">
             <FormField label="Project key" required error={errors.key}>

@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { createEnvelope } from "@/lib/integrations/docusign";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 const schema = z.object({
   signerEmail: z.string().email(),
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const contract = await prisma.contract.findFirst({
       where: { id: contractId, orgId: ctx.orgId },
     });
-    if (!contract) return new Response("Contract not found", { status: 404 });
+    if (!contract || !(await inVisibleProject(ctx, contract.projectId))) return new Response("Contract not found", { status: 404 });
 
     const body = schema.parse(await request.json());
     let envelopeId: string;

@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { requireAccess } from "@/lib/abac/require-access";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string; expenseId: string }> };
 
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.expense.findFirst({
       where: { id: expenseId, orgId },
     });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
 
     // Resource-aware authz: FINANCE_MANAGE bitfield check + any narrowing deny
     // policy (by ownership). Identical to requirePermission until a policy exists.

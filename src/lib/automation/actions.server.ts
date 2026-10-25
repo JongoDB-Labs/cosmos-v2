@@ -33,6 +33,8 @@ export interface ActionOutcome {
   ok: boolean;
   /** Set when the action did nothing because nothing needed doing. */
   noop?: boolean;
+  /** A message (notify, webhook) not sent: the change was too old to tell anyone about. */
+  skipped?: "late";
   error?: string;
 }
 
@@ -46,6 +48,8 @@ export interface ActionRun {
   correlationId: string;
   depth: number;
   now: Date;
+  /** Send no messages (notify, webhook): the event is past SIDE_EFFECT_WINDOW_MS. */
+  quiet?: boolean;
 }
 
 interface Item {
@@ -69,6 +73,10 @@ const ITEM_SELECT = {
 export async function runActions(run: ActionRun, itemId: string, actions: readonly AutomationAction[]): Promise<ActionOutcome[]> {
   const out: ActionOutcome[] = [];
   for (const action of actions) {
+    if (run.quiet && (action.kind === "notify" || action.kind === "webhook")) {
+      out.push({ kind: action.kind, itemId, ok: true, skipped: "late" });
+      continue;
+    }
     try {
       const item = await prisma.workItem.findFirst({ where: { id: itemId, orgId: run.rule.orgId }, select: ITEM_SELECT });
       if (!item) {

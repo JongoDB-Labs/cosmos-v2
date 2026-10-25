@@ -1,9 +1,11 @@
 /**
  * Microsoft Teams — post a channel message via Microsoft Graph (FR 8a162fe7).
  *
- * Self-contained client-credentials flow mirroring microsoft-graph.ts, but keyed
- * to the org's own `microsoft-teams-messaging` sealed credential so Teams can be
- * configured independently of the Microsoft 365 connector. The Entra app
+ * A client-credentials flow mirroring microsoft-graph.ts, but keyed to the org's
+ * own `microsoft-teams-messaging` sealed credential so Teams can be configured
+ * independently of the Microsoft 365 connector. The authority/scope/Graph-base
+ * triple is NOT duplicated here — it comes from `endpointsFor` in
+ * microsoft-graph.ts, so a cloud-endpoint change lands in one place. The Entra app
  * `{ clientId, clientSecret, tenantId }` is sealed (vault); the non-secret
  * `{ cloud, defaultTeamId, defaultChannelId }` lives in Integration.config.
  *
@@ -13,6 +15,7 @@
  */
 
 import { getOrgCredential } from "@/lib/integrations/credentials";
+import { endpointsFor, type GraphCloud } from "@/lib/integrations/microsoft-graph";
 import { prisma } from "@/lib/db/client";
 
 export type FetchLike = (
@@ -30,30 +33,13 @@ const PROVIDER = "microsoft-teams-messaging";
 const NOT_CONNECTED =
   "Microsoft Teams is not connected for this organization. Ask an admin to install the Microsoft Teams integration (Entra app clientId + clientSecret + tenantId) on the Integrations page.";
 
-type Cloud = "commercial" | "gov";
-
 interface TeamsConfig {
   clientId: string;
   clientSecret: string;
   tenantId: string;
-  cloud: Cloud;
+  cloud: GraphCloud;
   defaultTeamId?: string;
   defaultChannelId?: string;
-}
-
-function endpointsFor(cloud: Cloud) {
-  if (cloud === "gov") {
-    return {
-      authorityHost: "login.microsoftonline.us",
-      scope: "https://graph.microsoft.us/.default",
-      graphBaseUrl: "https://graph.microsoft.us/v1.0",
-    };
-  }
-  return {
-    authorityHost: "login.microsoftonline.com",
-    scope: "https://graph.microsoft.com/.default",
-    graphBaseUrl: "https://graph.microsoft.com/v1.0",
-  };
 }
 
 /** Resolve the org's sealed Entra app credential + non-secret Teams config. */

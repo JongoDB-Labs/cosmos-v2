@@ -14,13 +14,3 @@
 export function billedHoursOf(entry: { hours: number; billedHours: number | null }): number {
   return entry.billedHours ?? entry.hours;
 }
-
-/** Billed minus logged: negative is written down, positive written up. */
-export function billingVariance(entry: { hours: number; billedHours: number | null }): number {
-  return billedHoursOf(entry) - entry.hours;
-}
-
-/** Whether somebody has taken a billing decision that differs from the log. */
-export function isWrittenDown(entry: { hours: number; billedHours: number | null }): boolean {
-  return entry.billedHours !== null && entry.billedHours < entry.hours;
-}

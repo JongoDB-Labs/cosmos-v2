@@ -9,6 +9,7 @@ import { syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.serv
 import { createNotification } from "@/lib/notifications/create";
 import { allOrgMembers, attendeesNotMembers } from "@/lib/meetings/attendee-members";
 import { z } from "zod";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 const addAttendeeSchema = z.object({
   userId: z.string().uuid(),
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const meeting = await prisma.syncMeeting.findFirst({
       where: { id: meetingId, orgId },
     });
-    if (!meeting) return new Response("Not found", { status: 404 });
+    if (!meeting || !(await inVisibleProject(ctx, meeting.projectId))) return new Response("Not found", { status: 404 });
 
     const body = await request.json();
     const data = addAttendeeSchema.parse(body);
@@ -131,7 +132,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const meeting = await prisma.syncMeeting.findFirst({
       where: { id: meetingId, orgId },
     });
-    if (!meeting) return new Response("Not found", { status: 404 });
+    if (!meeting || !(await inVisibleProject(ctx, meeting.projectId))) return new Response("Not found", { status: 404 });
 
     const body = await request.json();
     const data = bulkUpdateSchema.parse(body);

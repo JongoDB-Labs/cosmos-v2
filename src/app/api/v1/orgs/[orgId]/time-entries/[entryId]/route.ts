@@ -15,6 +15,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { getTimeEntry, updateTimeEntry } from "./route.contract";
+import { inVisibleProject, requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string; entryId: string }> };
 
@@ -55,7 +56,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.timeEntry.findFirst({
       where: { id: entryId, orgId },
     });
-    if (!existing) return problem(404, "not_found", undefined, { request });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return problem(404, "not_found", undefined, { request });
+    // Moving it to another project is writing to that one too.
+    await requireProjectVisibleIf(ctx, data.projectId);
 
     // Resource-aware authz: TIME_UPDATE bitfield check + any narrowing deny
     // policy. TimeEntry ownership is userId. Identical to requirePermission
@@ -156,7 +159,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       // voiding it again is a 404 rather than a second void record.
       where: { id: entryId, orgId, voidedAt: null },
     });
-    if (!existing) return problem(404, "not_found", undefined, { request });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return problem(404, "not_found", undefined, { request });
 
     // Resource-aware authz: TIME_DELETE bitfield check + any narrowing deny
     // policy. TimeEntry ownership is userId. Identical to requirePermission

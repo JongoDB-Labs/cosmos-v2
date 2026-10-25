@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { ensureSubscribed } from "@/lib/feedback/subscriptions.server";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string; feedbackId: string }> };
 
@@ -18,7 +19,7 @@ async function resolve(orgId: string, feedbackId: string) {
   const item = await prisma.feedbackItem.findFirst({
     where: { id: feedbackId, orgId },
   });
-  if (!item) return { error: new Response("Not found", { status: 404 }) };
+  if (!item || !(await inVisibleProject(ctx, item.projectId))) return { error: new Response("Not found", { status: 404 }) };
   if (item.mergedIntoId || item.status === "MERGED") return { error: mergedResponse(item.mergedIntoId) };
   return { ctx, item };
 }
