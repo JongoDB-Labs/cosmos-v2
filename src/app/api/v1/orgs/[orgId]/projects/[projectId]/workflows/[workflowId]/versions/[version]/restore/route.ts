@@ -8,6 +8,7 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { restoreVersion } from "@/lib/workflow/versions.server";
 import { restoreWorkflowVersion } from "./route.contract";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; workflowId: string; version: string }> };
 
@@ -15,6 +16,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: p } = await parseRequest(restoreWorkflowVersion, request, params);
     const ctx = await workflowProjectContext(p, restoreWorkflowVersion);
+    await requireProjectVisible(ctx, p.projectId);
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     const draft = await prisma.$transaction((tx) =>
       restoreVersion(tx, { orgId: p.orgId, projectId: p.projectId }, p.workflowId, p.version),

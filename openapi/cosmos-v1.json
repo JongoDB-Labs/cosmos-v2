@@ -149,7 +149,8 @@
               "assignee_not_in_org",
               "workflow_invalid",
               "migration_map_required",
-              "workflow_in_use"
+              "workflow_in_use",
+              "automation_invalid"
             ]
           },
           "requestId": {

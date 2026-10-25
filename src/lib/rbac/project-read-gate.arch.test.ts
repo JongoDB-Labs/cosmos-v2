@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { handlerCode } from "@/lib/auth/__tests__/gate-bits";
-import { Permission, RolePermissions } from "@/lib/rbac/permissions";
 
 /**
  * Every project-scoped READ must ask whether the actor may see THAT project.
@@ -88,32 +87,24 @@ describe("project-scoped reads go through the team-aware gate", () => {
  * Every project-scoped WRITE must ask the same question.
  *
  * Visibility decides whether a non-member may act in a project at all
- * (project-role.ts). The reads were held to that above; 32 writes were not.
- * They gated on the action's org bit alone (`requireAccess(ctx, "ITEM_CREATE",
- * …)`), or on `requireProjectManage` with a bit every MEMBER holds, which
- * passes before the manager check is reached. So on a project that opted into
- * `teamScopedAccess`, a non-member who could see none of it could still create
- * items there, and delete, merge, duplicate (which echoes the source) and
- * comment on its items by id.
+ * (project-role.ts). The reads were held to that above; the writes were not,
+ * and on a project that opted into `teamScopedAccess` a non-member who could
+ * see none of it could still write there by id:
  *
- * The rule: a write handler, with the helpers it calls, runs a visibility
- * check. The one exception is a write gated by `requireProjectManage` /
- * `canAdministerProject` on a bit no MEMBER holds (PROJECT_UPDATE,
- * WORKFLOW_MANAGE, …): its org-wide holders keep their reach by design
- * (project-access.ts, "Writing inside a project still follows the
- * permission"). A MEMBER bit there is no exception, because that gate passes
- * every member.
+ *   - 32 writes gated on the action's org bit alone, or on
+ *     `requireProjectManage` with a bit every MEMBER holds (which passes before
+ *     the manager check), so any member could create, delete, merge, duplicate
+ *     (echoing the source) and comment on its items.
+ *   - 61 more passed `requireProjectManage` on an org-wide elevated bit
+ *     (PROJECT_UPDATE, WORKFLOW_MANAGE, SPRINT_*, …), so a work role holding one
+ *     managed projects it could not see.
+ *
+ * The rule now has no exception: a write handler, with the helpers it calls,
+ * runs a visibility check, whatever bit it gates on. Org owners and admins lose
+ * nothing by it, because `isProjectVisible` lets them see every project.
  */
-const VISIBLE = /\b(?:requireProjectRead|requireProjectVisible|isProjectVisible|canReadProject|readableItemProjectId|assertProjectRead|canManageProject|getManagedProjectIds|readableDocument)\(/;
-const MANAGE_GATE = /\b(?:requireProjectManage|canAdministerProject)\(\s*ctx\s*,\s*[^,)]+(?:,\s*Permission\.([A-Z_]+))?/g;
+const VISIBLE = /\b(?:requireProjectRead|requireProjectVisible|requireProjectVisibleIf|inVisibleProject|isProjectVisible|canReadProject|readableItemProjectId|assertProjectRead|canManageProject|getManagedProjectIds|readableDocument)\(/;
 const WRITES = ["POST", "PUT", "PATCH", "DELETE"];
-
-/** Why this handler may write without a visibility check, or null if it may not. */
-function exemptBy(code: string): string | null {
-  const bits = [...code.matchAll(MANAGE_GATE)].map((m) => (m[1] ?? "PROJECT_UPDATE") as keyof typeof Permission);
-  if (bits.length === 0) return null;
-  return bits.every((b) => (RolePermissions.MEMBER & Permission[b]) === 0n) ? bits.join(",") : null;
-}
 
 describe("project-scoped writes go through the team-aware gate", () => {
   const handlers = routeFiles(ROOT).flatMap((f) => {
@@ -129,17 +120,8 @@ describe("project-scoped writes go through the team-aware gate", () => {
     expect(handlers.map((h) => h.at)).toContain("POST /work-items/route.ts");
   });
 
-  it("every write checks the project is visible, unless only elevated managers pass its gate", () => {
-    const offenders = handlers.filter((h) => !VISIBLE.test(h.code) && !exemptBy(h.code)).map((h) => h.at);
-    expect(offenders).toEqual([]);
-  });
-
-  it("a MEMBER bit never exempts a write", () => {
-    // Pins the exemption's reasoning: these gates pass every member, so they
-    // must not count as an elevated-manager gate.
-    expect(exemptBy("await requireProjectManage(ctx, projectId, Permission.OKR_UPDATE);")).toBeNull();
-    expect(exemptBy("await requireProjectManage(ctx, projectId, Permission.ITEM_CREATE);")).toBeNull();
-    expect(exemptBy("await requireProjectManage(ctx, projectId);")).toBe("PROJECT_UPDATE");
+  it("every write checks the project is visible, whatever bit it gates on", () => {
+    expect(handlers.filter((h) => !VISIBLE.test(h.code)).map((h) => h.at)).toEqual([]);
   });
 
   it("the org-scoped item writes reach the project handlers that check", () => {
@@ -149,5 +131,131 @@ describe("project-scoped writes go through the team-aware gate", () => {
     const comments = readFileSync("src/app/api/v1/orgs/[orgId]/work-items/[itemId]/comments/route.ts", "utf8");
     expect(byId).toMatch(/from "\.\.\/\.\.\/projects\/\[projectId\]\/work-items\/\[itemId\]\/route"/);
     expect(comments).toMatch(/from "\.\.\/\.\.\/\.\.\/projects\/\[projectId\]\/work-items\/\[itemId\]\/comments\/route"/);
+  });
+});
+
+/**
+ * The rule doesn't stop at the `projects/[projectId]` tree. A write anywhere
+ * else that touches a project is held to it too: one that names a project
+ * (a body or query `projectId` or `projectIds`), writes a record that belongs
+ * to one (any model with a `projectId` column, read from the schema so a new
+ * one is covered without editing this file), or loads such a record by id and
+ * then writes anything (a meeting's attendees, a field's binding to a type). The first scan stopped at the tree, and
+ * meetings, time entries, contracts and custom fields filed under a
+ * team-scoped project could be changed by people kept out of it, though their
+ * reads already hid them.
+ *
+ * Two named lists, each pinned exactly in both directions: a listed route that
+ * gains a check, or goes away, fails here until it's taken off.
+ */
+const PROJECT_MODELS = (() => {
+  const schema = readFileSync("src/../prisma/schema.prisma", "utf8");
+  const models = new Set<string>();
+  let current = "";
+  for (const line of schema.split("\n")) {
+    const m = line.match(/^model (\w+) \{/);
+    if (m) current = m[1];
+    else if (/^  projectId +String/.test(line) && current) models.add(current[0].toLowerCase() + current.slice(1));
+  }
+  return [...models];
+})();
+const WRITES_A_PROJECT_MODEL = new RegExp(
+  `\\b(?:prisma|tx)\\.(?:${PROJECT_MODELS.join("|")})\\.(?:create|createMany|update|updateMany|upsert|delete|deleteMany)\\(`,
+);
+const LOADS_A_PROJECT_MODEL = new RegExp(
+  `\\b(?:prisma|tx)\\.(?:${PROJECT_MODELS.join("|")})\\.(?:findFirst|findUnique|findFirstOrThrow|findUniqueOrThrow)\\(`,
+);
+const WRITES_ANYTHING = /\b(?:prisma|tx)\.\w+\.(?:create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$transaction\(/;
+/**
+ * Saved views gate through the viewer's readable projects; list and bulk writes
+ * through the hidden set (`hiddenProjectIds`, `visibleProjectRecordsWhere`);
+ * feedback's by-id routes through `loadFeedbackRoute`, which 404s an item under
+ * a hidden project (pinned below).
+ */
+const VISIBLE_ANYWHERE = new RegExp(
+  `${VISIBLE.source}|\\b(?:getReadableProjectIds|getVisibleProjectIds|visibleProjectIdsForActor|viewerScope|hiddenProjectIds|visibleProjectRecordsWhere|loadFeedbackRoute)\\(`,
+);
+
+/**
+ * Modules whose READS aren't team-scoped either: anyone with the module's bit
+ * sees every record, whatever its project. Gating only their writes would
+ * refuse a change to a record its author can plainly see, so they are held
+ * back for one decision covering reads and writes together (raised to ops
+ * 2026-10-24). Listed so none can be forgotten, and none added silently.
+ */
+const NOT_TEAM_SCOPED = new Set([
+  // Chat channels: visible by channel membership, not by project.
+  "POST /v1/orgs/[orgId]/chat/channels/route.ts",
+  "PATCH /v1/orgs/[orgId]/chat/channels/[channelId]/route.ts",
+  "DELETE /v1/orgs/[orgId]/chat/channels/[channelId]/route.ts",
+  "POST /v1/orgs/[orgId]/chat/channels/[channelId]/commands/route.ts",
+  "POST /v1/orgs/[orgId]/chat/channels/[channelId]/join/route.ts",
+  "POST /v1/orgs/[orgId]/chat/channels/[channelId]/read/route.ts",
+  // Data classifications: every member reads them, to render banners.
+  "POST /v1/orgs/[orgId]/classifications/route.ts",
+  "PUT /v1/orgs/[orgId]/classifications/[classificationId]/route.ts",
+  "PATCH /v1/orgs/[orgId]/classifications/[classificationId]/route.ts",
+  "DELETE /v1/orgs/[orgId]/classifications/[classificationId]/route.ts",
+]);
+
+/** Writes the scan flags that write to no project the caller chooses, and why. */
+const NOT_A_PROJECT_WRITE: Record<string, string> = {
+  "POST /v1/orgs/[orgId]/projects/route.ts": "creates the project; its creator is its first member",
+  "POST /v1/orgs/[orgId]/api-keys/route.ts": "naming projects only narrows the key, whose reach never exceeds its minter's",
+  "POST /v1/orgs/[orgId]/contracts/route.ts": "an org-level contract: the body can't name a project",
+  "POST /v1/orgs/[orgId]/documents/route.ts": "files the document under no project",
+  "POST /v1/orgs/[orgId]/chat/dms/route.ts": "a direct message belongs to no project",
+  "POST /v1/orgs/[orgId]/feedback/report-bug/route.ts": "the system routes the report to a project, not the caller",
+  "DELETE /v1/orgs/[orgId]/members/[memberId]/route.ts": "removing a member clears their own Teams conversation",
+  "PUT /v1/orgs/[orgId]/microsoft/teams-app/notifications/route.ts": "the caller's own Teams notification settings",
+  "DELETE /v1/orgs/[orgId]/workflow-templates/[templateId]/route.ts": "org templates belong to no project",
+};
+
+describe("writes outside projects/[projectId] that touch a project are gated too", () => {
+  const API = "src/app/api";
+  const flagged = routeFiles(API)
+    .filter((f) => !f.startsWith(ROOT))
+    .flatMap((f) => {
+      const src = readFileSync(f, "utf8");
+      return WRITES.flatMap((m) => {
+        const code = handlerCode(src, m, f);
+        if (!code) return [];
+        const touches =
+          WRITES_A_PROJECT_MODEL.test(code) ||
+          /\bprojectIds?\b/.test(code) ||
+          (LOADS_A_PROJECT_MODEL.test(code) && WRITES_ANYTHING.test(code));
+        if (!touches) return [];
+        return [{ at: `${m} ${f.slice(API.length)}`, gated: VISIBLE_ANYWHERE.test(code) }];
+      });
+    });
+
+  it("read the schema and the real routes", () => {
+    expect(PROJECT_MODELS).toEqual(expect.arrayContaining(["workItem", "syncMeeting", "timeEntry", "contract"]));
+    expect(flagged.length).toBeGreaterThan(40);
+    // The ones this rule was written for are in scope, and gated.
+    for (const at of [
+      "POST /v1/orgs/[orgId]/meetings/route.ts",
+      "PUT /v1/orgs/[orgId]/time-entries/[entryId]/route.ts",
+      "DELETE /v1/orgs/[orgId]/contracts/[contractId]/route.ts",
+      "POST /v1/orgs/[orgId]/meetings/[meetingId]/attendees/route.ts",
+      "POST /v1/orgs/[orgId]/work-item-types/[typeId]/fields/route.ts",
+    ]) {
+      expect(flagged.find((h) => h.at === at), at).toMatchObject({ gated: true });
+    }
+  });
+
+  it("every one checks visibility, or is listed with its reason", () => {
+    const ungated = flagged.filter((h) => !h.gated).map((h) => h.at);
+    expect(ungated.filter((at) => !NOT_TEAM_SCOPED.has(at) && !(at in NOT_A_PROJECT_WRITE))).toEqual([]);
+  });
+
+  it("loadFeedbackRoute, which the rule trusts, still refuses an item under a hidden project", () => {
+    const src = readFileSync("src/lib/feedback/route-context.server.ts", "utf8");
+    expect(src).toMatch(/!\(await inVisibleProject\(ctx, item\.projectId\)\)/);
+  });
+
+  it("the lists are exact: every entry is real and still ungated", () => {
+    const ungated = new Set(flagged.filter((h) => !h.gated).map((h) => h.at));
+    expect([...NOT_TEAM_SCOPED, ...Object.keys(NOT_A_PROJECT_WRITE)].filter((at) => !ungated.has(at))).toEqual([]);
   });
 });

@@ -6,6 +6,8 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
+import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
+import { requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
 
 const createExpenseSchema = z.object({
   amount: z.number().positive(),
@@ -63,6 +65,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       };
     }
 
+    // A team-scoped project's expenses are its team's (and admins').
+    where.AND = [await visibleProjectRecordsWhere(ctx)];
+
     const [expenses, total] = await Promise.all([
       prisma.expense.findMany({
         where,
@@ -89,6 +94,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = createExpenseSchema.parse(body);
+    // Filing it under a project is writing to that project.
+    await requireProjectVisibleIf(ctx, data.projectId);
 
     const expense = await prisma.expense.create({
       data: {

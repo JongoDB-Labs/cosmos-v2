@@ -134,7 +134,7 @@ describe("the outbox worker", () => {
       await held;
     }, { timeout: 15_000 });
     await ready;
-    expect(await run()).toEqual({ events: 0, queued: 0 });
+    expect(await run()).toEqual({ events: 0, queued: 0, ruleRuns: 0 });
     release();
     await holder;
     expect(await run()).toMatchObject({ queued: 1 });

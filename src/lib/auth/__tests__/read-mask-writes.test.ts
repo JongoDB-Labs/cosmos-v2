@@ -26,15 +26,19 @@ import UNGATED from "./ungated-writes.baseline.json";
  * Handlers that already met that bar before scopes were enforced. Each acts on
  * the caller's own state (watching an item, their tab layout) or is a read sent
  * as POST (search, and the query language's validate and run, which cqlGate
- * holds to ITEM_READ).
+ * holds to ITEM_READ). A filter's email subscriptions are the caller's own
+ * too; their contracts need items:write, which cqlGate checks for a key.
  * Frozen: a new entry fails the test, so it is a decision, not drift.
  */
 const BASELINE = [
   "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
+  "DELETE v1/orgs/[orgId]/saved-views/[viewId]/subscriptions/[subId]",
+  "PATCH v1/orgs/[orgId]/saved-views/[viewId]/subscriptions/[subId]",
   "POST v1/orgs/[orgId]/cql/ai",
   "POST v1/orgs/[orgId]/cql/predicate",
   "POST v1/orgs/[orgId]/cql/validate",
   "POST v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/watch",
+  "POST v1/orgs/[orgId]/saved-views/[viewId]/subscriptions",
   "POST v1/orgs/[orgId]/work-items/aggregate",
   "POST v1/orgs/[orgId]/work-items/query",
   "POST v1/orgs/[orgId]/work-items/search",

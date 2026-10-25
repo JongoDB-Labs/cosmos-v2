@@ -1,4 +1,7 @@
 {
+  "DELETE v1/orgs/[orgId]/automations/[ruleId]": [
+    "requireProjectManage"
+  ],
   "DELETE v1/orgs/[orgId]/chat/channels/[channelId]": [
     "orgRole",
     "role literal",
@@ -133,11 +136,17 @@
   "DELETE v1/orgs/[orgId]/saved-views/[viewId]/favorite": [
     "viewerScope"
   ],
+  "DELETE v1/orgs/[orgId]/saved-views/[viewId]/subscriptions/[subId]": [
+    "viewerScope"
+  ],
   "DELETE v1/orgs/[orgId]/time-entries/[entryId]": [
     "orgRole",
     "role literal",
     "isAdmin*",
     "roleCountsFor"
+  ],
+  "PATCH v1/orgs/[orgId]/automations/[ruleId]": [
+    "requireProjectManage"
   ],
   "PATCH v1/orgs/[orgId]/chat/channels/[channelId]": [
     "canManageChannelGiven",
@@ -203,6 +212,9 @@
     "viewerScope",
     "isAdmin*"
   ],
+  "PATCH v1/orgs/[orgId]/saved-views/[viewId]/subscriptions/[subId]": [
+    "viewerScope"
+  ],
   "PATCH v1/orgs/[orgId]/tenant-class": [
     "orgRole",
     "role literal"
@@ -214,6 +226,9 @@
   ],
   "POST v1/orgs/[orgId]/assistant/conversations/[conversationId]/messages": [
     "orgRole handed on"
+  ],
+  "POST v1/orgs/[orgId]/automations": [
+    "requireProjectManage"
   ],
   "POST v1/orgs/[orgId]/chat/channels/[channelId]/commands": [
     "canManageChannelGiven",
@@ -365,6 +380,9 @@
     "requireProjectManage"
   ],
   "POST v1/orgs/[orgId]/saved-views": [
+    "viewerScope"
+  ],
+  "POST v1/orgs/[orgId]/saved-views/[viewId]/subscriptions": [
     "viewerScope"
   ],
   "POST v1/orgs/[orgId]/timesheets/[timesheetId]": [

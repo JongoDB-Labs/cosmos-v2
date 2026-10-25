@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { requirePermission, ForbiddenError } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectRead, requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
 import { redactRates } from "@/lib/time/visibility";
 import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
 import { timesheetIdForEntry } from "@/lib/time/timesheet";
@@ -81,6 +81,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, createTimeEntry);
     const { params: { orgId }, body: data } = await parseRequest(createTimeEntry, request, params);
+    // Logging time against a project is writing to that project.
+    await requireProjectVisibleIf(ctx, data.projectId);
     requirePermission(ctx, Permission.TIME_CREATE);
 
     // Resolve the pay period BEFORE the insert so an entry is never briefly

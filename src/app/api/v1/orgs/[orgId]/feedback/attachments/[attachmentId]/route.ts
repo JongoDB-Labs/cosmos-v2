@@ -5,13 +5,13 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { noContent, handleApiError } from "@/lib/api-helpers";
 import { getStorage } from "@/lib/storage";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string; attachmentId: string }> };
 
 /**
  * Serve (GET) or delete (DELETE) a feedback attachment. Org-isolated:
- * - GET: any org member may view an associated attachment (feedback is org-wide
- *   visible); an orphan is only fetchable by its uploader (compose preview).
+ * - GET: anyone who can see the feedback item may view its attachment; an orphan is only fetchable by its uploader (compose preview).
  * - DELETE: the uploader OR an admin (ORG_UPDATE) — for moderation.
  */
 export async function GET(_req: NextRequest, { params }: RouteParams) {
@@ -33,13 +33,18 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
         uploadedById: true,
         orgId: true,
         feedbackItemId: true,
+        feedbackItem: { select: { projectId: true } },
       },
     });
     if (!att || att.orgId !== orgId) return new Response("Not found", { status: 404 });
 
-    // Associated → any org member may view (feedback is org-visible). Orphan →
-    // only the uploader (during compose).
+    // Associated → anyone who can see its feedback item (org-wide, unless the
+    // item is filed under a team-scoped project). Orphan → only the uploader
+    // (during compose).
     if (!att.feedbackItemId && att.uploadedById !== ctx.userId) {
+      return new Response("Not found", { status: 404 });
+    }
+    if (!(await inVisibleProject(ctx, att.feedbackItem?.projectId ?? null))) {
       return new Response("Not found", { status: 404 });
     }
 

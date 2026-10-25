@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -36,6 +37,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const { ctx } = await orgContext((await params).orgId, bulkUpdateWorkItems);
     const { params: { orgId, projectId }, body: { ids, update, transition } } =
       await parseRequest(bulkUpdateWorkItems, request, params);
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.ITEM_BULK_EDIT);
 
     // Each batch is one transaction through the same writer as a single edit,
@@ -88,6 +90,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, bulkDeleteWorkItems);
     const { params: { orgId, projectId }, body: { ids } } = await parseRequest(bulkDeleteWorkItems, request, params);
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.ITEM_DELETE);
 
     let deletedCount = 0;

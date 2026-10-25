@@ -7,6 +7,7 @@ import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
 import { z } from "zod";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 const billedSchema = z.object({
   /**
@@ -42,9 +43,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const existing = await prisma.timeEntry.findFirst({
       where: { id: entryId, orgId, ...NOT_VOIDED },
-      select: { id: true, status: true, hours: true, billedHours: true },
+      select: { id: true, status: true, hours: true, billedHours: true, projectId: true },
     });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
 
     // "Billed hours FROM approved logged hours" -- there is nothing to bill from
     // until the log has been approved, and billing a draft would let a number
