@@ -49,6 +49,83 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.481.3",
+    date: "2026-10-25",
+    title: "Keyboard scrolling on long pages",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Keyboard users can scroll long pages: the main content area now takes focus (with a visible ring), and Skip to content moves focus there.",
+      },
+    ],
+  },
+  {
+    version: "2.481.2",
+    date: "2026-10-25",
+    title: "Teams channels skip old changes",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Teams channels don't post a backlog of old changes. After an outage, a channel linked to a project skips changes more than two hours old instead of posting a card a minute about each of them.",
+      },
+    ],
+  },
+  {
+    version: "2.481.1",
+    date: "2026-10-25",
+    title: "Background jobs run in production",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Background jobs (webhooks, automations, Teams and Outlook sync, filter emails, cleanup) now run in production; they never started there before. Admin \u2192 Updates shows each job's status, and the first run skips stale notifications instead of sending a burst.",
+      },
+    ],
+  },
+  {
+    version: "2.481.0",
+    date: "2026-10-25",
+    title: "Ask about a walkthrough step as a conversation",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Ask about this is now a conversation: follow-up questions keep the earlier answers in context, with a New conversation reset, and the thread is cleared when the walkthrough closes. Closing a walkthrough part-way offers Resume at the same step.",
+      },
+    ],
+  },
+  {
+    version: "2.480.0",
+    date: "2026-10-24",
+    title: "Notification kinds named in full",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Notification filters now name each kind in full ('Comment added' rather than 'Added'), so different kinds no longer share a label, and plugins can label their own notification kinds.",
+      },
+    ],
+  },
+  {
+    version: "2.479.1",
+    date: "2026-10-24",
+    title: "Feedback and expenses follow team-limited projects",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Security: feedback and expenses filed under a project limited to its team are now visible only to that team, including in the feedback inbox counts, finance totals and data exports. Feedback and expenses under no project stay visible to the whole organization.",
+      },
+    ],
+  },
+  {
+    version: "2.479.0",
+    date: "2026-10-24",
+    title: "Make someone else an owner",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An owner can now make another member an owner from Manage roles, with a confirmation that names the person. An organization always keeps at least one owner, even when two owners change roles at the same moment.",
+      },
+    ],
+  },
+  {
     version: "2.478.2",
     date: "2026-10-24",
     title: "Team-limited projects: the remaining writes",

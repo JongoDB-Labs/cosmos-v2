@@ -32,6 +32,7 @@ vi.mock("@/lib/updates/registry", async (orig) => ({
 }));
 
 import { GET, PUT } from "./route";
+import { appJobRunner } from "@/lib/jobs/runner";
 import { sealField } from "@/lib/crypto/field-seal";
 
 const ORIGINAL = {
@@ -124,6 +125,19 @@ describe("GET", () => {
     const res = await GET();
     expect(res.status).toBe(200);
     expect((await res.json()).eventBacklog).toMatchObject({ tone: "muted", backlog: null });
+  });
+
+  it("says whether this instance runs the background jobs, and why not", async () => {
+    vi.stubEnv("JOBS_DISABLED", "1");
+    expect((await (await GET()).json()).jobs).toEqual({ enabled: false, reason: "JOBS_DISABLED", jobs: [] });
+    vi.stubEnv("JOBS_DISABLED", "");
+    vi.stubEnv("DATABASE_URL", "postgres://x");
+    // Registered but never started: what production showed before the runner fix.
+    appJobRunner().register({ name: "route-test-job", everyMs: 60_000, run: async () => undefined });
+    const jobs = (await (await GET()).json()).jobs;
+    expect(jobs).toMatchObject({ enabled: false, reason: expect.stringMatching(/wasn't started/) });
+    expect(jobs.jobs).toContainEqual(expect.objectContaining({ name: "route-test-job", leader: false, stuck: false, lastSucceededAt: null, everySeconds: 60 }));
+    vi.unstubAllEnvs();
   });
 
   it("reports reconcile: null when the installer has never reported", async () => {

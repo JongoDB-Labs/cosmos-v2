@@ -8,6 +8,7 @@ import { success, handleApiError } from "@/lib/api-helpers";
 import { sumMoney, multiplyMoney, moneyToNumber } from "@/lib/money";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
 import { RECORDED_TIME } from "@/lib/time/recorded";
+import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -34,6 +35,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const revenueWhere: Record<string, unknown> = { orgId };
     const expenseWhere: Record<string, unknown> = { orgId };
     const timeWhere: Record<string, unknown> = { orgId };
+    // A team-scoped project's expenses and time count only for those who can see it.
+    const visible = await visibleProjectRecordsWhere(ctx);
+    expenseWhere.AND = [visible];
+    timeWhere.AND = [visible];
     if (hasDateFilter) {
       revenueWhere.date = dateFilter;
       expenseWhere.date = dateFilter;

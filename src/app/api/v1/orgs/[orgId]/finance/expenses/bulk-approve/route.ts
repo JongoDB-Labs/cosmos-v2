@@ -7,6 +7,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { safeAutoPost, postExpenseToLedger } from "@/lib/ledger/auto-post";
+import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
 
 const bulkSchema = z.object({
   expenseIds: z.array(z.string().uuid()).min(1).max(500),
@@ -25,9 +26,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     requirePermission(ctx, Permission.EXPENSE_APPROVE);
 
     const { expenseIds } = bulkSchema.parse(await request.json());
+    // An expense of a project the approver can't see is skipped, like a missing id.
+    const visible = await visibleProjectRecordsWhere(ctx);
 
     const result = await prisma.expense.updateMany({
-      where: { id: { in: expenseIds }, orgId, status: "SUBMITTED" },
+      where: { id: { in: expenseIds }, orgId, status: "SUBMITTED", AND: [visible] },
       data: {
         status: "APPROVED",
         approvedById: ctx.userId,
@@ -36,7 +39,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
 
     const approved = await prisma.expense.findMany({
-      where: { orgId, id: { in: expenseIds }, status: "APPROVED" },
+      where: { orgId, id: { in: expenseIds }, status: "APPROVED", AND: [visible] },
       select: { id: true, orgId: true, amount: true, date: true, createdById: true, category: true },
     });
     for (const exp of approved) {
@@ -50,7 +53,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       entity: "expense",
       entityId: expenseIds.join(","),
       // requestedCount vs count reveals ids skipped by the WHERE (cross-org,
-      // missing, or not SUBMITTED).
+      // missing, not SUBMITTED, or in a project the approver can't see).
       metadata: {
         count: String(result.count),
         requestedCount: String(expenseIds.length),

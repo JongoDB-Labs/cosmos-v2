@@ -36,6 +36,13 @@ const { getAuthContext, prisma, logAudit } = vi.hoisted(() => ({
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/audit", () => ({ logAudit }));
+// Team-scope narrowing is covered against a real DB in
+// lib/rbac/team-scope-feedback-expenses.db.test.ts; here nothing is hidden.
+vi.mock("@/lib/rbac/project-access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rbac/project-access")>()),
+  hiddenProjectIds: async () => [],
+  visibleProjectRecordsWhere: async () => ({}),
+}));
 
 // Route handlers imported AFTER mocks are registered
 import { GET as revenueGET } from "./revenue/route";

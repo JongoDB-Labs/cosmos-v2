@@ -1,15 +1,17 @@
-// SCOPING NOTE — deliberately NOT filtered by teamScopedAccess.
+// SCOPING NOTE — filtered by project visibility, like every other read.
 //
-// This is an administrative/system surface, not a day-to-day read. Filtering it
-// would make an org export silently incomplete, which is worse than the
-// restriction leaking to an admin who already holds org-wide rights. See
-// docs/design/access-control-audit.md; revisit if teamScopedAccess is ever
-// promoted from a visibility default to a hard boundary.
+// This was deliberately org-wide while teamScopedAccess was a visibility
+// default, "to revisit if it is ever promoted to a hard boundary". It has been:
+// no read or write reaches a team-scoped project its caller can't see. Org
+// owners and admins (the default holders of ORG_EXPORT) see every project, so
+// their exports are whole; a work role granting ORG_EXPORT to someone else
+// exports what that person can see. Records under no project are org-wide.
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
+import { hiddenProjectIds } from "@/lib/rbac/project-access";
 import { handleApiError } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { toCSV } from "@/lib/export/csv";
@@ -17,23 +19,28 @@ import { NOT_VOIDED } from "@/lib/time/not-voided";
 
 type RouteParams = { params: Promise<{ orgId: string; entity: string }> };
 
+/** Rows of a project the exporter can't see are left out (see the note above). */
+const inVisible = (hidden: string[]) => (hidden.length ? { projectId: { notIn: hidden } } : {});
+/** The same for a record that may belong to no project, which stays in. */
+const noneOrVisible = (hidden: string[]) =>
+  hidden.length ? { OR: [{ projectId: null }, { projectId: { notIn: hidden } }] } : {};
+
+
 // Allowlist of entity slugs → Prisma model accessor
-const FETCHERS: Record<string, (orgId: string) => Promise<unknown[]>> = {
-  // SCOPING NOTE — org-wide on purpose; see the note at the top of this file.
-  // Gated on ORG_EXPORT, which is a whole-org capability by definition.
-  projects: (orgId) => prisma.project.findMany({ where: { orgId } }),
-  "work-items": (orgId) => prisma.workItem.findMany({ where: { orgId } }).catch(() => []),
-  intervals: (orgId) => prisma.interval.findMany({ where: { orgId } }).catch(() => []),
+const FETCHERS: Record<string, (orgId: string, hidden: string[]) => Promise<unknown[]>> = {
+  projects: (orgId, hidden) => prisma.project.findMany({ where: { orgId, ...(hidden.length ? { id: { notIn: hidden } } : {}) } }),
+  "work-items": (orgId, hidden) => prisma.workItem.findMany({ where: { orgId, ...inVisible(hidden) } }).catch(() => []),
+  intervals: (orgId, hidden) => prisma.interval.findMany({ where: { orgId, ...inVisible(hidden) } }).catch(() => []),
   "crm-contacts": (orgId) => prisma.crmContact.findMany({ where: { orgId } }).catch(() => []),
   partners: (orgId) => prisma.partner.findMany({ where: { orgId } }).catch(() => []),
   products: (orgId) => prisma.product.findMany({ where: { orgId } }).catch(() => []),
-  contracts: (orgId) => prisma.contract.findMany({ where: { orgId } }).catch(() => []),
+  contracts: (orgId, hidden) => prisma.contract.findMany({ where: { orgId, ...noneOrVisible(hidden) } }).catch(() => []),
   notes: (orgId) => prisma.note.findMany({ where: { orgId } }).catch(() => []),
-  meetings: (orgId) => prisma.syncMeeting.findMany({ where: { orgId } }).catch(() => []),
-  "time-entries": (orgId) =>
-    prisma.timeEntry.findMany({ where: { orgId, ...NOT_VOIDED } }).catch(() => []),
+  meetings: (orgId, hidden) => prisma.syncMeeting.findMany({ where: { orgId, ...noneOrVisible(hidden) } }).catch(() => []),
+  "time-entries": (orgId, hidden) =>
+    prisma.timeEntry.findMany({ where: { orgId, ...NOT_VOIDED, ...noneOrVisible(hidden) } }).catch(() => []),
   revenues: (orgId) => prisma.revenue.findMany({ where: { orgId } }).catch(() => []),
-  expenses: (orgId) => prisma.expense.findMany({ where: { orgId } }).catch(() => []),
+  expenses: (orgId, hidden) => prisma.expense.findMany({ where: { orgId, ...noneOrVisible(hidden) } }).catch(() => []),
 };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
@@ -55,7 +62,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
     if (limited) return limited;
 
-    const rows = await fetcher(ctx.orgId);
+    const rows = await fetcher(ctx.orgId, await hiddenProjectIds(ctx));
     const csv = toCSV(rows as Record<string, unknown>[]);
 
     return new NextResponse(csv, {
