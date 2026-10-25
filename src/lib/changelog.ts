@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.482.6",
+    date: "2026-10-25",
+    title: "New-project wizard drops the unused slug",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The new-project wizard no longer shows a project 'slug' that was never used.",
+      },
+    ],
+  },
+  {
     version: "2.482.5",
     date: "2026-10-25",
     title: "UI component cleanup",

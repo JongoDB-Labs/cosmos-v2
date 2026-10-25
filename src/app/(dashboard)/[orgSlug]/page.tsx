@@ -71,7 +71,7 @@ async function HeaderAndContent({ params }: PageParams) {
     >
       {/* Streaming section 1: KPI cards. */}
       <Suspense fallback={<StatCardsSkeleton />}>
-        <StatCards orgSlug={orgSlug} orgId={ctx.orgId} />
+        <StatCards orgSlug={orgSlug} orgId={ctx.orgId} plan={org.plan} />
       </Suspense>
 
       {/* Personal, customizable widget dashboard (client-rendered). */}
@@ -105,17 +105,7 @@ function HeaderSkeleton() {
         <Skeleton className="h-8 w-48" />
         <Skeleton className="mt-2 h-4 w-72" />
       </div>
-      <div className="mb-10 grid grid-cols-1 gap-6 md:grid-cols-3">
-        {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-6"
-          >
-            <Skeleton className="mb-3 h-3 w-24" />
-            <Skeleton className="h-8 w-20" />
-          </div>
-        ))}
-      </div>
+      <StatCardsSkeleton />
     </div>
   );
 }
@@ -140,13 +130,19 @@ async function MembersAndProjectsLine({
   );
 }
 
-async function StatCards({ orgSlug, orgId }: { orgSlug: string; orgId: string }) {
-  const [activeProjects, members, org] = await Promise.all([
+async function StatCards({
+  orgSlug,
+  orgId,
+  plan,
+}: {
+  orgSlug: string;
+  orgId: string;
+  plan: string;
+}) {
+  const [activeProjects, members] = await Promise.all([
     countVisibleActiveProjects(orgSlug, orgId),
     getOrgMemberCount(orgId),
-    getOrgById(orgId),
   ]);
-  const plan = org ? { plan: org.plan } : null;
   return (
     <div className="mb-10 grid grid-cols-1 gap-6 md:grid-cols-3">
       {/* No trend chip: there is nothing to compare against. It used to
@@ -162,7 +158,7 @@ async function StatCards({ orgSlug, orgId }: { orgSlug: string; orgId: string })
         <StatCard.Number>{members}</StatCard.Number>
       </StatCard>
       <StatCard label="Plan">
-        <StatCard.Number>{plan?.plan ?? "—"}</StatCard.Number>
+        <StatCard.Number>{plan}</StatCard.Number>
       </StatCard>
     </div>
   );
