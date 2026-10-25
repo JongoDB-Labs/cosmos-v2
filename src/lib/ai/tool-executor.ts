@@ -40,6 +40,7 @@ import {
 } from "./executors/_ctx";
 import { isOptionalUuid } from "@/lib/ids";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
+import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
 import { logAudit } from "@/lib/audit";
 import { queryComplianceControls, updateComplianceControl, listOrgMembers } from "./executors/compliance";
 import {
@@ -786,10 +787,14 @@ async function queryFinance(input: Record<string, unknown>, ctx: ToolContext) {
   if (input.startDate) dateFilter.gte = new Date(input.startDate as string);
   if (input.endDate) dateFilter.lte = new Date(input.endDate as string);
   const hasDate = Object.keys(dateFilter).length > 0;
+  // A team-scoped project's expenses count only for those who can see it.
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
+  const visible = await visibleProjectRecordsWhere(auth);
 
   const [revenues, expenses] = await Promise.all([
     prisma.revenue.findMany({ where: { orgId: ctx.orgId, ...(hasDate && { date: dateFilter }) } }),
-    prisma.expense.findMany({ where: { orgId: ctx.orgId, ...(hasDate && { date: dateFilter }) } }),
+    prisma.expense.findMany({ where: { orgId: ctx.orgId, AND: [visible], ...(hasDate && { date: dateFilter }) } }),
   ]);
 
   const totalRevenue = sumMoney(revenues.map((r) => r.amount));

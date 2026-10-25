@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import type { AnyObject, RouteContract } from "./contract";
+import { bodyIsOptional, type AnyObject, type RouteContract } from "./contract";
 import { pageQueryShape } from "./paginate";
 import { ProblemError } from "./problem";
 
@@ -53,11 +53,17 @@ export async function parseRequest<C extends RouteContract>(
 
   let parsedBody: unknown = undefined;
   if (shape.body) {
+    const text = await request.text();
     let raw: unknown;
-    try {
-      raw = await request.json();
-    } catch {
-      throw new ProblemError(400, "invalid_request", "Request body must be valid JSON");
+    // A body the contract makes optional (`schema.optional()`) may be left out
+    // entirely: the app duplicates an item with no body at all.
+    if (text.trim() === "" && bodyIsOptional(shape.body)) raw = undefined;
+    else {
+      try {
+        raw = JSON.parse(text);
+      } catch {
+        throw new ProblemError(400, "invalid_request", "Request body must be valid JSON");
+      }
     }
     parsedBody = shape.body.parse(raw);
   }

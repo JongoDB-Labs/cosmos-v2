@@ -38,7 +38,7 @@ const ENUMERATES = /prisma\.project\.(findMany|count|aggregate|groupBy)/;
 
 /** Any of the sanctioned ways to narrow, or an explicit written exemption. */
 const NARROWS =
-  /getVisibleProjectIds|visibleProjectIdsForActor|canReadProject|isProjectVisible|getReadableProjectIds|SCOPING NOTE/;
+  /getVisibleProjectIds|visibleProjectIdsForActor|canReadProject|isProjectVisible|getReadableProjectIds|hiddenProjectIds|visibleProjectRecordsWhere|SCOPING NOTE/;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of readdirSync(dir, { withFileTypes: true })) {

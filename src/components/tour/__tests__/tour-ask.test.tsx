@@ -6,6 +6,7 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { TourAsk } from "../tour-ask";
+import { useAskThreads, EMPTY_THREAD } from "../ask-threads";
 import type { TourStep } from "@/lib/tours/types";
 
 const step: TourStep = {
@@ -30,6 +31,24 @@ function streamOf(chunks: string[]) {
   };
 }
 
+/** TourAsk as the card wires it: one thread per step, held by useAskThreads. */
+function Ask({ stepOverride }: { stepOverride?: TourStep } = {}) {
+  const asks = useAskThreads("o1");
+  const st = stepOverride ?? step;
+  const key = `t:${st.id}`;
+  const thread = asks.threads[key] ?? EMPTY_THREAD;
+  return (
+    <TourAsk
+      orgId="o1"
+      step={st}
+      tourName="Phase health"
+      thread={thread}
+      onThread={(fn) => asks.update(key, fn)}
+      onReset={() => asks.reset(key, thread.conversationId)}
+    />
+  );
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.stubGlobal(
@@ -48,7 +67,7 @@ beforeEach(() => {
 
 describe("answers render as rich text", () => {
   it("renders markdown rather than printing its syntax", async () => {
-    render(<TourAsk orgId="o1" step={step} tourName="Phase health" />);
+    render(<Ask />);
     fireEvent.click(screen.getByText("How is runway calculated?"));
 
     await waitFor(() => expect(screen.getByText("hours left")).toBeInTheDocument());
@@ -61,7 +80,7 @@ describe("answers render as rich text", () => {
   });
 
   it("streams deltas into one growing answer rather than repeating them", async () => {
-    render(<TourAsk orgId="o1" step={step} tourName="Phase health" />);
+    render(<Ask />);
     fireEvent.click(screen.getByText("How is runway calculated?"));
     await waitFor(() => expect(screen.getByText("hours left")).toBeInTheDocument());
     const text = document.body.textContent ?? "";
@@ -81,7 +100,7 @@ describe("when the assistant cannot answer", () => {
           : (streamOf([]) as unknown as Response),
       ),
     );
-    render(<TourAsk orgId="o1" step={step} tourName="Phase health" />);
+    render(<Ask />);
     fireEvent.click(screen.getByText("How is runway calculated?"));
     await waitFor(() =>
       expect(screen.getByText(/no answer came back/i)).toBeInTheDocument(),
@@ -96,7 +115,7 @@ it("says the role cannot use the assistant when the endpoint refuses", async () 
     "fetch",
     vi.fn(async () => ({ ok: false, status: 403, json: async () => ({}) }) as unknown as Response),
   );
-  render(<TourAsk orgId="o1" step={step} tourName="T" />);
+  render(<Ask />);
   fireEvent.click(screen.getByText("How is runway calculated?"));
   expect(await screen.findByText(/role cannot use the assistant/i)).toBeInTheDocument();
   expect(screen.queryByText(/just now/i)).not.toBeInTheDocument();
@@ -104,7 +123,130 @@ it("says the role cannot use the assistant when the endpoint refuses", async () 
 
 it("still reports a genuine transient failure as transient", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }) as unknown as Response));
-  render(<TourAsk orgId="o1" step={step} tourName="T" />);
+  render(<Ask />);
   fireEvent.click(screen.getByText("How is runway calculated?"));
   expect(await screen.findByText(/just now/i)).toBeInTheDocument();
+});
+
+describe("a conversation, not one question at a time", () => {
+  // Routes the assistant API by URL and method, recording what was asked.
+  function api() {
+    let n = 0;
+    const calls: { method: string; url: string; body?: Record<string, unknown> }[] = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      calls.push({ method, url: String(url), body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (method === "POST" && String(url).endsWith("/conversations")) {
+        n += 1;
+        return { ok: true, json: async () => ({ data: { id: `c${n}` } }) } as unknown as Response;
+      }
+      if (method === "DELETE") return { ok: true, status: 204 } as unknown as Response;
+      return streamOf([`answer ${calls.filter((c) => c.url.endsWith("/messages")).length}`]) as unknown as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return { calls, created: () => calls.filter((c) => c.method === "POST" && c.url.endsWith("/conversations")) };
+  }
+
+  async function ask(text: string) {
+    const box = screen.getByRole("textbox");
+    fireEvent.change(box, { target: { value: text } });
+    fireEvent.keyDown(box, { key: "Enter" });
+  }
+
+  it("keeps earlier questions and answers, and asks the follow-up in the same conversation", async () => {
+    const { calls, created } = api();
+    render(<Ask />);
+    await ask("How is runway calculated?");
+    expect(await screen.findByText("answer 1")).toBeInTheDocument();
+    await ask("And if pace doubles?");
+    expect(await screen.findByText("answer 2")).toBeInTheDocument();
+
+    // Both turns are still on screen.
+    expect(screen.getByText("How is runway calculated?", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("answer 1")).toBeInTheDocument();
+    // One conversation, two messages into it.
+    expect(created()).toHaveLength(1);
+    const sent = calls.filter((c) => c.url.endsWith("/messages"));
+    expect(sent.map((c) => c.url)).toEqual([
+      "/api/v1/orgs/o1/assistant/conversations/c1/messages",
+      "/api/v1/orgs/o1/assistant/conversations/c1/messages",
+    ]);
+    // Created out of the reader's assistant history.
+    expect(created()[0].body).toEqual({ title: "Phase health: Runway", archived: true });
+    // The step's context rides with the first question only; the follow-up is
+    // just the question, the conversation carries the rest.
+    expect(String(sent[0].body?.content)).toContain("Context:");
+    expect(sent[1].body?.content).toBe("And if pace doubles?");
+  });
+
+  it("starts over on New conversation, deleting the old one", async () => {
+    const { calls, created } = api();
+    render(<Ask />);
+    await ask("First?");
+    expect(await screen.findByText("answer 1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
+
+    expect(screen.queryByText("answer 1")).toBeNull();
+    expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url)).toEqual([
+      "/api/v1/orgs/o1/assistant/conversations/c1",
+    ]);
+    await ask("Second?");
+    expect(await screen.findByText("answer 2")).toBeInTheDocument();
+    expect(created()).toHaveLength(2);
+  });
+
+  it("deletes the conversation when the card goes away", async () => {
+    const { calls } = api();
+    const { unmount } = render(<Ask />);
+    await ask("First?");
+    expect(await screen.findByText("answer 1")).toBeInTheDocument();
+    unmount();
+    const deletes = calls.filter((c) => c.method === "DELETE");
+    expect(deletes.map((c) => c.url)).toEqual(["/api/v1/orgs/o1/assistant/conversations/c1"]);
+  });
+
+  it("deletes it when the page goes away too", async () => {
+    const { calls } = api();
+    render(<Ask />);
+    await ask("First?");
+    expect(await screen.findByText("answer 1")).toBeInTheDocument();
+    window.dispatchEvent(new Event("pagehide"));
+    expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(1);
+  });
+
+  // Switching to another tab and back must not cost the reader their thread:
+  // only the page actually going away (pagehide) deletes it.
+  it("keeps the conversation when the tab is merely hidden", async () => {
+    const { calls } = api();
+    render(<Ask />);
+    await ask("First?");
+    expect(await screen.findByText("answer 1")).toBeInTheDocument();
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("blur"));
+    expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
+    expect(screen.getByText("answer 1")).toBeInTheDocument();
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+  });
+
+  it("keeps each step's conversation to that step", async () => {
+    const { calls } = api();
+    const other: TourStep = { ...step, id: "s2", title: "Burn" };
+    const { rerender } = render(<Ask />);
+    await ask("About runway?");
+    expect(await screen.findByText("answer 1")).toBeInTheDocument();
+    rerender(<Ask stepOverride={other} />);
+    // A fresh thread on the other step: nothing from the first shows,
+    // and its first question opens its own conversation.
+    expect(screen.queryByText("answer 1")).toBeNull();
+    await ask("About burn?");
+    expect(await screen.findByText("answer 2")).toBeInTheDocument();
+    expect(calls.filter((c) => c.url.endsWith("/messages")).map((c) => c.url)).toEqual([
+      "/api/v1/orgs/o1/assistant/conversations/c1/messages",
+      "/api/v1/orgs/o1/assistant/conversations/c2/messages",
+    ]);
+    // And going back shows the first step's thread again.
+    rerender(<Ask />);
+    expect(screen.getByText("answer 1")).toBeInTheDocument();
+  });
 });

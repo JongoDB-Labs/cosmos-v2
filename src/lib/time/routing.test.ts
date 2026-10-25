@@ -33,7 +33,7 @@ describe("routeFor", () => {
         supervisorUserIds: [BOSS],
         approverUserIds: [ADMIN_A, ADMIN_B],
       }),
-    ).toEqual({ approverId: BOSS, notify: [BOSS], reason: "manager" });
+    ).toEqual({ notify: [BOSS], reason: "manager" });
   });
 
   it("prefers the supervisor over the admin pool", () => {
@@ -56,7 +56,6 @@ describe("routeFor", () => {
       approverUserIds: [ADMIN_A, ADMIN_B],
     });
     expect(route.reason).toBe("admin_pool");
-    expect(route.approverId).toBeNull();
     expect(route.notify.sort()).toEqual([ADMIN_A, ADMIN_B].sort());
   });
 
@@ -71,7 +70,6 @@ describe("routeFor", () => {
       approverUserIds: [ADMIN_A],
     });
     expect(route.reason).toBe("admin_pool");
-    expect(route.approverId).toBeNull();
     expect(route.notify).toEqual([ADMIN_A]);
   });
 
@@ -93,14 +91,12 @@ describe("routeFor", () => {
       supervisorUserIds: [],
       approverUserIds: [ADMIN_A],
     });
-    expect(route).toEqual({ approverId: null, notify: [], reason: "none" });
+    expect(route).toEqual({ notify: [], reason: "none" });
   });
 
-  it("notifies EVERY supervisor, and names none of them", () => {
+  it("notifies EVERY supervisor", () => {
     // Picking one silently would leave a week waiting on somebody who may be on
-    // leave — the exact situation multiple supervisors exist to cover. And with
-    // several there is no "the" approver, so approverId stays null rather than
-    // misreporting the chart.
+    // leave — the exact situation multiple supervisors exist to cover.
     const route = routeFor({
       subjectUserId: WORKER,
       supervisorUserIds: [BOSS, ADMIN_B],
@@ -108,7 +104,6 @@ describe("routeFor", () => {
     });
     expect(route.reason).toBe("manager");
     expect(route.notify).toEqual([BOSS, ADMIN_B]);
-    expect(route.approverId).toBeNull();
   });
 
   it("drops the worker from their OWN supervisor list", () => {
@@ -186,7 +181,6 @@ describe("resolveApprovalRoute", () => {
     ]);
 
     await expect(resolveApprovalRoute(ORG, WORKER)).resolves.toEqual({
-      approverId: BOSS,
       notify: [BOSS],
       reason: "manager",
     });
@@ -200,7 +194,6 @@ describe("resolveApprovalRoute", () => {
     ]);
 
     await expect(resolveApprovalRoute(ORG, WORKER)).resolves.toEqual({
-      approverId: null,
       notify: [ADMIN_A],
       reason: "admin_pool",
     });

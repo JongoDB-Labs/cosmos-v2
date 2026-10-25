@@ -10,6 +10,7 @@ import { prisma } from "@/lib/db/client";
 import { resolveAuth } from "@/lib/auth/api-key";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // Delivered (has a ticket) but still PLANNED — triaged into the backlog, not
     // yet picked up. Highest-voted first, mirroring the delivery order.
     const rows = await prisma.feedbackItem.findMany({
-      where: { orgId, status: "PLANNED", workItemId: { not: null } },
+      where: { orgId, status: "PLANNED", workItemId: { not: null }, AND: [await visibleProjectRecordsWhere(ctx)] },
       orderBy: [{ voteCount: "desc" }, { deliveredAt: "asc" }],
       take: limit,
       select: { title: true, triage: true, workItemId: true },

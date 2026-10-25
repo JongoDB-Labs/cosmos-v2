@@ -192,7 +192,7 @@ export function ProjectSettingsClient({
   }
 
   // `on` = allowed/enabled. We persist the DISABLED set (opt-out), so an existing
-  // project with no setting keeps all 13 board types.
+  // project with no setting keeps every board type.
   async function toggleBoardType(key: string, on: boolean) {
     const next = on
       ? disabledTypes.filter((t) => t !== key)

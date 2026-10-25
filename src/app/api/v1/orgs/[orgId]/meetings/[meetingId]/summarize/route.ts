@@ -7,6 +7,7 @@ import { parseSummaryJson, SUMMARY_SYSTEM_PROMPT } from "@/lib/meetings/summariz
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { Prisma } from "@prisma/client";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string; meetingId: string }> };
 
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.syncMeeting.findFirst({
       where: { id: meetingId, orgId }, include: { attendees: true },
     });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
     await requireAccess(ctx, "MEETING_UPDATE", {
       createdById: existing.createdById, projectId: existing.projectId,
     });

@@ -104,6 +104,19 @@ export type PluginManifest = {
    */
   tours?: Tour[];
   /**
+   * Chip labels for the notification types this plugin creates, keyed by type:
+   * `{ "acme.eow.submitted": "End-of-week wrap-ups" }`. Only types under the
+   * plugin's own prefix (its slug, `-` as `_`, then a dot) are honoured — a
+   * plugin can't relabel a core kind or another plugin's.
+   *
+   * Optional. A type with no label here reads as its whole dotted name, which is
+   * unique but can be cryptic ("Acme eow submitted"). Labels are shown wherever
+   * notifications are grouped by kind — the inbox's counts and filters, the
+   * bell's chips — whether or not the plugin is enabled, since its notifications
+   * stay in people's inboxes either way.
+   */
+  notificationKinds?: Record<string, string>;
+  /**
    * Import entities this plugin adds to the org-wide import wizard, offered
    * only while the plugin is enabled.
    *

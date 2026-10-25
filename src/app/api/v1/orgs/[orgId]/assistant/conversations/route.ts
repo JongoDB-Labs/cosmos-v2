@@ -9,6 +9,9 @@ import { z } from "zod";
 
 const createConversationSchema = z.object({
   title: z.string().min(1).max(500).optional(),
+  /** Created out of the list from the start — a walkthrough's temporary
+   *  conversation is the caller's own but not part of their history. */
+  archived: z.boolean().optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -23,8 +26,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.CHAT_USE);
 
+    // Archived conversations are out of the list unless asked for. Archiving
+    // in the assistant panel only hid one until the next load, when this
+    // returned it again.
+    const includeArchived = request.nextUrl.searchParams.get("archived") === "true";
     const conversations = await prisma.assistantConversation.findMany({
-      where: { orgId, userId: ctx.userId },
+      where: { orgId, userId: ctx.userId, ...(includeArchived ? {} : { archived: false }) },
       orderBy: { updatedAt: "desc" },
       include: {
         _count: { select: { messages: true } },
@@ -55,6 +62,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         orgId,
         userId: ctx.userId,
         title: data.title ?? "New conversation",
+        ...(data.archived !== undefined && { archived: data.archived }),
       },
     });
 

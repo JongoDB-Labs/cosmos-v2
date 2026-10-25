@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { z } from "zod";
 import { OrgRole } from "@prisma/client";
+import { ProblemError } from "@/lib/openapi/problem";
 
 const updateMemberSchema = z.object({
   role: z.nativeEnum(OrgRole),
@@ -61,19 +62,35 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const updated = await prisma.orgMember.update({
-      where: { id: memberId },
-      data: { role: data.role },
-      select: {
-        id: true,
-        orgId: true,
-        userId: true,
-        role: true,
-        joinedAt: true,
-        user: {
-          select: { id: true, email: true, displayName: true, avatarUrl: true },
+    const updated = await prisma.$transaction(async (tx) => {
+      // An org always keeps an owner. No one can change their own role (above),
+      // so a single request can't demote the last one; but two owners demoting
+      // each other at once could. Lock the org's owner rows first, always in the
+      // same order so two requests can't deadlock: the second waits, then
+      // counts after the first has landed.
+      if (member.role === "OWNER" && data.role !== "OWNER") {
+        await tx.$queryRaw`SELECT id FROM org_members WHERE org_id = ${orgId}::uuid AND role = 'OWNER' AND removed_at IS NULL ORDER BY id FOR UPDATE`;
+        const otherOwners = await tx.orgMember.count({
+          where: { orgId, role: "OWNER", removedAt: null, id: { not: memberId } },
+        });
+        if (otherOwners === 0) {
+          throw new ProblemError(409, "conflict", "An organization needs at least one owner");
+        }
+      }
+      return tx.orgMember.update({
+        where: { id: memberId },
+        data: { role: data.role },
+        select: {
+          id: true,
+          orgId: true,
+          userId: true,
+          role: true,
+          joinedAt: true,
+          user: {
+            select: { id: true, email: true, displayName: true, avatarUrl: true },
+          },
         },
-      },
+      });
     });
 
     await logAudit({

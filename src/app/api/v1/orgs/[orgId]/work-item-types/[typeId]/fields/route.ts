@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 const fieldBindingSchema = z.object({
   customFieldId: z.string().uuid(),
@@ -44,7 +45,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // Verify the custom field belongs to this org
       const customField = await prisma.customField.findUnique({ where: { id: data.customFieldId } });
       if (!customField) return new Response("Custom field not found", { status: 404 });
-      if (customField.orgId !== orgId) return new Response("Custom field not found", { status: 404 });
+      if (customField.orgId !== orgId || !(await inVisibleProject(ctx, customField.projectId))) {
+        return new Response("Custom field not found", { status: 404 });
+      }
 
       const binding = await prisma.workItemTypeField.upsert({
         where: {

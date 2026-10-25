@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -26,9 +27,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ANALYTICS_READ);
 
+    // A team-scoped project's feedback counts only for those who can see it.
+    const visible = await visibleProjectRecordsWhere(ctx);
     const grouped = await prisma.feedbackItem.groupBy({
       by: ["type", "status"],
-      where: { orgId },
+      where: { orgId, AND: [visible] },
       _count: { _all: true },
     });
 
@@ -63,7 +66,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const since = new Date();
     since.setDate(since.getDate() - 30);
     const recentForTrend = await prisma.feedbackItem.findMany({
-      where: { orgId, OR: [{ createdAt: { gte: since } }, { updatedAt: { gte: since } }] },
+      where: { orgId, AND: [visible], OR: [{ createdAt: { gte: since } }, { updatedAt: { gte: since } }] },
       select: { createdAt: true, updatedAt: true, status: true },
     });
     const trendMap = new Map<string, { opened: number; resolved: number }>();
@@ -91,7 +94,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     // Top recent items (most-voted first, then newest), with author names.
     const recent = await prisma.feedbackItem.findMany({
-      where: { orgId },
+      where: { orgId, AND: [visible] },
       orderBy: [{ voteCount: "desc" }, { createdAt: "desc" }],
       take: 50,
       select: {
