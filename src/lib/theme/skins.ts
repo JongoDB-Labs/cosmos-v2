@@ -123,7 +123,8 @@ const FIELD: SkinPreset = {
     "color-scheme": "light",
     "--bg": "#f3f3f1", "--surface": "#e6e6e2", "--overlay": "#fbfbf9",
     "--border": "#cfcfc8", "--text": "#1b1e22", "--text-muted": "#5c6066",
-    "--primary": "#ea580c", "--primary-hover": "#c2410c",
+    // Darker than the brand's #ea580c: white text on that was 3.56:1, under AA.
+    "--primary": "#b23a0a", "--primary-hover": "#9a3412",
     "--primary-tint": "rgb(234 88 12 / 0.10)", "--primary-foreground": "#ffffff",
     "--radius-sm": "3px", "--radius": "4px", "--radius-md": "4px", "--radius-lg": "6px",
     "--sidebar-gradient": "linear-gradient(180deg, #f3f3f1 0%, #e6e6e2 100%)",
@@ -185,7 +186,8 @@ const CLINICAL: SkinPreset = {
     "color-scheme": "light",
     "--bg": "#ffffff", "--surface": "#eff6f7", "--overlay": "#ffffff",
     "--border": "#d6e6e8", "--text": "#16323a", "--text-muted": "#5d7379",
-    "--primary": "#0d9488", "--primary-hover": "#0f766e",
+    // Darker than #0d9488: white text on that was 3.74:1, under AA.
+    "--primary": "#0f766e", "--primary-hover": "#115e59",
     "--primary-tint": "rgb(13 148 136 / 0.09)", "--primary-foreground": "#ffffff",
     "--radius-sm": "8px", "--radius": "10px", "--radius-md": "10px", "--radius-lg": "14px",
     "--sidebar-gradient": "linear-gradient(180deg, #ffffff 0%, #eff6f7 100%)",
