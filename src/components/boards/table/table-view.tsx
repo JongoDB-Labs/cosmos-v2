@@ -97,18 +97,10 @@ const priorityColors: Record<string, string> = {
   LOW: "bg-muted text-muted-foreground",
 };
 
-const typeColors: Record<string, string> = {
-  EPIC: "bg-purple-500/20 text-purple-400",
-  STORY: "bg-blue-500/20 text-blue-400",
-  TASK: "bg-cyan-500/20 text-cyan-400",
-  BUG: "bg-red-500/20 text-red-400",
-  SUBTASK: "bg-muted text-muted-foreground",
-};
-
 const GROUPING_OPTIONS = [
   { value: "", label: "No grouping" },
   { value: "columnKey", label: "Status" },
-  { value: "type", label: "Type" },
+  { value: "workItemTypeId", label: "Type" },
   { value: "priority", label: "Priority" },
   { value: "assigneeId", label: "Assignee" },
 ] as const;
@@ -296,9 +288,10 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
     return map;
   }, [items]);
 
-  // Group-header labels: resolve the raw grouping value (a UUID for assignee /
-  // type / interval, a key for status) to a human name. Without this the header
-  // shows the raw id — the reported "UUID instead of username" bug.
+  // Group-header labels: resolve the raw grouping value (a UUID for assignee or
+  // type, a key for status) to a human name. Without this the header shows the
+  // raw id — the reported "UUID instead of username" bug. Only the ids offered
+  // by GROUPING_OPTIONS can reach here, so there is no interval branch.
   const getGroupLabel = useCallback(
     (columnId: string, value: unknown): ReactNode => {
       const v = value == null || value === "" ? null : String(value);
@@ -309,13 +302,11 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           return v ? (typeNameMap.get(v) ?? v) : "No type";
         case "columnKey":
           return v ? (columnMap.get(v) ?? v) : "No status";
-        case "intervalId":
-          return v ? (intervalMap.get(v) ?? v) : "No interval";
         default:
           return v ?? "None";
       }
     },
-    [memberMap, typeNameMap, columnMap, intervalMap],
+    [memberMap, typeNameMap, columnMap],
   );
 
   const saveEdit = useCallback(
