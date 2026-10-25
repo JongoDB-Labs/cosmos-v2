@@ -21,7 +21,8 @@ const { prisma, resolveAuth, requireProjectRead, requireAccess, ingestDocument, 
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/auth/api-key", () => ({ resolveAuth }));
-vi.mock("@/lib/rbac/require-project-read", () => ({ requireProjectRead }));
+// Visibility is covered against a real database (lib/rbac/team-scope-writes.db.test.ts).
+vi.mock("@/lib/rbac/require-project-read", () => ({ requireProjectRead, requireProjectVisible: vi.fn(async () => undefined) }));
 vi.mock("@/lib/abac/require-access", () => ({ requireAccess }));
 vi.mock("@/lib/files/ingest", () => ({ ingestDocument }));
 vi.mock("@/lib/audit", () => ({ logAudit }));

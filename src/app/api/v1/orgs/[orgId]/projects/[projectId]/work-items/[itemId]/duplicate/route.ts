@@ -2,14 +2,18 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
-import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
-import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { duplicateWorkItem } from "./route.contract";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { allocateTicketNumber } from "@/lib/work-items/allocate";
 import { copyFields } from "@/lib/work-items/copy-fields";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; itemId: string }>;
@@ -26,17 +30,14 @@ type RouteParams = {
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, itemId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, duplicateWorkItem);
+    const { params: { orgId, projectId, itemId }, body } = await parseRequest(duplicateWorkItem, request, params);
+    await requireProjectVisible(ctx, projectId);
 
     const source = await prisma.workItem.findFirst({
       where: { id: itemId, orgId, projectId },
     });
-    if (!source) return new Response("Not found", { status: 404 });
+    if (!source) return problem(404, "not_found", undefined, { request });
 
     // The actor becomes the creator of the new item — same authz model as POST
     // /work-items (ITEM_CREATE + any in-project deny policy).
@@ -47,11 +48,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
 
     // FR: optionally also clone the source's direct sub-items under the new copy
-    // (the user is prompted when the item has children). Tolerate an empty body
-    // (the plain "duplicate" action sends none).
-    const body = (await request.json().catch(() => ({}))) as {
-      withChildren?: boolean;
-    };
+    // (the user is prompted when the item has children). The body may be left
+    // out: the plain "duplicate" action sends none.
     const withChildren = body?.withChildren === true;
 
     const item = await prisma.$transaction(async (tx) => {
@@ -69,6 +67,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
 
       const dupe = await createWorkItemRow(tx, {
+        // An internal search index, not part of the item.
+        omit: { searchVector: true },
         data: {
           ...copyFields(source),
           orgId,
@@ -145,6 +145,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       if (withChildren) {
         return tx.workItem.findUniqueOrThrow({
           where: { id: dupe.id },
+          omit: { searchVector: true },
           include: {
             children: { select: { id: true, title: true, ticketNumber: true, columnKey: true, workItemTypeId: true } },
             workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
@@ -190,8 +191,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       /* never let a broker error break the response */
     }
 
-    return created(item);
+    return respond(duplicateWorkItem, 201, item);
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

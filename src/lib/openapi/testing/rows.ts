@@ -51,3 +51,14 @@ export function workItemRow<T extends Record<string, unknown>>(over: T & { id: s
     ...over,
   };
 }
+
+/** A whole comment row, as Prisma returns it. */
+export function commentRow<T extends Record<string, unknown>>(over: T & { id: string; orgId: string; authorId: string }) {
+  return {
+    workItemId: null, subjectType: null, subjectId: null, content: "c", parentId: null,
+    visibility: "PUBLIC", kind: "COMMENT", meta: null, editedAt: null, deletedAt: null, deletedById: null,
+    hiddenAt: null, hiddenById: null, hiddenReason: null, originSubjectId: null, classification: null,
+    createdAt: new Date("2026-10-02T00:00:00Z"), updatedAt: new Date("2026-10-02T00:00:00Z"),
+    ...over,
+  };
+}

@@ -6,6 +6,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
+// UUIDs: the route's contract validates the path and its answer.
+const ORG = "11111111-1111-4111-8111-111111111111";
+const PROJECT = "22222222-2222-4222-8222-222222222222";
+const SRC = "33333333-3333-4333-8333-333333333333";
+const ANN = "a0000000-0000-4000-8000-000000000001";
+const BO = "b0000000-0000-4000-8000-000000000002";
+const CY = "c0000000-0000-4000-8000-000000000003";
+const PM = "d0000000-0000-4000-8000-000000000004";
+const EPIC = "e0000000-0000-4000-8000-000000000005";
+const SPRINT = "f0000000-0000-4000-8000-000000000006";
+const TEAM = "a1000000-0000-4000-8000-000000000007";
+const TASK_TYPE = "a2000000-0000-4000-8000-000000000008";
+const COPY_BO = "a3000000-0000-4000-8000-000000000009";
+const COPY_CY = "a4000000-0000-4000-8000-00000000000a";
+
 const { prisma, tx, getAuthContext, requireAccess } = vi.hoisted(() => {
   const tx = {
     workItem: {
@@ -15,7 +30,7 @@ const { prisma, tx, getAuthContext, requireAccess } = vi.hoisted(() => {
       // The single writer reads rows around a write for their outbox events.
       findMany: vi.fn(async () => []),
       findUniqueOrThrow: vi.fn(async () => ({
-        orgId: "o1", projectId: "p1", ticketNumber: 100, columnKey: "todo", workItemTypeId: "t1", parentId: null,
+        orgId: ORG, projectId: PROJECT, ticketNumber: 100, columnKey: "todo", workItemTypeId: TASK_TYPE, parentId: null,
       })),
     },
     workItemAssignee: { deleteMany: vi.fn(), create: vi.fn() },
@@ -36,6 +51,11 @@ const { prisma, tx, getAuthContext, requireAccess } = vi.hoisted(() => {
     requireAccess: vi.fn(),
   };
 });
+// Visibility is covered against a real database (lib/rbac/team-scope-writes.db.test.ts).
+vi.mock("@/lib/rbac/require-project-read", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rbac/require-project-read")>()),
+  requireProjectVisible: vi.fn(async () => undefined),
+}));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/abac/require-access", () => ({ requireAccess }));
@@ -48,17 +68,17 @@ vi.mock("@/lib/realtime/broker", () => ({ publishToOrg: vi.fn() }));
 import { POST } from "./route";
 
 const SOURCE = {
-  id: "src",
-  orgId: "o1",
-  projectId: "p1",
+  id: SRC,
+  orgId: ORG,
+  projectId: PROJECT,
   title: "Write the runbook",
   description: "Each of us writes our section",
   columnKey: "todo",
-  assigneeId: "ann",
+  assigneeId: ANN,
   priority: "HIGH",
-  intervalId: "sprint-3",
-  parentId: "epic-1",
-  teamId: "team-a",
+  intervalId: SPRINT,
+  parentId: EPIC,
+  teamId: TEAM,
   storyPoints: 3,
   dueDate: new Date("2026-11-01"),
   startDate: new Date("2026-10-25"),
@@ -66,27 +86,27 @@ const SOURCE = {
   highlight: null,
   tags: [],
   customFields: { env: "prod" },
-  workItemTypeId: "task",
+  workItemTypeId: TASK_TYPE,
   ticketNumber: 42,
-  createdById: "ann",
-  assignees: [{ userId: "ann" }, { userId: "bo" }, { userId: "cy" }],
+  createdById: ANN,
+  assignees: [{ userId: ANN }, { userId: BO }, { userId: CY }],
 };
 
 const call = () =>
   POST(new NextRequest("http://x/split", { method: "POST" }), {
-    params: Promise.resolve({ orgId: "o1", projectId: "p1", itemId: "src" }),
+    params: Promise.resolve({ orgId: ORG, projectId: PROJECT, itemId: SRC }),
   });
 
 beforeEach(() => {
   vi.clearAllMocks();
-  prisma.organization.findUnique.mockResolvedValue({ id: "o1", slug: "acme" });
-  getAuthContext.mockResolvedValue({ userId: "pm", orgId: "o1" });
+  prisma.organization.findUnique.mockResolvedValue({ id: ORG, slug: "acme" });
+  getAuthContext.mockResolvedValue({ userId: PM, orgId: ORG });
   requireAccess.mockResolvedValue(undefined);
   prisma.workItem.findFirst.mockResolvedValue(SOURCE);
   tx.workItem.aggregate.mockResolvedValue({ _max: { sortOrder: 7 } });
   tx.workItem.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     ...data,
-    id: `copy-${data.assigneeId}`,
+    id: data.assigneeId === BO ? COPY_BO : COPY_CY,
   }));
 });
 
@@ -96,11 +116,11 @@ describe("POST split-assignees", () => {
     expect(res.status).toBe(201);
 
     expect(tx.workItemAssignee.deleteMany).toHaveBeenCalledWith({
-      where: { workItemId: "src", userId: { in: ["bo", "cy"] } },
+      where: { workItemId: SRC, userId: { in: [BO, CY] } },
     });
     expect(tx.workItem.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["src"] } },
-      data: { assigneeId: "ann" },
+      where: { id: { in: [SRC] } },
+      data: { assigneeId: ANN },
     });
   });
 
@@ -108,23 +128,23 @@ describe("POST split-assignees", () => {
     await call();
 
     const made = tx.workItem.create.mock.calls.map(([a]) => a.data);
-    expect(made.map((d) => d.assigneeId)).toEqual(["bo", "cy"]);
+    expect(made.map((d) => d.assigneeId)).toEqual([BO, CY]);
     for (const d of made) {
       expect(d).toMatchObject({
         title: "Write the runbook",
         description: "Each of us writes our section",
-        parentId: "epic-1",
-        intervalId: "sprint-3",
-        teamId: "team-a",
+        parentId: EPIC,
+        intervalId: SPRINT,
+        teamId: TEAM,
         priority: "HIGH",
         storyPoints: 3,
         columnKey: "todo",
-        workItemTypeId: "task",
+        workItemTypeId: TASK_TYPE,
         customFields: { env: "prod" },
       });
     }
     // Each copy owns its own assignee row and its own ticket number.
-    expect(tx.workItemAssignee.create.mock.calls.map(([a]) => a.data.userId)).toEqual(["bo", "cy"]);
+    expect(tx.workItemAssignee.create.mock.calls.map(([a]) => a.data.userId)).toEqual([BO, CY]);
     expect(made.map((d) => d.ticketNumber)).toEqual([100, 101]);
   });
 
@@ -132,13 +152,13 @@ describe("POST split-assignees", () => {
     await call();
 
     expect(tx.workItemLink.create.mock.calls.map(([a]) => a.data)).toEqual([
-      { orgId: "o1", sourceItemId: "copy-bo", targetItemId: "src", type: "CLONES" },
-      { orgId: "o1", sourceItemId: "copy-cy", targetItemId: "src", type: "CLONES" },
+      { orgId: ORG, sourceItemId: COPY_BO, targetItemId: SRC, type: "CLONES" },
+      { orgId: ORG, sourceItemId: COPY_CY, targetItemId: SRC, type: "CLONES" },
     ]);
   });
 
   it("refuses an item with a single assignee and changes nothing", async () => {
-    prisma.workItem.findFirst.mockResolvedValue({ ...SOURCE, assignees: [{ userId: "ann" }] });
+    prisma.workItem.findFirst.mockResolvedValue({ ...SOURCE, assignees: [{ userId: ANN }] });
 
     const res = await call();
 

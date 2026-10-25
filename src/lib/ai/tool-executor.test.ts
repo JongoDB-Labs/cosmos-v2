@@ -23,6 +23,13 @@ const { loadEffectivePermissions, prisma } = vi.hoisted(() => ({
 
 vi.mock("@/lib/rbac/effective-permissions", () => ({ loadEffectivePermissions }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
+// Team-scope narrowing is covered against a real DB in
+// lib/rbac/team-scope-feedback-expenses.db.test.ts; here nothing is hidden.
+vi.mock("@/lib/rbac/project-access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rbac/project-access")>()),
+  hiddenProjectIds: async () => [],
+  visibleProjectRecordsWhere: async () => ({}),
+}));
 
 import { executeTool } from "./tool-executor";
 import type { AuthContext } from "@/lib/rbac/check";

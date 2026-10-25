@@ -10,6 +10,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { assignWorkflow } from "@/lib/workflow/versions.server";
 import { startMigrations } from "@/lib/workflow/migrate.server";
 import { assignProjectWorkflow } from "./route.contract";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -17,6 +18,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: p, body } = await parseRequest(assignProjectWorkflow, request, params);
     const ctx = await workflowProjectContext(p, assignProjectWorkflow);
+    await requireProjectVisible(ctx, p.projectId);
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     if (body.workItemTypeId) {
       const type = await prisma.workItemType.findFirst({

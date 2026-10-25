@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { success, created, handleApiError } from "@/lib/api-helpers";
 
 /**
@@ -77,6 +77,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    await requireProjectVisible(ctx, projectId);
     await requireAccess(ctx, "OKR_UPDATE", { projectId });
 
     if (!(await loadObjective(orgId, projectId, objectiveId)))
@@ -114,6 +115,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    await requireProjectVisible(ctx, projectId);
     await requireAccess(ctx, "OKR_UPDATE", { projectId });
 
     if (!(await loadObjective(orgId, projectId, objectiveId)))

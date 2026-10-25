@@ -3,9 +3,11 @@ import { runCalendarPulls } from "@/lib/integrations/microsoft/calendar-sync.ser
 import { prisma } from "@/lib/db/client";
 import { pruneDomainEvents } from "@/lib/work-items/events.server";
 import { drainOutbox } from "@/lib/automation/outbox.server";
+import { runDueSchedules } from "@/lib/automation/engine.server";
 import { sendDueDeliveries } from "@/lib/webhooks/deliver.server";
 import { sweepAllMarkedComments } from "@/lib/feedback/comments.server";
 import { runWorkflowMigrations } from "@/lib/workflow/migrate.server";
+import { runDueSubscriptions } from "@/lib/query/subscriptions.server";
 import { drainTeamsOutbox, queueChannelDigests, queueDueDigests } from "@/lib/integrations/microsoft/teams-app/notify.server";
 
 /**
@@ -53,6 +55,20 @@ registerJob({
   },
 });
 
+// Workflow P4b: scheduled automation rules (hourly, daily, weekly) that are
+// due. Each runs at most once per slot; the runner's single leader means two
+// instances never run one at once.
+registerJob({
+  name: "automation-schedules",
+  everyMs: 60_000,
+  jitterMs: 5_000,
+  timeoutMs: 5 * 60_000,
+  run: async () => {
+    const ran = await runDueSchedules();
+    return ran ? { ran } : undefined;
+  },
+});
+
 // Workflow P4: send queued webhook deliveries, retrying failures with backoff.
 registerJob({
   name: "webhook-deliveries",
@@ -93,6 +109,19 @@ registerJob({
   },
 });
 
+// CQL phase 6: emailed saved filters. Due rows are claimed with SKIP LOCKED and
+// their next run moved on before sending, so a repeated run sends nothing twice.
+registerJob({
+  name: "filter-subscriptions",
+  everyMs: 5 * 60_000,
+  jitterMs: 30_000,
+  timeoutMs: 4 * 60_000,
+  run: async ({ signal }) => {
+    const r = await runDueSubscriptions({ signal });
+    return r.subscriptions ? { ...r } : undefined;
+  },
+});
+
 // COSMOS-202 T2: Cosmos for Teams. Channel updates are gathered each minute
 // (one card per channel at most), "due tomorrow" hourly, and the outbox is
 // drained each minute, each card re-read as its recipient when it's sent.
@@ -102,8 +131,8 @@ registerJob({
   jitterMs: 5_000,
   timeoutMs: 50_000,
   run: async () => {
-    const queued = await queueChannelDigests();
-    return queued ? { queued } : undefined;
+    const r = await queueChannelDigests();
+    return r.queued || r.skipped ? { ...r } : undefined;
   },
 });
 

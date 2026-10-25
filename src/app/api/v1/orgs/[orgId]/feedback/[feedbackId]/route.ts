@@ -9,6 +9,7 @@ import { success, handleApiError } from "@/lib/api-helpers";
 import { requirePermission } from "@/lib/rbac/check";
 import { FEEDBACK_ROW_SELECT, toFeedbackDto } from "@/lib/feedback/feedback-dto";
 import { FEEDBACK_SUBJECT } from "@/lib/feedback/subject";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string; feedbackId: string }> };
 
@@ -41,12 +42,14 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       where: { id: feedbackId, orgId },
       select: {
         ...FEEDBACK_ROW_SELECT,
+        projectId: true,
         attachments: {
           select: { id: true, kind: true, url: true, filename: true, contentType: true, size: true },
         },
       },
     });
-    if (!item) return new Response("Not found", { status: 404 });
+    // A team-scoped project's feedback is the same 404 as a missing one.
+    if (!item || !(await inVisibleProject(ctx, item.projectId))) return new Response("Not found", { status: 404 });
 
     const [vote, author] = await Promise.all([
       prisma.feedbackVote.findFirst({
@@ -85,7 +88,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.feedbackItem.findFirst({
       where: { id: feedbackId, orgId },
     });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
 
     const data = updateSchema.parse(await request.json());
 
@@ -178,7 +181,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.feedbackItem.findFirst({
       where: { id: feedbackId, orgId },
     });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
 
     // Author can delete their own; admins can delete any. Defense-in-depth:
     // keep the author bypass, but route the admin branch through resource-aware

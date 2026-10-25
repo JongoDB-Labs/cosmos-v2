@@ -5,7 +5,7 @@ import { logAudit } from "@/lib/audit";
 import { parseRequest } from "@/lib/openapi/respond";
 import { workflowProjectContext } from "@/lib/workflow/route-auth.server";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { deleteWorkflow, getWorkflow, updateWorkflowMeta } from "@/lib/workflow/versions.server";
 import { deleteProjectWorkflow, getProjectWorkflow, updateProjectWorkflow } from "./route.contract";
@@ -27,6 +27,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: p, body } = await parseRequest(updateProjectWorkflow, request, params);
     const ctx = await workflowProjectContext(p, updateProjectWorkflow);
+    await requireProjectVisible(ctx, p.projectId);
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     await prisma.$transaction((tx) => updateWorkflowMeta(tx, { orgId: p.orgId, projectId: p.projectId }, p.workflowId, body));
     await logAudit({
@@ -48,6 +49,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: p } = await parseRequest(deleteProjectWorkflow, request, params);
     const ctx = await workflowProjectContext(p, deleteProjectWorkflow);
+    await requireProjectVisible(ctx, p.projectId);
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     await prisma.$transaction((tx) => deleteWorkflow(tx, { orgId: p.orgId, projectId: p.projectId }, p.workflowId));
     await logAudit({

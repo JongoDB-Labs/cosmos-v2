@@ -74,7 +74,7 @@ describe("roleCountsFor", () => {
 describe("comment moderation", () => {
   const del = () =>
     deleteItemComment(new NextRequest("http://localhost/x", { method: "DELETE" }), {
-      params: Promise.resolve({ orgId: ORG, projectId: PROJECT, itemId: "w1", commentId: "c1" }),
+      params: Promise.resolve({ orgId: ORG, projectId: PROJECT, itemId: "55555555-5555-4555-8555-555555555555", commentId: "66666666-6666-4666-8666-666666666666" }),
     });
 
   it("an OWNER's items:write key can't delete someone else's comment (moderation is a delete)", async () => {

@@ -20,6 +20,8 @@ const { requireSystemAdmin, listTags, prisma } = vi.hoisted(() => ({
   prisma: {
     updateSettings: { findUnique: vi.fn(), upsert: vi.fn() },
     updateReconcileStatus: { findUnique: vi.fn() },
+    // The event backlog: [domain_events], then [webhook_deliveries].
+    $queryRaw: vi.fn(),
   },
 }));
 vi.mock("@/lib/internal/require-system-admin", () => ({ requireSystemAdmin }));
@@ -30,6 +32,7 @@ vi.mock("@/lib/updates/registry", async (orig) => ({
 }));
 
 import { GET, PUT } from "./route";
+import { appJobRunner } from "@/lib/jobs/runner";
 import { sealField } from "@/lib/crypto/field-seal";
 
 const ORIGINAL = {
@@ -108,6 +111,33 @@ describe("GET", () => {
     expect(body.autoUpdate).toBe(true);
     expect(body.reconcile).toMatchObject({ outcome: "failing", runningVersion: "2.427.0" });
     expect(body.reconcileHealth.tone).toBe("error");
+  });
+
+  it("says whether the event worker is keeping up, and stays up if that read fails", async () => {
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ unprocessed: BigInt(7), oldest: new Date(Date.now() - 30 * 60_000) }])
+      .mockResolvedValueOnce([{ pending: BigInt(0), failed: BigInt(0) }]);
+    const stalled = await (await GET()).json();
+    expect(stalled.eventBacklog).toMatchObject({ tone: "error", backlog: { unprocessed: 7, oldestAgeSeconds: expect.any(Number) } });
+    expect(stalled.eventBacklog.headline).toMatch(/^7 change events are waiting/);
+
+    prisma.$queryRaw.mockRejectedValueOnce(new Error("relation does not exist"));
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect((await res.json()).eventBacklog).toMatchObject({ tone: "muted", backlog: null });
+  });
+
+  it("says whether this instance runs the background jobs, and why not", async () => {
+    vi.stubEnv("JOBS_DISABLED", "1");
+    expect((await (await GET()).json()).jobs).toEqual({ enabled: false, reason: "JOBS_DISABLED", jobs: [] });
+    vi.stubEnv("JOBS_DISABLED", "");
+    vi.stubEnv("DATABASE_URL", "postgres://x");
+    // Registered but never started: what production showed before the runner fix.
+    appJobRunner().register({ name: "route-test-job", everyMs: 60_000, run: async () => undefined });
+    const jobs = (await (await GET()).json()).jobs;
+    expect(jobs).toMatchObject({ enabled: false, reason: expect.stringMatching(/wasn't started/) });
+    expect(jobs.jobs).toContainEqual(expect.objectContaining({ name: "route-test-job", leader: false, stuck: false, lastSucceededAt: null, everySeconds: 60 }));
+    vi.unstubAllEnvs();
   });
 
   it("reports reconcile: null when the installer has never reported", async () => {

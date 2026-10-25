@@ -20,15 +20,12 @@
  * `assertPermission`. This function assumes the actor may make the change.
  */
 import { randomUUID } from "node:crypto";
-import { ColumnCategory, Priority, WorkCategory, type Prisma, type WorkItem } from "@prisma/client";
+import { ColumnCategory, type Prisma, type WorkItem } from "@prisma/client";
 import { z } from "zod";
 import { isDonePhase, isStartedPhase } from "@/lib/boards/column-phase";
 import { loadStatusCategories } from "@/lib/boards/status-categories.server";
 import {
-  CANCEL_NOTE_MAX,
-  PICKABLE_CANCEL_REASONS,
   cancelFieldsForUpdate,
-  cancelInputError,
   cancelReasonLabel,
   type CancelReason,
 } from "@/lib/work-items/cancel";
@@ -38,70 +35,19 @@ import { TransitionError } from "@/lib/workflow/contract";
 import { ProblemError } from "@/lib/openapi/problem";
 import type { FieldRef } from "@/lib/workflow/definition";
 import type { AuthContext } from "@/lib/rbac/check";
-import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
+import { WorkItemPatch } from "@/lib/openapi/schemas/work-item-write";
 import { setLabelsForMany, setWorkItemLabels } from "@/lib/work-items/labels";
 import { cascadeSchedule, type CascadedItem } from "@/lib/work-items/schedule-cascade-io";
 import { changeEvents, snapshotItems, updateWorkItemsUnchecked } from "@/lib/work-items/write.server";
 import { RECORDED_BY_CALLER, recordEvents, type WriteMeta } from "@/lib/work-items/events.server";
 import type { AfterCommitEffects, ChangedItem } from "@/lib/work-items/after-commit";
 
-/** The body of `PUT …/work-items/[itemId]`: every field a person may change. */
-export const workItemPatchSchema = z.object({
-  title: z.string().min(1).max(500).optional(),
-  description: z.string().nullish(),
-  workItemTypeId: z.string().uuid().nullish(),
-  columnKey: z.string().nullish(),
-  assigneeId: z.string().uuid().nullable().optional(),
-  // Multi-assign (FR 1d38496a): replaces the WHOLE set; first entry becomes the
-  // primary assigneeId. When present it wins over the legacy single field.
-  assigneeIds: z.array(z.string().uuid()).max(50).optional(),
-  priority: z.nativeEnum(Priority).optional(),
-  intervalId: z.string().uuid().nullable().optional(),
-  // COSMOS-204: the owning team, independent of the assignee. null clears it.
-  teamId: z.string().uuid().nullable().optional(),
-  parentId: z.string().uuid().nullable().optional(),
-  storyPoints: z.number().int().min(0).nullable().optional(),
-  sortOrder: z.number().int().optional(),
-  dueDate: z.string().datetime().nullable().optional(),
-  startDate: z.string().datetime().nullable().optional(),
-  // Interdependent rescheduling (COSMOS-154): the OTHER items this same user
-  // action is writing by hand, each in its own request. Their dates are settled
-  // by those requests, so this one's cascade must neither move them nor reach
-  // past them — otherwise a multi-select Shift, or an undo restoring a whole
-  // cascade, moves shared dependents once per member. Not a stored field.
-  cascadeSkipIds: z.array(z.string().uuid()).max(500).optional(),
-  actualStart: z.string().datetime().nullable().optional(),
-  completedAt: z.string().datetime().nullable().optional(),
-  workCategory: z.nativeEnum(WorkCategory).optional(),
-  // The outcome of a finished or cancelled item ("Fixed", "Won't do"); free
-  // text so values imported from another tracker stay as they were.
-  resolution: z.string().max(200).nullable().optional(),
-  // Archive / unarchive. A timestamp in, or null to bring it back.
-  //
-  // It rides on this route rather than getting an endpoint of its own because
-  // it is gated on ITEM_UPDATE like every other field here — which is the whole
-  // point: archiving is editing, not deleting, so the person who made a mess can
-  // clear it up without being handed the ability to destroy anyone's work.
-  archivedAt: z.string().datetime().nullable().optional(),
-  // Meeting callout colour. Validated against the palette on WRITE even though
-  // reads deliberately tolerate an unknown key: the column is plain TEXT for
-  // forward-compatibility with a NEWER build, which is not a licence for THIS
-  // build to store a typo. A rejected value is a 400 the user can see; a stored
-  // one would be an invisible no-op border they could never clear from the UI.
-  // `null` clears the highlight.
-  highlight: z.enum(WORK_ITEM_HIGHLIGHT_ORDER).nullable().optional(),
-  tags: z.array(z.string()).optional(),
-  customFields: z.record(z.string(), z.unknown()).optional(),
-  // Cancel with a reason (COSMOS-206). Sending a reason IS the cancel: the item
-  // moves to the project's Cancelled status, which is created on first use.
-  // Moving the item to any other status clears both.
-  // MERGED is not accepted here: only a merge (COSMOS-207) sets it.
-  cancelReason: z.enum(PICKABLE_CANCEL_REASONS).optional(),
-  cancelNote: z.string().max(CANCEL_NOTE_MAX).nullish(),
-}).superRefine((d, ctx) => {
-  const err = d.cancelReason ? cancelInputError(d.cancelReason, d.cancelNote) : null;
-  if (err) ctx.addIssue({ code: "custom", path: ["cancelNote"], message: err });
-});
+/**
+ * The body of `PUT …/work-items/[itemId]`: every field a person may change. It
+ * is the public contract's `WorkItemPatch`, so the change service and the
+ * published spec read the same schema.
+ */
+export const workItemPatchSchema = WorkItemPatch;
 
 /**
  * A change as the server applies it: the API patch, plus what only the merge
@@ -117,7 +63,7 @@ export type WorkItemPatch = Omit<z.infer<typeof workItemPatchSchema>, "cancelRea
  * workflow engine onwards, on the domain event, so automations can tell a
  * person's edit from their own.
  */
-export type ChangeSource = "API" | "BULK" | "AI" | "SYSTEM" | "MIGRATION";
+export type ChangeSource = "API" | "BULK" | "AI" | "SYSTEM" | "MIGRATION" | "AUTOMATION";
 
 export interface ApplyChangeInput {
   actorId: string;
@@ -129,6 +75,12 @@ export interface ApplyChangeInput {
   source: ChangeSource;
   /** Set when this change is part of a larger one (a merge), so their events share it. */
   correlationId?: string;
+  /**
+   * An automation's own change: the rule that made it and how deep in a chain
+   * of automations it is. Recorded on the change's events, which is how a rule
+   * is kept from firing on its own changes and a chain from running forever.
+   */
+  chain?: { depth: number; causedByRuleId: string };
   /**
    * The person acting, for the workflow's restrictions and the override right.
    * Null for a system change, which the workflow holds to its structure only.
@@ -459,7 +411,7 @@ export async function applyWorkItemChange(
 ): Promise<ApplyChangeResult> {
   const { actorId, orgId, projectId, source } = input;
   // One correlation id for everything this change writes, the cascade included.
-  const meta: WriteMeta = { actorId, source, correlationId: input.correlationId ?? randomUUID() };
+  const meta: WriteMeta = { actorId, source, correlationId: input.correlationId ?? randomUUID(), ...input.chain };
   const patch: WorkItemPatch = { ...input.patch };
   // `columnKey: null` names no status: no move (see computeItemChange).
   if (patch.columnKey === null) delete patch.columnKey;

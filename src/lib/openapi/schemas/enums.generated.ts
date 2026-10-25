@@ -26,6 +26,7 @@ export const ProjectStatus = ["DRAFT","ACTIVE","ON_HOLD","COMPLETE"] as const;
 export const AutomationRunStatus = ["SUCCESS","NO_MATCH","PARTIAL","FAILED","LOOP","THROTTLED","SKIPPED_SELF"] as const;
 export const WorkflowEnforcement = ["SHADOW","ENFORCE"] as const;
 export const WorkflowVersionState = ["DRAFT","PUBLISHED","SUPERSEDED"] as const;
+export const FilterSubscriptionFormat = ["LIST","COUNT"] as const;
 export const FilterVisibility = ["PRIVATE","TEAM","PROJECT","ORG"] as const;
 export const CommentVisibility = ["PUBLIC","INTERNAL"] as const;
 export const CommentKind = ["COMMENT","OFFICIAL","STATUS_CHANGE","MERGE","SYSTEM"] as const;

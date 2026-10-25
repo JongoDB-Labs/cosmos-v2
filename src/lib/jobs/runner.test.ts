@@ -2,7 +2,7 @@
 // advisory lock), failures isolated per job with capped exponential backoff,
 // and a kill switch. Ticks are driven directly, so nothing here waits on timers.
 import { describe, it, expect, afterEach } from "vitest";
-import { JOBS_LOCK_NAMESPACE, JobRunner, jobsEnabled, pgJobLock, type JobLock } from "./runner";
+import { JOBS_LOCK_NAMESPACE, JobRunner, errorClass, jobsDisabledReason, jobsEnabled, pgJobLock, redactMessage, type JobLock } from "./runner";
 
 /** A lock that is always ours: for the non-election tests. */
 const freeLock = (): JobLock => {
@@ -93,17 +93,74 @@ describe("JobRunner", () => {
   });
 });
 
+describe("what the admin readout reads", () => {
+  it("records when a job last succeeded, and its last error's class", async () => {
+    let now = 1_700_000_000_000;
+    const r = new JobRunner({ ...quiet, now: () => now });
+    let fail = false;
+    r.register({ name: "j", everyMs: 1000, run: async () => { if (fail) throw Object.assign(new Error("dup on 1e5fd279-9865-490c-b0d2-c1a2a305c971"), { name: "PrismaClientKnownRequestError", code: "P2002" }); } });
+    await r.tick("j");
+    expect(r.status()[0]).toMatchObject({ lastSucceededAt: new Date(now).toISOString(), lastErrorClass: null, everyMs: 1000, timeoutMs: 1000 });
+    fail = true;
+    now += 5000;
+    await r.tick("j");
+    // A failure leaves the last success where it was.
+    expect(r.status()[0]).toMatchObject({ lastSucceededAt: new Date(now - 5000).toISOString(), lastErrorClass: "PrismaClientKnownRequestError P2002", consecutiveFailures: 1 });
+    expect(r.isStarted()).toBe(false);
+  });
+
+  it("keeps the numbers of each run's summary, and their sum, and nothing else", async () => {
+    const r = new JobRunner(quiet);
+    let n = 0;
+    r.register({ name: "c", everyMs: 1000, run: async () => ({ events: ++n, late: 1, note: "text is not a count" }) });
+    await r.tick("c");
+    await r.tick("c");
+    expect(r.status()[0]).toMatchObject({ lastCounts: { events: 2, late: 1 }, totals: { events: 3, late: 2 } });
+    expect(r.status()[0].lastCounts).not.toHaveProperty("note");
+  });
+
+  it("says so when a run outlives its timeout without returning", async () => {
+    const lines: string[] = [];
+    const r = new JobRunner({ ...quiet, log: (l) => lines.push(l) });
+    let release!: () => void;
+    r.register({ name: "hang", everyMs: 1000, timeoutMs: 5, run: () => new Promise<void>((res) => (release = res)) });
+    const run = r.tick("hang");
+    await new Promise((res) => setTimeout(res, 30));
+    expect(lines).toContain("[jobs] hang: timed out after 5ms; waiting for the run to stop");
+    expect(r.status()[0].running).toBe(true);
+    release();
+    await run;
+  });
+
+  it("takes what could be data out of an error message", () => {
+    expect(redactMessage('getaddrinfo ENOTFOUND db.internal.example:5432 for "secret value" at 10.0.4.7:6432 by ana@x.org, row 123456 id 1e5fd279-9865-490c-b0d2-c1a2a305c971 https://h/x?q=1\nsecond line')).toBe(
+      "getaddrinfo ENOTFOUND <host> for <value> at <address> by <email>, row <n> id <id> <url>",
+    );
+    expect(redactMessage(null)).toBeNull();
+    expect(redactMessage("x".repeat(400))).toHaveLength(160);
+    expect(errorClass(new TypeError("boom"))).toBe("TypeError");
+    expect(errorClass("nope")).toBe("string");
+  });
+});
+
 describe("jobsEnabled (kill switch)", () => {
-  const base = { NEXT_RUNTIME: "nodejs", DATABASE_URL: "postgres://x" } as unknown as NodeJS.ProcessEnv;
-  it("is on in the Node server runtime with a database", () => expect(jobsEnabled(base)).toBe(true));
+  const base = { DATABASE_URL: "postgres://x" } as unknown as NodeJS.ProcessEnv;
+  it("is on with a database", () => expect(jobsEnabled(base)).toBe(true));
+  it("doesn't ask for NEXT_RUNTIME: the standalone server (production) leaves it unset at runtime", () => {
+    // Reading it here kept every job off in production (`node server.js`) while
+    // `next dev`, which sets it, ran them. instrumentation.ts gates the runtime.
+    expect(jobsEnabled({ DATABASE_URL: "postgres://x" } as unknown as NodeJS.ProcessEnv)).toBe(true);
+    expect(jobsDisabledReason({ DATABASE_URL: "postgres://x" } as unknown as NodeJS.ProcessEnv)).toBeNull();
+  });
   it("is off with JOBS_DISABLED", () => {
     expect(jobsEnabled({ ...base, JOBS_DISABLED: "1" })).toBe(false);
     expect(jobsEnabled({ ...base, JOBS_DISABLED: "true" })).toBe(false);
   });
-  it("is off in the edge runtime, during next build, and without a database", () => {
-    expect(jobsEnabled({ ...base, NEXT_RUNTIME: "edge" })).toBe(false);
+  it("is off during next build and without a database, and says why", () => {
     expect(jobsEnabled({ ...base, NEXT_PHASE: "phase-production-build" })).toBe(false);
     expect(jobsEnabled({ ...base, DATABASE_URL: "" })).toBe(false);
+    expect(jobsDisabledReason({ ...base, JOBS_DISABLED: "1" })).toBe("JOBS_DISABLED");
+    expect(jobsDisabledReason({ ...base, DATABASE_URL: "" })).toBe("no DATABASE_URL");
   });
 });
 

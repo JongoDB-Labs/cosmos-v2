@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { prisma } from "@/lib/db/client";
 import type { Prisma } from "@prisma/client";
 
@@ -16,14 +17,14 @@ export async function dispatchWebhook(orgId: string, event: string, payload: Rec
     where: { orgId, active: true, events: { has: event } },
     select: { id: true },
   });
-  const now = new Date();
-  const queued = await Promise.all(
-    hooks.map((hook) =>
-      prisma.webhookDelivery.create({
-        data: { webhookId: hook.id, event, payload: payload as Prisma.InputJsonValue, status: "PENDING", nextAttemptAt: now },
-        select: { id: true },
-      }),
-    ),
-  );
-  return queued.map((d) => d.id);
+  return Promise.all(hooks.map((hook) => queueDelivery(hook.id, event, payload)));
+}
+
+/** Queue one delivery to one webhook, whatever it subscribes to (an automation's webhook action). Returns its id. */
+export async function queueDelivery(webhookId: string, event: string, payload: Record<string, unknown>): Promise<string> {
+  const id = randomUUID();
+  await prisma.webhookDelivery.create({
+    data: { id, webhookId, event, payload: { id, ...payload } as Prisma.InputJsonValue, status: "PENDING", nextAttemptAt: new Date() },
+  });
+  return id;
 }

@@ -14,11 +14,16 @@ import { NextRequest } from "next/server";
 import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
+import { commentRow } from "@/lib/openapi/testing/rows";
 
-const { getAuthContext, getCurrentUser, prisma } = vi.hoisted(() => ({
+const { getAuthContext, findAuthor, prisma } = vi.hoisted(() => {
+  // The author is read by id: an API key has no session user to ask.
+  const findAuthor = vi.fn();
+  return {
   getAuthContext: vi.fn(),
-  getCurrentUser: vi.fn(),
+  findAuthor,
   prisma: {
+    user: { findUnique: findAuthor },
     organization: { findUnique: vi.fn() },
     workItem: { findFirst: vi.fn() },
     project: { findUnique: vi.fn() },
@@ -27,9 +32,15 @@ const { getAuthContext, getCurrentUser, prisma } = vi.hoisted(() => ({
     activity: { create: vi.fn() },
     $transaction: vi.fn(),
   },
-}));
+  };
+});
 
-vi.mock("@/lib/auth/session", () => ({ getAuthContext, getCurrentUser }));
+vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
+// Visibility is covered against a real database (lib/rbac/team-scope-writes.db.test.ts).
+vi.mock("@/lib/rbac/require-project-read", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rbac/require-project-read")>()),
+  requireProjectVisible: vi.fn(async () => undefined),
+}));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 // Best-effort side-effects the POST path fires — stub so they never reach I/O.
 // Hoisted so the mention test can assert the notification URL it is called with.
@@ -94,7 +105,7 @@ beforeEach(() => {
   // $transaction([...]) resolves to the created rows; the route destructures
   // `const [comment] = ...`, so element 0 is the persisted comment.
   prisma.$transaction.mockResolvedValue([
-    {
+    commentRow({
       id: "55555555-5555-5555-5555-555555555555",
       orgId: ORG_ID,
       workItemId: ITEM_ID,
@@ -102,7 +113,7 @@ beforeEach(() => {
       content: "Nice work!",
       createdAt: new Date("2026-07-10T00:00:00Z"),
       updatedAt: new Date("2026-07-10T00:00:00Z"),
-    },
+    }),
     { id: "activity-1" },
   ]);
 });
@@ -110,7 +121,7 @@ beforeEach(() => {
 describe("POST /work-items/[itemId]/comments — author enrichment (COSMOS-4)", () => {
   it("enriches the response with the current user's name so it never shows 'Unknown'", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE", "COMMENT_READ")));
-    getCurrentUser.mockResolvedValue({
+    findAuthor.mockResolvedValue({
       id: ACTOR_ID,
       email: "ada@acme.test",
       displayName: "Ada Lovelace",
@@ -130,7 +141,7 @@ describe("POST /work-items/[itemId]/comments — author enrichment (COSMOS-4)", 
 
   it("returns null (not 'Unknown') for authorName when the user has no display name", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE", "COMMENT_READ")));
-    getCurrentUser.mockResolvedValue(null);
+    findAuthor.mockResolvedValue(null);
 
     const res = await POST(postRequest(), { params });
     expect(res.status).toBe(201);
@@ -153,7 +164,7 @@ describe("POST /work-items/[itemId]/comments — author enrichment (COSMOS-4)", 
 describe("POST /work-items/[itemId]/comments — live updates (COSMOS-127)", () => {
   it("publishes a work-item.updated event so open boards + the Foreman console refresh", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE", "COMMENT_READ")));
-    getCurrentUser.mockResolvedValue({ id: ACTOR_ID, displayName: "Ada", avatarUrl: null });
+    findAuthor.mockResolvedValue({ id: ACTOR_ID, displayName: "Ada", avatarUrl: null });
 
     // The Foreman console Approve button posts exactly this comment on this route.
     const res = await POST(postRequest("approve"), { params });
@@ -200,7 +211,7 @@ describe("POST /work-items/[itemId]/comments — mention notification link (COSM
    *  body, so the $transaction fixture is what has to carry the mention. */
   function persistedWithContent(content: string) {
     prisma.$transaction.mockResolvedValue([
-      {
+      commentRow({
         id: "55555555-5555-5555-5555-555555555555",
         orgId: ORG_ID,
         workItemId: ITEM_ID,
@@ -208,14 +219,14 @@ describe("POST /work-items/[itemId]/comments — mention notification link (COSM
         content,
         createdAt: new Date("2026-07-10T00:00:00Z"),
         updatedAt: new Date("2026-07-10T00:00:00Z"),
-      },
+      }),
       { id: "activity-1" },
     ]);
   }
 
   it("links a mention notification to a work-item route that EXISTS (/issues?item=)", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE")));
-    getCurrentUser.mockResolvedValue({ id: ACTOR_ID, displayName: "Dana" });
+    findAuthor.mockResolvedValue({ id: ACTOR_ID, displayName: "Dana" });
     prisma.orgMember.findMany.mockResolvedValue([
       // Shaped like the route's SELECT, which pulls the display name so the
       // notification body can name who was mentioned. A mock that returns only
@@ -265,7 +276,7 @@ describe("POST /work-items/[itemId]/comments — mention notification link (COSM
 
   it("does not notify the author when they mention themselves", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE")));
-    getCurrentUser.mockResolvedValue({ id: ACTOR_ID, displayName: "Dana" });
+    findAuthor.mockResolvedValue({ id: ACTOR_ID, displayName: "Dana" });
     prisma.orgMember.findMany.mockResolvedValue([
       { userId: ACTOR_ID, user: { displayName: "The Actor" } },
     ]);

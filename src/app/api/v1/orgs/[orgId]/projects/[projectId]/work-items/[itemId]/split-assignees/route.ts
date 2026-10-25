@@ -1,9 +1,12 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
-import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
-import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { splitWorkItemAssignees } from "./route.contract";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { storeEmbedding } from "@/lib/rag/embed";
@@ -11,6 +14,7 @@ import { allocateTicketNumber } from "@/lib/work-items/allocate";
 import { copyFields } from "@/lib/work-items/copy-fields";
 import { planSplit } from "@/lib/work-items/split-assignees";
 import { createWorkItemRow, updateWorkItems } from "@/lib/work-items/write.server";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; itemId: string }>;
@@ -28,18 +32,15 @@ type RouteParams = {
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, itemId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
-
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    const { ctx } = await orgContext((await params).orgId, splitWorkItemAssignees);
+    const { params: { orgId, projectId, itemId } } = await parseRequest(splitWorkItemAssignees, request, params);
+    await requireProjectVisible(ctx, projectId);
 
     const source = await prisma.workItem.findFirst({
       where: { id: itemId, orgId, projectId },
       include: { assignees: { orderBy: { sortOrder: "asc" }, select: { userId: true } } },
     });
-    if (!source) return new Response("Not found", { status: 404 });
+    if (!source) return problem(404, "not_found", undefined, { request });
 
     await requireAccess(ctx, "ITEM_UPDATE", {
       createdById: source.createdById,
@@ -54,10 +55,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const plan = planSplit(source.assignees.map((a) => a.userId));
     if (!plan) {
-      return new Response(
-        JSON.stringify({ error: "Only an item with two or more assignees can be split" }),
-        { status: 400, headers: { "Content-Type": "application/json" } },
-      );
+      return problem(400, "invalid_request", "Only an item with two or more assignees can be split", { request });
     }
 
     const copies = await prisma.$transaction(async (tx) => {
@@ -155,7 +153,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       /* never let a broker error break the response */
     }
 
-    return created({
+    return respond(splitWorkItemAssignees, 201, {
       keptAssigneeId: plan.keep,
       copies: copies.map((c) => ({
         id: c.id,
@@ -165,6 +163,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       })),
     });
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

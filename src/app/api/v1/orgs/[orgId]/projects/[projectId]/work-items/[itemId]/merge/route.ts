@@ -1,18 +1,19 @@
-import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
+import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { problem } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { mergeWorkItem } from "./route.contract";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { MergeError, mergeWorkItems } from "@/lib/work-items/merge.server";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; itemId: string }>;
 };
-
-const bodySchema = z.object({ intoId: z.string().uuid() });
 
 /**
  * Merge this item (a duplicate) into `intoId`, which survives (COSMOS-207).
@@ -22,21 +23,17 @@ const bodySchema = z.object({ intoId: z.string().uuid() });
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, itemId } = await params;
-    const org = await prisma.organization.findUnique({ where: { id: orgId } });
-    if (!org) return new Response("Not found", { status: 404 });
+    const { ctx } = await orgContext((await params).orgId, mergeWorkItem);
+    const { params: { orgId, projectId, itemId }, body: { intoId } } = await parseRequest(mergeWorkItem, request, params);
+    await requireProjectVisible(ctx, projectId);
 
-    const ctx = await getAuthContext(org.slug);
-    if (!ctx) return new Response("Unauthorized", { status: 401 });
-
-    const { intoId } = bodySchema.parse(await request.json());
     const items = await prisma.workItem.findMany({
       where: { id: { in: [itemId, intoId] }, orgId, projectId },
       select: { id: true, createdById: true, assigneeId: true, ticketNumber: true },
     });
     const dup = items.find((i) => i.id === itemId);
     const survivor = items.find((i) => i.id === intoId);
-    if (!dup || !survivor) return new Response("Not found", { status: 404 });
+    if (!dup || !survivor) return problem(404, "not_found", undefined, { request });
     for (const it of [dup, survivor]) {
       await requireAccess(ctx, "ITEM_UPDATE", { createdById: it.createdById, assigneeId: it.assigneeId, projectId });
     }
@@ -47,7 +44,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         mergeWorkItems(tx, { orgId, projectId, duplicateId: itemId, survivorId: intoId, userId: ctx.userId }),
       );
     } catch (e) {
-      if (e instanceof MergeError) return NextResponse.json({ error: e.message }, { status: 400 });
+      if (e instanceof MergeError) return problem(400, "invalid_request", e.message, { request });
       throw e;
     }
 
@@ -75,6 +72,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       [itemId, intoId].map((id) =>
         prisma.workItem.findUniqueOrThrow({
           where: { id },
+          // An internal search index, not part of the item.
+          omit: { searchVector: true },
           include: {
             children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true, completedAt: true }, orderBy: { sortOrder: "asc" } },
             workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
@@ -86,8 +85,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         }),
       ),
     );
-    return success({ merged, into, moved: result.moved });
+    return respond(mergeWorkItem, 200, { merged, into, moved: result.moved });
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }

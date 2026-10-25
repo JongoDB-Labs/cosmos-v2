@@ -17,6 +17,7 @@
 // Coverage here: the `requireAccess` ABAC gate on the wired work-item route.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
+import { workItemRow } from "@/lib/openapi/testing/rows";
 import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import type { AbacRule } from "@/lib/abac/engine";
@@ -133,7 +134,22 @@ beforeEach(() => {
   // service reads the row, writes it and the route reads the echo back.
   prisma.workItem.findMany.mockResolvedValue([row]);
   prisma.workItem.updateMany.mockResolvedValue({ count: 1 });
-  prisma.workItem.findUniqueOrThrow.mockResolvedValue({ ...row, title: "Updated" });
+  // The echo, as Prisma would answer the route's query: a whole row with its
+  // relations, and `searchVector` only when the route didn't omit it.
+  prisma.workItem.findUniqueOrThrow.mockImplementation(async (args: { omit?: { searchVector?: boolean } }) => {
+    const { searchVector, ...rest } = workItemRow({
+      id: ITEM_ID, orgId: ORG_ID, projectId: PROJECT_ID, title: "Updated", ticketNumber: 7,
+      createdById: row.createdById,
+    });
+    return {
+      ...rest,
+      ...(!args?.omit?.searchVector && { searchVector }),
+      children: [],
+      workItemType: { id: rest.workItemTypeId, key: "task", name: "Task", icon: null, color: null, celebrateOnComplete: false },
+      assignees: [],
+      _count: { comments: 0, activities: 0 },
+    };
+  });
   prisma.activity.createMany.mockResolvedValue({ count: 1 });
   prisma.$transaction.mockImplementation(async (cb: (tx: typeof prisma) => unknown) => cb(prisma));
   prisma.workItem.delete.mockResolvedValue({ id: ITEM_ID });

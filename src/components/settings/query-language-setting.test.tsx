@@ -40,4 +40,22 @@ describe("QueryLanguageOrgSwitch", () => {
       expect(jsonFetch).toHaveBeenCalledWith("/api/v1/orgs/o1/query-language", { method: "PUT", body: JSON.stringify({ enabled: true }) }),
     );
   });
+
+  it("titles in filter emails: shown only with the beta on, and PUTs just that setting", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue({ enabled: true, emailTitles: false, canManage: true } as never);
+    wrap(<QueryLanguageOrgSwitch orgId="o1" />);
+    const sw = await screen.findByRole("switch", { name: "Include titles in filter emails" });
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(sw);
+    await waitFor(() =>
+      expect(jsonFetch).toHaveBeenCalledWith("/api/v1/orgs/o1/query-language", { method: "PUT", body: JSON.stringify({ emailTitles: true }) }),
+    );
+  });
+
+  it("no titles toggle while the beta is off", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue({ enabled: false, emailTitles: true, canManage: true } as never);
+    wrap(<QueryLanguageOrgSwitch orgId="o1" />);
+    await screen.findByRole("switch", { name: "Query language (beta)" });
+    expect(screen.queryByRole("switch", { name: "Include titles in filter emails" })).toBeNull();
+  });
 });

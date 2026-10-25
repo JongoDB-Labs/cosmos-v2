@@ -11,6 +11,7 @@ import { SYNCED_MEETING_FIELDS, syncMeetingSoon } from "@/lib/integrations/micro
 import { z } from "zod";
 import { MeetingStatus } from "@prisma/client";
 import { detectVideoProvider } from "@/lib/meetings/video";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 const updateMeetingSchema = z.object({
   title: z.string().min(1).optional(),
@@ -66,7 +67,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.syncMeeting.findFirst({
       where: { id: meetingId, orgId },
     });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
 
     // Resource-aware authz: MEETING_UPDATE bitfield check + any narrowing deny
     // policy. SyncMeeting ownership is createdById; projectId may be null.
@@ -130,7 +131,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.syncMeeting.findFirst({
       where: { id: meetingId, orgId },
     });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
 
     // Resource-aware authz: MEETING_DELETE bitfield check + any narrowing deny
     // policy. SyncMeeting ownership is createdById; projectId may be null.

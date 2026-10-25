@@ -7,6 +7,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 
 const updateContractSchema = z.object({
   title: z.string().min(1).max(500).optional(),
@@ -70,7 +71,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.contract.findFirst({
       where: { id: contractId, orgId },
     });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
 
     const body = await request.json();
     const data = updateContractSchema.parse(body);
@@ -128,7 +129,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.contract.findFirst({
       where: { id: contractId, orgId },
     });
-    if (!existing) return new Response("Not found", { status: 404 });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
 
     await prisma.contract.delete({ where: { id: contractId } });
 

@@ -278,6 +278,7 @@ model Organization {
   emailSettings          OrgEmailSettings?
   meetingTypeOptions     MeetingTypeOption[]
   savedViews             SavedView[]
+  filterSubscriptions    FilterSubscription[]
   labels                 Label[]
 
   // ── Cascade back-relations (added so deleting an org actually deletes its rows) ──
@@ -420,34 +421,36 @@ model User {
   // rather than being deleted or dangling. Null for every live account.
   deactivatedAt      DateTime? @map("deactivated_at")
 
-  memberships             OrgMember[]
-  preferences             UserPreferences?
-  sessions                Session[]
-  intervalCapacities      IntervalCapacity[]
-  pushSubscriptions       PushSubscription[]
-  homeWidgets             HomeWidget[]
-  federatedIdentities     FederatedIdentity[]
-  aiSettings              UserAiSettings?
+  memberships                 OrgMember[]
+  preferences                 UserPreferences?
+  sessions                    Session[]
+  intervalCapacities          IntervalCapacity[]
+  pushSubscriptions           PushSubscription[]
+  homeWidgets                 HomeWidget[]
+  federatedIdentities         FederatedIdentity[]
+  aiSettings                  UserAiSettings?
   // Prod-parity back-relations (chat bots + chat follows/alerts).
-  chatBot                 ChatBot?
-  chatBotRuns             ChatBotRun[]
-  chatThreadFollows       ChatThreadFollower[]
-  chatAlertKeywords       ChatAlertKeyword[]
-  apiKeys                 ApiKey[]             @relation("ApiKeyCreatedBy")
-  ownedDeliverables       Deliverable[]        @relation("DeliverableOwner")
-  workItemAssignments     WorkItemAssignee[]
-  workItemWatches         WorkItemWatcher[]
-  savedViews              SavedView[]
-  savedViewFavorites      SavedViewFavorite[]
-  savedViewEdits          SavedViewEditor[]
-  retroNotes              RetroNote[]
-  retroActionItems        RetroActionItem[]
-  timeEntryPhasesSet      TimeEntryPhase[]
-  calendarFeeds           CalendarFeed[]
-  externalEventLinks      ExternalEventLink[]
-  meetingInvitesOrganized SyncMeeting[]        @relation("MeetingInviteOrganizer")
-  ownedAutomationRules    AutomationRule[]     @relation("AutomationRuleOwner")
-  teamsConversations      TeamsConversation[]
+  chatBot                     ChatBot?
+  chatBotRuns                 ChatBotRun[]
+  chatThreadFollows           ChatThreadFollower[]
+  chatAlertKeywords           ChatAlertKeyword[]
+  apiKeys                     ApiKey[]             @relation("ApiKeyCreatedBy")
+  ownedDeliverables           Deliverable[]        @relation("DeliverableOwner")
+  workItemAssignments         WorkItemAssignee[]
+  workItemWatches             WorkItemWatcher[]
+  savedViews                  SavedView[]
+  savedViewFavorites          SavedViewFavorite[]
+  savedViewEdits              SavedViewEditor[]
+  filterSubscriptionsCreated  FilterSubscription[] @relation("FilterSubscriptionCreator")
+  filterSubscriptionsReceived FilterSubscription[] @relation("FilterSubscriptionRecipient")
+  retroNotes                  RetroNote[]
+  retroActionItems            RetroActionItem[]
+  timeEntryPhasesSet          TimeEntryPhase[]
+  calendarFeeds               CalendarFeed[]
+  externalEventLinks          ExternalEventLink[]
+  meetingInvitesOrganized     SyncMeeting[]        @relation("MeetingInviteOrganizer")
+  ownedAutomationRules        AutomationRule[]     @relation("AutomationRuleOwner")
+  teamsConversations          TeamsConversation[]
 
   @@map("users")
 }
@@ -896,12 +899,13 @@ model Team {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project    Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  members    TeamMember[]
-  boards     Board[]
-  workItems  WorkItem[]
-  savedViews SavedView[]
+  org                 Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project             Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  members             TeamMember[]
+  boards              Board[]
+  workItems           WorkItem[]
+  savedViews          SavedView[]
+  filterSubscriptions FilterSubscription[]
   // @plugin-backrel:Team
 
   @@unique([projectId, name])
@@ -1519,17 +1523,78 @@ model SavedView {
   createdAt   DateTime         @default(now()) @map("created_at")
   updatedAt   DateTime         @updatedAt @map("updated_at")
 
-  org       Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  owner     User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  project   Project?            @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  team      Team?               @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  favorites SavedViewFavorite[]
-  editors   SavedViewEditor[]
+  org           Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner         User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  project       Project?             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  team          Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  favorites     SavedViewFavorite[]
+  editors       SavedViewEditor[]
+  subscriptions FilterSubscription[]
 
   @@unique([ownerId, name])
   @@index([orgId, visibility])
   @@index([projectId])
   @@map("saved_views")
+}
+
+enum FilterSubscriptionFormat {
+  /// Up to 50 rows and a "View all" link.
+  LIST
+  /// The count and the link only.
+  COUNT
+}
+
+/// An emailed saved filter (query design §12.4). Runs on its cron in its time
+/// zone, once per recipient AS that recipient: their scope, `me` = them. A
+/// recipient is one person or one team (each member). Disabled, never deleted,
+/// when it can no longer run, with the reason.
+model FilterSubscription {
+  id              String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId           String                   @map("org_id") @db.Uuid
+  savedViewId     String                   @map("saved_view_id") @db.Uuid
+  createdById     String                   @map("created_by_id") @db.Uuid
+  /// Exactly one of user | team (checked in the API; a removed one disables it).
+  recipientUserId String?                  @map("recipient_user_id") @db.Uuid
+  recipientTeamId String?                  @map("recipient_team_id") @db.Uuid
+  /// Five-field cron, minute fixed (lib/query/schedule.ts).
+  cron            String                   @default("0 8 * * 1-5")
+  timezone        String                   @default("UTC")
+  format          FilterSubscriptionFormat @default(LIST)
+  sendWhenEmpty   Boolean                  @default(false) @map("send_when_empty")
+  /// Send only rows that are new since the last send.
+  onlyChanges     Boolean                  @default(false) @map("only_changes")
+  lastRunAt       DateTime?                @map("last_run_at")
+  lastResultHash  String?                  @map("last_result_hash")
+  /// Per recipient, the ids last sent (capped), for onlyChanges: { userId: ids[] }.
+  lastResultIds   Json                     @default("{}") @map("last_result_ids")
+  nextRunAt       DateTime                 @map("next_run_at")
+  disabledAt      DateTime?                @map("disabled_at")
+  /// e.g. "unsubscribed", "recipient removed", "filter no longer visible".
+  disabledReason  String?                  @map("disabled_reason")
+  /// Team members who unsubscribed themselves from a team subscription.
+  mutedUserIds    String[]                 @default([]) @map("muted_user_ids") @db.Uuid
+  /// Random per subscription; signs its unsubscribe links (HMAC), so a link
+  /// works without a session and no app-wide secret is involved.
+  unsubscribeKey  String                   @map("unsubscribe_key")
+  /// The public origin it was created or last edited from (getPublicOrigin),
+  /// for the absolute links in its emails: a job has no request to ask.
+  appOrigin       String                   @map("app_origin")
+  /// Why the last run sent nothing to someone (email not configured, a query
+  /// error); cleared by a clean run. Never a reason to disable.
+  lastError       String?                  @map("last_error")
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  savedView     SavedView    @relation(fields: [savedViewId], references: [id], onDelete: Cascade)
+  createdBy     User         @relation("FilterSubscriptionCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  recipientUser User?        @relation("FilterSubscriptionRecipient", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  recipientTeam Team?        @relation(fields: [recipientTeamId], references: [id], onDelete: SetNull)
+
+  @@index([nextRunAt])
+  @@index([orgId])
+  @@index([savedViewId])
+  @@map("filter_subscriptions")
 }
 
 /// Who can see a saved filter besides its owner (and its editors).
