@@ -1,4 +1,5 @@
-import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { tokenDigest } from "./token-digest";
 import { prisma } from "@/lib/db/client";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { Permission } from "@/lib/rbac/permissions";
@@ -77,7 +78,7 @@ export function scopeMask(scopes: string[]): bigint {
   return scopes.reduce((m, s) => m | (SCOPE_MASK[s as ApiKeyScope] ?? 0n), 0n);
 }
 
-const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
+const sha256 = tokenDigest;
 
 /**
  * Mint a new org-scoped API key. The plaintext `token` is returned ONCE (only its

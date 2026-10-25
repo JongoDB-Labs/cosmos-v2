@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { tokenDigest } from "@/lib/auth/token-digest";
 import { rateLimit } from "./bucket";
 
 /**
@@ -30,7 +30,7 @@ export function budgetClass(method: string): BudgetClass {
 }
 
 export function tokenFingerprint(authorization: string): string {
-  return createHash("sha256").update(authorization.trim()).digest("hex").slice(0, 32);
+  return tokenDigest(authorization.trim()).slice(0, 32);
 }
 
 export type BudgetResult =
