@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.483.0",
+    date: "2026-10-25",
+    title: "Gantt: overlapping phases ask first",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Gantt: overlapping phases ask first, and changes are read out. Dropping an item onto a sibling's dates now asks whether to run them in parallel or push the other one later or earlier, and one undo takes the whole change back. Screen readers announce each move, undo and redo, with the new dates and how many other items moved.",
+      },
+    ],
+  },
+  {
     version: "2.482.7",
     date: "2026-10-25",
     title: "Integration code cleanup",
