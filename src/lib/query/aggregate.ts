@@ -23,13 +23,14 @@ export const MEASURE_FIELDS = ["points", "originalEstimate", "remainingEstimate"
 /** Custom field types a dimension can group by (DATE buckets like a time field). */
 export const GROUPABLE_CF = new Set<CustomFieldType>(["SELECT", "MULTI_SELECT", "CHECKBOX", "USER", "DATE"]);
 
-const fieldRef = z.union([
+/** A field to group or measure by, as the aggregate endpoint and dashboard panels take it. */
+export const aggFieldSchema = z.union([
   z.strictObject({ kind: z.literal("sys"), id: z.string().max(40) }),
   z.strictObject({ kind: z.literal("cf"), key: z.string().regex(/^[A-Za-z0-9_]{1,100}$/) }),
 ]);
 
 export const aggDimSchema = z.strictObject({
-  field: fieldRef,
+  field: aggFieldSchema,
   /** Time fields only: the bucket, in the request's time zone. */
   bucket: z.enum(["day", "week", "month"]).optional(),
   /** Groups to keep before the rest fold into "Other" (time series keep every bucket). */
@@ -39,7 +40,7 @@ export type AggDim = { field: FieldRef; bucket?: "day" | "week" | "month"; limit
 
 export const aggMeasureSchema = z.union([
   z.strictObject({ fn: z.literal("count") }),
-  z.strictObject({ fn: z.enum(["sum", "avg", "min", "max"]), field: fieldRef }),
+  z.strictObject({ fn: z.enum(["sum", "avg", "min", "max"]), field: aggFieldSchema }),
 ]);
 export type AggMeasure = { fn: "count" } | { fn: "sum" | "avg" | "min" | "max"; field: FieldRef };
 
@@ -218,4 +219,9 @@ export function fold(
     return y.value - x.value || JSON.stringify(x.keys).localeCompare(JSON.stringify(y.keys));
   });
   return { rows, folded };
+}
+
+/** The end (exclusive) of the bucket starting at `start`: the next bucket's start. */
+export function bucketEnd(start: string, bucket: "day" | "week" | "month", tz: string): string {
+  return startOf(bucket, new Date(start), tz, 1).toISOString();
 }
