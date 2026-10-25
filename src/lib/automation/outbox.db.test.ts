@@ -112,6 +112,16 @@ describe("the outbox worker", () => {
     expect(await prisma.domainEvent.count({ where: { orgId, processedAt: null } })).toBe(0);
   });
 
+  it("processes an event older than an hour (the worker was down) but queues no delivery for it, and counts it", async () => {
+    const h = await hook(["work_item.created"]);
+    const [old, fresh] = [await createItem(), await createItem()];
+    await prisma.domainEvent.updateMany({ where: { subjectId: old }, data: { createdAt: new Date(Date.now() - 2 * 3_600_000) } });
+    const r = await run();
+    expect(r).toMatchObject({ queued: 1, late: 1 });
+    expect((await deliveriesOf(h.id)).map((d) => (d.payload as { workItem: { id: string } }).workItem.id)).toEqual([fresh]);
+    expect(await prisma.domainEvent.count({ where: { orgId, processedAt: null } })).toBe(0);
+  });
+
   it("never queues an event twice, even when it is processed again", async () => {
     const h = await hook(["work_item.created"]);
     const id = await createItem();
@@ -134,7 +144,7 @@ describe("the outbox worker", () => {
       await held;
     }, { timeout: 15_000 });
     await ready;
-    expect(await run()).toEqual({ events: 0, queued: 0, ruleRuns: 0 });
+    expect(await run()).toEqual({ events: 0, queued: 0, late: 0, ruleRuns: 0 });
     release();
     await holder;
     expect(await run()).toMatchObject({ queued: 1 });

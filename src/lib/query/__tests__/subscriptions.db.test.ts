@@ -127,6 +127,24 @@ describe("the run", () => {
     await prisma.filterSubscription.deleteMany({ where: { savedViewId: v.id } });
   });
 
+  it("moves a slot missed by more than an hour (the jobs were down) on to the next one, and sends nothing for it", async () => {
+    outbox.length = 0;
+    const v = await filter("priority = CRITICAL");
+    await createSubscription(actorScope, v, { recipient: { kind: "me" }, cron: "0 8 * * *", timezone: "UTC" }, ORIGIN);
+    const now = new Date();
+    await prisma.filterSubscription.updateMany({ where: { savedViewId: v.id }, data: { nextRunAt: new Date(now.getTime() - 2 * 3_600_000) } });
+    const r = await runDueSubscriptions({ now, send });
+    expect(r).toMatchObject({ missed: 1, sent: 0 });
+    expect(mailTo(actorEmail).filter((m) => m.subject.startsWith(v.name))).toHaveLength(0);
+    const after = await prisma.filterSubscription.findFirstOrThrow({ where: { savedViewId: v.id } });
+    expect(after.nextRunAt.getTime()).toBeGreaterThan(now.getTime());
+    // Late by less than the window still goes out.
+    await prisma.filterSubscription.updateMany({ where: { savedViewId: v.id }, data: { nextRunAt: new Date(now.getTime() - 30 * 60_000) } });
+    expect(await runDueSubscriptions({ now, send })).toMatchObject({ missed: 0 });
+    expect(mailTo(actorEmail).filter((m) => m.subject.startsWith(v.name))).toHaveLength(1);
+    await prisma.filterSubscription.deleteMany({ where: { savedViewId: v.id } });
+  });
+
   it("titles when the org allows them; a marked title or filter name is never sent", async () => {
     outbox.length = 0;
     await prisma.organization.update({ where: { id: w.orgA }, data: { settings: withCqlEmailTitles(withCqlEnabled({}, true), true) as object } });

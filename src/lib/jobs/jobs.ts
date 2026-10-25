@@ -131,8 +131,8 @@ registerJob({
   jitterMs: 5_000,
   timeoutMs: 50_000,
   run: async () => {
-    const queued = await queueChannelDigests();
-    return queued ? { queued } : undefined;
+    const r = await queueChannelDigests();
+    return r.queued || r.skipped ? { ...r } : undefined;
   },
 });
 
