@@ -565,6 +565,21 @@ export function ProjectSettingsClient({
         </div>
       </div>
 
+      {/* Automations */}
+      <div className="rounded-lg border">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+          <div>
+            <h3 className="text-sm font-semibold">Automations</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Rules that move, assign, label, comment or notify when something happens to an item, or on a schedule.
+            </p>
+          </div>
+          <Link href={`/${orgSlug}/projects/${projectKey}/settings/automations`} className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+            Edit automations
+          </Link>
+        </div>
+      </div>
+
       {/* Board Types */}
       <div className="rounded-lg border">
         <div className="flex items-start justify-between border-b px-4 py-3">
