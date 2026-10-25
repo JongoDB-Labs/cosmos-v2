@@ -1,9 +1,12 @@
-import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { tokenDigest } from "./token-digest";
 import { prisma } from "@/lib/db/client";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { API_KEY_SCOPES, type ApiKeyScope } from "./api-key-scopes";
+import type { ApiKeyKind } from "@prisma/client";
+import { API_VERSION } from "@/lib/openapi/version";
 import { classifyBearer, parseKeyToken } from "./bearer";
 
 // Re-exported so existing server importers of `@/lib/auth/api-key` keep working.
@@ -75,7 +78,7 @@ export function scopeMask(scopes: string[]): bigint {
   return scopes.reduce((m, s) => m | (SCOPE_MASK[s as ApiKeyScope] ?? 0n), 0n);
 }
 
-const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
+const sha256 = tokenDigest;
 
 /**
  * Mint a new org-scoped API key. The plaintext `token` is returned ONCE (only its
@@ -88,6 +91,8 @@ export async function mintApiKey(input: {
   expiresAt?: Date | null;
   /** Projects the key may touch. Omit or pass [] for org-wide. */
   projectIds?: string[];
+  /** ORG (an admin's integration key, the default) or PERSONAL (/me/tokens). */
+  kind?: ApiKeyKind;
 }) {
   // Prefix is HEX (no `_`/`-`) so the token splits unambiguously at the prefix's
   // `_` delimiter — the secret (base64url) may contain `_`/`-`, and as the final
@@ -101,10 +106,13 @@ export async function mintApiKey(input: {
       orgId: input.orgId, name: input.name, prefix, keyHash: sha256(secret),
       scopes: input.scopes, createdById: input.createdById, expiresAt: input.expiresAt ?? null,
       projectIds: input.projectIds ?? [],
+      kind: input.kind ?? "ORG",
+      // Pinned to the version current at mint time (design §3.3).
+      apiVersion: API_VERSION,
     },
     select: {
       id: true, name: true, prefix: true, scopes: true, projectIds: true,
-      expiresAt: true, createdAt: true,
+      expiresAt: true, createdAt: true, kind: true,
     },
   });
   return { token, record };
@@ -116,6 +124,26 @@ export async function mintApiKey(input: {
  *  quietly retried as the cookie riding on the same request. */
 export function hasBearer(req: Request): boolean {
   return classifyBearer(req.headers.get("authorization")) !== null;
+}
+
+/**
+ * The project ceiling a key may carry: the named projects that exist in THIS
+ * org. Without the check a caller could store another org's project id on a
+ * key — harmless today, because the ceiling is intersected with projects
+ * already scoped to the org, but a confusing thing to have written down and a
+ * sharp edge for whoever reads the ceiling next.
+ *
+ * Naming only unknown projects would mean an empty ceiling, and an empty
+ * ceiling reads as "org-wide" — the exact opposite of what was asked for — so
+ * that is refused (null).
+ */
+export async function projectCeiling(orgId: string, projectIds: string[] | undefined): Promise<string[] | null> {
+  if (!projectIds?.length) return [];
+  const found = await prisma.project.findMany({
+    where: { orgId, id: { in: projectIds } },
+    select: { id: true },
+  });
+  return found.length ? found.map((p) => p.id) : null;
 }
 
 /**
@@ -142,7 +170,7 @@ async function matchedKey(authorization: string | null, orgId: string) {
     where: { orgId_prefix: { orgId, prefix: parsed.prefix } },
     select: {
       id: true, keyHash: true, scopes: true, projectIds: true,
-      expiresAt: true, createdById: true,
+      expiresAt: true, createdById: true, kind: true,
     },
   });
   if (!key) return null;
@@ -174,7 +202,7 @@ export async function verifyApiKeyHeader(
   const key = await matchedKey(authorization, orgId);
   if (!key || !key.createdById) return null;
   const ctx = await apiKeyAuthContext(orgId, {
-    createdById: key.createdById, scopes: key.scopes, projectIds: key.projectIds,
+    id: key.id, kind: key.kind, createdById: key.createdById, scopes: key.scopes, projectIds: key.projectIds,
   });
   if (!ctx) return null;
   void prisma.apiKey.update({ where: { id: key.id }, data: { lastUsed: new Date() } }).catch(() => {});
@@ -193,7 +221,7 @@ export async function verifyApiKeyHeader(
  */
 export async function apiKeyAuthContext(
   orgId: string,
-  key: { createdById: string; scopes: string[]; projectIds: string[] | null },
+  key: { id: string; kind: ApiKeyKind; createdById: string; scopes: string[]; projectIds: string[] | null },
 ): Promise<AuthContext | null> {
   const eff = await loadEffectivePermissions(orgId, key.createdById);
   if (!eff) return null;
@@ -206,12 +234,46 @@ export async function apiKeyAuthContext(
     // ignored for any key an owner minted.
     isApiKey: true,
     scopes: key.scopes,
+    credential: { kind: "api_key", keyId: key.id, personal: key.kind === "PERSONAL" },
     abacRules: eff.abacRules,
     // Empty means org-wide, so it must stay UNDEFINED rather than become an
     // empty allowlist — `[]` as a ceiling would deny everything, turning every
     // pre-existing key into a key that can reach nothing.
     projectScope: key.projectIds?.length ? key.projectIds : undefined,
   };
+}
+
+/**
+ * A key token's holder, for the routes with no org in the path (`/me`,
+ * `/orgs`). The prefix is not unique across orgs, so every key carrying it is
+ * tried; the hash decides. Null for anything verifyApiKeyHeader would refuse.
+ * The org's IP allowlist is the caller's to apply (bearerIpAllowed).
+ */
+export async function verifyKeyTokenHolder(authorization: string | null) {
+  const parsed = parseKeyToken(authorization);
+  if (!parsed) return null;
+  const candidates = await prisma.apiKey.findMany({
+    where: { prefix: parsed.prefix },
+    select: {
+      id: true, orgId: true, keyHash: true, scopes: true, expiresAt: true,
+      createdById: true, kind: true,
+    },
+    take: 5,
+  });
+  const presented = Buffer.from(sha256(parsed.secret));
+  for (const key of candidates) {
+    const stored = Buffer.from(key.keyHash);
+    if (stored.length !== presented.length || !timingSafeEqual(stored, presented)) continue;
+    if (!key.createdById || (key.expiresAt && key.expiresAt.getTime() < Date.now())) return null;
+    // Still a member of the org the key belongs to, or the key is dead.
+    if (!(await loadEffectivePermissions(key.orgId, key.createdById))) return null;
+    void prisma.apiKey.update({ where: { id: key.id }, data: { lastUsed: new Date() } }).catch(() => {});
+    return {
+      userId: key.createdById, orgId: key.orgId, scopes: key.scopes, keyId: key.id,
+      kind: key.kind, expiresAt: key.expiresAt,
+    };
+  }
+  return null;
 }
 
 /**

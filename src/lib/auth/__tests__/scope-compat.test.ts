@@ -70,6 +70,12 @@ const SAVED_VIEW_WRITES = new Set([
 /** Authenticated by a token in the URL: no key reaches them, before or now. */
 const TOKEN_AUTHENTICATED = new Set(["confirmFilterUnsubscribe", "filterUnsubscribe"]);
 /**
+ * Not org routes: no key reached them before (they read the session cookie),
+ * so none can lose them. Who-am-I now lets any token ask who holds it
+ * (userContext); personal tokens refuse every bearer (sessionUser).
+ */
+const USER_LEVEL = new Set(["getMe", "listMyOrgs", "listMyTokens", "createMyToken", "revokeMyToken"]);
+/**
  * Not an exception, a gap in what this test reads: these handlers gate a key
  * on COMMENT_CREATE (`ctx.isApiKey ? "COMMENT_CREATE" : "COMMENT_READ"`) since
  * read-key-writes.test.ts closed read keys editing and erasing comments, before
@@ -117,6 +123,7 @@ describe("no pre-existing scope loses an operation its mask reached", () => {
   const all = contracts();
   const cases = all.flatMap(({ contract, src, file }) => {
     if (TOKEN_AUTHENTICATED.has(contract.operationId)) return [];
+    if (USER_LEVEL.has(contract.operationId)) return [];
     const need = bitsChecked(src, contract.method, file);
     return Object.keys(BEFORE)
       .filter((s) => (BEFORE[s] & need) === need) // the old mask reached it
@@ -140,6 +147,13 @@ describe("the named exceptions are exactly what they say", () => {
   const ctx = (scopes: string[]) =>
     ({ userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes, isApiKey: true }) as never;
   const byId = new Map(contracts().map(({ contract }) => [contract.operationId, contract]));
+
+  it("the user-level operations are exact: each is gated by userContext or sessionUser, never orgContext", () => {
+    const userLevel = contracts()
+      .filter(({ contract, src }) => /\b(?:userContext|sessionUser)\(/.test(handlerCode(src, contract.method, "")!))
+      .map(({ contract }) => contract.operationId);
+    expect(new Set(userLevel)).toEqual(USER_LEVEL);
+  });
 
   it.each([...SAVED_VIEW_WRITES])("%s needs items:write; a read key is refused", (op) => {
     const c = byId.get(op)!;

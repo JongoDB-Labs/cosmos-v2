@@ -8,6 +8,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createKpiDataPoint, listKpiDataPoints } from "./route.contract";
+import { idempotent } from "@/lib/openapi/idempotency";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; kpiId: string }>;
@@ -44,35 +45,37 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { ctx } = await orgContext((await params).orgId, createKpiDataPoint);
     const { params: { orgId, projectId, kpiId }, body: data } = await parseRequest(createKpiDataPoint, request, params);
     await requireProjectVisible(ctx, projectId);
-    await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
+    return await idempotent({ request, ctx, orgId, body: data }, async () => {
+      await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
-    const kpi = await loadKpi(orgId, projectId, kpiId);
-    if (!kpi) return problem(404, "not_found", undefined, { request });
+      const kpi = await loadKpi(orgId, projectId, kpiId);
+      if (!kpi) return problem(404, "not_found", undefined, { request });
 
-    const recordedAt = data.recordedAt ? new Date(data.recordedAt) : new Date();
+      const recordedAt = data.recordedAt ? new Date(data.recordedAt) : new Date();
 
-    const dataPoint = await prisma.kpiDataPoint.create({
-      data: {
-        kpiId,
-        value: data.value,
-        recordedAt,
-        note: data.note ?? null,
-      },
-    });
-
-    // Reflect the latest reading on the parent KPI so cards/deltas stay current.
-    const latest = await prisma.kpiDataPoint.findFirst({
-      where: { kpiId },
-      orderBy: { recordedAt: "desc" },
-    });
-    if (latest) {
-      await prisma.kpi.update({
-        where: { id: kpiId },
-        data: { currentValue: latest.value },
+      const dataPoint = await prisma.kpiDataPoint.create({
+        data: {
+          kpiId,
+          value: data.value,
+          recordedAt,
+          note: data.note ?? null,
+        },
       });
-    }
 
-    return respond(createKpiDataPoint, 200, dataPoint);
+      // Reflect the latest reading on the parent KPI so cards/deltas stay current.
+      const latest = await prisma.kpiDataPoint.findFirst({
+        where: { kpiId },
+        orderBy: { recordedAt: "desc" },
+      });
+      if (latest) {
+        await prisma.kpi.update({
+          where: { id: kpiId },
+          data: { currentValue: latest.value },
+        });
+      }
+
+      return respond(createKpiDataPoint, 200, dataPoint);
+    });
   } catch (e) {
     return handleApiError(e, request);
   }

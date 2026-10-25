@@ -10,6 +10,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createGoal, listGoals } from "./route.contract";
+import { idempotent } from "@/lib/openapi/idempotency";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -91,36 +92,38 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { ctx } = await orgContext((await params).orgId, createGoal);
     const { params: { orgId, projectId }, body: data } = await parseRequest(createGoal, request, params);
     await requireProjectVisible(ctx, projectId);
-    await requireProjectManage(ctx, projectId, Permission.OKR_CREATE);
+    return await idempotent({ request, ctx, orgId, body: data }, async () => {
+      await requireProjectManage(ctx, projectId, Permission.OKR_CREATE);
 
-    const project = await prisma.project.findFirst({
-      where: { id: projectId, orgId },
+      const project = await prisma.project.findFirst({
+        where: { id: projectId, orgId },
+      });
+      if (!project) return problem(404, "not_found", undefined, { request });
+
+      const maxSort = await prisma.goal.aggregate({
+        where: { orgId, projectId },
+        _max: { sortOrder: true },
+      });
+      const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
+
+      const created = await prisma.goal.create({
+        data: {
+          orgId,
+          projectId,
+          title: data.title,
+          description: data.description ?? null,
+          status: data.status,
+          progressMode: data.progressMode,
+          targetDate: data.targetDate ? new Date(data.targetDate) : null,
+          ownerId: data.ownerId ?? null,
+          progress: 0,
+          sortOrder,
+        },
+        include: { links: { orderBy: { createdAt: "asc" } } },
+      });
+
+      return respond(createGoal, 200, created);
     });
-    if (!project) return problem(404, "not_found", undefined, { request });
-
-    const maxSort = await prisma.goal.aggregate({
-      where: { orgId, projectId },
-      _max: { sortOrder: true },
-    });
-    const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
-
-    const created = await prisma.goal.create({
-      data: {
-        orgId,
-        projectId,
-        title: data.title,
-        description: data.description ?? null,
-        status: data.status,
-        progressMode: data.progressMode,
-        targetDate: data.targetDate ? new Date(data.targetDate) : null,
-        ownerId: data.ownerId ?? null,
-        progress: 0,
-        sortOrder,
-      },
-      include: { links: { orderBy: { createdAt: "asc" } } },
-    });
-
-    return respond(createGoal, 200, created);
   } catch (e) {
     return handleApiError(e, request);
   }

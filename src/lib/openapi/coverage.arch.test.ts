@@ -74,15 +74,48 @@ describe("contracts", () => {
       const src = readFileSync(file, "utf8");
       if (!new RegExp(`parseRequest\\(\\s*${c.operationId}\\b`).test(src)) missing.push(`${key}: parseRequest(${c.operationId}, …)`);
       if (!new RegExp(`respond\\(\\s*${c.operationId}\\b`).test(src)) missing.push(`${key}: respond(${c.operationId}, …)`);
-      // The scope gate lives in orgContext, so the handler must hand it the contract.
-      if (!new RegExp(`orgContext\\((?:[^()]|\\([^()]*\\))*\\b${c.operationId}\\b`).test(src)) missing.push(`${key}: orgContext(…, ${c.operationId})`);
+      // The scope gate lives in orgContext / userContext, so the handler must
+      // hand it the contract. The one other way in is sessionUser(), for
+      // operations a browser session manages (personal tokens): it refuses
+      // every bearer outright, so there are no scopes to check.
+      const gated = new RegExp(`(?:orgContext|userContext)\\((?:[^()]|\\([^()]*\\))*\\b${c.operationId}\\b`).test(src);
+      if (!gated && !/\bsessionUser\(\)/.test(src)) {
+        missing.push(`${key}: orgContext(…, ${c.operationId}), userContext(${c.operationId}) or sessionUser()`);
+      }
+      // A contract that documents Idempotency-Key must honour it.
+      if (c.idempotency && !src.includes("idempotent(")) missing.push(`${key}: idempotent(…)`);
+      // `return idempotent(…)` inside try hands back the promise un-awaited, so
+      // its 409/422 rejections skip the route's catch and surface as bare 500s.
+      if (/return idempotent\(/.test(src)) missing.push(`${key}: return await idempotent(…)`);
     }
     expect(missing).toEqual([]);
   });
 
+  /**
+   * Who-am-I operations name no scope on purpose: `userContext` lets any valid
+   * token ask who holds it and which orgs it can see (user-context.ts).
+   */
+  const WHO_AM_I = new Set(["getMe", "listMyOrgs"]);
+  /** The handler's file, for an operation. */
+  const fileOf = (c: (typeof contracts)[number]) =>
+    readFileSync(operations.find((o) => o.key === operationKey(c.method, c.path))!.file, "utf8");
+
   it("a stable or beta operation names at least one scope (empty refuses every key)", () => {
-    const empty = contracts.filter((c) => c.stability !== "internal" && c.scopes.length === 0).map((c) => c.operationId);
+    // Session-only operations (`sessionUser()`, personal tokens) refuse every
+    // bearer, so they're internal: no API client can call them.
+    const empty = contracts
+      .filter((c) => c.stability !== "internal" && c.scopes.length === 0 && !WHO_AM_I.has(c.operationId))
+      .map((c) => c.operationId);
     expect(empty).toEqual([]);
+  });
+
+  it("the who-am-I exception is exact, and userContext only skips the check for an empty contract", () => {
+    for (const op of WHO_AM_I) {
+      const c = contracts.find((x) => x.operationId === op)!;
+      expect(c.scopes, op).toEqual([]);
+      expect(fileOf(c), op).toMatch(new RegExp(`userContext\\(\\s*${op}\\b`));
+    }
+    expect(readFileSync("src/lib/openapi/user-context.ts", "utf8")).toMatch(/if \(contract\.scopes\.length\) assertScopes\(/);
   });
 });
 

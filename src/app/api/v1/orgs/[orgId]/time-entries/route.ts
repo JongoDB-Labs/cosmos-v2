@@ -11,6 +11,7 @@ import { logAudit } from "@/lib/audit";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createTimeEntry, listTimeEntries } from "./route.contract";
+import { idempotent } from "@/lib/openapi/idempotency";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -83,42 +84,44 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { params: { orgId }, body: data } = await parseRequest(createTimeEntry, request, params);
     // Logging time against a project is writing to that project.
     await requireProjectVisibleIf(ctx, data.projectId);
-    requirePermission(ctx, Permission.TIME_CREATE);
+    return await idempotent({ request, ctx, orgId, body: data }, async () => {
+      requirePermission(ctx, Permission.TIME_CREATE);
 
-    // Resolve the pay period BEFORE the insert so an entry is never briefly
-    // unattached — a row with no timesheet is invisible to every period-level
-    // read, and "briefly" is long enough for a concurrent report to miss it.
-    const timesheetId = await timesheetIdForEntry(orgId, ctx.userId, data.date);
+      // Resolve the pay period BEFORE the insert so an entry is never briefly
+      // unattached — a row with no timesheet is invisible to every period-level
+      // read, and "briefly" is long enough for a concurrent report to miss it.
+      const timesheetId = await timesheetIdForEntry(orgId, ctx.userId, data.date);
 
-    const entry = await prisma.timeEntry.create({
-      data: {
+      const entry = await prisma.timeEntry.create({
+        data: {
+          orgId,
+          userId: ctx.userId,
+          timesheetId,
+          date: new Date(data.date),
+          hours: data.hours,
+          rate: data.rate ?? null,
+          client: data.client ?? null,
+          projectId: data.projectId ?? null,
+          workItemId: data.workItemId ?? null,
+          clinId: data.clinId ?? null,
+          description: data.description ?? "",
+          billableType: data.billableType ?? "BILLABLE",
+          tags: data.tags ?? [],
+        },
+      });
+
+      await logAudit({
         orgId,
         userId: ctx.userId,
-        timesheetId,
-        date: new Date(data.date),
-        hours: data.hours,
-        rate: data.rate ?? null,
-        client: data.client ?? null,
-        projectId: data.projectId ?? null,
-        workItemId: data.workItemId ?? null,
-        clinId: data.clinId ?? null,
-        description: data.description ?? "",
-        billableType: data.billableType ?? "BILLABLE",
-        tags: data.tags ?? [],
-      },
-    });
+        action: "time_entry.created",
+        entity: "time_entry",
+        entityId: entry.id,
+        metadata: { hours: String(data.hours), date: data.date } as Record<string, string>,
+        ipAddress: getIpAddress(request),
+      });
 
-    await logAudit({
-      orgId,
-      userId: ctx.userId,
-      action: "time_entry.created",
-      entity: "time_entry",
-      entityId: entry.id,
-      metadata: { hours: String(data.hours), date: data.date } as Record<string, string>,
-      ipAddress: getIpAddress(request),
+      return respond(createTimeEntry, 201, entry);
     });
-
-    return respond(createTimeEntry, 201, entry);
   } catch (error) {
     return handleApiError(error, request);
   }

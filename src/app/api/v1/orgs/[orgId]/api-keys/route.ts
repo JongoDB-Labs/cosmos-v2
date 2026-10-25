@@ -5,7 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError } from "@/lib/api-helpers";
-import { API_KEY_SCOPES, mintApiKey } from "@/lib/auth/api-key";
+import { API_KEY_SCOPES, mintApiKey, projectCeiling } from "@/lib/auth/api-key";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -42,6 +42,10 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
           expiresAt: true,
           lastUsed: true,
           createdAt: true,
+          // ORG keys are this screen's to mint; PERSONAL ones are members' own
+          // (/me/tokens), listed so an admin can see and revoke them.
+          kind: true,
+          createdBy: { select: { id: true, displayName: true } },
         },
         orderBy: { createdAt: "desc" },
       }),
@@ -66,22 +70,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       await request.json(),
     );
 
-    // Every named project must exist in THIS org. Without this a caller could
-    // store another org's project id on a key — harmless today, because the
-    // ceiling is intersected with projects already scoped to `ctx.orgId`, but
-    // it would be a confusing thing to have written down and a sharp edge for
-    // whoever reads the ceiling next.
-    const scopedProjectIds = projectIds?.length
-      ? (
-          await prisma.project.findMany({
-            where: { orgId, id: { in: projectIds } },
-            select: { id: true },
-          })
-        ).map((p) => p.id)
-      : [];
-    if ((projectIds?.length ?? 0) > 0 && scopedProjectIds.length === 0) {
-      // Naming only unknown projects means an empty ceiling, and an empty
-      // ceiling reads as "org-wide" — the exact opposite of what was asked for.
+    const scopedProjectIds = await projectCeiling(orgId, projectIds);
+    if (scopedProjectIds === null) {
       return new Response("None of those projects exist in this org", { status: 400 });
     }
 

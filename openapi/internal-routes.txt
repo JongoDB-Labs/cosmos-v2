@@ -90,7 +90,6 @@ GET /admin/updates/deploy
 GET /admin/updates/plugins
 GET /admin/updates/settings
 GET /calendar/feeds/{token}
-GET /me
 GET /me/ai/claude-subscription/status
 GET /me/google/calendar
 GET /me/google/drive
@@ -100,7 +99,6 @@ GET /me/push/subscribe
 GET /me/security
 GET /me/sessions
 GET /microsoft/calendar/callback
-GET /orgs
 GET /orgs/{orgId}
 GET /orgs/{orgId}/accounting/accounts
 GET /orgs/{orgId}/accounting/journal-entries

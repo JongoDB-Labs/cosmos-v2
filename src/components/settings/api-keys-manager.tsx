@@ -26,14 +26,13 @@ import {
   Loader2,
   Plus,
   Trash2,
-  Copy,
-  Check,
   AlertTriangle,
   KeyRound,
 } from "lucide-react";
-import { API_KEY_SCOPES, type ApiKeyScope } from "@/lib/auth/api-key-scopes";
+import { API_KEY_SCOPES, API_KEY_SCOPE_LABELS, type ApiKeyScope } from "@/lib/auth/api-key-scopes";
 import { formatDateStable } from "@/lib/format/stable-date";
 import { LocalTimestamp } from "@/components/ui/local-timestamp";
+import { TokenRevealDialog } from "./token-reveal-dialog";
 
 interface ApiKeyRow {
   id: string;
@@ -45,23 +44,13 @@ interface ApiKeyRow {
   expiresAt: string | null;
   lastUsed: string | null;
   createdAt: string;
+  /** ORG keys are minted here; PERSONAL ones are members' own tokens. */
+  kind?: "ORG" | "PERSONAL";
+  createdBy?: { id: string; displayName: string } | null;
 }
 
 type MintedKey = ApiKeyRow & { token: string };
 
-const SCOPE_LABELS: Record<ApiKeyScope, string> = {
-  read: "Read",
-  "members:read": "Read members' email addresses",
-  "items:write": "Write items",
-  "items:delete": "Delete items",
-  "planning:write": "Write plans (milestones, goals, KPIs, intervals)",
-  "documents:write": "Write documents",
-  "time:read": "Read time",
-  "time:write": "Log time",
-  "webhooks:manage": "Manage webhooks",
-  "audit:read": "Read the audit log",
-  "rules:run": "Run checks",
-};
 
 interface ApiKeysManagerProps {
   orgId: string;
@@ -76,11 +65,9 @@ interface PickerProject {
 
 export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [tokenDialogOpen, setTokenDialogOpen] = useState(false);
   const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
   const [revokingKey, setRevokingKey] = useState<ApiKeyRow | null>(null);
   const [mintedToken, setMintedToken] = useState("");
-  const [copied, setCopied] = useState(false);
 
   const [formName, setFormName] = useState("");
   const [formScopes, setFormScopes] = useState<ApiKeyScope[]>([]);
@@ -172,7 +159,6 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
     onSuccess: (data) => {
       setMintedToken(data?.token ?? "");
       setCreateDialogOpen(false);
-      if (data?.token) setTokenDialogOpen(true);
     },
     onError: (err) => notifyError(err, "Couldn't create the API key."),
   });
@@ -217,11 +203,6 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
     revokeMutation.mutate(revokingKey.id);
   }
 
-  function copyToken() {
-    navigator.clipboard.writeText(mintedToken);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
 
   if (loading) {
     return (
@@ -283,11 +264,16 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
                   <code className="rounded bg-[var(--bg-muted,var(--surface))] px-1.5 py-0.5 font-mono text-[11px] text-[var(--text-muted)]">
                     cosmos_{key.prefix}_…
                   </code>
+                  {key.kind === "PERSONAL" && (
+                    <Badge variant="neutral" className="text-[10px]">
+                      Personal · {key.createdBy?.displayName ?? "former member"}
+                    </Badge>
+                  )}
                 </div>
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {key.scopes.map((scope) => (
                     <Badge key={scope} variant="neutral" className="text-[10px]">
-                      {SCOPE_LABELS[scope as ApiKeyScope] ?? scope}
+                      {API_KEY_SCOPE_LABELS[scope as ApiKeyScope] ?? scope}
                     </Badge>
                   ))}
                 </div>
@@ -374,7 +360,7 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
                       onChange={() => toggleScope(scope)}
                       className="rounded border-[var(--border)]"
                     />
-                    <span className="font-medium">{SCOPE_LABELS[scope]}</span>
+                    <span className="font-medium">{API_KEY_SCOPE_LABELS[scope]}</span>
                     <code className="ml-auto font-mono text-[10px] text-[var(--text-muted)]">
                       {scope}
                     </code>
@@ -501,44 +487,7 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
       </Dialog>
 
       {/* One-time token dialog */}
-      <Dialog
-        open={tokenDialogOpen}
-        onOpenChange={(open) => {
-          setTokenDialogOpen(open);
-          // Don't let the plaintext token linger in React state after the
-          // one-time dialog closes.
-          if (!open) setMintedToken("");
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>API key created</DialogTitle>
-            <DialogDescription>
-              Copy this now — it will not be shown again.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center gap-2 py-2">
-            <code className="flex-1 break-all rounded-md border border-[var(--border)] bg-[var(--bg-muted,var(--surface))] px-3 py-2 font-mono text-xs">
-              {mintedToken}
-            </code>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={copyToken}
-              aria-label={copied ? "Copied" : "Copy API token"}
-            >
-              {copied ? (
-                <Check className="h-4 w-4 text-emerald-500" />
-              ) : (
-                <Copy className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
-          <DialogFooter>
-            <Button onClick={() => setTokenDialogOpen(false)}>Done</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <TokenRevealDialog token={mintedToken} title="API key created" onClose={() => setMintedToken("")} />
 
       {/* Revoke confirm dialog */}
       <Dialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen}>

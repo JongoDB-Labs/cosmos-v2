@@ -35,7 +35,7 @@ export async function orgContext(orgId: string, contract: Pick<RouteContract, "s
  * Refused with the RFC 6750 step-up challenge, so a client can ask its user
  * for a token that covers what it was missing.
  */
-export function assertScopes(ctx: AuthContext, contract: Pick<RouteContract, "scopes">) {
+export function assertScopes(ctx: Pick<AuthContext, "isApiKey" | "scopes">, contract: Pick<RouteContract, "scopes">) {
   // A browser session holds its user's own permissions and has no scopes.
   if (!ctx.isApiKey) return;
   // A key context always carries its scopes (apiKeyAuthContext). One without

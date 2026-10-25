@@ -64,6 +64,12 @@ export interface RouteContract<
    * share the name is never touched. The schema marks each such field optional.
    */
   scopedFields?: { scope: ApiScope; paths: string[] }[];
+  /**
+   * Accepts `Idempotency-Key` (POSTs that create something): a retry with the
+   * same key and body replays the first success instead of doing it twice.
+   * The handler runs its work inside `idempotent()` (./idempotency.ts).
+   */
+  idempotency?: true;
 }
 
 /** Identity at runtime; exists for inference, so `parseRequest` and
