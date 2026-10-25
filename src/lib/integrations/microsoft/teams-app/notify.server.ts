@@ -111,15 +111,29 @@ async function stopChannel(conv: { id: string; orgId: string; projectId: string 
 }
 
 /**
- * Every minute: for each linked channel, the project's new items and status
- * changes since its cursor, as one queued card (ids only).
+ * How old a channel's oldest unsent change may be before the backlog is
+ * skipped rather than posted. After an outage (or with jobs not running) the
+ * digest would otherwise post a card a minute about changes nobody is waiting
+ * to hear about any more. The event's own time decides it, because the job
+ * runner keeps no reliable "last ran": it isn't persisted, and a restart
+ * resets it.
  */
-export async function queueChannelDigests(): Promise<number> {
+export const CHANNEL_STALE_MS = 2 * 60 * 60_000;
+
+/**
+ * Every minute: for each linked channel, the project's new items and status
+ * changes since its cursor, as one queued card (ids only). Changes older than
+ * CHANNEL_STALE_MS are skipped: the cursor moves past the newest of them and
+ * nothing is posted for them; newer ones go out on the next pass.
+ */
+export async function queueChannelDigests(opts: { now?: () => number } = {}): Promise<{ queued: number; skipped: number }> {
+  const now = opts.now ?? Date.now;
   const convs = await prisma.teamsConversation.findMany({
     where: { projectId: { not: null } },
     select: { id: true, orgId: true, projectId: true, lastEventId: true },
   });
   let queued = 0;
+  let skipped = 0;
   for (const c of convs) {
     if (!(await channelProjectOk(c.projectId!))) {
       await stopChannel(c, "project_restricted");
@@ -129,9 +143,30 @@ export async function queueChannelDigests(): Promise<number> {
       where: { orgId: c.orgId, projectId: c.projectId, id: { gt: c.lastEventId ?? 0n }, type: { in: [...CHANNEL_EVENTS] } },
       orderBy: { id: "asc" },
       take: CHANNEL_LINES * 3,
-      select: { id: true, type: true, subjectId: true },
+      select: { id: true, type: true, subjectId: true, createdAt: true },
     });
     if (!events.length) continue;
+    if (events[0].createdAt.getTime() < now() - CHANNEL_STALE_MS) {
+      // Past the newest STALE change only: anything recent still gets posted
+      // on the next pass, as usual.
+      const lastStale = await prisma.domainEvent.findFirst({
+        where: {
+          orgId: c.orgId,
+          projectId: c.projectId,
+          id: { gt: c.lastEventId ?? 0n },
+          type: { in: [...CHANNEL_EVENTS] },
+          createdAt: { lt: new Date(now() - CHANNEL_STALE_MS) },
+        },
+        orderBy: { id: "desc" },
+        select: { id: true },
+      });
+      const moved = await prisma.teamsConversation.updateMany({
+        where: { id: c.id, lastEventId: c.lastEventId },
+        data: { lastEventId: lastStale?.id ?? events[0].id },
+      });
+      if (moved.count) skipped++;
+      continue;
+    }
     // One line per item: its latest event wins ("New" if it was created in this window).
     const lines = new Map<string, "created" | "transitioned">();
     let cursor = c.lastEventId ?? 0n;
@@ -149,7 +184,7 @@ export async function queueChannelDigests(): Promise<number> {
     });
     queued++;
   }
-  return queued;
+  return { queued, skipped };
 }
 
 // ── Sending ──────────────────────────────────────────────────────────────────

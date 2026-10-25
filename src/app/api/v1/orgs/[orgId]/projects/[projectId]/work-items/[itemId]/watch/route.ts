@@ -1,8 +1,12 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
+import type { AuthContext } from "@/lib/rbac/check";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { handleApiError } from "@/lib/api-helpers";
+import { parseRequest, respond } from "@/lib/openapi/respond";
+import { ProblemError } from "@/lib/openapi/problem";
+import { orgContext } from "@/lib/openapi/org-context";
+import { getWorkItemWatch, unwatchWorkItem, watchWorkItem } from "./route.contract";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; itemId: string }>;
@@ -14,67 +18,62 @@ type RouteParams = {
  * ITEM_READ (you can watch anything you can see). Idempotent: POST is a no-op if
  * already watching, DELETE a no-op if not.
  */
-async function resolve(orgId: string, projectId: string, itemId: string) {
-  const org = await prisma.organization.findUnique({ where: { id: orgId } });
-  if (!org) return { error: new Response("Not found", { status: 404 }) };
-  const ctx = await getAuthContext(org.slug);
-  if (!ctx) return { error: new Response("Unauthorized", { status: 401 }) };
-  await requireProjectRead(ctx, projectId, "ITEM_READ");
+async function requireItem(ctx: AuthContext, ids: { orgId: string; projectId: string; itemId: string }) {
+  await requireProjectRead(ctx, ids.projectId, "ITEM_READ");
   const item = await prisma.workItem.findFirst({
-    where: { id: itemId, orgId, projectId },
+    where: { id: ids.itemId, orgId: ids.orgId, projectId: ids.projectId },
     select: { id: true },
   });
-  if (!item) return { error: new Response("Not found", { status: 404 }) };
-  return { ctx };
+  if (!item) throw new ProblemError(404, "not_found");
 }
 
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, itemId } = await params;
-    const r = await resolve(orgId, projectId, itemId);
-    if (r.error) return r.error;
+    const { ctx } = await orgContext((await params).orgId, getWorkItemWatch);
+    const { params: ids } = await parseRequest(getWorkItemWatch, request, params);
+    await requireItem(ctx, ids);
 
     const [mine, count] = await Promise.all([
       prisma.workItemWatcher.findUnique({
-        where: { workItemId_userId: { workItemId: itemId, userId: r.ctx.userId } },
+        where: { workItemId_userId: { workItemId: ids.itemId, userId: ctx.userId } },
         select: { id: true },
       }),
-      prisma.workItemWatcher.count({ where: { workItemId: itemId } }),
+      prisma.workItemWatcher.count({ where: { workItemId: ids.itemId } }),
     ]);
-    return success({ watching: !!mine, watcherCount: count });
+    return respond(getWorkItemWatch, 200, { watching: !!mine, watcherCount: count });
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
-export async function POST(_request: NextRequest, { params }: RouteParams) {
+export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, itemId } = await params;
-    const r = await resolve(orgId, projectId, itemId);
-    if (r.error) return r.error;
+    const { ctx } = await orgContext((await params).orgId, watchWorkItem);
+    const { params: ids } = await parseRequest(watchWorkItem, request, params);
+    await requireItem(ctx, ids);
 
     await prisma.workItemWatcher.upsert({
-      where: { workItemId_userId: { workItemId: itemId, userId: r.ctx.userId } },
-      create: { orgId, workItemId: itemId, userId: r.ctx.userId },
+      where: { workItemId_userId: { workItemId: ids.itemId, userId: ctx.userId } },
+      create: { orgId: ids.orgId, workItemId: ids.itemId, userId: ctx.userId },
       update: {},
     });
-    return success({ watching: true });
+    return respond(watchWorkItem, 200, { watching: true });
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, itemId } = await params;
-    const r = await resolve(orgId, projectId, itemId);
-    if (r.error) return r.error;
+    const { ctx } = await orgContext((await params).orgId, unwatchWorkItem);
+    const { params: ids } = await parseRequest(unwatchWorkItem, request, params);
+    await requireItem(ctx, ids);
 
     await prisma.workItemWatcher.deleteMany({
-      where: { workItemId: itemId, userId: r.ctx.userId },
+      where: { workItemId: ids.itemId, userId: ctx.userId },
     });
-    return success({ watching: false });
+    return respond(unwatchWorkItem, 200, { watching: false });
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
