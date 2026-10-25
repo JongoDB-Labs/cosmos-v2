@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.482.0",
+    date: "2026-10-25",
+    title: "Work-item actions in the API reference",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The API reference now documents commenting on work items (and editing and deleting comments), watching them, and duplicating, merging and splitting them per assignee. A comment posted with an API key now shows its author's name.",
+      },
+    ],
+  },
+  {
     version: "2.481.3",
     date: "2026-10-25",
     title: "Keyboard scrolling on long pages",
