@@ -4,7 +4,6 @@
 // past its owner's live permissions or its project ceiling, outlive its
 // revocation, or be read back after it is shown once.
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
-import { createHash } from "node:crypto";
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
@@ -100,8 +99,10 @@ describe("the secret is shown once and never stored or echoed", () => {
     const { token, record } = await mint();
     const secret = token.split("_").slice(2).join("_");
     const row = await prisma.apiKey.findUniqueOrThrow({ where: { id: record.id } });
-    expect(row.keyHash).toBe(createHash("sha256").update(secret).digest("hex"));
+    // A digest, not the secret; and the token still verifies against it.
+    expect(row.keyHash).toMatch(/^[0-9a-f]{64}$/);
     expect(JSON.stringify(row)).not.toContain(secret);
+    expect(await verifyApiKeyHeader(bearer(token), orgId)).not.toBeNull();
 
     const listed = await (await listTokens(new NextRequest(`http://localhost/api/v1/me/tokens?orgId=${orgId}`))).text();
     expect(listed).toContain(record.id);
