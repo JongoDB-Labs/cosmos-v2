@@ -70,8 +70,4 @@ export const IntegrationRegistry = {
   getAll(): IntegrationProvider[] {
     return Array.from(registry.values());
   },
-
-  getByCategory(category: IntegrationProvider["category"]): IntegrationProvider[] {
-    return Array.from(registry.values()).filter((p) => p.category === category);
-  },
 };
