@@ -84,17 +84,19 @@ export interface BulkDenial {
   fields?: TransitionInputField[];
 }
 
-export type WorkflowEditErrorCode = "workflow_invalid" | "migration_map_required" | "workflow_in_use";
+export type WorkflowEditErrorCode = "workflow_invalid" | "migration_map_required" | "workflow_in_use" | "automation_invalid";
 
 const EDIT_STATUS: Record<WorkflowEditErrorCode, number> = {
   workflow_invalid: 422,
   migration_map_required: 409,
   workflow_in_use: 409,
+  automation_invalid: 422,
 };
 
 /**
  * A workflow edit refused: a draft with errors, statuses that still hold items
- * and need a new one, or a workflow something still uses. `extensions` go
+ * and need a new one, a workflow something still uses, or an automation rule
+ * that names things its project or org doesn't have. `extensions` go
  * beside the problem's fields (the issues, the statuses to map).
  */
 export class WorkflowEditError extends Error {

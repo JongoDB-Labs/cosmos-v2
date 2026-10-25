@@ -20,6 +20,13 @@ const { prisma, getAuthContext, requireAccess } = vi.hoisted(() => ({
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/abac/require-access", () => ({ requireAccess }));
+// Team-scope narrowing is covered against a real DB in
+// lib/rbac/team-scope-feedback-expenses.db.test.ts; here nothing is hidden.
+vi.mock("@/lib/rbac/project-access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rbac/project-access")>()),
+  hiddenProjectIds: async () => [],
+  visibleProjectRecordsWhere: async () => ({}),
+}));
 
 import { GET } from "./route";
 import { PUT, GET as GET_ONE } from "./[feedbackId]/route";

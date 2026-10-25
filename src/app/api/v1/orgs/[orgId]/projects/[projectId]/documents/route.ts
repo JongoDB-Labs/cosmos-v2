@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { resolveAuth } from "@/lib/auth/api-key";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { ingestDocument } from "@/lib/files/ingest";
@@ -65,6 +65,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await resolveAuth(req, org);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });

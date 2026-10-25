@@ -5,6 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 const schema = z.object({
   notes: z.array(z.record(z.string(), z.unknown())).optional(),
@@ -60,6 +61,9 @@ export async function POST(
       try {
         const { id: _id, orgId: _o, createdAt: _c, updatedAt: _u, ...rest } = e as Record<string, unknown>;
         void _id; void _o; void _c; void _u;
+        // A row filed under a project must name one of this org's that the
+        // importer can see; otherwise it is skipped like any other bad row.
+        if (rest.projectId != null) await requireProjectVisible(ctx, String(rest.projectId));
         await prisma.expense.create({ data: { ...rest, orgId: ctx.orgId } as never });
         counts.expenses++;
       } catch { /* skip */ }

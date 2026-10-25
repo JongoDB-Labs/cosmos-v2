@@ -12,6 +12,7 @@ import { updateWorkItems } from "@/lib/work-items/write.server";
 import { buildIntervalReport } from "@/lib/intervals/interval-report";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 const completeSchema = z.object({
   moveIncompleteToIntervalId: z.string().uuid().nullable().optional(),
@@ -27,6 +28,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.SPRINT_COMPLETE);
 
     const interval = await prisma.interval.findFirst({

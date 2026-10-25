@@ -159,7 +159,12 @@ export function DashboardShell({ user, orgs, isSystemAdmin = false, children }: 
           // makes it grow to content height, so the overflow-hidden column clips
           // tall pages instead of letting main scroll. min-h-0 lets it shrink to
           // the flex-allocated height so overflow-y-auto actually scrolls.
-          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0"
+          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-[calc(4rem+env(safe-area-inset-bottom))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--primary)] md:pb-0"
+          // Focusable because it is the page's scroll container: a long page
+          // with nothing focusable in view could not be scrolled from the
+          // keyboard at all (axe scrollable-region-focusable). One tab stop,
+          // never focused automatically, and where "Skip to content" lands.
+          tabIndex={0}
         >
           {children}
         </main>

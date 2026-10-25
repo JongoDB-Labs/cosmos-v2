@@ -19,6 +19,13 @@
 //   2. Saved-view writes (star, unstar, update) check no bit either, so a `read`
 //      key could edit its owner's own views. They now need `items:write`: a
 //      read scope that writes is the wrong precedent for the scope model.
+//      A filter's email subscriptions (create, update, delete) are the same
+//      shape and the same rule; they are new, so no key loses them.
+//
+// And one class that no key reaches at all: the filter-email unsubscribe link
+// is authenticated by the MAC'd token in its URL, not by a session or a key.
+// Its contracts name no scopes, so every key is refused, and its handler
+// authenticates no caller.
 //
 // The manager/admin role path is not "reach": #1130 closed it as a bug.
 import { describe, it, expect } from "vitest";
@@ -52,7 +59,24 @@ const LOST_WITHOUT_READ: Record<string, string[]> = {
   updateSavedView: ["rules:run", "members:read"],
 };
 /** Exception 2: writes with no bit check that now need a write scope. */
-const SAVED_VIEW_WRITES = new Set(["starSavedView", "unstarSavedView", "updateSavedView"]);
+const SAVED_VIEW_WRITES = new Set([
+  "starSavedView",
+  "unstarSavedView",
+  "updateSavedView",
+  "createFilterSubscription",
+  "updateFilterSubscription",
+  "deleteFilterSubscription",
+]);
+/** Authenticated by a token in the URL: no key reaches them, before or now. */
+const TOKEN_AUTHENTICATED = new Set(["confirmFilterUnsubscribe", "filterUnsubscribe"]);
+/**
+ * Not an exception, a gap in what this test reads: these handlers gate a key
+ * on COMMENT_CREATE (`ctx.isApiKey ? "COMMENT_CREATE" : "COMMENT_READ"`) since
+ * read-key-writes.test.ts closed read keys editing and erasing comments, before
+ * they had contracts. `bitsChecked` reads the session arm, so it credits `read`
+ * with them; no read key has reached them since that fix.
+ */
+const KEY_ARM_WRITES = new Set(["updateWorkItemComment", "deleteWorkItemComment"]);
 
 describe("pre-existing scopes keep their masks", () => {
   it.each(Object.keys(BEFORE))("%s", (scope) => {
@@ -92,11 +116,13 @@ describe("no pre-existing scope loses an operation its mask reached", () => {
     ({ userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes, isApiKey: true }) as never;
   const all = contracts();
   const cases = all.flatMap(({ contract, src, file }) => {
+    if (TOKEN_AUTHENTICATED.has(contract.operationId)) return [];
     const need = bitsChecked(src, contract.method, file);
     return Object.keys(BEFORE)
       .filter((s) => (BEFORE[s] & need) === need) // the old mask reached it
       .filter((s) => !LOST_WITHOUT_READ[contract.operationId]?.includes(s)) // exception 1
       .filter((s) => !(SAVED_VIEW_WRITES.has(contract.operationId) && s === "read")) // exception 2
+      .filter((s) => !(KEY_ARM_WRITES.has(contract.operationId) && s === "read")) // key arm already needs a write
       .map((s) => [contract.operationId, s, contract] as const);
   });
 
@@ -119,6 +145,24 @@ describe("the named exceptions are exactly what they say", () => {
     const c = byId.get(op)!;
     expect(() => assertScopes(ctx(["read"]), c)).toThrow();
     expect(() => assertScopes(ctx(["items:write"]), c)).not.toThrow();
+  });
+
+  it.each([...TOKEN_AUTHENTICATED])("%s: every key is refused, and the handler authenticates no caller", (op) => {
+    const found = contracts().find(({ contract }) => contract.operationId === op)!;
+    expect(found.contract.scopes).toEqual([]);
+    for (const s of Object.keys(BEFORE)) expect(() => assertScopes(ctx([s]), found.contract)).toThrow();
+    const code = handlerCode(found.src, found.contract.method, found.file)!;
+    expect(code).not.toMatch(/getAuthContext|orgContext|resolveAuth|cqlGate|getCurrentUser|verifyApiKey/);
+  });
+
+  it.each([...KEY_ARM_WRITES])("%s needs items:write at the gate, as its key arm already did", (op) => {
+    const c = byId.get(op)!;
+    expect(c.scopes).toEqual(["items:write"]);
+    expect(() => assertScopes(ctx(["read"]), c)).toThrow();
+    expect(() => assertScopes(ctx(["items:write"]), c)).not.toThrow();
+    // The handler still gates a key on COMMENT_CREATE, which only items:write carries.
+    const src = readFileSync(path.join(process.cwd(), "src/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]/route.ts"), "utf8");
+    expect(src).toMatch(/ctx\.isApiKey \? "COMMENT_CREATE" : "COMMENT_READ"/);
   });
 
   it.each(Object.entries(LOST_WITHOUT_READ))("%s: each listed scope is refused", (op, scopes) => {

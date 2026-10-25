@@ -9,6 +9,8 @@ import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { hasPermission } from "@/lib/rbac/permissions";
 import { FEEDBACK_ROW_SELECT, toFeedbackDto } from "@/lib/feedback/feedback-dto";
+import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -45,6 +47,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const items = await prisma.feedbackItem.findMany({
       where: {
         orgId,
+        // A team-scoped project's feedback is its team's (and admins').
+        AND: [await visibleProjectRecordsWhere(ctx)],
         ...(type ? { type } : {}),
         // Merged items are hidden, except from staff who ask for them and from
         // the item's own author, who should still see "duplicate of …".
@@ -151,6 +155,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         select: { id: true },
       });
       if (!project) return new Response("Invalid project", { status: 400 });
+      // Filing feedback under a team-scoped project is writing to that project.
+      await requireProjectVisible(ctx, data.projectId);
     }
 
     const created = await prisma.feedbackItem.create({

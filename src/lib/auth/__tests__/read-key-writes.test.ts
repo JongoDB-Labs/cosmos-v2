@@ -30,7 +30,8 @@ vi.mock("@/lib/rbac/require-project-read", () => ({
     if (!hasPermission(ctx.permissions, Permission[action])) throw new ForbiddenError("denied");
   },
 }));
-vi.mock("@/lib/db/client", () => {
+vi.mock("@/lib/db/client", async () => {
+  const { commentRow } = await import("@/lib/openapi/testing/rows");
   const w = (n: string) => async () => { h.writes.push(n); return { id: "x", authorId: ME, content: "c", createdAt: new Date(), updatedAt: new Date() }; };
   return {
     prisma: {
@@ -38,7 +39,8 @@ vi.mock("@/lib/db/client", () => {
       comment: {
         // The caller's own comment.
         findFirst: async () => ({ id: "c1", authorId: ME, orgId: ORG, workItemId: "w1", subjectType: "RISK" }),
-        update: w("comment.update"),
+        // A whole row: the work-item route answers it through its contract.
+        update: async () => { h.writes.push("comment.update"); return commentRow({ id: "44444444-4444-4444-8444-444444444444", orgId: ORG, authorId: ME }); },
         delete: w("comment.delete"),
       },
       // `h.view` is the caller's own view where a test needs one; none (so no
@@ -78,7 +80,8 @@ const as = (permissions: bigint, key?: string[]): AuthContext => ({
 });
 const req = (method: string, body?: unknown) =>
   new NextRequest("http://localhost/x", { method, ...(body ? { body: JSON.stringify(body), headers: { "Content-Type": "application/json" } } : {}) });
-const params = { params: Promise.resolve({ orgId: ORG, projectId: P, itemId: "w1", commentId: "c1" }) };
+// UUIDs: the work-item comment route's contract validates its path.
+const params = { params: Promise.resolve({ orgId: ORG, projectId: P, itemId: "33333333-3333-4333-8333-333333333333", commentId: "44444444-4444-4444-8444-444444444444" }) };
 
 beforeEach(() => { vi.clearAllMocks(); h.writes.length = 0; h.view = null; h.isAdmin = false; h.canSee = true; });
 

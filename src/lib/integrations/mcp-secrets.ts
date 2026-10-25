@@ -36,7 +36,11 @@ function openMcpJson(stored: string | null): Record<string, string> {
   return out;
 }
 
-/** Public unseal of a sealMcpJson string → the header/env map (or {} when null). */
+/**
+ * Public unseal of a sealMcpJson string → the header/env map (or {} when null).
+ * No importer in core, but a composed plugin (the Foreman daemon) uses it, and
+ * core's tsc can't see plugin code. Keep it exported.
+ */
 export function unsealMcpJson(stored: string | null): Record<string, string> {
   return openMcpJson(stored);
 }

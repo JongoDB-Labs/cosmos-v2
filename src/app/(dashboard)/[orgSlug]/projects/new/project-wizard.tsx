@@ -93,7 +93,9 @@ export function ProjectWizard({ orgId, orgSlug }: ProjectWizardProps) {
 
       {step === 1 && <SectorPicker onSelect={handleSectorSelect} />}
 
-      {step === 2 && (
+      {/* `sector !== null` is the type-level statement of what the flow already
+          guarantees: handleSectorSelect only reaches step 2 with a sector. */}
+      {step === 2 && sector !== null && (
         <TemplatePicker
           orgId={orgId}
           sector={sector}

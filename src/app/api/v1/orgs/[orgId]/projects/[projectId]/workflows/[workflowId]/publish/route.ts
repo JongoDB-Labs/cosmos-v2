@@ -5,7 +5,7 @@ import { logAudit } from "@/lib/audit";
 import { parseRequest } from "@/lib/openapi/respond";
 import { workflowProjectContext } from "@/lib/workflow/route-auth.server";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { previewPublish, publishDraft } from "@/lib/workflow/versions.server";
 import { startMigrations } from "@/lib/workflow/migrate.server";
@@ -31,6 +31,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { params: p, body } = await parseRequest(publishWorkflow, request, params);
     const ctx = await workflowProjectContext(p, publishWorkflow);
+    await requireProjectVisible(ctx, p.projectId);
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     const result = await prisma.$transaction((tx) =>
       publishDraft(tx, { orgId: p.orgId, projectId: p.projectId }, p.workflowId, {

@@ -27,7 +27,9 @@ interface ProjectTemplate {
 
 interface TemplatePickerProps {
   orgId: string;
-  sector: string | null;
+  /** Always set: step 2 of the wizard is only reachable once a sector is
+   *  chosen — "Start from scratch" skips straight to step 3. */
+  sector: string;
   onSelect: (templateId: string | null) => void;
   onBack: () => void;
 }
@@ -38,19 +40,14 @@ export function TemplatePicker({
   onSelect,
   onBack,
 }: TemplatePickerProps) {
-  const queryKey = useOrgQueryKey(
-    "project-templates",
-    sector ?? "all",
-  );
+  const queryKey = useOrgQueryKey("project-templates", sector);
 
   const { data: templates, isLoading, isError } = useQuery<ProjectTemplate[]>({
     queryKey,
-    queryFn: () => {
-      const url = sector
-        ? `/api/v1/orgs/${orgId}/project-templates?sector=${encodeURIComponent(sector)}`
-        : `/api/v1/orgs/${orgId}/project-templates`;
-      return jsonFetch<ProjectTemplate[]>(url);
-    },
+    queryFn: () =>
+      jsonFetch<ProjectTemplate[]>(
+        `/api/v1/orgs/${orgId}/project-templates?sector=${encodeURIComponent(sector)}`,
+      ),
   });
 
   return (
@@ -61,9 +58,7 @@ export function TemplatePicker({
           Back
         </Button>
         <p className="text-sm text-[var(--text-muted)]">
-          {sector
-            ? `Choose a template for your ${sector} project.`
-            : "Choose any template or start with an empty project."}
+          {`Choose a template for your ${sector} project.`}
         </p>
       </div>
 

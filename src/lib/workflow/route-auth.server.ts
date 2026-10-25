@@ -6,9 +6,9 @@
  * reading needs ITEM_READ on the project; changing needs WORKFLOW_MANAGE or
  * the project's manager (which a key's role never counts as: roleCountsFor).
  *
- * The org-wide WORKFLOW_MANAGE passes requireProjectManage without a visibility
- * check, as every org-wide bit there does: it is an admin's power over every
- * project, and no API key scope carries it.
+ * Every change also asks requireProjectVisible first: an org-wide
+ * WORKFLOW_MANAGE passes requireProjectManage, but on a team-scoped project
+ * only its team and the org's owners and admins may change anything.
  */
 import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
