@@ -9,6 +9,7 @@
  * never do what its owner couldn't, nor what the item's workflow forbids.
  */
 import { z } from "zod";
+import { CANCEL_NOTE_MAX, PICKABLE_CANCEL_REASONS } from "@/lib/work-items/cancel";
 
 export const AUTOMATION_LIMITS = {
   actions: 20,
@@ -26,7 +27,7 @@ export const AUTOMATION_LIMITS = {
 
 const statusKey = z.string().min(1).max(64);
 const uuid = z.string().uuid();
-const CATEGORIES = ["TODO", "IN_PROGRESS", "DONE", "CANCELLED"] as const;
+export const CATEGORIES = ["TODO", "IN_PROGRESS", "DONE", "CANCELLED"] as const;
 
 /** Fields an "item.updated" trigger can watch. Named as the outbox names them. */
 export const WATCHABLE_FIELDS = [
@@ -77,7 +78,14 @@ const setFieldAction = z.discriminatedUnion("field", [
 ]);
 
 export const actionSchema = z.union([
-  z.object({ kind: z.literal("transition"), to: statusKey }).strict(),
+  z
+    .object({
+      kind: z.literal("transition"),
+      to: statusKey,
+      /** Why, when `to` is a Cancelled status; ignored for any other. "Other" needs a note. */
+      cancel: z.object({ reason: z.enum(PICKABLE_CANCEL_REASONS), note: z.string().max(CANCEL_NOTE_MAX).optional() }).strict().optional(),
+    })
+    .strict(),
   setFieldAction,
   z
     .object({
@@ -107,8 +115,19 @@ export type AutomationAction = z.infer<typeof actionSchema>;
 export const automationSpecSchema = z
   .object({
     trigger: triggerSchema,
-    /** The item (or each scoped item) must match this CQL query. Absent: every item. */
-    condition: z.object({ cql: z.string().min(1).max(AUTOMATION_LIMITS.cqlLength) }).strict().optional(),
+    /**
+     * The item (or each scoped item) must match all that's given: a CQL query,
+     * and that every one of its children is in one of these categories (an
+     * item with no children doesn't match). Absent: every item.
+     */
+    condition: z
+      .object({
+        cql: z.string().min(1).max(AUTOMATION_LIMITS.cqlLength).optional(),
+        childrenAll: z.object({ categories: z.array(z.enum(CATEGORIES)).min(1).max(4) }).strict().optional(),
+      })
+      .strict()
+      .refine((c) => c.cql !== undefined || c.childrenAll !== undefined, { message: "A condition needs a query or a children check." })
+      .optional(),
     /** Run the actions on the trigger item, its parent, or its children. Not for schedules. */
     scope: z.enum(["trigger", "parent", "children"]).default("trigger"),
     actions: z.array(actionSchema).min(1).max(AUTOMATION_LIMITS.actions),

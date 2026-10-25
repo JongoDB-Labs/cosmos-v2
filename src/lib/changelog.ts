@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.486.0",
+    date: "2026-10-25",
+    title: "Automations in project settings",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Project settings \u2192 Automations: build rules that move, assign, label, comment on or notify about items when they change or on a schedule, or start from a template (a parent that follows its children, closing stale items, archiving closed ones, assigning on start, reminders). Each rule shows what it does, can be switched off, and keeps a log of its runs.",
+      },
+    ],
+  },
+  {
     version: "2.485.0",
     date: "2026-10-25",
     title: "See a schedule change's impact before saving",

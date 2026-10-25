@@ -20,6 +20,7 @@ import { CqlError } from "@/lib/query/errors";
 import { ProblemError } from "@/lib/openapi/problem";
 import { WorkflowEditError } from "@/lib/workflow/contract";
 import { assignableMembersWhere } from "@/lib/work-items/apply-change.server";
+import { cancelInputError } from "@/lib/work-items/cancel";
 import { AUTOMATION_LIMITS, automationSpecSchema, type AutomationSpec } from "./spec";
 import { unknownNames } from "./template";
 
@@ -34,7 +35,8 @@ export async function ruleIssues(ctx: AuthContext, projectId: string | null, spe
   const orgId = ctx.orgId;
 
   if (projectId) {
-    const keys = new Set((await prisma.workflowStatus.findMany({ where: { projectId }, select: { key: true } })).map((s) => s.key));
+    const statuses = await prisma.workflowStatus.findMany({ where: { projectId }, select: { key: true, category: true } });
+    const keys = new Set(statuses.map((s) => s.key));
     const named: [string, string][] = [];
     if (spec.trigger.on === "item.transitioned") {
       for (const k of spec.trigger.from ?? []) named.push(["trigger.from", k]);
@@ -42,6 +44,10 @@ export async function ruleIssues(ctx: AuthContext, projectId: string | null, spe
     }
     spec.actions.forEach((a, i) => a.kind === "transition" && named.push([`actions.${i}.to`, a.to]));
     for (const [path, key] of named) if (!keys.has(key)) issues.push({ path, message: `The project has no status "${key}".` });
+    spec.actions.forEach((a, i) => {
+      if (a.kind !== "transition" || !a.cancel || !keys.has(a.to)) return;
+      if (statuses.find((s) => s.key === a.to)?.category !== "CANCELLED") issues.push({ path: `actions.${i}.cancel`, message: "A reason is only for a move to a Cancelled status." });
+    });
   }
 
   for (const [i, a] of spec.actions.entries()) {
@@ -62,12 +68,14 @@ export async function ruleIssues(ctx: AuthContext, projectId: string | null, spe
     if (a.kind === "webhook" && !(await prisma.webhook.count({ where: { id: a.webhookId, orgId } }))) {
       issues.push({ path, message: "That webhook doesn't exist in this organization." });
     }
+    const cancelError = a.kind === "transition" && a.cancel ? cancelInputError(a.cancel.reason, a.cancel.note) : null;
+    if (cancelError) issues.push({ path: `${path}.cancel`, message: cancelError });
     const text = a.kind === "addComment" ? (["comment", a.body] as const) : a.kind === "notify" ? (["notification", a.message] as const) : null;
     if (text) for (const n of unknownNames(text[1], text[0])) issues.push({ path, message: `{{${n}}} isn't a name a rule can use.` });
   }
 
   const cqls: [string, string][] = [];
-  if (spec.condition) cqls.push(["condition.cql", spec.condition.cql]);
+  if (spec.condition?.cql) cqls.push(["condition.cql", spec.condition.cql]);
   if (spec.trigger.on === "schedule") cqls.push(["trigger.cql", spec.trigger.cql]);
   for (const [path, cql] of cqls) {
     try {
