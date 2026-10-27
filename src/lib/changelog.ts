@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.490.0",
+    date: "2026-10-27",
+    title: "Archive with Cosmo, and the query language for everyone",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Cosmo can archive work items now, and restore them. Archiving takes a ticket out of the active lists without destroying it, and it can be undone \u2014 which is what people usually mean by \"clear these out\". Until now Cosmo had no way to do it, so the only thing it could offer was deletion.",
+      },
+      {
+        kind: "fix",
+        text: "Cosmo will no longer delete a work item unless you are an org owner or admin, and says so, pointing at archiving instead. Deletion is permanent and takes the item's comments and history with it, so it is not something an assistant should do on a sentence from someone whose role doesn't carry it \u2014 including when a work role has granted the delete permission.",
+      },
+      {
+        kind: "feature",
+        text: "The query language is now on for every organization rather than switched on one at a time. Searching with `reporter = \"Ada Lovelace\"`, saved filters, filter subscriptions and the query bar on Issues are available without anyone having to enable them. An organization that wants it off can still turn it off.",
+      },
+    ],
+  },
+  {
     version: "2.489.0",
     date: "2026-10-27",
     title: "Ask Cosmo for the tickets someone raised",

@@ -183,7 +183,7 @@ describe("saved filters v2 (e2e DB)", () => {
 
   it("without CQL, a shared filter naming something you can't read isn't listed (#1093's rule)", async () => {
     await seed(ghost, "legacy secret", null, { filter: { projectIds: [w.P2.id] }, visibility: "ORG", shared: true });
-    await prisma.organization.update({ where: { id: w.orgA }, data: { settings: {} } });
+    await prisma.organization.update({ where: { id: w.orgA }, data: { settings: withCqlEnabled({}, false) as object } });
     try {
       as(() => actor());
       expect(await names()).not.toContain("legacy secret");

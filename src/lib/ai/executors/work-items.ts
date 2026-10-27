@@ -13,7 +13,7 @@ import {
 } from "@/lib/work-items/dependency-graph";
 import { Prisma, Priority, LinkType } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, loadActorPermissions, type ToolContext } from "./_ctx";
 import { teamFilter } from "./teams";
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 import { allocateTicketNumber, allocateSortOrder } from "@/lib/work-items/allocate";
@@ -543,12 +543,98 @@ export async function transitionItem(input: Record<string, unknown>, ctx: ToolCo
   };
 }
 
+const archiveWorkItemSchema = z.object({
+  itemId: z.string().uuid(),
+  /** Omitted means archive; `false` restores. */
+  archived: z.boolean().optional(),
+});
+
+/**
+ * Archive a work item, or restore it.
+ *
+ * The reversible counterpart to deleting: the row stays, its history stays,
+ * and it drops out of the active lists. It runs through `applyWorkItemChange`
+ * like every other edit, so the change is recorded, audited and published the
+ * same way — archiving is an UPDATE, which is why it needs only ITEM_UPDATE
+ * and is open to a member.
+ */
+export async function archiveWorkItem(
+  input: Record<string, unknown>,
+  ctx: ToolContext
+) {
+  const denied = await assertPermission(ctx, Permission.ITEM_UPDATE);
+  if (denied) return denied;
+
+  const parsed = archiveWorkItemSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
+  }
+  const { itemId, archived = true } = parsed.data;
+
+  const existing = await prisma.workItem.findFirst({
+    where: { id: itemId, orgId: ctx.orgId },
+    select: { id: true, title: true, ticketNumber: true, projectId: true },
+  });
+  if (!existing) return { error: "Work item not found" };
+
+  // Existence in the org is not access: the project may be team-scoped and
+  // closed to this actor. Same message either way, so a refusal never
+  // confirms the row is real.
+  const outOfScope = await assertProjectRead(ctx, existing.projectId, "ITEM_UPDATE");
+  if (outOfScope) return { error: "Work item not found" };
+
+  const change = await prisma.$transaction(async (tx) =>
+    applyWorkItemChange(tx, {
+      actorId: ctx.userId,
+      orgId: ctx.orgId,
+      projectId: existing.projectId,
+      itemIds: [existing.id],
+      patch: { archivedAt: archived ? new Date().toISOString() : null },
+      source: "AI",
+      actor: ctx.auth,
+    }),
+  );
+  await runAfterCommit(change.effects);
+
+  return {
+    id: existing.id,
+    ticketNumber: existing.ticketNumber,
+    title: existing.title,
+    archived,
+  };
+}
+
+/**
+ * Destroying a ticket takes an OWNER or an ADMIN — the permission bit alone is
+ * not enough.
+ *
+ * `ITEM_DELETE` is an ADMIN bit by default, but a WORK ROLE can widen it onto
+ * a MEMBER, and a member who may delete in the app should still not have the
+ * assistant do it on a sentence. Deletion is the one action here with no undo:
+ * `archive_work_item` is the reversible way to clear things away, and it is
+ * what the model is pointed at.
+ */
+async function assertOwnerOrAdmin(ctx: ToolContext): Promise<{ error: string } | null> {
+  const actor = await loadActorPermissions(ctx);
+  if (!actor) return { error: "Insufficient permissions" };
+  if (actor.orgRole !== "OWNER" && actor.orgRole !== "ADMIN") {
+    return {
+      error:
+        "Deleting a work item takes an owner or an admin. Archive it instead with " +
+        "archive_work_item, which hides it without destroying it and can be undone.",
+    };
+  }
+  return null;
+}
+
 export async function deleteWorkItem(
   input: Record<string, unknown>,
   ctx: ToolContext
 ) {
   const denied = await assertPermission(ctx, Permission.ITEM_DELETE);
   if (denied) return denied;
+  const notAdmin = await assertOwnerOrAdmin(ctx);
+  if (notAdmin) return notAdmin;
 
   const parsed = deleteWorkItemSchema.safeParse(input);
   if (!parsed.success) {

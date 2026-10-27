@@ -2,6 +2,8 @@ import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
 import { ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
 import {
+  archiveWorkItem,
+  deleteWorkItem,
   listItemLinks,
   linkItems,
   unlinkItems,
@@ -9,7 +11,8 @@ import {
   updateWorkItem,
   listWorkItems,
 } from "./work-items";
-import { memberToolCtx } from "@/lib/testing/tool-auth";
+import { memberToolCtx, stubToolCtx } from "@/lib/testing/tool-auth";
+import { Permission } from "@/lib/rbac/permissions";
 
 /** Covers the work-item DEPENDENCY LINK tools added to this executor. */
 const NON_MEMBER = "00000000-0000-0000-0000-000000000000";
@@ -445,4 +448,46 @@ describe("createWorkItem / updateWorkItem — assignee resolves to a person (e2e
     expect(ids).not.toContain(theirs.id);
   });
 
+
+  it("archives an item and restores it, through the normal write path", async () => {
+    // Archiving is how a ticket gets out of the way WITHOUT being destroyed.
+    // The assistant had no such tool, so asked to clear tickets away its only
+    // option was deletion — which is exactly what it offered to do.
+    const { project, type, ctx } = await makeOrg();
+    const item = await prisma.workItem.create({
+      data: {
+        orgId: ctx.orgId, projectId: project.id, ticketNumber: 8201, title: "to archive",
+        description: "", columnKey: "todo", workItemTypeId: type.id, createdById: ctx.userId,
+      },
+      select: { id: true },
+    });
+
+    await archiveWorkItem({ itemId: item.id }, ctx);
+    expect((await prisma.workItem.findUniqueOrThrow({ where: { id: item.id } })).archivedAt).not.toBeNull();
+
+    await archiveWorkItem({ itemId: item.id, archived: false }, ctx);
+    expect((await prisma.workItem.findUniqueOrThrow({ where: { id: item.id } })).archivedAt).toBeNull();
+  });
+
+});
+
+describe("deleting a work item takes an owner or an admin", () => {
+  const ORG = "11111111-1111-4111-8111-111111111111";
+  const USER = "22222222-2222-4222-8222-222222222222";
+  const ITEM = "33333333-3333-4333-8333-333333333333";
+
+  it("refuses a MEMBER, even one a work role granted ITEM_DELETE", async () => {
+    // The permission bit alone is not the test: a work role can widen
+    // ITEM_DELETE onto a MEMBER. These two cases differ ONLY in orgRole.
+    const member = stubToolCtx(ORG, USER, { permissions: Permission.ITEM_DELETE, orgRole: "MEMBER" });
+    const res = (await deleteWorkItem({ itemId: ITEM }, member)) as { error: string };
+    expect(res.error).toMatch(/owner or an admin/i);
+  });
+
+  it("lets an ADMIN past the role gate", async () => {
+    // The positive control: it clears the gate and fails on the LOOKUP, which
+    // is what proves the refusal above was about the role and not the input.
+    const admin = stubToolCtx(ORG, USER, { permissions: Permission.ITEM_DELETE, orgRole: "ADMIN" });
+    expect(await deleteWorkItem({ itemId: ITEM }, admin)).toEqual({ error: "Work item not found" });
+  });
 });

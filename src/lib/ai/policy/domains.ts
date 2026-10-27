@@ -60,6 +60,7 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   describe_cql: "work_items",
   create_work_item: "work_items",
   update_work_item: "work_items",
+  archive_work_item: "work_items",
   delete_work_item: "work_items",
   // A transition is a status change under the project's workflow.
   list_transitions: "work_items",
