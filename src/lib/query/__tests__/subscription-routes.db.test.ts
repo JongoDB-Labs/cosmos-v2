@@ -117,7 +117,7 @@ describe("subscription routes", () => {
 
   it("all of it is a 404 with the switch off", async () => {
     await as(w.actor.id);
-    await prisma.organization.update({ where: { id: w.orgA }, data: { settings: {} } });
+    await prisma.organization.update({ where: { id: w.orgA }, data: { settings: withCqlEnabled({}, false) as object } });
     try {
       expect((await list(req("GET", "x"), p())).status).toBe(404);
       expect((await create(req("POST", "x", { recipient: { kind: "me" }, cron: "0 8 * * *", timezone: "UTC" }), p())).status).toBe(404);

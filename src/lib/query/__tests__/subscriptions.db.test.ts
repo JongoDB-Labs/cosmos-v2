@@ -303,7 +303,7 @@ describe("the run", () => {
     outbox.length = 0;
     const v = await filter("priority = CRITICAL");
     const sub = await createSubscription(actorScope, v, { recipient: { kind: "me" }, cron: "0 8 * * *", timezone: "UTC" }, ORIGIN);
-    await prisma.organization.update({ where: { id: w.orgA }, data: { settings: {} } });
+    await prisma.organization.update({ where: { id: w.orgA }, data: { settings: withCqlEnabled({}, false) as object } });
     try {
       await runNow();
       expect(outbox).toHaveLength(0);

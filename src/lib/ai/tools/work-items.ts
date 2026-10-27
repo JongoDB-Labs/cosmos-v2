@@ -40,9 +40,27 @@ export const workItemTools: ToolDefinition[] = [
     },
   },
   {
+    name: "archive_work_item",
+    description:
+      "Archive a work item, or restore one with `archived: false`. The item stays, with its history, and drops " +
+      "out of the active lists. PREFER THIS over delete_work_item whenever someone asks to clean up, clear out, " +
+      "tidy, remove or get rid of tickets — archiving is reversible and is almost always what they mean. " +
+      "Needs only ITEM_UPDATE, so a member can do it.",
+    input_schema: {
+      type: "object",
+      properties: {
+        itemId: { type: "string", description: "Work item id to archive" },
+        archived: { type: "boolean", description: "Omit to archive; false restores it from the archive" },
+      },
+      required: ["itemId"],
+    },
+  },
+  {
     name: "delete_work_item",
     description:
-      "Delete a work item by id. Cascades to its activities + comments. Requires ITEM_DELETE.",
+      "PERMANENTLY delete a work item by id. Cascades to its activities + comments and CANNOT be undone. " +
+      "Only an org OWNER or ADMIN may do this, whatever permissions a work role has granted. " +
+      "Use archive_work_item unless the user has clearly asked for permanent deletion.",
     input_schema: {
       type: "object",
       properties: {

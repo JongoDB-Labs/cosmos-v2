@@ -49,7 +49,7 @@ describe("POST dashboards/preview-panel", () => {
   });
 
   it("does not exist with the query language off", async () => {
-    await prisma.organization.update({ where: { id: w.orgA }, data: { settings: {} } });
+    await prisma.organization.update({ where: { id: w.orgA }, data: { settings: withCqlEnabled({}, false) as object } });
     try {
       expect((await post({ type: "number", cql: "priority = HIGH" })).status).toBe(404);
     } finally {

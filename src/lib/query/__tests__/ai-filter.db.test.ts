@@ -112,7 +112,7 @@ describe("POST cql/ai", () => {
   });
 
   it("does not exist for an org without the query language", async () => {
-    await prisma.organization.update({ where: { id: w.orgA }, data: { settings: {} } });
+    await prisma.organization.update({ where: { id: w.orgA }, data: { settings: withCqlEnabled({}, false) as object } });
     try {
       expect((await post({ prompt: "x" })).status).toBe(404);
       expect(runModelTurn).not.toHaveBeenCalled();
