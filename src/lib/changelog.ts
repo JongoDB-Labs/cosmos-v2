@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.488.0",
+    date: "2026-10-27",
+    title: "Foreman can finish the cleanup work it files",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Foreman refuses to change any test that already existed, because deleting a failing test is the easiest way to fake a passing build. That rule was also blocking the one job it cannot be done without: removing dead code. Delete a module and the test OF that module has to go too, or the build fails on an import of something that is no longer there \u2014 so every cleanup ticket the nightly sweep filed was unfinishable, and waited for a person who had nothing to decide. Foreman may now remove a test when the thing it tested is provably gone from the same change, and only then. A test for code that still exists is refused exactly as before.",
+      },
+    ],
+  },
+  {
     version: "2.487.0",
     date: "2026-10-26",
     title: "Find and show who created an item",
