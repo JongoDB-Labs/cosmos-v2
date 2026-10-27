@@ -8,7 +8,7 @@ import { fieldNames } from "@/lib/query/describe";
  * they say so and point at `list_work_items`.
  */
 /** The optional item fields `search_work_items` can return. */
-export const SEARCH_FIELDS = ["title", "status", "assignee", "priority", "due", "sprint", "points", "labels"] as const;
+export const SEARCH_FIELDS = ["title", "status", "assignee", "reporter", "priority", "due", "sprint", "points", "labels"] as const;
 
 export const cqlTools: ToolDefinition[] = [
   {
@@ -19,6 +19,8 @@ export const cqlTools: ToolDefinition[] = [
       "`status CHANGED TO Done AFTER -7d`, `project = ACME AND priority IN (HIGH, CRITICAL) AND due < now()`. " +
       `Fields: ${fieldNames()}. Call describe_cql for the operators, functions and a field's values. ` +
       "Returns count, total, the normalized cql, a url to open the results in Cosmos (give it to the user), and the items. " +
+      "Ask for the `reporter` field to get `reporterName` alongside `reporterId` — report the NAME, never the id. " +
+      "A reporter who has since left the organization is still named, so items created by a former member stay attributable. " +
       "On invalid CQL returns diagnostics with line and column: fix the query and retry.",
     input_schema: {
       type: "object",

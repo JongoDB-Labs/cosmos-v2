@@ -36,7 +36,10 @@ const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // `title`/`description`/`tags` are content/arrays → never allowlisted/kept.
   work_item: [
     "id", "ticketNumber", "status", "priority", "storyPoints",
-    "dueDate", "startDate", "completedAt", "assigneeId", "projectId",
+    // `reporterId` is a structural handle like `assigneeId`; the paired
+    // `reporterName` is PII and is deliberately absent, so it drops by
+    // default-deny exactly as `assigneeName` does.
+    "dueDate", "startDate", "completedAt", "assigneeId", "reporterId", "projectId",
     "workItemTypeId", "intervalId", "parentId", "teamId", "createdAt", "updatedAt",
   ],
   // listTeams returns `id, projectId, name, key, memberCount, isMine`. `name`/`key`

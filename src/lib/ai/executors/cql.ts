@@ -74,6 +74,11 @@ function itemForModel(r: IssueRow, fields: ReadonlySet<SearchField>) {
     // the allowlisted `status`: the GOV projection drops it, as for list_work_items.
     ...(fields.has("status") ? { columnKey: r.columnKey } : {}),
     ...(fields.has("assignee") ? { assigneeId: r.assignee?.id ?? null, assigneeName: r.assignee?.displayName ?? null } : {}),
+    // `reporterName` resolves from the User table, so a former member is still
+    // named here — "tickets created by <person who left>" is the workflow this
+    // field exists for. Like `assigneeName` it is PII and stays OUT of
+    // EXPOSABLE_FIELDS, so a withheld (gov) result drops it by default-deny.
+    ...(fields.has("reporter") ? { reporterId: r.reporter?.id ?? null, reporterName: r.reporter?.displayName ?? null } : {}),
     ...(fields.has("priority") ? { priority: r.priority } : {}),
     ...(fields.has("due") ? { dueDate: r.dueDate } : {}),
     ...(fields.has("sprint") ? { intervalId: r.intervalId } : {}),

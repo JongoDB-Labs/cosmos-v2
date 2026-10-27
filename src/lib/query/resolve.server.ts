@@ -15,7 +15,7 @@
  * many values it names.
  */
 import type { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/db/client";
+import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { isUuid } from "@/lib/ids";
 import type { AuthContext } from "@/lib/rbac/check";
 import {
@@ -232,7 +232,15 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
         })
       : [],
     wanted.user.size
-      ? prisma.orgMember.findMany({
+      // Unfiltered ON PURPOSE: naming a person in a query is historical
+      // attribution. `reporter = "<someone who left>"` is the headline reason
+      // the reporter field exists, and the filtered client would answer "no
+      // person named that" the moment they were removed. Still `orgId`-scoped,
+      // so it cannot resolve a stranger from another tenant, and it yields
+      // only an id the caller can already see on the items themselves.
+      // `suggest.server.ts` stays filtered — a removed person is not offered
+      // in the editor's completion.
+      ? prismaUnfiltered.orgMember.findMany({
           where: {
             orgId,
             user: {
