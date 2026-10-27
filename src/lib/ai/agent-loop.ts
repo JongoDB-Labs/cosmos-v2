@@ -1,5 +1,6 @@
 import { cosmosTools, type ToolDefinition } from "./tools";
 import { connectorToolDefs, connectorToolNames } from "./connectors";
+import { pluginToolDefs } from "./plugin-tools";
 import { executeTool } from "./tool-executor";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 import { getAgentPolicy } from "./policy";
@@ -127,9 +128,15 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   // `tools: []` still offered send_email / slack_post_message.) Without one, the
   // default catalog is every connector tool the tenant and config allow.
   const requested = opts.tools ? new Set(opts.tools.map((t) => t.name)) : null;
+  // Tools contributed by PLUGINS this org has enabled. Narrowed by a
+  // caller-supplied list exactly as connector tools are: these filters narrow a
+  // caller's choice, never widen it, so a READONLY bot does not acquire a
+  // plugin's writes just by an org having the plugin on.
+  const pluginTools = (await pluginToolDefs(opts.orgId)).filter((t) => !requested || requested.has(t.name));
   const tenantTools: ToolDefinition[] = [
     ...nativeAndForeign,
     ...connectorToolDefs(opts.tenantClass, enabledFilter).filter((t) => !requested || requested.has(t.name)),
+    ...pluginTools,
   ];
   const tools = toModelTools(tenantTools);
   // What the model was offered: the only names this run will execute.

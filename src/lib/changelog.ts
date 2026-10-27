@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.491.0",
+    date: "2026-10-27",
+    title: "Plugins can give Cosmo their own tools",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A plugin can now hand Cosmo tools of its own, so asking the assistant about something a plugin owns no longer runs into a wall. The tools appear only for organizations that have the plugin switched on, they disappear when it is switched off, and a plugin can never take over the name of a built-in tool. Nothing changes for an organization with no plugins enabled.",
+      },
+    ],
+  },
+  {
     version: "2.490.0",
     date: "2026-10-27",
     title: "Archive with Cosmo, and the query language for everyone",

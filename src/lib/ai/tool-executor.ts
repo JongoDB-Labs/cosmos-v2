@@ -15,6 +15,7 @@ import {
   unlinkItems,
 } from "./executors/work-items";
 import { searchWorkItems, describeCql } from "./executors/cql";
+import { executePluginTool } from "./plugin-tools";
 import { createNote, updateNote, deleteNote } from "./executors/notes";
 import { addComment, listComments, deleteComment } from "./executors/comments";
 import { logTime, listTimeEntries } from "./executors/time";
@@ -538,8 +539,15 @@ async function dispatchTool(
     case "list_products":
       return listProducts(input, ctx);
 
-    default:
+    default: {
+      // A plugin may own this name. `executePluginTool` answers `undefined`
+      // for a name no ENABLED plugin owns — including one owned by a disabled
+      // plugin, and one that collides with a core tool — so an unknown name
+      // still ends here rather than leaking which plugins exist.
+      const fromPlugin = await executePluginTool(name, input, ctx);
+      if (fromPlugin !== undefined) return fromPlugin;
       return { error: `Unknown tool: ${name}` };
+    }
   }
 }
 
