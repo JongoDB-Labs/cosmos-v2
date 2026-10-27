@@ -25,6 +25,17 @@ export interface ToolDefinition {
   name: string;
   description: string;
   /**
+   * The coarse data-domain this tool acts in, for an org's AgentPolicy
+   * `deniedDomains`. REQUIRED of a plugin-contributed tool and ignored on a
+   * core one, whose domain lives in `policy/domains.ts` instead.
+   *
+   * Without it a plugin tool resolves to DEFAULT_DOMAIN ("utility"), so an org
+   * that denied `work_items` would not block a plugin tool that reads work
+   * items. `pluginToolDefs` therefore DROPS a plugin tool that does not declare
+   * a known domain, rather than letting it through under the wrong one.
+   */
+  domain?: string;
+  /**
    * JSON Schema describing the tool's parameters.
    * Named `input_schema` to mirror Anthropic's native tool_use shape — the
    * Claude CLI text protocol does not care about the field name, but other

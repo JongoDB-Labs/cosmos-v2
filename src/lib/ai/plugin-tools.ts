@@ -1,5 +1,6 @@
 import { PluginServerRegistry } from "@/lib/plugins/registry";
-import { getEnabledPluginSlugs } from "@/lib/plugins/enablement";
+import { isPluginEnabled } from "@/lib/plugins/enablement";
+import { KNOWN_DOMAINS, registerPluginToolDomain, type AgentDomain } from "./policy/domains";
 import { cosmosTools, type ToolDefinition } from "./tools";
 import type { ToolContext } from "./executors/_ctx";
 
@@ -48,8 +49,28 @@ function contributors() {
 async function enabledHooks(orgId: string) {
   const all = contributors();
   if (all.length === 0) return [];
-  const enabled = await getEnabledPluginSlugs(orgId);
-  return all.filter((h) => enabled.has(h.slug));
+  // `isPluginEnabled`, NOT `getEnabledPluginSlugs`: the latter reads only the
+  // enabled flag, while this also checks the LICENCE. Using the cheaper one
+  // would let a plugin whose entitlement has lapsed keep handing the assistant
+  // tools after every other surface had stopped answering for it.
+  const ok = await Promise.all(all.map((h) => isPluginEnabled(orgId, h.slug)));
+  return all.filter((_, i) => ok[i]);
+}
+
+/**
+ * A plugin tool's declared domain, or null when it has not declared a usable
+ * one.
+ *
+ * Fail-closed on purpose. An undeclared tool would resolve to DEFAULT_DOMAIN
+ * ("utility"), so an org that denied `work_items` would not block a plugin tool
+ * that reads work items — the deny would appear to be in force while the tool
+ * answered anyway. Dropping it is visible; mis-classifying it is not.
+ */
+function declaredDomain(t: ToolDefinition): AgentDomain | null {
+  const d = t.domain;
+  return typeof d === "string" && (KNOWN_DOMAINS as readonly string[]).includes(d)
+    ? (d as AgentDomain)
+    : null;
 }
 
 /**
@@ -66,7 +87,10 @@ export async function pluginToolDefs(orgId: string): Promise<ToolDefinition[]> {
   for (const h of await enabledHooks(orgId)) {
     for (const t of h.aiTools ?? []) {
       if (taken.has(t.name)) continue;
+      const domain = declaredDomain(t);
+      if (!domain) continue; // no usable domain ⇒ not offered at all
       taken.add(t.name);
+      registerPluginToolDomain(t.name, domain);
       out.push(t);
     }
   }
@@ -92,9 +116,30 @@ export async function executePluginTool(
   for (const h of await enabledHooks(ctx.orgId)) {
     for (const t of h.aiTools ?? []) {
       if (taken.has(t.name)) continue;
+      if (!declaredDomain(t)) continue; // never offered ⇒ never dispatched
       taken.add(t.name);
       if (t.name === name) return h.executeTool?.(name, args, ctx);
     }
   }
   return undefined;
+}
+
+/**
+ * The slug of the enabled plugin that owns a tool name, or null.
+ *
+ * Used by the audit trail: a plugin tool is not in the core audit map, so
+ * without this a plugin's WRITES would go unrecorded while every core
+ * assistant write is logged.
+ */
+export async function pluginOwnerOf(orgId: string, name: string): Promise<string | null> {
+  if (CORE_NAMES.has(name)) return null;
+  const taken = new Set<string>(CORE_NAMES);
+  for (const h of await enabledHooks(orgId)) {
+    for (const t of h.aiTools ?? []) {
+      if (taken.has(t.name) || !declaredDomain(t)) continue;
+      taken.add(t.name);
+      if (t.name === name) return h.slug;
+    }
+  }
+  return null;
 }

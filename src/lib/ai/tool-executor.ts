@@ -15,7 +15,7 @@ import {
   unlinkItems,
 } from "./executors/work-items";
 import { searchWorkItems, describeCql } from "./executors/cql";
-import { executePluginTool } from "./plugin-tools";
+import { executePluginTool, pluginOwnerOf } from "./plugin-tools";
 import { createNote, updateNote, deleteNote } from "./executors/notes";
 import { addComment, listComments, deleteComment } from "./executors/comments";
 import { logTime, listTimeEntries } from "./executors/time";
@@ -656,8 +656,19 @@ async function auditAssistantToolUse(
   result: unknown,
   ctx: ToolContext
 ): Promise<void> {
-  const mapping = ASSISTANT_AUDIT_ACTIONS[name];
-  if (!mapping) return;
+  let mapping = ASSISTANT_AUDIT_ACTIONS[name];
+  if (!mapping) {
+    // A plugin tool is not in the core map, and a plugin's writes must not be
+    // the only assistant actions that leave no trace. Audited generically under
+    // the owning plugin, since core cannot know what the tool did.
+    //
+    // Recorded for every plugin tool, read or write: core knows each of ITS
+    // tools' access, and knows none of a plugin's. Over-recording a read is a
+    // cheap row; missing a write is a hole in the trail.
+    const slug = await pluginOwnerOf(ctx.orgId, name).catch(() => null);
+    if (!slug) return;
+    mapping = { action: `assistant.plugin.${slug}.${name}`, entity: "plugin" };
+  }
   // An input-dependent connector tool (the Nango proxy) is audited when it wrote.
   if (connectorToolAccess(name, input) === "read") return;
   // Don't record an audit entry for a tool call that failed.
