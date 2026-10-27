@@ -95,7 +95,7 @@ describe("CQL routes (e2e DB)", () => {
   it("the gate: no ITEM_READ is 403; CQL switched off is 404", async () => {
     getAuthContext.mockImplementationOnce(async () => ({ ...w.ctx(), permissions: 0n, basePermissions: 0n }) as AuthContext);
     expect((await queryRoute(post("work-items/query", { cql: "" }), { params: params() })).status).toBe(403);
-    await prisma.organization.update({ where: { id: w.orgA }, data: { settings: {} } });
+    await prisma.organization.update({ where: { id: w.orgA }, data: { settings: withCqlEnabled({}, false) as object } });
     try {
       expect((await queryRoute(post("work-items/query", { cql: "" }), { params: params() })).status).toBe(404);
       expect((await schemaRoute(new NextRequest("http://localhost/x"), { params: params() })).status).toBe(404);

@@ -1,11 +1,19 @@
 /**
- * CQL ships behind a per-org switch until the whole feature (editor, saved
- * filters, history, boards, subscriptions) is in, then the switch is deleted.
+ * CQL is ON unless an org explicitly switches it off.
+ *
+ * It shipped behind a per-org switch "until the whole feature (editor, saved
+ * filters, history, boards, subscriptions) is in, then the switch is deleted".
+ * The feature went in; the switch did not get deleted, and nothing in the
+ * product could ever SET it — `withCqlEnabled` had no caller outside tests. So
+ * every org read as off, and the assistant told users the query language was
+ * unavailable for their organization while the whole subsystem sat unreachable.
+ *
+ * Default-on fixes that without losing the ability to turn it off for one org.
  * Stored on Organization.settings.cql.enabled, like calendarFeeds.enabled.
  */
 export function cqlEnabled(settings: unknown): boolean {
   const s = (settings ?? {}) as { cql?: { enabled?: unknown } };
-  return s.cql?.enabled === true;
+  return s.cql?.enabled !== false;
 }
 
 export function withCqlEnabled(settings: unknown, enabled: boolean): Record<string, unknown> {
