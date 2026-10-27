@@ -89,6 +89,9 @@ export const WorkItemSearchRow = z.object({
   project: z.object({ id: Uuid, key: z.string(), name: z.string() }),
   assignee: Person.nullable().describe("The primary assignee."),
   assignees: z.array(Person).describe("Every assignee, the primary first."),
+  reporter: Person.nullable().describe(
+    "Who created the item. Still named after they are removed from the organization, so historical items stay attributable.",
+  ),
   parent: z
     .object({ id: Uuid, ticketKey: z.string(), title: z.string() })
     .nullable()

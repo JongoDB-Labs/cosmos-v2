@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.487.0",
+    date: "2026-10-26",
+    title: "Find and show who created an item",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Search by who created an item, and see their name on the results. `reporter = \"Ada Lovelace\"` (or `creator`) works in the query bar and saved filters, the search API returns the reporter on every row, and Cosmo can now answer \"who created this?\" and \"find the tickets this person raised\" instead of only matching on assignee.",
+      },
+      {
+        kind: "fix",
+        text: "People who have left your organization are named again on the work they left behind. Their items, and the items still assigned to them, had started showing no name at all \u2014 searching for them by name turned up nothing. Both now read correctly, while removed people stay out of the pickers you assign from.",
+      },
+    ],
+  },
+  {
     version: "2.486.0",
     date: "2026-10-25",
     title: "Automations in project settings",

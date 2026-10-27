@@ -27,6 +27,13 @@ export interface IssueRow {
   assignee: { id: string; displayName: string; avatarUrl: string | null } | null;
   /** Full assignee set (multi-assign), primary first. */
   assignees: { id: string; displayName: string; avatarUrl: string | null }[];
+  /**
+   * Who created the item. Resolved from the User table rather than the org
+   * directory, so a person since REMOVED from the org is still named here —
+   * removal is a soft delete and history has to keep reading correctly.
+   * Null only if the lookup misses; `createdById` itself is non-nullable.
+   */
+  reporter: { id: string; displayName: string; avatarUrl: string | null } | null;
   parent: { id: string; ticketKey: string; title: string } | null;
   intervalId: string | null;
   storyPoints: number | null;
@@ -118,6 +125,7 @@ export async function fetchIssueRows(
       columnKey: true,
       priority: true,
       assigneeId: true,
+      createdById: true,
       parentId: true,
       intervalId: true,
       storyPoints: true,
@@ -149,22 +157,29 @@ export async function fetchIssueRows(
     },
   });
 
-  // Resolve cross-references in batch (projects, assignees, parents) — a flat
+  // Resolve cross-references in batch (projects, people, parents) — a flat
   // WorkItem row carries only ids.
   const projectIds = [...new Set(items.map((i) => i.projectId))];
-  const assigneeIds = [...new Set(items.map((i) => i.assigneeId).filter((x): x is string => !!x))];
+  // Assignees and reporters resolve from the same table, so they share one
+  // round-trip rather than adding a second.
+  const userIds = [
+    ...new Set([
+      ...items.map((i) => i.assigneeId).filter((x): x is string => !!x),
+      ...items.map((i) => i.createdById),
+    ]),
+  ];
   const parentIds = [...new Set(items.map((i) => i.parentId).filter((x): x is string => !!x))];
 
-  const [projects, assignees, parents] = await Promise.all([
+  const [projects, users, parents] = await Promise.all([
     projectIds.length
       ? db.project.findMany({
           where: { id: { in: projectIds } },
           select: { id: true, key: true, name: true },
         })
       : Promise.resolve([]),
-    assigneeIds.length
+    userIds.length
       ? db.user.findMany({
-          where: { id: { in: assigneeIds } },
+          where: { id: { in: userIds } },
           // displayName + avatarUrl only — never permissions/BigInt.
           select: { id: true, displayName: true, avatarUrl: true },
         })
@@ -187,13 +202,14 @@ export async function fetchIssueRows(
   ]);
 
   const projectById = new Map(projects.map((p) => [p.id, p]));
-  const assigneeById = new Map(assignees.map((u) => [u.id, u]));
+  const userById = new Map(users.map((u) => [u.id, u]));
   const parentById = new Map(parents.map((p) => [p.id, p]));
 
   const data: IssueRow[] = items.map((item) => {
     const project = projectById.get(item.projectId);
     const projectKey = project?.key ?? "";
-    const assignee = item.assigneeId ? assigneeById.get(item.assigneeId) : undefined;
+    const assignee = item.assigneeId ? userById.get(item.assigneeId) : undefined;
+    const reporter = userById.get(item.createdById);
     const parentRow = item.parentId ? parentById.get(item.parentId) : undefined;
     const parentProject = parentRow ? projectById.get(parentRow.projectId) : undefined;
     const parentKey = parentProject?.key ?? projectKey;
@@ -225,6 +241,9 @@ export async function fetchIssueRows(
         displayName: a.user.displayName,
         avatarUrl: a.user.avatarUrl,
       })),
+      reporter: reporter
+        ? { id: reporter.id, displayName: reporter.displayName, avatarUrl: reporter.avatarUrl }
+        : null,
       parent: parentRow
         ? {
             id: parentRow.id,

@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db/client";
+import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { applyWorkItemChange, type WorkItemPatch } from "@/lib/work-items/apply-change.server";
@@ -98,7 +98,11 @@ function resolveSelfAssignee(
  * return the name alongside the id.
  *
  * Scoped through OrgMember so an id from another tenant resolves to NOTHING
- * rather than naming a stranger, and selected explicitly down to
+ * rather than naming a stranger, but UNFILTERED on the soft delete: an item
+ * assigned to someone who has since left must keep naming them, or their whole
+ * history reads as assigned to nobody. The org scope is what distinguishes the
+ * two — a stranger stays unnameable, a former colleague does not. Selected
+ * explicitly down to
  * `user.displayName` — never OrgMember.permissions, which is a decimal-string
  * permission mask and must not ride out in a tool result.
  *
@@ -114,7 +118,7 @@ async function assigneeNames(
 ): Promise<Map<string, string>> {
   const ids = [...new Set(userIds)];
   if (ids.length === 0) return new Map();
-  const members = await prisma.orgMember.findMany({
+  const members = await prismaUnfiltered.orgMember.findMany({
     where: { orgId, userId: { in: ids } },
     select: { userId: true, user: { select: { displayName: true } } },
   });

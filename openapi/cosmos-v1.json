@@ -7394,6 +7394,32 @@
             },
             "description": "Every assignee, the primary first."
           },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "avatarUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "displayName",
+              "avatarUrl"
+            ],
+            "description": "Who created the item. Still named after they are removed from the organization, so historical items stay attributable."
+          },
           "parent": {
             "type": [
               "object",
@@ -7495,6 +7521,7 @@
           "project",
           "assignee",
           "assignees",
+          "reporter",
           "parent",
           "intervalId",
           "storyPoints",

@@ -33,6 +33,20 @@ const ALLOWED: Record<string, string> = {
     "person away — a silent lockout. It also keeps a removed OWNER recognisable as " +
     "OWNER, so reinstating cannot downgrade them.",
 
+  "src/lib/ai/executors/work-items.ts":
+    "HISTORICAL ATTRIBUTION. `assigneeNames` puts a name to the ids already stored " +
+    "on work items, so it must answer for people since removed — otherwise every " +
+    "item a departed colleague still owns reports `assigneeName: null` and the " +
+    "assistant names nobody. Scoped to `orgId`, so a user from another org stays " +
+    "unnameable; only the soft-delete filter is bypassed.",
+
+  "src/lib/query/resolve.server.ts":
+    "HISTORICAL ATTRIBUTION. Turning a person's name in a CQL query into an id has " +
+    "to answer for people since removed, or `reporter = \"<someone who left>\"` — the " +
+    "query the reporter field exists to serve — fails with \"no person named that\". " +
+    "Scoped to `orgId`. `suggest.server.ts` beside it stays filtered: a removed " +
+    "person resolves but is never SUGGESTED.",
+
   "src/lib/mentions/registry.server.ts":
     "HISTORICAL ATTRIBUTION. `resolve` turns the `<@uuid>` tokens already stored in " +
     "comments and notes back into names, so it must answer for people since " +

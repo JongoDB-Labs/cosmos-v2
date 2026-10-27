@@ -364,4 +364,31 @@ describe("createWorkItem / updateWorkItem — assignee resolves to a person (e2e
     expect(row?.assigneeId).toBe(outsider.id);
     expect(row?.assigneeName).toBeNull();
   });
+
+  it("still names an assignee who has been removed from the org", async () => {
+    const { project, type, ctx, other } = await makeOrg();
+    const item = await prisma.workItem.create({
+      data: {
+        orgId: ctx.orgId, projectId: project.id, ticketNumber: 4343, title: "departed",
+        description: "", columnKey: "todo", workItemTypeId: type.id,
+        createdById: ctx.userId, assigneeId: other.id,
+      },
+    });
+    // Removal is a soft delete, so a departed person keeps their history and the
+    // tickets still assigned to them must keep naming them. Contrast the
+    // outsider case below: a stranger from another org stays unnameable, which
+    // is the distinction the org scope exists to draw.
+    await prisma.orgMember.updateMany({
+      where: { orgId: ctx.orgId, userId: other.id },
+      data: { removedAt: new Date() },
+    });
+
+    const list = (await listWorkItems({ projectId: project.id }, ctx)) as {
+      items: { id: string; assigneeId: string | null; assigneeName: string | null }[];
+    };
+    const row = list.items.find((i) => i.id === item.id);
+    expect(row?.assigneeId).toBe(other.id);
+    expect(row?.assigneeName).toBe(other.displayName);
+  });
+
 });

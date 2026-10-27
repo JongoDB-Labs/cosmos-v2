@@ -2,7 +2,7 @@
 // test world: the same scope as the Issues list, diagnostics the model can act
 // on, and a GOV view that keeps ids and counts and drops the free text.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { prisma } from "@/lib/db/client";
+import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { seedWorld, type World } from "@/lib/query/__tests__/cql-fixture";
 import { withCqlEnabled } from "@/lib/query/flag";
 import { projectResult, entityTypeForTool } from "@/lib/ai/egress/projection";
@@ -126,3 +126,68 @@ describe("describe_cql", () => {
     expect(((await describeCql({ field: "severity_typo" }, ctx)) as { error: string }).error).toMatch(/Unknown field.*statusCategory/);
   });
 });
+
+// The workflow the feature request was filed for: "find and clean up tickets
+// created by a specific user" — which is normally someone who has just LEFT.
+// Removal is a soft delete ([[org member soft delete]]), so a departed person
+// must stay both findable by name and nameable in a result; the filtered client
+// hides them from the directory, which is right for pickers and wrong here.
+describe("search_work_items — the reporter", () => {
+  const TITLE = "reporter-probe";
+  let itemId: string;
+
+  beforeAll(async () => {
+    const item = await prisma.workItem.create({
+      data: {
+        orgId: w.orgA, projectId: w.P1.id, ticketNumber: 901, title: TITLE,
+        description: "", columnKey: "todo", workItemTypeId: w.typeTask,
+        // Created by Bob, so the reporter is someone OTHER than the caller.
+        createdById: w.bob.id, priority: "MEDIUM",
+      },
+      select: { id: true },
+    });
+    itemId = item.id;
+  });
+  afterAll(async () => {
+    if (itemId) await prisma.workItem.delete({ where: { id: itemId } });
+  });
+
+  it("names who created an item, not just their id", async () => {
+    const [item] = (await search({ cql: `summary ~ "${TITLE}"`, fields: ["reporter"] })).items;
+    expect(item).toMatchObject({ reporterId: w.bob.id, reporterName: "Bob Builder" });
+  });
+
+  it("still names a reporter who has been removed from the org", async () => {
+    await removeBob();
+    try {
+      const [item] = (await search({ cql: `summary ~ "${TITLE}"`, fields: ["reporter"] })).items;
+      expect(item).toMatchObject({ reporterId: w.bob.id, reporterName: "Bob Builder" });
+    } finally {
+      await reinstateBob();
+    }
+  });
+
+  it("still FINDS a removed person's items by their name", async () => {
+    await removeBob();
+    try {
+      const r = await search({ cql: 'reporter = "Bob Builder"', fields: ["reporter"] });
+      expect(r.error).toBeUndefined();
+      expect(r.items.map((i) => i.id)).toContain(itemId);
+    } finally {
+      await reinstateBob();
+    }
+  });
+});
+
+/** Mark Bob removed. The filtered client matches him because he is active now. */
+async function removeBob() {
+  await prisma.orgMember.updateMany({ where: { orgId: w.orgA, userId: w.bob.id }, data: { removedAt: new Date() } });
+}
+/**
+ * Reinstate Bob. This MUST use the unfiltered client: the extension injects
+ * `removedAt: null` into every filterable where, so the filtered client cannot
+ * match the very row it just removed and the restore would silently no-op.
+ */
+async function reinstateBob() {
+  await prismaUnfiltered.orgMember.updateMany({ where: { orgId: w.orgA, userId: w.bob.id }, data: { removedAt: null } });
+}

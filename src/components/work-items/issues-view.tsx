@@ -103,6 +103,8 @@ interface IssueRow {
   assignee: { id: string; displayName: string; avatarUrl: string | null } | null;
   /** Full assignee set (multi-assign), primary first. */
   assignees?: { id: string; displayName: string; avatarUrl: string | null }[];
+  /** Who created it. Always sent; optional here because no column reads it yet. */
+  reporter?: { id: string; displayName: string; avatarUrl: string | null } | null;
   parent: { id: string; ticketKey: string; title: string } | null;
   intervalId: string | null;
   storyPoints: number | null;
