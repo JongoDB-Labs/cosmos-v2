@@ -391,4 +391,58 @@ describe("createWorkItem / updateWorkItem — assignee resolves to a person (e2e
     expect(row?.assigneeName).toBe(other.displayName);
   });
 
+
+  it("filters by who CREATED an item, and names them", async () => {
+    // The workflow this exists for: "find the tickets this person raised."
+    // Without it the only filter is assigneeId, so a ticket someone filed but
+    // never owned is unreachable — which is exactly what happened in practice
+    // when CQL was switched off for the org.
+    const { project, type, ctx, owner, other } = await makeOrg();
+    const mk = (n: number, creator: string, title: string) =>
+      prisma.workItem.create({
+        data: {
+          orgId: ctx.orgId, projectId: project.id, ticketNumber: n, title,
+          description: "", columnKey: "todo", workItemTypeId: type.id,
+          createdById: creator,
+        },
+        select: { id: true },
+      });
+    const theirs = await mk(7101, other.id, "raised by other");
+    await mk(7102, owner.id, "raised by owner");
+
+    const list = (await listWorkItems({ projectId: project.id, createdById: other.id }, ctx)) as {
+      count: number;
+      items: { id: string; reporterId: string | null; reporterName: string | null }[];
+    };
+
+    expect(list.items.map((i) => i.id)).toEqual([theirs.id]);
+    expect(list.items[0].reporterName).toBe(other.displayName);
+  });
+
+  it("accepts `me` as the creator, like it does for the assignee", async () => {
+    const { project, type, ctx, owner, other } = await makeOrg();
+    const mine = await prisma.workItem.create({
+      data: {
+        orgId: ctx.orgId, projectId: project.id, ticketNumber: 7103, title: "mine",
+        description: "", columnKey: "todo", workItemTypeId: type.id, createdById: owner.id,
+      },
+      select: { id: true },
+    });
+    // A second item by someone else, so this cannot pass by the filter being
+    // ignored and everything coming back — which is how it first passed.
+    const theirs = await prisma.workItem.create({
+      data: {
+        orgId: ctx.orgId, projectId: project.id, ticketNumber: 7104, title: "theirs",
+        description: "", columnKey: "todo", workItemTypeId: type.id, createdById: other.id,
+      },
+      select: { id: true },
+    });
+    const list = (await listWorkItems({ projectId: project.id, createdById: "me" }, ctx)) as {
+      items: { id: string }[];
+    };
+    const ids = list.items.map((i) => i.id);
+    expect(ids).toContain(mine.id);
+    expect(ids).not.toContain(theirs.id);
+  });
+
 });

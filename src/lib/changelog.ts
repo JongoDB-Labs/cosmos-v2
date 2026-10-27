@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.489.0",
+    date: "2026-10-27",
+    title: "Ask Cosmo for the tickets someone raised",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Cosmo can now find work items by who CREATED them, not only by who they are assigned to \u2014 \"the tickets Dana raised last week\", or \"the ones I filed\". Filing a ticket and owning it are different things, and until now only the second was searchable, so a ticket someone raised and handed off was effectively invisible. Every item Cosmo lists also comes back with the name of whoever created it, and someone who has since left the organization is still named on the work they left behind.",
+      },
+    ],
+  },
+  {
     version: "2.488.0",
     date: "2026-10-27",
     title: "Foreman can finish the cleanup work it files",

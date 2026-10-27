@@ -9,13 +9,19 @@ export const workItemTools: ToolDefinition[] = [
   {
     name: "list_work_items",
     description:
-      "List work items in a project with optional filters. Returns id, ticketNumber, title, columnKey, priority, assigneeId, assigneeName (the assignee's display name — use it when you name the person, never the id), intervalId, parentId (the item it sits under, or null), teamId (the team that owns it, or null), dueDate, storyPoints. For anything across projects, by date, label, sprint, history or text, use search_work_items when it is available.",
+      "List work items in a project with optional filters. Returns id, ticketNumber, title, columnKey, priority, assigneeId, assigneeName (the assignee's display name — use it when you name the person, never the id), reporterId and reporterName (who created it; someone who has since left the organization is still named), intervalId, parentId (the item it sits under, or null), teamId (the team that owns it, or null), dueDate, storyPoints. For anything across projects, by date, label, sprint, history or text, use search_work_items when it is available.",
     input_schema: {
       type: "object",
       properties: {
         projectId: { type: "string", description: "Project ID (required)" },
         columnKey: { type: "string", description: "Filter by board column key (e.g. 'todo')" },
-        assigneeId: { type: "string", description: "Filter by assignee user ID" },
+        assigneeId: { type: "string", description: "Filter by assignee user ID, or `me` for the caller" },
+        createdById: {
+          type: "string",
+          description:
+            "Filter by who CREATED (raised) the item, or `me` for the caller. Different from assigneeId — " +
+            "a person often files a ticket they never own.",
+        },
         type: {
           type: "string",
           description:

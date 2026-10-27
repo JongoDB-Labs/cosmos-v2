@@ -60,6 +60,7 @@ const listWorkItemsSchema = z.object({
   projectId: z.string().uuid(),
   columnKey: z.string().optional(),
   assigneeId: z.string().uuid().optional(),
+  createdById: z.string().uuid().optional(),
   type: z.string().optional(),
   search: z.string().optional(),
   parentId: z.string().uuid().optional(),
@@ -81,11 +82,17 @@ function resolveSelfAssignee(
   input: Record<string, unknown>,
   userId: string
 ): Record<string, unknown> {
-  const a = input.assigneeId;
-  if (typeof a === "string" && SELF_ASSIGNEE_TOKENS.has(a.trim().toLowerCase())) {
-    return { ...input, assigneeId: userId };
+  const out = { ...input };
+  // Both slots take the same tokens: "tickets I raised" is as natural an ask
+  // as "tickets assigned to me", and the model should not have to know either
+  // uuid to answer it.
+  for (const key of ["assigneeId", "createdById"] as const) {
+    const v = out[key];
+    if (typeof v === "string" && SELF_ASSIGNEE_TOKENS.has(v.trim().toLowerCase())) {
+      out[key] = userId;
+    }
   }
-  return input;
+  return out;
 }
 
 /**
@@ -571,7 +578,9 @@ export async function listWorkItems(
   const denied = await assertPermission(ctx, Permission.ITEM_READ);
   if (denied) return denied;
 
-  const parsed = listWorkItemsSchema.safeParse(input);
+  // Listing takes the same self-tokens the writes do, so "the tickets I
+  // raised" resolves without the model knowing its own uuid.
+  const parsed = listWorkItemsSchema.safeParse(resolveSelfAssignee(input, ctx.userId));
   if (!parsed.success) {
     return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
   }
@@ -588,6 +597,7 @@ export async function listWorkItems(
   };
   if (data.columnKey) where.columnKey = data.columnKey;
   if (data.assigneeId) where.assigneeId = data.assigneeId;
+  if (data.createdById) where.createdById = data.createdById;
   if (data.search) where.title = { contains: data.search, mode: "insensitive" };
   if (data.parentId) where.parentId = data.parentId;
   if (data.teamId) {
@@ -618,6 +628,7 @@ export async function listWorkItems(
       columnKey: true,
       priority: true,
       assigneeId: true,
+      createdById: true,
       intervalId: true,
       parentId: true,
       teamId: true,
@@ -630,16 +641,20 @@ export async function listWorkItems(
 
   // Name every assignee in one directory lookup, so a listing reads "Ryan
   // Beatty" rather than the id the model would otherwise have to echo.
-  const names = await assigneeNames(
-    ctx.orgId,
-    items.map((i) => i.assigneeId).filter((id): id is string => id !== null)
-  );
+  // One directory lookup covers both slots, so a listing reads "Ryan Beatty"
+  // rather than the id the model would otherwise have to echo.
+  const names = await assigneeNames(ctx.orgId, [
+    ...items.map((i) => i.assigneeId).filter((id): id is string => id !== null),
+    ...items.map((i) => i.createdById),
+  ]);
 
   return {
     count: items.length,
-    items: items.map((i) => ({
+    items: items.map(({ createdById, ...i }) => ({
       ...i,
       assigneeName: i.assigneeId ? (names.get(i.assigneeId) ?? null) : null,
+      reporterId: createdById,
+      reporterName: names.get(createdById) ?? null,
     })),
   };
 }
