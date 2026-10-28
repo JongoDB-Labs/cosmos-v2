@@ -71,13 +71,27 @@ export interface QueryChipsProps {
   chips: Chip[];
   matchAny: boolean;
   onChange: (chips: Chip[], matchAny: boolean) => void;
+  /**
+   * Fields already constrained by a query these chips do NOT show.
+   *
+   * Only "Add filter" beside the CQL editor passes this: there `chips` is
+   * empty by design (the control appends one clause to the text and never
+   * reprints the tree), so `used` has nothing to go on and would offer a field
+   * the query already filters on.
+   */
+  excludeFields?: FieldRef[];
+  /** Hide the Match all / Match any switch — it speaks for the whole query. */
+  hideMatch?: boolean;
 }
 
-export function QueryChips({ orgId, schema, chips, matchAny, onChange }: QueryChipsProps) {
+export function QueryChips({ orgId, schema, chips, matchAny, onChange, excludeFields, hideMatch }: QueryChipsProps) {
   const [drafts, setDrafts] = useState<EditChip[]>([]);
   const fields = useMemo(() => chipFields(schema.customFields, SYSTEM_FIELD_IDS), [schema.customFields]);
   const info = (f: FieldRef) => chipField(f, schema.customFields);
-  const used = (f: FieldRef) => chips.some((c) => sameField(c.field, f)) || drafts.some((d) => sameField(d.field, f));
+  const used = (f: FieldRef) =>
+    chips.some((c) => sameField(c.field, f)) ||
+    drafts.some((d) => sameField(d.field, f)) ||
+    (excludeFields ?? []).some((x) => sameField(x, f));
 
   // Picking a person straight from "Add filter" (Linear's "type a value").
   const people = useSuggestions(orgId, "assignee", true);
@@ -116,7 +130,7 @@ export function QueryChips({ orgId, schema, chips, matchAny, onChange }: QueryCh
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fields, chips, drafts, people.data]);
+  }, [fields, chips, drafts, excludeFields, people.data]);
 
   function add(choice: string | null) {
     if (!choice) return;
@@ -132,7 +146,7 @@ export function QueryChips({ orgId, schema, chips, matchAny, onChange }: QueryCh
 
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid="query-chips">
-      {chips.length + drafts.length > 1 && (
+      {!hideMatch && chips.length + drafts.length > 1 && (
         <div className="inline-flex overflow-hidden rounded-md border border-[var(--border)] text-xs" role="group" aria-label="Match">
           {([false, true] as const).map((any) => (
             <button
@@ -297,7 +311,7 @@ function ListValue({ orgId, field, label, edit, onChange }: { orgId: string; fie
     };
     if (local) for (const o of local) push({ t: "str", v: o }, o);
     for (const s of remote.data ?? []) push(parseValueText(s.insert), s.label, s.detail);
-    // A value typed in Advanced mode that isn't in the first page still shows.
+    // A value typed in the CQL editor that is not in the first page still shows.
     for (const v of edit.values) push(v, valueLabel(v));
     return out;
   }, [local, remote.data, edit.values]);

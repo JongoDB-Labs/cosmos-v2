@@ -32,7 +32,7 @@ test.describe("Issues — filter subscriptions", () => {
     await expect.poll(() => new URL(page.url()).searchParams.get("filter")).not.toBeNull();
     const filterId = new URL(page.url()).searchParams.get("filter")!;
 
-    await page.getByRole("button", { name: "Filters", exact: true }).click();
+    await page.getByRole("button", { name: "Saved filters", exact: true }).click();
     await page.getByRole("menuitem", { name }).and(page.locator("[aria-haspopup]")).hover();
     await page.getByRole("menuitem", { name: "Subscribe…" }).click();
 

@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.494.0",
+    date: "2026-10-28",
+    title: "One filter bar: add a filter however you are filtering",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The two ways to filter Issues are now called Filters and CQL, instead of Basic and Advanced. The old names suggested one was simply better than the other; the new ones say what each actually is \u2014 dropdowns, or the query written as text.",
+      },
+      {
+        kind: "feature",
+        text: "Add filter now sits beside the CQL editor too. Queries that use grouping, OR or history can't be shown as dropdowns, so those were exactly the queries with no way to add a filter at all. Picking one now adds it to what you already have, leaving the rest of the query untouched.",
+      },
+      {
+        kind: "feature",
+        text: "Typing a saved filter's name into the search box now offers that filter, instead of searching your issues for those words. The menu that holds saved filters is now called Saved, so it is clear it holds the ones you kept rather than a way to add a new one.",
+      },
+    ],
+  },
+  {
     version: "2.493.0",
     date: "2026-10-28",
     title: "Ask Cosmo to add to a whiteboard you already have",

@@ -39,7 +39,7 @@ test.describe("Issues — saved filters", () => {
     await expect(page.getByRole("cell", { name: "Falcon radar upgrade" })).toBeVisible({ timeout: 20_000 });
 
     // Star it: it appears under Issues in the sidebar.
-    await page.getByRole("button", { name: "Filters" }).click();
+    await page.getByRole("button", { name: "Saved filters", exact: true }).click();
     // The row under My filters (it is also under Recently used, which only runs).
     await page.getByRole("menuitem", { name }).and(page.locator("[aria-haspopup]")).hover();
     await page.getByRole("menuitem", { name: "Star" }).click();
@@ -55,7 +55,7 @@ test.describe("Issues — saved filters", () => {
     });
     expect(r.ok()).toBe(true);
     await openIssues(bob);
-    await bob.getByRole("button", { name: "Filters" }).click();
+    await bob.getByRole("button", { name: "Saved filters", exact: true }).click();
     await expect(bob.getByText("Your projects")).toBeVisible();
     await expect(bob.getByRole("menuitem", { name }).first()).toBeVisible();
     await bobCtx.close();

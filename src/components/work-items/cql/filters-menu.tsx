@@ -1,8 +1,14 @@
 "use client";
 
 /**
- * The "Filters" menu (query design §10.4), replacing the Saved views picker
+ * The "Saved" menu (query design §10.4), replacing the Saved views picker
  * where the org has CQL on.
+ *
+ * It was labelled "Filters", which is where FR ad579c82 went looking for a way
+ * to ADD one: "i should simply be able to add the filters from the dropdown on
+ * the right". Adding a condition belongs to the query bar below (chips, and
+ * now "Add filter" beside the CQL editor too); this holds saved ones only, and
+ * now says so.
  *
  *   Favorites       starred filters; click runs
  *   My filters      yours, each with its actions
@@ -117,9 +123,9 @@ export function FiltersMenu({ orgId, orgSlug, activeId, onRun, onEdit, onSubscri
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
-        render={<button type="button" aria-label="Filters" className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")} />}
+        render={<button type="button" aria-label="Saved filters" className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")} />}
       >
-        <Filter className="h-4 w-4" /> Filters
+        <Filter className="h-4 w-4" /> Saved
         <ChevronDown className="h-3.5 w-3.5" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="max-h-[70vh] w-72 overflow-y-auto">
