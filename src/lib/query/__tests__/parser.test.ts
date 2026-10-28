@@ -11,6 +11,12 @@ const GOLDEN: [string, string][] = [
   // basic comparisons
   ["priority = HIGH", "priority = HIGH"],
   ["priority != HIGH", "priority != HIGH"],
+  // `==` is accepted and normalises to `=`. Reported from production: someone
+  // typed `type == feature`, got two diagnostics that never mentioned `=`, and
+  // read the result as the query language being broken. Everyone who has
+  // written code types `==`; refusing it teaches nothing and costs a session.
+  ["priority == HIGH", "priority = HIGH"],
+  ["points >= 3 AND priority == LOW", "points >= 3 AND priority = LOW"],
   ["points > 3", "points > 3"],
   ["points >= 3", "points >= 3"],
   ["points < 3.5", "points < 3.5"],

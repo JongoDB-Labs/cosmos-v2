@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.491.2",
+    date: "2026-10-28",
+    title: "`==` works in the query bar",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Typing `type == feature` in the query bar reported two errors about expecting a value, neither of which mentioned that the operator should be a single `=`. Anyone who has written code types `==` without thinking, so the query language now accepts it and treats it as `=`. Saved filters and links are unaffected \u2014 a query is still written back with a single `=`.",
+      },
+    ],
+  },
+  {
     version: "2.491.1",
     date: "2026-10-27",
     title: "Whiteboard tools can reach Cosmo",
