@@ -216,6 +216,20 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
  * Resolve a tool name to its coarse data-domain. An UNKNOWN tool ⇒ {@link DEFAULT_DOMAIN}
  * (`utility`) — NOT auto-denied. A pure lookup; safe to call with any string.
  */
+/**
+ * Domains declared by plugin-contributed tools, recorded as they are offered.
+ *
+ * `TOOL_DOMAIN` above is a static map of CORE tools. A plugin's tools are not
+ * in it and are org-dependent, so without this they would all resolve to
+ * DEFAULT_DOMAIN and an org's domain deny would silently miss them.
+ */
+const pluginToolDomains = new Map<string, AgentDomain>();
+
+/** Record a plugin tool's domain. Called as the offered list is built. */
+export function registerPluginToolDomain(toolName: string, domain: AgentDomain): void {
+  pluginToolDomains.set(toolName, domain);
+}
+
 export function domainForTool(toolName: string): AgentDomain {
-  return TOOL_DOMAIN[toolName] ?? DEFAULT_DOMAIN;
+  return TOOL_DOMAIN[toolName] ?? pluginToolDomains.get(toolName) ?? DEFAULT_DOMAIN;
 }
