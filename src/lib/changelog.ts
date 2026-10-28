@@ -60,6 +60,17 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.491.1",
+    date: "2026-10-27",
+    title: "Whiteboard tools can reach Cosmo",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A plugin may only give Cosmo tools in a data area the product recognises, so that an organization can switch that area off. Whiteboard was not one of those areas, which meant its tools would have been quietly dropped rather than offered. It is now.",
+      },
+    ],
+  },
+  {
     version: "2.491.0",
     date: "2026-10-27",
     title: "Plugins can give Cosmo their own tools",
