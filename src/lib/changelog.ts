@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.493.0",
+    date: "2026-10-28",
+    title: "Ask Cosmo to add to a whiteboard you already have",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Cosmo could make a new whiteboard; now it can add to one that already exists. Tell it what to put on a board and it places the work below whatever is there, so nothing already drawn is covered. If you have the board open at the time, the addition appears when you refresh.",
+      },
+    ],
+  },
+  {
     version: "2.492.1",
     date: "2026-10-28",
     title: "The search box notices when you have typed a query",
