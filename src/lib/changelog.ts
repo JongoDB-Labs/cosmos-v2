@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.492.1",
+    date: "2026-10-28",
+    title: "The search box notices when you have typed a query",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The search box on Issues looks for what you type as a phrase, so typing something like `type = feature` into it searched for those words and found nothing \u2014 with no hint that it had been read as text rather than run as a query. When what you type looks like a query, the box now offers to run it as one.",
+      },
+    ],
+  },
+  {
     version: "2.492.0",
     date: "2026-10-28",
     title: "Whiteboards: images stay, and so does everyone else's work",

@@ -31,6 +31,7 @@ import { parseCql } from "@/lib/query/parser";
 import { printCql, printNode } from "@/lib/query/print";
 import { CQL_EXAMPLES } from "@/lib/query/describe";
 import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
+import { looksLikeQuery } from "@/lib/query/looks-like-query";
 import { QueryChips } from "./query-chips";
 import { useCqlValidate, type CqlClientSchema, type QueryMode } from "./use-cql";
 
@@ -162,7 +163,18 @@ export function QueryBuilder({ orgId, schema, cql, onCqlChange, mode, onModeChan
           </button>
         </div>
         {effective === "basic" && chips.ok ? (
-          <BasicMode orgId={orgId} schema={schema} query={parsed.query} chips={chips.chips} matchAny={chips.matchAny} onQuery={(q) => onCqlChange(printCql(q))} />
+          <BasicMode
+            orgId={orgId}
+            schema={schema}
+            query={parsed.query}
+            chips={chips.chips}
+            matchAny={chips.matchAny}
+            onQuery={(q) => onCqlChange(printCql(q))}
+            onRunAsQuery={(text) => {
+              onCqlChange(text);
+              choose("advanced");
+            }}
+          />
         ) : (
           <AdvancedMode orgId={orgId} schema={schema} cql={cql} onRun={onCqlChange} serverDiagnostics={serverDiagnostics} />
         )}
@@ -187,6 +199,7 @@ function BasicMode({
   chips,
   matchAny,
   onQuery,
+  onRunAsQuery,
 }: {
   orgId: string;
   schema: CqlClientSchema;
@@ -194,6 +207,8 @@ function BasicMode({
   chips: Chip[];
   matchAny: boolean;
   onQuery: (q: CqlQuery) => void;
+  /** Take what they typed and run it as a QUERY rather than as a phrase. */
+  onRunAsQuery: (text: string) => void;
 }) {
   // The free-text box IS the `text ~` chip, so it isn't shown twice.
   const textChip = chips.find(isTextBox);
@@ -229,6 +244,19 @@ function BasicMode({
         />
       </div>
       <QueryChips orgId={orgId} schema={schema} chips={rest} matchAny={matchAny} onChange={(c, any) => emit(c, any, text)} />
+      {looksLikeQuery(draft) && (
+        // This box searches for what you type as a PHRASE. A query typed here
+        // matches nothing and says nothing about why, because nothing was
+        // parsed — which is exactly how "type == feature showed nothing"
+        // happened. Offer the other reading rather than silently finding none.
+        <button
+          type="button"
+          onClick={() => onRunAsQuery(draft.trim())}
+          className="shrink-0 rounded-md border border-[var(--primary)] px-2.5 py-1.5 text-xs text-[var(--primary)] hover:bg-[var(--primary)] hover:text-[var(--primary-foreground,white)]"
+        >
+          Run as a query
+        </button>
+      )}
     </div>
   );
 }
