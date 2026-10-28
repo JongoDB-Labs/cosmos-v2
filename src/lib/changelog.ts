@@ -60,6 +60,25 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.492.0",
+    date: "2026-10-28",
+    title: "Whiteboards: images stay, and so does everyone else's work",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An image put on a whiteboard was never actually saved. The picture appeared while you worked and was gone when the board reopened, because only the shapes were stored and not the image data behind them. Images now save and come back, and a board accepts them only as real images, with a size limit.",
+      },
+      {
+        kind: "fix",
+        text: "While two people drew on the same board at once, one person's edit could delete a shape the other had just made \u2014 for everybody, including its author. A client was treating \"a shape I have not received yet\" as \"a shape that was deleted\". It now removes only what it had itself.",
+      },
+      {
+        kind: "feature",
+        text: "Cosmo can work with whiteboards: list the boards you can open, describe one, and create a new board \u2014 either from a template or laid out from what you tell it, as titled columns of sticky notes. A board Cosmo makes is private to you until you share it.",
+      },
+    ],
+  },
+  {
     version: "2.491.2",
     date: "2026-10-28",
     title: "`==` works in the query bar",
