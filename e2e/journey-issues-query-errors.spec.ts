@@ -3,7 +3,7 @@ import { editor, openIssues, resetQueryLanguage, setQueryLanguage } from "./fixt
 
 /**
  * Mistakes in a query are shown where they are, with a fix when there is an
- * obvious one, and Basic says why it can't show a query instead of rewriting it.
+ * obvious one, and Filters says why it can't show a query instead of rewriting it.
  */
 test.describe("Issues — query errors", () => {
   test.afterAll(async ({ browser }) => {
@@ -44,13 +44,13 @@ test.describe("Issues — query errors", () => {
     await expect(page.locator(".cm-tooltip-lint")).toContainText("status");
   });
 
-  test("Basic is disabled, with the reason, for OR across groups", async ({ page, signInAs }) => {
+  test("Filters is disabled, with the reason, for OR across groups", async ({ page, signInAs }) => {
     await signInAs("alice@test.local");
     await setQueryLanguage(page.request, true);
     await openIssues(page, { cql: "priority = HIGH OR (assignee = me AND due < now())", mode: "basic" });
-    const basic = page.getByRole("button", { name: "Basic" });
+    const basic = page.getByRole("button", { name: "Filters", exact: true });
     await expect(basic).toBeDisabled();
     await expect(basic).toHaveAttribute("title", /mixes AND and OR \(col \d+\)/);
-    await expect(page.getByRole("button", { name: "Advanced" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "CQL", exact: true })).toHaveAttribute("aria-pressed", "true");
   });
 });

@@ -76,7 +76,7 @@ import { FiltersMenu } from "@/components/work-items/cql/filters-menu";
 import { SaveFilterDialog } from "@/components/work-items/cql/save-filter-dialog";
 import { SubscribeDialog } from "@/components/work-items/cql/subscribe-dialog";
 import { FilterChangedBar, filterChanged } from "@/components/work-items/cql/filter-changed-bar";
-import { rememberFilter, useSavedFilter, type SavedFilter } from "@/components/work-items/cql/use-saved-filters";
+import { rememberFilter, useSavedFilter, useSavedFilters, type SavedFilter } from "@/components/work-items/cql/use-saved-filters";
 import { toWorkItemFilter as cqlToWorkItemFilter } from "@/lib/query/adapters";
 import { ARCHIVED_ONLY, WATCHING, hasClause, legacyText, toggleClause } from "@/lib/query/chip-ops";
 import { parseCql } from "@/lib/query/parser";
@@ -190,6 +190,10 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   // changed: the server runs the stored query, narrowed to what this viewer
   // can see, so even a filter with ‹restricted› parts runs correctly.
   const loadedFilter = useSavedFilter(orgId, cqlOn ? cqlUrl.filterId : null);
+  // Same query key the Saved menu uses, so this is the same fetch, not another:
+  // it feeds the search box, which offers a saved filter whose name matches
+  // what is being typed (FR ad579c82).
+  const allSavedFilters = useSavedFilters(orgId, cqlOn);
   const typed = cqlOn ? cqlUrl.cql : "";
   const runById = cqlOn && !!cqlUrl.filterId && !typed.trim();
   const cqlText = typed.trim() ? typed : runById ? (loadedFilter.data?.cql ?? "") : "";
@@ -1139,6 +1143,8 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
           mode={cqlUrl.mode}
           onModeChange={cqlUrl.setMode}
           serverDiagnostics={cqlValidation.data?.diagnostics ?? []}
+          savedFilters={allSavedFilters.data}
+          onRunFilter={runSavedFilter}
         />
       ) : (
       <FilterBar

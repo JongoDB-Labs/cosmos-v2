@@ -39,15 +39,15 @@ export async function openIssues(page: Page, opts: { cql?: string; mode?: "basic
   if (opts.cql) qs.set("cql", opts.cql);
   if (opts.mode) qs.set("mode", opts.mode);
   await page.goto(`/${ORG_SLUG}/issues${qs.size ? `?${qs}` : ""}`);
-  await expect(page.getByRole("group", { name: "Query mode" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("group", { name: "How to filter" })).toBeVisible({ timeout: 30_000 });
 }
 
-/** The CodeMirror editor (Advanced mode). */
+/** The CodeMirror editor (CQL mode). */
 export function editor(page: Page) {
   return page.getByRole("textbox", { name: "Query" });
 }
 
-/** Replace the Advanced editor's text and run it. */
+/** Replace the CQL editor's text and run it. */
 export async function runCql(page: Page, text: string) {
   const ed = editor(page);
   await ed.click();

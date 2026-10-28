@@ -1,24 +1,40 @@
 "use client";
 
 /**
- * The Issues query bar where the org has CQL on: one query, two views.
+ * The Issues query bar where the org has CQL on: one query, two ways in.
  *
- *   Basic     the free-text box ("Search issues", writes `text ~ "…"`) and
- *             chips for everything else; each change applies at once, like
- *             the filter bar it replaces
- *   Advanced  the CQL editor (CodeMirror, loaded only when opened); "Run
- *             query" or Enter applies. Under 640px it is a plain textarea with
- *             the server's diagnostics instead (design §8.6).
+ *   Filters  dropdown chips and the free-text box ("Search issues", which
+ *            writes `text ~ "…"`); each change applies at once, like the
+ *            filter bar it replaces
+ *   CQL      the CQL editor (CodeMirror, loaded only when opened); "Run
+ *            query" or Enter applies. Under 640px it is a plain textarea with
+ *            the server's diagnostics instead (design §8.6).
  *
- * Both edit the same text, which lives in the URL (`?cql=`). Basic is offered
- * only when the query fits in chips (basic.ts); otherwise the button is
+ * They were called Basic and Advanced, which named the mechanism and not the
+ * job — reported as "i'm not sure what the difference between basic and
+ * advanced is" (FR ad579c82). Two things follow from that report:
+ *
+ *   - the names now say what each one DOES, and
+ *   - "Add filter" is in both. It used to exist only in chips, so a query with
+ *     a group, an OR or a history operator — exactly the queries that force
+ *     this bar into the text editor — had no filter dropdown at all. Beside
+ *     the editor it appends `AND <clause>` to the text (append-clause.ts)
+ *     rather than reprinting the tree, which is what makes it safe on a query
+ *     chips cannot represent.
+ *
+ * Only the LABELS changed. `?mode=basic` / `?mode=advanced` still mean what
+ * they did, because links people have already shared carry them, and the code
+ * keeps `BasicMode` / `AdvancedMode` to match.
+ *
+ * Both edit the same text, which lives in the URL (`?cql=`). Chips are offered
+ * only when the query fits in them (basic.ts); otherwise the button is
  * disabled and says why and where, instead of silently rewriting the query.
  * The mode is a view preference: `&mode=` when present, else what this viewer
  * last chose.
  */
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
-import { CircleHelp, Play, Search, Sparkles, WandSparkles, X } from "lucide-react";
+import { CircleHelp, Filter, Play, Search, Sparkles, WandSparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,6 +48,8 @@ import { printCql, printNode } from "@/lib/query/print";
 import { CQL_EXAMPLES } from "@/lib/query/describe";
 import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
 import { looksLikeQuery } from "@/lib/query/looks-like-query";
+import { appendChip, fieldsIn } from "@/lib/query/append-clause";
+import { toast } from "sonner";
 import { QueryChips } from "./query-chips";
 import { useCqlValidate, type CqlClientSchema, type QueryMode } from "./use-cql";
 
@@ -101,9 +119,32 @@ export interface QueryBuilderProps {
   onModeChange: (mode: QueryMode) => void;
   /** The server's findings on the applied text (unknown values and the like). */
   serverDiagnostics?: CqlDiagnostic[];
+  /**
+   * The viewer's saved filters, matched by name against what they type in the
+   * search box: "search/save filters in the search bar" (FR ad579c82). Left
+   * out where there are none to run — boards, for one.
+   */
+  savedFilters?: SavedFilterOption[];
+  onRunFilter?: (f: SavedFilterOption) => void;
 }
 
-export function QueryBuilder({ orgId, schema, cql, onCqlChange, mode, onModeChange, serverDiagnostics = [] }: QueryBuilderProps) {
+/** Enough of a saved filter to offer it and run it. */
+export interface SavedFilterOption {
+  id: string;
+  name: string;
+}
+
+export function QueryBuilder({
+  orgId,
+  schema,
+  cql,
+  onCqlChange,
+  mode,
+  onModeChange,
+  serverDiagnostics = [],
+  savedFilters,
+  onRunFilter,
+}: QueryBuilderProps) {
   const parsed = useMemo(() => parseCql(cql), [cql]);
   const chips = useMemo(
     () => (parsed.diagnostics.some((d) => d.severity === "error") ? ({ ok: false, reason: "has a syntax error" } as const) : toChips(parsed.query)),
@@ -114,7 +155,7 @@ export function QueryBuilder({ orgId, schema, cql, onCqlChange, mode, onModeChan
     : (() => {
         const span = !chips.ok && "at" in chips && chips.at ? spanOf(parsed.query.where, chips.at, parsed.spans) : undefined;
         const where = span ? ` (col ${lineCol(cql, span.from).column})` : "";
-        return `This query ${chips.reason}${where}, which chips can't show. Edit it in Advanced.`;
+        return `This query ${chips.reason}${where}, which chips can't show. Edit it under CQL.`;
       })();
 
   const [preferred, setPreferred] = useState<QueryMode | null>(null);
@@ -135,31 +176,31 @@ export function QueryBuilder({ orgId, schema, cql, onCqlChange, mode, onModeChan
   return (
     <div className="space-y-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3">
       <div className="flex flex-wrap items-start gap-2">
-        <div className="inline-flex shrink-0 overflow-hidden rounded-md border border-[var(--border)] text-xs" role="group" aria-label="Query mode">
+        <div className="inline-flex shrink-0 overflow-hidden rounded-md border border-[var(--border)] text-xs" role="group" aria-label="How to filter">
           <button
             type="button"
             aria-pressed={effective === "basic"}
             disabled={!chips.ok}
-            title={basicBlocked ?? "Filter with chips"}
+            title={basicBlocked ?? "Pick filters from dropdowns and search the text"}
             onClick={() => choose("basic")}
             className={cn(
               "px-2.5 py-1.5 disabled:cursor-not-allowed disabled:opacity-50",
               effective === "basic" ? "bg-[var(--primary)] text-[var(--primary-foreground,white)]" : "text-[var(--text-muted)] hover:text-[var(--text)]",
             )}
           >
-            Basic
+            Filters
           </button>
           <button
             type="button"
             aria-pressed={effective === "advanced"}
-            title="Write the query in CQL"
+            title="Write the filter as text, for grouping, OR and history. You can still add filters from the dropdown."
             onClick={() => choose("advanced")}
             className={cn(
               "px-2.5 py-1.5",
               effective === "advanced" ? "bg-[var(--primary)] text-[var(--primary-foreground,white)]" : "text-[var(--text-muted)] hover:text-[var(--text)]",
             )}
           >
-            Advanced
+            CQL
           </button>
         </div>
         {effective === "basic" && chips.ok ? (
@@ -174,6 +215,8 @@ export function QueryBuilder({ orgId, schema, cql, onCqlChange, mode, onModeChan
               onCqlChange(text);
               choose("advanced");
             }}
+            savedFilters={savedFilters}
+            onRunFilter={onRunFilter}
           />
         ) : (
           <AdvancedMode orgId={orgId} schema={schema} cql={cql} onRun={onCqlChange} serverDiagnostics={serverDiagnostics} />
@@ -200,6 +243,8 @@ function BasicMode({
   matchAny,
   onQuery,
   onRunAsQuery,
+  savedFilters,
+  onRunFilter,
 }: {
   orgId: string;
   schema: CqlClientSchema;
@@ -209,6 +254,8 @@ function BasicMode({
   onQuery: (q: CqlQuery) => void;
   /** Take what they typed and run it as a QUERY rather than as a phrase. */
   onRunAsQuery: (text: string) => void;
+  savedFilters?: SavedFilterOption[];
+  onRunFilter?: (f: SavedFilterOption) => void;
 }) {
   // The free-text box IS the `text ~` chip, so it isn't shown twice.
   const textChip = chips.find(isTextBox);
@@ -220,6 +267,15 @@ function BasicMode({
     setShown(text);
     setDraft(text);
   }
+
+  // "search/save filters in the search bar": a saved filter whose NAME matches
+  // what they are typing. The box itself searches issue text, so a filter's
+  // name typed here otherwise finds nothing and says nothing about why.
+  const needle = draft.trim().toLowerCase();
+  const filterHits =
+    onRunFilter && needle.length >= 2
+      ? (savedFilters ?? []).filter((f) => f.name.toLowerCase().includes(needle)).slice(0, 3)
+      : [];
 
   const emit = (next: Chip[], any: boolean, t: string) => {
     const all: Chip[] = t.trim() ? [...next, { kind: "text", field: { kind: "sys", id: "text" }, query: t.trim() }] : next;
@@ -244,6 +300,18 @@ function BasicMode({
         />
       </div>
       <QueryChips orgId={orgId} schema={schema} chips={rest} matchAny={matchAny} onChange={(c, any) => emit(c, any, text)} />
+      {filterHits.map((f) => (
+        <button
+          key={f.id}
+          type="button"
+          onClick={() => onRunFilter!(f)}
+          title={`Run the saved filter “${f.name}”`}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--text-muted)] hover:border-[var(--primary)] hover:text-[var(--text)]"
+        >
+          <Filter className="h-3.5 w-3.5" aria-hidden />
+          <span className="max-w-[12rem] truncate">{f.name}</span>
+        </button>
+      ))}
       {looksLikeQuery(draft) && (
         // This box searches for what you type as a PHRASE. A query typed here
         // matches nothing and says nothing about why, because nothing was
@@ -301,6 +369,10 @@ function AdvancedMode({
     if (!p.diagnostics.some((d) => d.severity === "error")) setDraft(printCql(p.query));
   };
 
+  // Fields the draft already constrains: offering them again would make a
+  // query chips then refuse ("has two conditions on one field").
+  const addable = useMemo(() => fieldsIn(draft), [draft]);
+
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-2">
       <div className="flex min-w-0 flex-wrap items-start gap-2">
@@ -351,6 +423,27 @@ function AdvancedMode({
           <CircleHelp className="h-4 w-4" aria-hidden />
         </Button>
       </div>
+      {/* "I should simply be able to add the filters from the dropdown on the
+          right" — here too, not only in chips. This appends `AND <clause>` to
+          the text and runs it, so it works on the grouped and history queries
+          that forced the bar into this editor in the first place. */}
+      <QueryChips
+        orgId={orgId}
+        schema={schema}
+        chips={[]}
+        matchAny={false}
+        hideMatch
+        excludeFields={addable}
+        onChange={(c) => {
+          const chip = c[c.length - 1];
+          if (!chip) return;
+          const r = appendChip(draft, chip);
+          if (r.ok) {
+            setDraft(r.cql);
+            onRun(r.cql);
+          } else toast.error(`Couldn't add that filter: ${r.reason}.`);
+        }}
+      />
       {/* The textarea has no inline lint, so its findings are listed. */}
       {narrow && draft !== cql && <Diagnostics items={findings} text={draft} />}
       {ask && <AskAi orgId={orgId} onQuery={setDraft} />}

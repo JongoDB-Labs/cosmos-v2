@@ -172,7 +172,7 @@ describe("IssuesView with CQL off", () => {
     expect(await screen.findByRole("combobox", { name: "Project" })).toBeTruthy();
     await waitFor(() => expect(searchUrls().length).toBeGreaterThan(0));
     expect(searchUrls().some((u) => u.includes("cql="))).toBe(false);
-    expect(screen.queryByRole("button", { name: "Advanced" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "CQL" })).toBeNull();
   });
 
   it("doesn't ask for the schema at all, so the browser logs no 404", async () => {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
-// The Issues query bar: Basic chips and the search box edit the one query
-// text, Advanced runs what's typed, and Basic refuses (with a reason) a query
+// The Issues query bar: the Filters chips and the search box edit the one
+// query text, CQL runs what's typed, and Filters refuses (with a reason) a query
 // chips can't show instead of rewriting it.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
@@ -21,7 +21,7 @@ if (!window.matchMedia) {
   window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;
 }
 
-// CodeMirror is the editor's business (and e2e's); here Advanced is a stand-in
+// CodeMirror is the editor's business (and e2e's); here CQL is a stand-in
 // that exposes the same contract: value, onChange, onRun.
 vi.mock("next/dynamic", () => ({
   default: () =>
@@ -59,8 +59,11 @@ const SCHEMA = {
 
 const onCqlChange = vi.fn();
 const onModeChange = vi.fn();
+const onRunFilter = vi.fn();
 
-function Harness({ initial, mode = null }: { initial: string; mode?: QueryMode | null }) {
+type Extra = { savedFilters?: { id: string; name: string }[] };
+
+function Harness({ initial, mode = null, savedFilters }: { initial: string; mode?: QueryMode | null } & Extra) {
   const [cql, setCql] = useState(initial);
   return (
     <QueryBuilder
@@ -73,15 +76,17 @@ function Harness({ initial, mode = null }: { initial: string; mode?: QueryMode |
       }}
       mode={mode}
       onModeChange={onModeChange}
+      savedFilters={savedFilters}
+      onRunFilter={savedFilters ? onRunFilter : undefined}
     />
   );
 }
 
-function renderBar(initial: string, mode: QueryMode | null = null) {
+function renderBar(initial: string, mode: QueryMode | null = null, extra: Extra = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <Harness initial={initial} mode={mode} />
+      <Harness initial={initial} mode={mode} {...extra} />
     </QueryClientProvider>,
   );
 }
@@ -98,10 +103,10 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("QueryBuilder — Basic", () => {
+describe("QueryBuilder — Filters", () => {
   it("shows one chip per clause, and the free text in the search box", () => {
     renderBar('assignee = me AND priority IN (HIGH, CRITICAL) AND text ~ "login"');
-    expect(screen.getByRole("button", { name: "Basic" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Filters" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("group", { name: "Filter: Assignee" })).toBeTruthy();
     expect(screen.getByRole("group", { name: "Filter: Priority" })).toBeTruthy();
     // `text ~` is the box, not a chip.
@@ -140,27 +145,27 @@ describe("QueryBuilder — Basic", () => {
   });
 });
 
-describe("QueryBuilder — Basic is refused, with a reason, when chips can't show the query", () => {
-  it("disables Basic and opens Advanced for OR across groups", () => {
+describe("QueryBuilder — Filters is refused, with a reason, when chips can't show the query", () => {
+  it("disables Filters and opens CQL for OR across groups", () => {
     const text = "priority = HIGH OR (assignee = me AND due < now())";
     renderBar(text);
-    const basic = screen.getByRole("button", { name: "Basic" }) as HTMLButtonElement;
+    const basic = screen.getByRole("button", { name: "Filters" }) as HTMLButtonElement;
     expect(basic.disabled).toBe(true);
     expect(basic.title).toMatch(/mixes AND and OR/);
     // Points at the group, where it was written.
     expect(basic.title).toContain(`(col ${lineCol(text, text.indexOf("(")).column})`);
-    expect(screen.getByRole("button", { name: "Advanced" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "CQL" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("textbox", { name: "Query" })).toBeTruthy();
   });
 
-  it("history operators stay in Advanced even when Basic was asked for", () => {
+  it("history operators stay in CQL even when Filters was asked for", () => {
     renderBar("status WAS Done", "basic");
-    expect((screen.getByRole("button", { name: "Basic" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Filters" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByRole("textbox", { name: "Query" })).toBeTruthy();
   });
 });
 
-describe("QueryBuilder — Advanced", () => {
+describe("QueryBuilder — CQL", () => {
   it("runs only on Run query, not per keystroke", () => {
     renderBar("assignee = me", "advanced");
     const editor = screen.getByRole("textbox", { name: "Query" });
@@ -170,9 +175,9 @@ describe("QueryBuilder — Advanced", () => {
     expect(onCqlChange).toHaveBeenLastCalledWith("assignee = me AND priority = HIGH");
   });
 
-  it("switching to Basic remembers the choice for next time", () => {
+  it("switching to Filters remembers the choice for next time", () => {
     renderBar("assignee = me", "advanced");
-    fireEvent.click(screen.getByRole("button", { name: "Basic" }));
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     expect(onModeChange).toHaveBeenLastCalledWith("basic");
     expect(window.localStorage.getItem("cosmos:issues:query-mode")).toBe("basic");
   });
@@ -233,5 +238,81 @@ describe("QueryBuilder — Advanced", () => {
     renderBar("assignee = me", "advanced");
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
     expect(onCqlChange).toHaveBeenLastCalledWith("");
+  });
+});
+
+// ── FR ad579c82 ──────────────────────────────────────────────────────────────
+// "i'm not sure what the difference between basic and advanced is. i should
+// simply be able to add the filters from the dropdown on the right or
+// search/save filters in the search bar"
+
+/** Make "Add filter" offer a person, which commits a chip in one click. */
+function offerPeople() {
+  vi.mocked(jsonFetch).mockImplementation((async (url: string) =>
+    String(url).includes("/cql/suggest")
+      ? { items: [{ label: "me", insert: "me", kind: "function" }] }
+      : { items: [] }) as never);
+}
+
+describe("QueryBuilder — adding a filter beside the CQL editor", () => {
+  it("offers Add filter on a query Filters refuses, and ANDs the new clause onto it", async () => {
+    const user = userEvent.setup();
+    offerPeople();
+    // Positive control: this is exactly the case that used to have NO filter
+    // dropdown — chips refuse it, so the bar is forced into the CQL editor.
+    renderBar("status WAS Done AFTER -7d", "basic");
+    expect((screen.getByRole("button", { name: "Filters" }) as HTMLButtonElement).disabled).toBe(true);
+
+    await user.click(await screen.findByRole("combobox", { name: "Add filter" }));
+    await user.click(await screen.findByRole("option", { name: "Assignee: me" }));
+
+    expect(onCqlChange).toHaveBeenLastCalledWith("status WAS Done AFTER -7d AND assignee = me");
+  });
+
+  it("does not offer a field the query already constrains", async () => {
+    const user = userEvent.setup();
+    offerPeople();
+    renderBar("status WAS Done AFTER -7d", "basic");
+    await user.click(await screen.findByRole("combobox", { name: "Add filter" }));
+    // Priority is free; Status is already in the query and would make a second
+    // condition on one field — which chips then refuse outright.
+    expect(await screen.findByRole("option", { name: "Priority" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Status" })).toBeNull();
+  });
+});
+
+describe("QueryBuilder — finding a saved filter from the search box", () => {
+  const FILTERS = [
+    { id: "f1", name: "My open bugs" },
+    { id: "f2", name: "Release blockers" },
+  ];
+
+  it("offers a saved filter whose name matches what is typed, and runs it", () => {
+    renderBar("", null, { savedFilters: FILTERS });
+    const box = screen.getByRole("textbox", { name: "Search issues" });
+    fireEvent.change(box, { target: { value: "open bu" } });
+
+    const hit = screen.getByRole("button", { name: "My open bugs" });
+    expect(screen.queryByRole("button", { name: "Release blockers" })).toBeNull();
+
+    fireEvent.click(hit);
+    expect(onRunFilter).toHaveBeenLastCalledWith({ id: "f1", name: "My open bugs" });
+    // Offering a filter must not also run the text as a search.
+    expect(onCqlChange).not.toHaveBeenCalled();
+  });
+
+  it("stays quiet for one character, and for text matching no filter", () => {
+    renderBar("", null, { savedFilters: FILTERS });
+    const box = screen.getByRole("textbox", { name: "Search issues" });
+    fireEvent.change(box, { target: { value: "m" } });
+    expect(screen.queryByRole("button", { name: "My open bugs" })).toBeNull();
+    fireEvent.change(box, { target: { value: "login page" } });
+    expect(screen.queryByRole("button", { name: "My open bugs" })).toBeNull();
+  });
+
+  it("offers nothing where there are no saved filters to run", () => {
+    renderBar("", null);
+    fireEvent.change(screen.getByRole("textbox", { name: "Search issues" }), { target: { value: "open bugs" } });
+    expect(screen.queryByRole("button", { name: "My open bugs" })).toBeNull();
   });
 });

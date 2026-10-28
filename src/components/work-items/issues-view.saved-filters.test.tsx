@@ -3,7 +3,7 @@
 // Saved filters on Issues (query phase 3): `?filter=<id>` runs the stored
 // filter by id and shows its text; changing the text raises "Filter changed"
 // (Save / Save as… / Discard); a filter with parts the viewer can't see says
-// so; Clear lets go of the loaded filter; the Filters menu runs one.
+// so; Clear lets go of the loaded filter; the Saved menu runs one.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -174,13 +174,13 @@ describe("Issues — saved filters", () => {
     expect(lastQs().get("cql")).toBeNull();
   });
 
-  it("the Filters menu runs a filter and remembers it", async () => {
+  it("the Saved menu runs a filter and remembers it", async () => {
     // base-ui sets pointer-events: none on a submenu while it animates in,
     // which jsdom never finishes; the e2e spec drives the real thing.
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderView();
-    await screen.findByRole("button", { name: "Filters" });
-    await user.click(screen.getByRole("button", { name: "Filters" }));
+    await screen.findByRole("button", { name: "Saved filters" });
+    await user.click(screen.getByRole("button", { name: "Saved filters" }));
     (await screen.findByRole("menuitem", { name: /My bugs/ })).focus();
     await user.keyboard("{ArrowRight}");
     const run = await screen.findByRole("menuitem", { name: "Run" });
