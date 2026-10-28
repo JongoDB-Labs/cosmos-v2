@@ -18,7 +18,20 @@ export const Lte = createToken({ name: "Lte", pattern: /<=/ });
 export const Gte = createToken({ name: "Gte", pattern: />=/ });
 export const Lt = createToken({ name: "Lt", pattern: /</ });
 export const Gt = createToken({ name: "Gt", pattern: />/ });
-export const Eq = createToken({ name: "Eq", pattern: /=/ });
+/**
+ * Equality. `==` is accepted and means the same as `=`.
+ *
+ * Reported from production: someone typed `type == feature`, got two
+ * diagnostics neither of which mentioned `=`, and concluded the query language
+ * did not work. Anyone who has written code types `==` by reflex, and the
+ * grammar has no other meaning for it — so accepting it costs nothing and
+ * removes a whole class of "it showed nothing". `printCql` still emits `=`,
+ * so the canonical form, saved filters and the URL are unchanged.
+ *
+ * Safe against the two-character operators: `!=`, `<=` and `>=` are their own
+ * tokens and are matched ahead of this one in OPERATOR_TOKENS.
+ */
+export const Eq = createToken({ name: "Eq", pattern: /==?/ });
 export const Tilde = createToken({ name: "Tilde", pattern: /~/ });
 export const Bang = createToken({ name: "Bang", pattern: /!/ });
 export const LParen = createToken({ name: "LParen", pattern: /\(/ });
