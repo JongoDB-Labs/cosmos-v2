@@ -32,6 +32,8 @@ export const KNOWN_DOMAINS = [
   "slack",
   "microsoft365",
   "nango",
+  /** Plugin-contributed surfaces, so an org can deny them by domain. */
+  "whiteboard",
   "utility",
 ] as const;
 
