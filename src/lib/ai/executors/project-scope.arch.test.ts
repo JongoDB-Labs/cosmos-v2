@@ -99,11 +99,33 @@ describe("agent tools cannot read past project scoping", () => {
    * project from the row. Thirty tools had that shape, and only reading the code
    * found them. Deliberately omits Note and CrmContact, which have no project.
    */
+  /**
+   * EVERY Prisma model carrying a `projectId`, derived from the schema rather
+   * than curated by hand — 42 of them, not the 17 this list used to name.
+   *
+   * The omissions were the guard's real width, and `timeEntry` proves it: this
+   * rule never examined `listTimeEntries`, so that function applied a
+   * caller-supplied projectId raw for as long as the test existed and the suite
+   * stayed green. Narrowing HAS_GATE did not help, because the function was
+   * never looked at in the first place. A guard is only as wide as what it
+   * reads, and a hand-kept list silently stops being the schema.
+   *
+   * Keep this in sync by regenerating it, not by remembering:
+   *   grep -E '^\s*projectId\s' -B40 prisma/schema.prisma | grep '^model'
+   */
   const PROJECT_SCOPED_MODELS = [
     "risk", "blocker", "deliverable", "changeRequest", "milestone",
     "objective", "keyResult", "goal", "kpi", "interval", "workItem",
     "workItemLink", "comment", "syncMeeting", "feedbackItem", "board",
     "document",
+    // Added 2026-10-29: present in the schema, absent from this guard.
+    "automationRule", "bill", "chatChannel", "clin", "contract", "customField",
+    "dataClassification", "documentItemLink", "domainEvent", "expense", "flag",
+    "journalLine", "milestoneSlip", "paceWeek", "pmLink",
+    "projectCloseoutSnapshot", "projectMember", "projectPhase", "roadmapNode",
+    "savedView", "staffingAllocation", "team", "teamsConversation",
+    "timeEntry", "weeklyReportEntry", "workflow", "workflowAssignment",
+    "workflowStatus",
   ];
 
   /**
@@ -139,8 +161,16 @@ describe("agent tools cannot read past project scoping", () => {
   // requireProjectRead) and only then authority, so a function using it is
   // scoped as well as authorised. Writes use it instead of assertProjectRead
   // because the HTTP write routes use requireProjectManage — see _ctx.ts.
+  // `readableTimeUserIds` is NOT a project gate and must never be accepted as
+  // one. It answers "whose hours may I see" — self, or self + direct reports
+  // for a supervisor — and says nothing about WHICH project those hours are on.
+  // Accepting it let `list_time_entries` apply a caller-supplied projectId raw
+  // for as long as this rule existed: the function satisfied the guard, so the
+  // guard never looked at the project. That is the same shape as the bare
+  // `projectInOrg` check this file was written to outlaw — a check that answers
+  // a different question than the one being asked — and the test blessed it.
   const HAS_GATE =
-    /assertProjectRead|assertProjectManage|getReadableProjectIds|visibleProjectIdsForActor|readableTimeUserIds/;
+    /assertProjectRead|assertProjectManage|getReadableProjectIds|visibleProjectIdsForActor|visibleProjectRecordsWhere/;
 
   /**
    * Writes that touch a project-scoped MODEL but never a project.
@@ -155,6 +185,29 @@ describe("agent tools cannot read past project scoping", () => {
     // has no projectId field and its create() never sets one — every row it
     // makes is org-level. If the schema gains the field, this entry must go.
     "feedback.ts::createFeedback",
+    // Expense HAS a projectId, but `logExpenseSchema` has no such field and the
+    // create() never sets one — checked 2026-10-29, `projectId` does not appear
+    // anywhere in finance.ts. Same precedent as createFeedback above: if the
+    // schema gains the field, this entry must go.
+    "finance.ts::logExpense",
+  ]);
+
+  /**
+   * Exported helpers whose project scope is supplied BY THE CALLER, as an
+   * argument, and which therefore cannot gate for themselves.
+   *
+   * This is a narrow exemption and it carries an obligation: the claim is about
+   * the CALL SITES, so adding one means having read every caller. Verified
+   * 2026-10-29 for the only entry.
+   */
+  const CALLER_SCOPED = new Set([
+    // `teamFilter(orgId, teamId, projectIds)` constrains
+    // `projectId: { in: projectIds }`, so it can only ever see the projects it
+    // was handed. Both callers gate first: work-items.ts:677 runs
+    // `assertProjectRead(ctx, data.projectId, "ITEM_READ")` before calling it,
+    // and tool-executor.ts:749 passes `readable` (or a projectId already
+    // matched against `readable`). If a third caller appears, re-verify.
+    "teams.ts::teamFilter",
   ]);
 
   it("no FUNCTION reaches project-scoped data without its own scope check", () => {
@@ -167,6 +220,7 @@ describe("agent tools cannot read past project scoping", () => {
         if (!TOUCHES_SCOPED.test(body)) continue;
         // Named exemptions, each with its reason — an allowlist, not a silence.
         if (ORG_LEVEL_WRITES.has(`${f}::${name}`)) continue;
+        if (CALLER_SCOPED.has(`${f}::${name}`)) continue;
         if (!HAS_GATE.test(body)) offenders.push(`${f}::${name}`);
       }
     }
