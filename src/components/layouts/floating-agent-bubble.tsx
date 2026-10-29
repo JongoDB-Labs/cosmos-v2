@@ -5,7 +5,7 @@ import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDrawers } from "@/components/drawers/drawer-provider";
 import { useBrand } from "@/components/providers/brand-provider";
-import { domIsBlocked, pickOffset, type Offset } from "./bubble-dodge";
+import { domIsBlocked, pickOffset, restingBox, type Offset } from "./bubble-dodge";
 
 /**
  * Persistent floating agent affordance (item 9).
@@ -53,7 +53,10 @@ export function FloatingAgentBubble({ orgId }: { orgId: string | undefined }) {
         "fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-40 md:bottom-6 md:right-6",
         "flex h-12 w-12 items-center justify-center rounded-full",
         "bg-[var(--primary)] text-[var(--primary-foreground)] shadow-lg",
-        "transition-transform duration-200 motion-reduce:transition-none hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]",
+        // Only `scale` transitions (for hover). The dodge offset must NOT animate:
+        // see useDodge — an in-flight `translate` made every re-check measure a
+        // position the bubble had not reached yet.
+        "transition-[scale] duration-200 motion-reduce:transition-none hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]",
       )}
       // `translate` (not `transform`) so it composes with hover:scale.
       style={offset.x || offset.y ? { translate: `${offset.x}px ${offset.y}px` } : undefined}
@@ -68,6 +71,23 @@ export function FloatingAgentBubble({ orgId }: { orgId: string | undefined }) {
  * (any scroller, so capture phase), resize and rotation, content added or
  * removed, and layout growing or shrinking. Checks are coalesced to one per
  * frame and at most ~8 a second.
+ *
+ * The resting box is measured so that it does NOT depend on the transform
+ * currently applied to the bubble. It used to be `getBoundingClientRect()`
+ * minus the applied offset, which made the measurement a function of animation
+ * state, and the throttle (120ms) is SHORTER than the old transition (200ms),
+ * so a re-check landing mid-move was the normal case rather than an edge one.
+ * Such a check computed a resting box off by the untravelled remainder, which
+ * shifted every candidate slot and all nine sample points, hit-tested the wrong
+ * pixels, and so returned a different slot -- which started another move, and
+ * another mistimed check. The bubble darted around the screen instead of
+ * settling (feedback item 46d8ea78).
+ *
+ * Two things keep it settled: the dodge offset is not animated (only `scale`
+ * is, for hover), and the size comes from the UNTRANSFORMED layout box, so
+ * `hover:scale-105` cannot shift the sample points either. Together those make
+ * repeated checks over an unchanged page idempotent, which is the property the
+ * tests pin.
  */
 function useDodge(active: boolean) {
   const ref = useRef<HTMLButtonElement>(null);
@@ -85,14 +105,13 @@ function useDodge(active: boolean) {
     const check = () => {
       frame = 0;
       last = performance.now();
-      // Measure the RESTING spot: undo the offset currently applied.
-      const r = el.getBoundingClientRect();
-      const rest = {
-        left: r.left - current.current.x,
-        top: r.top - current.current.y,
-        width: r.width,
-        height: r.height,
-      };
+      // Measure the RESTING spot, independent of the transform applied.
+      const rest = restingBox(
+        el.getBoundingClientRect(),
+        el.offsetWidth,
+        el.offsetHeight,
+        current.current,
+      );
       const next = pickOffset(rest, window.innerWidth, domIsBlocked(el));
       if (next.x !== current.current.x || next.y !== current.current.y) {
         current.current = next;
