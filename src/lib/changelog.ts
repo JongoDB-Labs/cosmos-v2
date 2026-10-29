@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.498.2",
+    date: "2026-10-29",
+    title: "Cancelling work uses the Cancelled column you already have",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If your project's Cancelled status had been archived, cancelling a ticket quietly added a SECOND one — and a second Cancelled lane at the end of every board, which is exactly the lane archiving had cleared away. Cancelling now brings your own Cancelled status back instead, so a project never ends up with two.",
+      },
+    ],
+  },
+  {
     version: "2.498.1",
     date: "2026-10-28",
     title: "The side panel stops following your mouse",
