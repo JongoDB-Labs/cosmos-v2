@@ -12,6 +12,7 @@ import { createClassificationResolver, type ClassificationResolver } from "@/lib
 import { rateLimit } from "@/lib/rate-limit/bucket";
 import { createNotification } from "@/lib/notifications/create";
 import { MS_CALENDAR } from "./calendar-connect";
+import { DEFAULT_SHARING_LEVEL } from "./calendar-sharing";
 import {
   CalendarNotConnected,
   CalendarReconnectNeeded,
@@ -19,6 +20,7 @@ import {
   onCalendarOffboard,
   orgCalendarConfig,
   patchCalendarMeta,
+  sharingLevelFor,
   type CalendarMeta,
   type OffboardReason,
 } from "./calendar-token.server";
@@ -43,11 +45,12 @@ import { GraphError, GraphThrottled, graphRequest, type GraphDeps } from "./grap
  *  - Whichever side changed last wins.
  *  - Deleting the event in Outlook only detaches it; the meeting stays.
  *  - Restricted (classified) meetings go out as a bare busy block, and only a
- *    time change comes back.
+ *    time change comes back. So does anything for someone whose sharing level
+ *    is free/busy only (see calendar-sharing.ts).
  */
 
 const CALENDAR_NAME = "Cosmos";
-/** What a restricted meeting is called outside Cosmos. */
+/** What a meeting published busy-only is called outside Cosmos. */
 export const RESTRICTED_TITLE = "Cosmos item";
 const ENTITY = "meeting";
 /** The window a pull covers, re-anchored once it has drifted this far. */
@@ -244,12 +247,16 @@ async function forgetCalendar(orgId: string, userId: string) {
 
 // ── Push ────────────────────────────────────────────────────────────────────
 
-/** The Graph event body for a meeting, as this person should see it. */
-export function meetingEvent(m: SyncMeeting, restricted: boolean, link: string | null) {
+/**
+ * The Graph event body for a meeting, as this person should see it.
+ * `busyOnly`: a bare busy block, carrying no title, details or link — a
+ * restricted meeting, or anyone whose sharing level is free/busy only.
+ */
+export function meetingEvent(m: SyncMeeting, busyOnly: boolean, link: string | null) {
   const start = m.meetingDate;
   const minutes = Math.min(Math.max(m.durationMinutes || 30, MIN_MINUTES), MAX_MINUTES);
   const end = new Date(start.getTime() + minutes * 60_000);
-  if (restricted) {
+  if (busyOnly) {
     return {
       subject: RESTRICTED_TITLE, body: { contentType: "text", content: "" }, start: utc(start), end: utc(end),
       isAllDay: false, showAs: "busy", location: { displayName: "" },
@@ -673,10 +680,18 @@ async function pushFor(
   if (!conn) return;
   let calendarId = await ensureCosmosCalendar(orgId, userId, deps);
   const restricted = cls.restricted(m.projectId, m.title, m.meetingUrl);
-  const base = meetingEvent(m, restricted, await meetingLink(orgId, conn.meta, m.id));
   // Invite mode (organizer only, never restricted): the attendees go on the
   // event, and Outlook sends the invitations and updates.
   const inviting = !!invitees && !restricted;
+  // Their sharing level decides what their own mirrored copy carries. An
+  // invitation they chose to send carries the details its attendees need,
+  // whatever level they publish their calendar at: the invitation IS their
+  // Outlook event, and one with no title, details or link is not an
+  // invitation. So free/busy only is not an absolute promise about this
+  // calendar — it holds for everything Cosmos publishes, and the exception is
+  // a meeting they themselves turned invitations on for. Settings says so.
+  const busyOnly = restricted || (!inviting && (await sharingLevelFor(orgId, conn.meta)) === "busy");
+  const base = meetingEvent(m, busyOnly, await meetingLink(orgId, conn.meta, m.id));
   const body = inviting ? inviteBody(base, invitees!) : base;
   const hash = inviting ? inviteHash(body as ReturnType<typeof inviteBody>) : bodyHash(body);
   let existing = await prisma.externalEventLink.findUnique({ where: linkKey(orgId, userId, m.id) });
@@ -837,6 +852,27 @@ export function syncMeetingSoon(orgId: string, meetingId: string) {
 }
 
 /**
+ * Fire-and-forget: rewrite one person's copies, so a sharing level they just
+ * changed takes effect now rather than at the next scheduled pull. The
+ * reconcile pass re-sends every copy whose body the new level changed.
+ */
+export function syncUserSoon(orgId: string, userId: string): Promise<void> | undefined {
+  const run = () =>
+    syncUserNow(orgId, userId).then(
+      () => undefined,
+      (e: unknown) => {
+        if (!personal(e)) console.error("outlook resync failed:", e instanceof Error ? e.message : "unknown");
+      },
+    );
+  try {
+    after(run); // keeps the work alive past the response
+    return undefined;
+  } catch {
+    return run(); // outside a request (scripts, tests)
+  }
+}
+
+/**
  * A classification changed (org-wide, or one project's): re-check live
  * invitations now, so one whose meeting became classified is cancelled at
  * once rather than at the next reconcile. Fire-and-forget, like any push.
@@ -962,6 +998,11 @@ async function applyOne(
     return;
   }
   const restricted = cls.restricted(m.projectId, m.title, m.meetingUrl);
+  // What their copy carries, by the same rule the push follows: a busy-only
+  // copy holds no title of ours, so none can come back from one.
+  const conn = await calendarConnection(orgId, userId);
+  const level = conn ? await sharingLevelFor(orgId, conn.meta) : DEFAULT_SHARING_LEVEL;
+  const busyOnly = restricted || (m.inviteOrganizerId !== userId && level === "busy");
   const changes: Prisma.SyncMeetingUpdateInput = {};
   const trail: [string, string | null, string | null][] = [];
   // An all-day Outlook event has no time Cosmos can take; leave the time alone.
@@ -978,9 +1019,9 @@ async function applyOne(
       trail.push(["durationMinutes", String(m.durationMinutes), String(mins)]);
     }
   }
-  // A restricted meeting's title never left Cosmos, so none can come back.
+  // A busy-only copy's title never left Cosmos, so none can come back.
   const subject = ev.subject?.trim().slice(0, MAX_TITLE);
-  if (!restricted && subject && subject !== m.title && subject !== RESTRICTED_TITLE) {
+  if (!busyOnly && subject && subject !== m.title && subject !== RESTRICTED_TITLE) {
     changes.title = subject;
     trail.push(["title", m.title, subject]);
   }
@@ -1023,11 +1064,12 @@ async function applyOne(
   const updated = await prisma.syncMeeting.update({ where: { id: m.id }, data: changes });
   for (const [field, o, n] of trail) await meetingActivity(orgId, userId, m.id, "outlook_updated", field, o, n);
   // Their copy now matches the meeting: record that, so nothing re-sends it.
-  const conn = await calendarConnection(orgId, userId);
   const restrictedNow = cls.restricted(updated.projectId, updated.title, updated.meetingUrl);
-  const view = conn ? meetingEvent(updated, restrictedNow, await meetingLink(orgId, conn.meta, m.id)) : null;
+  const invitingNow = updated.inviteOrganizerId === userId && !restrictedNow;
+  const busyNow = restrictedNow || (!invitingNow && level === "busy");
+  const view = conn ? meetingEvent(updated, busyNow, await meetingLink(orgId, conn.meta, m.id)) : null;
   const hash = !view ? null
-    : updated.inviteOrganizerId === userId && !restrictedNow ? inviteHash(inviteBody(view, await inviteesFor(await withAttendees(updated))))
+    : invitingNow ? inviteHash(inviteBody(view, await inviteesFor(await withAttendees(updated))))
     : bodyHash(view);
   await prisma.externalEventLink.update({ where: { id: link.id }, data: { changeKey: ev.changeKey ?? null, contentHash: hash, lastSyncedAt: new Date() } });
   out.applied++;
