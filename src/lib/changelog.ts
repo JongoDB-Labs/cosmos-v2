@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.499.0",
+    date: "2026-10-29",
+    title: "Choose how much your Outlook calendar shows",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Your Cosmos meetings go into Outlook at a sharing level you choose, the way a calendar app's own sharing works: full details, or free/busy only — plain busy blocks with no titles, details or links, for anyone who shares their Outlook calendar more widely than the meetings in it. Pick yours under Settings, Preferences; an admin sets the default for everyone under Settings, Integrations. Classified meetings are busy-only whatever is chosen.",
+      },
+      {
+        kind: "improvement",
+        text: "Where this ticket left the integration's direction open, it was settled automatically: Cosmos publishes its dates into Outlook, with per-person sharing levels and an org-wide default. Reply on the ticket to change that.",
+      },
+    ],
+  },
+  {
     version: "2.498.1",
     date: "2026-10-28",
     title: "The side panel stops following your mouse",

@@ -6,6 +6,7 @@ import { CalendarCheck, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { SectionCard } from "@/components/ui/section-card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -16,12 +17,19 @@ import { notifyError } from "@/lib/errors/notify";
  * COSMOS-202: connect your own Outlook / Microsoft 365 calendar (B1), and
  * your Cosmos meetings are mirrored into it with Outlook edits brought back
  * (B2). Off until an org admin installs the Outlook Calendar integration.
+ *
+ * What a mirrored event carries follows a sharing level, as a calendar app's
+ * own sharing does: full details, or free/busy only. Each person picks theirs
+ * here; an admin sets the org-wide default on Integrations.
  */
+
+type SharingLevel = "full" | "busy";
 
 interface CalendarStatus {
   enabled: boolean;
   canManage: boolean;
   admin: { redirectUri: string; adminConsentUrl: string | null; appConfigured: boolean } | null;
+  sharing?: { level: SharingLevel | "default"; orgDefault: SharingLevel; effective: SharingLevel };
   connection: {
     account: string;
     status: "connected" | "reconnect";
@@ -29,6 +37,11 @@ interface CalendarStatus {
     lastSyncAt: string | null;
   } | null;
 }
+
+const LEVEL_LABELS: Record<SharingLevel, string> = {
+  full: "Full details",
+  busy: "Free/busy only",
+};
 
 /** What the callback came back with (?outlook=…), in words. */
 const OUTCOMES: Record<string, { ok: boolean; text: string }> = {
@@ -105,8 +118,16 @@ export function OutlookCalendarSection({ orgId }: { orgId: string }) {
     onSuccess: () => toast.success("Outlook Calendar synced"),
     onError: (e) => notifyError(e, "Couldn't sync."),
   });
+  const setLevel = useOrgMutation({
+    mutationFn: (level: SharingLevel | "default") =>
+      jsonFetch(`/api/v1/orgs/${orgId}/microsoft/calendar/sharing`, { method: "PUT", body: JSON.stringify({ level }) }),
+    invalidate: [["outlook-calendar"]],
+    onSuccess: () => toast.success("Saved. Your Cosmos calendar is being updated."),
+    onError: (e) => notifyError(e, "Couldn't change that."),
+  });
   const connectHref = `/api/v1/orgs/${orgId}/microsoft/calendar/connect`;
   const conn = data?.connection;
+  const sharing = data?.sharing;
 
   return (
     <SectionCard
@@ -199,6 +220,32 @@ export function OutlookCalendarSection({ orgId }: { orgId: string }) {
               </div>
             </div>
           )}
+          {sharing && (
+            <div className="space-y-1.5">
+              <label htmlFor="outlook-sharing-level" className="text-sm font-medium">
+                What your Cosmos calendar shows
+              </label>
+              <Select
+                value={sharing.level}
+                onValueChange={(v) => v && setLevel.mutate(v as SharingLevel | "default")}
+                disabled={setLevel.isPending}
+              >
+                <SelectTrigger id="outlook-sharing-level" aria-label="What your Cosmos calendar shows" className="max-w-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Organization default ({LEVEL_LABELS[sharing.orgDefault].toLowerCase()})</SelectItem>
+                  <SelectItem value="full">{LEVEL_LABELS.full}</SelectItem>
+                  <SelectItem value="busy">{LEVEL_LABELS.busy}</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {sharing.effective === "busy"
+                  ? "Your events go out as plain busy blocks: no titles, details or links. Pick full details if you share your calendar only with people who may see them."
+                  : "Your events carry their title, a link back to Cosmos, and the join link. Anyone you share your Outlook calendar with sees what your sharing permissions let them see, so pick free/busy only if that is wider than the meetings."}
+              </p>
+            </div>
+          )}
           <p className="text-xs text-muted-foreground">
             Meetings you attend appear in your &quot;Cosmos&quot; calendar. A time or title change you make there
             comes back to Cosmos if you can edit that meeting; otherwise the Cosmos version is put back. Deleting
@@ -214,12 +261,20 @@ export function OutlookCalendarSection({ orgId }: { orgId: string }) {
   );
 }
 
-/** For admins, on Integrations: what the Entra app needs, in order. */
+/** For admins, on Integrations: what the Entra app needs, in order, and the org-wide default. */
 export function OutlookCalendarAdminSetup({ orgId }: { orgId: string }) {
   const { data } = useCalendarStatus(orgId);
   const consent = useLandingParam("msConsent");
+  const setOrgDefault = useOrgMutation({
+    mutationFn: (orgDefault: SharingLevel) =>
+      jsonFetch(`/api/v1/orgs/${orgId}/microsoft/calendar/sharing`, { method: "PUT", body: JSON.stringify({ orgDefault }) }),
+    invalidate: [["outlook-calendar"]],
+    onSuccess: () => toast.success("Default saved"),
+    onError: (e) => notifyError(e, "Couldn't change the default."),
+  });
   if (!data?.canManage || !data.admin) return null;
   const a = data.admin;
+  const sharing = data.sharing;
   const copy = (v: string) =>
     void navigator.clipboard?.writeText(v).then(
       () => toast.success("Copied"),
@@ -266,6 +321,32 @@ export function OutlookCalendarAdminSetup({ orgId }: { orgId: string }) {
           )}
         </li>
       </ol>
+      {sharing && (
+        <div className="mt-4 space-y-1.5 border-t border-border pt-4">
+          <label htmlFor="outlook-sharing-default" className="text-sm font-medium">
+            What published calendars show by default
+          </label>
+          <Select
+            value={sharing.orgDefault}
+            onValueChange={(v) => v && setOrgDefault.mutate(v as SharingLevel)}
+            disabled={setOrgDefault.isPending}
+          >
+            <SelectTrigger id="outlook-sharing-default" aria-label="What published calendars show by default" className="max-w-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="full">{LEVEL_LABELS.full}</SelectItem>
+              <SelectItem value="busy">{LEVEL_LABELS.busy}</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            What Cosmos writes into the calendar of anyone who hasn&apos;t chosen for themselves. Free/busy only
+            sends plain busy blocks, with no titles, details or links — safest where people share their Outlook
+            calendars widely. Each person can still choose their own under Settings, Preferences. A new default
+            reaches everyone&apos;s calendar within a few minutes. Classified meetings are always busy only.
+          </p>
+        </div>
+      )}
     </SectionCard>
   );
 }

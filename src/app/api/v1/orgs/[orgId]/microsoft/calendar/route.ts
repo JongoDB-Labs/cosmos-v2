@@ -8,7 +8,7 @@ import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { MS_CALENDAR, MS_CALENDAR_CALLBACK_PATH, calendarAdminConsentUrl } from "@/lib/integrations/microsoft/calendar-connect";
 import { liveInvites, releaseInvitesOnDisconnect, removeCosmosCalendar } from "@/lib/integrations/microsoft/calendar-sync.server";
-import { calendarConnection, disconnectCalendar, orgCalendarConfig } from "@/lib/integrations/microsoft/calendar-token.server";
+import { calendarConnection, calendarSharingState, disconnectCalendar, orgCalendarConfig } from "@/lib/integrations/microsoft/calendar-token.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -20,15 +20,17 @@ async function resolve(orgId: string) {
 }
 
 /**
- * The signed-in person's Outlook Calendar connection (COSMOS-202 B1), and, for
- * admins, what the Entra app needs: the redirect URI to register and the
- * one-time admin-consent link. Never a token.
+ * The signed-in person's Outlook Calendar connection (COSMOS-202 B1), the
+ * sharing level their published events carry with the org default behind it,
+ * and, for admins, what the Entra app needs: the redirect URI to register and
+ * the one-time admin-consent link. Never a token.
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const r = await resolve((await params).orgId);
     if (!r) return new Response("Unauthorized", { status: 401 });
     const [cfg, conn] = await Promise.all([orgCalendarConfig(r.org.id), calendarConnection(r.org.id, r.ctx.userId)]);
+    const sharing = await calendarSharingState(r.org.id, conn?.meta);
     const canManage = hasPermission(r.ctx.permissions, Permission.INTEGRATION_MANAGE);
     const redirectUri = `${getPublicOrigin(request)}${MS_CALENDAR_CALLBACK_PATH}`;
     let admin: { redirectUri: string; adminConsentUrl: string | null; appConfigured: boolean } | null = null;
@@ -49,6 +51,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       enabled: Boolean(cfg),
       canManage,
       admin,
+      sharing,
       connection: conn
         ? { account: conn.meta.upn, status: conn.meta.status, connectedAt: conn.meta.connectedAt, lastSyncAt: conn.meta.lastSyncAt ?? null }
         : null,

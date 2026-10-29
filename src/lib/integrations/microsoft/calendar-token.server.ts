@@ -5,6 +5,12 @@ import { getProviderConfig } from "@/lib/auth/provider-config";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { microsoftGraphOrigin, microsoftLoginOrigin } from "./hosts";
 import { MS_CALENDAR, MS_CALENDAR_SCOPES, idTokenClaims, type IdClaims } from "./calendar-connect";
+import {
+  effectiveSharingLevel,
+  orgSharingLevel,
+  userSharingLevel,
+  type SharingLevel,
+} from "./calendar-sharing";
 
 /**
  * COSMOS-202 (B1): a connected person's Microsoft Graph access token.
@@ -43,6 +49,8 @@ export interface CalendarMeta {
   /** When the delta's window ends; the pull restarts it before then (B2). */
   windowEnd?: string;
   lastSyncAt?: string;
+  /** How much this person publishes; unset follows the org's default. */
+  sharingLevel?: SharingLevel;
   [k: string]: unknown;
 }
 
@@ -93,6 +101,32 @@ export async function orgCalendarConfig(orgId: string, opts: { anyStatus?: boole
   const app = await getProviderConfig("microsoft");
   if (!app) return null;
   return { clientId: app.clientId, clientSecret: app.clientSecret, tenantId: tenantId.trim() };
+}
+
+/** The org-wide default sharing level, from the org's settings. */
+export async function orgSharingDefault(orgId: string): Promise<SharingLevel> {
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { settings: true } });
+  return orgSharingLevel(org?.settings);
+}
+
+export interface CalendarSharingState {
+  /** This person's own choice, or "default" while they follow the org's. */
+  level: SharingLevel | "default";
+  orgDefault: SharingLevel;
+  /** What is actually published for them. */
+  effective: SharingLevel;
+}
+
+/** The sharing level a person is on, and the org default behind it. */
+export async function calendarSharingState(orgId: string, meta?: CalendarMeta | null): Promise<CalendarSharingState> {
+  const orgDefault = await orgSharingDefault(orgId);
+  const own = userSharingLevel(meta);
+  return { level: own ?? "default", orgDefault, effective: effectiveSharingLevel(orgDefault, own) };
+}
+
+/** What Cosmos publishes into this person's Outlook: their choice, else the org's. */
+export async function sharingLevelFor(orgId: string, meta: CalendarMeta): Promise<SharingLevel> {
+  return (await calendarSharingState(orgId, meta)).effective;
 }
 
 class TokenEndpointError extends Error {
@@ -175,11 +209,14 @@ export async function completeCalendarConnect(
   // "Cosmos" calendar and delta position), so nothing is recreated. A different
   // account starts clean: the old event links point into someone else's mailbox.
   const sameAccount = !!prev && prev.oid === claims.oid && prev.tid?.toLowerCase() === claims.tid.toLowerCase();
-  const kept: Partial<CalendarMeta> = sameAccount
-    ? Object.fromEntries(
-        (["calendarId", "deltaLink", "windowEnd", "lastSyncAt"] as const).filter((k) => prev[k] !== undefined).map((k) => [k, prev[k]]),
-      )
-    : {};
+  const keep = (keys: readonly (keyof CalendarMeta)[]): Partial<CalendarMeta> =>
+    Object.fromEntries(keys.filter((k) => prev?.[k] !== undefined).map((k) => [k, prev![k]]));
+  const kept: Partial<CalendarMeta> = {
+    // Their sharing level is a preference, not sync state: it survives any
+    // reconnect, including one onto a different Microsoft account.
+    ...keep(["sharingLevel"]),
+    ...(sameAccount ? keep(["calendarId", "deltaLink", "windowEnd", "lastSyncAt"]) : {}),
+  };
   const mail = await mailboxAddress(t.access_token, deps.fetch ?? fetch);
   const meta: CalendarMeta = {
     ...claims,
