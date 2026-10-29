@@ -5,7 +5,13 @@ import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDrawers } from "@/components/drawers/drawer-provider";
 import { useBrand } from "@/components/providers/brand-provider";
-import { domIsBlocked, pickOffset, restingBox, type Offset } from "./bubble-dodge";
+import {
+  domIsBlocked,
+  domIsCovered,
+  nextOffset,
+  restingBox,
+  type Offset,
+} from "./bubble-dodge";
 
 /**
  * Persistent floating agent affordance (item 9).
@@ -83,11 +89,13 @@ export function FloatingAgentBubble({ orgId }: { orgId: string | undefined }) {
  * another mistimed check. The bubble darted around the screen instead of
  * settling (feedback item 46d8ea78).
  *
- * Two things keep it settled: the dodge offset is not animated (only `scale`
- * is, for hover), and the size comes from the UNTRANSFORMED layout box, so
- * `hover:scale-105` cannot shift the sample points either. Together those make
- * repeated checks over an unchanged page idempotent, which is the property the
- * tests pin.
+ * Three things keep it settled: the dodge offset is not animated (only `scale`
+ * is, for hover); the size comes from the UNTRANSFORMED layout box, so
+ * `hover:scale-105` cannot shift the sample points either; and a check that
+ * finds the bubble COVERED holds its position instead of re-picking against
+ * the overlay's controls (see `nextOffset`) — which is what opening a drawer
+ * or a modal used to do. Together those make repeated checks over an unchanged
+ * page idempotent, which is the property the tests pin.
  */
 function useDodge(active: boolean) {
   const ref = useRef<HTMLButtonElement>(null);
@@ -112,7 +120,14 @@ function useDodge(active: boolean) {
         el.offsetHeight,
         current.current,
       );
-      const next = pickOffset(rest, window.innerWidth, domIsBlocked(el));
+      const next = nextOffset(
+        current.current,
+        // Covered by a dialog, a sheet or the docked drawer ⇒ hold position.
+        domIsCovered(el),
+        rest,
+        window.innerWidth,
+        domIsBlocked(el),
+      );
       if (next.x !== current.current.x || next.y !== current.current.y) {
         current.current = next;
         setOffset(next);

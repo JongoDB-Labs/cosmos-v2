@@ -114,9 +114,13 @@ export function pickOffset(
 /**
  * `isBlocked` against the live document: the topmost element at the point,
  * skipping the bubble, is (inside) something tappable. Using the hit-test
- * stack rather than overlapping rectangles means anything drawn above the
- * bubble (a dialog, a menu) never counts, and neither does anything hidden
- * under an opaque panel.
+ * stack rather than overlapping rectangles means nothing hidden under an
+ * opaque panel counts.
+ *
+ * It says nothing about PAINT ORDER, though: the topmost element at a point is
+ * reported whether it sits below the bubble or above it, so an overlay's own
+ * controls read as blockers even though the bubble covers nothing there. That
+ * is what {@link domIsCovered} is for — ask it first.
  */
 export function domIsBlocked(bubble: Element): (x: number, y: number) => boolean {
   return (x, y) => {
@@ -124,4 +128,53 @@ export function domIsBlocked(bubble: Element): (x: number, y: number) => boolean
     const top = stack.find((el) => el !== bubble && !bubble.contains(el));
     return !!top?.closest(TAPPABLE);
   };
+}
+
+/**
+ * Is something painted OVER the bubble where it sits — a modal dialog or its
+ * backdrop, a sheet, the docked drawer, an open menu?
+ *
+ * `stack` is a hit test at the bubble's own centre, topmost first, so the
+ * bubble is covered exactly when the first entry is neither the bubble nor a
+ * part of it (the icon inside it). The centre is the one point the bubble
+ * always occupies whatever its corner radius or hover scale.
+ */
+export function isCoveredByStack(stack: readonly Element[], bubble: Element): boolean {
+  const top = stack[0];
+  return !!top && top !== bubble && !bubble.contains(top);
+}
+
+/** {@link isCoveredByStack} against the live document. */
+export function domIsCovered(bubble: Element): boolean {
+  const r = bubble.getBoundingClientRect();
+  return isCoveredByStack(
+    document.elementsFromPoint(r.left + r.width / 2, r.top + r.height / 2),
+    bubble,
+  );
+}
+
+/**
+ * One check of the dodge loop: the offset the bubble should hold now.
+ *
+ * While it is COVERED the answer is "whatever you are already holding". The
+ * bubble hides nothing under a dialog or the docked drawer, so there is
+ * nothing to dodge — and re-picking there is actively harmful: every candidate
+ * slot is hit-tested against the OVERLAY's controls (a drawer is wall-to-wall
+ * buttons), so the right edge reads as blocked, the bubble is sent to the left
+ * edge, and the next mutation inside the overlay — a message arriving, a list
+ * loading — picks again and sends it somewhere else. Opening certain drawers
+ * and modals made it dart across the screen (feedback item 46d8ea78).
+ *
+ * Holding, rather than resetting to the resting spot, is what makes this safe:
+ * a check that moves nothing cannot start a cycle with the next one.
+ */
+export function nextOffset(
+  current: Offset,
+  covered: boolean,
+  rest: Box,
+  viewportWidth: number,
+  isBlocked: (x: number, y: number) => boolean,
+): Offset {
+  if (covered) return current;
+  return pickOffset(rest, viewportWidth, isBlocked);
 }

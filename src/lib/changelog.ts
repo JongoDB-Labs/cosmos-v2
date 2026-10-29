@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.498.2",
+    date: "2026-10-29",
+    title: "The Cosmo button stops darting about",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Opening certain drawers and dialogs sent the floating Cosmo button skittering around the screen. It keeps itself clear of buttons it would otherwise cover, but it was counting the panel's own buttons — drawn over the top of it, where it covers nothing — so every change inside the panel sent it somewhere else. While something is drawn over it, it now stays where it is.",
+      },
+    ],
+  },
+  {
     version: "2.498.1",
     date: "2026-10-28",
     title: "The side panel stops following your mouse",
