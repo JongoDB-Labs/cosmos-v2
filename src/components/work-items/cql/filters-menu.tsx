@@ -15,8 +15,14 @@
  *   Shared with me  others' filters, by how they were shared
  *   Recently used   the last five you ran in this browser
  *
- * Per filter: Run, Star / Unstar, Edit details, Copy CQL, Copy link, Subscribe, Delete.
+ * Per filter: Run, Save as board, Star / Unstar, Edit details, Copy CQL, Copy
+ * link, Subscribe, Delete.
  * "Copy CQL" copies the text as you may see it (‹restricted› parts and all).
+ *
+ * "Save as board" is here because the Issues toolbar button beside this menu
+ * acts on the query CURRENTLY in the bar, so turning a SAVED filter into a
+ * board meant knowing to run it first and then noticing a separate control.
+ * Nothing said a board was possible from a filter at all.
  */
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -48,6 +54,11 @@ export interface FiltersMenuProps {
   onEdit: (f: SavedFilter) => void;
   /** Open the Subscribe dialog for this filter. */
   onSubscribe: (f: SavedFilter) => void;
+  /**
+   * Turn this filter into a project board. Omitted when the viewer cannot
+   * create boards, so the action is absent rather than present-and-refused.
+   */
+  onSaveAsBoard?: (f: SavedFilter) => void;
 }
 
 const SHARED_AS: Record<SavedFilter["visibility"], string> = {
@@ -57,7 +68,7 @@ const SHARED_AS: Record<SavedFilter["visibility"], string> = {
   ORG: "Everyone",
 };
 
-export function FiltersMenu({ orgId, orgSlug, activeId, onRun, onEdit, onSubscribe }: FiltersMenuProps) {
+export function FiltersMenu({ orgId, orgSlug, activeId, onRun, onEdit, onSubscribe, onSaveAsBoard }: FiltersMenuProps) {
   const { data: filters = [] } = useSavedFilters(orgId);
   const { star, remove } = useSavedFilterMutations(orgId);
   const [q, setQ] = useState("");
@@ -99,6 +110,9 @@ export function FiltersMenu({ orgId, orgSlug, activeId, onRun, onEdit, onSubscri
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="min-w-44">
         <DropdownMenuItem onClick={() => onRun(f)}>Run</DropdownMenuItem>
+        {onSaveAsBoard && (
+          <DropdownMenuItem onClick={() => onSaveAsBoard(f)}>Save as board\u2026</DropdownMenuItem>
+        )}
         <DropdownMenuItem onClick={() => star.mutate({ id: f.id, on: !f.favorite })}>{f.favorite ? "Unstar" : "Star"}</DropdownMenuItem>
         {f.canEdit && <DropdownMenuItem onClick={() => onEdit(f)}>Edit details…</DropdownMenuItem>}
         <DropdownMenuItem onClick={() => void copyCql(f)}>Copy CQL</DropdownMenuItem>

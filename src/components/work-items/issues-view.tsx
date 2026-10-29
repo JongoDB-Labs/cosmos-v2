@@ -160,6 +160,8 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [saveBoardOpen, setSaveBoardOpen] = useState(false);
+  /** The board name to open the dialog with — a saved filter's name, or "". */
+  const [saveBoardSeed, setSaveBoardSeed] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   // When set, the create dialog opens as a pre-filled "Duplicate issue" draft
   // seeded from this row (COSMOS-13); null = a blank "New issue".
@@ -218,6 +220,21 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     },
     [cqlUrl],
   );
+  /**
+   * "Save as board" straight from the Saved menu: run the filter so the board
+   * is built from the same query the user is about to see, and open the dialog
+   * named after it. The dialog blocks submission until that query has actually
+   * resolved (`boardUnavailable`), so clicking through immediately cannot
+   * create a board scoped to everything.
+   */
+  const saveFilterAsBoard = useCallback(
+    (f: SavedFilter) => {
+      runSavedFilter(f);
+      setSaveBoardSeed(f.name);
+      setSaveBoardOpen(true);
+    },
+    [runSavedFilter],
+  );
   const cfTypes = useMemo(
     () => new Map((cqlSchema.schema?.customFields ?? []).map((c) => [c.key, c.fieldType as string])),
     [cqlSchema.schema],
@@ -238,13 +255,22 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     const v = cqlValidation.data;
     return v?.valid && v.query ? v.query : undefined;
   }, [cqlOn, cqlText, cqlValidation.data]);
-  const boardUnavailable = cqlOn && !boardQuery
-    ? restrictedFilter
-      ? "This filter names things you can't see, so it can't become a board. Save it as a new filter first."
-      : cqlValidation.isFetching
-        ? "Checking the query…"
-        : "Fix the query first."
-    : undefined;
+  // A saved filter run by id has its CQL FETCHED (see `cqlText` above), so
+  // until it lands `cqlText` is "" — and an empty query is a VALID query
+  // meaning "everything". `boardQuery` is therefore defined and nothing else
+  // here objects, so the board would be created scoped to the whole project
+  // instead of the filter. Reachable before only by racing the fetch; reachable
+  // easily now that the Saved menu opens this dialog on one click.
+  const boardScopePending = cqlOn && runById && !loadedFilter.data;
+  const boardUnavailable = boardScopePending
+    ? "Loading the filter\u2026"
+    : cqlOn && !boardQuery
+      ? restrictedFilter
+        ? "This filter names things you can't see, so it can't become a board. Save it as a new filter first."
+        : cqlValidation.isFetching
+          ? "Checking the query\u2026"
+          : "Fix the query first."
+      : undefined;
 
   // Deep-link: `/issues?watching=1` pre-applies the Watching filter (the "My
   // watched items" widget's "View all"). One-time init, then strip the param.
@@ -1067,6 +1093,9 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
               onRun={runSavedFilter}
               onEdit={(f) => setSaveDialog({ filter: f })}
               onSubscribe={setSubscribeTo}
+              onSaveAsBoard={
+                canCreateBoard && (facets?.projects.length ?? 0) > 0 ? saveFilterAsBoard : undefined
+              }
             />
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setSaveDialog({ cql: cqlText })}>
               <Save className="h-3.5 w-3.5" aria-hidden />
@@ -1511,6 +1540,9 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
               : facets.projects.filter((p) => managedProjectIds.includes(p.id))
           }
           defaultProjectId={pinnedProject}
+          defaultName={saveBoardSeed}
+          unavailableReason={boardUnavailable}
+          key={`save-board-${saveBoardSeed}`}
         />
       )}
 
