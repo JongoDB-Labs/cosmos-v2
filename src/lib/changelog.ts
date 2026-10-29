@@ -49,7 +49,7 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
-    version: "2.494.2",
+    version: "2.498.1",
     date: "2026-10-29",
     title: "“Run as a query” now actually runs it",
     highlights: [
