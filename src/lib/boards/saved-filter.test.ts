@@ -29,4 +29,25 @@ describe("boardScope", () => {
     expect(s.kind).toBe("invalid");
     expect(inBoardScope(s, row)).toBe(false);
   });
+  // A board saved from Issues with the query language ON stores `config.query`,
+  // and `savedFilter` only when the legacy shape can express that query. This
+  // reader cannot read `query`, so answering "none" for such a board put every
+  // item in the project in scope.
+  it("a board with only a stored query is invalid, NOT everything", () => {
+    const s = boardScope({ query: { v: 1, where: { op: "cmp", field: { kind: "sys", id: "priority" }, cmp: "eq", value: { t: "str", v: "HIGH" } } } });
+    expect(s.kind).toBe("invalid");
+    expect(inBoardScope(s, row)).toBe(false);
+    // ...and it says why, rather than showing an unexplained empty board.
+    expect(s.kind === "invalid" && s.reason).toMatch(/query language/);
+  });
+  it("positive control: a query ALONGSIDE a readable savedFilter still reads the filter", () => {
+    const s = boardScope({ query: { v: 1, where: null }, savedFilter: { priorities: ["HIGH"] } });
+    expect(s).toEqual({ kind: "filter", filter: { priorities: ["HIGH"] } });
+    expect(inBoardScope(s, row)).toBe(true);
+    expect(inBoardScope(s, { ...row, priority: "LOW" })).toBe(false);
+  });
+  it("negative control: the new guard fires on `query` only, not on any config key", () => {
+    expect(boardScope({ typeKeys: ["bug"], wipHardEnforce: true })).toEqual({ kind: "none" });
+    expect(boardScope({ query: null })).toEqual({ kind: "none" });
+  });
 });
