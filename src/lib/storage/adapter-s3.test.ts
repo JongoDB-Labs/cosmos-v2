@@ -119,6 +119,27 @@ describe("createS3Adapter", () => {
     expect(result.url).toContain(encodeURIComponent(key));
   });
 
+  it("put sends a LEGAL Content-Disposition for a macOS screenshot name", async () => {
+    // The 500. `Screenshot … 10.28.00 AM.png` carries U+202F before "AM", which
+    // is not representable in a Latin-1 header value, so the SDK threw
+    // `Invalid character in header content` and every screenshot upload failed.
+    // Asserted at the ADAPTER, not just on the helper: the defect was this call
+    // site passing the raw name, and a helper nobody calls fixes nothing.
+    sendMock.mockResolvedValueOnce({});
+    const adapter = createS3Adapter();
+    const name = "Screenshot 2026-10-29 at 10.28.00\u202FAM.png";
+
+    await adapter.put("k", Buffer.from("x"), { contentType: "image/png", filename: name });
+
+    const cd = (sendMock.mock.calls[0][0] as PutObjectCommand).input.ContentDisposition!;
+    // Latin-1, no CR/LF — the property the SDK enforces.
+    expect(/^[\t\x20-\x7E\x80-\xFF]*$/.test(cd)).toBe(true);
+    // Control: the raw name is NOT legal, so this cannot pass by accident.
+    expect(/^[\t\x20-\x7E\x80-\xFF]*$/.test(name)).toBe(false);
+    // And the real name survives for clients that can read it.
+    expect(decodeURIComponent(cd.match(/filename\*=UTF-8''(.+)$/)![1])).toBe(name);
+  });
+
   it("put converts a Web ReadableStream body to a Node Readable", async () => {
     sendMock.mockResolvedValueOnce({});
     const adapter = createS3Adapter();

@@ -7,18 +7,15 @@ import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { created, handleApiError } from "@/lib/api-helpers";
 import { getStorage } from "@/lib/storage";
 import { fileTypeFromBuffer } from "file-type";
+import { decideUpload } from "@/lib/storage/upload-policy";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
-// Screenshots lean small; cap tighter than chat (25 MB) and allow images + PDF.
-const MAX_BYTES = 8 * 1024 * 1024; // 8 MB
-const MIME_WHITELIST = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-  "application/pdf",
-]);
+// Was 8 MB on the reasoning that "screenshots lean small". FR 54b64bad asks for
+// documents — xlsx/docx/pdf for Foreman to read — so the premise changed; this
+// now matches chat's 25 MB rather than being tighter than it for a reason that
+// no longer holds.
+const MAX_BYTES = 25 * 1024 * 1024; // 25 MB
 
 /**
  * Upload a feedback screenshot/file. Cloned from chat attachments: magic-byte
@@ -60,15 +57,20 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const sniffed = await fileTypeFromBuffer(buffer);
-    const contentType = sniffed?.mime ?? file.type ?? "application/octet-stream";
-    if (!MIME_WHITELIST.has(contentType)) {
+    // `file.type` is deliberately NOT consulted. It is the client's word, and
+    // the old code fell back to it whenever the sniff came up empty — which is
+    // every text file — so the stored type was caller-chosen. `decideUpload`
+    // instead takes the sniff when there is one, and otherwise derives the type
+    // from a closed extension list, storing a normalised value either way.
+    const decision = decideUpload(sniffed?.mime, file.name);
+    if (!decision.ok) {
       return new Response(
-        JSON.stringify({ error: "unsupported_mime", contentType }),
+        JSON.stringify({ error: "unsupported_file", reason: decision.reason, filename: file.name }),
         { status: 415, headers: { "content-type": "application/json" } },
       );
     }
-
-    const kind = contentType.startsWith("image/") ? "image" : "file";
+    const contentType = decision.contentType!;
+    const kind = decision.kind!;
     const attachmentId = crypto.randomUUID();
     const safeName =
       file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "file";

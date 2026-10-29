@@ -46,6 +46,7 @@ import {
   type FType,
 } from "./feedback-types";
 import { ChevronUp, Plus, Bug, Lightbulb, Megaphone, MessageSquare } from "lucide-react";
+import { ACCEPT_ATTRIBUTE } from "@/lib/storage/upload-policy";
 
 // Shape of /api/v1/orgs/[orgId]/projects — `success(projects)` returns a bare
 // array (jsonFetch unwraps the `{ data }` envelope), so this is one element.
@@ -749,7 +750,10 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
               <input
                 id="fb-files"
                 type="file"
-                accept="image/png,image/jpeg,image/gif,image/webp,application/pdf"
+                // From the SERVER's policy, not a second hand-kept list: the
+                // picker offering less than the route accepts is how a
+                // widened upload reaches nobody.
+                accept={ACCEPT_ATTRIBUTE}
                 multiple
                 onChange={handleFiles}
                 disabled={uploading || pending.length >= 10}
