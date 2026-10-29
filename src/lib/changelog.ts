@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.499.2",
+    date: "2026-10-29",
+    title: "Cosmo asks about a project before reading its hours",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Asking Cosmo for time entries on a named project did not check whether you may open that project. Whose hours you can see was always enforced, so this never exposed anyone outside your own reports \u2014 but a supervisor could ask about a report's hours on a project restricted to its own team, and have that project confirmed as real. Cosmo now applies the same project check the time page does.",
+      },
+    ],
+  },
+  {
     version: "2.499.1",
     date: "2026-10-29",
     title: "The Issues toolbar stops running off the edge",

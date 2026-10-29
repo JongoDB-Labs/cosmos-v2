@@ -117,7 +117,21 @@ export async function listTimeEntries(
   } else {
     where.userId = timeUserIdFilter(allowed);
   }
-  if (data.projectId) where.projectId = data.projectId;
+  // A caller-supplied projectId is a SECOND question, and it was applied raw.
+  // `readableTimeUserIds` answers "whose hours may I see", never "which
+  // project" — so a supervisor (widened to self + direct reports) could name a
+  // team-scoped project they are not a member of and read a report's hours on
+  // it, and have the project id confirmed as real. GET /time-entries gates it
+  // and its comment names this exact hole: without the check, the org-level
+  // endpoint "is a side door to precisely the rows that gate closed the front
+  // door on". The CREATE path in this very file already gates it (see
+  // `assertProjectRead(ctx, data.projectId, "TIME_CREATE")` above); only the
+  // read path did not.
+  if (data.projectId) {
+    const outOfScope = await assertProjectRead(ctx, data.projectId, "TIME_READ");
+    if (outOfScope) return outOfScope;
+    where.projectId = data.projectId;
+  }
   if (data.billableType) where.billableType = data.billableType;
   if (data.startDate || data.endDate) {
     where.date = {

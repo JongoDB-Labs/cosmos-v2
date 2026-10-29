@@ -14,15 +14,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Permission } from "@/lib/rbac/permissions";
 
-const { prisma, loadEffectivePermissions, readableTimeUserIds } = vi.hoisted(
+const { prisma, loadEffectivePermissions, readableTimeUserIds, requireProjectRead } = vi.hoisted(
   () => ({
     prisma: { timeEntry: { findMany: vi.fn() } },
     loadEffectivePermissions: vi.fn(),
     readableTimeUserIds: vi.fn(),
+    requireProjectRead: vi.fn(),
   }),
 );
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
+// The project gate the tool now forwards to. Mocked so these specs drive the
+// DECISION rather than a project fixture: `assertProjectRead` treats a throw as
+// "not visible", exactly as the HTTP routes do.
+vi.mock("@/lib/rbac/require-project-read", () => ({ requireProjectRead }));
 vi.mock("@/lib/rbac/effective-permissions", () => ({ loadEffectivePermissions }));
 vi.mock("@/lib/time/scope", () => ({
   readableTimeUserIds,
@@ -77,6 +82,8 @@ beforeEach(() => {
   // The scope helper is the authority on WHOSE rows are readable.
   readableTimeUserIds.mockResolvedValue([ME]);
   prisma.timeEntry.findMany.mockResolvedValue([]);
+  // Visible by default; the specs that care make it throw.
+  requireProjectRead.mockResolvedValue(undefined);
 });
 
 describe("listTimeEntries — read scope", () => {
@@ -163,5 +170,61 @@ describe("listTimeEntries — rate exposure", () => {
     };
 
     expect(out.entries[0].rate).toBe(125);
+  });
+});
+
+/**
+ * "WHOSE hours" and "WHICH project" are two questions, and only the first was
+ * being asked.
+ *
+ * `readableTimeUserIds` widens a supervisor to self + direct reports, so a
+ * MEMBER supervisor could name any project id — including a `teamScopedAccess`
+ * project they are not a member of — and read their report's hours on it, plus
+ * learn the id was real. GET /time-entries gates it with
+ * `requireProjectRead(ctx, projectId, "TIME_READ")`, and its own comment calls
+ * the ungated org-level endpoint "a side door to precisely the rows that gate
+ * closed the front door on". The CREATE path in this file was already gated;
+ * only the read was not.
+ */
+describe("listTimeEntries — project scope", () => {
+  const PROJECT = "33333333-3333-4333-a333-333333333333";
+
+  it("REFUSES a project this actor cannot open", async () => {
+    requireProjectRead.mockRejectedValue(new Error("forbidden"));
+
+    const out = await listTimeEntries({ projectId: PROJECT }, ctx);
+
+    expect(out).toEqual({ error: "Project not found" });
+    // Denied BEFORE the query, so nothing is filtered after the fact.
+    expect(prisma.timeEntry.findMany).not.toHaveBeenCalled();
+  });
+
+  it("gates on the SAME action the HTTP route passes", async () => {
+    await listTimeEntries({ projectId: PROJECT }, ctx);
+
+    // TIME_READ, not PROJECT_READ: the pairing with the route is the contract,
+    // and a weaker action here is how the agent drifts looser than the app.
+    expect(requireProjectRead).toHaveBeenCalledWith(
+      expect.anything(),
+      PROJECT,
+      "TIME_READ",
+    );
+  });
+
+  it("positive control: a readable project still filters by it", async () => {
+    const out = await listTimeEntries({ projectId: PROJECT }, ctx);
+
+    expect(out).not.toHaveProperty("error");
+    expect(prisma.timeEntry.findMany).toHaveBeenCalled();
+    expect(lastWhere().projectId).toBe(PROJECT);
+  });
+
+  it("negative control: no projectId means no project gate at all", async () => {
+    // Otherwise the gate could be firing on every call and the refusal above
+    // would prove nothing about the projectId path.
+    await listTimeEntries({}, ctx);
+
+    expect(requireProjectRead).not.toHaveBeenCalled();
+    expect(prisma.timeEntry.findMany).toHaveBeenCalled();
   });
 });
