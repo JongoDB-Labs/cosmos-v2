@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.499.0",
+    date: "2026-10-29",
+    title: "Cosmo says what it did, not which tool it ran",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Ask Cosmo for a whiteboard and the chat now reads “Creating whiteboard” and “Added to whiteboard”, where it used to show the raw name of the tool it ran. Every tool reads that way now — “Listing projects”, “Logged time”, “Moved item” — including the ones your plugins add, which the app could never have listed by name.",
+      },
+      {
+        kind: "fix",
+        text: "A tool one of your plugins adds that the server declines to offer Cosmo — because its name clashes with a built-in tool, or because it is missing the setting an admin needs in order to govern it — now says so in the server log. It used to disappear in silence, which looked exactly like Cosmo choosing not to use it.",
+      },
+      {
+        kind: "improvement",
+        text: "Scope for Cosmo and whiteboards is now settled rather than open: creating a board and adding objects to it — what it already does — and not reading back, editing or rearranging what is on a board already. Nobody had answered the question, so it was decided instead of left waiting.",
+      },
+    ],
+  },
+  {
     version: "2.498.1",
     date: "2026-10-28",
     title: "The side panel stops following your mouse",

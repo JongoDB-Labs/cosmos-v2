@@ -58,6 +58,29 @@ async function enabledHooks(orgId: string) {
 }
 
 /**
+ * Plugin tools core REFUSED to offer, reported once each.
+ *
+ * Both of the drops below are a bare `continue`, and a tool that is never
+ * offered is indistinguishable — from the assistant, from the bots, from the
+ * user — from Cosmo deciding not to use it. That is not hypothetical: #1237
+ * shipped a guard that dropped every tool of the first plugin to contribute any,
+ * and it was found by the PLUGIN's CI rather than by anything on this side.
+ *
+ * Once per (plugin, tool, reason), because the offered list is rebuilt on every
+ * agent run — reporting per run would mean a line per conversation turn. Only
+ * the offered-set builder reports; dispatch re-derives the same decision, so a
+ * drop there has already been said out loud.
+ */
+const reportedDrops = new Set<string>();
+
+function reportDrop(slug: string, tool: string, reason: string): void {
+  const key = `${slug}\u0000${tool}\u0000${reason}`;
+  if (reportedDrops.has(key)) return;
+  reportedDrops.add(key);
+  console.warn(`[plugin-tools] not offering "${tool}" from plugin "${slug}": ${reason}`);
+}
+
+/**
  * A plugin tool's declared domain, or null when it has not declared a usable
  * one.
  *
@@ -86,9 +109,28 @@ export async function pluginToolDefs(orgId: string): Promise<ToolDefinition[]> {
   const taken = new Set<string>(CORE_NAMES);
   for (const h of await enabledHooks(orgId)) {
     for (const t of h.aiTools ?? []) {
-      if (taken.has(t.name)) continue;
+      if (taken.has(t.name)) {
+        reportDrop(
+          h.slug,
+          t.name,
+          CORE_NAMES.has(t.name)
+            ? "a core tool already owns that name"
+            : "another plugin already owns that name",
+        );
+        continue;
+      }
       const domain = declaredDomain(t);
-      if (!domain) continue; // no usable domain ⇒ not offered at all
+      if (!domain) {
+        // no usable domain ⇒ not offered at all
+        reportDrop(
+          h.slug,
+          t.name,
+          t.domain === undefined
+            ? "it declares no agent-policy domain"
+            : `"${t.domain}" is not a known agent-policy domain`,
+        );
+        continue;
+      }
       taken.add(t.name);
       registerPluginToolDomain(t.name, domain);
       out.push(t);
