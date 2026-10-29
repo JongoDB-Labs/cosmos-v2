@@ -59,7 +59,7 @@ const RELEASES: Release[] = [
       },
       {
         kind: "improvement",
-        text: "Where this ticket left the Outlook integration's direction open, it was settled automatically rather than waiting for an answer: Cosmos puts your dates into Outlook AND brings edits you make there back onto the meeting — the two-way sync already running — and what this release adds on top is the per-person sharing levels and the org-wide default. Reply on the ticket to change that.",
+        text: "ASSUMED, and worth confirming: the sharing level governs what Cosmos PUBLISHES into your Outlook, and nothing about the sync back from Outlook changes — a time or title you edit there still reaches the meeting, whichever level you pick. And the level is a default, not a ceiling: an admin's choice applies to everyone who hasn't picked one, while you can still choose full details for your own calendar.",
       },
     ],
   },
