@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { teamWorkItemWhere } from "@/lib/teams/item-teams";
 import {
   capacityUnitForSector,
   committedTotal,
@@ -80,15 +81,20 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return Object.fromEntries(Object.entries(map).filter(([u]) => allow.has(u)));
     };
 
-    // Committed scope: everything currently pulled into the sprint. Narrowed by
-    // the OWNER (`assigneeId`) — the same key the velocity suggestions below
-    // use, so both halves of the panel count the same people.
+    // Committed scope: everything currently pulled into the sprint, narrowed by
+    // the SAME rule the board team filter uses (`teamWorkItemWhere`) — the items
+    // that name this team, plus the team-less ones its people are assigned.
+    //
+    // It used to narrow on `assigneeId` alone, which predates items having a
+    // team of their own (COSMOS-204). A story handed to a squad before anyone
+    // picks it up has no assignee, so the panel left exactly the work the RTE
+    // had just committed out of "committed".
     const items = await prisma.workItem.findMany({
       where: {
         orgId,
         projectId,
         intervalId,
-        ...(teamUserIds ? { assigneeId: { in: teamUserIds } } : {}),
+        ...(teamId ? teamWorkItemWhere(teamId, teamUserIds ?? []) : {}),
       },
       select: { storyPoints: true, originalEstimate: true },
     });

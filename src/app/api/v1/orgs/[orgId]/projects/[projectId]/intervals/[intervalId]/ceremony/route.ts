@@ -10,6 +10,8 @@ import { resolveCarriedItems } from "@/lib/intervals/ceremony-carried";
 import { shippedItems, statusLabelFor } from "@/lib/intervals/ceremony-payload";
 import { computeNextSprintDefaults } from "@/lib/intervals/next-sprint";
 import { nextPlannedSprint } from "@/lib/intervals/carry-forward-target";
+import { teamWorkItemWhere } from "@/lib/teams/item-teams";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 type RouteParams = {
@@ -56,9 +58,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // lead running their own retro should not be reading another team's numbers
     // back to the room.
     //
-    // A team's WORK is whatever its members are assigned — items carry no team
-    // of their own. Narrowed by `assigneeId`, the same key the planning endpoint
-    // and the velocity suggestions use, so every panel counts the same people.
+    // A team's WORK is the items that NAME it (`WorkItem.teamId`, COSMOS-204),
+    // plus — for items naming no team — whatever its members are assigned. That
+    // is `teamWorkItemWhere`, the same rule the board team filter and the
+    // planning endpoint apply, so every panel counts the same work. Narrowing on
+    // `assigneeId` alone, as this did, dropped a story handed to the squad
+    // before anyone on it picked it up: unassigned, so nobody's, so nowhere.
     const teamId = request.nextUrl.searchParams.get("teamId");
     let teamUserIds: string[] | null = null;
     if (teamId) {
@@ -77,7 +82,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         (m) => m.projectMember.orgMember.userId,
       );
     }
-    const teamItemFilter = teamUserIds ? { assigneeId: { in: teamUserIds } } : {};
+    const teamItemFilter: Prisma.WorkItemWhereInput = teamId
+      ? teamWorkItemWhere(teamId, teamUserIds ?? [])
+      : {};
 
     const [interval, board] = await Promise.all([
       prisma.interval.findFirst({
