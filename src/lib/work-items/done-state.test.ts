@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isWorkItemDone, type DoneStateColumn } from "./done-state";
+import { isWorkItemDone, isWorkItemResolved, type DoneStateColumn } from "./done-state";
 
 /**
  * BR: "the strike through should occur if the child ticket is in the done column
@@ -85,5 +85,53 @@ describe("isWorkItemDone — boards that own no columns", () => {
   it("is not done with no column and no end date", () => {
     expect(isWorkItemDone({}, COLUMNS)).toBe(false);
     expect(isWorkItemDone({ columnKey: null, completedAt: null }, COLUMNS)).toBe(false);
+  });
+});
+
+/**
+ * BUG 635be41c — "cancelled/OBE should scratch out children like DONE does".
+ *
+ * A sub-item in Done was struck through; one in Cancelled was not, so abandoned
+ * work read as outstanding. OBE is a `CancelReason` on an item in a
+ * CANCELLED-category column, so the CATEGORY is what this tests and every
+ * cancel reason is covered by it.
+ */
+describe("isWorkItemResolved", () => {
+  const DONE = { key: "done", category: "DONE" };
+  const CANX = { key: "cancelled", category: "CANCELLED" };
+  const DOING = { key: "in-progress", category: "IN_PROGRESS" };
+
+  it("a CANCELLED item is resolved, which is the bug", () => {
+    expect(isWorkItemResolved({ columnKey: "cancelled" }, [DONE, CANX, DOING])).toBe(true);
+    // Control: the OLD predicate still says no, which is correct for it —
+    // cancelled work must not count as delivered.
+    expect(isWorkItemDone({ columnKey: "cancelled" }, [DONE, CANX, DOING])).toBe(false);
+  });
+
+  it("still true for everything isWorkItemDone is true for", () => {
+    expect(isWorkItemResolved({ columnKey: "done" }, [DONE, CANX])).toBe(true);
+    expect(isWorkItemResolved({ completedAt: "2026-01-01" }, [])).toBe(true);
+  });
+
+  it("false for live work", () => {
+    expect(isWorkItemResolved({ columnKey: "in-progress" }, [DONE, CANX, DOING])).toBe(false);
+    expect(isWorkItemResolved({ columnKey: "todo" }, [DONE, CANX, DOING])).toBe(false);
+    expect(isWorkItemResolved({}, [])).toBe(false);
+    expect(isWorkItemResolved({ columnKey: null }, [])).toBe(false);
+  });
+
+  it("believes the CATEGORY over the lane's name", () => {
+    // A lane called "Cancelled" that a team re-categorised to IN_PROGRESS is
+    // live work — the same rule isWorkItemDone follows for a renamed Done lane.
+    const relabelled = { key: "cancelled", category: "IN_PROGRESS" };
+    expect(isWorkItemResolved({ columnKey: "cancelled" }, [relabelled])).toBe(false);
+  });
+
+  it("falls back to the seeded key when the column is unknown to this surface", () => {
+    // board.columns is EMPTY on Timeline/Roadmap/Calendar/Table boards, so with
+    // no fallback a cancelled child would never strike through on half of them.
+    expect(isWorkItemResolved({ columnKey: "cancelled" }, [])).toBe(true);
+    expect(isWorkItemResolved({ columnKey: "CANCELLED" }, [])).toBe(true);
+    expect(isWorkItemResolved({ columnKey: "abandoned" }, [])).toBe(false);
   });
 });

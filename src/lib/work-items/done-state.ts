@@ -1,3 +1,5 @@
+import { CANCELLED_COLUMN } from "@/lib/boards/default-columns";
+
 /**
  * Is a work item finished?
  *
@@ -95,4 +97,42 @@ export function isDoneStatus(
 
   const key = columnKey.toLowerCase();
   return DONE_WORDS.some((w) => key.includes(w));
+}
+
+/**
+ * Does this item need no more work — finished OR abandoned?
+ *
+ * Distinct from {@link isWorkItemDone} ON PURPOSE, and the distinction is
+ * load-bearing: Cancelled is its own category precisely so abandoned work is
+ * "neither reported as delivered nor deleted" (COSMOS-206). Widening
+ * `isWorkItemDone` to include it would quietly feed cancelled items into
+ * velocity, sprint figures and parent rollups as DELIVERED work, which is the
+ * opposite of why the category exists.
+ *
+ * So this is for PRESENTATION only — the places that strike out a settled item.
+ * BUG 635be41c: a sub-item in the Done column was struck through and one in the
+ * Cancelled column was not, so an abandoned child read as still outstanding. It
+ * reported as "cancelled/OBE should scratch out children like DONE does"; OBE is
+ * a `CancelReason` on an item sitting in a CANCELLED-category column, so the
+ * category is the thing to test, and every cancel reason is covered by it.
+ *
+ * Mirrors `isWorkItemDone`'s shape deliberately, including the
+ * column-missing-from-the-list fallback, because `board.columns` is empty on
+ * several board types.
+ */
+export function isWorkItemResolved(
+  item: DoneStateItem,
+  columns: readonly DoneStateColumn[] = [],
+): boolean {
+  if (isWorkItemDone(item, columns)) return true;
+
+  const columnKey = item.columnKey;
+  if (!columnKey) return false;
+
+  const column = columns.find((c) => c.key === columnKey);
+  if (column) return column.category === "CANCELLED";
+
+  // Unknown to this surface — fall back to the seeded Cancelled lane's key,
+  // imported rather than spelled again so the two cannot drift.
+  return columnKey.toLowerCase() === CANCELLED_COLUMN.key;
 }

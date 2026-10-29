@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.502.1",
+    date: "2026-10-29",
+    title: "Cancelled sub-items are crossed out",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A sub-item you had cancelled still looked outstanding in its parent's list, because only finished sub-items were crossed out. Cancelled ones now are too, whatever the reason given \u2014 including overcome by events. Cancelled work still does not count as delivered in sprint figures or progress, which is the point of keeping it a separate status.",
+      },
+    ],
+  },
+  {
     version: "2.502.0",
     date: "2026-10-29",
     title: "Screenshots attach again, and documents now too",
