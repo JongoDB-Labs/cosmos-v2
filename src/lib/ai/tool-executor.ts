@@ -17,7 +17,7 @@ import {
 } from "./executors/work-items";
 import { searchWorkItems, describeCql } from "./executors/cql";
 import { executePluginTool, pluginOwnerOf } from "./plugin-tools";
-import { createNote, updateNote, deleteNote } from "./executors/notes";
+import { listNotes, createNote, updateNote, deleteNote } from "./executors/notes";
 import { addComment, listComments, deleteComment } from "./executors/comments";
 import { logTime, listTimeEntries } from "./executors/time";
 import { logRevenue, logExpense, getFinanceSummary } from "./executors/finance";
@@ -382,6 +382,8 @@ async function dispatchTool(
     case "describe_cql":
       return describeCql(input, ctx);
 
+    case "list_notes":
+      return listNotes(input, ctx);
     case "create_note":
       return createNote(input, ctx);
     case "update_note":
