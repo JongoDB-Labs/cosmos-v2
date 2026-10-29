@@ -106,6 +106,28 @@ const AUTHORIZES_AFTER_PARSE = new Set([
   "create_goal", "update_goal", "create_kpi", "update_kpi",
 ]);
 
+/**
+ * AUTHORIZES_AFTER_ROW_READ — the same artefact, a different cause.
+ *
+ * `set_feedback_status` authorizes against the ITEM'S AUTHOR: the route gates a
+ * status change with `requireAccess(ctx, "ORG_UPDATE", { createdById })`, so the
+ * subject is a column on a row named by an input. The row cannot be read before
+ * the input is parsed, so — exactly as in the set above — a `{}` probe fails
+ * parse for both callers.
+ *
+ * Mirroring the route is the POINT here, not a concession: `PUT /feedback/[id]`
+ * has NO permission gate before reading the row either. It authenticates, reads,
+ * checks project visibility, parses, and only then authorizes. Putting a
+ * pre-parse gate in the executor to satisfy this differential would invent an
+ * authority the portal does not have — the same mistake the note above records.
+ *
+ * Covered instead by `feedback.test.ts` → "status triage needs org-settings
+ * permission", which drives a REAL MEMBER from the database against a real row
+ * and asserts the row does not move. Mutation-proven: weakening the gate back
+ * to ITEM_UPDATE fails exactly those specs.
+ */
+const AUTHORIZES_AFTER_ROW_READ = new Set(["set_feedback_status"]);
+
 async function run(name: string, ctx: ReturnType<typeof powerless>): Promise<string> {
   try {
     return JSON.stringify(await executeTool(name, {}, ctx)) ?? "undefined";
@@ -149,12 +171,28 @@ describe("a caller's permissions change what every tool does", () => {
     expect(calls).toBeGreaterThanOrEqual(AUTHORIZES_AFTER_PARSE.size);
   });
 
+  it("the row-read exemption still forwards to the route's own gate", () => {
+    // The exemption is honest only while this holds. Asserted HERE, beside the
+    // claim, so the two cannot drift: the executor must still call
+    // `requireAccess` with ORG_UPDATE rather than naming a bit of its own.
+    const src = readFileSync(
+      join(process.cwd(), "src/lib/ai/executors/feedback.ts"),
+      "utf8",
+    );
+    expect([...AUTHORIZES_AFTER_ROW_READ]).toEqual(["set_feedback_status"]);
+    expect(src).toContain("requireAccess(auth,");
+    expect(src).toContain('"ORG_UPDATE"');
+    // And NOT the MEMBER-held bit this was fixed away from.
+    expect(src).not.toContain('requireAccess(auth, "ITEM_UPDATE"');
+  });
+
   it("no tool answers a powerless caller the same way it answers an owner", async () => {
     const indifferent: string[] = [];
 
     for (const tool of cosmosTools) {
       if (tool.name in EXEMPT || CONNECTOR_TOOLS.has(tool.name)) continue;
       if (AUTHORIZES_AFTER_PARSE.has(tool.name)) continue;
+      if (AUTHORIZES_AFTER_ROW_READ.has(tool.name)) continue;
       const [weak, strong] = [await run(tool.name, powerless()), await run(tool.name, omnipotent())];
       if (weak === strong) indifferent.push(`${tool.name} → ${weak.slice(0, 90)}`);
     }
