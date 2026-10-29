@@ -82,15 +82,31 @@ async function nextRiskCode(orgId: string): Promise<string> {
 }
 
 export async function createRisk(input: Record<string, unknown>, ctx: ToolContext) {
-  const denied = await assertPermission(ctx, Permission.PROJECT_UPDATE);
-  if (denied) return denied;
+  // NO pre-check before the parse, deliberately. `assertProjectManage` below is
+  // the ONLY authority here, because it is the only one the matching route has:
+  // the route's write handler calls `requireProjectManage(ctx, projectId, bit)`
+  // and nothing else, and that helper admits EITHER the org-wide bit OR a
+  // MANAGER of this project.
+  //
+  // Two wrong versions, both rejected by tests already in this repo:
+  //   - pre-checking the org-wide WRITE bit (what this did) runs first and
+  //     rejects the manager before the manager branch is reached, so a MEMBER
+  //     made MANAGER ran their project in the app and got "Insufficient
+  //     permissions" here;
+  //   - pre-checking the surface's READ bit instead adds a gate the route does
+  //     not have, which write-authority.test.ts refuses — the authority
+  //     decision must BE `requireProjectManage`, not something in front of it.
+  //
+  // The subject of authorization (`projectId`) is an INPUT, so authorization
+  // necessarily follows parsing. See the AUTHORIZES_AFTER_PARSE note in
+  // tool-auth.arch.test.ts for why that is sound and what covers it instead.
 
   const parsed = createRiskSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  const denied2 = await assertProjectManage(ctx, data.projectId, Permission.PROJECT_UPDATE);
-  if (denied2) return denied2;
+  const outOfScope = await assertProjectManage(ctx, data.projectId, Permission.PROJECT_UPDATE);
+  if (outOfScope) return outOfScope;
 
   const score = computeRiskScore(data.likelihood, data.impact);
   const created = await prisma.risk.create({
@@ -149,8 +165,24 @@ const updateRiskSchema = z.object({
 });
 
 export async function updateRisk(input: Record<string, unknown>, ctx: ToolContext) {
-  const denied = await assertPermission(ctx, Permission.PROJECT_UPDATE);
-  if (denied) return denied;
+  // NO pre-check before the parse, deliberately. `assertProjectManage` below is
+  // the ONLY authority here, because it is the only one the matching route has:
+  // the route's write handler calls `requireProjectManage(ctx, projectId, bit)`
+  // and nothing else, and that helper admits EITHER the org-wide bit OR a
+  // MANAGER of this project.
+  //
+  // Two wrong versions, both rejected by tests already in this repo:
+  //   - pre-checking the org-wide WRITE bit (what this did) runs first and
+  //     rejects the manager before the manager branch is reached, so a MEMBER
+  //     made MANAGER ran their project in the app and got "Insufficient
+  //     permissions" here;
+  //   - pre-checking the surface's READ bit instead adds a gate the route does
+  //     not have, which write-authority.test.ts refuses — the authority
+  //     decision must BE `requireProjectManage`, not something in front of it.
+  //
+  // The subject of authorization (`projectId`) is an INPUT, so authorization
+  // necessarily follows parsing. See the AUTHORIZES_AFTER_PARSE note in
+  // tool-auth.arch.test.ts for why that is sound and what covers it instead.
 
   const parsed = updateRiskSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error);
@@ -164,8 +196,8 @@ export async function updateRisk(input: Record<string, unknown>, ctx: ToolContex
   // The org check above only proves the row EXISTS. Its project may be
   // team-scoped and closed to this actor — see _ctx.ts. Same message either
   // way, so a refusal never confirms the row is real.
-  const denied2 = await assertProjectManage(ctx, existing.projectId, Permission.PROJECT_UPDATE);
-  if (denied2) return denied2;
+  const outOfScope = await assertProjectManage(ctx, existing.projectId, Permission.PROJECT_UPDATE);
+  if (outOfScope) return outOfScope;
 
   // Recompute score + level when either driver changes (matches the route).
   const likelihood = data.likelihood ?? existing.likelihood;
@@ -418,15 +450,31 @@ const createBlockerSchema = z.object({
 });
 
 export async function createBlocker(input: Record<string, unknown>, ctx: ToolContext) {
-  const denied = await assertPermission(ctx, Permission.PROJECT_UPDATE);
-  if (denied) return denied;
+  // NO pre-check before the parse, deliberately. `assertProjectManage` below is
+  // the ONLY authority here, because it is the only one the matching route has:
+  // the route's write handler calls `requireProjectManage(ctx, projectId, bit)`
+  // and nothing else, and that helper admits EITHER the org-wide bit OR a
+  // MANAGER of this project.
+  //
+  // Two wrong versions, both rejected by tests already in this repo:
+  //   - pre-checking the org-wide WRITE bit (what this did) runs first and
+  //     rejects the manager before the manager branch is reached, so a MEMBER
+  //     made MANAGER ran their project in the app and got "Insufficient
+  //     permissions" here;
+  //   - pre-checking the surface's READ bit instead adds a gate the route does
+  //     not have, which write-authority.test.ts refuses — the authority
+  //     decision must BE `requireProjectManage`, not something in front of it.
+  //
+  // The subject of authorization (`projectId`) is an INPUT, so authorization
+  // necessarily follows parsing. See the AUTHORIZES_AFTER_PARSE note in
+  // tool-auth.arch.test.ts for why that is sound and what covers it instead.
 
   const parsed = createBlockerSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  const denied2 = await assertProjectManage(ctx, data.projectId, Permission.PROJECT_UPDATE);
-  if (denied2) return denied2;
+  const outOfScope = await assertProjectManage(ctx, data.projectId, Permission.PROJECT_UPDATE);
+  if (outOfScope) return outOfScope;
 
   const created = await prisma.blocker.create({
     data: {
@@ -461,8 +509,24 @@ const updateBlockerSchema = z.object({
 });
 
 export async function updateBlocker(input: Record<string, unknown>, ctx: ToolContext) {
-  const denied = await assertPermission(ctx, Permission.PROJECT_UPDATE);
-  if (denied) return denied;
+  // NO pre-check before the parse, deliberately. `assertProjectManage` below is
+  // the ONLY authority here, because it is the only one the matching route has:
+  // the route's write handler calls `requireProjectManage(ctx, projectId, bit)`
+  // and nothing else, and that helper admits EITHER the org-wide bit OR a
+  // MANAGER of this project.
+  //
+  // Two wrong versions, both rejected by tests already in this repo:
+  //   - pre-checking the org-wide WRITE bit (what this did) runs first and
+  //     rejects the manager before the manager branch is reached, so a MEMBER
+  //     made MANAGER ran their project in the app and got "Insufficient
+  //     permissions" here;
+  //   - pre-checking the surface's READ bit instead adds a gate the route does
+  //     not have, which write-authority.test.ts refuses — the authority
+  //     decision must BE `requireProjectManage`, not something in front of it.
+  //
+  // The subject of authorization (`projectId`) is an INPUT, so authorization
+  // necessarily follows parsing. See the AUTHORIZES_AFTER_PARSE note in
+  // tool-auth.arch.test.ts for why that is sound and what covers it instead.
 
   const parsed = updateBlockerSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error);
@@ -476,8 +540,8 @@ export async function updateBlocker(input: Record<string, unknown>, ctx: ToolCon
   // The org check above only proves the row EXISTS. Its project may be
   // team-scoped and closed to this actor — see _ctx.ts. Same message either
   // way, so a refusal never confirms the row is real.
-  const denied2 = await assertProjectManage(ctx, existing.projectId, Permission.PROJECT_UPDATE);
-  if (denied2) return denied2;
+  const outOfScope = await assertProjectManage(ctx, existing.projectId, Permission.PROJECT_UPDATE);
+  if (outOfScope) return outOfScope;
 
   const updated = await prisma.blocker.update({
     where: { id: existing.id },
@@ -528,15 +592,31 @@ const createDeliverableSchema = z.object({
 });
 
 export async function createDeliverable(input: Record<string, unknown>, ctx: ToolContext) {
-  const denied = await assertPermission(ctx, Permission.PROJECT_UPDATE);
-  if (denied) return denied;
+  // NO pre-check before the parse, deliberately. `assertProjectManage` below is
+  // the ONLY authority here, because it is the only one the matching route has:
+  // the route's write handler calls `requireProjectManage(ctx, projectId, bit)`
+  // and nothing else, and that helper admits EITHER the org-wide bit OR a
+  // MANAGER of this project.
+  //
+  // Two wrong versions, both rejected by tests already in this repo:
+  //   - pre-checking the org-wide WRITE bit (what this did) runs first and
+  //     rejects the manager before the manager branch is reached, so a MEMBER
+  //     made MANAGER ran their project in the app and got "Insufficient
+  //     permissions" here;
+  //   - pre-checking the surface's READ bit instead adds a gate the route does
+  //     not have, which write-authority.test.ts refuses — the authority
+  //     decision must BE `requireProjectManage`, not something in front of it.
+  //
+  // The subject of authorization (`projectId`) is an INPUT, so authorization
+  // necessarily follows parsing. See the AUTHORIZES_AFTER_PARSE note in
+  // tool-auth.arch.test.ts for why that is sound and what covers it instead.
 
   const parsed = createDeliverableSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  const denied2 = await assertProjectManage(ctx, data.projectId, Permission.PROJECT_UPDATE);
-  if (denied2) return denied2;
+  const outOfScope = await assertProjectManage(ctx, data.projectId, Permission.PROJECT_UPDATE);
+  if (outOfScope) return outOfScope;
 
   const created = await prisma.deliverable.create({
     data: {
@@ -572,8 +652,24 @@ const updateDeliverableSchema = z.object({
 });
 
 export async function updateDeliverable(input: Record<string, unknown>, ctx: ToolContext) {
-  const denied = await assertPermission(ctx, Permission.PROJECT_UPDATE);
-  if (denied) return denied;
+  // NO pre-check before the parse, deliberately. `assertProjectManage` below is
+  // the ONLY authority here, because it is the only one the matching route has:
+  // the route's write handler calls `requireProjectManage(ctx, projectId, bit)`
+  // and nothing else, and that helper admits EITHER the org-wide bit OR a
+  // MANAGER of this project.
+  //
+  // Two wrong versions, both rejected by tests already in this repo:
+  //   - pre-checking the org-wide WRITE bit (what this did) runs first and
+  //     rejects the manager before the manager branch is reached, so a MEMBER
+  //     made MANAGER ran their project in the app and got "Insufficient
+  //     permissions" here;
+  //   - pre-checking the surface's READ bit instead adds a gate the route does
+  //     not have, which write-authority.test.ts refuses — the authority
+  //     decision must BE `requireProjectManage`, not something in front of it.
+  //
+  // The subject of authorization (`projectId`) is an INPUT, so authorization
+  // necessarily follows parsing. See the AUTHORIZES_AFTER_PARSE note in
+  // tool-auth.arch.test.ts for why that is sound and what covers it instead.
 
   const parsed = updateDeliverableSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error);
@@ -587,8 +683,8 @@ export async function updateDeliverable(input: Record<string, unknown>, ctx: Too
   // The org check above only proves the row EXISTS. Its project may be
   // team-scoped and closed to this actor — see _ctx.ts. Same message either
   // way, so a refusal never confirms the row is real.
-  const denied2 = await assertProjectManage(ctx, existing.projectId, Permission.PROJECT_UPDATE);
-  if (denied2) return denied2;
+  const outOfScope = await assertProjectManage(ctx, existing.projectId, Permission.PROJECT_UPDATE);
+  if (outOfScope) return outOfScope;
 
   const updated = await prisma.deliverable.update({
     where: { id: existing.id },
@@ -640,15 +736,31 @@ const createChangeSchema = z.object({
 });
 
 export async function createChangeRequest(input: Record<string, unknown>, ctx: ToolContext) {
-  const denied = await assertPermission(ctx, Permission.PROJECT_UPDATE);
-  if (denied) return denied;
+  // NO pre-check before the parse, deliberately. `assertProjectManage` below is
+  // the ONLY authority here, because it is the only one the matching route has:
+  // the route's write handler calls `requireProjectManage(ctx, projectId, bit)`
+  // and nothing else, and that helper admits EITHER the org-wide bit OR a
+  // MANAGER of this project.
+  //
+  // Two wrong versions, both rejected by tests already in this repo:
+  //   - pre-checking the org-wide WRITE bit (what this did) runs first and
+  //     rejects the manager before the manager branch is reached, so a MEMBER
+  //     made MANAGER ran their project in the app and got "Insufficient
+  //     permissions" here;
+  //   - pre-checking the surface's READ bit instead adds a gate the route does
+  //     not have, which write-authority.test.ts refuses — the authority
+  //     decision must BE `requireProjectManage`, not something in front of it.
+  //
+  // The subject of authorization (`projectId`) is an INPUT, so authorization
+  // necessarily follows parsing. See the AUTHORIZES_AFTER_PARSE note in
+  // tool-auth.arch.test.ts for why that is sound and what covers it instead.
 
   const parsed = createChangeSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  const denied2 = await assertProjectManage(ctx, data.projectId, Permission.PROJECT_UPDATE);
-  if (denied2) return denied2;
+  const outOfScope = await assertProjectManage(ctx, data.projectId, Permission.PROJECT_UPDATE);
+  if (outOfScope) return outOfScope;
 
   const created = await prisma.changeRequest.create({
     data: {
@@ -682,8 +794,24 @@ const updateChangeSchema = z.object({
 });
 
 export async function updateChangeRequest(input: Record<string, unknown>, ctx: ToolContext) {
-  const denied = await assertPermission(ctx, Permission.PROJECT_UPDATE);
-  if (denied) return denied;
+  // NO pre-check before the parse, deliberately. `assertProjectManage` below is
+  // the ONLY authority here, because it is the only one the matching route has:
+  // the route's write handler calls `requireProjectManage(ctx, projectId, bit)`
+  // and nothing else, and that helper admits EITHER the org-wide bit OR a
+  // MANAGER of this project.
+  //
+  // Two wrong versions, both rejected by tests already in this repo:
+  //   - pre-checking the org-wide WRITE bit (what this did) runs first and
+  //     rejects the manager before the manager branch is reached, so a MEMBER
+  //     made MANAGER ran their project in the app and got "Insufficient
+  //     permissions" here;
+  //   - pre-checking the surface's READ bit instead adds a gate the route does
+  //     not have, which write-authority.test.ts refuses — the authority
+  //     decision must BE `requireProjectManage`, not something in front of it.
+  //
+  // The subject of authorization (`projectId`) is an INPUT, so authorization
+  // necessarily follows parsing. See the AUTHORIZES_AFTER_PARSE note in
+  // tool-auth.arch.test.ts for why that is sound and what covers it instead.
 
   const parsed = updateChangeSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error);
@@ -697,8 +825,8 @@ export async function updateChangeRequest(input: Record<string, unknown>, ctx: T
   // The org check above only proves the row EXISTS. Its project may be
   // team-scoped and closed to this actor — see _ctx.ts. Same message either
   // way, so a refusal never confirms the row is real.
-  const denied2 = await assertProjectManage(ctx, existing.projectId, Permission.PROJECT_UPDATE);
-  if (denied2) return denied2;
+  const outOfScope = await assertProjectManage(ctx, existing.projectId, Permission.PROJECT_UPDATE);
+  if (outOfScope) return outOfScope;
 
   const updated = await prisma.changeRequest.update({
     where: { id: existing.id },
