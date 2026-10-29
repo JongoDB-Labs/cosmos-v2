@@ -23,9 +23,10 @@ export interface StatusSpec {
   category?: ColumnCategory;
   sortOrder?: number;
   /**
-   * Restore the status if it is archived. Only a column that starts showing
-   * the status in this request (a new column, or one re-keyed to it) sets
-   * this: a column that already showed it is not a decision to use it again.
+   * Restore the status if it is archived. Only something that starts using the
+   * status in this request sets this — a new column, one re-keyed to it, or a
+   * cancel reaching for the project's Cancelled status: a column that already
+   * showed it is not a decision to use it again.
    */
   restore?: boolean;
 }
@@ -208,6 +209,13 @@ export async function renameStatusIfUnshared(
  * boards keep their prompts, and boards with no columns are left alone).
  * `preferredKey` wins when it names one of the project's Cancelled statuses.
  *
+ * A project whose Cancelled status is ARCHIVED still has one: archiving hides a
+ * status from the pickers, and the items in it keep it. So cancelling restores
+ * that status (`restore`, as a column re-keyed to it does) rather than adding a
+ * second "Cancelled" beside it and appending another Cancelled lane to every
+ * board — which is precisely the lane the archiving had cleared away. A key
+ * taken by a status that means something ELSE still yields a fresh one.
+ *
  * Anyone who may edit an item can cause this, without board-manage rights: the
  * status is the representation of "cancelled", not a design choice about the
  * board. Two first cancels racing in a project pick the same key, and the
@@ -219,22 +227,28 @@ export async function ensureCancelledStatus(
   preferredKey?: string | null,
 ): Promise<string> {
   const cancelled = await tx.workflowStatus.findMany({
-    where: { projectId, category: "CANCELLED", archivedAt: null },
+    where: { projectId, category: "CANCELLED" },
     orderBy: [{ sortOrder: "asc" }, { key: "asc" }],
-    select: { key: true },
+    select: { key: true, archivedAt: true },
   });
-  if (preferredKey && cancelled.some((s) => s.key === preferredKey)) return preferredKey;
-  if (cancelled.length > 0) return cancelled[0].key;
+  const inUse = cancelled.filter((s) => s.archivedAt === null);
+  if (preferredKey && inUse.some((s) => s.key === preferredKey)) return preferredKey;
+  if (inUse.length > 0) return inUse[0].key;
 
   const project = await tx.project.findUniqueOrThrow({ where: { id: projectId }, select: { orgId: true } });
-  const taken = new Set(
-    (await tx.workflowStatus.findMany({ where: { projectId }, select: { key: true } })).map((s) => s.key),
-  );
-  let key = CANCELLED_COLUMN.key;
-  for (let i = 2; taken.has(key); i++) key = `${CANCELLED_COLUMN.key}-${i}`;
+  // An archived Cancelled status of its own comes back; only a project with
+  // none at all gets a new one, on the first key nothing else has taken.
+  let key = preferredKey && cancelled.some((s) => s.key === preferredKey) ? preferredKey : cancelled[0]?.key;
+  if (!key) {
+    const taken = new Set(
+      (await tx.workflowStatus.findMany({ where: { projectId }, select: { key: true } })).map((s) => s.key),
+    );
+    key = CANCELLED_COLUMN.key;
+    for (let i = 2; taken.has(key); i++) key = `${CANCELLED_COLUMN.key}-${i}`;
+  }
 
   await ensureStatuses(tx, { orgId: project.orgId, projectId }, [
-    { key, name: CANCELLED_COLUMN.name, color: CANCELLED_COLUMN.color, category: CANCELLED_COLUMN.category },
+    { key, name: CANCELLED_COLUMN.name, color: CANCELLED_COLUMN.color, category: CANCELLED_COLUMN.category, restore: true },
   ]);
 
   const boards = await tx.board.findMany({
