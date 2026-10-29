@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.502.0",
+    date: "2026-10-29",
+    title: "Screenshots attach again, and documents now too",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Attaching a screenshot to a feedback ticket failed with a server error. The cause was in the filename: a macOS screenshot has an unusual invisible space before the AM or PM, which could not be put in the header that carries the filename. Any file whose name contains characters like that now uploads, and downloads keep their real name instead of showing escape codes.",
+      },
+      {
+        kind: "feature",
+        text: "Feedback tickets now take documents as well as images \u2014 Word, Excel, PowerPoint, PDF, CSV, text and JSON \u2014 and the size limit has gone from 8 MB to 25 MB, matching chat. Documents download rather than opening in the browser, which is deliberate.",
+      },
+    ],
+  },
+  {
     version: "2.501.1",
     date: "2026-10-29",
     title: "Triaging feedback through Cosmo needs admin rights",
