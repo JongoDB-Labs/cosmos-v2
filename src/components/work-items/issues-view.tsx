@@ -1115,7 +1115,14 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   return (
     <div className="space-y-4">
       {transitionDialog}
-      <div className="flex items-center justify-end gap-2">
+      {/* flex-wrap, not just gap: every control here is a Button, and
+          buttonVariants carries `shrink-0 whitespace-nowrap`, so this row can
+          neither shrink nor wrap on its own — it OVERFLOWS. With justify-end
+          the overflow goes off the START edge, so the leftmost controls (the
+          Saved menu, "Save filter") are the ones that disappear. Six controls
+          ride this row now; on a laptop width that was reported as the control
+          simply not being in the UI. */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
         {/* Saved views (FR 2b36c2b8) — named, reusable filters. */}
         {cqlOn ? (
           <>

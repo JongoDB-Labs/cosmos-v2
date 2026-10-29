@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.499.1",
+    date: "2026-10-29",
+    title: "The Issues toolbar stops running off the edge",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On a narrower window the row of controls above the issue list \u2014 Saved, Save filter, Save as board, Watching, Archived, Export CSV \u2014 ran off the left edge instead of wrapping onto a second line, so the first of them simply were not on screen. They now wrap.",
+      },
+    ],
+  },
+  {
     version: "2.499.0",
     date: "2026-10-29",
     title: "Save as board, where you built the filter",
