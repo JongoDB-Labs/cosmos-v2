@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.497.0",
+    date: "2026-10-28",
+    title: "Ask Cosmo for a diagram and get one",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Cosmo can now draw a real diagram on a whiteboard \u2014 labelled rows of boxes with arrows between them \u2014 instead of only columns of sticky notes. Ask for something like an on-prem, IaaS, PaaS and SaaS breakdown and you get boxes and the relationships between them, which is the part a diagram exists to show.",
+      },
+    ],
+  },
+  {
     version: "2.496.0",
     date: "2026-10-28",
     title: "Turn a saved filter into a board",
