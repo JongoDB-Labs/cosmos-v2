@@ -160,4 +160,19 @@ describe("Issues — Save as board placement", () => {
     await screen.findByRole("button", { name: "Save filter" });
     expect(boardButton()).toBeNull();
   });
+  // jsdom has no layout engine, so the overflow itself cannot be measured here.
+  // The class IS the invariant: every control in this row is a Button, and
+  // buttonVariants carries `shrink-0 whitespace-nowrap`, so without flex-wrap
+  // the row overflows its container instead of reflowing — and with
+  // justify-end the overflow leaves by the START edge, hiding the leftmost
+  // controls. Asserting the class is narrow, and it is the thing that breaks.
+  it("the toolbar row can wrap, so a sixth control cannot push the others off-screen", async () => {
+    renderView();
+    const saveFilter = await screen.findByRole("button", { name: "Save filter" });
+    const row = saveFilter.parentElement!;
+    expect(row.className).toContain("flex-wrap");
+    expect(row.className).toContain("justify-end");
+    // Control: this is really the row under test — it holds both controls.
+    expect(row.contains(boardButton()!)).toBe(true);
+  });
 });
