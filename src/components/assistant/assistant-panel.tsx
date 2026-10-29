@@ -15,7 +15,6 @@ import { useBrand } from "@/components/providers/brand-provider";
 import { detectMentionQuery, insertMentionToken } from "@/lib/mentions/input";
 import { useDrawers } from "@/components/drawers/drawer-provider";
 import type { ResolvedEntity } from "@/lib/mentions/refs";
-import { ENTITY_PREFIX } from "@/lib/mentions/refs";
 import { isToolCallRunning, finalizeToolCalls } from "@/lib/assistant/tool-status";
 import {
   artifactsFromToolCalls,
@@ -1597,7 +1596,7 @@ const ARTIFACT_ACTION_VERB: Record<ChatArtifact["action"], string> = {
 };
 
 function ArtifactCard({ artifact }: { artifact: ChatArtifact }) {
-  const glyph = ENTITY_PREFIX[artifact.entityType];
+  const glyph = artifact.glyph;
   const inner = (
     <>
       <span
