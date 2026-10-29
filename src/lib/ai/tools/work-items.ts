@@ -40,6 +40,24 @@ export const workItemTools: ToolDefinition[] = [
     },
   },
   {
+    name: "get_work_item",
+    description:
+      "Read ONE work item in full, including its DESCRIPTION (the ticket body) \u2014 which list_work_items, " +
+      "query_work_items and search_work_items all omit. Use this whenever the answer depends on what a ticket " +
+      "actually says: summarising it, checking acceptance criteria, answering \"what does this ticket ask for\". " +
+      "Returns id, ticketNumber, title, description, columnKey, priority, assigneeId, assigneeName, reporterId, " +
+      "reporterName, intervalId, parentId, teamId, storyPoints, startDate, dueDate, completedAt, " +
+      "workItemTypeId, tags, archived, projectId, createdAt, updatedAt. " +
+      "Find the id first with list_work_items or search_work_items.",
+    input_schema: {
+      type: "object",
+      properties: {
+        itemId: { type: "string", description: "Work item ID (required)" },
+      },
+      required: ["itemId"],
+    },
+  },
+  {
     name: "archive_work_item",
     description:
       "Archive a work item, or restore one with `archived: false`. The item stays, with its history, and drops " +

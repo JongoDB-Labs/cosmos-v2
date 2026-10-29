@@ -657,6 +657,71 @@ export async function deleteWorkItem(
   return { deleted: true, id: existing.id, ticketNumber: existing.ticketNumber, title: existing.title };
 }
 
+const getWorkItemSchema = z.object({ itemId: z.string().uuid() });
+
+/**
+ * ONE work item, in full — the read the agent did not have.
+ *
+ * Every existing read projection omits `description`: `listWorkItems` selects
+ * 14 structural fields and not that one, `queryWorkItems` the same, and
+ * `SEARCH_FIELDS` offers nine of which none is the body. So Cosmo could WRITE a
+ * description (createWorkItem does, and storeEmbedding indexes it for semantic
+ * search) and never read one back. Asked "what does ACME-123 say", the most it
+ * had was a 240-character search snippet.
+ *
+ * Deliberately a separate tool rather than a wider `listWorkItems`: a full body
+ * times fifty rows is how a list answer stops fitting, and "read me this one"
+ * is a different question from "which ones match".
+ *
+ * EGRESS: `description` is content, so it is correctly ABSENT from
+ * `EXPOSABLE_FIELDS` in egress/projection.ts and drops by default-deny on a
+ * withheld (gov) result, exactly as `title` does. Do not add it there.
+ */
+export async function getWorkItem(
+  input: Record<string, unknown>,
+  ctx: ToolContext
+) {
+  const denied = await assertPermission(ctx, Permission.ITEM_READ);
+  if (denied) return denied;
+
+  const parsed = getWorkItemSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
+  }
+
+  const item = await prisma.workItem.findFirst({
+    where: { id: parsed.data.itemId, orgId: ctx.orgId },
+    select: {
+      id: true, ticketNumber: true, title: true, description: true,
+      columnKey: true, priority: true, assigneeId: true, createdById: true,
+      intervalId: true, parentId: true, teamId: true, storyPoints: true,
+      startDate: true, dueDate: true, completedAt: true, workItemTypeId: true,
+      tags: true, archivedAt: true, projectId: true,
+      createdAt: true, updatedAt: true,
+    },
+  });
+  if (!item) return { error: "Work item not found" };
+
+  // Existing in the org is NOT access: the project may be team-scoped and
+  // closed to this actor. Same message either way, so a refusal never confirms
+  // the row is real — `deleteWorkItem` above takes the same care.
+  const outOfScope = await assertProjectRead(ctx, item.projectId, "ITEM_READ");
+  if (outOfScope) return { error: "Work item not found" };
+
+  const names = await assigneeNames(
+    ctx.orgId,
+    [item.assigneeId, item.createdById].filter((v): v is string => !!v),
+  );
+  const { createdById, ...rest } = item;
+  return {
+    ...rest,
+    reporterId: createdById,
+    assigneeName: item.assigneeId ? (names.get(item.assigneeId) ?? null) : null,
+    reporterName: names.get(createdById) ?? null,
+    archived: item.archivedAt !== null,
+  };
+}
+
 export async function listWorkItems(
   input: Record<string, unknown>,
   ctx: ToolContext

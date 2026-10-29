@@ -253,6 +253,9 @@ export const HANDLEABLE_FIELDS: Record<string, readonly string[]> = {
 
 const NATIVE_TOOL_ENTITY: Record<string, string> = {
   query_work_items: "work_item", list_work_items: "work_item",
+  // get_work_item returns the full body; `description` is content and stays
+  // OUT of EXPOSABLE_FIELDS, so a withheld result drops it like `title`.
+  get_work_item: "work_item",
   // CQL search: rows are work items; its `cql`/`url` strings are dropped with
   // the rest of the free text when withheld. describe_cql has no entry: the
   // values it lists are names, so a withheld result is withheld whole.

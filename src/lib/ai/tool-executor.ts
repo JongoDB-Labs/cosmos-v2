@@ -10,6 +10,7 @@ import {
   archiveWorkItem,
   deleteWorkItem,
   listWorkItems,
+  getWorkItem,
   listItemLinks,
   linkItems,
   unlinkItems,
@@ -374,6 +375,8 @@ async function dispatchTool(
       return deleteWorkItem(input, ctx);
     case "list_work_items":
       return listWorkItems(input, ctx);
+    case "get_work_item":
+      return getWorkItem(input, ctx);
     case "search_work_items":
       return searchWorkItems(input, ctx);
     case "describe_cql":
