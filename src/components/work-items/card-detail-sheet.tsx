@@ -99,7 +99,7 @@ import {
 import { formatDateStable } from "@/lib/format/stable-date";
 import { CommentItem } from "@/components/comments/comment-item";
 import { CommentComposer } from "@/components/comments/comment-composer";
-import { isWorkItemDone } from "@/lib/work-items/done-state";
+import { isWorkItemResolved } from "@/lib/work-items/done-state";
 import { memberPickerOptions } from "@/lib/org/member-picker";
 import { entityUrl } from "@/lib/mentions/urls";
 import { useOrgSlug } from "@/lib/query/keys";
@@ -1929,10 +1929,19 @@ export function CardDetailSheet({
                   // surface's column list and is EMPTY on the board types that
                   // seed no columns, which is exactly why the end date has to
                   // count on its own.
-                  const childDone = isWorkItemDone(c, statusOptions);
+                  //
+                  // ALSO struck when CANCELLED (BUG 635be41c): an abandoned
+                  // sub-item read as still outstanding. `isWorkItemResolved`
+                  // rather than widening `isWorkItemDone`, which would count
+                  // cancelled work as delivered in velocity and rollups.
+                  const childDone = isWorkItemResolved(c, statusOptions);
                   return (
                   <div
                     key={c.id}
+                    // `data-sub-item` is the row handle; `data-done` is the
+                    // strike-through state. Both exist for tests — and until
+                    // 635be41c nothing asserted either.
+                    data-sub-item={c.id}
                     data-done={childDone || undefined}
                     className={cn(
                       "group/child flex items-center gap-1.5 text-sm rounded transition-colors",
