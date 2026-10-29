@@ -55,11 +55,11 @@ const RELEASES: Release[] = [
     highlights: [
       {
         kind: "feature",
-        text: "Your Cosmos meetings go into Outlook at a sharing level you choose, the way a calendar app's own sharing works: full details, or free/busy only — plain busy blocks with no titles, details or links, for anyone who shares their Outlook calendar more widely than the meetings in it. Pick yours under Settings, Preferences; an admin sets the default for everyone under Settings, Integrations. Classified meetings are busy-only whatever is chosen.",
+        text: "Your Cosmos meetings go into Outlook at a sharing level you choose, the way a calendar app's own sharing works: full details, or free/busy only — plain busy blocks with no titles, details or links, for anyone who shares their Outlook calendar more widely than the meetings in it. Pick yours under Settings, Preferences; an admin sets the default for everyone under Settings, Integrations. Classified meetings are busy-only whatever is chosen. One exception, and Settings spells it out: a meeting whose Outlook invitations you send yourself is your own Outlook event, so it keeps its title and links.",
       },
       {
         kind: "improvement",
-        text: "Where this ticket left the integration's direction open, it was settled automatically: Cosmos publishes its dates into Outlook, with per-person sharing levels and an org-wide default. Reply on the ticket to change that.",
+        text: "Where this ticket left the Outlook integration's direction open, it was settled automatically rather than waiting for an answer: Cosmos puts your dates into Outlook AND brings edits you make there back onto the meeting — the two-way sync already running — and what this release adds on top is the per-person sharing levels and the org-wide default. Reply on the ticket to change that.",
       },
     ],
   },

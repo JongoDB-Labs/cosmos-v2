@@ -13,6 +13,15 @@
  *
  * A RESTRICTED (classified) meeting is always busy-only whatever is chosen
  * here — the same rule the subscription feed's `busyOnly` already follows.
+ *
+ * ONE thing "busy" does NOT cover: a meeting whose Outlook invitations the
+ * person sends themselves (invite mode, B2). That invitation IS their own
+ * Outlook event, in the same "Cosmos" calendar, so it carries the meeting's
+ * title, link and join URL — an invitation with none of them is not an
+ * invitation. It is a per-meeting act they opt into, not something Cosmos
+ * publishes for them, but it does mean the level is not an absolute guarantee
+ * about that calendar's contents, and every place that offers the choice says
+ * so rather than promising more than it delivers.
  */
 
 export const SHARING_LEVELS = ["full", "busy"] as const;

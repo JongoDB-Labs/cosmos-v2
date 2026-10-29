@@ -685,7 +685,11 @@ async function pushFor(
   const inviting = !!invitees && !restricted;
   // Their sharing level decides what their own mirrored copy carries. An
   // invitation they chose to send carries the details its attendees need,
-  // whatever level they publish their calendar at.
+  // whatever level they publish their calendar at: the invitation IS their
+  // Outlook event, and one with no title, details or link is not an
+  // invitation. So free/busy only is not an absolute promise about this
+  // calendar — it holds for everything Cosmos publishes, and the exception is
+  // a meeting they themselves turned invitations on for. Settings says so.
   const busyOnly = restricted || (!inviting && (await sharingLevelFor(orgId, conn.meta)) === "busy");
   const base = meetingEvent(m, busyOnly, await meetingLink(orgId, conn.meta, m.id));
   const body = inviting ? inviteBody(base, invitees!) : base;

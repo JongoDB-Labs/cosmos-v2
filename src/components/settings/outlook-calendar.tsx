@@ -120,9 +120,19 @@ export function OutlookCalendarSection({ orgId }: { orgId: string }) {
   });
   const setLevel = useOrgMutation({
     mutationFn: (level: SharingLevel | "default") =>
-      jsonFetch(`/api/v1/orgs/${orgId}/microsoft/calendar/sharing`, { method: "PUT", body: JSON.stringify({ level }) }),
+      jsonFetch<{ resyncNow: boolean }>(`/api/v1/orgs/${orgId}/microsoft/calendar/sharing`, {
+        method: "PUT",
+        body: JSON.stringify({ level }),
+      }),
     invalidate: [["outlook-calendar"]],
-    onSuccess: () => toast.success("Saved. Your Cosmos calendar is being updated."),
+    // Saved either way; only how soon Outlook catches up differs (the resync
+    // shares "Sync now"'s budget), so say which happened rather than imply one.
+    onSuccess: (r) =>
+      toast.success(
+        r?.resyncNow
+          ? "Saved. Your Cosmos calendar is being updated."
+          : "Saved. Your Cosmos calendar will catch up within a few minutes.",
+      ),
     onError: (e) => notifyError(e, "Couldn't change that."),
   });
   const connectHref = `/api/v1/orgs/${orgId}/microsoft/calendar/connect`;
@@ -241,7 +251,7 @@ export function OutlookCalendarSection({ orgId }: { orgId: string }) {
               </Select>
               <p className="text-xs text-muted-foreground">
                 {sharing.effective === "busy"
-                  ? "Your events go out as plain busy blocks: no titles, details or links. Pick full details if you share your calendar only with people who may see them."
+                  ? "Your events go out as plain busy blocks: no titles, details or links. One exception — a meeting whose Outlook invitations you send yourself is a real Outlook event in this calendar, so it keeps its title, details and links, and anyone you share the calendar with can see them."
                   : "Your events carry their title, a link back to Cosmos, and the join link. Anyone you share your Outlook calendar with sees what your sharing permissions let them see, so pick free/busy only if that is wider than the meetings."}
               </p>
             </div>
@@ -343,7 +353,9 @@ export function OutlookCalendarAdminSetup({ orgId }: { orgId: string }) {
             What Cosmos writes into the calendar of anyone who hasn&apos;t chosen for themselves. Free/busy only
             sends plain busy blocks, with no titles, details or links — safest where people share their Outlook
             calendars widely. Each person can still choose their own under Settings, Preferences. A new default
-            reaches everyone&apos;s calendar within a few minutes. Classified meetings are always busy only.
+            reaches everyone&apos;s calendar within a few minutes. Classified meetings are always busy only. A
+            meeting whose Outlook invitations someone sends themselves still carries its details either way, since
+            that invitation is their own Outlook event.
           </p>
         </div>
       )}

@@ -6,6 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import { logAudit } from "@/lib/audit";
 import { SHARING_LEVELS, withOrgSharingLevel } from "@/lib/integrations/microsoft/calendar-sharing";
 import { calendarConnection, calendarSharingState, patchCalendarMeta } from "@/lib/integrations/microsoft/calendar-token.server";
@@ -25,9 +26,14 @@ const body = z.object({
  * is the org-wide default and needs INTEGRATION_MANAGE. Classified meetings
  * are busy-only whatever is set here.
  *
- * A level the caller changes takes effect at once (their copies are rewritten
- * after the response); a new org default reaches everyone else at their next
- * scheduled sync.
+ * A level the caller changes takes effect at once: their copies are rewritten
+ * after the response. That resync is the same Graph work "Sync now" does, so
+ * it charges the SAME per-person bucket as POST /sync (3 a minute) rather than
+ * a second one of its own — otherwise holding this control down, or scripting
+ * this route, burns the tenant's Graph quota without limit. Spent, the change
+ * is still SAVED and `resyncNow` says so: the scheduled pull's reconcile
+ * applies it within a few minutes, which is also how a new org default reaches
+ * everyone else.
  */
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
@@ -64,10 +70,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       });
       conn = await calendarConnection(org.id, ctx.userId);
     }
-    // Their own copies are rewritten now (a new org default reaches everyone
-    // else at the next scheduled pull, which reconciles what it changed).
-    if (conn && (level || orgDefault)) syncUserSoon(org.id, ctx.userId);
-    return success(await calendarSharingState(org.id, conn?.meta));
+    // Their own copies are rewritten now, within the same budget "Sync now"
+    // spends; over it, the next scheduled pull's reconcile picks the change up.
+    // A token is charged only when there is something to resync.
+    const resyncNow =
+      !!conn &&
+      !!(level || orgDefault) &&
+      rateLimit(getRateLimitKey(request, "ms.calendar.sync", ctx.userId), { capacity: 3, refillPerSecond: 1 / 60 }).allowed;
+    if (resyncNow) syncUserSoon(org.id, ctx.userId);
+    return success({ ...(await calendarSharingState(org.id, conn?.meta)), resyncNow });
   } catch (error) {
     return handleApiError(error);
   }
