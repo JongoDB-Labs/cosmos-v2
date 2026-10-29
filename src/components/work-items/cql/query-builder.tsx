@@ -113,7 +113,13 @@ export interface QueryBuilderProps {
   schema: CqlClientSchema;
   /** The applied query text (from the URL). */
   cql: string;
-  onCqlChange: (cql: string) => void;
+  /**
+   * Apply the query, optionally switching mode in the SAME navigation.
+   * Writing the text and then the mode separately loses the text: both writes
+   * are built from one `useSearchParams` snapshot (the bar has not re-rendered
+   * yet), so the second `replaceState` drops the first's `cql`.
+   */
+  onCqlChange: (cql: string, mode?: QueryMode) => void;
   /** `&mode=` from the URL, if any. */
   mode: QueryMode | null;
   onModeChange: (mode: QueryMode) => void;
@@ -172,6 +178,11 @@ export function QueryBuilder({
     setPreferred(m);
     onModeChange(m);
   };
+  /** Remember the mode without writing the URL: the caller carries it instead. */
+  const prefer = (m: QueryMode) => {
+    rememberMode(m);
+    setPreferred(m);
+  };
 
   return (
     <div className="space-y-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3">
@@ -212,8 +223,10 @@ export function QueryBuilder({
             matchAny={chips.matchAny}
             onQuery={(q) => onCqlChange(printCql(q))}
             onRunAsQuery={(text) => {
-              onCqlChange(text);
-              choose("advanced");
+              // The text and the mode in ONE navigation (see onCqlChange):
+              // two writes in a row race, and the query is what gets lost.
+              prefer("advanced");
+              onCqlChange(text, "advanced");
             }}
             savedFilters={savedFilters}
             onRunFilter={onRunFilter}

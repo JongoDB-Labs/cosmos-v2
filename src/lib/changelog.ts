@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.494.2",
+    date: "2026-10-29",
+    title: "“Run as a query” now actually runs it",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When you typed a query like `type == feature` into the Issues search box, the box offered to run it as a query — and then pressing that offer switched to the CQL editor without applying the query, so you still saw nothing. The query is now applied and run in the same step. The same fix applies to a board's filter bar.",
+      },
+      {
+        kind: "fix",
+        text: "Scope note: this release fixes the query bug only. Filters and CQL stay as two modes of the same bar — the report also asked for them to be merged into one, and that was deliberately left out here rather than held up waiting for a decision. Say so on the ticket if you want it.",
+      },
+    ],
+  },
+  {
     version: "2.494.1",
     date: "2026-10-28",
     title: "The Cosmo button stays put",

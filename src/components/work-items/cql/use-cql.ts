@@ -97,9 +97,14 @@ export function useCqlUrlState(): {
   /** `?filter=<id>`: the saved filter loaded (run by id until the text changes). */
   filterId: string | null;
   mode: QueryMode | null;
-  setCql: (cql: string) => void;
   setMode: (mode: QueryMode) => void;
-  /** Several params in one navigation (two replaces in a row race). */
+  /**
+   * Any params, in ONE navigation. Two replaces in a row race: both build
+   * their next params from the same `searchParams` snapshot (React has not
+   * re-rendered inside the handler), so the second silently drops what the
+   * first set. Setting the query and the mode together must come through here —
+   * that pair, written separately, is how "Run as a query" lost the query.
+   */
   update: (patch: Record<string, string | null>) => void;
 } {
   const pathname = usePathname();
@@ -133,7 +138,6 @@ export function useCqlUrlState(): {
       cql,
       filterId,
       mode,
-      setCql: (text: string) => replace({ cql: text.trim() || null }),
       setMode: (m: QueryMode) => replace({ mode: m }),
       update: replace,
     }),

@@ -71,7 +71,7 @@ import {
   type FilterState,
 } from "@/components/work-items/issues-filter-bar";
 import { QueryBuilder, withClause } from "@/components/work-items/cql/query-builder";
-import { useCqlSchema, useCqlUrlState, useCqlValidate, viewerTimeZone } from "@/components/work-items/cql/use-cql";
+import { useCqlSchema, useCqlUrlState, useCqlValidate, viewerTimeZone, type QueryMode } from "@/components/work-items/cql/use-cql";
 import { FiltersMenu } from "@/components/work-items/cql/filters-menu";
 import { SaveFilterDialog } from "@/components/work-items/cql/save-filter-dialog";
 import { SubscribeDialog } from "@/components/work-items/cql/subscribe-dialog";
@@ -203,10 +203,17 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const [subscribeTo, setSubscribeTo] = useState<SavedFilter | null>(null);
   const cqlQuery = useMemo(() => parseCql(cqlText).query, [cqlText]);
   const applyCql = useCallback(
-    (text: string) => {
+    (text: string, mode?: QueryMode) => {
       setPage(1);
-      // Emptying the query also lets go of a loaded filter.
-      cqlUrl.update(text.trim() ? { cql: text } : { cql: null, filter: null });
+      // One navigation, mode included: `update` exists because two replaces in
+      // a row are both built from the same searchParams snapshot, so the second
+      // would overwrite the `cql` the first just set ("Run as a query" did
+      // nothing — FR ad579c82).
+      cqlUrl.update({
+        // Emptying the query also lets go of a loaded filter.
+        ...(text.trim() ? { cql: text } : { cql: null, filter: null }),
+        ...(mode ? { mode } : {}),
+      });
     },
     [cqlUrl],
   );

@@ -82,7 +82,8 @@ export interface BoardQuery {
   /** For the bar. */
   schema: CqlClientSchema | null;
   cql: string;
-  setCql: (cql: string) => void;
+  /** The query, and the mode in the same navigation when the bar asks for one. */
+  setCql: (cql: string, mode?: QueryMode) => void;
   mode: QueryMode | null;
   setMode: (mode: QueryMode) => void;
   diagnostics: CqlDiagnostic[];
@@ -181,7 +182,9 @@ export function useBoardQuery(opts: {
     problem: baseline.problem ?? null,
     schema: cqlSchema.schema,
     cql: url.cql,
-    setCql: url.setCql,
+    // One navigation (see useCqlUrlState.update): writing the text and then the
+    // mode loses the text, both being built from one searchParams snapshot.
+    setCql: (cql, mode) => url.update({ cql: cql.trim() || null, ...(mode ? { mode } : {}) }),
     mode: url.mode,
     setMode: url.setMode,
     diagnostics: validation.data?.diagnostics ?? [],
