@@ -40,7 +40,7 @@ import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 import { CQL_VERSION, type CqlQuery } from "@/lib/query/ast";
 import { planTagAddition, type TagRowInfo } from "@/lib/work-items/bulk-tags";
 import { summarizeBulkDelete } from "@/lib/work-items/bulk-delete";
-import { ListFilter, Save, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Highlighter, Plus, Check, Download, Star, Archive, UserPlus, CheckCircle2, CalendarRange } from "lucide-react";
+import { ListFilter, LayoutDashboard, Save, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Highlighter, Plus, Check, Download, Star, Archive, UserPlus, CheckCircle2, CalendarRange } from "lucide-react";
 import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
 import { archiveAction } from "@/lib/work-items/item-actions";
 import { highlightLabel, highlightRowStyle } from "@/lib/work-items/highlights";
@@ -1079,6 +1079,39 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     return sp.toString();
   })();
 
+  /**
+   * "Save as board" belongs BESIDE "Save filter", where the filter was just
+   * built. It used to exist only in the results header, which put it below the
+   * query bar in a muted count row and — worse — inside the `rows.length > 0`
+   * branch: a filter matching nothing RIGHT NOW offered no way to become a
+   * board at all, though a board is a live view over the query and an empty one
+   * is perfectly valid. Reported twice as "tell me how to save a filter as a
+   * board", which is what a control nobody can find looks like from outside.
+   *
+   * One definition, rendered once in the toolbar, so both the CQL bar and the
+   * legacy filter bar get the same control in the same place.
+   */
+  const saveBoardButton =
+    canCreateBoard && (facets?.projects.length ?? 0) > 0 ? (
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-1.5"
+        disabled={!!boardUnavailable}
+        title={boardUnavailable ?? "Create a board that tracks the items matching this filter"}
+        onClick={() => {
+          // The Saved menu seeds the name from a filter; starting from the
+          // toolbar means the CURRENT query, so clear a seed left behind or the
+          // dialog opens named after whatever was saved last.
+          setSaveBoardSeed("");
+          setSaveBoardOpen(true);
+        }}
+      >
+        <LayoutDashboard className="h-3.5 w-3.5" aria-hidden />
+        Save as board
+      </Button>
+    ) : null;
+
   return (
     <div className="space-y-4">
       {transitionDialog}
@@ -1113,6 +1146,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
           }}
         />
         )}
+        {saveBoardButton}
         {/* Watching quick-filter (FR 8702c9b8) — restricts to items the current
             user follows (the ★ on a ticket's detail panel). */}
         <button
@@ -1259,19 +1293,6 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
               {isFetching && <span className="ml-2 opacity-70">updating…</span>}
             </span>
             <div className="flex items-center gap-2">
-              {canCreateBoard && (facets?.projects.length ?? 0) > 0 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5"
-                  disabled={!!boardUnavailable}
-                  title={boardUnavailable}
-                  onClick={() => setSaveBoardOpen(true)}
-                >
-                  <Save className="h-3.5 w-3.5" aria-hidden />
-                  Save as board
-                </Button>
-              )}
               {canCreateItem && (facets?.projects.length ?? 0) > 0 && (
                 <Button
                   size="sm"

@@ -26,8 +26,21 @@ export type BoardScope =
   | { kind: "invalid"; reason: string };
 
 export function boardScope(config: unknown): BoardScope {
-  const raw = config && typeof config === "object" ? (config as Record<string, unknown>).savedFilter : undefined;
-  if (raw == null) return { kind: "none" };
+  const c = config && typeof config === "object" ? (config as Record<string, unknown>) : {};
+  const raw = c.savedFilter;
+  if (raw == null) {
+    // A board saved with the query language on stores `config.query`, and
+    // `config.savedFilter` only when the legacy shape can SAY that query. This
+    // reader knows nothing about `query`, so for such a board it used to
+    // answer "none" — every item in scope — which is the very widening the
+    // rest of this module exists to prevent. It is reached whenever the CQL
+    // path is unavailable to the viewer, and `useCqlSchema` fetches with
+    // `retry: false`, so one failed /cql/schema is enough.
+    if (c.query != null) {
+      return { kind: "invalid", reason: "its saved query needs the query language, which is off here" };
+    }
+    return { kind: "none" };
+  }
   // Checked on the STORED object, before parsing: a parse can drop keys, and a
   // dropped constraint is exactly the silent widening this guards against.
   const check = evaluable(raw as WorkItemFilter);

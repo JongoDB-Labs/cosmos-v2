@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.499.0",
+    date: "2026-10-29",
+    title: "Save as board, where you built the filter",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "\"Save as board\" now sits next to \"Save filter\", above the list \u2014 so once you have filtered to what you want, by dropdown or by query, the way to keep it as a board is right where you are. It used to be tucked into the small grey count line below the filter bar, which is a long way from the filter you just built and easy never to notice at all.",
+      },
+      {
+        kind: "fix",
+        text: "A filter that currently matches nothing can now be saved as a board. The button was hidden whenever the list came back empty, which is backwards: a board tracks the filter from then on, so an empty one today is exactly the thing you may want watching \u2014 and it was impossible to make.",
+      },
+      {
+        kind: "fix",
+        text: "A board saved from a query could briefly show every item in its project instead of the ones it was saved for, if the query language was unavailable to your browser for a moment. It now shows nothing and says why, rather than quietly showing you more than the board is about.",
+      },
+    ],
+  },
+  {
     version: "2.498.1",
     date: "2026-10-28",
     title: "The side panel stops following your mouse",
