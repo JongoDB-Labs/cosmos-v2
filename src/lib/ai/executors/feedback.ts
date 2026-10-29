@@ -4,6 +4,7 @@ import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
 import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
+import { requireAccess } from "@/lib/abac/require-access";
 
 /**
  * Feedback executors — the org's bug/feature backlog (FeedbackItem). Every query
@@ -12,7 +13,17 @@ import { getReadableProjectIds } from "@/lib/work-items/query/scope";
  * NOTE on permissions: the HTTP portal gates feedback on ORG_READ (any member
  * may file). The brief maps the ASSISTANT surface onto the item-lifecycle bits
  * (ITEM_READ / ITEM_CREATE / ITEM_UPDATE) so an agent's feedback reach tracks
- * its work-item reach — used here per the brief.
+ * its work-item reach — used here per the brief, for READING and FILING.
+ *
+ * STATUS TRIAGE IS CARVED OUT OF THAT, deliberately. `PUT /feedback/[id]` gates
+ * a status change on `requireAccess(ctx, "ORG_UPDATE")` and calls it "an admin
+ * action": triaging, declining or shipping somebody else's report decides what
+ * the org does, which is not the same authority as filing your own. ITEM_UPDATE
+ * is MEMBER-held and ORG_UPDATE is not, so the brief's mapping let any member
+ * triage every item in the org through the assistant while the portal answered
+ * 403. Jon's call, 2026-10-29. `setFeedbackStatus` now FORWARDS to the route's
+ * own helper rather than naming a bit, so the two cannot drift and any ABAC
+ * rule an org authors applies identically on both surfaces.
  *
  * The executor result carries title + description; the egress projection strips
  * both for gov tenants (exposable = id/type/status/voteCount/workItemId/createdAt).
@@ -101,8 +112,8 @@ const setStatusSchema = z.object({
 });
 
 export async function setFeedbackStatus(input: Record<string, unknown>, ctx: ToolContext) {
-  const denied = await assertPermission(ctx, Permission.ITEM_UPDATE);
-  if (denied) return denied;
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
 
   const parsed = setStatusSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error);
@@ -110,7 +121,9 @@ export async function setFeedbackStatus(input: Record<string, unknown>, ctx: Too
 
   const existing = await prisma.feedbackItem.findFirst({
     where: { id: data.feedbackId, orgId: ctx.orgId },
-    select: { id: true, projectId: true, status: true, mergedIntoId: true },
+    // `authorId` is read for the gate below (the route passes it as an ABAC
+    // resource attribute), not returned to the model.
+    select: { id: true, projectId: true, status: true, mergedIntoId: true, authorId: true },
   });
   if (!existing) return { error: "Feedback item not found" };
 
@@ -121,6 +134,21 @@ export async function setFeedbackStatus(input: Record<string, unknown>, ctx: Too
   if (existing.projectId) {
     const outOfScope = await assertProjectRead(ctx, existing.projectId, "ITEM_UPDATE");
     if (outOfScope) return { error: "Feedback item not found" };
+  }
+
+  // The route's gate, forwarded, with the SAME resource attributes — so an ABAC
+  // rule that lets an author retire their own report applies here too, and a
+  // bit named locally can never drift from the one the portal enforces.
+  // Deliberately AFTER the row is read, because the gate needs `authorId`; the
+  // visibility checks above already refused anything this actor cannot see, so
+  // ordering it here reveals nothing a read did not already allow.
+  try {
+    await requireAccess(auth, "ORG_UPDATE", { createdById: existing.authorId });
+  } catch {
+    return {
+      error:
+        "Changing a feedback item's status is an admin action. You can file feedback and read it, but triaging somebody's report needs org-settings permission.",
+    };
   }
 
   // Same rule as PUT /feedback/[id]: a merged item's status belongs to the merge.

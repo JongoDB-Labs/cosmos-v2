@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.501.1",
+    date: "2026-10-29",
+    title: "Triaging feedback through Cosmo needs admin rights",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Asking Cosmo to change a feedback item's status \u2014 plan it, decline it, mark it done \u2014 only needed ordinary member rights, while doing the same thing on the feedback page correctly asked for admin. Cosmo now applies the same rule the page does. Filing feedback and reading it are unchanged and still open to everyone.",
+      },
+    ],
+  },
+  {
     version: "2.501.0",
     date: "2026-10-29",
     title: "Cosmo can read a ticket",
