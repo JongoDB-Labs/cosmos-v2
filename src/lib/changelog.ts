@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.494.1",
+    date: "2026-10-28",
+    title: "The Cosmo button stays put",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The floating Cosmo button steps aside when it would cover a link or a control. It could get stuck doing that \u2014 darting around the screen instead of settling on a spot. It now picks one clear spot and stays there.",
+      },
+    ],
+  },
+  {
     version: "2.494.0",
     date: "2026-10-28",
     title: "One filter bar: add a filter however you are filtering",

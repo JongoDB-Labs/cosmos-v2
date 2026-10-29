@@ -51,6 +51,41 @@ export function candidateOffsets(rest: Box, viewportWidth: number): Offset[] {
   return out;
 }
 
+/**
+ * The bubble's RESTING box -- where it would sit with no dodge offset -- from a
+ * live measurement, independent of whatever transform is applied to it.
+ *
+ * `rect` is a `getBoundingClientRect()`, so it already has the current
+ * `translate` and `scale` baked in. `layoutWidth`/`layoutHeight` are the
+ * untransformed layout size (`offsetWidth`/`offsetHeight`), and `applied` is
+ * the dodge offset in force. The position is recovered from the rect's CENTRE
+ * rather than its corner: `transform-origin` is the centre, so a scale leaves
+ * the centre where it is while moving every corner. Taking the corner instead
+ * let `hover:scale-105` shift the resting box by ~1px per axis, enough to move
+ * a sample point across a control's edge and flip the chosen slot while the
+ * pointer merely rested on the bubble.
+ *
+ * Note this corrects for SCALE, not for a translate still in flight: a rect
+ * measured mid-move is off by the untravelled remainder and no arithmetic here
+ * can recover it. That is why the dodge offset is applied without a transition
+ * -- see `useDodge` in floating-agent-bubble.tsx.
+ */
+export function restingBox(
+  rect: { left: number; top: number; width: number; height: number },
+  layoutWidth: number,
+  layoutHeight: number,
+  applied: Offset,
+): Box {
+  const width = layoutWidth || rect.width;
+  const height = layoutHeight || rect.height;
+  return {
+    left: rect.left + rect.width / 2 - width / 2 - applied.x,
+    top: rect.top + rect.height / 2 - height / 2 - applied.y,
+    width,
+    height,
+  };
+}
+
 /** A 3x3 grid of points inside a box, inset so the bubble's soft edges don't count. */
 export function samplePoints(box: Box, inset = 4): [number, number][] {
   const xs = [box.left + inset, box.left + box.width / 2, box.left + box.width - inset];
