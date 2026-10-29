@@ -4,6 +4,8 @@ import { getAuthContext } from "@/lib/auth/session";
 import { handleApiError } from "@/lib/api-helpers";
 import { canSeeChannelGiven, loadChannelAndMembership } from "@/lib/chat/access";
 import { getStorage } from "@/lib/storage";
+import { contentDisposition } from "@/lib/http/content-disposition";
+import { dispositionFor } from "@/lib/storage/upload-policy";
 
 type RouteParams = { params: Promise<{ orgId: string; attachmentId: string }> };
 
@@ -51,7 +53,13 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       headers: {
         "Content-Type": att.contentType,
         "Content-Length": String(att.size),
-        "Content-Disposition": `inline; filename="${encodeURIComponent(att.filename)}"`,
+        "Content-Disposition": contentDisposition(att.filename, dispositionFor(att.contentType)),
+        // Neither attachment route set this. Without it a browser may sniff the
+        // bytes and render them as something other than the declared type —
+        // which is stored XSS on this origin for any type we cannot verify by
+        // magic bytes. `dispositionFor` downloads those rather than rendering
+        // them; this stops the browser second-guessing either way.
+        "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, max-age=300",
       },
     });

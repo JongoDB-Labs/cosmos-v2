@@ -8,6 +8,7 @@ import {
 import { Readable } from "node:stream";
 import type { ReadableStream as NodeWebReadableStream } from "node:stream/web";
 import type { StorageAdapter } from "./index";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 /**
  * S3-compatible storage adapter (MinIO in-boundary today; GovCloud /
@@ -70,8 +71,11 @@ export function createS3Adapter(): StorageAdapter {
           Key: key,
           Body: payload,
           ContentType: meta.contentType,
-          // RFC 5987-safe filename hint for downloads through the API route.
-          ContentDisposition: `inline; filename="${meta.filename.replace(/["\\]/g, "_")}"`,
+          // Was described as "RFC 5987-safe" while being nothing of the kind:
+          // it escaped quotes and backslashes and passed every other character
+          // through, so a macOS screenshot's U+202F reached the SDK and threw
+          // `Invalid character in header content`. Now actually RFC 6266.
+          ContentDisposition: contentDisposition(meta.filename),
         }),
       );
 
