@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.496.0",
+    date: "2026-10-28",
+    title: "Turn a saved filter into a board",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Saved filters now have a Save as board action of their own. Turning one into a board used to mean running it first and then finding a separate button, so there was nothing to tell you a board was possible from a filter at all. Picking it names the board after the filter, so usually there is nothing left to type.",
+      },
+      {
+        kind: "fix",
+        text: "A board saved straight after picking a filter could end up showing every item in the project instead of the ones the filter matches. It now waits until it knows what the filter covers, and says so while it is working that out.",
+      },
+    ],
+  },
+  {
     version: "2.495.0",
     date: "2026-10-28",
     title: "Open a whiteboard Cosmo made, in one click",

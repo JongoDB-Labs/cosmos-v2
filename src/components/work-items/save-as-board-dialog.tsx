@@ -68,6 +68,13 @@ export interface SaveAsBoardDialogProps {
   projects: ProjectOption[];
   /** Pre-select this project (e.g. the one the Issues view is filtered to). */
   defaultProjectId?: string;
+  /** Seed the board name — the saved filter's name, when it came from one. */
+  defaultName?: string;
+  /**
+   * Why the board cannot be created yet, from the caller's own view of the
+   * query. Shown, and blocks submission.
+   */
+  unavailableReason?: string;
 }
 
 /**
@@ -87,6 +94,8 @@ export function SaveAsBoardDialog({
   query,
   projects,
   defaultProjectId,
+  defaultName,
+  unavailableReason,
 }: SaveAsBoardDialogProps) {
   const router = useRouter();
   const selectableProjects = useMemo(
@@ -94,7 +103,7 @@ export function SaveAsBoardDialog({
     [projects],
   );
 
-  const [name, setName] = useState("");
+  const [name, setName] = useState(defaultName ?? "");
   const [projectId, setProjectId] = useState<string>(
     defaultProjectId && selectableProjects.some((p) => p.id === defaultProjectId)
       ? defaultProjectId
@@ -151,8 +160,29 @@ export function SaveAsBoardDialog({
     },
   });
 
+  /**
+   * Do we actually KNOW what this board should show?
+   *
+   * `config: {}` is a board with no baseline, which `boardBaseline` reads as
+   * "everything" — so creating one before the scope resolves silently produces
+   * a board showing every item in the project instead of the filter's. With the
+   * query language on, the scope arrives asynchronously (a saved filter's CQL
+   * is fetched; the query is then validated server-side), and for that window
+   * neither a query nor a legacy filter is in hand. The caller guards its own
+   * button, but the invariant belongs to whoever writes `config`, and this
+   * dialog is now reachable straight from the Saved menu where the race is easy
+   * to win.
+   */
+  const scopeKnown = boardQuery !== undefined || savedFilter !== null;
+  const blockedReason =
+    unavailableReason ??
+    (scopeKnown ? undefined : "Still working out which items this filter matches\u2026");
+
   const canSubmit =
-    name.trim().length > 0 && projectId.length > 0 && !createMutation.isPending;
+    name.trim().length > 0 &&
+    projectId.length > 0 &&
+    !blockedReason &&
+    !createMutation.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -173,6 +203,12 @@ export function SaveAsBoardDialog({
             if (canSubmit) createMutation.mutate();
           }}
         >
+          {blockedReason && (
+            <p role="status" className="text-sm text-[var(--text-muted)]">
+              {blockedReason}
+            </p>
+          )}
+
           <div className="space-y-1.5">
             <Label htmlFor="saved-board-name">Board name</Label>
             <Input
