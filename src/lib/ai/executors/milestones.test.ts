@@ -59,9 +59,22 @@ describe("milestones executors (e2e DB)", () => {
 
   it("denies a non-member (no PROJECT_* permission)", async () => {
     const { denyCtx, project } = await makeOrg();
+    // The read and the write now refuse DIFFERENTLY, deliberately. A list still
+    // answers "Insufficient permissions" from its own permission pre-check; a
+    // write answers "Project not found" because its refusal comes from
+    // `assertProjectManage`, which checks VISIBILITY first — a project you
+    // cannot open must read as absent, not forbidden, so a refusal cannot be
+    // used to discover what exists (_ctx.ts). The org-wide pre-check that used
+    // to answer for the writes was removed: it short-circuited the
+    // project-MANAGER branch the matching routes allow.
+    //
+    // The COUNT assertions matter more than the strings: a message can be
+    // edited to match whatever the code says, a row cannot.
     expect(await listMilestones({ projectId: project.id }, denyCtx)).toEqual({ error: "Insufficient permissions" });
     expect(
       await createMilestone({ projectId: project.id, title: "x", dueDate: "2026-10-01T00:00:00.000Z" }, denyCtx),
-    ).toEqual({ error: "Insufficient permissions" });
+    ).toEqual({ error: "Project not found" });
+
+    expect(await prisma.milestone.count({ where: { projectId: project.id } })).toBe(0);
   });
 });
