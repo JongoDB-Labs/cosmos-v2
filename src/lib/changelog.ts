@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.501.0",
+    date: "2026-10-29",
+    title: "Cosmo can read a ticket",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Cosmo can now read a work item in full, including its description. It could already search, list and update items, and could even WRITE a description \u2014 but every way it had of reading one left the body out, so asking what a ticket actually says got an answer built from the title alone.",
+      },
+    ],
+  },
+  {
     version: "2.500.0",
     date: "2026-10-29",
     title: "Cosmo lets a project manager run their project",
