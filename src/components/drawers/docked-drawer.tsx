@@ -56,6 +56,8 @@ export function DockedDrawer({ orgId, orgSlug, userId }: DockedDrawerProps) {
   const { tool, close, open, isOpen, width, setWidth } = useDrawers();
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const resizing = useRef(false);
+  /** Aborts the in-flight drag's listeners — one controller per drag. */
+  const drag = useRef<AbortController | null>(null);
 
   const docked = tool !== null && Boolean(orgId) && Boolean(orgSlug);
 
@@ -81,25 +83,72 @@ export function DockedDrawer({ orgId, orgSlug, userId }: DockedDrawerProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [docked, close]);
 
+  /**
+   * Drag the left edge to resize.
+   *
+   * Every way a drag can END has to reach the same cleanup. The first version
+   * listened for `pointerup` alone, so a drag that finished any other way —
+   * `pointercancel` (an OS or trackpad gesture taking over), the window losing
+   * focus mid-drag, pointer capture lost because the handle unmounted — left
+   * `onMove` live on `window` for the rest of the page's life. And `onMove` did
+   * not test whether a button was still held, so from then on the drawer
+   * tracked the BARE pointer: its edge followed the mouse with nothing pressed,
+   * which is what "the widget darts around the screen" looks like from the
+   * outside. Each new drag then added another live listener on top.
+   *
+   * Three things close that: one `stop` reached from pointerup, pointercancel
+   * and blur; an `ev.buttons === 0` backstop that ends a drag whose release was
+   * missed on the very next move; and an AbortController per drag, so the
+   * listeners cannot outlive it and a second pointerdown cannot stack a second
+   * set. `stop` does not name `onMove` (abort removes them all), so there is no
+   * mutual reference to order.
+   */
   const onResizePointerDown = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault();
+      const handle = e.target as Element;
+      const pointerId = e.pointerId;
+
+      drag.current?.abort(); // never stack a second drag on an unfinished one
+      const ac = new AbortController();
+      drag.current = ac;
       resizing.current = true;
-      (e.target as Element).setPointerCapture?.(e.pointerId);
+      handle.setPointerCapture?.(pointerId);
+
+      const stop = () => {
+        if (!resizing.current) return;
+        resizing.current = false;
+        ac.abort();
+        try {
+          handle.releasePointerCapture?.(pointerId);
+        } catch {
+          /* capture already lost — that is often WHY we are stopping */
+        }
+      };
+
       const onMove = (ev: PointerEvent) => {
         if (!resizing.current) return;
+        // No button held ⇒ the release was missed. End the drag instead of
+        // following the pointer around.
+        if (ev.buttons === 0) {
+          stop();
+          return;
+        }
         setWidth(window.innerWidth - ev.clientX);
       };
-      const onUp = () => {
-        resizing.current = false;
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-      };
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
+
+      const opts = { signal: ac.signal };
+      window.addEventListener("pointermove", onMove, opts);
+      window.addEventListener("pointerup", stop, opts);
+      window.addEventListener("pointercancel", stop, opts);
+      window.addEventListener("lostpointercapture", stop, opts);
+      window.addEventListener("blur", stop, opts);
     },
     [setWidth],
   );
+
+  // A drag in flight must not outlive the drawer.
+  useEffect(() => () => drag.current?.abort(), []);
 
   if (!docked || !orgId || !orgSlug) return null;
 
