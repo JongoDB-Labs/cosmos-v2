@@ -121,7 +121,16 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   };
   const allConnectorNames = connectorToolNames(); // full set (no class) — to subtract
   const baseTools = opts.tools ?? cosmosTools;
-  const nativeAndForeign = baseTools.filter((t) => !allConnectorNames.has(t.name));
+  // Plugin tools are subtracted here and re-added below, exactly as connector
+  // tools are, so the re-add is the single place they enter the offered set. A
+  // caller that passes plugin defs in `opts.tools` (the chat bots now do, to
+  // get past the `requested` narrowing) would otherwise have them counted
+  // twice, and a duplicate tool name is an API error from the model.
+  const allPluginDefs = await pluginToolDefs(opts.orgId);
+  const allPluginNames = new Set(allPluginDefs.map((t) => t.name));
+  const nativeAndForeign = baseTools.filter(
+    (t) => !allConnectorNames.has(t.name) && !allPluginNames.has(t.name),
+  );
   // With a caller-supplied list, connector tools are re-added ONLY where that list
   // named them: the tenant and runtime-config filters narrow the caller's choice,
   // never widen it. (They used to be re-added wholesale, so a READONLY bot or
@@ -132,7 +141,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   // caller-supplied list exactly as connector tools are: these filters narrow a
   // caller's choice, never widen it, so a READONLY bot does not acquire a
   // plugin's writes just by an org having the plugin on.
-  const pluginTools = (await pluginToolDefs(opts.orgId)).filter((t) => !requested || requested.has(t.name));
+  const pluginTools = allPluginDefs.filter((t) => !requested || requested.has(t.name));
   const tenantTools: ToolDefinition[] = [
     ...nativeAndForeign,
     ...connectorToolDefs(opts.tenantClass, enabledFilter).filter((t) => !requested || requested.has(t.name)),

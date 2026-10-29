@@ -121,4 +121,23 @@ describe("executeTool — malformed ids are refused, not thrown", () => {
     expect(res.error).toMatch(/list_intervals tool failed/);
     expect(res.error).not.toMatch(/connection terminated/);
   });
+
+  it("says the cause is INTERNAL and forbids inventing one", async () => {
+    // A tool that threw knows nothing about the request's merits. Told only
+    // that it "failed", the model supplied the most available cause from its
+    // own prompt: a create_whiteboard that threw during a deploy was reported
+    // to the user as exceeding "max 8 columns, 12 notes each" — numbers taken
+    // from the tool's DESCRIPTION, for a limit that truncates and can never
+    // fail — and the user was told to trim their diagram. Nothing was wrong
+    // with what they asked for.
+    listIntervals.mockRejectedValue(new Error("boom"));
+
+    const res = (await executeTool("list_intervals", { projectId: WELL_FORMED_ID }, CTX)) as { error: string };
+
+    expect(res.error).toMatch(/internal reason/i);
+    expect(res.error).toMatch(/not caused by anything in the request/i);
+    expect(res.error).toMatch(/do not guess/i);
+    // The specific harm: do not send the user off editing a valid request.
+    expect(res.error).toMatch(/shorten or simplify/i);
+  });
 });

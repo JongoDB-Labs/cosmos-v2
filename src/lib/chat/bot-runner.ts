@@ -6,6 +6,7 @@ import { parseMentions } from "@/lib/chat/mentions";
 import { runAgentLoop } from "@/lib/ai/agent-loop";
 import { isNoModelCredentialError } from "@/lib/ai/egress";
 import { cosmosTools } from "@/lib/ai/tools";
+import { pluginToolDefs } from "@/lib/ai/plugin-tools";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { ensureOrgBots, type BuiltInBotKey } from "@/lib/chat/ensure-bots";
@@ -30,7 +31,9 @@ import type { AuthContext } from "@/lib/rbac/check";
  *     the permissions of whoever summoned it — and when that was an API key,
  *     the key's scope mask and project ceiling still bind. On top of that, the bot's
  *     `toolScope` (NONE/READONLY/FULL, from its chat_bots row) is a hard CEILING
- *     applied via `filterToolsByScope`; the note-taker additionally keeps its
+ *     applied via `filterToolsByScope` (over core AND plugin-contributed tools,
+ *     since a plugin tool matches no read prefix and so counts as a mutation);
+ *     the note-taker additionally keeps its
  *     own allow-list.
  *  3. EGRESS — every tool RESULT is projected through v2's CUI-blind egress gate
  *     inside `runAgentLoop` (the single chokepoint) under the data-driven MAC
@@ -218,10 +221,29 @@ export async function runChatBot(args: {
     // READONLY bot can never reach a mutation tool. Both sit ON TOP OF the
     // per-tool permission scoping (keyed to the invoking human) AND the egress
     // gate inside runAgentLoop (which projects every tool RESULT).
+    // Plugin tools belong in the CANDIDATE set, not added later.
+    //
+    // `runAgentLoop` narrows plugin tools by the caller's `opts.tools` so a
+    // READONLY bot cannot acquire a plugin's writes just because an org has the
+    // plugin on. Passing only `cosmosTools` therefore named no plugin tool, and
+    // every one was silently dropped: a plugin could contribute a tool the
+    // assistant offered and the Slack/Teams bots never could, with nothing
+    // anywhere reporting the difference.
+    //
+    // They go through `filterToolsByScope` with everything else, which keys off
+    // the tool NAME — a plugin tool matches no read prefix, so it counts as a
+    // mutation and a READONLY bot still cannot reach it. Fail-closed by
+    // default, which is the right way round for a name a plugin author chooses.
+    //
+    // The note-taker is deliberately excluded: its allow-list exists because a
+    // deny-by-name list left update_work_item/log_*/send_email reachable for a
+    // prompt-injected message. A summariser has no business drawing on a
+    // whiteboard, and widening the list by default would undo the reason it is
+    // an allow-list.
     const candidate =
       args.bot === "notetaker"
         ? cosmosTools.filter((t) => NOTETAKER_TOOLS.has(t.name))
-        : cosmosTools;
+        : [...cosmosTools, ...(await pluginToolDefs(args.orgId))];
     const tools = filterToolsByScope(toolScope, candidate);
 
     // The bot's preferred model (its chat_bots row) wins over the request
