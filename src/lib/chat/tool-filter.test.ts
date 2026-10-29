@@ -118,3 +118,45 @@ describe("filterToolsByScope classifies connector tools by their declared access
     expect(kept).not.toContain("nango_proxy_request");
   });
 });
+
+// Plugin-contributed tools now go through this ceiling with everything else:
+// the chat bots' candidate set holds core AND plugin tools, because passing
+// only `cosmosTools` named no plugin tool and the agent loop's narrowing
+// therefore dropped every one of them.
+describe("filterToolsByScope over a plugin-contributed tool", () => {
+  /** Shaped like whiteboard's: a write whose name matches no read prefix. */
+  const pluginWrite = {
+    name: "create_whiteboard",
+    description: "Create a whiteboard.",
+    domain: "whiteboard",
+    input_schema: { type: "object", properties: {} },
+  } as unknown as ToolDefinition;
+
+  /** A plugin READ, to prove the classification is by name and not by origin. */
+  const pluginRead = {
+    name: "list_whiteboards",
+    description: "List whiteboards.",
+    domain: "whiteboard",
+    input_schema: { type: "object", properties: {} },
+  } as unknown as ToolDefinition;
+
+  it("FAILS CLOSED on a plugin write — a READONLY bot can never reach it", () => {
+    // The important direction. A plugin author chooses the name, so anything
+    // not provably a read must count as a mutation.
+    const kept = filterToolsByScope("READONLY", [pluginWrite, pluginRead]).map((t) => t.name);
+    expect(kept).not.toContain("create_whiteboard");
+    // Positive control: the plugin READ survives, so the exclusion above is the
+    // write being judged a mutation rather than plugin tools being dropped
+    // wholesale.
+    expect(kept).toContain("list_whiteboards");
+  });
+
+  it("FULL keeps both", () => {
+    const kept = filterToolsByScope("FULL", [pluginWrite, pluginRead]).map((t) => t.name);
+    expect(kept).toEqual(["create_whiteboard", "list_whiteboards"]);
+  });
+
+  it("NONE keeps neither", () => {
+    expect(filterToolsByScope("NONE", [pluginWrite, pluginRead])).toEqual([]);
+  });
+});

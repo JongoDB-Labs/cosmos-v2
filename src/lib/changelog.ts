@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.498.0",
+    date: "2026-10-28",
+    title: "Cosmo in Slack and Teams can use your plugins",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Tools that plugins add \u2014 whiteboards, for instance \u2014 now work when you talk to Cosmo in Slack or Teams. They already worked in the app, and nothing reported the difference, so asking the bot for something it could not reach simply looked like it had chosen not to.",
+      },
+      {
+        kind: "fix",
+        text: "When something goes wrong inside a tool, Cosmo no longer guesses at why. It had started explaining failures by blaming whatever it could find in its own instructions \u2014 once telling someone a whiteboard was too large when the real cause was a restart \u2014 and sending them off to shorten a request that was perfectly fine.",
+      },
+    ],
+  },
+  {
     version: "2.497.0",
     date: "2026-10-28",
     title: "Ask Cosmo for a diagram and get one",

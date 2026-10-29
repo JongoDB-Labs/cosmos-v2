@@ -273,7 +273,25 @@ function toolFailureResult(name: string, err: unknown): { error: string } {
       error: `The ${name} tool was called with an id that isn't a valid record id. Look the record up by name first and retry with the id it returns.`,
     };
   }
-  return { error: `The ${name} tool failed. Tell the user it couldn't be completed and suggest they try again.` };
+  // Say the cause is INTERNAL and forbid guessing one.
+  //
+  // The old text said only that the tool "failed" and to suggest trying again.
+  // With no cause given, the model supplied the most available one from its own
+  // prompt: a `create_whiteboard` that threw during a deploy was reported to
+  // the user as "it exceeded the platform's column/note limits (max 8 columns,
+  // 12 notes each)" — numbers lifted straight out of the tool's DESCRIPTION,
+  // for a limit that truncates and can never fail — and the user was told to
+  // trim their diagram and retry. Nothing was wrong with what they asked for.
+  //
+  // A tool that threw knows nothing about the request's merits, so the result
+  // must not leave room to speculate about them.
+  return {
+    error:
+      `The ${name} tool failed for an internal reason. This is NOT caused by anything ` +
+      `in the request, so do not guess at a cause and do not suggest the user change, ` +
+      `shorten or simplify what they asked for. Tell them it couldn't be completed and ` +
+      `that they can try again.`,
+  };
 }
 
 export async function executeTool(
