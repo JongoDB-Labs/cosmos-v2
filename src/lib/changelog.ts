@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.498.2",
+    date: "2026-10-29",
+    title: "A team's sprint counts the work it hasn't handed out yet",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A story can sit with a team before anyone on it picks it up — but when a sprint was scoped to one team, its planning and review panels counted only work with an individual assignee, so the stories the team had just taken on were left out of its committed total and out of its review. Both now count everything the team owns, assigned or not.",
+      },
+    ],
+  },
+  {
     version: "2.498.1",
     date: "2026-10-28",
     title: "The side panel stops following your mouse",

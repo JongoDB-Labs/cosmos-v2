@@ -98,8 +98,10 @@ export function itemMatchesTeam(
 
 /**
  * `itemMatchesTeam` as a query, for callers that ask the database rather than
- * filter a list already in memory (the assistant's work-item tools). Same rule:
- * an item naming this team, or a team-less item assigned to one of its people.
+ * filter a list already in memory (the assistant's work-item tools, and the
+ * sprint planning / ceremony endpoints, which scope to one squad server-side).
+ * Same rule: an item naming this team, or a team-less item assigned to one of
+ * its people.
  */
 export function teamWorkItemWhere(
   teamId: string,
