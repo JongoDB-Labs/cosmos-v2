@@ -150,3 +150,67 @@ describe("artifactsFromToolCalls", () => {
     expect(artifactsFromToolCalls([], ORG)).toEqual([]);
   });
 });
+
+// A whiteboard Cosmo creates must be reachable in one click, exactly as a work
+// item is. The board is a PLUGIN surface, so it is linked through
+// PLUGIN_ARTIFACT rather than by adding a member to the mentions registry.
+describe("plugin artifacts — a whiteboard Cosmo created", () => {
+  const call = {
+    id: "tc-wb",
+    name: "create_whiteboard",
+    arguments: { title: "Cloud service models", layers: [{ label: "SaaS", nodes: ["CRM"] }] },
+    result: {
+      id: "wb-abc",
+      title: "Cloud service models",
+      visibility: "PRIVATE",
+      projectId: null,
+      elementCount: 15,
+      truncated: false,
+      note: "Created PRIVATE — only you can open it until you share it.",
+    },
+  };
+
+  it("becomes a card that deep-links to the board", () => {
+    expect(toolCallToArtifact(call, ORG)).toMatchObject({
+      toolCallId: "tc-wb",
+      entityType: "whiteboard",
+      action: "created",
+      id: "wb-abc",
+      label: "Cloud service models",
+      typeLabel: "Whiteboard",
+      url: "/acme/whiteboard/wb-abc",
+    });
+  });
+
+  it("carries its own badge glyph, since it is not in ENTITY_PREFIX", () => {
+    expect(toolCallToArtifact(call, ORG)?.glyph).toBeTruthy();
+  });
+
+  it("produces no card when the board was not created", () => {
+    const failed = { ...call, result: { error: "Whiteboard not found" } };
+    expect(toolCallToArtifact(failed, ORG)).toBeNull();
+  });
+
+  it("does NOT card add_to_whiteboard, which edits a board the user already had", () => {
+    // Deliberate: the artifact verbs are create/update/delete, and `add_` is
+    // none of them. Pinned so the omission reads as a decision, not an
+    // oversight, if someone later wonders why appends are silent.
+    expect(
+      toolCallToArtifact(
+        { id: "tc-add", name: "add_to_whiteboard", arguments: { boardId: "wb-abc" }, result: { id: "wb-abc", added: 4 } },
+        ORG,
+      ),
+    ).toBeNull();
+  });
+
+  it("still carries a glyph for a CORE entity", () => {
+    // Regression guard: the glyph moved onto the artifact, so the core path
+    // must resolve it too or every existing card loses its badge.
+    const a = toolCallToArtifact(
+      { id: "t", name: "create_note", arguments: { title: "N" }, result: { id: "n-1", title: "N" } },
+      ORG,
+    );
+    expect(a?.glyph).toBeTruthy();
+    expect(a?.entityType).toBe("note");
+  });
+});

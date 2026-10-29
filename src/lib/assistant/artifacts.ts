@@ -20,15 +20,28 @@
  * and unit-testable.
  */
 import type { EntityType } from "@/lib/mentions/refs";
-import { ENTITY_LABEL } from "@/lib/mentions/refs";
+import { ENTITY_LABEL, ENTITY_PREFIX } from "@/lib/mentions/refs";
 import { entityUrl } from "@/lib/mentions/urls";
 
 export type ArtifactAction = "created" | "updated" | "deleted";
 
+/**
+ * What an artifact can point at: a mentions `EntityType`, or a PLUGIN surface.
+ *
+ * A plugin entity is deliberately NOT added to `EntityType`. That type drives
+ * the @-mention picker, so a new member there needs a resolver and a search
+ * index — and a card that deep-links needs neither. Keeping them separate also
+ * avoids a "whiteboard" sitting confusingly beside the existing "board".
+ */
+export type ArtifactEntityType = EntityType | "whiteboard";
+
 export interface ChatArtifact {
   /** The tool_use id this artifact came from (stable React key). */
   toolCallId: string;
-  entityType: EntityType;
+  entityType: ArtifactEntityType;
+  /** The single-character badge glyph, resolved here so the card need not know
+   *  whether the entity is a core or a plugin one. */
+  glyph: string;
   action: ArtifactAction;
   /** The entity id (deep-link target). */
   id: string;
@@ -84,6 +97,34 @@ const TOOL_ARTIFACT_TYPE: Record<string, EntityType> = {
   update_crm_contact: "crmContact",
 };
 
+/**
+ * PLUGIN-contributed tools whose entity has a page worth linking.
+ *
+ * Kept beside `TOOL_ARTIFACT_TYPE` rather than in it because the value there is
+ * a mentions `EntityType` and these are not (see `ArtifactEntityType`). Each
+ * entry owns its own label, glyph and path, so a plugin surface can be linked
+ * without the mentions registry growing a member it cannot resolve.
+ *
+ * The path mirrors the plugin's own route — `(plugin-whiteboard)` is a route
+ * GROUP, so it does not appear in the URL.
+ */
+const PLUGIN_ARTIFACT: Record<
+  string,
+  {
+    entityType: ArtifactEntityType;
+    typeLabel: string;
+    glyph: string;
+    url: (a: { orgSlug: string; id: string }) => string;
+  }
+> = {
+  create_whiteboard: {
+    entityType: "whiteboard",
+    typeLabel: "Whiteboard",
+    glyph: "\u25a6",
+    url: ({ orgSlug, id }) => `/${orgSlug}/whiteboard/${id}`,
+  },
+};
+
 const ACTION_BY_VERB: Record<string, ArtifactAction> = {
   create: "created",
   update: "updated",
@@ -129,7 +170,8 @@ export function toolCallToArtifact(
   if (!name) return null;
   const m = /^(create|update|delete)_(.+)$/.exec(name);
   if (!m) return null;
-  const entityType = TOOL_ARTIFACT_TYPE[name];
+  const plugin = PLUGIN_ARTIFACT[name];
+  const entityType: ArtifactEntityType | undefined = plugin?.entityType ?? TOOL_ARTIFACT_TYPE[name];
   if (!entityType) return null;
   const action = ACTION_BY_VERB[m[1]];
 
@@ -150,7 +192,8 @@ export function toolCallToArtifact(
     (nested ? str(nested.id) : undefined);
   if (!id) return null;
 
-  const typeLabel = ENTITY_LABEL[entityType];
+  const typeLabel = plugin?.typeLabel ?? ENTITY_LABEL[entityType as EntityType];
+  const glyph = plugin?.glyph ?? ENTITY_PREFIX[entityType as EntityType];
 
   // Display label: prefer a concrete title/name from the result, then the args
   // the user typed, then a nested entity's; fall back to a short id.
@@ -173,9 +216,13 @@ export function toolCallToArtifact(
 
   // A deleted entity has no page to open → never link it.
   const url =
-    action === "deleted" ? null : entityUrl(entityType, { orgSlug: opts.orgSlug, projectKey, id });
+    action === "deleted"
+      ? null
+      : plugin
+        ? plugin.url({ orgSlug: opts.orgSlug, id })
+        : entityUrl(entityType as EntityType, { orgSlug: opts.orgSlug, projectKey, id });
 
-  return { toolCallId: str(tc.id) ?? id, entityType, action, id, label, typeLabel, url };
+  return { toolCallId: str(tc.id) ?? id, entityType, glyph, action, id, label, typeLabel, url };
 }
 
 /** Map a list of tool calls to their artifacts (skipping non-artifact calls). */

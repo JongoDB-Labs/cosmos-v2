@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.495.0",
+    date: "2026-10-28",
+    title: "Open a whiteboard Cosmo made, in one click",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When Cosmo creates a whiteboard it now shows a card you can click to open it, the same way it does for a work item it created. Before this, Cosmo would tell you the board existed and leave you to go and find it.",
+      },
+    ],
+  },
+  {
     version: "2.494.1",
     date: "2026-10-28",
     title: "The Cosmo button stays put",
