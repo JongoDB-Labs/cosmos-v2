@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.500.0",
+    date: "2026-10-29",
+    title: "Cosmo lets a project manager run their project",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If you manage a project without holding org-wide edit rights, Cosmo refused to create or change its risks, blockers, deliverables, change requests, milestones, goals and KPIs \u2014 fifteen actions you could do perfectly well on the project's own pages. It now allows exactly what the app allows: the org-wide permission, or being a manager of that project.",
+      },
+    ],
+  },
+  {
     version: "2.499.2",
     date: "2026-10-29",
     title: "Cosmo asks about a project before reading its hours",

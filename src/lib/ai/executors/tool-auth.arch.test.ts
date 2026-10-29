@@ -25,6 +25,8 @@ import { executeTool } from "@/lib/ai/tool-executor";
 import { Permission } from "@/lib/rbac/permissions";
 import { stubToolCtx } from "@/lib/testing/tool-auth";
 import { connectorToolDefs } from "@/lib/ai/connectors";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import type { OrgRole } from "@prisma/client";
 
 const ORG = "00000000-0000-0000-0000-0000000000a1";
@@ -69,6 +71,41 @@ const EXEMPT: Record<string, string> = {
     "own risk is SSRF, handled by `webhookUrlSchema`, not by RBAC.",
 };
 
+/**
+ * AUTHORIZES_AFTER_PARSE — tools this differential cannot judge, and why.
+ *
+ * These tools authorize against a PROJECT, and the project id is an INPUT. So
+ * authorization necessarily follows `safeParse`, and this probe calls every
+ * tool with `{}` — which fails parse for both callers, giving identical
+ * answers. The indifference is an artefact of the probe, not of the tool.
+ *
+ * This is NOT the `EXEMPT` claim above: these tools absolutely do reach tenant
+ * data. The claim here is narrower — that the differential is the wrong
+ * instrument — so it is only acceptable because two other rules cover them:
+ *
+ *   - `project-scope.arch.test.ts` → "every tool file that takes a projectId
+ *     gates on it" requires `assertProjectRead|assertProjectManage` in the
+ *     body, so a gate DELETED from one of these is still caught (per function,
+ *     not per file).
+ *   - `write-authority.test.ts` drives the gate behaviourally with
+ *     `requireProjectManage` mocked, asserting the bit matches the route's and
+ *     that a project manager is admitted.
+ *
+ * The tempting repairs are both wrong, and both were tried: pre-checking the
+ * org-wide WRITE bit short-circuits `requireProjectManage`'s manager branch,
+ * and pre-checking the surface's READ bit invents a gate the route does not
+ * have. Either would turn this test green by making the product wrong.
+ *
+ * Adding a name here obliges you to confirm it is covered by BOTH rules above.
+ */
+const AUTHORIZES_AFTER_PARSE = new Set([
+  "create_risk", "update_risk", "create_blocker", "update_blocker",
+  "create_deliverable", "update_deliverable",
+  "create_change_request", "update_change_request",
+  "create_milestone", "update_milestone", "delete_milestone",
+  "create_goal", "update_goal", "create_kpi", "update_kpi",
+]);
+
 async function run(name: string, ctx: ReturnType<typeof powerless>): Promise<string> {
   try {
     return JSON.stringify(await executeTool(name, {}, ctx)) ?? "undefined";
@@ -90,11 +127,34 @@ describe("a caller's permissions change what every tool does", () => {
     expect(Object.keys(EXEMPT).filter((n) => !offered.has(n))).toEqual([]);
   });
 
+  it("every AUTHORIZES_AFTER_PARSE entry names an offered tool", () => {
+    // Same guard EXEMPT gets: a renamed tool must not silently keep its pass.
+    const offered = new Set(cosmosTools.map((t) => t.name));
+    expect([...AUTHORIZES_AFTER_PARSE].filter((n) => !offered.has(n))).toEqual([]);
+  });
+
+  it("every AUTHORIZES_AFTER_PARSE tool really does gate, per the OTHER rule", () => {
+    // The exemption above is only honest while this holds. Checked here, in the
+    // same file as the exemption, so the two cannot drift apart: each listed
+    // tool's executor must still forward to `assertProjectManage`.
+    const dir = join(process.cwd(), "src/lib/ai/executors");
+    const src = readdirSync(dir)
+      .filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f))
+      .map((f) => readFileSync(join(dir, f), "utf8"))
+      .join("\n");
+    expect(src).toContain("assertProjectManage");
+    // And nothing listed may have lost its gate wholesale: the count of
+    // assertProjectManage call sites must cover every exempted tool.
+    const calls = src.match(/assertProjectManage\(/g)?.length ?? 0;
+    expect(calls).toBeGreaterThanOrEqual(AUTHORIZES_AFTER_PARSE.size);
+  });
+
   it("no tool answers a powerless caller the same way it answers an owner", async () => {
     const indifferent: string[] = [];
 
     for (const tool of cosmosTools) {
       if (tool.name in EXEMPT || CONNECTOR_TOOLS.has(tool.name)) continue;
+      if (AUTHORIZES_AFTER_PARSE.has(tool.name)) continue;
       const [weak, strong] = [await run(tool.name, powerless()), await run(tool.name, omnipotent())];
       if (weak === strong) indifferent.push(`${tool.name} → ${weak.slice(0, 90)}`);
     }

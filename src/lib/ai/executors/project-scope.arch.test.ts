@@ -231,6 +231,42 @@ describe("agent tools cannot read past project scoping", () => {
     ).toEqual([]);
   });
 
+  /**
+   * An org-wide pre-check in front of `assertProjectManage` defeats it.
+   *
+   * `assertProjectManage` forwards to `requireProjectManage`, which admits
+   * EITHER the org-wide bit OR a MANAGER of that project — the second branch
+   * exists because ~44 mutating routes once gated on the org bit alone, so
+   * someone made MANAGER of a project still could not add a milestone to it.
+   * The routes were fixed. Fifteen agent tools kept a raw
+   * `assertPermission(ctx, <bit>)` ahead of the forward, which runs first and
+   * rejects the manager before the manager branch is ever reached — so they ran
+   * their project in the app and got "Insufficient permissions" from the
+   * assistant. Stricter than the UI is still a parity defect, and it is the one
+   * users actually report.
+   *
+   * This is the reverse direction from every other rule in this file, and it
+   * needs its own because a too-strict gate is invisible to the others: they
+   * only ask whether a gate EXISTS.
+   */
+  it("no tool puts an org-wide pre-check in front of assertProjectManage", () => {
+    const offenders: string[] = [];
+    for (const f of files) {
+      for (const [name, body] of functionsIn(f)) {
+        if (!/assertProjectManage\(/.test(body)) continue;
+        const pre = body.search(/assertPermission\(/);
+        if (pre === -1) continue;
+        // Only a pre-check matters: BEFORE the forward, so it can short-circuit it.
+        if (pre < body.search(/assertProjectManage\(/)) offenders.push(`${f}::${name}`);
+      }
+    }
+
+    expect(
+      offenders,
+      "assertProjectManage already checks the org-wide bit — a raw assertPermission in front of it makes the project-MANAGER branch unreachable",
+    ).toEqual([]);
+  });
+
   it("vector search scopes every project-bearing table it queries", () => {
     // `semantic_search` reaches the same data by a different route — raw SQL
     // against pgvector — so the rules above, which read TypeScript call sites,

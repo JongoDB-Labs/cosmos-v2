@@ -84,14 +84,23 @@ describe("pm-register write executors (e2e DB)", () => {
 
   it("denies a non-member (no PROJECT_UPDATE)", async () => {
     const { denyCtx, project } = await makeOrg();
-    expect(await createBlocker({ projectId: project.id, title: "x" }, denyCtx)).toEqual({
-      error: "Insufficient permissions",
-    });
-    expect(await createDeliverable({ projectId: project.id, title: "x" }, denyCtx)).toEqual({
-      error: "Insufficient permissions",
-    });
-    expect(await createChangeRequest({ projectId: project.id, title: "x" }, denyCtx)).toEqual({
-      error: "Insufficient permissions",
-    });
+    // "Project not found", not "Insufficient permissions": the refusal now
+    // comes from `assertProjectManage`, which checks VISIBILITY first, and a
+    // project you cannot open must read as ABSENT rather than forbidden — that
+    // is `requireProjectRead`'s contract and the reason a refusal cannot be
+    // used to discover what exists (_ctx.ts). The org-wide pre-check that used
+    // to answer here was removed because it short-circuited the project-MANAGER
+    // branch the routes allow.
+    //
+    // The COUNT assertions are the point: a message can be changed to match
+    // whatever the code now says, so this also proves nothing was written.
+    const notFound = { error: "Project not found" };
+    expect(await createBlocker({ projectId: project.id, title: "x" }, denyCtx)).toEqual(notFound);
+    expect(await createDeliverable({ projectId: project.id, title: "x" }, denyCtx)).toEqual(notFound);
+    expect(await createChangeRequest({ projectId: project.id, title: "x" }, denyCtx)).toEqual(notFound);
+
+    expect(await prisma.blocker.count({ where: { projectId: project.id } })).toBe(0);
+    expect(await prisma.deliverable.count({ where: { projectId: project.id } })).toBe(0);
+    expect(await prisma.changeRequest.count({ where: { projectId: project.id } })).toBe(0);
   });
 });
