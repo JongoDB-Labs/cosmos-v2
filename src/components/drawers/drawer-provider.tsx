@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -83,15 +84,36 @@ export function DrawerProvider({ children }: { children: React.ReactNode }) {
     if (Number.isFinite(saved) && saved > 0) setWidthState(clampWidth(saved));
   }, []);
 
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /**
+   * The width is applied immediately; PERSISTING it is debounced.
+   *
+   * This is called on every `pointermove` of a resize drag — 60-120 times a
+   * second — and `localStorage.setItem` is synchronous main-thread work. Writing
+   * on each call put a disk write in the middle of a drag's hot path, so a drag
+   * that failed to end (see DockedDrawer's resize handler) kept writing for as
+   * long as the pointer moved, which is how a stuck drag went from "the edge
+   * follows my mouse" to a tab that stopped painting.
+   *
+   * Debouncing changes nothing a caller can observe: `width` still updates
+   * synchronously, and the stored value is the last one within ~200ms. The
+   * Expand/Shrink buttons persist just as well, a touch later.
+   */
   const setWidth = useCallback((n: number) => {
     const w = clampWidth(n);
     setWidthState(w);
-    try {
-      window.localStorage.setItem(WIDTH_KEY, String(w));
-    } catch {
-      /* localStorage unavailable */
-    }
+    clearTimeout(persistTimer.current);
+    persistTimer.current = setTimeout(() => {
+      try {
+        window.localStorage.setItem(WIDTH_KEY, String(w));
+      } catch {
+        /* localStorage unavailable */
+      }
+    }, 200);
   }, []);
+
+  // Don't leave a pending write behind on unmount.
+  useEffect(() => () => clearTimeout(persistTimer.current), []);
 
   const open = useCallback((t: DrawerTool, s?: DrawerSeed) => {
     // Always written, including to null: a stale seed reappearing the next time

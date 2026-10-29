@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.498.1",
+    date: "2026-10-28",
+    title: "The side panel stops following your mouse",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Dragging the side panel's edge to resize it could leave the panel stuck to your pointer afterwards \u2014 its edge following the mouse with no button held, and the page slowing down the longer you moved. It now stops when you let go, however you let go.",
+      },
+    ],
+  },
+  {
     version: "2.498.0",
     date: "2026-10-28",
     title: "Cosmo in Slack and Teams can use your plugins",
