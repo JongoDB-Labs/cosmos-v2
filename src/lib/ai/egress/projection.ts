@@ -262,6 +262,7 @@ const NATIVE_TOOL_ENTITY: Record<string, string> = {
   search_work_items: "work_item",
   create_work_item: "work_item", update_work_item: "work_item", delete_work_item: "work_item",
   list_transitions: "work_item_transition", transition_item: "work_item",
+  list_notes: "note",
   create_note: "note", update_note: "note", delete_note: "note",
   add_comment: "comment", list_comments: "comment", delete_comment: "comment",
   log_time: "time_entry", list_time_entries: "time_entry",

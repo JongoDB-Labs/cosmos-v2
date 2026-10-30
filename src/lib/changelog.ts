@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.503.0",
+    date: "2026-10-29",
+    title: "Cosmo can find your notes",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Cosmo can now list notes, so you can ask it what notes exist and have it edit or remove one. It could already create, edit and delete them \u2014 but editing needed a note's id and nothing could tell it one, so two of those three were unusable in practice. Your private notes stay private: Cosmo only ever sees your own plus the ones shared with the organisation.",
+      },
+    ],
+  },
+  {
     version: "2.502.1",
     date: "2026-10-29",
     title: "Cancelled sub-items are crossed out",

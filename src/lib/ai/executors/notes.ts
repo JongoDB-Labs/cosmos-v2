@@ -26,6 +26,76 @@ const deleteNoteSchema = z.object({
   noteId: z.string().uuid(),
 });
 
+const listNotesSchema = z.object({
+  visibility: z.nativeEnum(Visibility).optional(),
+  limit: z.number().int().positive().max(100).optional(),
+});
+
+/**
+ * The notes READ the agent did not have.
+ *
+ * `create_note`, `update_note` and `delete_note` all shipped; nothing could
+ * list or fetch one. The writes take a `noteId`, so two of the three were
+ * unusable in practice — there was no way for the model to learn an id. Same
+ * shape as `get_work_item`: a write surface with no read behind it.
+ *
+ * THE VISIBILITY RULE IS THE WHOLE RISK HERE. `Note.visibility` is PRIVATE by
+ * default (see `createNote` above), and a naive org-scoped list would hand every
+ * member everybody else's private notes. `GET /notes` narrows it, and this
+ * FORWARDS that clause rather than restating it:
+ *
+ *   - PRIVATE  → only the caller's own
+ *   - ORG/PROJECT → anyone holding NOTE_READ
+ *   - unfiltered  → the OR of those two
+ *
+ * `content` is deliberately NOT returned. A note body is free text, excluded
+ * from `EXPOSABLE_FIELDS` and therefore dropped on a withheld tenant anyway;
+ * returning it here would be a bulk dump of prose into a list answer. A future
+ * `get_note` can return one body at a time, which is the pattern
+ * `get_work_item` settled on for the same reason.
+ */
+export async function listNotes(
+  input: Record<string, unknown>,
+  ctx: ToolContext
+) {
+  const denied = await assertPermission(ctx, Permission.NOTE_READ);
+  if (denied) return denied;
+
+  const parsed = listNotesSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
+  }
+  const { visibility, limit } = parsed.data;
+
+  // Mirrors GET /notes exactly; see the docblock for why this cannot be a
+  // plain org scope.
+  const where: Record<string, unknown> = { orgId: ctx.orgId };
+  if (visibility === Visibility.PRIVATE) {
+    where.visibility = Visibility.PRIVATE;
+    where.authorId = ctx.userId;
+  } else if (visibility === Visibility.ORG || visibility === Visibility.PROJECT) {
+    where.visibility = visibility;
+  } else {
+    where.OR = [
+      { visibility: Visibility.PRIVATE, authorId: ctx.userId },
+      { visibility: { in: [Visibility.ORG, Visibility.PROJECT] } },
+    ];
+  }
+
+  const notes = await prisma.note.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    take: limit ?? 50,
+    // No `content`: see the docblock.
+    select: {
+      id: true, title: true, visibility: true, authorId: true,
+      createdAt: true, updatedAt: true,
+    },
+  });
+
+  return { count: notes.length, notes };
+}
+
 export async function createNote(
   input: Record<string, unknown>,
   ctx: ToolContext

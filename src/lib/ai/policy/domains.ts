@@ -74,6 +74,7 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   unlink_items: "work_items",
 
   // ── notes ───────────────────────────────────────────────────────────────────
+  list_notes: "notes",
   create_note: "notes",
   update_note: "notes",
   delete_note: "notes",
