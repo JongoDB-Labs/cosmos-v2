@@ -262,7 +262,21 @@ export function likeText(q: string): string {
   return q.replace(/\*$/, "").replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
-function contains(column: "title" | "description" | "resolution" | "externalKey" | "externalSource", q: string): Where {
+/** Same caveat as `stringCompiler`: this union is hand-written and the body
+ *  casts through `as Where`, so these names are verified against
+ *  `model WorkItem` by hand, not by the compiler. */
+function contains(
+  column:
+    | "title"
+    | "description"
+    | "resolution"
+    | "externalKey"
+    | "externalSource"
+    | "externalId"
+    | "sourceStatus"
+    | "cancelNote",
+  q: string,
+): Where {
   const prefix = q.endsWith("*") && column === "title";
   const value = likeText(q);
   return { [column]: prefix ? { startsWith: value, mode: "insensitive" } : { contains: value, mode: "insensitive" } } as Where;
@@ -331,7 +345,23 @@ function enumCompiler(column: "priority" | "workCategory" | "cancelReason" | "hi
   };
 }
 
-function stringCompiler(column: "resolution" | "externalKey" | "externalSource"): FieldCompiler {
+/**
+ * A plain nullable string column, matched case-insensitively.
+ *
+ * The union is hand-written and the bodies cast through `as Where`, so
+ * TypeScript does NOT check these names against Prisma — an invalid column here
+ * is a runtime 500 with a green type-check. Every name below was verified
+ * against `model WorkItem` in prisma/schema.prisma by hand.
+ */
+function stringCompiler(
+  column:
+    | "resolution"
+    | "externalKey"
+    | "externalSource"
+    | "externalId"
+    | "sourceStatus"
+    | "cancelNote",
+): FieldCompiler {
   return {
     match: (b) => or(...scalars(b).map((v) => nn(column, { equals: String(v), mode: "insensitive" }))),
     isEmpty: or({ [column]: null } as Where, { [column]: "" } as Where),
@@ -471,6 +501,9 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
     case "resolution":
     case "externalKey":
     case "externalSource":
+    case "externalId":
+    case "sourceStatus":
+    case "cancelNote":
       return stringCompiler(id);
     case "summary":
       return { match: () => FALSE, isEmpty: null, text: (q) => contains("title", q) };

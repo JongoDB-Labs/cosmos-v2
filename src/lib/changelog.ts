@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.504.0",
+    date: "2026-10-30",
+    title: "Three more things you can filter on",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Queries can now use three details a ticket already carried but could not be searched by: the identifier an imported ticket has in the system it came from (externalId \u2014 separate from its key), the status that system called it before import (sourceStatus), and the note written when a ticket was cancelled (cancelNote). Cancel reason and external key were already searchable; their companions were not.",
+      },
+    ],
+  },
+  {
     version: "2.503.0",
     date: "2026-10-29",
     title: "Cosmo can find your notes",

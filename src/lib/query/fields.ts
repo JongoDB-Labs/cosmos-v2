@@ -57,6 +57,9 @@ export const SYSTEM_FIELD_IDS = [
   "text",
   "externalKey",
   "externalSource",
+  "externalId",
+  "sourceStatus",
+  "cancelNote",
   "rank",
 ] as const;
 export type SystemFieldId = (typeof SYSTEM_FIELD_IDS)[number];
@@ -173,6 +176,16 @@ export const FIELDS: readonly FieldDef[] = [
   { id: "text", label: "Text", aliases: [], value: { kind: "text" }, ops: ["text"], description: "Title, description or comments contain." },
   { id: "externalKey", label: "External key", aliases: [], value: { kind: "string" }, ops: ["eq", "text", "empty"], description: "Key from an imported system, e.g. PROJ-123." },
   { id: "externalSource", label: "External source", aliases: [], value: { kind: "string" }, ops: ["eq", "text", "empty"], description: "Imported from, e.g. jira." },
+  // FR 5409a485: ticket metadata that existed on the row and could not be
+  // queried. `externalKey` was filterable while its sibling `externalId` — the
+  // source system's own identifier, which is what an integration actually joins
+  // on — was not; `sourceStatus` holds the raw upstream status, which survives
+  // import precisely so it can be inspected; and `cancelNote` is the reason
+  // text a cancellation carries, unreachable even though `cancelReason` was
+  // filterable.
+  { id: "externalId", label: "External ID", aliases: [], value: { kind: "string" }, ops: ["eq", "text", "empty"], description: "The source system's own identifier for an imported item (its key is `externalKey`)." },
+  { id: "sourceStatus", label: "Source status", aliases: [], value: { kind: "string" }, ops: ["eq", "text", "empty"], description: "The raw status text as the source system had it, kept unmapped on import." },
+  { id: "cancelNote", label: "Cancel note", aliases: [], value: { kind: "string" }, ops: ["eq", "text", "empty"], description: "The note recorded when an item was cancelled (its reason is `cancelReason`)." },
   { id: "rank", label: "Rank", aliases: [], value: { kind: "number" }, ops: [], sortable: true, description: "Board order (ORDER BY only)." },
 ];
 
