@@ -11,11 +11,15 @@ import { success, handleApiError } from "@/lib/api-helpers";
 import { logPmActivity } from "@/lib/pm/activity-log";
 import { classificationOmit } from "@/lib/compliance/classification";
 import { assertOrgMember } from "@/lib/rbac/assert-org-member";
+import { assertDeliverableLinks } from "@/lib/pm/deliverable-scope";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 const deliverableInclude = {
   ownerUser: { select: { id: true, displayName: true, avatarUrl: true } },
+  // The tracker renders the sprint's NAME; `intervalId` alone would put a uuid
+  // on the screen. Mirrors the Schedule tab's milestone → PI include.
+  interval: { select: { id: true, number: true, name: true } },
 };
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
@@ -59,6 +63,10 @@ const createSchema = z.object({
   escalate: z.boolean().default(false),
   status: z.nativeEnum(DeliverableStatus).default(DeliverableStatus.NOT_STARTED),
   workItemRef: z.string().nullish(),
+  piObjective: z.string().max(500).nullish(),
+  dueGate: z.string().max(80).nullish(),
+  contractId: z.string().uuid().nullish(),
+  intervalId: z.string().uuid().nullish(),
   notes: z.string().nullish(),
 });
 
@@ -89,6 +97,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // A client-supplied user id is not constrained to this org by anything
     // else in the write path — check membership or leak a foreign user.
     if (data.ownerUserId) await assertOrgMember(orgId, data.ownerUserId);
+    // Same reasoning for the contract and the sprint: the FKs cannot express
+    // "in this org, for this project".
+    await assertDeliverableLinks(data, orgId, projectId);
 
     const created = await prisma.deliverable.create({
       data: {
@@ -111,6 +122,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         escalate: data.escalate,
         status: data.status,
         workItemRef: data.workItemRef ?? null,
+        piObjective: data.piObjective ?? null,
+        dueGate: data.dueGate ?? null,
+        contractId: data.contractId ?? null,
+        intervalId: data.intervalId ?? null,
         notes: data.notes ?? null,
       },
       include: deliverableInclude,

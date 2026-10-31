@@ -569,6 +569,11 @@ const DELIVERABLE_SELECT = {
   id: true, code: true, title: true, clin: true, status: true, owner: true, projectId: true,
   baselineDue: true, actualSubmission: true, govAcceptance: true, escalate: true,
   revisionCycle: true, milestoneId: true, classification: true, createdAt: true, updatedAt: true,
+  // Structural ids, in the same spirit as milestoneId: which contract a CDRL is
+  // deliverable under, and which sprint it is planned into. `piObjective` and
+  // `dueGate` are deliberately absent — free text, which the egress projection
+  // strips anyway (src/lib/ai/egress/projection.ts).
+  contractId: true, intervalId: true,
 } as const;
 
 /** Next CDRL-ANNN code for the org (mirrors the deliverables route). */

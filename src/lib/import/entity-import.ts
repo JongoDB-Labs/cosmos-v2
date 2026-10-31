@@ -14,8 +14,14 @@
  * "Tolerant" coercion: dates via a `new Date()` guard; ints/numbers parsed
  * leniently (strip $/commas); bools via /^(y|true|1)/i; enums matched
  * case/space-insensitively to the declared Prisma labels ("not started" →
- * NOT_STARTED). Unmappable enum values are reported as per-row errors rather
- * than silently coerced to a default.
+ * NOT_STARTED), then to the field's `enumSynonyms` for source text that is a
+ * different word entirely ("Planned" → NOT_STARTED). Unmappable enum values are
+ * reported as per-row errors rather than silently coerced to a default.
+ *
+ * One further pass is NOT pure and therefore not in `coerceField`:
+ * `resolveLookups` turns a sheet value that is a NAME into the id its column
+ * actually holds (a deliverable's "Sprint" → `intervalId`). It runs before the
+ * report is built, so an unresolvable name warns in `validate` too.
  *
  * Errors are collected PER ROW — one bad row never aborts the whole import.
  */
@@ -95,6 +101,25 @@ function coerceEnum(raw: string, values: string[]): string | null {
   return values.find((v) => norm(v) === target) ?? null;
 }
 
+/**
+ * An enum cell: the declared labels FIRST, then the field's `enumSynonyms` for
+ * source text the enum doesn't contain as a word at all ("Planned" →
+ * NOT_STARTED).
+ *
+ * The synonym KEYS go through `coerceEnum` too, so they match with exactly the
+ * same case/space/underscore/hyphen tolerance as a real label — one notion of
+ * "same value", not two. Labels first means a synonym can never shadow a
+ * genuine enum member.
+ */
+function coerceEnumValue(field: ImportField, raw: string): string | null {
+  const direct = coerceEnum(raw, field.enum ?? []);
+  if (direct) return direct;
+  const syn = field.enumSynonyms;
+  if (!syn) return null;
+  const key = coerceEnum(raw, Object.keys(syn));
+  return key === null ? null : syn[key];
+}
+
 interface CoercedCell {
   value: unknown;
   /** Set when the cell was non-blank but couldn't be coerced (enum miss, etc.). */
@@ -125,7 +150,7 @@ function coerceField(field: ImportField, raw: string): CoercedCell {
       return { value: raw ? coerceBool(raw) : null };
     case "enum": {
       if (!raw) return { value: null };
-      const matched = coerceEnum(raw, field.enum ?? []);
+      const matched = coerceEnumValue(field, raw);
       return matched
         ? { value: matched }
         : { value: null, warning: `${field.label}: "${raw}" is not a recognized value (${(field.enum ?? []).join(", ")}) — left blank` };
@@ -193,6 +218,60 @@ export function mapRows(def: EntityDef, req: EntityImportRequest): MappedRow[] {
   });
 }
 
+// ── Lookup resolution: a NAME in the sheet, an id in the column ──────────────
+
+/**
+ * Resolve fields whose sheet value is a human name but whose column is a
+ * foreign key. Today that is `deliverable.intervalId`: a CDRL register's
+ * "Sprint" column holds the sprint's NAME.
+ *
+ * Runs BEFORE the report is built, so an unresolvable name is a non-blocking
+ * warning in `validate` exactly as it is in `commit` — the preview has to be
+ * able to say "there is no sprint called that", which is the whole point of a
+ * preview. Same shape as a bad enum value: the field is left blank, the row
+ * still imports, the warning names the cell.
+ *
+ * Not done in `coerceField` because that is pure and synchronous (and shared
+ * with the org-scoped route); this needs the database.
+ */
+async function resolveLookups(
+  def: EntityDef,
+  ctx: EntityEngineCtx,
+  mapped: MappedRow[],
+): Promise<void> {
+  if (def.key !== "deliverable") return;
+  const pending = mapped.filter((m) => typeof m.fields.intervalId === "string" && m.fields.intervalId !== "");
+  if (!pending.length) return;
+
+  const label = def.fields.find((f) => f.key === "intervalId")?.label ?? "Sprint";
+  // Scoped to this project: an interval belongs to one project, and resolving
+  // a name org-wide could attach a CDRL to another project's sprint.
+  const intervals = await prisma.interval.findMany({
+    where: { orgId: ctx.orgId, projectId: ctx.projectId },
+    orderBy: { number: "asc" },
+    select: { id: true, name: true },
+  });
+  const byName = new Map<string, string>();
+  // First wins: interval names are not unique (`@@unique([projectId, number])`
+  // is the only constraint), and ascending `number` makes the choice stable
+  // rather than whatever order the query happened to return.
+  for (const iv of intervals) {
+    const key = iv.name.trim().toLowerCase();
+    if (key && !byName.has(key)) byName.set(key, iv.id);
+  }
+
+  for (const m of pending) {
+    const raw = (m.fields.intervalId as string).trim();
+    const id = byName.get(raw.toLowerCase());
+    if (id) {
+      m.fields.intervalId = id;
+    } else {
+      m.fields.intervalId = null;
+      m.warnings.push(`${label}: "${raw}" is not a sprint in this project — left blank`);
+    }
+  }
+}
+
 // ── Natural-key helpers (create-or-update / upsert) ──────────────────────────
 
 /** Build a stable string token from a row's natural-key field values. */
@@ -225,7 +304,16 @@ async function loadExistingIds(
 
   switch (def.key) {
     case "deliverable": {
-      const rows = await prisma.deliverable.findMany({ where: { orgId, projectId }, select: { id: true, code: true } });
+      // `contractId: null` because this import never assigns a contract, so its
+      // idempotency must be scoped exactly the way the partial unique index
+      // `deliverables_org_code_unassigned_key` is. Without it, a project
+      // holding ITEM-01 under a contract AND an unassigned ITEM-01 collapses to
+      // one entry in the map, and the import can update the CONTRACT's row
+      // instead of its own.
+      const rows = await prisma.deliverable.findMany({
+        where: { orgId, projectId, contractId: null },
+        select: { id: true, code: true },
+      });
       return toMap(rows, (r) => ({ code: r.code }));
     }
     case "risk": {
@@ -336,6 +424,11 @@ async function createEntityRow(
           revRequired: b(fields, "revRequired"),
           escalate: b(fields, "escalate"),
           workItemRef: s(fields, "workItemRef"),
+          piObjective: s(fields, "piObjective"),
+          dueGate: s(fields, "dueGate"),
+          // Already an interval id (or null) — resolveLookups turned the
+          // sheet's sprint NAME into one before this ran.
+          intervalId: s(fields, "intervalId"),
           notes: s(fields, "notes"),
         },
       });
@@ -556,7 +649,8 @@ async function updateEntityRow(
         ["actualSubmission", "actualSubmission"], ["govReviewPeriod", "govReviewPeriod"],
         ["govAcceptance", "govAcceptance"], ["owner", "owner"],
         ["revisionCycle", "revisionCycle"], ["revRequired", "revRequired"], ["escalate", "escalate"],
-        ["workItemRef", "workItemRef"], ["notes", "notes"],
+        ["workItemRef", "workItemRef"], ["piObjective", "piObjective"],
+        ["dueGate", "dueGate"], ["intervalId", "intervalId"], ["notes", "notes"],
       ]);
       if (Object.keys(data).length) await prisma.deliverable.update({ where: { id }, data });
       return;
@@ -681,6 +775,10 @@ export async function runEntityImport(
 
   const mapped = mapRows(def, req);
   const errors: EntityImportRowError[] = [];
+
+  // Name → id for lookup fields (the "Sprint" column), before the warnings are
+  // collected below, so `validate` reports an unresolvable name too.
+  await resolveLookups(def, ctx, mapped);
 
   // Per-row blocking validation (required fields + code presence). Warnings
   // (bad enum/date values) are surfaced too, but don't block the row.
