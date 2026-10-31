@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.506.0",
+    date: "2026-10-31",
+    title: "Three more things you can filter on",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Filter by what a duplicate was merged into. \u201cMerged into\u201d takes an item key, so `mergedInto = ACME-12` is everything folded into that ticket, and `mergedInto IS EMPTY` leaves merged duplicates out of a list.",
+      },
+      {
+        kind: "feature",
+        text: "Filter by whether an item has sub-items. \u201cHas sub-items\u201d set to false is the leaves \u2014 the work that doesn't break down any further. An archived sub-item doesn't count.",
+      },
+      {
+        kind: "feature",
+        text: "Filter by whether an item has attachments. \u201cHas attachments\u201d means a file you are allowed to see: a document restricted to other people never shows up as one, in either direction, because the existence of a file \u2014 and its name \u2014 can itself be sensitive.",
+      },
+    ],
+  },
+  {
     version: "2.505.1",
     date: "2026-10-31",
     title: "Save this filter, where you built it",
