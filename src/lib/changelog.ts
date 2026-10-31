@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.506.4",
+    date: "2026-10-31",
+    title: "Importing deliverables works again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Importing a deliverables register failed on every row with a message about an unknown \u201cbranchOwner\u201d. The importer was still writing a column that was removed from the database in August, and still offering \u201cBranch owner\u201d as something you could map a spreadsheet column to. Both are gone, and imports create and update deliverables normally again.",
+      },
+      {
+        kind: "fix",
+        text: "A deliverable set to \u201cIn Progress\u201d showed an empty Status cell in the deliverables register and sorted to an unpredictable position. The register was missing that one status from its own list.",
+      },
+    ],
+  },
+  {
     version: "2.506.3",
     date: "2026-10-31",
     title: "Classification is decided by your settings, not by the assistant",

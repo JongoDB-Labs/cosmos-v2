@@ -299,11 +299,20 @@ jobs:
           # on a PR whose versions were perfectly correct. -m1 stops grep itself,
           # so nothing is left to write and there is no pipe to break.
           PKG="$(grep -m1 -oE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' package.json | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
-          # NEWEST, not FIRST. src/lib/changelog.ts is marked `merge=union` in
-          # .gitattributes and sorts itself at runtime, so the order of entries
-          # in the file is arbitrary by design — two branches that each add a
-          # release both keep their lines and neither is guaranteed to be on top.
-          # Asserting position would fail a perfectly correct merge.
+          # NEWEST, not FIRST. src/lib/changelog.ts sorts itself at module load,
+          # so a new entry may be inserted ANYWHERE in the literal and position
+          # carries no meaning. Asserting position would fail a perfectly
+          # correct merge.
+          #
+          # This comment used to add "is marked `merge=union` in .gitattributes".
+          # That is FALSE and worth correcting rather than deleting: .gitattributes
+          # now opens with "NO merge driver for src/lib/changelog.ts. It must
+          # CONFLICT", because union merge aligns on the lines two entries happen
+          # to share and splices one entry's opening brace onto another's closing
+          # one — producing a file that does not parse, while exiting 0. It was
+          # tried on 2026-09-15 and reverted in 2.374.1. `git check-attr merge --
+          # src/lib/changelog.ts` reports `unspecified`. The stale claim here
+          # directly misled a reader in 2026-10-31 into repeating it.
           #
           # Numeric sort per component: `sort -V` is not portable and a plain
           # sort ranks 2.99.0 above 2.372.0.

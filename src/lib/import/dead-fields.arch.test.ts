@@ -53,3 +53,66 @@ describe("import field contracts carry nothing dead", () => {
     expect(read("src/lib/import/parse-file.ts")).not.toMatch(/internal whitespace collapsed/);
   });
 });
+
+/**
+ * Every ImportField key names a real column on its model.
+ *
+ * This file exists to stop dead import fields, and it did not stop one. It
+ * checked `hint` properties, a `userId` absence and three comment wordings —
+ * never the thing in the name. `Deliverable.branch_owner` was dropped by
+ * migration 20260812093000; `entity-fields.ts` kept offering users a "Branch
+ * owner" column to map and `entity-import.ts` kept writing it, so EVERY
+ * deliverable import failed with `Unknown argument 'branchOwner'`.
+ *
+ * Three things hid it, and the third is why this test is shaped like this:
+ *   - `s()` returns NULL when a column is unmapped, not undefined, and Prisma
+ *     strips `undefined` but validates `null` — so the dead key rode along on
+ *     every row, not just rows that mapped it;
+ *   - tsc cannot see it: Prisma's generated XOR input types defeat excess
+ *     property checking (see the tsc-is-blind-to-Prisma-selects class);
+ *   - the guard that should have caught it was narrower than its own name.
+ *
+ * So this reads the schema rather than trusting a hand-kept list. The only
+ * entries below are a key→model map where the names differ, and the single
+ * lookup-only field key that resolves to a relation rather than a column.
+ */
+describe("import fields name real columns", () => {
+  const MODEL_FOR: Record<string, string> = {
+    // `vendor` imports subcontract AGREEMENTS, which are Contract rows.
+    vendor: "Contract",
+  };
+  // Keys that are deliberately NOT columns: they are resolved to a relation.
+  const LOOKUP_ONLY: Record<string, readonly string[]> = {
+    vendor: ["partnerName"], // looked up to Partner, stored as partnerId
+  };
+
+  function columnsOf(model: string): string[] {
+    const schema = read("prisma/schema.prisma");
+    const block = schema.match(new RegExp(`^model ${model} \\{\\n([\\s\\S]*?)^\\}`, "m"));
+    if (!block) throw new Error(`model ${model} not found in schema.prisma`);
+    return [...block[1].matchAll(/^\s{2}(\w+)\s+\S/gm)].map((m) => m[1]);
+  }
+
+  it("has entity definitions to check", () => {
+    // Guards the guard: an empty list would make the rule below vacuous, which
+    // is how a schema-reading arch rule usually dies.
+    expect(ENTITY_DEFS.length).toBeGreaterThan(5);
+    expect(ENTITY_DEFS.flatMap((d) => d.fields).length).toBeGreaterThan(40);
+  });
+
+  it.each(ENTITY_DEFS.map((d) => [d.key, d] as const))(
+    "%s: every field key is a column on its model",
+    (key, def) => {
+      const model = MODEL_FOR[key] ?? key.charAt(0).toUpperCase() + key.slice(1);
+      const columns = columnsOf(model);
+      const exempt = new Set(LOOKUP_ONLY[key] ?? []);
+
+      const dead = def.fields.map((f) => f.key).filter((k) => !exempt.has(k) && !columns.includes(k));
+
+      expect(
+        dead,
+        `${key} import offers field(s) that are not columns on ${model}. Either the column was dropped by a migration and the import field must go too, or it belongs in LOOKUP_ONLY with a note saying what it resolves to.`,
+      ).toEqual([]);
+    },
+  );
+});
