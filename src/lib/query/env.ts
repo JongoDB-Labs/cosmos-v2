@@ -3,6 +3,9 @@
  * bridge between the DB-backed resolver and the pure compiler. Kept apart from
  * compile.ts so that only execute.server.ts imports the compiler (arch test).
  */
+// Type-only, so nothing from @prisma/client reaches the browser bundle: this
+// module is on the client-safe list the CQL arch test enforces.
+import type { Prisma } from "@prisma/client";
 import type { CqlValue, FieldRef } from "./ast";
 import type { CustomFieldType } from "./typecheck";
 import { stableStringify } from "./normalize";
@@ -31,6 +34,32 @@ export interface CompileEnv {
   milestoneLinked: string[];
   /** History prefilter results, by `historyKey(spec)` (see history.ts). */
   history: Map<string, string[]>;
+  /**
+   * Which FILES this actor may know the existence of: the same `where` fragment
+   * the documents list uses (`documentVisibilityWhere` in lib/files/access.ts),
+   * resolved against their AuthContext by resolve.server.ts.
+   *
+   * Optional, and set ONLY when the query names `hasAttachments` — it costs a
+   * project-visibility read. Absent means the compiler must refuse the field
+   * rather than fall back to a bare `{ documents: { some: {} } }`, which would
+   * disclose that a restricted file exists. compile.ts throws; see the case
+   * there for why there is no safe default.
+   */
+  documentVisibility?: Prisma.DocumentWhereInput;
+  /**
+   * The projects this actor may read items from. Set ONLY when the query names
+   * `hasChildren`.
+   *
+   * compile.ts emits no scope of its own — execute.server.ts wraps its output
+   * in `buildScopedWhere`, and an arch test proves orgId never appears here.
+   * But that envelope only constrains the OUTER row: a NESTED relation filter
+   * such as `{ children: { some: … } }` is evaluated against every child row in
+   * the database, scoped or not. So "does this item have a sub-item" would
+   * otherwise answer yes on the strength of a child in a project the actor
+   * cannot read. Same disclosure shape as `documentVisibility` above, and
+   * handled the same way: absent means refuse, never a bare relation filter.
+   */
+  readableProjectIds?: string[];
   contextProjectId?: string;
   sinceLastStandup?: Date;
 }

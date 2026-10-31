@@ -18,7 +18,10 @@ import type { Prisma } from "@prisma/client";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { isUuid } from "@/lib/ids";
 import type { AuthContext } from "@/lib/rbac/check";
+import { documentVisibilityWhere } from "@/lib/files/access";
+import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import {
+  mentionsField,
   predValues,
   type CqlNode,
   type CqlQuery,
@@ -631,6 +634,30 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     }
   }
 
+  // ── 7. Attachment visibility, for `hasAttachments` ─────────────────────────
+  // The compiler is pure and holds no AuthContext, yet "is there a file on this
+  // item" is a per-viewer question: a RESTRICTED document must be invisible even
+  // as an existence bit. So the predicate is built here from the SAME fragment
+  // the documents list uses, never a second copy of the rule, and travels on the
+  // env. Only when the query names the field — it costs a project read.
+  //
+  // `readableIds` as the candidate set, so this is the intersection of "files
+  // you may see" with "projects you may read items from". Note the consequence:
+  // `getVisibleProjectIds` asks for PROJECT_READ, which a GUEST (ITEM_READ only)
+  // does not carry, so a GUEST sees no project-filed attachment. That is fail
+  // closed, which is the right direction for a disclosure channel.
+  let documentVisibility: CompileEnv["documentVisibility"];
+  if (mentionsField(a.query, "hasAttachments")) {
+    const visibleProjects = await getVisibleProjectIds(a.ctx, readableIds);
+    documentVisibility = documentVisibilityWhere(a.ctx, visibleProjects);
+  }
+
+  // ── 8. Readable projects, for `hasChildren` ───────────────────────────────
+  // Costs nothing — `readableIds` is already computed above. Passed only when
+  // the field is named so that its absence is a real error rather than a
+  // silently permissive default; see the throw in compile.ts.
+  const readableProjectIds = mentionsField(a.query, "hasChildren") ? readableIds : undefined;
+
   const env: CompileEnv = {
     actorUserId: a.ctx.userId,
     now: a.now,
@@ -644,6 +671,8 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     milestoneItems,
     milestoneLinked,
     history: new Map(),
+    ...(documentVisibility ? { documentVisibility } : {}),
+    ...(readableProjectIds ? { readableProjectIds } : {}),
     ...(contextProject ? { contextProjectId: contextProject } : {}),
     ...(a.sinceLastStandup ? { sinceLastStandup: a.sinceLastStandup } : {}),
   };

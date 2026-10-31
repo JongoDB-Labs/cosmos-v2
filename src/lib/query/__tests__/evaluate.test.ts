@@ -55,3 +55,38 @@ describe("evaluate: values", () => {
     expect(matches({ AND: [{ id: "j" }, { labels: { some: { labelId: "l1" } } }] }, { id: "i" })).toBe(false);
   });
 });
+
+/**
+ * The board is the SECOND executor of a compiled predicate: it filters its own
+ * rows in the browser and asks the server only about rows it cannot decide
+ * (use-board-query.ts keeps an UNDECIDED row only if the server's id set has
+ * it). For `hasAttachments` a wrong YES in here would be exactly the disclosure
+ * the server-side fragment exists to prevent, so the only acceptable answers
+ * are the right one and UNDECIDED.
+ */
+describe("evaluate: hasChildren / hasAttachments on a board row", () => {
+  const HAS_LIVE_CHILD = { children: { some: { archivedAt: null } } };
+  const IS_LEAF = { children: { none: { archivedAt: null } } };
+  const VISIBLE_DOC = {
+    OR: [{ visibility: "INHERIT" }, { visibility: "RESTRICTED", OR: [{ uploadedById: "me" }] }],
+  };
+
+  it("decides a leaf from an empty children array and asks the server for the rest", () => {
+    // The project work-items route DOES send `children`, with a select that
+    // carries no archivedAt — so a row that HAS children cannot be decided here.
+    expect(matches(HAS_LIVE_CHILD, { id: "i", children: [] })).toBe(false);
+    expect(matches(IS_LEAF, { id: "i", children: [] })).toBe(true);
+    expect(matches(HAS_LIVE_CHILD, { id: "i", children: [{ id: "c", title: "kid" }] })).toBe(UNDECIDED);
+    expect(matches(IS_LEAF, { id: "i", children: [{ id: "c", title: "kid" }] })).toBe(UNDECIDED);
+  });
+
+  it("never counts a file whose visibility the row omits", () => {
+    expect(matches({ documents: { some: VISIBLE_DOC } }, { id: "i" })).toBe(UNDECIDED);
+    // Even if a row ever started carrying documents, one without the columns the
+    // policy reads stays UNDECIDED rather than being counted as visible.
+    expect(matches({ documents: { some: VISIBLE_DOC } }, { id: "i", documents: [{ id: "d" }] })).toBe(UNDECIDED);
+    // "No files at all" is the one case it may answer by itself.
+    expect(matches({ documents: { some: VISIBLE_DOC } }, { id: "i", documents: [] })).toBe(false);
+    expect(matches({ documents: { none: VISIBLE_DOC } }, { id: "i", documents: [] })).toBe(true);
+  });
+});

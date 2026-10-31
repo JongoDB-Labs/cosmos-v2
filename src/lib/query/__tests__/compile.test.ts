@@ -300,6 +300,88 @@ describe("compile — field by field", () => {
   });
 });
 
+/** A stand-in for what files/access.ts builds for an ordinary member. */
+const DOC_VISIBILITY: NonNullable<CompileEnv["documentVisibility"]> = {
+  OR: [
+    { visibility: "INHERIT", OR: [{ projectId: null }, { projectId: { in: ["p1"] } }] },
+    { visibility: "RESTRICTED", OR: [{ uploadedById: "me-id" }, { shares: { some: { userId: "me-id" } } }] },
+  ],
+};
+
+describe("compile — merged-into, sub-items and attachments", () => {
+  it("mergedInto filters its own scalar column, exactly as parent does", () => {
+    expect(where('mergedInto = "ref:item:i9"')).toEqual({ mergedIntoId: { in: ["i9"], not: null } });
+    // The field it was modelled on, asserted beside it so the two cannot drift.
+    expect(where('parent = "ref:item:i9"')).toEqual({ parentId: { in: ["i9"], not: null } });
+    expect(where('mergedInto IN ("ref:item:i9", "ref:item:i8")')).toEqual({ mergedIntoId: { in: ["i9", "i8"], not: null } });
+    // Empty is "never merged away", and `!=` stays two-valued over a nullable column.
+    expect(where("mergedInto IS EMPTY")).toEqual({ mergedIntoId: null });
+    expect(where('mergedInto != "ref:item:i9"')).toEqual({
+      AND: [{ NOT: { mergedIntoId: { in: ["i9"], not: null } } }, { NOT: { mergedIntoId: null } }],
+    });
+  });
+
+  it("hasChildren counts only LIVE sub-items the actor can read", () => {
+    // Two deliberate semantics in one predicate, neither accidental:
+    //   archivedAt — an archived sub-item leaves a leaf;
+    //   projectId  — so does a sub-item in a project you cannot read.
+    // The second is scope, and it has to be stated HERE because the predicate
+    // is nested: buildScopedWhere's envelope constrains the outer row only.
+    const e = env({ readableProjectIds: ["pA", "pB"] });
+    const live = { archivedAt: null, projectId: { in: ["pA", "pB"] } };
+
+    expect(where("hasChildren = true", e)).toEqual({ children: { some: live } });
+    expect(where("hasChildren = false", e)).toEqual({ children: { none: live } });
+    expect(where("children = true", e)).toEqual({ children: { some: live } });
+  });
+
+  it("hasChildren FAILS CLOSED: no readable set means it throws, never a bare relation filter", () => {
+    // The first cut of this field compiled to `{ children: { some: { archivedAt: null } } }`
+    // and a security review caught it: nested filters escape the scope
+    // envelope, so that form answers "yes, it has a sub-item" on the strength
+    // of a child in a project the actor cannot read. A throw is the only safe
+    // absence — every fallback either over-matches or matches everything.
+    expect(() => where("hasChildren = true")).toThrow(/readableProjectIds/);
+    expect(() => where("hasChildren = false")).toThrow(/readableProjectIds/);
+    // And it is not reachable past a cheaper conjunct either.
+    expect(() => where("priority = HIGH AND hasChildren = true")).toThrow(/readableProjectIds/);
+  });
+
+  it("an actor who can read NOTHING sees every item as a leaf, not as a parent", () => {
+    // The degenerate case, pinned so it cannot drift to "matches everything":
+    // an empty readable set must make `= true` unsatisfiable, not vacuous.
+    const none = env({ readableProjectIds: [] });
+    expect(where("hasChildren = true", none)).toEqual({
+      children: { some: { archivedAt: null, projectId: { in: [] } } },
+    });
+  });
+
+  it("hasAttachments carries the actor's own document-visibility predicate, both ways", () => {
+    const e = env({ documentVisibility: DOC_VISIBILITY });
+    expect(where("attachments = true", e)).toEqual({ documents: { some: DOC_VISIBILITY } });
+    // `none` means "no attachment YOU can see": an item whose only file is
+    // restricted reads as having none, which discloses nothing about the file.
+    expect(where("hasAttachments = false", e)).toEqual({ documents: { none: DOC_VISIBILITY } });
+  });
+
+  it("hasAttachments FAILS CLOSED: no predicate means it throws, never a bare relation filter", () => {
+    // The disclosure channel this guards is `{ documents: { some: {} } }`, which
+    // answers "there is a file on this ticket" to somebody not allowed to see it.
+    expect(() => where("hasAttachments = true")).toThrow(/documentVisibility/);
+    expect(() => where("hasAttachments = false")).toThrow(/documentVisibility/);
+    let compiled: unknown = "not reached";
+    try {
+      compiled = where("attachments = true");
+    } catch {
+      /* expected */
+    }
+    expect(compiled).toBe("not reached");
+    // …and the whole query is refused, not just the clause: a predicate that
+    // dropped the clause would widen the result set instead of narrowing it.
+    expect(() => where("priority = HIGH AND hasAttachments = true")).toThrow(/documentVisibility/);
+  });
+});
+
 /** Every key anywhere in a where tree. */
 function keysIn(o: unknown, out = new Set<string>()): Set<string> {
   if (Array.isArray(o)) o.forEach((x) => keysIn(x, out));

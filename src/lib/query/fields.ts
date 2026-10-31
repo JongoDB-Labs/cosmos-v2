@@ -31,6 +31,7 @@ export const SYSTEM_FIELD_IDS = [
   "team",
   "parent",
   "ancestor",
+  "hasChildren",
   "milestone",
   "blocked",
   "linkedTo",
@@ -55,11 +56,13 @@ export const SYSTEM_FIELD_IDS = [
   "description",
   "comment",
   "text",
+  "hasAttachments",
   "externalKey",
   "externalSource",
   "externalId",
   "sourceStatus",
   "cancelNote",
+  "mergedInto",
   "rank",
 ] as const;
 export type SystemFieldId = (typeof SYSTEM_FIELD_IDS)[number];
@@ -150,6 +153,10 @@ export const FIELDS: readonly FieldDef[] = [
   { id: "team", label: "Team", aliases: [], value: { kind: "ref", entity: "team" }, ops: ["eq", "in", "empty", "history"], groupable: true, description: "The team the item belongs to. Use `assignee IN membersOf(\"Team\")` for its members' work." },
   { id: "parent", label: "Parent", aliases: [], value: { kind: "ref", entity: "item" }, ops: ["eq", "in", "empty"], description: "The parent item's key." },
   { id: "ancestor", label: "Ancestor", aliases: [], value: { kind: "ref", entity: "item" }, ops: ["eq", "in"], description: "Any item above this one, at any depth: `ancestor = ACME-1` is everything under ACME-1." },
+  // The other half of `parent IS EMPTY`: that asks for a root, this asks whether
+  // anything hangs underneath. `parent` / `ancestor` / `childrenOf()` all need a
+  // NAMED parent, so "which of these are still leaves" had no spelling.
+  { id: "hasChildren", label: "Has sub-items", aliases: ["children", "subitems"], value: { kind: "bool" }, ops: ["eq"], description: "`hasChildren = true` when the item has at least one sub-item; `= false` is a leaf. An archived sub-item doesn't count." },
   { id: "milestone", label: "Milestone", aliases: ["milestones"], value: { kind: "ref", entity: "milestone" }, ops: ["eq", "in", "empty"], description: "A milestone the item is linked to." },
   { id: "blocked", label: "Blocked", aliases: [], value: { kind: "bool" }, ops: ["eq"], description: "`blocked = true` when another item blocks it." },
   { id: "linkedTo", label: "Linked to", aliases: ["linked"], value: { kind: "ref", entity: "item" }, ops: ["eq", "in"], description: "Linked to the given item, any link type." },
@@ -174,6 +181,14 @@ export const FIELDS: readonly FieldDef[] = [
   { id: "description", label: "Description", aliases: [], value: { kind: "text" }, ops: ["text", "empty"], description: "Description contains." },
   { id: "comment", label: "Comment", aliases: ["comments"], value: { kind: "text" }, ops: ["text"], description: "Any comment contains." },
   { id: "text", label: "Text", aliases: [], value: { kind: "text" }, ops: ["text"], description: "Title, description or comments contain." },
+  // A bool rather than an `IS EMPTY` over a `documents` ref, deliberately: it
+  // needs no new RefEntity and no suggestions endpoint, and nobody filters for
+  // "the item carrying THAT file" — they ask whether anything is attached. What
+  // counts as attached is per-viewer, which the compiler spells out.
+  // No `files` alias on purpose: a system field SHADOWS a custom field of the
+  // same name (parser.ts), `files` is a plausible custom-field name, and the
+  // word is already searchable through this description.
+  { id: "hasAttachments", label: "Has attachments", aliases: ["attachments"], value: { kind: "bool" }, ops: ["eq"], description: "`hasAttachments = true` when a file you can see is attached, e.g. `type = Bug AND attachments = false`. Files restricted to other people don't count." },
   { id: "externalKey", label: "External key", aliases: [], value: { kind: "string" }, ops: ["eq", "text", "empty"], description: "Key from an imported system, e.g. PROJ-123." },
   { id: "externalSource", label: "External source", aliases: [], value: { kind: "string" }, ops: ["eq", "text", "empty"], description: "Imported from, e.g. jira." },
   // FR 5409a485: ticket metadata that existed on the row and could not be
@@ -186,6 +201,11 @@ export const FIELDS: readonly FieldDef[] = [
   { id: "externalId", label: "External ID", aliases: [], value: { kind: "string" }, ops: ["eq", "text", "empty"], description: "The source system's own identifier for an imported item (its key is `externalKey`)." },
   { id: "sourceStatus", label: "Source status", aliases: [], value: { kind: "string" }, ops: ["eq", "text", "empty"], description: "The raw status text as the source system had it, kept unmapped on import." },
   { id: "cancelNote", label: "Cancel note", aliases: [], value: { kind: "string" }, ops: ["eq", "text", "empty"], description: "The note recorded when an item was cancelled (its reason is `cancelReason`)." },
+  // `cancelReason = MERGED` could say THAT an item was merged and never WHICH
+  // item it went into, though the column has existed since COSMOS-207. "Merged
+  // into" is the product's own phrase for it — the merge dialog, the toast, the
+  // cancel note the merge writes and the feedback board all use it.
+  { id: "mergedInto", label: "Merged into", aliases: ["merged", "mergedintoid"], value: { kind: "ref", entity: "item" }, ops: ["eq", "in", "empty"], description: "The item a duplicate was merged into: `mergedInto = ACME-12` is everything folded into ACME-12, and `mergedInto IS EMPTY` leaves merged duplicates out." },
   { id: "rank", label: "Rank", aliases: [], value: { kind: "number" }, ops: [], sortable: true, description: "Board order (ORDER BY only)." },
 ];
 
