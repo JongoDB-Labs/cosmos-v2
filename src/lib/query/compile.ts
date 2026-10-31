@@ -457,8 +457,25 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
       // whose only sub-item has been filed away should read as a leaf here too
       // — otherwise `hasChildren = true` returns items whose children nobody
       // can see. Both directions name the column, so the two are complements.
-      const hasLiveChild: Where = { children: { some: { archivedAt: null } } };
-      const isLeaf: Where = { children: { none: { archivedAt: null } } };
+      //
+      // FAIL CLOSED on scope, for the same reason `hasAttachments` does below.
+      // This predicate is NESTED, so `buildScopedWhere`'s envelope — which
+      // constrains the outer row — does not reach it: a bare
+      // `{ children: { some: … } }` is matched against every child row there
+      // is, and would answer "yes, this has a sub-item" on the strength of one
+      // in a project the actor cannot read. Flagged by review on the first cut
+      // of this field, which had exactly that bare form.
+      const readable = env.readableProjectIds;
+      if (!readable) {
+        throw new Error(
+          "hasChildren needs env.readableProjectIds — resolve.server.ts must set the actor's readable project set whenever the query names this field.",
+        );
+      }
+      const liveChild = { archivedAt: null, projectId: { in: readable } };
+      const hasLiveChild: Where = { children: { some: liveChild } };
+      // Reads as "no sub-item YOU can see", which discloses nothing — the same
+      // semantics `hasAttachments = false` carries.
+      const isLeaf: Where = { children: { none: liveChild } };
       return {
         match: (b) => or(...scalars(b).map((v) => (v === true ? hasLiveChild : isLeaf))),
         isEmpty: null,

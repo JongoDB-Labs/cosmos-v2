@@ -46,6 +46,20 @@ export interface CompileEnv {
    * there for why there is no safe default.
    */
   documentVisibility?: Prisma.DocumentWhereInput;
+  /**
+   * The projects this actor may read items from. Set ONLY when the query names
+   * `hasChildren`.
+   *
+   * compile.ts emits no scope of its own — execute.server.ts wraps its output
+   * in `buildScopedWhere`, and an arch test proves orgId never appears here.
+   * But that envelope only constrains the OUTER row: a NESTED relation filter
+   * such as `{ children: { some: … } }` is evaluated against every child row in
+   * the database, scoped or not. So "does this item have a sub-item" would
+   * otherwise answer yes on the strength of a child in a project the actor
+   * cannot read. Same disclosure shape as `documentVisibility` above, and
+   * handled the same way: absent means refuse, never a bare relation filter.
+   */
+  readableProjectIds?: string[];
   contextProjectId?: string;
   sinceLastStandup?: Date;
 }

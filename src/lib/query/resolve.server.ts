@@ -652,6 +652,12 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     documentVisibility = documentVisibilityWhere(a.ctx, visibleProjects);
   }
 
+  // ── 8. Readable projects, for `hasChildren` ───────────────────────────────
+  // Costs nothing — `readableIds` is already computed above. Passed only when
+  // the field is named so that its absence is a real error rather than a
+  // silently permissive default; see the throw in compile.ts.
+  const readableProjectIds = mentionsField(a.query, "hasChildren") ? readableIds : undefined;
+
   const env: CompileEnv = {
     actorUserId: a.ctx.userId,
     now: a.now,
@@ -666,6 +672,7 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     milestoneLinked,
     history: new Map(),
     ...(documentVisibility ? { documentVisibility } : {}),
+    ...(readableProjectIds ? { readableProjectIds } : {}),
     ...(contextProject ? { contextProjectId: contextProject } : {}),
     ...(a.sinceLastStandup ? { sinceLastStandup: a.sinceLastStandup } : {}),
   };

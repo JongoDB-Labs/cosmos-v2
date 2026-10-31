@@ -321,12 +321,39 @@ describe("compile — merged-into, sub-items and attachments", () => {
     });
   });
 
-  it("hasChildren counts only LIVE sub-items: an archived child leaves a leaf", () => {
-    // The archivedAt in both directions is the deliberate semantic, not an
-    // accident — see the comment on the compiler's case.
-    expect(where("hasChildren = true")).toEqual({ children: { some: { archivedAt: null } } });
-    expect(where("hasChildren = false")).toEqual({ children: { none: { archivedAt: null } } });
-    expect(where("children = true")).toEqual({ children: { some: { archivedAt: null } } });
+  it("hasChildren counts only LIVE sub-items the actor can read", () => {
+    // Two deliberate semantics in one predicate, neither accidental:
+    //   archivedAt — an archived sub-item leaves a leaf;
+    //   projectId  — so does a sub-item in a project you cannot read.
+    // The second is scope, and it has to be stated HERE because the predicate
+    // is nested: buildScopedWhere's envelope constrains the outer row only.
+    const e = env({ readableProjectIds: ["pA", "pB"] });
+    const live = { archivedAt: null, projectId: { in: ["pA", "pB"] } };
+
+    expect(where("hasChildren = true", e)).toEqual({ children: { some: live } });
+    expect(where("hasChildren = false", e)).toEqual({ children: { none: live } });
+    expect(where("children = true", e)).toEqual({ children: { some: live } });
+  });
+
+  it("hasChildren FAILS CLOSED: no readable set means it throws, never a bare relation filter", () => {
+    // The first cut of this field compiled to `{ children: { some: { archivedAt: null } } }`
+    // and a security review caught it: nested filters escape the scope
+    // envelope, so that form answers "yes, it has a sub-item" on the strength
+    // of a child in a project the actor cannot read. A throw is the only safe
+    // absence — every fallback either over-matches or matches everything.
+    expect(() => where("hasChildren = true")).toThrow(/readableProjectIds/);
+    expect(() => where("hasChildren = false")).toThrow(/readableProjectIds/);
+    // And it is not reachable past a cheaper conjunct either.
+    expect(() => where("priority = HIGH AND hasChildren = true")).toThrow(/readableProjectIds/);
+  });
+
+  it("an actor who can read NOTHING sees every item as a leaf, not as a parent", () => {
+    // The degenerate case, pinned so it cannot drift to "matches everything":
+    // an empty readable set must make `= true` unsatisfiable, not vacuous.
+    const none = env({ readableProjectIds: [] });
+    expect(where("hasChildren = true", none)).toEqual({
+      children: { some: { archivedAt: null, projectId: { in: [] } } },
+    });
   });
 
   it("hasAttachments carries the actor's own document-visibility predicate, both ways", () => {
