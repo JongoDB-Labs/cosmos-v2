@@ -241,3 +241,83 @@ describe("Issues — when filter options fail to load, the page says so", () => 
     expect(screen.queryByText(/Couldn't load filter options/i)).toBeNull();
   });
 });
+
+/**
+ * Where a control SITS, relative to the thing it acts on.
+ *
+ * 2.505.0 made "Save as board" exist in every state, which the block above
+ * pins. It did not make it findable: it landed in a right-aligned row of six
+ * identically-styled outline buttons ABOVE the query bar, mixed in with
+ * controls that do something else entirely. Reported again, with a screenshot,
+ * as the buttons being present but not noticed.
+ *
+ * The split this pins is semantic, not cosmetic:
+ *   - ABOVE the query bar live the INPUTS — the Saved menu, and the Watching
+ *     and Archived quick-filters. They change WHICH items you are looking at.
+ *   - BELOW the query bar live the ACTIONS on what you just built — Save
+ *     filter, Save as board, Export CSV. They act on the query as it stands.
+ *
+ * Direction matters, so each assertion has its opposite as a control: proving
+ * a button FOLLOWS the editor is worthless unless something else is shown to
+ * PRECEDE it.
+ */
+const follows = (a: Element, b: Element) =>
+  !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+describe("Issues — query actions sit with the query", () => {
+  // Anchor on "Add filter" rather than the CQL textarea: the editor only
+  // renders in text mode, and this harness (like the default) is in builder
+  // mode, so a textarea anchor silently fails to find anything.
+  const queryBar = () => screen.getByRole("combobox", { name: "Add filter" });
+
+  it("puts Save filter, Save as board and Export CSV BELOW the query bar", async () => {
+    renderView();
+    const saveFilter = await screen.findByRole("button", { name: "Save filter" });
+
+    expect(follows(queryBar(), saveFilter)).toBe(true);
+    expect(follows(queryBar(), boardButton()!)).toBe(true);
+    expect(follows(queryBar(), screen.getByRole("link", { name: /Export CSV/i }))).toBe(true);
+  });
+
+  it("control: the quick-filters stay ABOVE it, so the check above has a direction", async () => {
+    renderView();
+    await screen.findByRole("button", { name: "Save filter" });
+
+    // Same comparison, opposite expectation — if `follows` were broken, or the
+    // query bar were last in the DOM, both of these could not hold at once.
+    expect(follows(queryBar(), screen.getByRole("button", { name: /Watching/i }))).toBe(false);
+    expect(follows(queryBar(), screen.getByRole("button", { name: /Archived/i }))).toBe(false);
+  });
+
+  it("groups the three of them in one row", async () => {
+    renderView();
+    const saveFilter = await screen.findByRole("button", { name: "Save filter" });
+    const row = saveFilter.parentElement!;
+
+    expect(boardButton()!.parentElement).toBe(row);
+    expect(screen.getByRole("link", { name: /Export CSV/i }).parentElement).toBe(row);
+    // Same overflow invariant as the row it came from: these are Buttons, and
+    // buttonVariants carries `shrink-0 whitespace-nowrap`, so without
+    // flex-wrap the row overflows rather than reflowing.
+    expect(row.className).toContain("flex-wrap");
+  });
+
+  it("offers 'New issue' on an org with no issues at all", async () => {
+    // The first-run dead end: the results header held the ONLY "New issue"
+    // button on the page and rendered only when `rows.length > 0`, while the
+    // empty state offers "Clear filters" and nothing else — and not even that
+    // unless a filter is active. A brand-new org therefore saw "No issues yet"
+    // with no way to create the first one from this page.
+    renderView();
+    await screen.findByText("No issues yet");
+    await waitFor(() => expect(screen.queryByRole("button", { name: /New issue/i })).not.toBeNull());
+  });
+
+  it("control: no create permission → still no New issue button", async () => {
+    can.mockImplementation(((p: unknown) => p !== Permission.ITEM_CREATE) as never);
+    renderView();
+    await screen.findByText("No issues yet");
+    await screen.findByRole("button", { name: "Save filter" });
+    expect(screen.queryByRole("button", { name: /New issue/i })).toBeNull();
+  });
+});
