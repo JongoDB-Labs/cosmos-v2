@@ -19,7 +19,7 @@
 import { mintHandle, resolveHandle, resolveHandlesDeep } from "../../src/lib/ai/egress/handles";
 import { augmentWithHandles, projectResult } from "../../src/lib/ai/egress/projection";
 import { projectForModel } from "../../src/lib/ai/egress/gate";
-import { effectiveCeiling, maxByRank } from "../../src/lib/classification/effective";
+import { conservativeCeiling, maxByRank } from "../../src/lib/classification/effective";
 import { isWithheld } from "../../src/lib/ai/egress/types";
 import { prisma } from "../../src/lib/db/client";
 import crypto from "node:crypto";
@@ -101,16 +101,24 @@ async function main() {
   // ceiling (CUI) back into the result ceiling (max-by-rank) BEFORE projectForModel,
   // so the result is WITHHELD for BOTH tenants. This drives the EXACT loop pipeline
   // (real mintHandle → resolveHandlesDeep → maxByRank → projectForModel) with the
-  // real DB-backed effectiveCeiling for the no-projectId/org-UNCLASSIFIED echo turn.
+  // real DB-backed per-result ceiling for the org-UNCLASSIFIED echo turn.
+  //
+  // The per-result ceiling is `conservativeCeiling(orgId)` — max over the org row AND
+  // every project row — because the loop no longer takes `projectId` off the model's
+  // tool arguments on the read path. For this echo org, which has no rows at all, it
+  // answers UNCLASSIFIED exactly as `effectiveCeiling(orgId)` did, so the C1 scenario
+  // below is unchanged; the call is updated so this script keeps MIRRORING the loop
+  // rather than quietly simulating a path the loop stopped taking.
   const convC1 = "accept-conv-C1-" + Date.now();
   // UNMARKED CUI: real controlled content with NO marking token (the marking-DLP gate
   // would withhold a marked value on its own — using unmarked content proves it is the
   // CEILING fold, not the marking detector, that closes C1).
   const UNMARKED_CUI = "Sentinel program kill-chain timeline 2026 — sensor fusion exfil path";
-  // Echo-turn org has NO data_classifications rows ⇒ effectiveCeiling = UNCLASSIFIED
-  // (the attacker's low per-turn ceiling). Use a random orgId so the row set is empty.
+  // Echo-turn org has NO data_classifications rows ⇒ the per-result ceiling is
+  // UNCLASSIFIED (the attacker's low per-turn ceiling). Use a random orgId so the row
+  // set is empty.
   const echoOrgId = crypto.randomUUID();
-  const echoOrgCeiling = await effectiveCeiling(echoOrgId, undefined); // expect UNCLASSIFIED
+  const echoOrgCeiling = await conservativeCeiling(echoOrgId); // expect UNCLASSIFIED
   check("C1: the echo turn's org ceiling is UNCLASSIFIED (the low re-gate ceiling)", echoOrgCeiling === "UNCLASSIFIED", `got=${echoOrgCeiling}`);
 
   // MINT turn (project P, ceiling=CUI): a work-item title withheld at CUI → a handle.

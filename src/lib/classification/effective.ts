@@ -61,3 +61,48 @@ export async function effectiveCeiling(
   for (const r of rows) if (rankOf(r.level) > rankOf(max)) max = r.level;
   return max;
 }
+
+/**
+ * The CONSERVATIVE classification ceiling for an org: max(org-ceiling row, EVERY
+ * per-project row in that org). Default UNCLASSIFIED when the org has no rows at
+ * all, exactly as `effectiveCeiling`.
+ *
+ * This exists because `effectiveCeiling(orgId, projectId)` answers a question
+ * that needs a TRUSTWORTHY `projectId`, and the agent's read path does not have
+ * one. The loop takes `projectId` off the model's own tool-call arguments, and
+ * nothing verifies the executor used it:
+ *
+ *  - `get_work_item` takes only `itemId`, so a read of an item in a CUI project
+ *    carried no project at all and gated at the org ceiling — exposing the ticket
+ *    body on a commercial tenant while `list_work_items({projectId})` over the
+ *    same row was withheld; and
+ *  - a tool call may carry a DECOY `projectId` naming a lower-classified project.
+ *    The executor ignores the extra argument, returns the high-classified row
+ *    anyway, and the gate would compute the ceiling from the decoy — a
+ *    model-controlled down-classification, reachable by prompt injection, since
+ *    the instruction to attempt it can sit in a ticket the model is reading.
+ *
+ * So the read-path gate asks THIS instead: the highest ceiling anything in the
+ * org could carry. It can only ever RAISE the ceiling relative to
+ * `effectiveCeiling(orgId, <anything>)` (allow -> deny, never the reverse), and
+ * for an org with no per-project rows — the common case — it returns exactly what
+ * `effectiveCeiling(orgId)` returns, so nothing changes there.
+ *
+ * It takes NO projectId: there is deliberately no argument an attacker-adjacent
+ * caller can steer. Cost is one indexed read (`@@unique([orgId, projectId])`
+ * leads with `orgId`) returning at most one row per CLASSIFIED project; neither
+ * this nor `effectiveCeiling` is memoised anywhere.
+ *
+ * `effectiveCeiling` keeps its existing meaning for the callers that have a
+ * trusted scope: the write-path taint check (where `projectId` describes where
+ * the data would actually LAND) and the feedback-comment marking policy.
+ */
+export async function conservativeCeiling(orgId: string): Promise<ClassificationLevel> {
+  const rows = await prisma.dataClassification.findMany({
+    where: { orgId },
+    select: { level: true },
+  });
+  let max: ClassificationLevel = "UNCLASSIFIED";
+  for (const r of rows) if (rankOf(r.level) > rankOf(max)) max = r.level;
+  return max;
+}

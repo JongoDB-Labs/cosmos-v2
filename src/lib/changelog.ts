@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.506.3",
+    date: "2026-10-31",
+    title: "Classification is decided by your settings, not by the assistant",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When deciding how much of a result the assistant may see, Cosmos worked out the classification level from the project named in the assistant's own request. For most organisations that made no difference. But if you had raised one project above your organisation's level, a request that named no project \u2014 or named a different one \u2014 was judged at the lower level. The decision now uses your configured levels only, and ignores anything the assistant supplies.",
+      },
+      {
+        kind: "improvement",
+        text: "A consequence worth knowing: if any project in your organisation is raised to CUI or above, the assistant now treats every result as protected, not just results from that project. It can still work with identifiers, statuses and dates \u2014 it will not quote content back to you. This is deliberate: when a request names no project, Cosmos cannot show the answer did not come from the protected one.",
+      },
+    ],
+  },
+  {
     version: "2.506.2",
     date: "2026-10-31",
     title: "The assistant can see what it is allowed to see",

@@ -5,15 +5,15 @@
 // executed, offered or not.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { runModelTurn, executeTool, effectiveCeiling, getRuntimeConfig, getAgentPolicy, logEgressDecision } = vi.hoisted(() => ({
-  runModelTurn: vi.fn(), executeTool: vi.fn(), effectiveCeiling: vi.fn(), getRuntimeConfig: vi.fn(),
+const { runModelTurn, executeTool, effectiveCeiling, conservativeCeiling, getRuntimeConfig, getAgentPolicy, logEgressDecision } = vi.hoisted(() => ({
+  runModelTurn: vi.fn(), executeTool: vi.fn(), effectiveCeiling: vi.fn(), conservativeCeiling: vi.fn(), getRuntimeConfig: vi.fn(),
   getAgentPolicy: vi.fn(), logEgressDecision: vi.fn(),
 }));
 vi.mock("../egress", async (importOriginal) => ({ ...(await importOriginal<object>()), runModelTurn, logEgressDecision }));
 vi.mock("../tool-executor", () => ({ executeTool }));
 vi.mock("@/lib/runtime-config", () => ({ getRuntimeConfig }));
 vi.mock("../policy", () => ({ getAgentPolicy }));
-vi.mock("@/lib/classification/effective", async (importOriginal) => ({ ...(await importOriginal<object>()), effectiveCeiling }));
+vi.mock("@/lib/classification/effective", async (importOriginal) => ({ ...(await importOriginal<object>()), effectiveCeiling, conservativeCeiling }));
 
 import { runAgentLoop } from "../agent-loop";
 import { cosmosTools, type ToolDefinition } from "../tools";
@@ -29,6 +29,7 @@ const CONNECTOR_WRITES = [
 beforeEach(() => {
   runModelTurn.mockReset(); executeTool.mockReset().mockResolvedValue({ ok: true }); logEgressDecision.mockReset();
   effectiveCeiling.mockReset().mockResolvedValue("UNCLASSIFIED");
+  conservativeCeiling.mockReset().mockResolvedValue("UNCLASSIFIED"); // the read-path ceiling
   getRuntimeConfig.mockReset().mockResolvedValue({ enabledConnectors: null, breadthEnabled: true, mcpEnabled: false });
   getAgentPolicy.mockReset().mockResolvedValue(PERMISSIVE);
 });

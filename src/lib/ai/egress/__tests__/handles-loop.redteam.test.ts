@@ -26,10 +26,11 @@ import crypto from "node:crypto";
 import { stubAuth } from "@/lib/testing/tool-auth";
 
 // ── Hoisted spies + an in-memory handle store ──────────────────────────────
-const { callModel, executeTool, effectiveCeiling, logEgressDecision, classifyLikelyCui, store } = vi.hoisted(() => ({
+const { callModel, executeTool, effectiveCeiling, conservativeCeiling, logEgressDecision, classifyLikelyCui, store } = vi.hoisted(() => ({
   callModel: vi.fn(),
   executeTool: vi.fn(),
   effectiveCeiling: vi.fn(),
+  conservativeCeiling: vi.fn(),
   logEgressDecision: vi.fn(),
   classifyLikelyCui: vi.fn().mockResolvedValue(false),
   store: new Map<string, { conversationId: string; token: string; valueEnc: string; entityType: string; fieldName: string; ceiling?: string | null }>(),
@@ -50,11 +51,14 @@ vi.mock("@/lib/runtime-config", () => ({
 vi.mock("@/lib/ai/policy", () => ({
   getAgentPolicy: vi.fn().mockResolvedValue({ allowedTools: null, deniedTools: [], deniedDomains: [], maxResultLimit: null, allowedProjectIds: null }),
 }));
-// Only effectiveCeiling is a spy; maxByRank/rankOf are the REAL pure helpers (the C1
-// fold must exercise the real max-by-rank logic, not a stub).
+// Only the two ceiling RESOLVERS are spies; maxByRank/rankOf are the REAL pure
+// helpers (the C1 fold must exercise the real max-by-rank logic, not a stub).
+// `conservativeCeiling(orgId)` is the per-RESULT read ceiling; `effectiveCeiling(orgId,
+// projectId)` is now only the write-path taint TARGET.
 vi.mock("@/lib/classification/effective", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   effectiveCeiling,
+  conservativeCeiling,
 }));
 vi.mock("@/lib/ai/egress/audit", () => ({ logEgressDecision }));
 vi.mock("@/lib/classification/classifier", () => ({ classifyLikelyCui }));
@@ -89,6 +93,8 @@ beforeEach(() => {
   executeTool.mockReset();
   effectiveCeiling.mockReset();
   effectiveCeiling.mockResolvedValue("CUI"); // gov CUI ceiling ⇒ withhold path
+  conservativeCeiling.mockReset();
+  conservativeCeiling.mockResolvedValue("CUI"); // the read-path ceiling
   logEgressDecision.mockReset();
   classifyLikelyCui.mockReset();
   classifyLikelyCui.mockResolvedValue(false);
@@ -111,6 +117,24 @@ function toolResultContentOnTurn(turnIndex: number): string {
   if (!msg) return "";
   return (msg.content as Array<{ type: string; content?: string }>)
     .filter((b) => b.type === "tool_result").map((b) => b.content ?? "").join(" ");
+}
+
+/**
+ * EVERY tool_result blob in a request, in order — one per tool turn that has run.
+ *
+ * `toolResultContentOnTurn` above returns only the FIRST matching message, which on a
+ * two-tool-turn run is the MINT turn, not the echo turn: an assertion about the echo
+ * that uses it is reading the wrong message and passes for free. (Mutation-tested:
+ * removing the C1 fold left the old assertion green.) Taking the array lets a case
+ * assert HOW MANY messages it found, so "the echo carries no CUI" cannot be satisfied
+ * by an echo turn that never happened.
+ */
+function toolResultContentsOnTurn(turnIndex: number): string[] {
+  const messages = callModel.mock.calls[turnIndex][0].messages as Array<{ role: string; content: unknown }>;
+  return messages
+    .filter((m) => m.role === "user" && Array.isArray(m.content))
+    .map((m) => (m.content as Array<{ type: string; content?: string }>)
+      .filter((b) => b.type === "tool_result").map((b) => b.content ?? "").join(" "));
 }
 
 // Pull the single h:… token out of a tool_result content blob.
@@ -372,6 +396,9 @@ function divergentCeiling(_orgId: string, projectId?: string | null) {
 // the control under test.
 async function driveC1(tenantClass: "commercial" | "gov"): Promise<{ echoContent: string; executorArg: string | undefined }> {
   effectiveCeiling.mockImplementation(async (orgId: string, projectId?: string | null) => divergentCeiling(orgId, projectId));
+  // The read-path ceiling is now org-wide and conservative: the MAX over the same
+  // fixture (org UNCLASSIFIED, project P CUI) is CUI, for every turn in the run.
+  conservativeCeiling.mockResolvedValue("CUI");
   callModel
     // MINT turn: query project P → its CUI title is withheld at CUI → a handle minted.
     .mockResolvedValueOnce({ text: "", toolUses: [{ id: "t1", name: "query_work_items", input: { projectId: "P" } }], stopReason: "tool_use" })
@@ -396,7 +423,14 @@ async function driveC1(tenantClass: "commercial" | "gov"): Promise<{ echoContent
   await runAgentLoop(loopOpts("conv-C1", { tenantClass }));
 
   const executorArg = (executeTool.mock.calls.find((c) => c[0] === "update_work_item")?.[1] as { title?: string } | undefined)?.title;
-  return { echoContent: toolResultContentOnTurn(2), executorArg };
+  // The ECHO turn's OWN tool_result — the SECOND one. The first is the mint turn's
+  // withheld list view, which never contained the CUI and so could not discriminate.
+  const contents = toolResultContentsOnTurn(2);
+  // POSITIVE CONTROLS on the probe: both tool turns really produced a result, and the
+  // probe can see entity content when a message carries it (the mint view's item id).
+  expect(contents).toHaveLength(2);
+  expect(contents[0]).toContain("wP");
+  return { echoContent: contents[1], executorArg };
 }
 
 describe("red-team: C1 cross-turn ceiling-divergence exfiltration", () => {
@@ -417,6 +451,79 @@ describe("red-team: C1 cross-turn ceiling-divergence exfiltration", () => {
     expect(echoContent).not.toContain("Sentinel");
     // executor still got the real value in-boundary.
     expect(executorArg).toBe(UNMARKED_CUI);
+  });
+
+  it("the C1 FOLD is still APPLIED: with the read ceiling forced below the mint ceiling, the echoed CUI is withheld by the fold ALONE", async () => {
+    // Why this case exists, and what it is honestly worth.
+    //
+    // With the read ceiling now derived from the ORG (`conservativeCeiling`), the two
+    // cases above would pass even with `maxByRank` deleted: the echo turn computes CUI
+    // from the org's own rows. So they no longer discriminate on the fold. This case
+    // isolates it by dropping the read ceiling BELOW the handle's mint ceiling after the
+    // mint, while the write-path taint target stays at CUI (so the write is allowed to
+    // execute and its result really does echo the resolved value back).
+    //
+    // That pair of ceilings cannot occur in production: `conservativeCeiling(org)` is the
+    // max over the org row AND every project row, so it is >= `effectiveCeiling(org, P)`
+    // for every P. Any resolve that taint permits therefore already re-gates at >= the
+    // mint ceiling, and the fold is defence-in-depth rather than the sole control. The
+    // lock is still worth keeping: it fails the moment someone removes the fold, and the
+    // fold is what would carry this invariant if the read ceiling ever narrows again.
+    effectiveCeiling.mockResolvedValue("CUI"); // taint target for project P ⇒ ALLOW
+    // The read ceiling is CUI for the MINT turn (so a handle is minted at all) and
+    // UNCLASSIFIED from the echo turn on — the org declassified between the turns.
+    let readCeilingCalls = 0;
+    conservativeCeiling.mockImplementation(async () => (++readCeilingCalls === 1 ? "CUI" : "UNCLASSIFIED"));
+    callModel
+      .mockResolvedValueOnce({ text: "", toolUses: [{ id: "t1", name: "query_work_items", input: { projectId: "P" } }], stopReason: "tool_use" })
+      .mockImplementationOnce(async (req: { messages: Array<{ role: string; content: unknown }> }) => {
+        const content = (req.messages.find((m) => m.role === "user" && Array.isArray(m.content))!.content as Array<{ content?: string }>)
+          .map((b) => b.content ?? "").join(" ");
+        const token = extractToken(content)!;
+        return { text: "", toolUses: [{ id: "t2", name: "update_work_item", input: { id: "wP", projectId: "P", title: token } }], stopReason: "tool_use" };
+      })
+      .mockResolvedValueOnce({ text: "done", toolUses: [], stopReason: "end_turn" });
+    executeTool.mockImplementation(async (name: string, input: Record<string, unknown>) => {
+      if (name === "query_work_items") return PROJECT_P_LIST;
+      if (name === "update_work_item") return { id: input.id, title: input.title, status: "DONE" };
+      return {};
+    });
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("conv-C1-fold", { tenantClass: "commercial" }));
+
+    // POSITIVE CONTROLS. Without these, "no CUI in the echo" is satisfied by a mint that
+    // never happened, a handle that never resolved, or a tool that never ran.
+    expect(readCeilingCalls).toBeGreaterThanOrEqual(2); // both turns were gated
+    const mintedRow = [...store.values()].find((r) => r.entityType === "work_item" && r.fieldName === "title");
+    expect(mintedRow).toBeDefined();
+    expect(mintedRow!.ceiling).toBe("CUI");
+    const executorArg = (executeTool.mock.calls.find((c) => c[0] === "update_work_item")?.[1] as { title?: string } | undefined)?.title;
+    expect(executorArg).toBe(UNMARKED_CUI); // the write RAN with the resolved value
+    expect(logEgressDecision.mock.calls.map((c) => c[0]).filter((d) => d.decidedBy === "handle_taint_block").length).toBe(0);
+
+    // THE RATCHET: the turn's own read ceiling is UNCLASSIFIED and the tenant is
+    // commercial — only the folded mint ceiling can withhold this, and it must.
+    const contents = toolResultContentsOnTurn(2);
+    // POSITIVE CONTROLS on the probe: two tool turns ran, and the probe can see entity
+    // content when a message carries it (the mint view's item id).
+    //
+    // This assertion used to read `not.toContain("DONE")`, using the exposed
+    // object's status as a proxy for "nothing came through" — which only worked
+    // because `projectResult` then dropped every string on a single flat entity
+    // and a one-entity write result projected to `{}`. That blackout was a bug,
+    // it is fixed, and the proxy went with it. The signal is now DIRECT and
+    // strictly stronger: the echo is exactly the allowlisted structural view, so
+    // the CUI title is provably absent while `id`/`status` — which the floor
+    // exposes on every withheld result by design — are provably present. Had the
+    // fold failed to apply, this result would have been EXPOSED in full and the
+    // title would be in here.
+    expect(contents).toHaveLength(2);
+    expect(contents[0]).toContain("wP");
+    const echo = contents[1];
+    expect(echo).not.toContain(UNMARKED_CUI);
+    expect(echo).not.toContain("Sentinel");
+    expect(JSON.parse(echo)).toEqual({ id: "wP", status: "DONE" });
   });
 
   it("the handle is bound at CUI at mint AND the echo turn resolves it (the binding the fold consumes)", async () => {

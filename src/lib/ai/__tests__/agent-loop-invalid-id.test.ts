@@ -10,24 +10,33 @@
 // type uuid" instead of an answer.
 //
 // Guarding the TOOL is not enough, which is what this file exists to prove. The
-// loop reads `input.projectId` itself and hands it to `effectiveCeiling`, which
-// queries `DataClassification.projectId` — a `@db.Uuid` column — AFTER the tool
-// has returned and outside anything the tool can catch. So the crash survived a
-// tool that refused the very same id, and only a test that drives the LOOP sees
+// loop reads `input.projectId` itself and used to hand it to `effectiveCeiling`,
+// which queries `DataClassification.projectId` — a `@db.Uuid` column — AFTER the
+// tool has returned and outside anything the tool can catch. So the crash survived
+// a tool that refused the very same id, and only a test that drives the LOOP sees
 // it.
 //
-// `effectiveCeiling` is spied but NOT stubbed: the spy delegates to the real
-// implementation, so the query really runs against Postgres and the uuid
-// rejection is the database's own rule. Everything else the loop needs for I/O is
-// mocked.
+// UPDATED (read-path ceiling fix): the per-RESULT ceiling is now
+// `conservativeCeiling(orgId)`, which takes NO projectId, so a model-invented id no
+// longer reaches a uuid column from a READ turn at all — a strictly stronger
+// position than catching it at the seam. `effectiveCeiling(orgId, projectId)` keeps
+// per-project semantics for the WRITE-path taint target, where the id describes
+// where the data would land; its uuid guard is locked directly against Postgres in
+// classification/__tests__/effective-invalid-id.test.ts, and its use by the loop in
+// egress/__tests__/write-path-taint.redteam.test.ts.
+//
+// Both resolvers are spied but NOT stubbed: the spies delegate to the real
+// implementations, so the ceiling query really runs against Postgres. Everything
+// else the loop needs for I/O is mocked.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { stubAuth } from "@/lib/testing/tool-auth";
 
-const { runModelTurn, executeTool, effectiveCeiling, getRuntimeConfig, getAgentPolicy, logEgressDecision } =
+const { runModelTurn, executeTool, effectiveCeiling, conservativeCeiling, getRuntimeConfig, getAgentPolicy, logEgressDecision } =
   vi.hoisted(() => ({
     runModelTurn: vi.fn(),
     executeTool: vi.fn(),
     effectiveCeiling: vi.fn(),
+    conservativeCeiling: vi.fn(),
     getRuntimeConfig: vi.fn(),
     getAgentPolicy: vi.fn(),
     logEgressDecision: vi.fn(),
@@ -41,11 +50,12 @@ vi.mock("../egress", async (importOriginal) => ({
 vi.mock("../tool-executor", () => ({ executeTool }));
 vi.mock("@/lib/runtime-config", () => ({ getRuntimeConfig }));
 vi.mock("../policy", () => ({ getAgentPolicy }));
-// Spied so the ARGUMENT the loop passes can be asserted; the implementation set
-// in beforeEach is the real one, so the DB round-trip is genuine.
+// Spied so the ARGUMENTS the loop passes can be asserted; the implementations set
+// in beforeEach are the real ones, so the DB round-trip is genuine.
 vi.mock("@/lib/classification/effective", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   effectiveCeiling,
+  conservativeCeiling,
 }));
 
 const PERMISSIVE = {
@@ -101,6 +111,7 @@ describe("runAgentLoop — a model-invented projectId never crashes the turn", (
       "@/lib/classification/effective",
     );
     effectiveCeiling.mockReset().mockImplementation(actual.effectiveCeiling);
+    conservativeCeiling.mockReset().mockImplementation(actual.conservativeCeiling);
   });
 
   it("completes the turn instead of throwing the database's uuid error", async () => {
@@ -114,23 +125,30 @@ describe("runAgentLoop — a model-invented projectId never crashes the turn", (
     expect(res.toolCalls[0].result).toEqual({ error: "projectId is not a valid id." });
   });
 
-  it("still passes the tool's project scope down to the classification gate", async () => {
+  it("asks the READ ceiling about the org alone — the invented id never reaches the uuid column", async () => {
     driveOneToolCall("generate_interval_brief", { projectId: HALLUCINATED_ID }, "done");
 
     await runLoop();
 
-    // The loop must NOT quietly drop the scope on its way to the MAC gate: a
-    // per-project ceiling is what the write-path-taint locks depend on. The id is
-    // rejected at the seam that owns the uuid column, not before it.
-    expect(effectiveCeiling).toHaveBeenCalledWith(ORG_ID, HALLUCINATED_ID);
+    // POSITIVE CONTROL: the ceiling WAS resolved (0 calls would satisfy the
+    // never-called assertion below for free).
+    expect(conservativeCeiling).toHaveBeenCalledWith(ORG_ID);
+    // And the model's id went nowhere near it. This is the read-path ceiling fix: the
+    // gate's ceiling is not a function of anything the model said.
+    expect(effectiveCeiling).not.toHaveBeenCalledWith(ORG_ID, HALLUCINATED_ID);
+    expect(JSON.stringify(conservativeCeiling.mock.calls)).not.toContain(HALLUCINATED_ID);
   });
 
-  it("still scopes a well-formed projectId (no over-rejection)", async () => {
+  it("treats a well-formed projectId exactly the same way on the read path", async () => {
     driveOneToolCall("generate_interval_brief", { projectId: WELL_FORMED_ID }, "done");
 
     const res = await runLoop();
 
-    expect(effectiveCeiling).toHaveBeenCalledWith(ORG_ID, WELL_FORMED_ID);
+    // No over- and no under-rejection: a real id is not special on a READ either, and
+    // the turn completes. (Where a real id IS load-bearing — the write-path taint
+    // target — is locked in write-path-taint.redteam.test.ts.)
+    expect(conservativeCeiling).toHaveBeenCalledWith(ORG_ID);
+    expect(effectiveCeiling).not.toHaveBeenCalledWith(ORG_ID, WELL_FORMED_ID);
     expect(res.text).toBe("done");
   });
 

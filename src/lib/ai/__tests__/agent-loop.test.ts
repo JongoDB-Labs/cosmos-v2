@@ -3,8 +3,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { stubAuth } from "@/lib/testing/tool-auth";
 
 // vi.hoisted keeps the spies safe to reference inside the hoisted mock factory.
-const { runModelTurn, executeTool, effectiveCeiling, getRuntimeConfig, getAgentPolicy, logEgressDecision } = vi.hoisted(() => ({
-  runModelTurn: vi.fn(), executeTool: vi.fn(), effectiveCeiling: vi.fn(), getRuntimeConfig: vi.fn(),
+const { runModelTurn, executeTool, effectiveCeiling, conservativeCeiling, getRuntimeConfig, getAgentPolicy, logEgressDecision } = vi.hoisted(() => ({
+  runModelTurn: vi.fn(), executeTool: vi.fn(), effectiveCeiling: vi.fn(), conservativeCeiling: vi.fn(), getRuntimeConfig: vi.fn(),
   getAgentPolicy: vi.fn(), logEgressDecision: vi.fn(),
 }));
 // Mock the SAME specifier agent-loop imports ("./egress" → "../egress" from here)
@@ -25,6 +25,7 @@ vi.mock("../policy", () => ({ getAgentPolicy }));
 vi.mock("@/lib/classification/effective", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   effectiveCeiling,
+  conservativeCeiling,
 }));
 
 // The PERMISSIVE default (no policy row) — no restriction on any axis. Most tests use this so
@@ -35,6 +36,9 @@ describe("runAgentLoop (native tool_use)", () => {
   beforeEach(() => {
     runModelTurn.mockReset(); executeTool.mockReset(); logEgressDecision.mockReset();
     effectiveCeiling.mockReset().mockResolvedValue("UNCLASSIFIED");
+    // The read-path gate asks `conservativeCeiling(orgId)`; the write-path taint
+    // check still asks `effectiveCeiling(orgId, projectId)`. Both UNCLASSIFIED here.
+    conservativeCeiling.mockReset().mockResolvedValue("UNCLASSIFIED");
     getRuntimeConfig.mockReset().mockResolvedValue({ enabledConnectors: null, breadthEnabled: true, mcpEnabled: false });
     getAgentPolicy.mockReset().mockResolvedValue(PERMISSIVE);
   });
@@ -73,6 +77,9 @@ describe("runAgentLoop — onDelta across model turns", () => {
   beforeEach(() => {
     runModelTurn.mockReset(); executeTool.mockReset();
     effectiveCeiling.mockReset().mockResolvedValue("UNCLASSIFIED");
+    // The read-path gate asks `conservativeCeiling(orgId)`; the write-path taint
+    // check still asks `effectiveCeiling(orgId, projectId)`. Both UNCLASSIFIED here.
+    conservativeCeiling.mockReset().mockResolvedValue("UNCLASSIFIED");
     getRuntimeConfig.mockReset().mockResolvedValue({ enabledConnectors: null, breadthEnabled: true, mcpEnabled: false });
     getAgentPolicy.mockReset().mockResolvedValue(PERMISSIVE);
   });
@@ -133,6 +140,9 @@ describe("runAgentLoop — D5 commercial-only tool-list filter", () => {
   beforeEach(() => {
     runModelTurn.mockReset(); executeTool.mockReset();
     effectiveCeiling.mockReset().mockResolvedValue("UNCLASSIFIED");
+    // The read-path gate asks `conservativeCeiling(orgId)`; the write-path taint
+    // check still asks `effectiveCeiling(orgId, projectId)`. Both UNCLASSIFIED here.
+    conservativeCeiling.mockReset().mockResolvedValue("UNCLASSIFIED");
     getRuntimeConfig.mockReset().mockResolvedValue({ enabledConnectors: null, breadthEnabled: true, mcpEnabled: false });
     getAgentPolicy.mockReset().mockResolvedValue(PERMISSIVE);
   });
@@ -186,6 +196,9 @@ describe("runAgentLoop — per-org runtime-config gating", () => {
   beforeEach(() => {
     runModelTurn.mockReset(); executeTool.mockReset();
     effectiveCeiling.mockReset().mockResolvedValue("UNCLASSIFIED");
+    // The read-path gate asks `conservativeCeiling(orgId)`; the write-path taint
+    // check still asks `effectiveCeiling(orgId, projectId)`. Both UNCLASSIFIED here.
+    conservativeCeiling.mockReset().mockResolvedValue("UNCLASSIFIED");
     getAgentPolicy.mockReset().mockResolvedValue(PERMISSIVE);
   });
 
@@ -236,6 +249,9 @@ describe("runAgentLoop — AgentPolicy enforcement (the middle gate)", () => {
   beforeEach(() => {
     runModelTurn.mockReset(); executeTool.mockReset(); logEgressDecision.mockReset();
     effectiveCeiling.mockReset().mockResolvedValue("UNCLASSIFIED");
+    // The read-path gate asks `conservativeCeiling(orgId)`; the write-path taint
+    // check still asks `effectiveCeiling(orgId, projectId)`. Both UNCLASSIFIED here.
+    conservativeCeiling.mockReset().mockResolvedValue("UNCLASSIFIED");
     getRuntimeConfig.mockReset().mockResolvedValue({ enabledConnectors: null, breadthEnabled: true, mcpEnabled: false });
     getAgentPolicy.mockReset().mockResolvedValue(PERMISSIVE);
   });
