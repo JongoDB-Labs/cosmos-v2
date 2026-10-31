@@ -25,7 +25,7 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
-    # 25, not 15. This job runs twelve steps serially and finishes with the
+    # 25, not 15. This job used to run twelve steps serially and finish with the
     # Next build; measured over five consecutive runs on 2026-10-28 it took
     # 9m56s / 13m04s / 12m06s / 14m24s / 14m57s — the last one three seconds
     # inside the old 15m ceiling. Nothing had got slower: the job had simply
@@ -33,11 +33,15 @@ jobs:
     # luck. Two were killed mid-Build (PR #1243, run 40733286295) and read as
     # code failures while every verification step in them had passed.
     #
-    # Widening the budget stops the coin-flip; it does not make CI faster. The
-    # real fix is the one already applied to the release path — run Build as
-    # its own job, parallel to the verify steps — and that is blocked on branch
-    # protection, because `check` is a REQUIRED status check and splitting it
-    # blocks every PR until the required-check list is updated to match.
+    # Widening the budget stopped the coin-flip without making anything faster.
+    # The real fix is now applied: Build moved to the `build` job above and runs
+    # in parallel. This note previously said that was blocked on branch
+    # protection; it was not. `check` is a REQUIRED status check, and it keeps
+    # its name, keeps running and keeps having to pass — it just does one thing
+    # fewer. Only RENAMING or dissolving `check` would block PRs.
+    #
+    # The ceiling stays at 25 on purpose. The point of the move is headroom, and
+    # lowering it again would re-create the coin-flip at a new threshold.
     timeout-minutes: 25
     services:
       # The `Test (DB integration)` step runs a handful of Prisma specs against a
@@ -170,6 +174,42 @@ jobs:
       - name: Examples gate
         run: npm run check:examples
 
+  # The default-product Next build, lifted OUT of `check` so it runs in
+  # PARALLEL with the verify steps instead of after all eleven of them.
+  #
+  # `check` used to finish with this, and that is what put it at 85-100% of its
+  # budget: 14m57s and 15m03s against what was then a 15m ceiling, so WHICH pull
+  # requests got killed mid-Build was luck (#1243, run 40733286295). Raising the
+  # ceiling to 25m stopped the coin-flip without making anything faster.
+  #
+  # The note in `check` used to say this split was blocked on branch protection.
+  # It is not, PROVIDED the job keeps its name: `check` is a required status
+  # check, it still exists, it still runs, it still has to pass — it simply does
+  # one thing fewer. Nothing is blocked, and this job can be added to the
+  # required list once it has proven itself. Renaming or dissolving `check` is
+  # the version that would block every PR, and that is not what this does.
+  #
+  # Modelled on build-alt-product below, which has run the same build as its own
+  # job for a while and takes 2m20s-2m50s including `npm ci` — so this leg costs
+  # about three minutes of wall clock that `check` no longer carries, and the
+  # workflow's critical path becomes e2e rather than `check`.
+  build:
+    runs-on: ubuntu-latest
+    # NOT `needs: check` — same reasoning as build-alt-product: these jobs share
+    # no artifact, so a dependency would only serialise wall clock.
+    timeout-minutes: 15
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm ci --no-audit --no-fund
+      - name: Prisma generate
+        run: npx prisma generate
       - name: Build
         env:
           # Stub values just to satisfy Next's build-time env checks. Routes
