@@ -111,6 +111,46 @@ test.describe("journey — Issues filters are findable", () => {
     }
   });
 
+  test("the query's actions sit below the query bar, and New issue outlives an empty result", async ({ page }) => {
+    test.setTimeout(90_000);
+    await setQueryLanguage(page.request, true);
+    try {
+      // Again the zero-match query: the state these controls kept vanishing in.
+      await openIssues(page, { cql: `summary ~ "zzz-no-such-item-${stamp}"` });
+
+      const queryBar = page.getByRole("combobox", { name: "Add filter" });
+      await expect(queryBar).toBeVisible({ timeout: 30_000 });
+      const saveFilter = page.getByRole("button", { name: "Save filter" });
+      await expect(saveFilter).toBeVisible();
+
+      // Real geometry, which is the part jsdom cannot check: the unit test can
+      // only see DOM order, and DOM order is not where a thing appears.
+      const bar = (await queryBar.boundingBox())!;
+      const save = (await saveFilter.boundingBox())!;
+      const board = (await page.getByRole("button", { name: /Save as board/i }).boundingBox())!;
+      const csv = (await page.getByRole("link", { name: /Export CSV/i }).boundingBox())!;
+      expect(save.y).toBeGreaterThan(bar.y);
+      expect(board.y).toBeGreaterThan(bar.y);
+      expect(csv.y).toBeGreaterThan(bar.y);
+
+      // Control, so "below" has a direction: the quick-filters stay above it.
+      const watching = (await page.getByRole("button", { name: /Watching/i }).boundingBox())!;
+      expect(watching.y).toBeLessThan(bar.y);
+
+      // The three of them are on ONE line, not scattered down the page.
+      expect(Math.abs(board.y - save.y)).toBeLessThan(4);
+      expect(Math.abs(csv.y - save.y)).toBeLessThan(4);
+
+      // The first-run dead end: zero results used to take the page's only
+      // "New issue" button with them.
+      await expect(page.getByRole("button", { name: /New issue/i })).toBeVisible();
+
+      await page.screenshot({ path: "test-results/issues-query-actions.png" });
+    } finally {
+      await setQueryLanguage(page.request, false);
+    }
+  });
+
   test("Add filter answers to the word you'd type: `interval` finds Sprint", async ({ page }) => {
     test.setTimeout(90_000);
     await setQueryLanguage(page.request, true);

@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.505.1",
+    date: "2026-10-31",
+    title: "Save this filter, where you built it",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "\u201cSave filter\u201d, \u201cSave as board\u201d and \u201cExport CSV\u201d now sit directly under the query bar, with the query they act on. They used to share a row above it with the saved-views menu and the Watching and Archived toggles \u2014 six outline buttons that looked identical and did two unrelated kinds of thing. Above the bar is now only what changes which items you see; below it is what you can do with them.",
+      },
+      {
+        kind: "fix",
+        text: "A brand-new organisation can create its first issue from the Issues page. \u201cNew issue\u201d lived in the results header, which only appeared once there were results \u2014 so an empty Issues page offered no way to add anything to it.",
+      },
+      {
+        kind: "fix",
+        text: "A query that fails to run no longer takes the controls with it. Saving, exporting and creating stay on screen whatever the results are doing, which is when you most want to change the query rather than lose it.",
+      },
+    ],
+  },
+  {
     version: "2.505.0",
     date: "2026-10-31",
     title: "The filter you want, findable",

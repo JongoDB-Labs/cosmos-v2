@@ -1080,13 +1080,12 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   })();
 
   /**
-   * "Save as board" belongs BESIDE "Save filter", where the filter was just
-   * built. It used to exist only in the results header, which put it below the
-   * query bar in a muted count row and — worse — inside the `rows.length > 0`
-   * branch: a filter matching nothing RIGHT NOW offered no way to become a
-   * board at all, though a board is a live view over the query and an empty one
-   * is perfectly valid. Reported twice as "tell me how to save a filter as a
-   * board", which is what a control nobody can find looks like from outside.
+   * "Save as board" belongs BESIDE "Save filter". It used to be reachable only
+   * from inside the `rows.length > 0` branch, so a filter matching nothing
+   * RIGHT NOW offered no way to become a board at all — though a board is a
+   * live view over the query and an empty one is perfectly valid. Reported
+   * twice as "tell me how to save a filter as a board", which is what a
+   * control nobody can find looks like from outside.
    *
    * One definition, rendered once in the toolbar, so both the CQL bar and the
    * legacy filter bar get the same control in the same place.
@@ -1112,36 +1111,69 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
       </Button>
     ) : null;
 
+  /**
+   * The three controls that act on THE QUERY AS IT NOW STANDS: save it, turn
+   * it into a board, take what it matched away as a CSV.
+   *
+   * Rendered BELOW the query bar, because that is what they are about. Above
+   * it — in the same right-aligned row as the saved-view menu and the
+   * Watching/Archived toggles — made six identical-looking outline buttons
+   * doing two unrelated kinds of thing, and the second report of this was a
+   * screenshot in which every control was present and none was found. The
+   * split is: inputs above (which items am I looking at), actions below (do
+   * something with them).
+   */
+  const queryActions = (
+    <>
+      {cqlOn && (
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setSaveDialog({ cql: cqlText })}>
+          <Save className="h-3.5 w-3.5" aria-hidden />
+          Save filter
+        </Button>
+      )}
+      {saveBoardButton}
+      {/* Plain <a> (not Link): the route returns a Content-Disposition
+          attachment, so this downloads the CSV without navigating away.
+          `exportQs` carries the active filters → "export what you see". */}
+      <a
+        href={`/api/v1/orgs/${orgId}/work-items/export?${exportQs}`}
+        className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
+        title="Download these issues (your current filters applied) as a CSV"
+      >
+        <Download className="h-4 w-4" /> Export CSV
+      </a>
+    </>
+  );
+
   return (
     <div className="space-y-4">
       {transitionDialog}
-      {/* flex-wrap, not just gap: every control here is a Button, and
+      {/* Above the query bar: the INPUTS — which saved view you are in, and the
+          two quick-filters. Everything that ACTS on the query you just built
+          moved below it (see `queryActions`).
+
+          flex-wrap, not just gap: every control here is a Button, and
           buttonVariants carries `shrink-0 whitespace-nowrap`, so this row can
           neither shrink nor wrap on its own — it OVERFLOWS. With justify-end
-          the overflow goes off the START edge, so the leftmost controls (the
-          Saved menu, "Save filter") are the ones that disappear. Six controls
-          ride this row now; on a laptop width that was reported as the control
-          simply not being in the UI. */}
+          the overflow goes off the START edge, so the LEFTMOST controls are
+          the ones that disappear. Six controls used to ride this row; at
+          laptop width that was reported as a control simply not being in the
+          UI. Three ride it now — keep the wrap, the next one added would put
+          it straight back. */}
       <div className="flex flex-wrap items-center justify-end gap-2">
         {/* Saved views (FR 2b36c2b8) — named, reusable filters. */}
         {cqlOn ? (
-          <>
-            <FiltersMenu
-              orgId={orgId}
-              orgSlug={orgSlug}
-              activeId={cqlUrl.filterId}
-              onRun={runSavedFilter}
-              onEdit={(f) => setSaveDialog({ filter: f })}
-              onSubscribe={setSubscribeTo}
-              onSaveAsBoard={
-                canCreateBoard && (facets?.projects.length ?? 0) > 0 ? saveFilterAsBoard : undefined
-              }
-            />
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setSaveDialog({ cql: cqlText })}>
-              <Save className="h-3.5 w-3.5" aria-hidden />
-              Save filter
-            </Button>
-          </>
+          <FiltersMenu
+            orgId={orgId}
+            orgSlug={orgSlug}
+            activeId={cqlUrl.filterId}
+            onRun={runSavedFilter}
+            onEdit={(f) => setSaveDialog({ filter: f })}
+            onSubscribe={setSubscribeTo}
+            onSaveAsBoard={
+              canCreateBoard && (facets?.projects.length ?? 0) > 0 ? saveFilterAsBoard : undefined
+            }
+          />
         ) : (
         <SavedViewsPicker
           orgId={orgId}
@@ -1153,7 +1185,6 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
           }}
         />
         )}
-        {saveBoardButton}
         {/* Watching quick-filter (FR 8702c9b8) — restricts to items the current
             user follows (the ★ on a ticket's detail panel). */}
         <button
@@ -1191,16 +1222,6 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         >
           <Archive className="h-4 w-4" /> Archived
         </button>
-        {/* Plain <a> (not Link): the route returns a Content-Disposition
-            attachment, so this downloads the CSV without navigating away.
-            `qs` carries the active filters → "export what you see". */}
-        <a
-          href={`/api/v1/orgs/${orgId}/work-items/export?${exportQs}`}
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
-          title="Download these issues (your current filters applied) as a CSV"
-        >
-          <Download className="h-4 w-4" /> Export CSV
-        </a>
       </div>
       {/* Every control gated on `facets` — "New item", "Save as board", the
           legacy selects — simply VANISHES when the facets request fails, and in
@@ -1279,6 +1300,43 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         </p>
       )}
 
+      {/* The query's own actions, and the only "New issue" on the page.
+
+          Deliberately outside every branch below it. Hanging these off the
+          results state is how they kept disappearing: they used to live inside
+          `rows.length > 0`, so a filter matching nothing could not be saved,
+          and a brand-new org got "No issues yet" above an empty state whose
+          one action is "Clear filters" — and not even that unless a filter was
+          set — with no way to create the first issue at all. Moving them into
+          the loaded branch instead would have cost the same controls whenever
+          the query itself failed, which is when you most want to save or
+          change it. So: always rendered; only the COUNT waits for an answer. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-muted)]">
+        <span>
+          {isError || isLoading || cqlSchema.isLoading ? null : (
+            <>
+              {total.toLocaleString()} issue{total === 1 ? "" : "s"}
+              {isFetching && <span className="ml-2 opacity-70">updating…</span>}
+            </>
+          )}
+        </span>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {queryActions}
+          {canCreateItem && (facets?.projects.length ?? 0) > 0 && (
+            <Button
+              size="sm"
+              className="gap-1.5"
+              onClick={() => {
+                setDuplicateSource(null);
+                setCreateOpen(true);
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              New issue
+            </Button>
+          )}
+        </div>
+      </div>
       {isError ? (
         <LoadError
           title="Couldn't load issues"
@@ -1321,27 +1379,6 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         />
       ) : (
         <>
-          <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
-            <span>
-              {total.toLocaleString()} issue{total === 1 ? "" : "s"}
-              {isFetching && <span className="ml-2 opacity-70">updating…</span>}
-            </span>
-            <div className="flex items-center gap-2">
-              {canCreateItem && (facets?.projects.length ?? 0) > 0 && (
-                <Button
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={() => {
-                    setDuplicateSource(null);
-                    setCreateOpen(true);
-                  }}
-                >
-                  <Plus className="h-3.5 w-3.5" aria-hidden />
-                  New issue
-                </Button>
-              )}
-            </div>
-          </div>
           <DataTable
             columns={columns}
             data={rows}
