@@ -136,7 +136,6 @@ export const ENTITY_DEFS: EntityDef[] = [
       { key: "govReviewPeriod", label: "Gov review period (days)", kind: "int", synonyms: ["gov review period", "government review period", "review period", "review days"] },
       { key: "govAcceptance", label: "Gov acceptance", kind: "date", synonyms: ["gov acceptance", "government acceptance", "accepted date", "acceptance"] },
       { key: "owner", label: "Owner", kind: "text", synonyms: owner.synonyms },
-      { key: "branchOwner", label: "Branch owner", kind: "text", synonyms: ["branch owner", "branch", "domain", "domain lead"] },
       { key: "revisionCycle", label: "Revision cycle", kind: "int", synonyms: ["revision cycle", "rev cycle", "cycle", "revision"] },
       { key: "revRequired", label: "Revision required", kind: "bool", synonyms: ["rev required", "revision required", "rework"] },
       { key: "escalate", label: "Escalate", kind: "bool", synonyms: ["escalate", "escalated", "flag"] },

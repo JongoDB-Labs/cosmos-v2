@@ -332,7 +332,6 @@ async function createEntityRow(
           govReviewPeriod: n(fields, "govReviewPeriod"),
           govAcceptance: dt(fields, "govAcceptance"),
           owner: s(fields, "owner"),
-          branchOwner: s(fields, "branchOwner"),
           revisionCycle: n(fields, "revisionCycle") ?? undefined,
           revRequired: b(fields, "revRequired"),
           escalate: b(fields, "escalate"),
@@ -555,7 +554,7 @@ async function updateEntityRow(
         ["deliverableType", "deliverableType"], ["status", "status"],
         ["baselineDue", "baselineDue"], ["internalReview", "internalReview"],
         ["actualSubmission", "actualSubmission"], ["govReviewPeriod", "govReviewPeriod"],
-        ["govAcceptance", "govAcceptance"], ["owner", "owner"], ["branchOwner", "branchOwner"],
+        ["govAcceptance", "govAcceptance"], ["owner", "owner"],
         ["revisionCycle", "revisionCycle"], ["revRequired", "revRequired"], ["escalate", "escalate"],
         ["workItemRef", "workItemRef"], ["notes", "notes"],
       ]);

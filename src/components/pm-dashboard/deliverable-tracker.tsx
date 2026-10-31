@@ -37,18 +37,16 @@ import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
 import { bulkFanOut } from "@/lib/pm/bulk";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { formatDateStable } from "@/lib/format/stable-date";
+import type { DeliverableStatus } from "@prisma/client";
 
-type DeliverableStatus =
-  | "NOT_STARTED"
-  | "DRAFT_IN_PROGRESS"
-  | "INTERNAL_REVIEW"
-  | "SUBMITTED"
-  | "IN_GOVT_REVIEW"
-  | "ACCEPTED"
-  | "ACCEPTED_WITH_COMMENTS"
-  | "REVISION_REQUIRED"
-  | "REJECTED"
-  | "OVERDUE";
+// Imported, not restated. The hand-written copy of this union had TEN members
+// while the Prisma enum has eleven: `IN_PROGRESS` was missing, so a deliverable
+// in that status rendered a BLANK Status cell (`STATUS_LABEL[status]` →
+// undefined, unguarded) and sorted by `NaN` (`STATUS_RANK[status]` → undefined),
+// and the drawer's Status select had no matching option. A type-only import is
+// erased at build time — it pulls nothing from Prisma into the client bundle —
+// and it makes `Record<DeliverableStatus, …>` below exhaustive, so the next
+// enum value is a compile error here rather than an empty cell in production.
 
 interface Deliverable {
   id: string;
@@ -78,6 +76,7 @@ interface DeliverableTrackerProps {
 
 const STATUS_OPTIONS: DeliverableStatus[] = [
   "NOT_STARTED",
+  "IN_PROGRESS",
   "DRAFT_IN_PROGRESS",
   "INTERNAL_REVIEW",
   "SUBMITTED",
@@ -93,6 +92,7 @@ const TYPE_OPTIONS = ["SSP", "POA&M", "Report", "Design Doc", "Plan", "Brief", "
 
 const STATUS_LABEL: Record<DeliverableStatus, string> = {
   NOT_STARTED: "Not Started",
+  IN_PROGRESS: "In Progress",
   DRAFT_IN_PROGRESS: "Draft In Progress",
   INTERNAL_REVIEW: "Internal Review",
   SUBMITTED: "Submitted",
