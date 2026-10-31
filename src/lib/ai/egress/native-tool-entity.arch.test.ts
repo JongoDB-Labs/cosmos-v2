@@ -59,9 +59,8 @@ const NO_ENTITY = new Set([
 const UNMAPPED_TODAY = new Set([
   "query_finance", "log_revenue", "log_expense", "get_finance_summary",
   "get_trial_balance", "get_profit_and_loss",
-  "list_risks", "create_risk", "update_risk", "list_blockers",
-  "list_deliverables", "list_changes", "add_pm_comment",
-  "archive_work_item", "generate_interval_brief",
+  "list_risks", "create_risk", "update_risk", "add_pm_comment",
+  "generate_interval_brief",
 ]);
 
 describe("native tools are known to the egress projection", () => {

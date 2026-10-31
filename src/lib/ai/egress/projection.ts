@@ -261,6 +261,11 @@ const NATIVE_TOOL_ENTITY: Record<string, string> = {
   // values it lists are names, so a withheld result is withheld whole.
   search_work_items: "work_item",
   create_work_item: "work_item", update_work_item: "work_item", delete_work_item: "work_item",
+  // archive_work_item returns the same shape delete_work_item does
+  // ({ id, ticketNumber, title, archived }), so it needs no new allowlisted
+  // field — `title` is excluded by the same entry that already excludes it
+  // for its sibling.
+  archive_work_item: "work_item",
   list_transitions: "work_item_transition", transition_item: "work_item",
   list_notes: "note",
   create_note: "note", update_note: "note", delete_note: "note",
@@ -276,9 +281,9 @@ const NATIVE_TOOL_ENTITY: Record<string, string> = {
   create_project: "project", update_project: "project",
   update_interval: "interval", complete_interval: "interval",
   // PM register writes (blocker/deliverable/change_request structural-only).
-  create_blocker: "blocker", update_blocker: "blocker",
-  create_deliverable: "deliverable", update_deliverable: "deliverable",
-  create_change_request: "change_request", update_change_request: "change_request",
+  create_blocker: "blocker", update_blocker: "blocker", list_blockers: "blocker",
+  create_deliverable: "deliverable", update_deliverable: "deliverable", list_deliverables: "deliverable",
+  create_change_request: "change_request", update_change_request: "change_request", list_changes: "change_request",
   // OKRs.
   list_objectives: "objective", create_objective: "objective",
   update_objective: "objective", delete_objective: "objective",
