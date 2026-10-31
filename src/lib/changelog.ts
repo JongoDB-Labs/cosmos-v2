@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.506.2",
+    date: "2026-10-31",
+    title: "The assistant can see what it is allowed to see",
+    highlights: [
+      {
+        kind: "fix",
+        text: "In deployments that withhold data from the assistant, asking Cosmo to read one thing \u2014 a single ticket, a blocker it just created, a control it just updated \u2014 came back with almost nothing, often not even the item's own identifier, so it could not refer to what it had just read. The safe, structural parts of a single item now come through: identifiers, statuses, priorities and dates. Titles, descriptions, names and other content stay withheld exactly as before.",
+      },
+    ],
+  },
+  {
     version: "2.506.1",
     date: "2026-10-31",
     title: "Cosmo can read four more lists",
