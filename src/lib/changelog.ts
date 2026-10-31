@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.507.0",
+    date: "2026-10-31",
+    title: "Deliverables belong to a contract",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A contract deliverable can now say which contract it is deliverable under, and a project can carry more than one contract. Item numbers are scoped to the contract, so two contracts can each have their own A-001 without clashing \u2014 while deliverables not yet tied to a contract keep the same one-per-code rule they have always had.",
+      },
+      {
+        kind: "feature",
+        text: "Deliverables can record the PI objective they serve, the sprint they are planned into, and the gate they are due at \u2014 and the register import accepts all three, so a CDRL planning sheet comes in as it stands instead of being retyped.",
+      },
+      {
+        kind: "improvement",
+        text: "Importing a register now understands a few words your spreadsheet uses that Cosmos does not: a deliverable marked \u201cPlanned\u201d arrives as Not Started. Words that mean something Cosmos has no state for are still left blank with a warning, rather than being guessed at.",
+      },
+    ],
+  },
+  {
     version: "2.506.4",
     date: "2026-10-31",
     title: "Importing deliverables works again",

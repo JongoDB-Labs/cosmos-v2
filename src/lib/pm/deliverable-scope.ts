@@ -47,3 +47,40 @@ export async function assertDeliverableLinks(
     }
   }
 }
+
+/**
+ * Codes that would collide if this contract's deliverables were detached.
+ *
+ * Deleting a contract sets its deliverables' `contractId` to NULL (the FK's
+ * ON DELETE SET NULL). Unassigned deliverables are unique on `(org_id, code)`
+ * through a PARTIAL index, so detaching one whose code is already held by an
+ * unassigned deliverable violates it — and Postgres raises that from inside
+ * the FK's own cascade UPDATE, so the caller sees:
+ *
+ *   duplicate key value violates unique constraint
+ *   "deliverables_org_code_unassigned_key"
+ *
+ * on a request to delete a CONTRACT. It fails safe — the whole delete rolls
+ * back and no row is lost — but as a message it is nonsense from the outside:
+ * it names a constraint on a table the caller never mentioned.
+ *
+ * This is a consequence of scoping item numbers to contracts while keeping
+ * today's guarantee for unassigned ones, so the honest fix is to say what is
+ * actually in the way rather than to weaken either half.
+ */
+export async function clashingCodesOnContractDetach(
+  orgId: string,
+  contractId: string,
+): Promise<string[]> {
+  const attached = await prisma.deliverable.findMany({
+    where: { orgId, contractId },
+    select: { code: true },
+  });
+  if (attached.length === 0) return [];
+
+  const clashes = await prisma.deliverable.findMany({
+    where: { orgId, contractId: null, code: { in: attached.map((d) => d.code) } },
+    select: { code: true },
+  });
+  return [...new Set(clashes.map((d) => d.code))].sort();
+}

@@ -8,6 +8,7 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { inVisibleProject } from "@/lib/rbac/require-project-read";
+import { clashingCodesOnContractDetach } from "@/lib/pm/deliverable-scope";
 
 const updateContractSchema = z.object({
   title: z.string().min(1).max(500).optional(),
@@ -130,6 +131,19 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       where: { id: contractId, orgId },
     });
     if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
+
+    // Deleting a contract DETACHES its deliverables rather than removing them
+    // (ON DELETE SET NULL). That can collide with the partial unique index on
+    // unassigned deliverables, and Postgres raises it from inside the FK's own
+    // cascade — so without this the caller gets a duplicate-key error naming a
+    // constraint on a table they never mentioned. Say what is in the way.
+    const clashing = await clashingCodesOnContractDetach(orgId, contractId);
+    if (clashing.length > 0) {
+      return new Response(
+        `Can't delete this contract yet. Its deliverables would be left unassigned, but ${clashing.length === 1 ? "this code is" : "these codes are"} already used by an unassigned deliverable: ${clashing.join(", ")}. Re-code or remove ${clashing.length === 1 ? "it" : "them"} first.`,
+        { status: 409 },
+      );
+    }
 
     await prisma.contract.delete({ where: { id: contractId } });
 
