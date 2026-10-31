@@ -20,13 +20,7 @@ import {
  * are swallowed — a notification must never break the action that raised it.
  */
 
-export {
-  TEAMS_NOTIFY_DEFAULTS,
-  TEAMS_EVENT_LABELS,
-  TEAMS_EVENTS,
-  escapeHtmlBasic,
-  type TeamsEvent,
-} from "@/lib/integrations/teams-notify-config";
+export { TEAMS_NOTIFY_DEFAULTS, escapeHtmlBasic } from "@/lib/integrations/teams-notify-config";
 
 const PROVIDER = "microsoft-teams-messaging";
 

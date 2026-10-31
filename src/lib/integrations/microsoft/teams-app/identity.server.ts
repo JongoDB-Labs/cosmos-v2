@@ -121,8 +121,3 @@ export async function teamsAppTenants(now = Date.now()): Promise<Set<string>> {
   tenants = { set, at: now };
   return set;
 }
-
-/** For tests: forget the cached tenant list. */
-export function _resetTeamsAppTenants() {
-  tenants = null;
-}

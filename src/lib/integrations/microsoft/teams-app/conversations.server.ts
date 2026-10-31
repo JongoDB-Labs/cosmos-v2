@@ -4,7 +4,7 @@ import { logAudit } from "@/lib/audit";
 import { canAdministerProject } from "@/lib/rbac/require-project-manage";
 import { createClassificationResolver } from "@/lib/classification/resolver";
 import { isAllowedServiceUrl, sendToConversation, type ConnectorDeps } from "./bot-connector.server";
-import { teamsOrgsForTenant, teamsUsers, type TeamsOrg } from "./identity.server";
+import { teamsUsers, type TeamsOrg } from "./identity.server";
 
 /**
  * COSMOS-202 T2: where the bot may write, as Teams tells us in VERIFIED inbound
@@ -179,14 +179,7 @@ export async function forgetConversation(a: InboundActivity, orgs: TeamsOrg[]) {
   return r.count;
 }
 
-/** Forget a person's Teams chat (their Outlook link went, or they left). */
-export async function forgetPersonal(orgId: string, userId: string) {
-  await prisma.teamsConversation.deleteMany({ where: { orgId, userId } });
-}
-
 /** The Teams app was switched off: forget every conversation in the org. */
 export async function forgetOrgConversations(orgId: string) {
   await prisma.teamsConversation.deleteMany({ where: { orgId } });
 }
-
-export { teamsOrgsForTenant };
