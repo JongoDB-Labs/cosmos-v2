@@ -54,6 +54,21 @@ export interface ChipField {
   ops: readonly OpFamily[];
   /** SELECT / MULTI_SELECT options, offered without a round trip. */
   options?: string[];
+  /**
+   * What the field means, in one line — the registry's own `description`. The
+   * "Add filter" list showed labels alone, so `Ancestor` arrived with no hint
+   * that it means "everything under this item, at any depth"; reported as "I saw
+   * an ancestor filter, but I'm not really sure what that is".
+   */
+  hint?: string;
+  /**
+   * Everything a search over this field should match beyond its label: the
+   * field id, its registry aliases, its enum values, and the hint. `Sprint`
+   * answers to `interval` and `iteration`, and `Program increment` to `pi`,
+   * because those are the words people actually type — and `Interval kind`
+   * answers to `phase` because PHASE is one of its values.
+   */
+  terms?: string;
 }
 
 export const OP_LABELS: Record<ChipOp, string> = {
@@ -83,13 +98,37 @@ export function opLabel(op: ChipOp, kind: ValueKind): string {
 const isTemporal = (k: ValueKind) => k.kind === "date" || k.kind === "datetime";
 const isOrdered = (k: ValueKind) => isTemporal(k) || k.kind === "number" || k.kind === "duration";
 
+/**
+ * The searchable text for a system field: its id and aliases first (those are
+ * what people type), then any enum values, then the description. Joined into one
+ * string because that is what <SearchableSelect>'s `searchText` matches.
+ */
+function fieldTerms(
+  id: string,
+  aliases: readonly string[],
+  value: ValueKind,
+  description?: string,
+): string {
+  const parts = [id, ...aliases];
+  if (value.kind === "enum") parts.push(...value.values);
+  if (description) parts.push(description);
+  return parts.join(" ");
+}
+
 /** What a chip on `field` can be, or null when the field has no chip form. */
 export function chipField(field: FieldRef, customFields: readonly SchemaCustomField[]): ChipField | null {
   if (field.kind === "sys") {
     const def = lookupField(field.id);
     if (!def || def.pending || def.ops.length === 0) return null;
     // History-only fields aside, every registry field has a chip.
-    return { field, label: def.label, value: def.value, ops: def.ops };
+    return {
+      field,
+      label: def.label,
+      value: def.value,
+      ops: def.ops,
+      ...(def.description ? { hint: def.description } : {}),
+      terms: fieldTerms(def.id, def.aliases, def.value, def.description),
+    };
   }
   const cf = customFields.find((c) => c.key === field.key);
   if (!cf) return null;
@@ -97,7 +136,15 @@ export function chipField(field: FieldRef, customFields: readonly SchemaCustomFi
     (cf.fieldType === "SELECT" || cf.fieldType === "MULTI_SELECT") && cf.options?.length
       ? { kind: "enum", values: cf.options }
       : cfValueKind(cf.fieldType);
-  return { field, label: cf.name, value, ops: CF_OPS[cf.fieldType], ...(cf.options ? { options: cf.options } : {}) };
+  // A custom field is written `cf[key]`, so the key is the term people type.
+  return {
+    field,
+    label: cf.name,
+    value,
+    ops: CF_OPS[cf.fieldType],
+    ...(cf.options ? { options: cf.options } : {}),
+    terms: fieldTerms(cf.key, [], value),
+  };
 }
 
 /** Every field a chip can be added for, system fields first. */

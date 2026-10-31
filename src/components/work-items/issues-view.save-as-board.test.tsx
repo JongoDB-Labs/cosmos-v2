@@ -176,3 +176,68 @@ describe("Issues — Save as board placement", () => {
     expect(row.contains(boardButton()!)).toBe(true);
   });
 });
+
+/**
+ * The other way "Save as board" disappears: the facets request fails.
+ *
+ * Both it and "New item" are gated on `facets.projects.length > 0`, so a failed
+ * facets load removes them — while the CQL query bar, built from the static
+ * field registry, renders perfectly. The page therefore looks whole and simply
+ * has no way to save a board, which from outside is identical to the feature not
+ * existing. The legacy filter bar surfaced this; the CQL bar said nothing.
+ */
+describe("Issues — when filter options fail to load, the page says so", () => {
+  function serveWithBrokenFacets() {
+    vi.mocked(jsonFetch).mockImplementation((async (url: string) => {
+      if (url.endsWith("/facets")) throw new Error("facets 500");
+      if (url.endsWith("/query-language")) return { enabled: true, canManage: false };
+      if (url.endsWith("/cql/schema")) return SCHEMA;
+      if (url.endsWith("/cql/validate")) return { valid: true, query: { v: 1, where: null }, diagnostics: [] };
+      if (url.includes("/cql/suggest")) return { items: [] };
+      if (url.includes("/search")) return { data: [], total: 0 };
+      if (url.endsWith("/saved-views")) return [];
+      return [];
+    }) as never);
+  }
+
+  it("names the controls it costs, instead of dropping them silently", async () => {
+    serveWithBrokenFacets();
+    renderView();
+
+    const msg = await screen.findByText(/Couldn't load filter options/i);
+    expect(msg.textContent).toMatch(/New item/);
+    expect(msg.textContent).toMatch(/Save as board/);
+    // And it is honest that the query itself still works.
+    expect(msg.textContent).toMatch(/query still runs/i);
+  });
+
+  it("the board button really is gone in that state — the notice is the only signal", async () => {
+    serveWithBrokenFacets();
+    renderView();
+
+    await screen.findByText(/Couldn't load filter options/i);
+    expect(boardButton()).toBeNull();
+  });
+
+  it("offers a retry that re-requests the facets", async () => {
+    serveWithBrokenFacets();
+    renderView();
+
+    await screen.findByText(/Couldn't load filter options/i);
+    const before = vi.mocked(jsonFetch).mock.calls.filter(([u]) => String(u).endsWith("/facets")).length;
+    await userEvent.setup().click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(
+        vi.mocked(jsonFetch).mock.calls.filter(([u]) => String(u).endsWith("/facets")).length,
+      ).toBeGreaterThan(before),
+    );
+  });
+
+  it("says nothing at all when the facets load fine", async () => {
+    serve();
+    renderView();
+
+    await screen.findByRole("button", { name: "Save filter" });
+    expect(screen.queryByText(/Couldn't load filter options/i)).toBeNull();
+  });
+});

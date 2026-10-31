@@ -12,10 +12,36 @@ export interface SearchableOption {
   disabled?: boolean;
   /**
    * Extra text the filter should match, for details worth searching but not
-   * worth rendering in every row (a member's email, say). Honoured by
-   * <SearchableMultiSelect>; <SearchableSelect> matches on `label` alone.
+   * worth rendering in every row (a member's email, or a field's aliases and
+   * description). WIDENS the label — it never replaces it — so a caller may
+   * pass a bare detail without making the label unfindable. Honoured by both
+   * <SearchableSelect> and <SearchableMultiSelect>, via `optionMatches`.
    */
   searchText?: string;
+  /**
+   * A one-line explanation rendered under the label, muted. Only for lists
+   * whose entries need it — a field catalogue, say, where `Ancestor` means
+   * nothing without "any item above this one, at any depth". Rows without one
+   * render exactly as before.
+   */
+  description?: string;
+}
+
+/**
+ * The one filter predicate both pickers use: case-insensitive substring over
+ * the label and the optional `searchText`.
+ *
+ * Shared rather than written twice because the two copies had already drifted —
+ * the multi-select matched `searchText ?? label` (a REPLACEMENT, which hid any
+ * label behind a detail) and the single-select ignored `searchText` entirely, so
+ * the field rows in "Add filter" could not be found by alias: typing `interval`
+ * or `pi` matched nothing, though both are registry aliases of real fields.
+ */
+export function optionMatches(option: Pick<SearchableOption, "label" | "searchText">, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (option.label.toLowerCase().includes(q)) return true;
+  return (option.searchText ?? "").toLowerCase().includes(q);
 }
 
 /**
@@ -73,6 +99,9 @@ export function SearchableSelect({
   // Control by the matching option object so base-ui's referential equality
   // (Object.is) lines up with the rendered items, and map back to the string id
   // at the boundary so call sites stay string-in / string-out.
+  // Stable prefix for the per-row description ids that `aria-describedby`
+  // points at; several of these dropdowns can be open on one page.
+  const descId = React.useId();
   const selected = React.useMemo(
     () => options.find((o) => o.value === value) ?? null,
     [options, value],
@@ -81,6 +110,7 @@ export function SearchableSelect({
   return (
     <Combobox.Root
       items={options}
+      filter={(item: SearchableOption, query: string) => optionMatches(item, query)}
       value={selected}
       onValueChange={(next: SearchableOption | null) =>
         onValueChange(next ? next.value : null)
@@ -141,9 +171,27 @@ export function SearchableSelect({
                   key={item.value}
                   value={item}
                   disabled={item.disabled}
+                  // The row's accessible NAME stays the label even when a
+                  // description renders under it; the description is attached
+                  // as a description, which is what it is. Letting it fall into
+                  // the name instead broke every `getByRole("option", { name })`
+                  // selector and made the row read as one long run-on to a
+                  // screen reader.
+                  aria-label={item.description ? item.label : undefined}
+                  aria-describedby={item.description ? `${descId}-${item.value}` : undefined}
                   className="relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1.5 pr-8 pl-2 text-sm outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-accent data-highlighted:text-accent-foreground"
                 >
-                  <span className="line-clamp-1 flex-1">{item.label}</span>
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="line-clamp-1">{item.label}</span>
+                    {item.description ? (
+                      <span
+                        id={`${descId}-${item.value}`}
+                        className="line-clamp-2 text-xs text-muted-foreground"
+                      >
+                        {item.description}
+                      </span>
+                    ) : null}
+                  </span>
                   <Combobox.ItemIndicator
                     render={
                       <span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center" />
