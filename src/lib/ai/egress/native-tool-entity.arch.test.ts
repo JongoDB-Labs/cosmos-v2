@@ -30,8 +30,19 @@ const NO_ENTITY = new Set([
   "fetch_url",
   // A stub returning a fixed sentence.
   "process_transcript",
-  // Describes the QUERY LANGUAGE — operators, functions, field names. Metadata
-  // about the schema, not rows from it.
+  // Withheld in full, and it must STAY that way — but not for the reason this
+  // comment used to give ("metadata about the schema, not rows from it").
+  // That is true only of the no-argument branch. Called WITH a `field`, it
+  // runs suggest.server.ts's value suggestions, which return the org's member
+  // display names with `detail` set to the member's EMAIL ADDRESS
+  // (suggest.server.ts, the "user" case), project keys and names, type and
+  // team names, the label catalogue, and work-item TITLES as `detail` for
+  // item refs. That is tenant rows and personal data, not schema.
+  //
+  // The behaviour was always safe; the stated reason was not, and a wrong
+  // reason is what licenses a later "it is only metadata, let us map it".
+  // Compare org_member, which exposes userId and role ONLY, precisely because
+  // name and email are PII.
   "describe_cql",
 ]);
 
