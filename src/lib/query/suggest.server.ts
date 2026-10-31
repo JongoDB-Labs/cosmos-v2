@@ -7,6 +7,7 @@
  * Each suggestion carries `insert`: the text that reads back as that value
  * (quoted when it needs to be, an email when two people share a name).
  */
+import { IntervalKind } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
@@ -108,7 +109,7 @@ export async function suggestValues(
       for (const o of options ?? []) if (o.toLowerCase().includes(p)) out.push({ label: o, insert: asValue(o), kind: "value" });
       break;
     case "ref":
-      out.push(...(await refSuggestions(kind.entity, prefix, readable, orgId, limit)));
+      out.push(...(await refSuggestions(kind.entity, prefix, readable, orgId, limit, def?.id)));
       break;
     default:
       break;
@@ -123,6 +124,11 @@ async function refSuggestions(
   readable: string[],
   orgId: string,
   limit: number,
+  /**
+   * Which field asked. Two fields share the `interval` entity and mean
+   * different halves of it, so the entity alone cannot scope the list.
+   */
+  field?: string,
 ): Promise<Suggestion[]> {
   const where = prefix ? contains(prefix) : undefined;
   switch (entity) {
@@ -191,13 +197,32 @@ async function refSuggestions(
       }));
     }
     case "interval": {
+      // `pi` is "items in this PI or any sprint inside it", so only a PROGRAM_
+      // INCREMENT is a legal value; `sprint` means the contained timeboxes, so
+      // a PI is not one. Unscoped, both pickers listed every interval in the
+      // org and the detail line named no kind — a flat list where a PI, a
+      // sprint and a phase are indistinguishable, which is what "I can't choose
+      // a specific named PI, sprint or phase" looks like from outside.
+      const kindWhere =
+        field === "pi"
+          ? { intervalKind: IntervalKind.PROGRAM_INCREMENT }
+          : field === "sprint"
+            ? { intervalKind: { not: IntervalKind.PROGRAM_INCREMENT } }
+            : {};
       const rows = await prisma.interval.findMany({
-        where: { orgId, projectId: { in: readable }, ...(prefix ? { name: where } : {}) },
-        select: { name: true, status: true, project: { select: { key: true } } },
+        where: { orgId, projectId: { in: readable }, ...kindWhere, ...(prefix ? { name: where } : {}) },
+        select: { name: true, status: true, intervalKind: true, project: { select: { key: true } } },
         take: limit,
         orderBy: [{ status: "asc" }, { startDate: "desc" }],
       });
-      return rows.map((r) => ({ label: r.name, insert: asValue(r.name), detail: `${r.project.key} · ${r.status.toLowerCase()}`, kind: "sprint" as const }));
+      return rows.map((r) => ({
+        label: r.name,
+        insert: asValue(r.name),
+        // The kind is the distinguishing fact when one field spans several —
+        // "ACME · phase · active" beside "ACME · sprint · active".
+        detail: `${r.project.key} · ${r.intervalKind.toLowerCase().replace(/_/g, " ")} · ${r.status.toLowerCase()}`,
+        kind: "sprint" as const,
+      }));
     }
     case "team": {
       const rows = await prisma.team.findMany({

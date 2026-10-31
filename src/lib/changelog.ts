@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.505.0",
+    date: "2026-10-31",
+    title: "The filter you want, findable",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Searching a filter's values works again. Typing a sprint's name into the Sprint picker \u2014 or a person's name, a project, a status, a label \u2014 matched nothing, because a list that showed extra context searched only that context and stopped searching the names themselves. The lists had the values all along; they could not be typed for.",
+      },
+      {
+        kind: "improvement",
+        text: "\u201cAdd filter\u201d now answers to the word you'd actually type. Sprint responds to \u201cinterval\u201d and \u201citeration\u201d, Program increment to \u201cpi\u201d, and Interval kind to \u201cphase\u201d or \u201crelease\u201d \u2014 and every field now carries a one-line explanation of what it means, so Ancestor says \u201cany item above this one, at any depth\u201d rather than leaving you to guess.",
+      },
+      {
+        kind: "fix",
+        text: "Picking a program increment offers program increments. Sprint and Program increment are separate filters over the same timeboxes, but both listed every interval in the org with nothing to tell a PI from a sprint from a phase. Each now offers only what it can match, and every option names its kind.",
+      },
+      {
+        kind: "fix",
+        text: "When filter options fail to load, Issues now says so and offers a retry, instead of quietly removing \u201cNew item\u201d and \u201cSave as board\u201d and looking like a page that never had them.",
+      },
+    ],
+  },
+  {
     version: "2.504.0",
     date: "2026-10-30",
     title: "Three more things you can filter on",

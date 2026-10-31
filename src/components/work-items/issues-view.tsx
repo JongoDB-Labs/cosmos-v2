@@ -40,7 +40,7 @@ import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 import { CQL_VERSION, type CqlQuery } from "@/lib/query/ast";
 import { planTagAddition, type TagRowInfo } from "@/lib/work-items/bulk-tags";
 import { summarizeBulkDelete } from "@/lib/work-items/bulk-delete";
-import { ListFilter, LayoutDashboard, Save, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Highlighter, Plus, Check, Download, Star, Archive, UserPlus, CheckCircle2, CalendarRange } from "lucide-react";
+import { ListFilter, LayoutDashboard, Save, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Highlighter, Plus, Check, Download, Star, Archive, UserPlus, CheckCircle2, CalendarRange, AlertTriangle } from "lucide-react";
 import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
 import { archiveAction } from "@/lib/work-items/item-actions";
 import { highlightLabel, highlightRowStyle } from "@/lib/work-items/highlights";
@@ -1202,6 +1202,33 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
           <Download className="h-4 w-4" /> Export CSV
         </a>
       </div>
+      {/* Every control gated on `facets` — "New item", "Save as board", the
+          legacy selects — simply VANISHES when the facets request fails, and in
+          CQL mode nothing said so: the query bar comes from the static field
+          registry and renders perfectly, so the page looks whole while two
+          buttons are missing. Reported as "I'm not seeing the ability to save a
+          given filter", which is indistinguishable from the control not being
+          built. The legacy FilterBar already surfaces this; the CQL bar is the
+          mode that was silent, so say it here and name what it costs. */}
+      {facetsQuery.isError && !facets && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-2 text-xs text-[var(--status-blocked-text,var(--status-blocked))]"
+        >
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>
+            Couldn&apos;t load filter options, so New item and Save as board are
+            unavailable. Your query still runs.
+          </span>
+          <button
+            type="button"
+            onClick={() => void facetsQuery.refetch()}
+            className="font-medium underline underline-offset-2 hover:no-underline"
+          >
+            Retry
+          </button>
+        </div>
+      )}
       {cqlSchema.isLoading ? (
         <Skeleton className="h-[58px] w-full rounded-[var(--radius)]" />
       ) : cqlOn && cqlSchema.schema ? (

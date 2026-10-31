@@ -5,7 +5,7 @@ import { Combobox } from "@base-ui/react/combobox";
 import { ChevronDownIcon, CheckIcon, SearchIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import type { SearchableOption } from "@/components/ui/searchable-select";
+import { optionMatches, type SearchableOption } from "@/components/ui/searchable-select";
 
 /**
  * The multi-select sibling of <SearchableSelect>: a dropdown with a built-in
@@ -83,9 +83,13 @@ export function SearchableMultiSelect({
       multiple
       items={options}
       filter={(item: SearchableOption, query: string) => {
-        const q = query.trim().toLowerCase();
-        if (!q) return true;
-        return (item.searchText ?? item.label).toLowerCase().includes(q);
+        // Label OR searchText, never searchText INSTEAD of the label. This read
+        // `searchText ?? label`, so a caller that passed a row's detail (and not
+        // a copy of the label with it) made the label unsearchable — the CQL
+        // value pickers pass `s.detail`, so typing a sprint's own name into the
+        // Sprint picker matched nothing. COSMOS-171's fixture duplicated the
+        // label into its searchText, which is why no test saw it.
+        return optionMatches(item, query);
       }}
       value={selected}
       onValueChange={(next: SearchableOption[]) =>

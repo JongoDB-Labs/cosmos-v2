@@ -316,3 +316,72 @@ describe("QueryBuilder — finding a saved filter from the search box", () => {
     expect(screen.queryByRole("button", { name: "My open bugs" })).toBeNull();
   });
 });
+
+/**
+ * The "Add filter" catalogue is 48 bare labels in one flat list, and the filter
+ * box matched the label ONLY — <SearchableSelect> ignored `searchText` outright.
+ * So the words people type reached nothing: `pi` is the field's id but its label
+ * is "Program increment", and `interval`/`iteration` are Sprint's registry
+ * aliases. Asked as "why don't we just have an interval filter that I can
+ * choose, specific intervals, such as named PIs, sprints, or phases" — the
+ * fields were all there, unfindable.
+ *
+ * Driven through the rendered dropdown rather than against chipFields, because
+ * the catalogue was correct all along; the search over it was not.
+ */
+describe("QueryBuilder — finding a field by the word you'd type", () => {
+  async function openAddFilter() {
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("combobox", { name: "Add filter" }));
+    return { user, input: await screen.findByPlaceholderText("Field or person…") };
+  }
+  const optionNames = () => screen.getAllByRole("option").map((o) => o.textContent ?? "");
+
+  it("finds Sprint by its aliases, and Program increment by its id", async () => {
+    renderBar("");
+    const { user, input } = await openAddFilter();
+
+    await user.type(input, "interval");
+    // Sprint (alias `interval`) and Interval kind, whose label carries the word.
+    expect(optionNames().join("|")).toContain("Sprint");
+
+    await user.clear(input);
+    await user.type(input, "iteration");
+    expect(optionNames().join("|")).toContain("Sprint");
+
+    await user.clear(input);
+    await user.type(input, "pi");
+    expect(optionNames().join("|")).toContain("Program increment");
+  });
+
+  it("finds Interval kind by a value it accepts, so `phase` lands somewhere", async () => {
+    renderBar("");
+    const { user, input } = await openAddFilter();
+
+    await user.type(input, "phase");
+    expect(optionNames().join("|")).toContain("Interval kind");
+  });
+
+  it("explains a field whose name does not: Ancestor says what it means", async () => {
+    renderBar("");
+    const { user, input } = await openAddFilter();
+
+    await user.type(input, "ancestor");
+    const rows = optionNames();
+    expect(rows.join("|")).toContain("Ancestor");
+    // The registry description now rides along under the label.
+    expect(rows.join("|")).toMatch(/any depth/i);
+  });
+
+  it("still matches a plain label, and still says so when nothing matches", async () => {
+    renderBar("");
+    const { user, input } = await openAddFilter();
+
+    await user.type(input, "Priority");
+    expect(optionNames().join("|")).toContain("Priority");
+
+    await user.clear(input);
+    await user.type(input, "zzzznotafield");
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+  });
+});

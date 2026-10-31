@@ -74,6 +74,51 @@ describe("chip editing", () => {
     expect(chipField({ kind: "cf", key: "nope" }, CFS)).toBeNull();
   });
 
+  /**
+   * The "Add filter" catalogue is a flat list of 48 labels. Searching it matched
+   * the LABEL only, so the words people actually type reached nothing: `pi` is a
+   * field id, `interval` and `iteration` are registry aliases of Sprint, and
+   * `phase` is a value of Interval kind — none of them appear in any label.
+   * Reported as "why don't we just have an interval filter I can choose" and
+   * "I saw an ancestor filter, but I'm not really sure what that is".
+   */
+  describe("a field is findable by the words people type", () => {
+    const termsOf = (id: string) => (sys(id).terms ?? "").toLowerCase();
+
+    it("carries the id, the aliases and the description", () => {
+      // `pi` is the id; the label is "Program increment" and contains no "pi".
+      expect(termsOf("pi")).toContain("pi");
+      expect(termsOf("pi")).toContain("programincrement");
+      expect(sys("pi").label.toLowerCase()).not.toContain("pi");
+
+      // Sprint answers to the two words the schema itself uses for it.
+      expect(termsOf("sprint")).toContain("interval");
+      expect(termsOf("sprint")).toContain("iteration");
+
+      // Ancestor's meaning lives in its description, and now travels with it.
+      expect(termsOf("ancestor")).toContain("any depth");
+      expect(sys("ancestor").hint).toMatch(/any depth/i);
+    });
+
+    it("includes an enum's values, so `phase` finds Interval kind", () => {
+      expect(termsOf("intervalKind")).toContain("phase");
+      expect(termsOf("intervalKind")).toContain("program_increment");
+    });
+
+    it("makes a custom field findable by its cf[key] key", () => {
+      const cf = chipField({ kind: "cf", key: "severity" }, CFS)!;
+      expect((cf.terms ?? "").toLowerCase()).toContain("severity");
+    });
+
+    it("gives every chippable system field both a hint and terms", () => {
+      for (const f of chipFields(CFS, SYSTEM_FIELD_IDS)) {
+        if (f.field.kind !== "sys") continue;
+        expect(f.terms, `${f.field.id} terms`).toBeTruthy();
+        expect(f.hint, `${f.field.id} hint`).toBeTruthy();
+      }
+    });
+  });
+
   it("an incomplete chip says nothing", () => {
     expect(fromEdit(newEdit(sys("assignee")))).toBeNull();
     expect(fromEdit({ ...newEdit(sys("due")), op: "between", values: [{ t: "rel", v: "-7d" }] })).toBeNull();

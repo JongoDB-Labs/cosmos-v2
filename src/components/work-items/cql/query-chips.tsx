@@ -117,7 +117,18 @@ export function QueryChips({ orgId, schema, chips, matchAny, onChange, excludeFi
   const addOptions: SearchableOption[] = useMemo(() => {
     const out: SearchableOption[] = fields
       .filter((f) => !used(f.field))
-      .map((f) => ({ value: `field|${fieldKey(f.field)}`, label: f.label }));
+      // `terms` carries the field id, its aliases, its enum values and its
+      // description, so the list answers to the word the user actually types:
+      // `interval` and `iteration` reach Sprint, `pi` reaches Program
+      // increment, `phase` reaches Interval kind. `description` renders under
+      // the label, because a catalogue of 48 bare nouns asks the reader to
+      // already know what `Ancestor` means.
+      .map((f) => ({
+        value: `field|${fieldKey(f.field)}`,
+        label: f.label,
+        ...(f.terms ? { searchText: f.terms } : {}),
+        ...(f.hint ? { description: f.hint } : {}),
+      }));
     for (const p of (people.data ?? []).filter((s) => s.kind === "user" || s.label === "me")) {
       for (const id of ["assignee", "reporter"] as const) {
         if (used({ kind: "sys", id })) continue;
