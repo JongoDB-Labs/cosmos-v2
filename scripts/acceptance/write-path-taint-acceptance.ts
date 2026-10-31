@@ -9,7 +9,10 @@
 //
 // It exercises the REAL primitives the loop uses (no model call — that is the external
 // boundary): mintHandle / resolveHandlesDeep (sealed vault round-trip), the DB-backed
-// effectiveCeiling + the EXACT taint comparison from agent-loop.ts
+// effectiveCeiling + the EXACT taint comparison from agent-loop.ts. NOTE the taint
+// TARGET is still per-project `effectiveCeiling(org, projectId)` by design — on the
+// write path that id is where the executor will actually write. Only the per-RESULT
+// READ ceiling moved to `conservativeCeiling(org)`.
 // (rankOf(targetCeiling) < rankOf(resolvedMaxCeiling)), the REAL createWorkItem executor
 // (RBAC + Prisma write), and the REAL logEgressDecision (append-only egress_decisions row).
 //

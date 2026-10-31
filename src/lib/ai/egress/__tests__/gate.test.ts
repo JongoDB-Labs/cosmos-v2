@@ -33,6 +33,22 @@ describe("projectForModel (enforced policy)", () => {
       }
     }
   });
+  it("a non-data prompt is exposed at ANY ceiling — the ceiling does not gate system/user", () => {
+    // This pins why `runModelTurn` may keep passing `effectiveCeiling(orgId)` (the ORG
+    // row alone) for the system/user kinds while the tool-RESULT path moved to
+    // `conservativeCeiling`: for a non-data kind the ceiling is recorded as audit
+    // evidence and consulted by nothing, so it cannot under-gate. When ceiling-based
+    // prompt withholding ships (TODO(phase-2c-remaining) in egress/index.ts), this test
+    // is what will fail — and that call site must become conservative at the same time,
+    // because a prompt or rendered history blob is org-wide and may quote any project.
+    for (const kind of ["system", "user"] as const) {
+      const r = projectForModel("ordinary prose", ctxOf("commercial"), { valueKind: kind, ceiling: "CONFIDENTIAL" });
+      expect(r.decision.exposed).toBe(true);
+      expect(r.decision.decidedBy).toBe("none");
+      expect(r.decision.ceiling).toBe("CONFIDENTIAL"); // recorded, not enforced
+    }
+  });
+
   it("never throws on unserializable data and fails closed (gov)", () => {
     const circ: Record<string, unknown> = { SECRET: "x" }; circ.self = circ;
     const r = projectForModel(circ, ctxOf("gov"), { valueKind: "tool_result", ceiling: "UNCLASSIFIED" });

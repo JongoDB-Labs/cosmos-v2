@@ -33,7 +33,10 @@ vi.mock("@/lib/runtime-config", () => ({
 }));
 vi.mock("@/lib/classification/effective", async (importOriginal) => ({
   ...(await importOriginal<object>()),
+  // The write-path taint target (per project) and the per-result READ ceiling
+  // (org-wide, conservative). Both UNCLASSIFIED so a commercial result is exposed.
   effectiveCeiling: vi.fn().mockResolvedValue("UNCLASSIFIED"),
+  conservativeCeiling: vi.fn().mockResolvedValue("UNCLASSIFIED"),
 }));
 
 import { prisma } from "@/lib/db/client";

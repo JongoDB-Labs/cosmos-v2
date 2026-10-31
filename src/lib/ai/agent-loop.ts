@@ -7,7 +7,7 @@ import { getAgentPolicy } from "./policy";
 import { checkAgentPolicy } from "./policy/enforce";
 import { runModelTurn, toModelTools, projectForModel, projectResult, entityTypeForTool, augmentWithHandles, resolveHandlesDeep, sha256Hex, logEgressDecision, type ModelMessage } from "./egress";
 import type { TenantClass } from "./egress";
-import { effectiveCeiling, maxByRank, rankOf } from "@/lib/classification/effective";
+import { conservativeCeiling, effectiveCeiling, maxByRank, rankOf } from "@/lib/classification/effective";
 import type { ClassificationLevel } from "@prisma/client";
 import type { AuthContext } from "@/lib/rbac/check";
 
@@ -223,9 +223,10 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       // a non-matching / wrong-conversation / fabricated handle passes through
       // literally (harmless). The RESOLVED value goes ONLY to the executor; its
       // result is re-gated below (no echo-back to the model).
-      // The tool's TARGET project scope (if the tool was called with a string
-      // projectId). Used both for the WRITE-PATH TAINT check below (where the data
-      // would LAND) and for the per-result effective ceiling after execution.
+      // The tool's TARGET project scope, if the model's call carried a string
+      // `projectId`. Used ONLY by the WRITE-PATH TAINT check below, where it
+      // describes where the data would LAND. It is deliberately NOT an input to the
+      // per-result READ ceiling any more: see `conservativeCeiling` below.
       const projectId = typeof (u.input as { projectId?: unknown }).projectId === "string"
         ? (u.input as { projectId: string }).projectId : undefined;
       let execInput: Record<string, unknown> = u.input;
@@ -297,6 +298,16 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
           // into a lower-classification container (down-classification laundering by
           // reference). REJECT before executeTool: the CUI is never written, never
           // logged, and never reaches the model (the error names only LEVELS).
+          // `effectiveCeiling(orgId, projectId)` ON PURPOSE, where the read path above
+          // uses `conservativeCeiling`. The two paths ask different questions of the same
+          // argument. Here `projectId` is LOAD-BEARING rather than a hint: the executor is
+          // about to write to that project, so the id describes the destination container,
+          // and a model that names the wrong one simply writes somewhere else — a target it
+          // misreports is a target it does not reach. Using the conservative ceiling here
+          // would instead compare the resolved value against the org's HIGHEST ceiling,
+          // which LOOSENS this gate: a write into an UNCLASSIFIED project would pass merely
+          // because some other project is CUI. That is the one direction a taint check may
+          // not move, so this call keeps per-project semantics.
           const targetCeiling = await effectiveCeiling(opts.orgId, projectId);
           if (resolvedMaxCeiling !== null && rankOf(targetCeiling) < rankOf(resolvedMaxCeiling)) {
             // AC-4 evidence: a down-classification write was PREVENTED. The hash is of
@@ -352,7 +363,22 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       // tenants — so a high-ceiling value can never reach the model via a re-gate at
       // a lower per-turn ceiling, even on the otherwise-EXPOSED branch. Adds only a
       // FLOOR (never lowers the per-result ceiling); non-handle turns are unchanged.
-      const ceiling = maxByRank(await effectiveCeiling(opts.orgId, projectId), resolvedMaxCeiling);
+      // The per-result READ ceiling is `conservativeCeiling(opts.orgId)` — max over
+      // the org row AND every per-project row — NOT `effectiveCeiling(orgId, projectId)`.
+      // `projectId` here is MODEL input, and on the read path it is an unverified HINT:
+      // nothing checks the executor used it. `get_work_item` takes only `itemId`, so a
+      // read of an item in a CUI project carried no project at all and gated at the org
+      // ceiling; and a call may name a DECOY lower-classified project while the executor
+      // returns the high-classified row regardless, which made the ceiling
+      // model-controlled (and prompt-injection-reachable — the instruction can sit in a
+      // ticket the model is reading). Deriving the ceiling from the org alone removes
+      // model input from this decision entirely. It only ever RAISES the ceiling, and
+      // for an org with no per-project rows it is identical to before.
+      //
+      // The C1 fold is UNCHANGED and still applies on top: a resolved handle's mint-time
+      // ceiling is folded in by max-by-rank, so a value withheld under a high ceiling can
+      // never be echoed back under a lower one even if the org's rows change between turns.
+      const ceiling = maxByRank(await conservativeCeiling(opts.orgId), resolvedMaxCeiling);
       const projected = projectForModel(output, ctx, { valueKind: "tool_result", toolName: u.name, ceiling });
       // On WITHHOLD, don't hand the model the opaque placeholder — give it a
       // STRUCTURAL projection (id + allowlisted enums/dates, never free-text/CUI)

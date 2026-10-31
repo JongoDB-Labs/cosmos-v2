@@ -32,10 +32,11 @@ import crypto from "node:crypto";
 import { stubAuth } from "@/lib/testing/tool-auth";
 
 // ── Hoisted spies + an in-memory handle store (mirrors handles-loop.redteam) ──
-const { callModel, executeTool, effectiveCeiling, logEgressDecision, classifyLikelyCui, store } = vi.hoisted(() => ({
+const { callModel, executeTool, effectiveCeiling, conservativeCeiling, logEgressDecision, classifyLikelyCui, store } = vi.hoisted(() => ({
   callModel: vi.fn(),
   executeTool: vi.fn(),
   effectiveCeiling: vi.fn(),
+  conservativeCeiling: vi.fn(),
   logEgressDecision: vi.fn(),
   classifyLikelyCui: vi.fn().mockResolvedValue(false),
   store: new Map<string, { conversationId: string; token: string; valueEnc: string; entityType: string; fieldName: string; ceiling?: string | null }>(),
@@ -56,11 +57,19 @@ vi.mock("@/lib/runtime-config", () => ({
 vi.mock("@/lib/ai/policy", () => ({
   getAgentPolicy: vi.fn().mockResolvedValue({ allowedTools: null, deniedTools: [], deniedDomains: [], maxResultLimit: null, allowedProjectIds: null }),
 }));
-// Only effectiveCeiling is a spy; maxByRank/rankOf are the REAL pure helpers — the
-// taint comparison MUST exercise the real rank logic, not a stub.
+// Only the two ceiling RESOLVERS are spies; maxByRank/rankOf are the REAL pure
+// helpers — the taint comparison MUST exercise the real rank logic, not a stub.
+//
+// The split matters here more than anywhere: the taint TARGET is still
+// `effectiveCeiling(orgId, projectId)` — on the write path the model's `projectId` is
+// load-bearing, because that is where the executor will actually write — while the
+// per-RESULT read ceiling is now `conservativeCeiling(orgId)`. These cases therefore
+// set BOTH: the divergent per-project function for the target, and the max over the
+// same fixture (CUI) for the read ceiling.
 vi.mock("@/lib/classification/effective", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   effectiveCeiling,
+  conservativeCeiling,
 }));
 vi.mock("@/lib/ai/egress/audit", () => ({ logEgressDecision }));
 vi.mock("@/lib/classification/classifier", () => ({ classifyLikelyCui }));
@@ -92,6 +101,8 @@ beforeEach(() => {
   callModel.mockReset();
   executeTool.mockReset();
   effectiveCeiling.mockReset();
+  conservativeCeiling.mockReset();
+  conservativeCeiling.mockResolvedValue("CUI"); // max over the divergent fixture
   logEgressDecision.mockReset();
   classifyLikelyCui.mockReset();
   classifyLikelyCui.mockResolvedValue(false);

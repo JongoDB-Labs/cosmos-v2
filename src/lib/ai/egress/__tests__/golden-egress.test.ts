@@ -17,10 +17,11 @@ import { stubAuth } from "@/lib/testing/tool-auth";
 // ---------------------------------------------------------------------------
 // Hoisted spies — must be created before any vi.mock() factory executes.
 // ---------------------------------------------------------------------------
-const { callModel, executeTool, effectiveCeiling, logEgressDecision, classifyLikelyCui } = vi.hoisted(() => ({
+const { callModel, executeTool, effectiveCeiling, conservativeCeiling, logEgressDecision, classifyLikelyCui } = vi.hoisted(() => ({
   callModel: vi.fn(),
   executeTool: vi.fn(),
   effectiveCeiling: vi.fn(),
+  conservativeCeiling: vi.fn(),
   logEgressDecision: vi.fn(),
   // Classifier mock: default non-CUI; individual tests override for defense-topic prompts.
   classifyLikelyCui: vi.fn().mockResolvedValue(false) as ReturnType<typeof vi.fn<() => Promise<boolean>>>,
@@ -46,11 +47,13 @@ vi.mock("@/lib/ai/policy", () => ({
   getAgentPolicy: vi.fn().mockResolvedValue({ allowedTools: null, deniedTools: [], deniedDomains: [], maxResultLimit: null, allowedProjectIds: null }),
 }));
 
-// Mock effectiveCeiling — each test sets the ceiling it needs; avoids the DB. Keep the
-// real pure helpers (maxByRank/rankOf) so the loop's C1 ceiling fold runs for real.
+// Mock both ceiling resolvers — each test sets the ceiling it needs; avoids the DB.
+// Keep the real pure helpers (maxByRank/rankOf) so the loop's C1 ceiling fold runs
+// for real.
 vi.mock("@/lib/classification/effective", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   effectiveCeiling,
+  conservativeCeiling,
 }));
 
 // Mock the audit sink — avoids prisma during tests.
@@ -82,6 +85,19 @@ vi.mock("@/lib/ai/egress/handles", () => ({
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Set BOTH ceiling resolvers to the same level. The loop asks
+ * `conservativeCeiling(orgId)` for the per-RESULT read ceiling and
+ * `effectiveCeiling(orgId, projectId)` only for the write-path taint target. Every
+ * org in this suite has one uniform ceiling and no per-project rows, so the two
+ * agree by construction; the case where they DIVERGE (org UNCLASSIFIED, one
+ * project CUI) is read-path-ceiling.redteam.test.ts.
+ */
+function setCeiling(level: "PUBLIC" | "UNCLASSIFIED" | "FOUO" | "CUI" | "CONFIDENTIAL") {
+  effectiveCeiling.mockResolvedValue(level);
+  conservativeCeiling.mockResolvedValue(level);
+}
 
 /** Minimal options for runAgentLoop with one tool available. */
 function loopOpts(
@@ -156,6 +172,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
     callModel.mockReset();
     executeTool.mockReset();
     effectiveCeiling.mockReset();
+    conservativeCeiling.mockReset();
     logEgressDecision.mockReset();
     // Reset call count + restore default (benign); tests that need a CUI hit override this.
     classifyLikelyCui.mockReset();
@@ -168,7 +185,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 1 — gov + list_work_items (CUI) → model sees id+status, NOT the CUI title", async () => {
     const { toolUse, end } = turns("list_work_items");
     callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("CUI");
+    setCeiling("CUI");
     executeTool.mockResolvedValue(WORK_ITEM_RESULT);
 
     const { runAgentLoop } = await import("@/lib/ai/agent-loop");
@@ -192,7 +209,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 2 — commercial + list_work_items (CUI) → structural-only too (mandatory ceiling)", async () => {
     const { toolUse, end } = turns("list_work_items");
     callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("CUI");
+    setCeiling("CUI");
     executeTool.mockResolvedValue(WORK_ITEM_RESULT);
 
     const { runAgentLoop } = await import("@/lib/ai/agent-loop");
@@ -213,7 +230,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 3 — commercial + list_work_items (UNCLASSIFIED) → id present, marked title withheld by tripwire", async () => {
     const { toolUse, end } = turns("list_work_items");
     callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+    setCeiling("UNCLASSIFIED");
     executeTool.mockResolvedValue(WORK_ITEM_RESULT);
 
     const { runAgentLoop } = await import("@/lib/ai/agent-loop");
@@ -238,7 +255,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 4 — gov + list_work_items (UNCLASSIFIED) → structural-only (gov default-deny)", async () => {
     const { toolUse, end } = turns("list_work_items");
     callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+    setCeiling("UNCLASSIFIED");
     executeTool.mockResolvedValue(WORK_ITEM_RESULT);
 
     const { runAgentLoop } = await import("@/lib/ai/agent-loop");
@@ -257,7 +274,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 5 — gov + semantic_search → model sees id/type/similarity, NOT the CUI snippet", async () => {
     const { toolUse, end } = turns("semantic_search");
     callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("CUI");
+    setCeiling("CUI");
     executeTool.mockResolvedValue(SEARCH_RESULT);
 
     const { runAgentLoop } = await import("@/lib/ai/agent-loop");
@@ -280,7 +297,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 6 — gov + get_finance_summary → FULL withhold, no structural/numeric leak", async () => {
     const { toolUse, end } = turns("get_finance_summary");
     callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("CUI");
+    setCeiling("CUI");
     executeTool.mockResolvedValue(FINANCE_RESULT);
 
     const { runAgentLoop } = await import("@/lib/ai/agent-loop");
@@ -300,7 +317,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 7 — error payload with CUI marker (CUI ceiling) is NOT echoed to the model", async () => {
     const { toolUse, end } = turns("list_work_items");
     callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("CUI");
+    setCeiling("CUI");
     // An error object whose message carries a CUI token.
     executeTool.mockResolvedValue({ error: "failed near CUI//token-XYZ" });
 
@@ -323,7 +340,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 8 — marker in the user prompt is withheld (prompt never reaches callModel)", async () => {
     const end = { text: "Done.", toolUses: [], stopReason: "end_turn" };
     callModel.mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+    setCeiling("UNCLASSIFIED");
 
     const { runAgentLoop } = await import("@/lib/ai/agent-loop");
     await runAgentLoop(loopOpts("commercial", { initialPrompt: "summarize CUI//SP-PROPIN notes" }));
@@ -340,7 +357,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 9 — marker in rendered history/channel-context blob is withheld", async () => {
     const end = { text: "Done.", toolUses: [], stopReason: "end_turn" };
     callModel.mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+    setCeiling("UNCLASSIFIED");
 
     const { runAgentLoop } = await import("@/lib/ai/agent-loop");
     await runAgentLoop(loopOpts("gov", { initialPrompt: "Channel history:\nFOUO — prior message\nSummarize the above." }));
@@ -356,7 +373,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 11 — gov + list_feedback → structural only; user-authored title/description/author never reach the model", async () => {
     const { toolUse, end } = turns("list_feedback");
     callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("CUI");
+    setCeiling("CUI");
     executeTool.mockResolvedValue({
       count: 1,
       feedback: [{
@@ -382,7 +399,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 12 — gov + list_objectives → id/status/progress survive; objective title withheld", async () => {
     const { toolUse, end } = turns("list_objectives");
     callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("CUI");
+    setCeiling("CUI");
     executeTool.mockResolvedValue({
       count: 1,
       objectives: [{
@@ -405,7 +422,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 10 — clean prompt flows verbatim through runModelTurn (no false positive)", async () => {
     const end = { text: "Done.", toolUses: [], stopReason: "end_turn" };
     callModel.mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+    setCeiling("UNCLASSIFIED");
 
     const { runAgentLoop } = await import("@/lib/ai/agent-loop");
     await runAgentLoop(loopOpts("commercial", { initialPrompt: "summarize the open tasks" }));
@@ -421,7 +438,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 11 — marked prompt + marked tool_result both withheld in a single run", async () => {
     const { toolUse, end } = turns("list_work_items");
     callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+    setCeiling("UNCLASSIFIED");
     // Tool result carries a CUI title — tool_result projection will drop it structurally
     executeTool.mockResolvedValue(WORK_ITEM_RESULT); // WORK_ITEM_RESULT has title "CUI//SP"
 
@@ -451,7 +468,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 12 — gov defense-topic prompt (unmarked) is withheld by the classifier tripwire", async () => {
     const end = { text: "Done.", toolUses: [], stopReason: "end_turn" };
     callModel.mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+    setCeiling("UNCLASSIFIED");
     // Classifier detects a defense-topic prompt as CUI-likely.
     classifyLikelyCui.mockResolvedValue(true);
 
@@ -472,7 +489,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 13 — gov benign prompt flows verbatim (classifier does not withhold)", async () => {
     const end = { text: "Done.", toolUses: [], stopReason: "end_turn" };
     callModel.mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+    setCeiling("UNCLASSIFIED");
     // Classifier returns false for benign content (default mock value).
 
     const { runAgentLoop } = await import("@/lib/ai/agent-loop");
@@ -489,7 +506,7 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   it("case 14 — commercial defense-topic prompt is UNAFFECTED by the classifier (gov-only gate)", async () => {
     const end = { text: "Done.", toolUses: [], stopReason: "end_turn" };
     callModel.mockResolvedValueOnce(end);
-    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+    setCeiling("UNCLASSIFIED");
     // Classifier would return true, but it must never be called for a commercial tenant.
     classifyLikelyCui.mockResolvedValue(true);
 
