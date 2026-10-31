@@ -125,11 +125,6 @@ async function tokenRequest(cfg: OrgCalendarConfig, params: Record<string, strin
 }
 
 /**
- * Finish a connect: trade the code for tokens, refuse an account from any
- * tenant but the org's, and store the sealed refresh token. Returns the claims
- * so the caller can audit-log who connected.
- */
-/**
  * The mailbox's primary SMTP address (Graph /me `mail`). In some tenants it
  * differs from the UPN, and calendars report their owner by it. Best effort:
  * without it, matching falls back to the UPN.
@@ -148,6 +143,11 @@ async function mailboxAddress(accessToken: string, f: typeof fetch): Promise<str
   }
 }
 
+/**
+ * Finish a connect: trade the code for tokens, refuse an account from any
+ * tenant but the org's, and store the sealed refresh token. Returns the claims
+ * so the caller can audit-log who connected.
+ */
 export async function completeCalendarConnect(
   a: { orgId: string; userId: string; code: string; verifier: string; redirectUri: string; origin?: string },
   deps: Deps = {},

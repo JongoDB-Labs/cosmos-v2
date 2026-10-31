@@ -24,12 +24,6 @@ import { TEAMS_CLIENT_IDS } from "./teams-clients";
 
 export const TAB_SCOPE = "access_as_user";
 
-/**
- * Only Microsoft Teams may be the client a tab token was issued to: any other
- * app a user consents to in the same tenant could otherwise mint a token for
- * us and trade it for a tab session.
- */
-export { TEAMS_CLIENT_IDS };
 const SKEW_S = 5 * 60;
 const MAX_KEY_AGE_MS = 24 * 3600_000;
 const MIN_REFETCH_MS = 5 * 60_000;
@@ -157,6 +151,9 @@ export async function verifyTabToken(
   const scopes = typeof claims.scp === "string" ? claims.scp.split(" ") : [];
   if (!scopes.includes(TAB_SCOPE)) throw new EntraAuthError("bad_scope");
   const client = claims.azp ?? claims.appid;
+  // Only Microsoft Teams may be the client a tab token was issued to: any other
+  // app a user consents to in the same tenant could otherwise mint a token for
+  // us and trade it for a tab session.
   if (!(TEAMS_CLIENT_IDS as readonly unknown[]).includes(client)) throw new EntraAuthError("not_teams_client");
   const now = Math.floor((deps.now ?? Date.now)() / 1000);
   if (typeof claims.exp !== "number" || claims.exp + SKEW_S < now) throw new EntraAuthError("expired");

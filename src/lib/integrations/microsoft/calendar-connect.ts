@@ -50,7 +50,6 @@ export function newConnectState(orgId: string, userId: string, now = Date.now())
   return { cookie: sealSecret(JSON.stringify(s)), state: s.state, challenge };
 }
 
-/** The sealed cookie, if it is intact, unexpired, and matches `state`. */
 /**
  * States already used, by hash, until they would have expired anyway, so a
  * replayed callback (same cookie, same state) is refused even if the browser
@@ -59,11 +58,7 @@ export function newConnectState(orgId: string, userId: string, now = Date.now())
 const usedStates = new Map<string, number>();
 const MAX_USED_STATES = 10_000;
 
-/** Test hook. */
-export function _resetUsedConnectStates() {
-  usedStates.clear();
-}
-
+/** The sealed cookie, if it is intact, unexpired, and matches `state`. */
 export function openConnectState(cookie: string | undefined, state: string | null, now = Date.now()): ConnectState | null {
   if (!cookie || !state) return null;
   let s: ConnectState;

@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.504.1",
+    date: "2026-10-31",
+    title: "Tidier Outlook and Teams plumbing",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal tidy-up of the Outlook Calendar and Microsoft Teams integrations: unused entry points and a duplicated helper type were removed, and a few misplaced explanatory notes now sit beside the code they describe. Nothing changes in what connecting a calendar or linking a Teams channel does — there is simply less unused machinery behind it to go wrong.",
+      },
+    ],
+  },
+  {
     version: "2.504.0",
     date: "2026-10-30",
     title: "Three more things you can filter on",

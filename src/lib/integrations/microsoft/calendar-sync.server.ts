@@ -48,7 +48,7 @@ import { GraphError, GraphThrottled, graphRequest, type GraphDeps } from "./grap
 
 const CALENDAR_NAME = "Cosmos";
 /** What a restricted meeting is called outside Cosmos. */
-export const RESTRICTED_TITLE = "Cosmos item";
+const RESTRICTED_TITLE = "Cosmos item";
 const ENTITY = "meeting";
 /** The window a pull covers, re-anchored once it has drifted this far. */
 const PAST_DAYS = 30;
@@ -151,8 +151,8 @@ const creating = new Map<string, Promise<string>>();
  * person's own "Cosmos" calendar, or one a colleague shares with them, is never
  * written to or deleted.
  */
-export const COSMOS_CALENDAR_PROP = "String {15a54a29-b645-4cc8-988e-1a2322894aac} Name CosmosCalendar";
-export const COSMOS_CALENDAR_TAG = "cosmos-calendar";
+const COSMOS_CALENDAR_PROP = "String {15a54a29-b645-4cc8-988e-1a2322894aac} Name CosmosCalendar";
+const COSMOS_CALENDAR_TAG = "cosmos-calendar";
 
 interface GraphCalendar {
   id: string;
@@ -245,7 +245,7 @@ async function forgetCalendar(orgId: string, userId: string) {
 // ── Push ────────────────────────────────────────────────────────────────────
 
 /** The Graph event body for a meeting, as this person should see it. */
-export function meetingEvent(m: SyncMeeting, restricted: boolean, link: string | null) {
+function meetingEvent(m: SyncMeeting, restricted: boolean, link: string | null) {
   const start = m.meetingDate;
   const minutes = Math.min(Math.max(m.durationMinutes || 30, MIN_MINUTES), MAX_MINUTES);
   const end = new Date(start.getTime() + minutes * 60_000);
@@ -332,7 +332,7 @@ const domainOf = (email: string) => email.split("@").pop()?.toLowerCase() ?? "";
  * The org's own email domains: Security settings' allowed domains, or, when
  * that is empty, the organizer's own (UPN and primary address).
  */
-export async function orgEmailDomains(orgId: string, organizer?: Pick<CalendarMeta, "upn" | "mail">): Promise<string[]> {
+async function orgEmailDomains(orgId: string, organizer?: Pick<CalendarMeta, "upn" | "mail">): Promise<string[]> {
   const sec = await prisma.orgSecuritySettings.findUnique({ where: { orgId }, select: { allowedDomains: true } });
   const listed = (sec?.allowedDomains ?? []).map((d) => d.trim().toLowerCase().replace(/^@/, "")).filter(Boolean);
   if (listed.length) return [...new Set(listed)];

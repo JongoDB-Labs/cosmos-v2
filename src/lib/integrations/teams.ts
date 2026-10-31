@@ -15,18 +15,8 @@
  */
 
 import { getOrgCredential } from "@/lib/integrations/credentials";
-import { endpointsFor, type GraphCloud } from "@/lib/integrations/microsoft-graph";
+import { endpointsFor, type FetchLike, type GraphCloud } from "@/lib/integrations/microsoft-graph";
 import { prisma } from "@/lib/db/client";
-
-export type FetchLike = (
-  url: string,
-  init?: { method?: string; headers?: Record<string, string>; body?: string },
-) => Promise<{
-  ok: boolean;
-  status: number;
-  json: () => Promise<unknown>;
-  text: () => Promise<string>;
-}>;
 
 const PROVIDER = "microsoft-teams-messaging";
 
