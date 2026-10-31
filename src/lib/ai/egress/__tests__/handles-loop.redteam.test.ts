@@ -506,18 +506,24 @@ describe("red-team: C1 cross-turn ceiling-divergence exfiltration", () => {
     // commercial — only the folded mint ceiling can withhold this, and it must.
     const contents = toolResultContentsOnTurn(2);
     // POSITIVE CONTROLS on the probe: two tool turns ran, and the probe can see entity
-    // content when a message carries it (the mint view's item id). Note the echo turn's
-    // own withheld view is `{}` — `projectResult` drops every STRING on a single flat
-    // entity without consulting the allowlist, so a one-entity write result projects to
-    // nothing. That is a separate, known blackout; here it means the discriminating
-    // signal is the ABSENCE of the exposed object, which the mint-message control and
-    // the executor assertion above bound.
+    // content when a message carries it (the mint view's item id).
+    //
+    // This assertion used to read `not.toContain("DONE")`, using the exposed
+    // object's status as a proxy for "nothing came through" — which only worked
+    // because `projectResult` then dropped every string on a single flat entity
+    // and a one-entity write result projected to `{}`. That blackout was a bug,
+    // it is fixed, and the proxy went with it. The signal is now DIRECT and
+    // strictly stronger: the echo is exactly the allowlisted structural view, so
+    // the CUI title is provably absent while `id`/`status` — which the floor
+    // exposes on every withheld result by design — are provably present. Had the
+    // fold failed to apply, this result would have been EXPOSED in full and the
+    // title would be in here.
     expect(contents).toHaveLength(2);
     expect(contents[0]).toContain("wP");
     const echo = contents[1];
     expect(echo).not.toContain(UNMARKED_CUI);
     expect(echo).not.toContain("Sentinel");
-    expect(echo).not.toContain("DONE"); // the exposed object's status field
+    expect(JSON.parse(echo)).toEqual({ id: "wP", status: "DONE" });
   });
 
   it("the handle is bound at CUI at mint AND the echo turn resolves it (the binding the fold consumes)", async () => {
