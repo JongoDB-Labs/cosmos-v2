@@ -187,3 +187,76 @@ describe("projectResult (wrapper unwrap — what the loop uses)", () => {
     expect(JSON.stringify(mv)).not.toContain("CUI");
   });
 });
+
+/**
+ * The four tools that joined the map with NO new allowlisted field.
+ *
+ * Each returns the same shape a tool already mapped to the same entity
+ * returns, plus one or two fields the floor had already analysed and
+ * excluded. So the mapping is free: there is nothing new to verify, only
+ * something to prove stays out. Which is what this does — the whole point of
+ * the shrink-only ratchet in native-tool-entity.arch.test.ts is that an entry
+ * leaves it for a REASON, and the reason has to be checkable.
+ *
+ * Every case carries a positive control: a projection that returns {} would
+ * pass a leak assertion trivially, so each one also asserts the structural
+ * field that SHOULD survive.
+ */
+describe("the four free mappings leak nothing", () => {
+  it("are actually wired to those entities", () => {
+    // Without this the four tests below prove a property of `projectResult`
+    // and nothing about whether these tools reach it at all.
+    expect(entityTypeForTool("list_blockers")).toBe("blocker");
+    expect(entityTypeForTool("list_deliverables")).toBe("deliverable");
+    expect(entityTypeForTool("list_changes")).toBe("change_request");
+    expect(entityTypeForTool("archive_work_item")).toBe("work_item");
+  });
+
+  it("list_blockers keeps the handles, drops the title and the owner", () => {
+    const out = projectResult(
+      { count: 1, blockers: [{ id: "b1", code: "BLK-1", title: "classified title", type: "TECHNICAL", status: "OPEN", owner: "Jane Doe" }] },
+      "blocker",
+    ) as { count: number; blockers: Record<string, unknown>[] };
+
+    expect(out.blockers[0]).toEqual({ id: "b1", code: "BLK-1", type: "TECHNICAL", status: "OPEN" });
+    expect(JSON.stringify(out)).not.toContain("classified title");
+    expect(JSON.stringify(out)).not.toContain("Jane Doe");
+    expect(out.count).toBe(1); // control: the wrapper survived, so the above is a real absence
+  });
+
+  it("list_deliverables drops the CLIN, which names a contract line item", () => {
+    const out = projectResult(
+      { count: 1, deliverables: [{ id: "d1", code: "CDRL-1", title: "t", clin: "0001AA", status: "DRAFT", owner: "Jane Doe", baselineDue: "2026-01-01" }] },
+      "deliverable",
+    ) as { deliverables: Record<string, unknown>[] };
+
+    expect(out.deliverables[0]).toEqual({ id: "d1", code: "CDRL-1", status: "DRAFT", baselineDue: "2026-01-01" });
+    expect(JSON.stringify(out)).not.toContain("0001AA");
+  });
+
+  it("list_changes keeps the schedule days and drops the cost", () => {
+    const out = projectResult(
+      { count: 1, changes: [{ id: "c1", code: "CR-1", title: "t", type: "SCOPE", status: "OPEN", costImpact: 50000, scheduleDaysImpact: 5 }] },
+      "change_request",
+    ) as { changes: Record<string, unknown>[] };
+
+    // The floor's existing stance on money, unchanged: days yes, dollars no.
+    expect(out.changes[0]).toEqual({ id: "c1", code: "CR-1", status: "OPEN", scheduleDaysImpact: 5 });
+    expect(JSON.stringify(out)).not.toContain("50000");
+  });
+
+  it("archive_work_item drops the title, exactly as delete_work_item does", () => {
+    const archived = projectResult({ id: "w1", ticketNumber: 7, title: "classified title", archived: true }, "work_item");
+    const deleted = projectResult({ deleted: true, id: "w1", ticketNumber: 7, title: "classified title" }, "work_item");
+
+    expect(JSON.stringify(archived)).not.toContain("classified title");
+    expect(JSON.stringify(deleted)).not.toContain("classified title");
+    // Both lose their `id` too — projectResult keeps only numbers and booleans
+    // at the top level and never consults the allowlist for a bare entity.
+    // That is a separate, wider defect (it blanks ~30 already-mapped tools);
+    // pinned here so the day it is fixed, this expectation is what tells you
+    // these two are affected.
+    expect(archived).toEqual({ ticketNumber: 7, archived: true });
+    expect(deleted).toEqual({ deleted: true, ticketNumber: 7 });
+  });
+});

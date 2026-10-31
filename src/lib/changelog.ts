@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.506.1",
+    date: "2026-10-31",
+    title: "Cosmo can read four more lists",
+    highlights: [
+      {
+        kind: "fix",
+        text: "In deployments that withhold data from the assistant, asking Cosmo about blockers, deliverables or change requests returned nothing at all \u2014 not a refusal, just a blank. Those three lists and archiving an item now come back with the parts that are safe to share: codes, statuses, dates and schedule impact. Titles, owners, contract line items and costs stay withheld, exactly as they already were for the matching create and update actions.",
+      },
+    ],
+  },
+  {
     version: "2.506.0",
     date: "2026-10-31",
     title: "Three more things you can filter on",
