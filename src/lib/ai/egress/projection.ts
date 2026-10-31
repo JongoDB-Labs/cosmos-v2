@@ -396,8 +396,12 @@ export function projectStructural(value: unknown, entityType: string | undefined
  *     • number/boolean   → KEEP (counts/flags/totals are non-CUI structural);
  *     • anything else     → DROP (strings, nested objects → default-deny: could be CUI).
  *   This preserves `{count: 3, items: [{id, status}]}` while dropping any
- *   free-text wrapper field (e.g. semanticSearch's echoed `query`, or a
- *   complianceControls `summary` object).
+ *   free-text wrapper field (e.g. semanticSearch's echoed `query`).
+ *     • nested object  → projected through the SAME allowlist, so a
+ *       `{created: true, blocker: {...}}` wrapper keeps the entity's
+ *       allowlisted scalars instead of collapsing to `{created: true}`;
+ *   and FINALLY the whole object is run through `projectOne` as well, which
+ *   is what makes a SINGLE-entity return work at all — see the note there.
  * - non-object/array (bare string/number) ⇒ FULL withhold.
  */
 export function projectResult(value: unknown, entityType: string | undefined): unknown {
@@ -418,9 +422,36 @@ export function projectResult(value: unknown, entityType: string | undefined): u
     } else if (typeof v === "number" || typeof v === "boolean") {
       // counts / totals / flags — non-CUI structural metadata.
       out[k] = v;
+    } else if (v !== null && typeof v === "object") {
+      // A nested ENTITY, as every create/update returns:
+      // `{ created: true, blocker: {...} }`. Projected through the same
+      // allowlist, so only allowlisted scalars of it survive. Dropping these
+      // outright is what made ~30 MAPPED tools answer `{created: true}` and
+      // nothing else. A nested object that is NOT an entity (a `summary`
+      // aggregate, say) survives this as `{}` or as whatever allowlisted
+      // scalar names it happens to share — which is default-deny either way,
+      // and is pinned by a test so the behaviour is chosen, not incidental.
+      out[k] = projectOne(v, fields);
     }
-    // strings / nested objects (e.g. a free-text `query`, `summary` object) → DROP.
+    // Bare strings at this level are still DROPPED here: a wrapper's own
+    // string is free text (semanticSearch's echoed `query`). The allowlisted
+    // scalars of a SINGLE entity are recovered below instead.
   }
+
+  // The single-entity case, which this function never handled.
+  //
+  // Every branch above treats the top-level object as a WRAPPER around
+  // entities. A tool that returns one entity flat — `get_work_item`,
+  // `archive_work_item`, every `{updated: true, ...}` — fell through all of
+  // them, because an entity's `id` is a string and strings are dropped. So
+  // `get_work_item` answered `{ticketNumber: 7}`: not even the id the model
+  // needs to refer to it again. The allowlist was never consulted at all.
+  //
+  // `projectOne` reads the ALLOWLIST rather than the source keys and keeps
+  // only allowlisted scalars, so running it over the same object adds exactly
+  // the allowlisted fields and nothing else. On a genuine wrapper it is a
+  // no-op: `count` and `items` are not entity field names.
+  Object.assign(out, projectOne(src, fields));
   return out;
 }
 

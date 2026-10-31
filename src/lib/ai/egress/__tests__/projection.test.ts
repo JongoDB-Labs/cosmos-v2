@@ -177,13 +177,20 @@ describe("projectResult (wrapper unwrap — what the loop uses)", () => {
   });
 
   it("unwraps a github_get_issue {issue:{...}} single-object wrapper", () => {
-    // githubGetIssue wraps the single issue under `issue` (an object, not array) →
-    // projectResult drops nested objects in the wrapper (default-deny), so a gov
-    // single-get yields ONLY the structural wrapper flags. (The exposed/commercial
-    // path returns the full value; the structural floor here is intentionally tight.)
+    // githubGetIssue wraps the single issue under `issue` — an object, not an
+    // array. This test's NAME always said "unwraps"; its assertion used to say
+    // the opposite, pinning `{success: true}` and calling the floor
+    // "intentionally tight". It was not tight, it was blank: the nested object
+    // was dropped wholesale without the allowlist ever being read, so a gov
+    // single-get answered with wrapper flags and no issue at all.
+    //
+    // Nested objects now go through the SAME allowlist as array elements. The
+    // CUI assertion below is unchanged and still passes — which is the point:
+    // what the model gains is exactly the allowlisted structural fields, and
+    // `title`/`body` drop by default-deny as they always did.
     const result = { success: true, issue: { number: 9, state: "open", title: "CUI secret", body: "more CUI" } };
     const mv = projectResult(result, "github_issue") as Record<string, unknown>;
-    expect(mv).toEqual({ success: true }); // nested `issue` object dropped → no CUI leak
+    expect(mv).toEqual({ success: true, issue: { number: 9, state: "open" } });
     expect(JSON.stringify(mv)).not.toContain("CUI");
   });
 });
@@ -251,12 +258,95 @@ describe("the four free mappings leak nothing", () => {
 
     expect(JSON.stringify(archived)).not.toContain("classified title");
     expect(JSON.stringify(deleted)).not.toContain("classified title");
-    // Both lose their `id` too — projectResult keeps only numbers and booleans
-    // at the top level and never consults the allowlist for a bare entity.
-    // That is a separate, wider defect (it blanks ~30 already-mapped tools);
-    // pinned here so the day it is fixed, this expectation is what tells you
-    // these two are affected.
-    expect(archived).toEqual({ ticketNumber: 7, archived: true });
-    expect(deleted).toEqual({ deleted: true, ticketNumber: 7 });
+    // This is the witness left behind when these four were mapped: both used
+    // to lose their own `id`, because projectResult kept only numbers and
+    // booleans at the top level and never consulted the allowlist for a bare
+    // entity. That defect is fixed, so `id` is back — and the day it is read,
+    // this expectation is what says these two were among the ~30 affected.
+    expect(archived).toEqual({ id: "w1", ticketNumber: 7, archived: true });
+    expect(deleted).toEqual({ id: "w1", deleted: true, ticketNumber: 7 });
+  });
+});
+
+/**
+ * The single-entity return, which `projectResult` never handled.
+ *
+ * Every branch of the object case treated the top-level object as a WRAPPER
+ * around entities: arrays were allowlisted element-wise, numbers and booleans
+ * were kept as structural metadata, and everything else was dropped. A tool
+ * returning ONE entity flat fell through all of it, because an entity's `id`
+ * is a string — so `get_work_item` answered `{ticketNumber: 7}` and the
+ * allowlist was never consulted at all. ~30 tools were mapped and still
+ * effectively blank, which is worse than unmapped because the map looked
+ * complete.
+ *
+ * The property that makes the fix safe is that `projectOne` iterates the
+ * ALLOWLIST, not the source keys. Running it over a wrapper is a no-op,
+ * because `count` and `items` are not entity field names.
+ */
+describe("a single entity is projected, not dropped", () => {
+  it("get_work_item keeps its id and structural fields, and still loses the body", () => {
+    const item = {
+      id: "w-uuid", ticketNumber: 7, status: "IN_PROGRESS", priority: "HIGH", storyPoints: 3,
+      title: "CUI title", description: "the ticket body, which is content",
+      assigneeName: "Jane Doe",
+    };
+    const out = projectResult(item, "work_item") as Record<string, unknown>;
+
+    // The id is the whole point: without it the model cannot refer to the
+    // item it just read in any follow-up call.
+    expect(out.id).toBe("w-uuid");
+    expect(out.ticketNumber).toBe(7);
+    expect(out.status).toBe("IN_PROGRESS");
+    // Default-deny is untouched — none of these are allowlisted.
+    expect(JSON.stringify(out)).not.toContain("CUI title");
+    expect(JSON.stringify(out)).not.toContain("the ticket body");
+    expect(JSON.stringify(out)).not.toContain("Jane Doe");
+  });
+
+  it("a create/update wrapper keeps the entity it reports on", () => {
+    const created = { created: true, blocker: { id: "b1", code: "BLK-9", status: "OPEN", title: "CUI", owner: "Jane Doe" } };
+    const out = projectResult(created, "blocker") as Record<string, unknown>;
+
+    expect(out.created).toBe(true);
+    expect(out.blocker).toEqual({ id: "b1", code: "BLK-9", status: "OPEN" });
+    expect(JSON.stringify(out)).not.toContain("Jane Doe");
+  });
+
+  it("control: a real wrapper is untouched, and its free text still drops", () => {
+    // If the single-entity pass were reading SOURCE keys rather than the
+    // allowlist, `query` would survive here. It must not.
+    const wrapper = { query: "what the user typed", count: 1, results: [{ id: "r1", title: "CUI" }] };
+    const out = projectResult(wrapper, "search_result") as Record<string, unknown>;
+
+    expect(out.count).toBe(1);
+    expect(out.query).toBeUndefined();
+    expect(Array.isArray(out.results)).toBe(true);
+    expect(JSON.stringify(out)).not.toContain("what the user typed");
+    expect(JSON.stringify(out)).not.toContain("CUI");
+  });
+
+  it("a nested object that is NOT an entity survives only as allowlisted scalars", () => {
+    // Pinned so the behaviour is chosen rather than incidental: an aggregate
+    // under a wrapper key is projected through the same allowlist, so only
+    // keys that happen to BE allowlisted field names can come through, and
+    // only as scalars. Everything else goes.
+    const withSummary = {
+      count: 2,
+      summary: { compliant: 3, partial: 1, narrative: "CUI prose about the control set" },
+      controls: [{ id: "c1", status: "COMPLIANT" }],
+    };
+    const out = projectResult(withSummary, "compliance_control") as Record<string, unknown>;
+
+    expect(out.count).toBe(2);
+    expect(JSON.stringify(out)).not.toContain("CUI prose");
+    // `narrative` is not an allowlisted field name, so the aggregate reduces
+    // to whatever allowlisted scalars it holds — here, none.
+    expect(out.summary).toEqual({});
+  });
+
+  it("an unmapped entity type is still a FULL withhold, single entity or not", () => {
+    expect(projectResult({ id: "x", ticketNumber: 1 }, "no_such_entity")).toEqual({ withheld: true, ref: "withheld:structural" });
+    expect(projectResult({ id: "x" }, undefined)).toEqual({ withheld: true, ref: "withheld:structural" });
   });
 });
