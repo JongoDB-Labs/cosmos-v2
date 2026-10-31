@@ -241,6 +241,33 @@ describe("the four free mappings leak nothing", () => {
     expect(JSON.stringify(out)).not.toContain("0001AA");
   });
 
+  it("a CDRL keeps its contract and sprint IDS but never the objective text or the gate", () => {
+    const out = projectResult(
+      {
+        updated: true,
+        deliverable: {
+          id: "d2", code: "CDRL-2", status: "DRAFT", projectId: "p1",
+          contractId: "ct1", intervalId: "iv1", milestoneId: "ms1",
+          piObjective: "Reduce reporting turnaround", dueGate: "SD-1",
+          title: "classified title", owner: "Jane Doe",
+        },
+      },
+      "deliverable",
+    ) as { updated: boolean; deliverable: Record<string, unknown> };
+
+    // Structural ids survive — they are what lets the agent walk "which CDRLs
+    // sit under this contract, which are planned into this sprint".
+    expect(out.deliverable).toEqual({
+      id: "d2", code: "CDRL-2", status: "DRAFT", projectId: "p1",
+      contractId: "ct1", intervalId: "iv1", milestoneId: "ms1",
+    });
+    // The two new free-text columns are content: the objective is the
+    // programme's own words and the gate names a customer event.
+    expect(JSON.stringify(out)).not.toContain("Reduce reporting turnaround");
+    expect(JSON.stringify(out)).not.toContain("SD-1");
+    expect(out.updated).toBe(true); // control: the wrapper survived
+  });
+
   it("list_changes keeps the schedule days and drops the cost", () => {
     const out = projectResult(
       { count: 1, changes: [{ id: "c1", code: "CR-1", title: "t", type: "SCOPE", status: "OPEN", costImpact: 50000, scheduleDaysImpact: 5 }] },

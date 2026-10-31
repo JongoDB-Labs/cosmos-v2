@@ -48,6 +48,23 @@ import type { DeliverableStatus } from "@prisma/client";
 // and it makes `Record<DeliverableStatus, …>` below exhaustive, so the next
 // enum value is a compile error here rather than an empty cell in production.
 
+/** A sprint this project can plan a CDRL into (the picker's option set). */
+export interface SprintLite {
+  id: string;
+  number: number;
+  name: string;
+}
+
+/**
+ * A sprint is identified by the name its team gave it. `number` is a
+ * per-project sequence across EVERY interval (`@@unique([projectId, number])`),
+ * so it is only a fallback for an unnamed one — the same rule `piLabel` applies
+ * to Program Increments on the Schedule tab.
+ */
+export function sprintLabel(s: SprintLite): string {
+  return s.name.trim() || `Sprint #${s.number}`;
+}
+
 interface Deliverable {
   id: string;
   code: string;
@@ -56,6 +73,13 @@ interface Deliverable {
   deliverableType: string | null;
   clin: string | null;
   owner: string | null;
+  /** The PI objective this CDRL serves — free text from the planning sheet. */
+  piObjective: string | null;
+  /** The demo/sprint gate it is due at, e.g. "SD-1" or "End S3". */
+  dueGate: string | null;
+  intervalId: string | null;
+  /** The resolved sprint, so the table renders a name and not a uuid. */
+  interval: SprintLite | null;
   baselineDue: string | null;
   internalReview: string | null;
   actualSubmission: string | null;
@@ -72,6 +96,8 @@ interface Deliverable {
 interface DeliverableTrackerProps {
   orgId: string;
   projectId: string;
+  /** This project's sprints — the "Sprint" picker's options. */
+  sprints: SprintLite[];
 }
 
 const STATUS_OPTIONS: DeliverableStatus[] = [
@@ -110,6 +136,9 @@ interface DeliverableForm {
   deliverableType: string;
   clin: string;
   owner: string;
+  piObjective: string;
+  dueGate: string;
+  intervalId: string;
   baselineDue: string;
   internalReview: string;
   actualSubmission: string;
@@ -129,6 +158,9 @@ const emptyForm: DeliverableForm = {
   deliverableType: "Report",
   clin: "",
   owner: "",
+  piObjective: "",
+  dueGate: "",
+  intervalId: "",
   baselineDue: "",
   internalReview: "",
   actualSubmission: "",
@@ -149,6 +181,9 @@ function formToBody(f: DeliverableForm) {
     deliverableType: f.deliverableType || null,
     clin: f.clin.trim() || null,
     owner: f.owner.trim() || null,
+    piObjective: f.piObjective.trim() || null,
+    dueGate: f.dueGate.trim() || null,
+    intervalId: f.intervalId || null,
     baselineDue: f.baselineDue ? new Date(f.baselineDue).toISOString() : null,
     internalReview: f.internalReview ? new Date(f.internalReview).toISOString() : null,
     actualSubmission: f.actualSubmission ? new Date(f.actualSubmission).toISOString() : null,
@@ -216,6 +251,23 @@ const DELIVERABLE_COLUMNS: ColumnDef<Deliverable>[] = [
     cell: ({ row }) => <span className="text-xs text-[var(--text-muted)]">{row.original.clin ?? "—"}</span>,
   },
   {
+    id: "interval",
+    header: "Sprint",
+    // Sort by the displayed name so the column orders the way it reads.
+    accessorFn: (d) => d.interval?.name ?? "",
+    cell: ({ row }) => (
+      <span className="text-xs text-[var(--text-muted)]">
+        {row.original.interval ? sprintLabel(row.original.interval) : "—"}
+      </span>
+    ),
+  },
+  {
+    id: "dueGate",
+    header: "Due gate",
+    accessorFn: (d) => d.dueGate ?? "",
+    cell: ({ row }) => <span className="text-xs text-[var(--text-muted)]">{row.original.dueGate ?? "—"}</span>,
+  },
+  {
     accessorKey: "status",
     header: "Status",
     sortingFn: (a, b) => STATUS_RANK[a.original.status] - STATUS_RANK[b.original.status],
@@ -273,7 +325,7 @@ const DELIVERABLE_COLUMNS: ColumnDef<Deliverable>[] = [
   },
 ];
 
-export function DeliverableTracker({ orgId, projectId }: DeliverableTrackerProps) {
+export function DeliverableTracker({ orgId, projectId, sprints }: DeliverableTrackerProps) {
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/deliverables`;
   const queryKey = useOrgQueryKey("deliverables", projectId);
   const { data: deliverables = [], isLoading, isError, refetch } = useQuery({
@@ -439,6 +491,26 @@ export function DeliverableTracker({ orgId, projectId }: DeliverableTrackerProps
       { key: "clin", label: "CLIN", type: "text", value: d.clin, editable: canEdit },
       { key: "owner", label: "Owner", type: "text", value: d.owner, editable: canEdit },
       {
+        key: "piObjective",
+        label: "PI Objective",
+        type: "textarea",
+        value: d.piObjective,
+        editable: canEdit,
+        placeholder: "The PI objective this CDRL serves",
+      },
+      {
+        key: "intervalId",
+        label: "Sprint",
+        type: "select",
+        value: d.intervalId,
+        // No sprints in this project means nothing to choose from; the field
+        // still shows what it holds rather than disappearing.
+        editable: canEdit && sprints.length > 0,
+        options: sprints.map((s) => ({ value: s.id, label: sprintLabel(s) })),
+        placeholder: sprints.length === 0 ? "No sprints in this project" : "Select sprint",
+      },
+      { key: "dueGate", label: "Due gate", type: "text", value: d.dueGate, editable: canEdit, placeholder: "e.g. SD-1" },
+      {
         key: "status",
         label: "Status",
         type: "select",
@@ -560,8 +632,13 @@ export function DeliverableTracker({ orgId, projectId }: DeliverableTrackerProps
         columns={DELIVERABLE_COLUMNS}
         search={filter}
         onSearchChange={setFilter}
-        searchText={(d) => [d.code, d.title, d.clin ?? "", d.owner ?? ""].join(" ")}
-        searchPlaceholder="Filter by title, ID, CLIN, owner…"
+        searchText={(d) =>
+          [
+            d.code, d.title, d.clin ?? "", d.owner ?? "",
+            d.piObjective ?? "", d.dueGate ?? "", d.interval?.name ?? "",
+          ].join(" ")
+        }
+        searchPlaceholder="Filter by title, ID, CLIN, owner, objective, sprint…"
         onRowClick={openDetail}
         rowActions={rowActions}
         onNew={canEdit ? openCreate : undefined}
@@ -619,6 +696,7 @@ export function DeliverableTracker({ orgId, projectId }: DeliverableTrackerProps
         pending={createMutation.isPending}
         onSubmit={() => createMutation.mutate(form)}
         submitLabel="Create"
+        sprints={sprints}
       />
       {/* Detail drawer — issue-style: inline-editable fields + Comments + Activity.
           Replaces the old edit dialog as the primary row-detail view. */}
@@ -678,6 +756,7 @@ function DeliverableDialog({
   pending,
   onSubmit,
   submitLabel,
+  sprints,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -687,6 +766,7 @@ function DeliverableDialog({
   pending: boolean;
   onSubmit: () => void;
   submitLabel: string;
+  sprints: SprintLite[];
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -773,6 +853,50 @@ function DeliverableDialog({
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <FormField label="PI Objective">
+            {(p) => (
+              <Textarea
+                {...p}
+                value={form.piObjective}
+                onChange={(e) => setForm((f) => ({ ...f, piObjective: e.target.value }))}
+                placeholder="The PI objective this CDRL serves"
+                rows={2}
+              />
+            )}
+          </FormField>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium">Sprint</label>
+              <Select
+                value={form.intervalId}
+                onValueChange={(v) => setForm((f) => ({ ...f, intervalId: v ?? "" }))}
+                disabled={sprints.length === 0}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={sprints.length === 0 ? "No sprints in this project" : "Select sprint"}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {sprints.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{sprintLabel(s)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <FormField label="Due gate">
+              {(p) => (
+                <Input
+                  {...p}
+                  value={form.dueGate}
+                  onChange={(e) => setForm((f) => ({ ...f, dueGate: e.target.value }))}
+                  placeholder="e.g. SD-1 or End S3"
+                />
+              )}
+            </FormField>
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

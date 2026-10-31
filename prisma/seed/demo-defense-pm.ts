@@ -87,11 +87,20 @@ async function main() {
     { code: "CDRL-A003", title: "Architecture Design Document", clin: "0002", status: "ACCEPTED", baselineDue: d(-25), actualSubmission: d(-22), owner: "Tech Lead" },
     { code: "CDRL-A004", title: "Monthly Status Report — current period", clin: "0003", status: "NOT_STARTED", baselineDue: d(8), actualSubmission: null, owner: "PM" },
   ];
+  // find-or-create rather than `upsert`: a deliverable's code is now unique
+  // within its CONTRACT (`@@unique([orgId, contractId, code])`), so there is no
+  // `orgId_code` compound unique to upsert on any more. These seeds carry no
+  // contract, and the partial unique index on (org_id, code) WHERE contract_id
+  // IS NULL is what keeps them unique — Prisma cannot express it, so it cannot
+  // be used as a `where` either.
   for (const x of deliverables) {
-    await prisma.deliverable.upsert({
-      where: { orgId_code: { orgId: org.id, code: x.code } },
-      update: {},
-      create: { ...base, code: x.code, title: x.title, clin: x.clin, status: x.status, baselineDue: x.baselineDue, actualSubmission: x.actualSubmission, owner: x.owner },
+    const existing = await prisma.deliverable.findFirst({
+      where: { orgId: org.id, code: x.code },
+      select: { id: true },
+    });
+    if (existing) continue;
+    await prisma.deliverable.create({
+      data: { ...base, code: x.code, title: x.title, clin: x.clin, status: x.status, baselineDue: x.baselineDue, actualSubmission: x.actualSubmission, owner: x.owner },
     });
   }
 

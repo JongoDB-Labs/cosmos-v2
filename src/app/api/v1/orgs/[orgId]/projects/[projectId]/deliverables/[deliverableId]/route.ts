@@ -11,6 +11,7 @@ import { logPmFieldChanges } from "@/lib/pm/activity-log";
 import { classificationOmit } from "@/lib/compliance/classification";
 import { assertOrgMember } from "@/lib/rbac/assert-org-member";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
+import { assertDeliverableLinks } from "@/lib/pm/deliverable-scope";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; deliverableId: string }>;
@@ -18,6 +19,9 @@ type RouteParams = {
 
 const deliverableInclude = {
   ownerUser: { select: { id: true, displayName: true, avatarUrl: true } },
+  // Same shape the list endpoint returns, so a PATCH response can replace a
+  // cached row without the sprint name disappearing from the table.
+  interval: { select: { id: true, number: true, name: true } },
 };
 
 const updateSchema = z.object({
@@ -37,6 +41,10 @@ const updateSchema = z.object({
   escalate: z.boolean().optional(),
   status: z.nativeEnum(DeliverableStatus).optional(),
   workItemRef: z.string().nullish(),
+  piObjective: z.string().max(500).nullish(),
+  dueGate: z.string().max(80).nullish(),
+  contractId: z.string().uuid().nullish(),
+  intervalId: z.string().uuid().nullish(),
   notes: z.string().nullish(),
 });
 
@@ -56,6 +64,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const data = updateSchema.parse(await request.json());
     // Client-supplied user id: check org membership or leak a foreign user.
     if (data.ownerUserId) await assertOrgMember(orgId, data.ownerUserId);
+    // Same for the contract and the sprint: the FKs cannot express "in this
+    // org, for this project".
+    await assertDeliverableLinks(data, orgId, projectId);
 
     const updateData: Prisma.DeliverableUncheckedUpdateInput = {};
     if (data.title !== undefined) updateData.title = data.title;
@@ -74,6 +85,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (data.escalate !== undefined) updateData.escalate = data.escalate;
     if (data.status !== undefined) updateData.status = data.status;
     if (data.workItemRef !== undefined) updateData.workItemRef = data.workItemRef ?? null;
+    if (data.piObjective !== undefined) updateData.piObjective = data.piObjective ?? null;
+    if (data.dueGate !== undefined) updateData.dueGate = data.dueGate ?? null;
+    if (data.contractId !== undefined) updateData.contractId = data.contractId ?? null;
+    if (data.intervalId !== undefined) updateData.intervalId = data.intervalId ?? null;
     if (data.notes !== undefined) updateData.notes = data.notes ?? null;
 
     const updated = await prisma.deliverable.update({
@@ -99,6 +114,14 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         revisionCycle: existing.revisionCycle,
         revRequired: existing.revRequired,
         escalate: existing.escalate,
+        // Which contract a CDRL is deliverable under, which sprint it is
+        // planned into, and which gate it is due at are all re-plannable and
+        // worth a trail. `piObjective` is not here on purpose: it is prose, and
+        // prose fields on this entity (description, notes) have never been
+        // audited.
+        contractId: existing.contractId,
+        intervalId: existing.intervalId,
+        dueGate: existing.dueGate,
       },
       {
         title: updated.title,
@@ -111,6 +134,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         revisionCycle: updated.revisionCycle,
         revRequired: updated.revRequired,
         escalate: updated.escalate,
+        contractId: updated.contractId,
+        intervalId: updated.intervalId,
+        dueGate: updated.dueGate,
       },
     );
 

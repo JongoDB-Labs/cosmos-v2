@@ -116,3 +116,44 @@ describe("import fields name real columns", () => {
     },
   );
 });
+
+/**
+ * Every `enumSynonyms` target names a declared value of that field's enum.
+ *
+ * The same blind spot as the dead column above, one level in: a synonym mapping
+ * to a label the enum does not have type-checks clean (it is a
+ * `Record<string, string>`), passes any test that only exercises the synonyms
+ * it knows about, and then fails at the database with "Invalid value for
+ * argument" on whichever row happens to use it.
+ */
+describe("enum synonyms name real enum values", () => {
+  const withSynonyms = ENTITY_DEFS.flatMap((e) =>
+    e.fields.filter((f) => f.enumSynonyms).map((f) => [`${e.key}.${f.key}`, f] as const),
+  );
+
+  it("has synonyms to check", () => {
+    // Guards the guard: with none declared the rule below is vacuous, and would
+    // stay green through the first wrong one anybody adds.
+    expect(withSynonyms.length).toBeGreaterThan(0);
+  });
+
+  it.each(withSynonyms)("%s: every synonym maps to one of its enum's values", (_name, field) => {
+    const declared = field.enum ?? [];
+    const bad = Object.entries(field.enumSynonyms ?? {})
+      .filter(([, label]) => !declared.includes(label))
+      .map(([from, label]) => `"${from}" -> ${label}`);
+    expect(
+      bad,
+      `maps source text to a value this field's enum does not declare:\n${bad.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("declares enumSynonyms only on enum fields", () => {
+    // `coerceField` reads them in the `enum` branch only, so one declared
+    // anywhere else is silently ignored.
+    const misplaced = ENTITY_DEFS.flatMap((e) =>
+      e.fields.filter((f) => f.enumSynonyms && f.kind !== "enum").map((f) => `${e.key}.${f.key}`),
+    );
+    expect(misplaced).toEqual([]);
+  });
+});

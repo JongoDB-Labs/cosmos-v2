@@ -864,6 +864,7 @@ model Project {
   closeoutSnapshots   ProjectCloseoutSnapshot[]
 
   weeklyReportEntries WeeklyReportEntry[]
+  contracts           Contract[]
 
   projectPhases ProjectPhase[]
 
@@ -2022,9 +2023,19 @@ model Contract {
   createdAt          DateTime                    @default(now()) @map("created_at")
   updatedAt          DateTime                    @updatedAt @map("updated_at")
 
-  partner      Partner?      @relation(fields: [partnerId], references: [id])
-  product      Product?      @relation(fields: [productId], references: [id])
+  partner Partner? @relation(fields: [partnerId], references: [id])
+  product Product? @relation(fields: [productId], references: [id])
+  /// The project this contract funds. `project_id` existed as a bare UUID with
+  /// an index and NO foreign key, so a deleted project left it dangling; the
+  /// relation makes "a project has one or more contracts" real.
+  ///
+  /// SetNull, not Cascade: a contract is a commercial record that outlives the
+  /// project it was raised for. Deleting a project must never delete the
+  /// agreement that paid for it.
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
   journalLines JournalLine[]
+  deliverables Deliverable[]
 
   @@index([orgId, status])
   @@index([orgId, projectId])
@@ -2195,15 +2206,16 @@ model Interval {
   // deletes — its sprints.
   parentId     String?      @map("parent_id") @db.Uuid
 
-  org        Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project    Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  workItems  WorkItem[]
-  capacities IntervalCapacity[]
-  parent     Interval?          @relation("IntervalProgramIncrement", fields: [parentId], references: [id], onDelete: SetNull)
-  children   Interval[]         @relation("IntervalProgramIncrement")
-  objectives Objective[]
-  ceremonies SprintCeremony[]
-  milestones Milestone[]
+  org          Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project      Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workItems    WorkItem[]
+  capacities   IntervalCapacity[]
+  parent       Interval?          @relation("IntervalProgramIncrement", fields: [parentId], references: [id], onDelete: SetNull)
+  children     Interval[]         @relation("IntervalProgramIncrement")
+  objectives   Objective[]
+  ceremonies   SprintCeremony[]
+  milestones   Milestone[]
+  deliverables Deliverable[]
 
   @@unique([projectId, number])
   @@index([parentId])
@@ -5094,8 +5106,29 @@ model Deliverable {
   createdAt        DateTime             @default(now()) @map("created_at")
   updatedAt        DateTime             @updatedAt @map("updated_at")
 
+  /// The contract this CDRL is deliverable under. Null for every row that
+  /// predates contract scoping, and for any deliverable tracked outside a
+  /// contract. SetNull on delete, matching Contract.project: losing the
+  /// agreement must not delete the record of what was delivered under it.
+  contractId      String?               @map("contract_id") @db.Uuid
+  /// The PI objective this CDRL serves. Free text, as it arrives in a planning
+  /// workbook — it names an objective the sheet's author wrote, not a row in
+  /// the Objective table, so there is nothing to point a foreign key at.
+  piObjective     String?               @map("pi_objective")
+  /// The demo/sprint gate it is due at, e.g. "SD-1" or "End S3". Free text:
+  /// every programme labels its gates differently and a new label must not
+  /// need a migration.
+  dueGate         String?               @map("due_gate")
+  /// The sprint this CDRL is planned into. Deliberately NOT narrowed to
+  /// PROGRAM_INCREMENT the way Milestone.intervalId is (lib/pm/milestone-interval.ts):
+  /// a CDRL hangs off a sprint. SetNull mirrors Objective.intervalId and
+  /// Interval.parent — deleting an interval orphans what was planned into it,
+  /// it never deletes it.
+  intervalId      String?               @map("interval_id") @db.Uuid
   org             Organization          @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project         Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contract        Contract?             @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  interval        Interval?             @relation(fields: [intervalId], references: [id], onDelete: SetNull)
   deliverableType String?               @map("deliverable_type")
   internalReview  DateTime?             @map("internal_review")
   govReviewPeriod Int?                  @map("gov_review_period")
@@ -5108,9 +5141,18 @@ model Deliverable {
   workItemRef     String?               @map("work_item_ref")
   notes           String?
 
-  @@unique([orgId, code])
+  // An item number is unique within its CONTRACT: two contracts may each carry
+  // their own "ITEM-01". Postgres treats NULLs as distinct, so this constraint
+  // says NOTHING about the rows where contract_id IS NULL — which is every row
+  // that predates contract scoping. A partial unique index on (org_id, code)
+  // WHERE contract_id IS NULL (migration SQL only — Prisma cannot express a
+  // partial index) keeps exactly the guarantee the old @@unique([orgId, code])
+  // gave those rows.
+  @@unique([orgId, contractId, code])
   @@index([orgId, projectId, status])
   @@index([orgId, ownerUserId])
+  @@index([contractId])
+  @@index([intervalId])
   @@map("deliverables")
 }
 

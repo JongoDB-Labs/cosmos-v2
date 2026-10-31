@@ -33,6 +33,21 @@ export interface ImportField {
   kind: ImportFieldKind;
   /** Allowed enum values (Prisma enum labels) when `kind === "enum"`. */
   enum?: string[];
+  /**
+   * Source text → Prisma enum label, for sheet values the enum does not contain
+   * at all ("Planned" → NOT_STARTED). `coerceEnum` already forgives case,
+   * spaces, underscores and hyphens; what it cannot forgive is a different
+   * WORD.
+   *
+   * Matched with the SAME normalisation `coerceEnum` uses, so a caller writes
+   * the human spelling and needn't think about capitalisation. The enum's own
+   * labels are tried FIRST, so a synonym can never shadow a real value.
+   *
+   * Only for a value that genuinely MEANS one of the labels. A value meaning
+   * something the enum cannot express belongs in the existing non-blocking
+   * warning — not in a mapping that would assert something false.
+   */
+  enumSynonyms?: Record<string, string>;
   /** Header synonyms (lowercased) for auto-mapping on upload. */
   synonyms?: string[];
 }
@@ -125,11 +140,34 @@ export const ENTITY_DEFS: EntityDef[] = [
     naturalKey: ["code"],
     fields: [
       code("Deliverable code"),
-      title("Title"),
-      description,
+      // A CDRL register names its title column after the opportunity the
+      // deliverable represents, so the extra synonyms live here rather than in
+      // the shared `title()` fragment every other entity reuses.
+      { ...title("Title"), synonyms: [...(title().synonyms ?? []), "cdrl opportunity", "opportunity"] },
+      { ...description, synonyms: [...(description.synonyms ?? []), "what it contains", "contents"] },
       { key: "clin", label: "CLIN", kind: "text", synonyms: ["clin"] },
       { key: "deliverableType", label: "Type", kind: "text", synonyms: ["type", "deliverable type", "cdrl type"] },
-      { key: "status", label: "Status", kind: "enum", enum: DELIVERABLE_STATUS, synonyms: ["status", "state"] },
+      {
+        key: "status", label: "Status", kind: "enum", enum: DELIVERABLE_STATUS,
+        synonyms: ["status", "state"],
+        // "Planned" is how a planning workbook spells NOT_STARTED.
+        //
+        // A backlog marker such as "Proposed · PI-3" is deliberately NOT here,
+        // and must not be added. It means "not in this PI" — a planning
+        // decision about WHEN the work is scheduled, not a lifecycle state of
+        // the deliverable. Mapping it to NOT_STARTED would record a definite
+        // claim ("this CDRL exists and has not been started") where the sheet
+        // only expressed a proposal, and the difference is invisible once
+        // stored. It falls through to the existing non-blocking warning, which
+        // puts the row in front of a human with its original text intact.
+        enumSynonyms: { planned: "NOT_STARTED" },
+      },
+      { key: "piObjective", label: "PI Objective", kind: "text", synonyms: ["pi objective", "pi objectives", "objective", "program increment objective"] },
+      // The sheet names a SPRINT; the column holds an interval id. Resolved by
+      // name within the project at import time (see resolveLookups in
+      // entity-import.ts) — an unresolvable name is a non-blocking warning.
+      { key: "intervalId", label: "Sprint", kind: "text", synonyms: ["sprint", "interval", "iteration", "sprint name"] },
+      { key: "dueGate", label: "Due gate", kind: "text", synonyms: ["due gate", "gate", "demo gate", "sprint gate"] },
       { key: "baselineDue", label: "Baseline due", kind: "date", synonyms: ["baseline due", "due", "due date", "baseline", "baseline date"] },
       { key: "internalReview", label: "Internal review", kind: "date", synonyms: ["internal review", "internal review date"] },
       { key: "actualSubmission", label: "Actual submission", kind: "date", synonyms: ["actual submission", "submitted", "submission date", "actual"] },
@@ -139,7 +177,7 @@ export const ENTITY_DEFS: EntityDef[] = [
       { key: "revisionCycle", label: "Revision cycle", kind: "int", synonyms: ["revision cycle", "rev cycle", "cycle", "revision"] },
       { key: "revRequired", label: "Revision required", kind: "bool", synonyms: ["rev required", "revision required", "rework"] },
       { key: "escalate", label: "Escalate", kind: "bool", synonyms: ["escalate", "escalated", "flag"] },
-      { key: "workItemRef", label: "Work item ref", kind: "text", synonyms: ["work item ref", "cosmos reference", "cosmos ref", "work item", "linked item"] },
+      { key: "workItemRef", label: "Work item ref", kind: "text", synonyms: ["work item ref", "cosmos reference", "cosmos ref", "work item", "linked item", "feature / story", "feature/story", "feature", "story"] },
       { key: "notes", label: "Notes", kind: "text", synonyms: notes.synonyms },
     ],
   },

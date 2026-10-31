@@ -114,11 +114,17 @@ const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
     "escalate", "identifiedAt", "resolvedAt", "targetDate", "classification", "createdAt", "updatedAt",
   ],
   // create/updateDeliverable return id/code/title/clin/status/owner/projectId/baselineDue/
-  // actualSubmission/govAcceptance/escalate/revisionCycle/milestoneId/classification.
-  // `title`/`clin`(contract line) are content/sensitive, `owner` PII → dropped.
+  // actualSubmission/govAcceptance/escalate/revisionCycle/milestoneId/contractId/intervalId/
+  // classification. `title`/`clin`(contract line) are content/sensitive, `owner` PII → dropped.
+  // `contractId`/`intervalId` are entity ids exactly like `milestoneId`: structural, and what
+  // lets the agent walk "the CDRLs under this contract / planned into this sprint".
+  // `piObjective` and `dueGate` are NOT here and must not be added: the objective is the
+  // programme's own prose (content, and sensitive for a gov tenant) and a gate label names a
+  // customer event. Neither is an id, an enum or a timestamp.
   deliverable: [
     "id", "code", "projectId", "status", "baselineDue", "actualSubmission", "govAcceptance",
-    "escalate", "revisionCycle", "milestoneId", "classification", "createdAt", "updatedAt",
+    "escalate", "revisionCycle", "milestoneId", "contractId", "intervalId", "classification",
+    "createdAt", "updatedAt",
   ],
   // create/updateChangeRequest return id/code/title/type/status/costImpact/scheduleDaysImpact/
   // projectId/modRequired/decidedAt/implDate/submittedDate/classification. `title`/

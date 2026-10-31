@@ -37,7 +37,16 @@ export async function buildProjectWorkbook(
       prisma.risk.findMany({ where, orderBy: { code: "asc" } }),
       prisma.changeRequest.findMany({ where, orderBy: { code: "asc" } }),
       prisma.blocker.findMany({ where, orderBy: { code: "asc" } }),
-      prisma.deliverable.findMany({ where, orderBy: { code: "asc" } }),
+      // The contract and the sprint are columns of ids; the workbook wants the
+      // names a reader recognises.
+      prisma.deliverable.findMany({
+        where,
+        orderBy: { code: "asc" },
+        include: {
+          contract: { select: { title: true } },
+          interval: { select: { name: true, number: true } },
+        },
+      }),
       loadMilestonesWithDerived(orgId, projectId),
       prisma.contract.findMany({
         where,
@@ -84,7 +93,10 @@ export async function buildProjectWorkbook(
     Escalate: m.scheduleEscalate ? "Yes" : "", Notes: m.notes ?? "",
   })));
   addSheet("Deliverables", deliverables.map((d) => ({
-    ID: d.code, Title: d.title, CLIN: d.clin ?? "", "Baseline Due": fmtDate(d.baselineDue),
+    ID: d.code, Title: d.title, CLIN: d.clin ?? "", Contract: d.contract?.title ?? "",
+    "PI Objective": d.piObjective ?? "",
+    Sprint: d.interval ? d.interval.name.trim() || `#${d.interval.number}` : "",
+    "Due Gate": d.dueGate ?? "", "Baseline Due": fmtDate(d.baselineDue),
     "Actual Submission": fmtDate(d.actualSubmission), Status: d.status, Owner: d.owner ?? "",
     "Work Item Ref": d.workItemRef ?? "", Notes: d.notes ?? "",
   })));
