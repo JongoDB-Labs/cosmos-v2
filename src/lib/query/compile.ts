@@ -446,6 +446,53 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
       return { match: (b) => nn("teamId", { in: ids(b) }), isEmpty: { teamId: null } };
     case "parent":
       return { match: (b) => nn("parentId", { in: ids(b) }), isEmpty: { parentId: null } };
+    // A plain scalar column (`merged_into_id`), so this compiles byte for byte
+    // like `parent` above. `mergedInto IS EMPTY` is "was not merged away".
+    case "mergedInto":
+      return { match: (b) => nn("mergedIntoId", { in: ids(b) }), isEmpty: { mergedIntoId: null } };
+    case "hasChildren": {
+      // An ARCHIVED sub-item does NOT count. That is a choice, not an
+      // oversight: archived work is left out of every other surface (the scope
+      // envelope drops it unless the query mentions `archived`), so a parent
+      // whose only sub-item has been filed away should read as a leaf here too
+      // — otherwise `hasChildren = true` returns items whose children nobody
+      // can see. Both directions name the column, so the two are complements.
+      const hasLiveChild: Where = { children: { some: { archivedAt: null } } };
+      const isLeaf: Where = { children: { none: { archivedAt: null } } };
+      return {
+        match: (b) => or(...scalars(b).map((v) => (v === true ? hasLiveChild : isLeaf))),
+        isEmpty: null,
+      };
+    }
+    case "hasAttachments": {
+      // FAIL CLOSED. `Document` carries `visibility` and `classificationLevel`,
+      // so a bare `{ documents: { some: {} } }` would answer "yes, there is a
+      // file on this ticket" to somebody not allowed to see that file — and a
+      // filename is often the secret, which is the reason
+      // `documentVisibilityWhere` exists (lib/files/access.ts). That same
+      // fragment is resolved for this actor in resolve.server.ts and arrives
+      // here; there is no safe default, because every fallback either
+      // over-matches or matches everything.
+      const visible = env.documentVisibility;
+      if (!visible) {
+        throw new Error(
+          "hasAttachments needs env.documentVisibility — resolve.server.ts must set the actor's documentVisibilityWhere fragment whenever the query names this field.",
+        );
+      }
+      return {
+        match: (b) =>
+          or(
+            ...scalars(b).map((v) =>
+              v === true
+                ? { documents: { some: visible } }
+                : // `none` reads as "no attachment YOU can see", which discloses
+                  // nothing: an item whose only file is restricted looks bare.
+                  { documents: { none: visible } },
+            ),
+          ),
+        isEmpty: null,
+      };
+    }
     case "blocked": {
       const blocked: Where = or(
         { incomingLinks: { some: { type: "BLOCKS" } } },

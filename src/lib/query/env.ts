@@ -3,6 +3,9 @@
  * bridge between the DB-backed resolver and the pure compiler. Kept apart from
  * compile.ts so that only execute.server.ts imports the compiler (arch test).
  */
+// Type-only, so nothing from @prisma/client reaches the browser bundle: this
+// module is on the client-safe list the CQL arch test enforces.
+import type { Prisma } from "@prisma/client";
 import type { CqlValue, FieldRef } from "./ast";
 import type { CustomFieldType } from "./typecheck";
 import { stableStringify } from "./normalize";
@@ -31,6 +34,18 @@ export interface CompileEnv {
   milestoneLinked: string[];
   /** History prefilter results, by `historyKey(spec)` (see history.ts). */
   history: Map<string, string[]>;
+  /**
+   * Which FILES this actor may know the existence of: the same `where` fragment
+   * the documents list uses (`documentVisibilityWhere` in lib/files/access.ts),
+   * resolved against their AuthContext by resolve.server.ts.
+   *
+   * Optional, and set ONLY when the query names `hasAttachments` — it costs a
+   * project-visibility read. Absent means the compiler must refuse the field
+   * rather than fall back to a bare `{ documents: { some: {} } }`, which would
+   * disclose that a restricted file exists. compile.ts throws; see the case
+   * there for why there is no safe default.
+   */
+  documentVisibility?: Prisma.DocumentWhereInput;
   contextProjectId?: string;
   sinceLastStandup?: Date;
 }
