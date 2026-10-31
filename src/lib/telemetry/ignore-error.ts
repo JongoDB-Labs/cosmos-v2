@@ -5,11 +5,20 @@
  * own copy of the chunk-error regex; the matching rules now live here once, as
  * pure predicates that can be unit-tested without mounting a component.
  *
- * Two classes of uncaught error are NOT ours to surface:
+ * Three classes of uncaught error are NOT ours to surface:
  *
  *  - **Stale chunks after a deploy** — `ChunkReloadGuard` already recovers those
  *    with a single reload, so offering a bug report on top would file a ticket
  *    for something the app fixed itself.
+ *
+ *  - **An interrupted View Transition** (COSMOS-237). `<PageTransition>` wraps
+ *    routes in React's `<ViewTransition>`, so navigating again before the
+ *    previous animation settles makes the browser skip it and reject the
+ *    transition's promise with an `AbortError` nobody awaits — "Transition was
+ *    skipped. New ViewTransition started". That is the View Transitions API
+ *    working as designed (the newest navigation wins), the rejection comes from
+ *    the browser rather than from app code, and the only trace it leaves is a
+ *    stackless entry in telemetry. Nothing is broken, so we swallow it.
  *
  *  - **Browser-extension errors** (COSMOS-172). A wallet extension such as
  *    MetaMask injects a page script that runs in the page's JS context, so when
@@ -34,11 +43,32 @@ export const CHUNK_ERROR =
  */
 const EXTENSION_FRAME = /[a-z-]+-extension:\/\//i;
 
+/**
+ * A View Transition the browser gave up on because a newer one started (or the
+ * document went hidden, or the transition was otherwise aborted). Matched on the
+ * shape of the sentence rather than on Chrome's exact wording, so the sibling
+ * reasons each engine appends — "…because document visibility state is hidden",
+ * "…because of invalid state" — and WebKit's "Skipping view transition" are
+ * covered without another patch here.
+ */
+const VIEW_TRANSITION_ABORT =
+  /\b(?:view\s*)?transitions? (?:was|were) (?:skipped|aborted)\b|\bskipp(?:ed|ing) (?:the |a )?view[\s-]?transition\b/i;
+
 /** A stack frame line: V8's `    at fn (url:1:2)` or Gecko/WebKit's `fn@url:1:2`. */
 const STACK_FRAME = /^\s*at\s|@\S+:\d+:\d+\s*$/;
 
 export function isChunkLoadError(message: string | undefined): boolean {
   return !!message && CHUNK_ERROR.test(message);
+}
+
+/**
+ * True for the `AbortError` a skipped/interrupted View Transition rejects with.
+ * The message is the whole signal: the browser raises it from inside the
+ * transition machinery, so there are no app frames — and usually no stack at
+ * all — to go on.
+ */
+export function isViewTransitionAbort(message: string | undefined): boolean {
+  return !!message && VIEW_TRANSITION_ABORT.test(message);
 }
 
 /**
@@ -66,6 +96,7 @@ export function isReportableClientError(
 ): message is string {
   if (!message) return false;
   if (isChunkLoadError(message)) return false;
+  if (isViewTransitionAbort(message)) return false;
   if (isBrowserExtensionError(message, stack)) return false;
   return true;
 }

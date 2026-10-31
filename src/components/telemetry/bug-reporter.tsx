@@ -15,8 +15,8 @@ import { isReportableClientError } from "@/lib/telemetry/ignore-error";
  * that files a deduped BUG FeedbackItem via /feedback/report-bug.
  *
  * Mounted inside the dashboard's PermissionsProvider so it has the current
- * org id. Chunk-load errors and browser-extension errors are excluded — see
- * `isReportableClientError`.
+ * org id. Chunk-load errors, interrupted View Transitions and
+ * browser-extension errors are excluded — see `isReportableClientError`.
  */
 
 // Module-level so a given error signature is offered at most once per page load

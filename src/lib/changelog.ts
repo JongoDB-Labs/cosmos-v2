@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.505.1",
+    date: "2026-10-31",
+    title: "No more bug reports for a skipped animation",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Moving quickly through a board no longer asks you to report a bug. Starting a second page animation before the first finished made the browser abandon the first and say so — “Transition was skipped” — which the app mistook for a crash and offered to file. That message is now treated as the normal result of navigating fast, not a fault.",
+      },
+      {
+        kind: "improvement",
+        text: "ASSUMED, and worth confirming: a skipped page animation is treated as noise and left out of error reporting, rather than the board reworking its animations so they never interrupt one another. Nothing about the animations changed — page cross-fades still run exactly as before, and quick successive navigations look the same as they did. Only what gets offered for reporting is different, and a genuine error on these screens is still offered as it was.",
+      },
+    ],
+  },
+  {
     version: "2.505.0",
     date: "2026-10-31",
     title: "The filter you want, findable",
