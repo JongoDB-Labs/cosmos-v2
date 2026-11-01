@@ -50,6 +50,30 @@ vi.mock("@/components/boards/shared/filter-bar", async (importOriginal) => {
   return { ...actual, FilterBar: () => null };
 });
 
+/**
+ * LOCAL midnights, so each fixture date is the same calendar day in every timezone —
+ * the convention `timeline-view.collisions.test.tsx` already uses, and the reason it is
+ * timezone-independent while this file was not.
+ *
+ * The timeline works in LOCAL days on purpose: `timeline-view.tsx::startOfDay` is
+ * `new Date(d.getFullYear(), d.getMonth(), d.getDate())`, and
+ * `schedule-announcement.ts` notes that a bar is drawn on the evening's day. So a
+ * fixture of UTC midnights (lday("2026-01-10")) belongs to Jan 9 locally
+ * anywhere west of Greenwich, and to Jan 10 only in UTC itself.
+ *
+ * That is why `restores the dragged bar to where the drag started` failed in
+ * America/New_York, America/Los_Angeles AND Asia/Tokyo while passing in UTC and
+ * Europe/Dublin: the restored date is computed BY THE COMPONENT (through startOfDay),
+ * unlike i1/i3's, which the server mock echoes back verbatim and which therefore
+ * survived a UTC string slice. CI runs in UTC, so it never saw this.
+ */
+const lday = (ymd: string) => {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d).toISOString();
+};
+/** Compare instants, not UTC string prefixes — `slice(0, 10)` is itself UTC-biased. */
+const iso = (v: unknown) => new Date(String(v)).toISOString();
+
 const item = (n: number, start: string, due: string) => ({
   id: `i${n}`,
   ticketNumber: 100 + n,
@@ -71,9 +95,9 @@ const item = (n: number, start: string, due: string) => ({
 });
 
 const ITEMS = [
-  item(1, "2026-01-05", "2026-01-20"),
-  item(2, "2026-01-10", "2026-02-01"),
-  item(3, "2026-01-15", "2026-01-25"),
+  item(1, lday("2026-01-05"), lday("2026-01-20")),
+  item(2, lday("2026-01-10"), lday("2026-02-01")),
+  item(3, lday("2026-01-15"), lday("2026-01-25")),
 ];
 
 // What the PUT echoes back as `scheduleCascade` — swapped per test. Keyed by the
@@ -120,7 +144,7 @@ async function renderTimeline() {
 }
 
 const bar = (id: string) => screen.getByTestId(`gantt-bar-${id}`);
-const dayOf = (v: unknown) => String(v).slice(0, 10);
+
 
 /** Drag i2's bar to the right, committing a slip. */
 function dragRight(id: string) {
@@ -148,14 +172,14 @@ describe("TimelineView — Undo takes the cascade back with the bar", () => {
     {
       id: "i1",
       reason: "parent-envelope",
-      before: { startDate: "2026-01-05T00:00:00.000Z", dueDate: "2026-01-20T00:00:00.000Z" },
-      after: { startDate: "2026-01-05T00:00:00.000Z", dueDate: "2026-02-10T00:00:00.000Z" },
+      before: { startDate: lday("2026-01-05"), dueDate: lday("2026-01-20") },
+      after: { startDate: lday("2026-01-05"), dueDate: lday("2026-02-10") },
     },
     {
       id: "i3",
       reason: "successor-shift",
-      before: { startDate: "2026-01-15T00:00:00.000Z", dueDate: "2026-01-25T00:00:00.000Z" },
-      after: { startDate: "2026-01-24T00:00:00.000Z", dueDate: "2026-02-03T00:00:00.000Z" },
+      before: { startDate: lday("2026-01-15"), dueDate: lday("2026-01-25") },
+      after: { startDate: lday("2026-01-24"), dueDate: lday("2026-02-03") },
     },
   ];
 
@@ -182,17 +206,17 @@ describe("TimelineView — Undo takes the cascade back with the bar", () => {
     await dragThenUndo();
     const byId = Object.fromEntries(putLog.slice(1).map((p) => [p.id, p.body]));
     // The stretched epic's finish comes back in…
-    expect(dayOf(byId.i1.dueDate)).toBe("2026-01-20");
+    expect(iso(byId.i1.dueDate)).toBe(lday("2026-01-20"));
     // …and the pushed successor returns to its own span, not the epic's.
-    expect(dayOf(byId.i3.startDate)).toBe("2026-01-15");
-    expect(dayOf(byId.i3.dueDate)).toBe("2026-01-25");
+    expect(iso(byId.i3.startDate)).toBe(lday("2026-01-15"));
+    expect(iso(byId.i3.dueDate)).toBe(lday("2026-01-25"));
   });
 
   it("restores the dragged bar to where the drag started", async () => {
     await dragThenUndo();
     const dragged = putLog.slice(1).find((p) => p.id === "i2")!;
-    expect(dayOf(dragged.body.startDate)).toBe("2026-01-10");
-    expect(dayOf(dragged.body.dueDate)).toBe("2026-02-01");
+    expect(iso(dragged.body.startDate)).toBe(lday("2026-01-10"));
+    expect(iso(dragged.body.dueDate)).toBe(lday("2026-02-01"));
   });
 
   it("tells every restore about the others, so none of them re-cascades", async () => {
@@ -212,8 +236,8 @@ describe("TimelineView — Undo takes the cascade back with the bar", () => {
     const redone = putLog.slice(4);
     expect(redone.map((p) => p.id).sort()).toEqual(["i1", "i2", "i3"]);
     const byId = Object.fromEntries(redone.map((p) => [p.id, p.body]));
-    expect(dayOf(byId.i1.dueDate)).toBe("2026-02-10");
-    expect(dayOf(byId.i3.startDate)).toBe("2026-01-24");
+    expect(iso(byId.i1.dueDate)).toBe(lday("2026-02-10"));
+    expect(iso(byId.i3.startDate)).toBe(lday("2026-01-24"));
   });
 
   it("a drag that cascades nothing still undoes to one PUT", async () => {
@@ -256,8 +280,8 @@ describe("TimelineView — one user action cascades a dependent once", () => {
         {
           id: "i2",
           reason: "successor-shift",
-          before: { startDate: "2026-01-10T00:00:00.000Z", dueDate: "2026-02-01T00:00:00.000Z" },
-          after: { startDate: "2026-01-11T00:00:00.000Z", dueDate: "2026-02-02T00:00:00.000Z" },
+          before: { startDate: lday("2026-01-10"), dueDate: lday("2026-02-01") },
+          after: { startDate: lday("2026-01-11"), dueDate: lday("2026-02-02") },
         },
       ],
     };
