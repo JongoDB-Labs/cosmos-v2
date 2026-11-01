@@ -10,6 +10,9 @@
 //               and the tool isn't in it ⇒ DENY. (denylist beats allowlist.)
 //   2. DOMAIN — domainForTool(name) ∈ `deniedDomains` ⇒ DENY.
 //   3. ARGS   — (a) a `projectId` arg present and NOT in `allowedProjectIds` (when set) ⇒ DENY.
+//                   Explanatory only — the project allowlist is ENFORCED on the actor's
+//                   AuthContext by policy/project-scope.ts, because this axis can only see
+//                   an argument the tool may not take and the model may omit.
 //               (b) a `limit`/`maxResults` arg > `maxResultLimit` (when set) ⇒ CLAMP it down.
 //
 // DENY ⇒ the loop does NOT execute the tool, hands the model a block error (axis + reason,
@@ -61,7 +64,20 @@ export function checkAgentPolicy(
   }
 
   // ── AXIS 3a: ARG — project scope (DENY) ───────────────────────────────────────
-  // Only enforce when the allowlist is set AND the call actually carries a string projectId.
+  // FAST, EXPLANATORY FEEDBACK — *NOT* the gate. It fires only when the call carries a
+  // string `projectId`, so on its own it missed every tool that takes no project
+  // (`get_work_item` takes only `itemId`) and could be skipped by omitting the argument.
+  //
+  // The ACTUAL enforcement of `allowedProjectIds` is `narrowAuthToPolicyProjects`
+  // (policy/project-scope.ts), which folds the allowlist into `AuthContext.projectScope`
+  // at the agent-loop boundary so every RBAC project gate applies it to the projectId the
+  // SERVER resolved from the row. That one has no argument to omit.
+  //
+  // This axis is KEPT because a named-but-disallowed project is worth refusing HERE, with a
+  // reason naming the axis, instead of letting the executor return a bare "Project not
+  // found" the model has to interpret. Do NOT "fix" it to deny when `projectId` is absent:
+  // most tools legitimately never name a project and are correctly bounded by the context
+  // narrowing instead — a blanket deny here would refuse them all.
   if (policy.allowedProjectIds !== null) {
     const projectId = typeof args.projectId === "string" ? args.projectId : undefined;
     if (projectId !== undefined && !policy.allowedProjectIds.includes(projectId)) {

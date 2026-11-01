@@ -41,7 +41,7 @@ import {
   loadAuthContext,
   type ToolContext as ExecutorToolContext,
 } from "./executors/_ctx";
-import { isOptionalUuid } from "@/lib/ids";
+import { isOptionalUuid, isUuid } from "@/lib/ids";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
 import { logAudit } from "@/lib/audit";
@@ -786,17 +786,34 @@ async function queryIntervals(input: Record<string, unknown>, ctx: ToolContext) 
   // SPRINT_READ is held by MEMBER and VIEWER, and the projectId comes straight
   // from the caller — so this leaked interval names, goals and work-item counts
   // for projects the asker cannot open.
-  const intervalScope = await assertProjectRead(
-    ctx,
-    input.projectId as string,
-    "SPRINT_READ",
-  );
-  if (intervalScope) return intervalScope;
+  //
+  // The gate below used to run unconditionally on `input.projectId as string` — and that
+  // cast was a lie three ways when the argument was absent. `isOptionalUuid(undefined)`
+  // returns true, so validation passed. `assertProjectRead(ctx, undefined, …)` passed
+  // VACUOUSLY: `inKeyProjectScope(ctx, undefined)` returns true when no scope is set, and
+  // `isProjectVisible` ran `findFirst({ where: { id: undefined, orgId } })`, which answers
+  // with an ARBITRARY project in the org and returns true if that one is not team-scoped.
+  // Then `projectId: undefined` was silently DROPPED from the where by Prisma
+  // (strictUndefinedChecks is not enabled), collapsing it to `{ orgId }` — every interval
+  // in the org. The tool's model schema declares projectId required, which is why this was
+  // not routine, but a required field is a request, not an enforcement.
+  //
+  // Now shaped like `queryWorkItems` above: a named project is validated against the
+  // readable set, and an absent one scopes to that set instead of to the org.
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
+  const readable = await getReadableProjectIds(auth);
 
-  const where: Prisma.IntervalWhereInput = {
-    orgId: ctx.orgId,
-    projectId: input.projectId as string,
-  };
+  const where: Prisma.IntervalWhereInput = { orgId: ctx.orgId };
+  if (isUuid(input.projectId)) {
+    // A denial rather than an empty result, so the assistant can say why instead of
+    // implying the project has no intervals.
+    if (!readable.includes(input.projectId)) return { error: "Project not found" };
+    where.projectId = input.projectId;
+  } else {
+    // An EMPTY readable set must mean nothing, never "no filter".
+    where.projectId = { in: readable };
+  }
   if (input.status) where.status = input.status as "PLANNED" | "ACTIVE" | "COMPLETED";
 
   const intervals = await prisma.interval.findMany({

@@ -34,9 +34,17 @@ export interface AuthContext {
    * A hard ceiling on which projects this actor may touch, independent of role.
    *
    * `undefined` means unrestricted — every session has this, and nothing about
-   * the cookie path changes. It is set only by a project-scoped API KEY, and it
-   * is a CEILING rather than a grant: it can only ever narrow what the minting
-   * user could already do.
+   * the cookie path changes. It is a CEILING rather than a grant: it can only
+   * ever narrow what the actor could already do.
+   *
+   * TWO SOURCES set it, and they INTERSECT (neither may widen the other):
+   *   1. A project-scoped API KEY — the original source; narrows to the projects
+   *      the key was minted for.
+   *   2. An org's AGENT POLICY `allowedProjectIds`, folded in for the duration of
+   *      an agent run by `ai/policy/project-scope.ts`. That allowlist used to be
+   *      checked against a model-supplied `projectId` ARGUMENT, which a tool
+   *      might not take and a model could omit; riding here instead means every
+   *      gate below asks it about the projectId the SERVER resolved from the row.
    *
    * It is applied AFTER the role logic, deliberately. `getReadableProjectIds`
    * short-circuits to every project for an OWNER, and org administrators keep
