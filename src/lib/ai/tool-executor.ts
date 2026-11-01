@@ -806,12 +806,19 @@ async function queryIntervals(input: Record<string, unknown>, ctx: ToolContext) 
 
   const where: Prisma.IntervalWhereInput = { orgId: ctx.orgId };
   if (isUuid(input.projectId)) {
-    // A denial rather than an empty result, so the assistant can say why instead of
-    // implying the project has no intervals.
-    if (!readable.includes(input.projectId)) return { error: "Project not found" };
+    // The FULL gate on the named path, not a membership test against `readable`.
+    // `getReadableProjectIds` folds ABAC *ITEM_READ* denies; `assertProjectRead(…,
+    // "SPRINT_READ")` runs `requireAccess` for SPRINT_READ itself. Narrowing the named path
+    // to the readable set instead would have dropped the SPRINT_READ policy evaluation —
+    // loosening the one path that was already correct while closing the one that was not.
+    const outOfScope = await assertProjectRead(ctx, input.projectId, "SPRINT_READ");
+    if (outOfScope) return outOfScope;
     where.projectId = input.projectId;
   } else {
-    // An EMPTY readable set must mean nothing, never "no filter".
+    // An EMPTY readable set must mean nothing, never "no filter". This set is the best
+    // available bound for an unnamed read — note it folds ITEM_READ denies rather than
+    // SPRINT_READ ones, so an org with a SPRINT_READ-only deny policy is narrowed by team
+    // scope and key scope here but not by that rule; naming the project gets the full gate.
     where.projectId = { in: readable };
   }
   if (input.status) where.status = input.status as "PLANNED" | "ACTIVE" | "COMPLETED";
