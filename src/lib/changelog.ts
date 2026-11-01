@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.508.0",
+    date: "2026-11-01",
+    title: "Cosmo knows which projects are yours",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Cosmo now starts every conversation knowing which projects you work in, so it can answer \u201chow is Apollo doing\u201d without first hunting for the project by name \u2014 and it will tell you plainly when you ask about a project you do not have access to, instead of reporting it as missing. Where your data classification withholds project names, it works from ids and says so.",
+      },
+      {
+        kind: "fix",
+        text: "If your organisation restricts Cosmo to particular projects, that restriction now holds everywhere. It previously applied only when a request happened to name a project, so a question that named none \u2014 reading one ticket by its id, for instance \u2014 was not covered by it.",
+      },
+      {
+        kind: "fix",
+        text: "Asking Cosmo to list objectives or sprints without naming a project returned them from every project in the organisation, including ones restricted to their own team. Both now cover only the projects you can open, matching what the rest of Cosmos has always shown you.",
+      },
+    ],
+  },
+  {
     version: "2.507.0",
     date: "2026-10-31",
     title: "Deliverables belong to a contract",

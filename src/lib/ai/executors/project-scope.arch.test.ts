@@ -232,6 +232,127 @@ describe("agent tools cannot read past project scoping", () => {
   });
 
   /**
+   * A gate the caller can STEP AROUND is not a gate.
+   *
+   * `HAS_GATE` above is a substring test over a function body, so it accepts a gate that
+   * sits inside `if (projectId) { … }`. Two tools shipped exactly that shape and passed
+   * this file for as long as it has existed:
+   *
+   *   - `okrs.ts::listObjectives` gated the named path and, on the omission path, queried
+   *     `{ orgId }` — every project's OKRs. Its comment justified this with "objectives
+   *     with no project", a row class that cannot exist: `Objective.projectId` is `String`,
+   *     not `String?`.
+   *   - `tool-executor.ts::queryIntervals` (not even in this file's scanned directory) ran
+   *     its gate on `input.projectId as string` when the value was `undefined`, which
+   *     passed vacuously, and Prisma then dropped the undefined from the where.
+   *
+   * Neither read exists in the product — objectives and intervals are served only under
+   * `/projects/[projectId]/…`, behind `requireProjectRead`.
+   *
+   * THE PROPERTY: if a body gates on a CALLER-SUPPLIED projectId being truthy, it must also
+   * bound the branch where that value is absent — with a SET, not another conditional.
+   * Matching `if (row.projectId)` is deliberately avoided: gating on the ROW's own project
+   * is the correct pattern for a nullable column (`updateMeeting`, `setFeedbackStatus`), and
+   * the row is not something the model chooses.
+   */
+  const CONDITIONAL_GATE =
+    /if\s*\(\s*(?:data\.|input\.|parsed\.data\.)?projectId\s*\)\s*\{(?:[^{}]|\{[^{}]*\})*assertProject(?:Read|Manage)\(/;
+  /** Narrowing that applies with NO argument from the caller — what the else-branch needs. */
+  const BOUNDS_OMISSION =
+    /getReadableProjectIds|visibleProjectRecordsWhere|visibleProjectIdsForActor|getVisibleProjectIds/;
+
+  /**
+   * ENUMERATES, i.e. reads a SET of rows rather than one row by id.
+   *
+   * The rule below applies only to these. For a WRITE, an absent `projectId` means "create
+   * one unfiled row" on a nullable column — `createMeeting` and `logTime` both do this
+   * legitimately, and there is no omission path to bound because nothing is read across
+   * projects. For a `findFirst` by id the id bounds the read and the row's own projectId is
+   * what gets gated. `findMany` is where omitting a project turns into "every project".
+   */
+  const ENUMERATES = new RegExp(
+    `prisma\\.(?:${PROJECT_SCOPED_MODELS.join("|")})\\.(?:findMany|aggregate|groupBy|count)\\(`,
+  );
+
+  /**
+   * Known-unbounded enumerations, each with the reason it is not fixed HERE.
+   *
+   * An exemption for a real defect is its own hazard, so this list carries the obligation
+   * that each entry names what is blocking and what the fix would be. It is a written
+   * record of an open decision, not a silence.
+   */
+  const OMISSION_DECISION_PENDING = new Set([
+    // `list_time_entries` omitting projectId carries no project clause, so a supervisor
+    // (readableTimeUserIds widens to direct reports and to anyone whose timesheet is routed
+    // to them for approval) sees those people's hours on team-scoped projects the supervisor
+    // cannot open. Rates stay redacted; nothing else does.
+    //
+    // NOT fixed here because `GET /orgs/[orgId]/time-entries` has the IDENTICAL shape
+    // (route.ts:50 gates only when a projectId is supplied), so narrowing the agent alone
+    // would make it stricter than the app — the drift _ctx.ts::assertProjectManage was
+    // written to prevent. And the underlying question is a product one: bounding a
+    // supervisor's view by THEIR OWN project access would stop them seeing, and approving,
+    // hours their report logged on another project. Fix the shared rule or neither.
+    "time.ts::listTimeEntries",
+  ]);
+
+  it("no FUNCTION gates only the branch where the caller named a project", () => {
+    const offenders: string[] = [];
+    for (const f of files) {
+      for (const [name, body] of functionsIn(f)) {
+        if (!/^export /.test(body)) continue;
+        if (!TOUCHES_SCOPED.test(body)) continue;
+        if (!ENUMERATES.test(body)) continue;
+        if (ORG_LEVEL_WRITES.has(`${f}::${name}`)) continue;
+        if (CALLER_SCOPED.has(`${f}::${name}`)) continue;
+        if (OMISSION_DECISION_PENDING.has(`${f}::${name}`)) continue;
+        if (CONDITIONAL_GATE.test(body) && !BOUNDS_OMISSION.test(body)) {
+          offenders.push(`${f}::${name}`);
+        }
+      }
+    }
+    expect(
+      offenders,
+      "a project gate inside `if (projectId)` leaves the omission path unbounded — bound it with a readable/visible project SET",
+    ).toEqual([]);
+  });
+
+  /**
+   * POSITIVE CONTROL for the rule above.
+   *
+   * The rule is an absence assertion over a regex, and an absence assertion whose predicate
+   * silently matches nothing is the most reassuring kind of dead test. So: the pre-fix shape
+   * must be detected, and the fixed shape must not.
+   */
+  it("CONTROL: the conditional-gate rule detects the shape it exists to catch", () => {
+    const broken = `export async function listThings(input, ctx) {
+      if (projectId) {
+        const outOfScope = await assertProjectRead(ctx, projectId, "OKR_READ");
+        if (outOfScope) return outOfScope;
+      }
+      const rows = await prisma.objective.findMany({ where: { orgId: ctx.orgId } });
+    }`;
+    expect(CONDITIONAL_GATE.test(broken)).toBe(true);
+    expect(BOUNDS_OMISSION.test(broken)).toBe(false);
+
+    const fixed = broken.replace(
+      "}\n      const rows",
+      "} else { readable = await getReadableProjectIds(auth); }\n      const rows",
+    );
+    expect(BOUNDS_OMISSION.test(fixed) || !CONDITIONAL_GATE.test(fixed)).toBe(true);
+
+    // And gating on the ROW's own nullable project must NOT trip it.
+    const rowGated = `export async function updateThing(input, ctx) {
+      const row = await prisma.syncMeeting.findFirst({ where: { id, orgId } });
+      if (row.projectId) {
+        const outOfScope = await assertProjectRead(ctx, row.projectId, "MEETING_UPDATE");
+        if (outOfScope) return outOfScope;
+      }
+    }`;
+    expect(CONDITIONAL_GATE.test(rowGated)).toBe(false);
+  });
+
+  /**
    * An org-wide pre-check in front of `assertProjectManage` defeats it.
    *
    * `assertProjectManage` forwards to `requireProjectManage`, which admits

@@ -5,6 +5,8 @@ import { executeTool } from "./tool-executor";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 import { getAgentPolicy } from "./policy";
 import { checkAgentPolicy } from "./policy/enforce";
+import { narrowAuthToPolicyProjects } from "./policy/project-scope";
+import { projectRosterBlock } from "./project-roster";
 import { runModelTurn, toModelTools, projectForModel, projectResult, entityTypeForTool, augmentWithHandles, resolveHandlesDeep, sha256Hex, logEgressDecision, type ModelMessage } from "./egress";
 import type { TenantClass } from "./egress";
 import { conservativeCeiling, effectiveCeiling, maxByRank, rankOf } from "@/lib/classification/effective";
@@ -115,6 +117,15 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   // bounds = today's behavior). It is enforced per-tool BELOW, after handle-resolve and before
   // the write-path taint check (order: resolve → agentpolicy → taint → execute).
   const agentPolicy = await getAgentPolicy(opts.orgId);
+  // ── PROJECT ALLOWLIST → a CEILING ON THE CONTEXT, not a check on an argument ──────
+  // The policy's `allowedProjectIds` is folded into the AuthContext ONCE, here, so every
+  // project gate in the RBAC layer enforces it against the projectId the SERVER resolved
+  // from the row — not against a model-supplied `projectId` arg that a tool may not take
+  // (`get_work_item` takes only `itemId`) or that a model can simply omit. See
+  // policy/project-scope.ts for the bug this closes. Narrowing only: it INTERSECTS with a
+  // project-scoped API key's own ceiling, so the agent can never reach past its caller.
+  // A null allowlist (the permissive default) returns the context unchanged.
+  const scopedAuth = narrowAuthToPolicyProjects(opts.auth, agentPolicy.allowedProjectIds);
   const enabledFilter = {
     enabledConnectors: runtimeConfig.enabledConnectors,
     breadthEnabled: runtimeConfig.breadthEnabled,
@@ -158,6 +169,26 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   let streamed = "";
   const turnTexts: string[] = [];
 
+  // ── WHICH PROJECTS IS THIS PERSON IN? ───────────────────────────────────
+  // Resolved ONCE, from `scopedAuth` — the same context the tools are authorised against,
+  // already narrowed by the agent policy — so what the model is TOLD can never exceed what
+  // it can REACH. Project names are DATA: the block is gated through the egress chokepoint
+  // as a `list_projects` result would be, and degrades to ids alone when withheld. See
+  // project-roster.ts. Best-effort: a roster that cannot be built must not fail the run.
+  let systemPrompt = opts.systemPrompt;
+  try {
+    const roster = await projectRosterBlock({
+      auth: scopedAuth,
+      orgId: opts.orgId,
+      tenantClass: opts.tenantClass,
+      conversationId: opts.conversationId,
+    });
+    if (roster) systemPrompt = `${systemPrompt}\n\n${roster}`;
+  } catch {
+    // Leaving the roster out costs a discovery round-trip; it never widens access, because
+    // every gate below still enforces `scopedAuth` on its own.
+  }
+
   for (let turn = 0; turn < max; turn++) {
     const ctx = { orgId: opts.orgId, userId: opts.userId, conversationId: opts.conversationId, turn, tenantClass: opts.tenantClass, mode: "enforced" as const };
     // Restarting the text each turn made a tool turn's preamble swallow the
@@ -165,7 +196,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
     let separator = streamed ? "\n\n" : "";
     const reply = await runModelTurn({
       ctx,
-      system: opts.systemPrompt,
+      system: systemPrompt,
       messages,
       tools,
       model,
@@ -350,7 +381,10 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       const output = await executeTool(u.name, execInput, {
         orgId: opts.orgId,
         userId: opts.userId,
-        auth: opts.auth,
+        // `scopedAuth`, NOT `opts.auth`: the agent policy's project allowlist rides on the
+        // context so it binds tools that never name a project. Identical to `opts.auth`
+        // for an org with no allowlist set.
+        auth: scopedAuth,
         offered,
         tenantClass: opts.tenantClass,
         conversationId: opts.conversationId,

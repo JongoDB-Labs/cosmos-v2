@@ -4,7 +4,8 @@ import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
 import { krProgressPercent, krFraction } from "@/lib/okr/progress";
 import { objectiveHealth } from "@/lib/okr/health";
-import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
+import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 
 /**
  * OKR executors — objectives, key results, check-ins, KR↔work-item links. Every
@@ -56,16 +57,40 @@ export async function listObjectives(input: Record<string, unknown>, ctx: ToolCo
   if (!parsed.success) return invalid(parsed.error);
   const { projectId, limit } = parsed.data;
 
-  // `projectId` is OPTIONAL here — omitting it lists the org's objectives —
-  // so the gate applies only when one is named. Objectives with no project are
-  // not project-scoped data and nothing narrows them.
+  // `projectId` is OPTIONAL here, so BOTH paths need bounding.
+  //
+  // The comment this replaces said "Objectives with no project are not project-scoped data
+  // and nothing narrows them" and used that to justify gating only the named path. There is
+  // no such row: `Objective.projectId` is `String`, NOT `String?` (schema.prisma) — every
+  // objective belongs to exactly one project. So the omission path was not "org-level
+  // data", it was every project's OKRs, unnarrowed: titles, descriptions, owners, status,
+  // progress, health, and each key result's current and target values, for team-scoped
+  // projects the actor is not a member of. OKR_READ is MEMBER-held.
+  //
+  // Named path: gate it (folds the OKR_READ ABAC rule for that project).
+  // Omission path: scope to the actor's readable projects, the same shape `listFeedback`,
+  // `listMeetings` and `queryWorkItems` use. `getReadableProjectIds` is AuthContext-based,
+  // so a project-scoped API key's ceiling and an agent policy's allowlist both bind here;
+  // note it folds ABAC ITEM_READ denies rather than OKR_READ ones, which is the same
+  // asymmetry its siblings carry — it narrows by team scope and key scope either way.
+  let readable: string[] | null = null;
   if (projectId) {
     const outOfScope = await assertProjectRead(ctx, projectId, "OKR_READ");
     if (outOfScope) return outOfScope;
+  } else {
+    const auth = await loadAuthContext(ctx);
+    if (!auth) return { error: "Insufficient permissions" };
+    readable = await getReadableProjectIds(auth);
+    // An EMPTY readable set means NOTHING, never "no filter" — the inversion that makes
+    // the most restricted actor the least restricted one.
+    if (readable.length === 0) return { count: 0, objectives: [] };
   }
 
   const objectives = await prisma.objective.findMany({
-    where: { orgId: ctx.orgId, ...(projectId && { projectId }) },
+    where: {
+      orgId: ctx.orgId,
+      ...(projectId ? { projectId } : { projectId: { in: readable! } }),
+    },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     take: Math.min(limit ?? 50, 100),
     include: {
