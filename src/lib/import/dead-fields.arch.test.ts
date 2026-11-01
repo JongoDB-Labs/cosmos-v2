@@ -157,3 +157,69 @@ describe("enum synonyms name real enum values", () => {
     expect(misplaced).toEqual([]);
   });
 });
+
+/**
+ * Every enum ImportField offers EXACTLY the values its Prisma enum declares.
+ *
+ * The describe above checks that each `enumSynonyms` target is a value of the field's own
+ * `enum` literal — it never asks whether that literal is COMPLETE. So an incomplete one is
+ * self-consistent and passes everything: `CYCLE_KIND` listed seven of `IntervalKind`'s
+ * eight values, omitting `PROGRAM_INCREMENT`, and the interval importer therefore could not
+ * import a Program Increment at all. Nothing failed; the value simply was not on offer.
+ *
+ * tsc cannot see it either — these are `string[]`, not `IntervalKind[]`, because the module
+ * is imported by a client component and so must not pull the Prisma runtime into the
+ * browser bundle. That is exactly when the rule belongs in an arch test: the constraint is
+ * real, the compiler is structurally unable to check it, and the cost of being wrong is a
+ * feature that silently does not exist.
+ *
+ * Reads the schema rather than a second hand-kept list, for the same reason as the column
+ * rule above.
+ */
+describe("enum import fields match their Prisma enum exactly", () => {
+  const MODEL_FOR: Record<string, string> = { vendor: "Contract" };
+
+  /** The Prisma enum NAME backing `model.field`, or null when the field is not an enum. */
+  function enumNameFor(model: string, field: string): string | null {
+    const schema = read("prisma/schema.prisma");
+    const block = schema.match(new RegExp(`^model ${model} \\{\\n([\\s\\S]*?)^\\}`, "m"));
+    if (!block) throw new Error(`model ${model} not found in schema.prisma`);
+    const decl = block[1].match(new RegExp(`^\\s{2}${field}\\s+(\\w+)`, "m"));
+    if (!decl) return null;
+    const type = decl[1];
+    return new RegExp(`^enum ${type} \\{`, "m").test(schema) ? type : null;
+  }
+
+  function enumValues(name: string): string[] {
+    const schema = read("prisma/schema.prisma");
+    const block = schema.match(new RegExp(`^enum ${name} \\{\\n([\\s\\S]*?)^\\}`, "m"));
+    if (!block) throw new Error(`enum ${name} not found in schema.prisma`);
+    // Values only: skip comment lines, which several of these enums carry.
+    return [...block[1].matchAll(/^\s{2}(\w+)\s*$/gm)].map((m) => m[1]);
+  }
+
+  const enumFields = ENTITY_DEFS.flatMap((e) =>
+    e.fields.filter((f) => f.kind === "enum").map((f) => [`${e.key}.${f.key}`, e.key, f] as const),
+  );
+
+  it("has enum fields to check", () => {
+    // Guards the guard: the rule below is an equality over a discovered list, and a list
+    // that discovers nothing passes it forever.
+    expect(enumFields.length).toBeGreaterThan(3);
+  });
+
+  it.each(enumFields)("%s: offers exactly its schema enum's values", (name, entityKey, field) => {
+    const model = MODEL_FOR[entityKey] ?? entityKey.charAt(0).toUpperCase() + entityKey.slice(1);
+    const enumName = enumNameFor(model, field.key);
+    if (!enumName) return; // not schema-enum-backed (a free-text or derived field)
+
+    const declared = [...(field.enum ?? [])].sort();
+    const actual = [...enumValues(enumName)].sort();
+    expect(
+      declared,
+      `${name} offers a different value set than Prisma's ${enumName}.\n` +
+        `missing (cannot be imported): ${actual.filter((v) => !declared.includes(v)).join(", ") || "none"}\n` +
+        `extra (will fail at the database): ${declared.filter((v) => !actual.includes(v)).join(", ") || "none"}`,
+    ).toEqual(actual);
+  });
+});
