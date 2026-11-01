@@ -94,7 +94,17 @@ const MILESTONE_STATUS = ["UPCOMING", "IN_PROGRESS", "COMPLETED", "MISSED"];
 const OBJECTIVE_STATUS = ["DRAFT", "ACTIVE", "COMPLETED", "CANCELLED"];
 const GOAL_STATUS = ["PLANNED", "ON_TRACK", "AT_RISK", "OFF_TRACK", "ACHIEVED"];
 const GOAL_PROGRESS_MODE = ["MANUAL", "AUTO"];
-const CYCLE_KIND = ["SPRINT", "PHASE", "MODULE", "RUN", "EVENT_DAY", "RELEASE", "ITERATION"];
+// Mirrors Prisma's `IntervalKind`, and MUST stay complete: this list is what the import
+// wizard offers and what `coerceField` accepts, so a value missing here cannot be
+// imported at all. PROGRAM_INCREMENT was absent, which meant a PI — the timebox that
+// CONTAINS sprints, and the unit the PI-planning surfaces are built around — could not
+// come in from a spreadsheet. Not derived from `Object.values(IntervalKind)` on purpose:
+// `import-wizard.tsx` is a client component and imports this module, so a runtime import
+// of @prisma/client here would pull the client into the browser bundle. The literal is
+// held to the schema by `dead-fields.arch.test.ts` instead.
+const CYCLE_KIND = [
+  "SPRINT", "PHASE", "MODULE", "RUN", "EVENT_DAY", "RELEASE", "ITERATION", "PROGRAM_INCREMENT",
+];
 const SPRINT_STATUS = ["PLANNED", "ACTIVE", "COMPLETED"];
 const BLOCKER_TYPE = [
   "INTERNAL", "EXTERNAL_GOVERNMENT", "EXTERNAL_VENDOR",

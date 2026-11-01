@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.508.1",
+    date: "2026-11-01",
+    title: "Import a Program Increment",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A spreadsheet of intervals can now bring in Program Increments. The importer offered every other kind \u2014 sprints, phases, releases \u2014 but not PIs, so the one timebox your PI planning is organised around had to be created by hand.",
+      },
+    ],
+  },
+  {
     version: "2.508.0",
     date: "2026-11-01",
     title: "Cosmo knows which projects are yours",
