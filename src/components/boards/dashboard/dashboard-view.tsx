@@ -45,6 +45,7 @@ import { assigneeLabel, workloadBuckets } from "./workload";
 import type { WorkItem, Board, BoardColumn, OrgMember, Interval } from "@/types/models";
 
 import "react-grid-layout/css/styles.css";
+import { intervalChildrenById } from "@/lib/intervals/interval-tree";
 
 interface DashboardViewProps {
   orgId: string;
@@ -238,10 +239,17 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   // items differently because the clock ticked between them.
   // With the query language on, the bar and the board's scope are one CQL query (boards/shared/use-board-query).
   const boardQuery = useBoardQuery({ orgId, projectId, config: board?.config, rows: items as unknown as Record<string, unknown>[] });
+  // A PI selection in the Interval filter means "any sprint under this PI"
+  // (3d90c48e). Items carry a sprint id, never a PI id.
+  const intervalChildren = useMemo(() => intervalChildrenById(intervals), [intervals]);
   const filteredItems = useMemo(() => {
     const now = new Date();
-    return items.filter((i) => (boardQuery.enabled ? boardQuery.keep(i) : matchesFilters(i, filters, [], new Map(), now)));
-  }, [items, filters, boardQuery]);
+    return items.filter((i) =>
+      boardQuery.enabled
+        ? boardQuery.keep(i)
+        : matchesFilters(i, filters, [], new Map(), now, { intervalChildren }),
+    );
+  }, [items, filters, boardQuery, intervalChildren]);
 
   const columnCategoryMap = useMemo(() => {
     const map = new Map<string, string>();

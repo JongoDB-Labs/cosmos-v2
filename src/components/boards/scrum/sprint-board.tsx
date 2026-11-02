@@ -92,39 +92,53 @@ export function SprintBoard({
 
   return (
     <div className="flex h-full flex-col">
+      {/* ONE bar, where there used to be two.
+          The sprint context was a `py-4` block — heading, a wrapping goal
+          PARAGRAPH, a full-width progress bar with a caption beneath it, and a
+          boxed close-out report — stacked ON TOP of a second bordered row for
+          the pills. Measured together that is ~158px of chrome, above a board
+          that then adds its own filter bar, scope notice and toolbar: five
+          horizontal bands before the first card. Reported as the sprint board
+          being "clunky and spread out ... taking up so much board real estate
+          with dropdowns and such" (ffe324aa).
+          Nothing was dropped to fix it. Every value that block showed is still
+          here, on a single line that wraps only when it must — see
+          SprintSummaryLine. */}
       {intervals === null ? (
-        <div className="border-b border-[var(--border)] px-6 py-4">
-          <Skeleton className="h-5 w-48" />
-          <Skeleton className="mt-2 h-3 w-72" />
+        <div className="border-b border-[var(--border)] px-6 py-2">
+          <Skeleton className="h-4 w-64" />
         </div>
-      ) : shown ? (
-        <SprintHeader sprint={shown} />
       ) : (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-6 py-3">
-          <p className="text-sm text-[var(--text-muted)]">
-            No active sprint — showing the full board. Create one to start
-            planning into time-boxed iterations.
-          </p>
-          <Link
-            href={intervalsHref}
-            className={cn(buttonVariants({ size: "sm" }), "gap-1.5")}
-          >
-            <Plus className="h-3.5 w-3.5" /> New sprint
-          </Link>
+        <div className="flex flex-col gap-1 border-b border-[var(--border)] px-6 py-2">
+          {/* All sprints — click any to SCOPE THE BOARD to it. These used to
+              open a read-only modal, which meant the one obvious way to move
+              between sprints didn't move the board at all; the details they
+              showed now live on the summary line below, which follows the
+              selection. */}
+          {intervals.length > 0 && (
+            <SprintPicker
+              intervals={intervals}
+              shownId={shown?.id ?? null}
+              onSelect={setSelectedId}
+              onManage={() => setManageOpen(true)}
+            />
+          )}
+          {shown ? (
+            <SprintSummaryLine sprint={shown} />
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-[var(--text-muted)]">
+                No active sprint — showing the full board.
+              </p>
+              <Link
+                href={intervalsHref}
+                className={cn(buttonVariants({ size: "sm" }), "gap-1.5")}
+              >
+                <Plus className="h-3.5 w-3.5" /> New sprint
+              </Link>
+            </div>
+          )}
         </div>
-      )}
-
-      {/* All sprints — click any to SCOPE THE BOARD to it. These used to open a
-          read-only modal, which meant the one obvious way to move between
-          sprints didn't move the board at all; the details they showed now live
-          in the header above, which follows the selection. */}
-      {intervals && intervals.length > 0 && (
-        <SprintPicker
-          intervals={intervals}
-          shownId={shown?.id ?? null}
-          onSelect={setSelectedId}
-          onManage={() => setManageOpen(true)}
-        />
       )}
 
       <div className="min-h-0 flex-1">
@@ -227,7 +241,13 @@ export function SprintPicker({
     </button>
   );
 
-  const shownPi = tree.pis.find((g) => g.children.some((c) => c.id === shownId));
+  // The PI on screen: the one holding the shown sprint, OR the PI itself when
+  // the board is scoped straight to it. Without the second case, scoping to a
+  // past PI showed no "this is past work" warning at all — the exact footgun
+  // COSMOS-203 added the warning for.
+  const shownPi = tree.pis.find(
+    (g) => g.interval.id === shownId || g.children.some((c) => c.id === shownId),
+  );
   const viewingPast = shownPi && isPastProgramIncrement(shownPi.interval, now);
 
   // Without PIs: the original flat list (sprints only, unless there are none).
@@ -239,11 +259,13 @@ export function SprintPicker({
     .sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
 
   return (
-    <div className="border-b border-[var(--border)] px-6 py-2">
+    // No border or page padding of its own: this row sits inside the single
+    // sprint-context bar (see SprintBoard). Carrying them here is what made one
+    // bar read as two. The "Sprints" caption went with them — the pills and
+    // "Manage" say what the row is, and the label cost horizontal space on the
+    // row ffe324aa is about.
+    <div>
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
-          Sprints
-        </span>
         <button
           type="button"
           onClick={onManage}
@@ -272,17 +294,31 @@ export function SprintPicker({
                       past ? "border-[var(--border)] opacity-80" : "border-[var(--primary)]/40",
                     )}
                   >
+                    {/* Two controls, deliberately: the chevron expands, the
+                        name SCOPES THE BOARD to the whole PI (3d90c48e asked
+                        for both and the single button could only ever do one).
+                        Splitting rather than adding a third control is the
+                        point — this row is the subject of ffe324aa, so the
+                        feature had to cost no new horizontal space. */}
                     <button
                       type="button"
                       aria-expanded={open}
+                      aria-label={`${open ? "Collapse" : "Expand"} ${label}`}
                       onClick={() => setToggled((t) => ({ ...t, [pi.id]: !open }))}
-                      className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-medium text-[var(--text)] hover:bg-[var(--primary-tint)]"
-                      title={`${open ? "Collapse" : "Expand"} ${label}`}
+                      className="inline-flex items-center rounded-full p-0.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--primary-tint)] hover:text-[var(--primary)]"
                     >
                       <ChevronRight
                         className={cn("h-3 w-3 transition-transform", open && "rotate-90")}
                         aria-hidden
                       />
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={pi.id === shownId}
+                      aria-label={`Show all work in ${label}`}
+                      onClick={() => onSelect(pi.id)}
+                      className={cn(pillClass(pi.id === shownId), "inline-flex items-center gap-1 font-medium")}
+                    >
                       {label}
                       {past && (
                         <span className="rounded bg-muted px-1 text-[10px] font-normal uppercase text-[var(--text-muted)]">
@@ -343,7 +379,26 @@ function KanbanBoardMountSkeleton() {
   );
 }
 
-function SprintHeader({ sprint }: { sprint: IntervalWithCount }) {
+/**
+ * The sprint context, on ONE line.
+ *
+ * This was a `py-4` header block: an h2, a wrapping goal paragraph, a
+ * full-width progress bar with a "Day 5 of 14" caption under it, and a boxed
+ * three-column close-out report — roughly 118px, and that sat above a second
+ * bordered row for the sprint pills (ffe324aa: "clunky and spread out ... taking
+ * up so much board real estate").
+ *
+ * Every value it showed is still shown. What changed is that they share a row
+ * instead of each claiming one: the progress bar is a 64px inline meter whose
+ * day count moved into its `title`, and the goal is a single truncated line
+ * with the full text on hover. A sprint goal is usually a sentence, so left to
+ * wrap it alone cost two lines above every board.
+ *
+ * The name stays an <h2>: it is the heading for the board underneath, and the
+ * tests that assert the heading follows the selection are asserting something
+ * real about orientation, not an implementation detail.
+ */
+function SprintSummaryLine({ sprint }: { sprint: IntervalWithCount }) {
   const start = new Date(sprint.startDate);
   const end = new Date(sprint.endDate);
   const now = new Date();
@@ -353,14 +408,15 @@ function SprintHeader({ sprint }: { sprint: IntervalWithCount }) {
     totalDays,
     Math.max(0, Math.round((now.getTime() - start.getTime()) / DAY_MS)),
   );
-  const daysRemaining = Math.max(
-    0,
-    Math.ceil((end.getTime() - now.getTime()) / DAY_MS),
-  );
+  const daysRemaining = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / DAY_MS));
   const pct = Math.round((elapsedDays / totalDays) * 100);
 
   const { label: statusLabel, variant } = statusBadge(sprint.status);
-  const itemCount = sprint._count?.workItems;
+  // A Program Increment can be the scope now, and work links to a SPRINT, so a
+  // PI's own `workItems` count is structurally zero. Printing "0 items" over a
+  // board full of rows would be worse than printing nothing.
+  const isPi = sprint.intervalKind === "PROGRAM_INCREMENT";
+  const itemCount = isPi ? undefined : sprint._count?.workItems;
   const report = sprint.report as {
     velocity?: number;
     completedStoryPoints?: number;
@@ -368,81 +424,70 @@ function SprintHeader({ sprint }: { sprint: IntervalWithCount }) {
     incompleteItems?: number;
   } | null;
 
-  const dateFmt = (d: Date) =>
-    formatDateShortStable(d);
+  const strong = "font-medium text-[var(--text)]";
 
   return (
-    <div className="border-b border-[var(--border)] px-6 py-4">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <h2 className="text-base font-semibold text-[var(--text)]">
-          {sprint.name || `Sprint ${sprint.number}`}
-        </h2>
-        <Badge variant={variant} showDot={false}>
-          {statusLabel}
-        </Badge>
-        <span className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
-          <CalendarDays className="h-3.5 w-3.5" />
-          {dateFmt(start)} – {dateFmt(end)}
-        </span>
-        {sprint.status === "ACTIVE" && (
-          <span className="text-xs text-[var(--text-muted)]">
-            · {daysRemaining} day{daysRemaining === 1 ? "" : "s"} left
-          </span>
-        )}
-        {typeof itemCount === "number" && (
-          <span className="text-xs text-[var(--text-muted)]">
-            · {itemCount} item{itemCount === 1 ? "" : "s"}
-          </span>
-        )}
-      </div>
-
-      {sprint.goal ? (
-        <p className="mt-1.5 flex items-start gap-1.5 text-sm text-[var(--text-muted)]">
-          <Target className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>{sprint.goal}</span>
-        </p>
-      ) : null}
-
+    <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-[var(--text-muted)]">
+      <h2 className="text-sm font-semibold text-[var(--text)]">
+        {sprint.name || `Sprint ${sprint.number}`}
+      </h2>
+      <Badge variant={variant} showDot={false}>
+        {statusLabel}
+      </Badge>
+      <span className="inline-flex items-center gap-1">
+        <CalendarDays className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        {formatDateShortStable(start)} – {formatDateShortStable(end)}
+      </span>
       {sprint.status === "ACTIVE" && (
-        <div className="mt-3">
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--border)]">
-            <div
-              className="h-full rounded-full bg-[var(--primary)] transition-[width]"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-          <p className="mt-1 text-[10px] text-[var(--text-muted)]">
-            Day {elapsedDays} of {totalDays}
-          </p>
-        </div>
+        <>
+          <span>
+            {daysRemaining} day{daysRemaining === 1 ? "" : "s"} left
+          </span>
+          {/* The bar is decoration over a number that is already written out;
+              the day count lives in the title rather than on its own line. */}
+          <span
+            className="inline-flex items-center gap-1.5"
+            title={`Day ${elapsedDays} of ${totalDays}`}
+          >
+            <span className="block h-1.5 w-16 overflow-hidden rounded-full bg-[var(--border)]">
+              <span
+                className="block h-full rounded-full bg-[var(--primary)] transition-[width]"
+                style={{ width: `${pct}%` }}
+              />
+            </span>
+            <span className="text-[10px] tabular-nums">
+              {elapsedDays}/{totalDays}d
+            </span>
+          </span>
+        </>
       )}
-
+      {typeof itemCount === "number" && (
+        <span>
+          {itemCount} item{itemCount === 1 ? "" : "s"}
+        </span>
+      )}
       {/* Close-out numbers for a finished sprint. These used to live only in the
           per-sprint modal that the pills opened; the pills now scope the board,
-          so the report follows the selection into the header instead of being
-          lost with the modal. */}
+          so the report follows the selection here instead of being lost. */}
       {report && (
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 rounded-md bg-[var(--surface)] p-2 text-xs text-[var(--text-muted)]">
+        <>
           <span>
-            Velocity:{" "}
-            <span className="font-medium text-[var(--text)]">
-              {report.velocity ?? report.completedStoryPoints ?? 0} pts
-            </span>
+            Velocity <span className={strong}>{report.velocity ?? report.completedStoryPoints ?? 0} pts</span>
           </span>
           <span>
-            Completed:{" "}
-            <span className="font-medium text-[var(--text)]">
-              {report.completedItems ?? 0}
-            </span>
+            Done <span className={strong}>{report.completedItems ?? 0}</span>
           </span>
           <span>
-            Carried over:{" "}
-            <span className="font-medium text-[var(--text)]">
-              {report.incompleteItems ?? 0}
-            </span>
+            Carried <span className={strong}>{report.incompleteItems ?? 0}</span>
           </span>
-        </div>
+        </>
       )}
+      {sprint.goal ? (
+        <span className="inline-flex min-w-0 items-center gap-1" title={sprint.goal}>
+          <Target className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span className="truncate">{sprint.goal}</span>
+        </span>
+      ) : null}
     </div>
   );
 }

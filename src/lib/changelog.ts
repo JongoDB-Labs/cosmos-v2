@@ -157,6 +157,33 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.509.0",
+    date: "2026-11-02",
+    title: "A roomier sprint board, and PI filtering that works",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The sprint board gives the board itself back a chunk of the screen. The sprint's name, status, dates, days remaining, item count, progress and goal all still show \u2014 they now share one compact strip instead of a tall header stacked on a second row of sprint pills, so you see cards sooner and scroll less.",
+      },
+      {
+        kind: "feature",
+        text: "You can filter a board on a whole Program Increment. Click a PI's name on the sprint row to scope the board to every sprint under it; the chevron beside it still expands and collapses, so picking one sprint works exactly as before.",
+      },
+      {
+        kind: "fix",
+        text: "Choosing a Program Increment in a board's Interval filter used to empty the board. Work belongs to a sprint rather than to the PI above it, so nothing ever matched and the result looked like a board with no work in it. It now shows everything in that PI's sprints, on all six board types that offer the filter, and the dropdown says which choices are whole PIs.",
+      },
+      {
+        kind: "feature",
+        text: "A project's Filters tab can turn a saved filter into a board. Each filter now carries a \u201CSave as board\u201D action, so you no longer have to know to run the filter on Issues first and find the button there.",
+      },
+      {
+        kind: "fix",
+        text: "Moving quickly between boards no longer raises a \u201CSomething went wrong\u201D message. A page animation that gets replaced by the next one reports itself as interrupted, which is normal and harmless \u2014 but it was being offered to you as a bug worth reporting. Genuine errors are unaffected.",
+      },
+    ],
+  },
+  {
     version: "2.506.3",
     date: "2026-10-31",
     title: "Classification is decided by your settings, not by the assistant",

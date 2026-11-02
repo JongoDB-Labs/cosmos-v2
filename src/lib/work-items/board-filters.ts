@@ -51,6 +51,31 @@ export function boardBaseline(initialIntervalId?: string | null): BoardFilters {
  * `BoardFilters` is imported as a TYPE from the filter-bar component — erased at
  * build time, so this creates no runtime dependency on a component.
  */
+/**
+ * Does an item's interval satisfy an interval selection?
+ *
+ * A sprint selection is an exact match, as it always was. A Program Increment
+ * selection means "any sprint under this PI" — work items carry a SPRINT id and
+ * never a PI id, so comparing a PI selection directly against `item.intervalId`
+ * matched nothing and emptied the board (3d90c48e). An empty board reads as
+ * "nothing matched" rather than "this control is broken", which is why this went
+ * unnoticed: the Interval dropdown is fed the project's whole interval list, PIs
+ * included, with no `intervalKind` filter anywhere between the API and the select.
+ *
+ * `children` absent => exact match only. The rollup is opt-in per call site so a
+ * board that has not resolved the hierarchy keeps today's behaviour instead of
+ * inheriting a half-wired widening.
+ */
+function inIntervalSelection(
+  itemIntervalId: string | null,
+  selected: string,
+  children?: Map<string, Set<string>>,
+): boolean {
+  if (itemIntervalId === selected) return true;
+  if (!itemIntervalId) return false; // backlog item: in no interval, so in no PI
+  return children?.get(selected)?.has(itemIntervalId) ?? false;
+}
+
 export function matchesFilters(
   item: WorkItem,
   f: BoardFilters,
@@ -69,6 +94,13 @@ export function matchesFilters(
   rel: {
     blocked?: Set<string>;
     milestones?: Map<string, Set<string>>;
+    /**
+     * Program Increment id -> the ids of the sprints under it. Lets an interval
+     * selection name a PI and still match work, which links to a SPRINT and
+     * never to a PI. Optional: without it the interval clause is the exact
+     * match it has always been, so no existing caller is silently widened.
+     */
+    intervalChildren?: Map<string, Set<string>>;
   } = {},
 ): boolean {
   if (
@@ -87,7 +119,8 @@ export function matchesFilters(
     !item.assignees?.some((a) => a.userId === f.assigneeId)
   )
     return false;
-  if (f.intervalId && item.intervalId !== f.intervalId) return false;
+  if (f.intervalId && !inIntervalSelection(item.intervalId, f.intervalId, rel.intervalChildren))
+    return false;
   // The item's own team, else whatever teams its assignee is on.
   if (!itemMatchesTeam(item, f.teamId, teamsByUserId)) return false;
   if (!matchesLabelFilter(item.tags, f.labels)) return false;

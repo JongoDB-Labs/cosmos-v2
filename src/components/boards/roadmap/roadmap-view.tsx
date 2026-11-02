@@ -28,6 +28,7 @@ import type { WorkItem, OrgMember, Interval, Board, BoardColumn } from "@/types/
 import { bareTypeKey } from "@/components/boards/shared/filter-bar";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { useProjectTeams } from "@/hooks/use-project-teams";
+import { intervalChildrenById } from "@/lib/intervals/interval-tree";
 
 interface RoadmapViewProps {
   orgId: string;
@@ -85,13 +86,21 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
   const { data: detailTeams } = useProjectTeams(orgId, projectId);
   // With the query language on, the bar and the board's scope are one CQL query (boards/shared/use-board-query).
   const boardQuery = useBoardQuery({ orgId, projectId, config: boardQ.data?.config, rows: items as unknown as Record<string, unknown>[] });
+  const intervals: Interval[] = useMemo(() => intervalsQ.data ?? [], [intervalsQ.data]);
+  // A PI selection in the Interval filter means "any sprint under this PI"
+  // (3d90c48e). Items carry a sprint id, never a PI id.
+  const intervalChildren = useMemo(() => intervalChildrenById(intervals), [intervals]);
   const visibleItems = useMemo(
-    () => items.filter((it) => (boardQuery.enabled ? boardQuery.keep(it) : matchesFilters(it, filters))),
-    [items, filters, boardQuery],
+    () =>
+      items.filter((it) =>
+        boardQuery.enabled
+          ? boardQuery.keep(it)
+          : matchesFilters(it, filters, [], new Map(), undefined, { intervalChildren }),
+      ),
+    [items, filters, boardQuery, intervalChildren],
   );
   const members: OrgMember[] = membersQ.data ?? [];
   const columns: BoardColumn[] = boardQ.data?.columns ?? [];
-  const intervals: Interval[] = useMemo(() => intervalsQ.data ?? [], [intervalsQ.data]);
 
   const [detailId, setDetailId] = useState<string | null>(null);
   const detailItem = detailId ? items.find((i) => i.id === detailId) ?? null : null;

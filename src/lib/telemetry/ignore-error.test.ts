@@ -107,3 +107,54 @@ describe("isChunkLoadError", () => {
     expect(isChunkLoadError(undefined)).toBe(false);
   });
 });
+
+/**
+ * faecbb73 — a member was shown "Something went wrong" on a board and filed a
+ * BUG ticket reading "Transition was skipped. New ViewTransition started". One
+ * hit, no stack, no component stack, no breadcrumbs.
+ *
+ * That message is the View Transitions API working as specified: a transition's
+ * promise REJECTS when a newer transition supersedes it, which rapid navigation
+ * does constantly — and a board route is where rapid navigation happens. We
+ * declare React's <ViewTransition> (components/ui/page-transition) but never
+ * call startViewTransition, so we never hold the promise that rejects and there
+ * is nothing on our side to await or cancel. Nothing is broken.
+ *
+ * So the cost was entirely in the reporting: a scary toast over a working page,
+ * and a bug ticket in the queue the roadmap is pulled from.
+ */
+describe("interrupted view transitions are not bugs", () => {
+  it("does not offer a bug report for the superseded-transition rejection", () => {
+    expect(
+      isReportableClientError("Transition was skipped. New ViewTransition started"),
+    ).toBe(false);
+  });
+
+  it("covers the abort and interrupt wordings too, not just the one we saw", () => {
+    // Browsers and React word this differently and have changed it before;
+    // matching only the exact string seen in one report would let the next
+    // phrasing straight back through.
+    expect(isReportableClientError("Transition was aborted")).toBe(false);
+    expect(isReportableClientError("View transition was interrupted")).toBe(false);
+    expect(isReportableClientError("ViewTransition skipped")).toBe(false);
+  });
+
+  it("is not fooled into swallowing a real error that merely says 'transition'", () => {
+    // The positive control, and the reason this predicate is narrow: work items
+    // have status TRANSITIONS, and a genuine failure in that code says so.
+    expect(
+      isReportableClientError("Failed to apply transition: target column is required"),
+    ).toBe(true);
+    expect(isReportableClientError("TypeError: transition is not a function")).toBe(true);
+  });
+
+  it("still reports a genuine error raised DURING a transition", () => {
+    // An app error with a real stack is ours whatever it coincided with.
+    expect(
+      isReportableClientError(
+        "Cannot read properties of null (reading 'columnKey')",
+        "    at KanbanCard (/_next/static/chunks/boards.js:4:11)",
+      ),
+    ).toBe(true);
+  });
+});

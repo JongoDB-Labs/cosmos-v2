@@ -76,3 +76,28 @@ export function isPastProgramIncrement(
 ): boolean {
   return pi.status === "COMPLETED" || new Date(pi.endDate).getTime() < now;
 }
+
+/**
+ * Program Increment id -> the ids of the sprints under it.
+ *
+ * Boards filter by a single `intervalId`, and a work item carries a SPRINT id —
+ * never a PI id. So a filter naming a PI matched nothing and the board went
+ * blank (3d90c48e); the Interval dropdown offers PIs because the API applies no
+ * `intervalKind` filter. This lookup is what lets `matchesFilters` read a PI
+ * selection as "any sprint under it".
+ *
+ * Only PIs get an entry. A sprint is matched exactly and must never be rolled
+ * up, and an entry for one would make a sprint selection behave like a PI. An
+ * empty PI still gets an (empty) entry: "this PI has no sprints, so no work
+ * matches" is a different answer from "unknown id, fall back to exact match",
+ * and conflating them would quietly turn a mis-set filter into no filter.
+ */
+export function intervalChildrenById<T extends TreeInterval>(
+  intervals: T[],
+): Map<string, Set<string>> {
+  const { pis } = buildIntervalTree(intervals);
+  return new Map(pis.map(({ interval, children }) => [
+    interval.id,
+    new Set(children.map((c) => c.id)),
+  ]));
+}

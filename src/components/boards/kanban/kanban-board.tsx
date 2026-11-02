@@ -90,6 +90,7 @@ import type {
   OrgMember,
   Interval,
 } from "@/types/models";
+import { intervalChildrenById } from "@/lib/intervals/interval-tree";
 
 interface KanbanBoardProps {
   orgId: string;
@@ -530,6 +531,9 @@ function KanbanBoardInner({
     sprint: filters.intervalId ? { id: filters.intervalId, name: sprintName } : null,
     rows: items as unknown as Record<string, unknown>[],
   });
+  // A PI selection in the Interval filter means "any sprint under this PI"
+  // (3d90c48e). Items carry a sprint id, never a PI id.
+  const intervalChildren = useMemo(() => intervalChildrenById(intervals), [intervals]);
   const filteredItems = items.filter((item) =>
     boardQuery.enabled
       ? boardQuery.keep(item)
@@ -537,6 +541,7 @@ function KanbanBoardInner({
         matchesFilters(item, filters, projectCustomFields, teamsByUserId, filterNow, {
           blocked: blockedIds,
           milestones: milestoneMap,
+          intervalChildren,
         }),
   );
 

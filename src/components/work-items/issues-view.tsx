@@ -478,6 +478,40 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   // create boards for the projects they manage, per the board POST's inheritance).
   const managedProjectIds = facets?.managedProjectIds ?? [];
   const canCreateBoard = hasOrgBoardCreate || managedProjectIds.length > 0;
+
+  /**
+   * Deep-link: `/issues?filter=<id>&saveBoard=1` opens Save-as-board on that
+   * saved filter.
+   *
+   * The project's "Filters" tab links here instead of growing its own copy of
+   * the dialog, the CQL validation and the project gating — three copies of
+   * that flow is how they drift apart. It had no actions at all, which is why
+   * "how do I save a filter as a board?" has been asked three times about a
+   * feature that shipped twice (see cql/project-filters).
+   *
+   * Placed after `canCreateBoard` rather than with the other deep links near
+   * the top: the permission is derived from the facets, and firing before those
+   * land would open the dialog for someone who cannot create a board.
+   *
+   * Waits for the named filter to load so the board is seeded with its name,
+   * exactly as the dropdown action seeds it, then strips the param so closing
+   * the dialog does not immediately reopen it.
+   */
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!searchParams.get("saveBoard") || !canCreateBoard) return;
+    const name = loadedFilter.data?.name;
+    // Still resolving the filter — come back when it lands rather than opening
+    // the dialog with an empty name.
+    if (cqlUrl.filterId && !name) return;
+    setSaveBoardSeed(name ?? "");
+    setSaveBoardOpen(true);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("saveBoard");
+    router.replace(url.pathname + url.search);
+  }, [searchParams, canCreateBoard, loadedFilter.data, cqlUrl.filterId, router]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   const rows = results?.data ?? [];
 
   // ── Bulk edit (cross-project) ───────────────────────────────────────────

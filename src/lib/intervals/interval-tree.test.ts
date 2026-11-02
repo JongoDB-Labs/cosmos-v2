@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { buildIntervalTree, type TreeInterval } from "./interval-tree";
+import {
+  buildIntervalTree,
+  intervalChildrenById,
+  type TreeInterval,
+} from "./interval-tree";
 
 // The intervals screen listed everything newest-first, because the API returns
 // `orderBy: { number: "desc" }` and the UI applied no ordering of its own —
@@ -86,5 +90,53 @@ describe("buildIntervalTree — grouping", () => {
 
   it("tolerates an empty list", () => {
     expect(buildIntervalTree([])).toEqual({ pis: [], standalone: [] });
+  });
+});
+
+/**
+ * The lookup a board's filter needs to make "show me this PI" mean anything
+ * (3d90c48e). Work items carry a SPRINT id and never a PI id, so a filter
+ * holding a PI id has to be widened to that PI's sprints or it matches nothing
+ * and the board goes blank.
+ */
+describe("intervalChildrenById", () => {
+  it("maps a PI to the ids of its sprints", () => {
+    const m = intervalChildrenById([
+      iv({ id: "pi-1", number: 1, intervalKind: PI }),
+      iv({ id: "s-1", number: 1, parentId: "pi-1" }),
+      iv({ id: "s-2", number: 2, parentId: "pi-1" }),
+    ]);
+    expect(m.get("pi-1")).toEqual(new Set(["s-1", "s-2"]));
+  });
+
+  it("keeps two PIs apart rather than pooling every sprint", () => {
+    const m = intervalChildrenById([
+      iv({ id: "pi-1", number: 1, intervalKind: PI }),
+      iv({ id: "pi-2", number: 2, intervalKind: PI }),
+      iv({ id: "s-1", number: 1, parentId: "pi-1" }),
+      iv({ id: "s-9", number: 9, parentId: "pi-2" }),
+    ]);
+    expect(m.get("pi-1")).toEqual(new Set(["s-1"]));
+    expect(m.get("pi-2")).toEqual(new Set(["s-9"]));
+  });
+
+  it("gives an empty PI an entry, so selecting it means 'no work' not 'no filter'", () => {
+    const m = intervalChildrenById([iv({ id: "pi-1", number: 1, intervalKind: PI })]);
+    // Present, and empty — a missing entry would fall through to the exact
+    // match and is indistinguishable from an unknown id.
+    expect(m.has("pi-1")).toBe(true);
+    expect(m.get("pi-1")).toEqual(new Set());
+  });
+
+  it("has no entry for a sprint, which is matched exactly and never rolled up", () => {
+    const m = intervalChildrenById([
+      iv({ id: "pi-1", number: 1, intervalKind: PI }),
+      iv({ id: "s-1", number: 1, parentId: "pi-1" }),
+    ]);
+    expect(m.has("s-1")).toBe(false);
+  });
+
+  it("tolerates an empty list", () => {
+    expect(intervalChildrenById([]).size).toBe(0);
   });
 });

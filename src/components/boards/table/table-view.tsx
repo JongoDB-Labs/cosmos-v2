@@ -82,6 +82,7 @@ import {
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import type { WorkItem, Board, BoardColumn, OrgMember, Interval } from "@/types/models";
 import { formatDateStable } from "@/lib/format/stable-date";
+import { intervalChildrenById } from "@/lib/intervals/interval-tree";
 
 interface TableViewProps {
   orgId: string;
@@ -212,12 +213,18 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   const scope = useMemo(() => boardScope(board?.config), [board]);
   // With the query language on, scope and bar are one CQL query (boards/shared/use-board-query).
   const boardQuery = useBoardQuery({ orgId, projectId, config: board?.config, rows: items as unknown as Record<string, unknown>[] });
+  // A PI selection in the Interval filter means "any sprint under this PI"
+  // (3d90c48e). Items carry a sprint id, never a PI id.
+  const intervalChildren = useMemo(() => intervalChildrenById(intervals), [intervals]);
   const visibleItems = useMemo(
     () =>
       items.filter((it) =>
-        boardQuery.enabled ? boardQuery.keep(it) : inBoardScope(scope, it) && matchesFilters(it, filters),
+        boardQuery.enabled
+          ? boardQuery.keep(it)
+          : inBoardScope(scope, it) &&
+            matchesFilters(it, filters, [], new Map(), undefined, { intervalChildren }),
       ),
-    [items, filters, scope, boardQuery],
+    [items, filters, scope, boardQuery, intervalChildren],
   );
 
   // Persist a change to the board's type filter (optimistic: patch the board
