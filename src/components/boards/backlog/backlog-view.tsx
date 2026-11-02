@@ -50,6 +50,7 @@ import {
 } from "@/lib/boards/backlog-dnd";
 import { notifyError } from "@/lib/errors/notify";
 import { cn } from "@/lib/utils";
+import { isWorkItemResolved } from "@/lib/work-items/done-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -241,6 +242,25 @@ export function BacklogView({
     (item: WorkItem) =>
       item.columnKey === "done" || columnMap.get(item.columnKey)?.category === "DONE",
     [columnMap],
+  );
+
+  // PRESENTATION only, and deliberately NOT the same question as `isDone`.
+  //
+  // `isDone` answers "is this delivered", which is what "Hide done" filters on and
+  // what any figure may count. Striking a row out asks something else — "is this
+  // settled" — and work that was given up on is settled without being delivered.
+  // Bug 635be41c: a Cancelled/OBE row sat here unstruck beside struck Done rows,
+  // so dropped work read as still outstanding.
+  //
+  // `isWorkItemResolved` exists for exactly this and says so in its own doc
+  // ("the places that strike out a settled item"), but it had ONE call site —
+  // the card-detail children list — so every other surface kept the old
+  // behaviour. Widening `isDone` instead would feed cancelled items into
+  // velocity and rollups as delivered work, which is the opposite of why the
+  // Cancelled category exists.
+  const isResolved = useCallback(
+    (item: WorkItem) => isWorkItemResolved(item, columns),
+    [columns],
   );
 
   const intervalMap = useMemo(() => {
@@ -672,7 +692,7 @@ export function BacklogView({
                         prettifyKey(item.columnKey)
                       }
                       intervalName={item.intervalId ? intervalMap.get(item.intervalId)?.name ?? null : null}
-                      done={isDone(item)}
+                      resolved={isResolved(item)}
                       menuGroups={buildMenuGroups(item)}
                       onOpen={() => openDetail(item)}
                     />
@@ -714,7 +734,7 @@ export function BacklogView({
                             columnMap.get(item.columnKey)?.name ?? prettifyKey(item.columnKey)
                           }
                           intervalName={interval?.name ?? null}
-                          done={isDone(item)}
+                          resolved={isResolved(item)}
                           menuGroups={buildMenuGroups(item)}
                           onOpen={() => openDetail(item)}
                         />
@@ -873,7 +893,7 @@ function RowContent({
   member,
   statusLabel,
   intervalName,
-  done,
+  resolved,
   menuGroups,
   onOpen,
   dragHandle,
@@ -883,7 +903,8 @@ function RowContent({
   member: OrgMember | undefined;
   statusLabel: string;
   intervalName: string | null;
-  done: boolean;
+  /** Settled: delivered OR dropped. Presentation only; see `isResolved`. */
+  resolved: boolean;
   menuGroups: ActionMenuGroup[];
   onOpen: () => void;
   dragHandle?: React.ReactNode;
@@ -894,7 +915,7 @@ function RowContent({
       data-highlight={item.highlight ?? undefined}
       className={cn(
         "group/action flex items-center gap-2 border-b border-[var(--border)]/60 px-2 py-2 transition-colors hover:bg-[var(--surface)]/60",
-        done && "opacity-60",
+        resolved && "opacity-60",
       )}
       // Row shape, not card shape: this is a full-width divider row, so the
       // highlight is a left edge plus a wash rather than an outline.
@@ -924,7 +945,7 @@ function RowContent({
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-sm text-[var(--text)]",
-            done && "line-through",
+            resolved && "line-through",
           )}
         >
           {item.title}
