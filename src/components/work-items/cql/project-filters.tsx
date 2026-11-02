@@ -65,7 +65,14 @@ export function ProjectFilters({
             {canCreateBoard && (
               <Link
                 href={`/${orgSlug}/issues?filter=${f.id}&saveBoard=1`}
-                aria-label={`Save “${f.name}” as board`}
+                // WCAG 2.5.3 Label in Name: the accessible name must CONTAIN
+                // the visible text, so "Save as board" leads and the filter's
+                // name follows. "Save <name> as board" reads better but breaks
+                // speech input — "click Save as board" would not match it. Our
+                // axe gate gets no say here: it runs wcag2a/wcag2aa only, and
+                // label-content-name-mismatch is a 2.1 rule, so it would have
+                // passed this either way.
+                aria-label={`Save as board: ${f.name}`}
                 className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)] transition-colors hover:text-[var(--primary)] hover:underline"
               >
                 <LayoutDashboard className="h-3.5 w-3.5" aria-hidden />

@@ -73,8 +73,19 @@ describe("the Filters tab can turn a filter into a board", () => {
   it("names the filter it acts on, so two rows are told apart", async () => {
     renderTab(true);
     expect(
-      await screen.findByRole("link", { name: /save “Blocked this sprint” as board/i }),
+      await screen.findByRole("link", { name: "Save as board: Blocked this sprint" }),
     ).toBeTruthy();
+  });
+
+  it("leads the accessible name with the VISIBLE text (WCAG 2.5.3)", async () => {
+    // Speech input activates a control by its visible text, so "Save <name> as
+    // board" — which reads better — would leave "click Save as board" matching
+    // nothing. The axe gate cannot catch this: it runs wcag2a/wcag2aa, and
+    // label-content-name-mismatch is a 2.1 rule.
+    renderTab(true);
+    const [first] = await screen.findAllByRole("link", { name: /save .*as board/i });
+    expect(first.getAttribute("aria-label")).toMatch(/^Save as board\b/);
+    expect(first.textContent).toContain("Save as board");
   });
 
   it("is absent for a viewer who cannot create boards here", async () => {
