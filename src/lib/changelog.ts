@@ -177,6 +177,10 @@ const RELEASES: Release[] = [
         kind: "feature",
         text: "A project's Filters tab can turn a saved filter into a board. Each filter now carries a \u201CSave as board\u201D action, so you no longer have to know to run the filter on Issues first and find the button there.",
       },
+      {
+        kind: "fix",
+        text: "Moving quickly between boards no longer raises a \u201CSomething went wrong\u201D message. A page animation that gets replaced by the next one reports itself as interrupted, which is normal and harmless \u2014 but it was being offered to you as a bug worth reporting. Genuine errors are unaffected.",
+      },
     ],
   },
   {

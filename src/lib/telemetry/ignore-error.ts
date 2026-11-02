@@ -20,6 +20,16 @@
  *    `chrome-extension://…/inpage.js`. Nothing in the app is broken and there is
  *    nothing to fix, so we swallow it: no toast, no report, and the user's page
  *    is left exactly as it was.
+ *
+ *  - **Interrupted view transitions** (faecbb73). The View Transitions API
+ *    rejects a transition's promise when a NEWER transition supersedes it —
+ *    that rejection is the spec working, and rapid navigation causes it
+ *    constantly. We declare React's `<ViewTransition>` (ui/page-transition) but
+ *    never call `startViewTransition`, so we never hold the promise that
+ *    rejects and there is nothing on our side to await or cancel. A member hit
+ *    this on a board route, got "Something went wrong" over a page that was
+ *    working, and filed a BUG ticket — one hit, no stack, no breadcrumbs. The
+ *    whole cost was the reporting, so the reporting is what changes.
  */
 
 export const CHUNK_ERROR =
@@ -34,11 +44,36 @@ export const CHUNK_ERROR =
  */
 const EXTENSION_FRAME = /[a-z-]+-extension:\/\//i;
 
+/**
+ * A view transition that was superseded rather than completed.
+ *
+ * Deliberately narrow: it needs the word "transition" AND a
+ * skipped/aborted/interrupted verb. Work items have status TRANSITIONS, so a
+ * bare /transition/i would swallow a genuine failure in that code — see the
+ * positive control in the tests. Several wordings are matched because browsers
+ * and React have each phrased this differently and changed it before; pinning
+ * only the one string we were shown would let the next phrasing through.
+ */
+const TRANSITION_NOUN = String.raw`(?:\bview\s?transition\b|\btransition\b)`;
+const SUPERSEDED_VERB = String.raw`\b(?:was\s+)?(?:skipped|aborted|interrupted)\b`;
+// Either order, within one sentence. `\btransition\b` alone cannot match inside
+// "ViewTransition" — there is no word boundary between the two words — which is
+// why the noun lists the joined spelling first.
+export const VIEW_TRANSITION_INTERRUPTED = new RegExp(
+  `${TRANSITION_NOUN}[^.]*${SUPERSEDED_VERB}|${SUPERSEDED_VERB}[^.]*${TRANSITION_NOUN}`,
+  "i",
+);
+
 /** A stack frame line: V8's `    at fn (url:1:2)` or Gecko/WebKit's `fn@url:1:2`. */
 const STACK_FRAME = /^\s*at\s|@\S+:\d+:\d+\s*$/;
 
 export function isChunkLoadError(message: string | undefined): boolean {
   return !!message && CHUNK_ERROR.test(message);
+}
+
+/** True for the superseded/skipped view-transition rejections described above. */
+export function isInterruptedViewTransition(message: string | undefined): boolean {
+  return !!message && VIEW_TRANSITION_INTERRUPTED.test(message);
 }
 
 /**
@@ -66,6 +101,7 @@ export function isReportableClientError(
 ): message is string {
   if (!message) return false;
   if (isChunkLoadError(message)) return false;
+  if (isInterruptedViewTransition(message)) return false;
   if (isBrowserExtensionError(message, stack)) return false;
   return true;
 }
