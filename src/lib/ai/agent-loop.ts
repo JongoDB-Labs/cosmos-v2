@@ -414,6 +414,29 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       // never be echoed back under a lower one even if the org's rows change between turns.
       const ceiling = maxByRank(await conservativeCeiling(opts.orgId), resolvedMaxCeiling);
       const projected = projectForModel(output, ctx, { valueKind: "tool_result", toolName: u.name, ceiling });
+      // AC-4: the gate's verdict on THIS tool result. `EgressDecision` is documented as
+      // "Logged for EVERY value the gate processes", and every other caller honours that —
+      // `runModelTurn` logs one row for the system prompt and one per message body. But
+      // `projectForModel` is PURE and logs nothing itself, so the obligation sits on each
+      // call site, and this call site did not meet it. The result: the highest-volume flow
+      // in the system, and the only one carrying database rows OUTWARD to the model, was
+      // the single flow with no evidence row.
+      //
+      // The damage was not only a missing row. `withholdRate` on the governance dashboard
+      // divides withheld by total over whatever rows exist, and the rows that existed were
+      // overwhelmingly system/user prompts — which the gate exposes unconditionally. So the
+      // dashboard reported a withhold rate near zero no matter how much data was withheld.
+      //
+      // NOT sampled, deliberately. `egress_decisions` is append-only (UPDATE/DELETE are
+      // REVOKEd from cosmos_app, plus a BEFORE UPDATE OR DELETE guard trigger) and carries
+      // an AU-9 hash chain in `row_hash`/`prev_hash`. A sampled audit log still verifies
+      // clean while having holes — the one property an evidence trail must not have — and
+      // since the table cannot be pruned, sampling would not even buy the space back later.
+      //
+      // Distinct from the `handle_mint` row below, which hashes the WITHHELD structural view
+      // (what the model was handed). This row hashes the SOURCE value the gate judged, so the
+      // two are telling you different things and both are wanted.
+      logEgressDecision(projected.decision);
       // On WITHHOLD, don't hand the model the opaque placeholder — give it a
       // STRUCTURAL projection (id + allowlisted enums/dates, never free-text/CUI)
       // so it can still orchestrate entities by id under the MAC ceiling.
