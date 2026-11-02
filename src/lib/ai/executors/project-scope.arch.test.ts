@@ -281,18 +281,50 @@ describe("agent tools cannot read past project scoping", () => {
    * that each entry names what is blocking and what the fix would be. It is a written
    * record of an open decision, not a silence.
    */
-  const OMISSION_DECISION_PENDING = new Set([
-    // `list_time_entries` omitting projectId carries no project clause, so a supervisor
-    // (readableTimeUserIds widens to direct reports and to anyone whose timesheet is routed
-    // to them for approval) sees those people's hours on team-scoped projects the supervisor
-    // cannot open. Rates stay redacted; nothing else does.
+  const OMISSION_DECISION_PENDING = new Set<string>([
+    // Deliberately EMPTY. `time.ts::listTimeEntries` lived here until 2026-11-01 and has
+    // moved to PERSON_SCOPED below: the question it was waiting on has an answer, and the
+    // answer is that it was never a project-scoped read. Kept (empty) rather than deleted
+    // so the next genuinely-undecided case has a home that forces a written reason instead
+    // of a quiet addition to one of the exemption sets above.
+  ]);
+
+  /**
+   * Functions whose scope is bounded by WHO, not by WHICH PROJECT — and which are therefore
+   * correct without a project clause on the omission path.
+   *
+   * This category had to exist. Every set above is project-shaped, so a resource scoped by
+   * person had no honest home and defaulted into OMISSION_DECISION_PENDING, where it read
+   * as an open defect that someone still owed a fix. It was not one.
+   *
+   * The obligation that comes with an entry here: say what bounds it instead, and why
+   * bounding it by project would be WRONG rather than merely unnecessary.
+   */
+  const PERSON_SCOPED = new Set([
+    // `list_time_entries` is bounded by `readableTimeUserIds(auth)` — self, direct reports,
+    // and anyone whose timesheet is CURRENTLY routed to the actor for a decision (a widening
+    // that lapses once the sheet is approved or returned). That is the whole scope rule for
+    // time, in the agent and in `GET /orgs/[orgId]/time-entries` alike.
     //
-    // NOT fixed here because `GET /orgs/[orgId]/time-entries` has the IDENTICAL shape
-    // (route.ts:50 gates only when a projectId is supplied), so narrowing the agent alone
-    // would make it stricter than the app — the drift _ctx.ts::assertProjectManage was
-    // written to prevent. And the underlying question is a product one: bounding a
-    // supervisor's view by THEIR OWN project access would stop them seeing, and approving,
-    // hours their report logged on another project. Fix the shared rule or neither.
+    // Bounding it by the actor's own project access would be a REGRESSION, not a tightening,
+    // and this repo has already made and reverted that exact mistake: `time/scope.ts:56-66`
+    // records that reads were once scoped to self-and-reports only, so "an approver who is
+    // not the person's supervisor — the pool case — was notified about a week and then met
+    // an empty page", with the notification deep-linking to the week they could not open.
+    // Re-adding a project clause here re-creates that: hours logged on a project the
+    // approver cannot open become invisible, and therefore unapprovable, while the approval
+    // request still arrives.
+    //
+    // What the omission path actually discloses is also narrow. The select carries
+    // `projectId` and NOT a project name or relation (time.ts:149-161) — and a bare project
+    // id is already non-sensitive by the egress gate's own reckoning, where
+    // `EXPOSABLE_FIELDS.project` lists `id` and `list_projects` returns the id even when the
+    // name is withheld. Rates go through `redactRates` (own-row or FINANCE_READ). So what
+    // reaches a supervisor is the hours and description of a person whose timesheet they are
+    // responsible for signing — which is the thing being asked for, not a side effect.
+    //
+    // The per-person rule itself is pinned by `src/lib/time/scope.test.ts`; this entry only
+    // records why the PROJECT rule does not apply on top of it.
     "time.ts::listTimeEntries",
   ]);
 
@@ -306,6 +338,10 @@ describe("agent tools cannot read past project scoping", () => {
         if (ORG_LEVEL_WRITES.has(`${f}::${name}`)) continue;
         if (CALLER_SCOPED.has(`${f}::${name}`)) continue;
         if (OMISSION_DECISION_PENDING.has(`${f}::${name}`)) continue;
+        // NOTE: PERSON_SCOPED is honoured HERE and deliberately NOT in the rule above. These
+        // functions still have to carry a scope check — they are only exempt from the
+        // requirement that the check bound a PROJECT set on the omission path.
+        if (PERSON_SCOPED.has(`${f}::${name}`)) continue;
         if (CONDITIONAL_GATE.test(body) && !BOUNDS_OMISSION.test(body)) {
           offenders.push(`${f}::${name}`);
         }
