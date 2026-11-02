@@ -49,17 +49,6 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
-    version: "2.508.5",
-    date: "2026-11-01",
-    title: "Cancelled work looks cancelled",
-    highlights: [
-      {
-        kind: "fix",
-        text: "An item you cancelled is now scratched out on the backlog and the roadmap, the way a finished one already was. Cancelled work was left looking live, so a dropped sub-item read as something still waiting on somebody. \u201CHide done\u201D is unchanged and still hides only finished work \u2014 cancelled items stay visible, because you may still want to reopen or re-plan them.",
-      },
-    ],
-  },
-  {
     version: "2.508.1",
     date: "2026-11-01",
     title: "Import a Program Increment",
@@ -120,6 +109,17 @@ const RELEASES: Release[] = [
       {
         kind: "fix",
         text: "A deliverable set to \u201cIn Progress\u201d showed an empty Status cell in the deliverables register and sorted to an unpredictable position. The register was missing that one status from its own list.",
+      },
+    ],
+  },
+  {
+    version: "2.508.5",
+    date: "2026-11-01",
+    title: "Cancelled work looks cancelled",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An item you cancelled is now scratched out on the backlog and the roadmap, the way a finished one already was. Cancelled work was left looking live, so a dropped sub-item read as something still waiting on somebody. \u201CHide done\u201D is unchanged and still hides only finished work \u2014 cancelled items stay visible, because you may still want to reopen or re-plan them.",
       },
     ],
   },
