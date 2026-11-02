@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.508.2",
+    date: "2026-11-01",
+    title: "Governance counts what Cosmo was actually shown",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The agent governance page now records every tool result Cosmo\u2019s data gate judged, so its withhold rate reflects your data instead of sitting near zero. It had only been counting prompts \u2014 which the gate always passes \u2014 so a database result that was withheld from the model left no evidence of it unless that result also happened to mint a reference token.",
+      },
+    ],
+  },
+  {
     version: "2.508.1",
     date: "2026-11-01",
     title: "Import a Program Increment",
@@ -75,6 +86,17 @@ const RELEASES: Release[] = [
       {
         kind: "fix",
         text: "Asking Cosmo to list objectives or sprints without naming a project returned them from every project in the organisation, including ones restricted to their own team. Both now cover only the projects you can open, matching what the rest of Cosmos has always shown you.",
+      },
+    ],
+  },
+  {
+    version: "2.508.3",
+    date: "2026-11-01",
+    title: "Routine dependency updates",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Nine libraries moved to their current releases, including a Next.js patch. Nothing changes in how Cosmos works \u2014 this is housekeeping that keeps security scanning meaningful and stops the backlog of updates from turning into a risky jump later.",
       },
     ],
   },
