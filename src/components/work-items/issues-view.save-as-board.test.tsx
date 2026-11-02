@@ -321,3 +321,64 @@ describe("Issues — query actions sit with the query", () => {
     expect(screen.queryByRole("button", { name: /New issue/i })).toBeNull();
   });
 });
+
+/**
+ * The third door: `/issues?filter=<id>&saveBoard=1`.
+ *
+ * "How do I save a filter as a board?" has now been asked three times about a
+ * shipped feature, because both existing doors are on this page — a toolbar
+ * button acting on the query bar, and an action inside the saved-filters
+ * dropdown. The project's "Filters" tab, where someone looking at their filters
+ * actually is, listed them with no actions at all.
+ *
+ * That tab now links here rather than growing its own copy of the dialog, its
+ * CQL validation and its project gating. So this deep link has to do exactly
+ * what picking "Save as board…" in the dropdown does: run the filter, open the
+ * dialog, and seed the new board's name from the filter it came from.
+ */
+describe("Issues — the ?saveBoard=1 deep link", () => {
+  const FILTER = { id: "f1", name: "Blocked this sprint", cql: "status = Blocked", visibility: "PRIVATE", mine: true, canEdit: true, canDelete: true, ownerName: "Dana" };
+
+  function serveWithFilter() {
+    serve();
+    const base = vi.mocked(jsonFetch).getMockImplementation()!;
+    vi.mocked(jsonFetch).mockImplementation((async (url: string, ...rest: unknown[]) => {
+      if (url.endsWith("/saved-views/f1")) return FILTER;
+      return (base as (u: string, ...r: unknown[]) => unknown)(url, ...rest);
+    }) as never);
+  }
+
+  it("opens the board dialog", async () => {
+    params = new URLSearchParams("filter=f1&saveBoard=1");
+    serveWithFilter();
+    renderView();
+    expect(await screen.findByTestId("board-dialog")).toBeTruthy();
+  });
+
+  it("seeds the board's name from the filter, as the dropdown action does", async () => {
+    params = new URLSearchParams("filter=f1&saveBoard=1");
+    serveWithFilter();
+    renderView();
+    await screen.findByTestId("board-dialog");
+    expect(seen.props!.defaultName).toBe("Blocked this sprint");
+  });
+
+  it("control: the same filter WITHOUT the param does not open the dialog", async () => {
+    // Otherwise this suite would pass against a page that opens the dialog for
+    // any ?filter= link — which would ambush anyone following a shared filter.
+    params = new URLSearchParams("filter=f1");
+    serveWithFilter();
+    renderView();
+    await screen.findByRole("button", { name: "Save filter" });
+    expect(screen.queryByTestId("board-dialog")).toBeNull();
+  });
+
+  it("control: no board-create permission → the deep link opens nothing", async () => {
+    can.mockImplementation(((p: unknown) => p !== Permission.BOARD_CREATE) as never);
+    params = new URLSearchParams("filter=f1&saveBoard=1");
+    serveWithFilter();
+    renderView();
+    await screen.findByRole("button", { name: "Save filter" });
+    expect(screen.queryByTestId("board-dialog")).toBeNull();
+  });
+});

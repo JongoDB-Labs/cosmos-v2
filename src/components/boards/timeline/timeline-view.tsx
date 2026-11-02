@@ -103,6 +103,7 @@ import {
   type DayWindow,
   type PanWindow,
 } from "@/lib/boards/timeline-pan";
+import { intervalChildrenById } from "@/lib/intervals/interval-tree";
 
 interface TimelineViewProps {
   orgId: string;
@@ -593,6 +594,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
   // With the query language on, the bar and the board's scope are one CQL query (boards/shared/use-board-query).
   const boardQuery = useBoardQuery({ orgId, projectId, config: boardQ.data?.config, rows: items as unknown as Record<string, unknown>[] });
+  // A PI selection in the Interval filter means "any sprint under this PI"
+  // (3d90c48e). Items carry a sprint id, never a PI id.
+  const intervalChildren = useMemo(() => intervalChildrenById(intervals), [intervals]);
   const filteredItems = useMemo(
     () =>
       items.filter(
@@ -602,12 +606,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             : matchesFilters(it, filters, projectCustomFields, teamsByUserId, filterNow, {
                 blocked: blockedIds,
                 milestones: milestoneMap,
+                intervalChildren,
               })) &&
           // Hide-done lens. Finished work still occupies rows, and on a
           // long-running plan it crowds out what is actually in play.
           !(hideDone && it.columnKey != null && doneKeys.has(it.columnKey)),
       ),
-    [items, filters, projectCustomFields, teamsByUserId, filterNow, blockedIds, milestoneMap, hideDone, doneKeys, boardQuery],
+    [items, filters, projectCustomFields, teamsByUserId, filterNow, blockedIds, milestoneMap, intervalChildren, hideDone, doneKeys, boardQuery],
   );
   // ── Hierarchy rows (FR f396a6a9) ─────────────────────────────────────────
   // Depth-first parent→children row order with per-parent collapse. Collapsing a

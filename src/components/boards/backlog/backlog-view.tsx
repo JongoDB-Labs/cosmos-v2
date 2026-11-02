@@ -76,6 +76,7 @@ import type {
   Interval,
 } from "@/types/models";
 import { useProjectTeams } from "@/hooks/use-project-teams";
+import { intervalChildrenById } from "@/lib/intervals/interval-tree";
 
 interface BacklogViewProps {
   orgId: string;
@@ -208,12 +209,20 @@ export function BacklogView({
 
   // With the query language on, the bar and the board's scope are one CQL query (boards/shared/use-board-query).
   const boardQuery = useBoardQuery({ orgId, projectId, config: board?.config, rows: items as unknown as Record<string, unknown>[] });
+  const intervals: Interval[] = useMemo(() => intervalsQ.data ?? [], [intervalsQ.data]);
+  // A PI selection in the Interval filter means "any sprint under this PI"
+  // (3d90c48e). Items carry a sprint id, never a PI id.
+  const intervalChildren = useMemo(() => intervalChildrenById(intervals), [intervals]);
   const barFiltered = useMemo(
-    () => items.filter((it) => (boardQuery.enabled ? boardQuery.keep(it) : matchesFilters(it, filters))),
-    [items, filters, boardQuery],
+    () =>
+      items.filter((it) =>
+        boardQuery.enabled
+          ? boardQuery.keep(it)
+          : matchesFilters(it, filters, [], new Map(), undefined, { intervalChildren }),
+      ),
+    [items, filters, boardQuery, intervalChildren],
   );
   const members: OrgMember[] = useMemo(() => membersQ.data ?? [], [membersQ.data]);
-  const intervals: Interval[] = useMemo(() => intervalsQ.data ?? [], [intervalsQ.data]);
 
   const loading =
     boardQ.isLoading || itemsQ.isLoading || membersQ.isLoading || intervalsQ.isLoading;

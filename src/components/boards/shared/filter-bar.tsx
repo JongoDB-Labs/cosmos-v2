@@ -131,6 +131,9 @@ const FILTERABLE_CUSTOM_KINDS = new Set(["SELECT", "MULTI_SELECT", "CHECKBOX", "
  * The filters that live behind "More filters" — the ones the disclosure has to
  * force itself open for. Kept in step with the second row below.
  */
+/** Interval.intervalKind for a Program Increment (mirrors lib/intervals/interval-tree). */
+const PI_KIND = "PROGRAM_INCREMENT";
+
 const OVERFLOW_KEYS: FilterKey[] = [
   "columnKeys",
   "workCategories",
@@ -456,6 +459,24 @@ export function SwimlaneSelect({ value, onChange }: { value: SwimlaneKey; onChan
       </Select>
     </div>
   );
+}
+
+/**
+ * How one interval reads in the Interval dropdown.
+ *
+ * The list is the project's whole interval set — the API applies no
+ * `intervalKind` filter — so Program Increments appear here next to the
+ * sprints, and "PI 3" and "Sprint 3" are the same shape of string. Scoping a
+ * board to a PI covers a quarter rather than two weeks, so the option and the
+ * trigger both have to say which one you picked; an unmarked PI selection reads
+ * as a sprint and silently misrepresents what is on screen.
+ *
+ * Anything that is not a PI keeps its plain name, including an unrecognised
+ * kind — the label must never claim a PI it cannot verify.
+ */
+export function intervalOptionLabel(interval: Interval): string {
+  const name = interval.name || `Interval ${interval.number ?? ""}`.trim();
+  return interval.intervalKind === PI_KIND ? `${name} (whole PI)` : name;
 }
 
 export function FilterBar({
@@ -879,7 +900,7 @@ export function FilterBar({
           <Select
             items={{
               __all__: "All",
-              ...Object.fromEntries(intervals.map((s) => [s.id, s.name])),
+              ...Object.fromEntries(intervals.map((s) => [s.id, intervalOptionLabel(s)])),
             }}
             value={filters.intervalId ?? "__all__"}
             onValueChange={(v) =>
@@ -896,7 +917,7 @@ export function FilterBar({
               <SelectItem value="__all__">All</SelectItem>
               {intervals.map((s) => (
                 <SelectItem key={s.id} value={s.id}>
-                  {s.name}
+                  {intervalOptionLabel(s)}
                 </SelectItem>
               ))}
             </SelectContent>

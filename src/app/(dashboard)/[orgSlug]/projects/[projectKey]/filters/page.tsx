@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { redirect, notFound } from "next/navigation";
 import { cqlEnabled } from "@/lib/query/flag";
+import { canManageBoardsInProject } from "@/lib/rbac/project-role";
 import { ProjectFilters } from "@/components/work-items/cql/project-filters";
 
 type PageParams = {
@@ -29,5 +30,19 @@ export default async function ProjectFiltersPage({ params }: PageParams) {
   ]);
   if (!project || !cqlEnabled(org?.settings)) notFound();
 
-  return <ProjectFilters orgId={ctx.orgId} orgSlug={orgSlug} projectId={project.id} projectKey={project.key} />;
+  // Whether this tab may offer "Save as board". The SAME derivation the project
+  // layout uses for its create affordance and the POST uses to allow it — the
+  // layout's own note says a second derivation is exactly how an affordance
+  // comes back for someone whose request would 403.
+  const canCreateBoard = await canManageBoardsInProject(ctx, project.id);
+
+  return (
+    <ProjectFilters
+      orgId={ctx.orgId}
+      orgSlug={orgSlug}
+      projectId={project.id}
+      projectKey={project.key}
+      canCreateBoard={canCreateBoard}
+    />
+  );
 }

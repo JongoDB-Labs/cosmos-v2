@@ -45,22 +45,33 @@ function renderPicker(shownId: string | null, intervals = ALL) {
   return onSelect;
 }
 
+/**
+ * The expand/collapse control, addressed by its own label.
+ *
+ * A PI used to be ONE button that expanded it. It is now two — a chevron that
+ * expands and a name that scopes the board to the whole PI (3d90c48e) — so
+ * `{ name: /PI 1/ }` matches both and these assertions became ambiguous rather
+ * than wrong. The PI-scope half is covered in sprint-picker.pi-filter.
+ */
+const piChevron = (name: string) =>
+  screen.getByRole("button", { name: new RegExp(`(Collapse|Expand) ${name}`) });
+
 describe("SprintPicker", () => {
   it("collapses a past PI and expands the current one by default", () => {
     renderPicker("s3");
 
-    expect(screen.getByRole("button", { name: /PI 1/ })).toHaveAttribute("aria-expanded", "false");
+    expect(piChevron("PI 1")).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("button", { name: "Sprint 1" })).toBeNull();
     expect(within(screen.getByRole("group", { name: "PI 1" })).getByText("2 sprints")).toBeTruthy();
 
-    expect(screen.getByRole("button", { name: /PI 2/ })).toHaveAttribute("aria-expanded", "true");
+    expect(piChevron("PI 2")).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("button", { name: "Sprint 3" })).toBeTruthy();
   });
 
   it("expands a past PI on demand so its sprints can be revisited", () => {
     const onSelect = renderPicker("s3");
 
-    fireEvent.click(screen.getByRole("button", { name: /PI 1/ }));
+    fireEvent.click(piChevron("PI 1"));
     fireEvent.click(screen.getByRole("button", { name: "Sprint 1" }));
 
     expect(onSelect).toHaveBeenCalledWith("s1");
@@ -69,7 +80,7 @@ describe("SprintPicker", () => {
   it("opens the past PI holding the sprint on screen, and says it is past work", () => {
     renderPicker("s1");
 
-    expect(screen.getByRole("button", { name: /PI 1/ })).toHaveAttribute("aria-expanded", "true");
+    expect(piChevron("PI 1")).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("status").textContent).toMatch(/viewing PI 1, a past\s+Program Increment/);
   });
 

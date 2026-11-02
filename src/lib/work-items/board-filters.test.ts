@@ -321,3 +321,66 @@ describe("clauses combine as AND", () => {
     expect(matchesFilters(item({ ...target, assigneeId: "u-9" }), f)).toBe(false);
   });
 });
+
+/**
+ * Selecting a Program Increment in a board's Interval filter (3d90c48e).
+ *
+ * The Interval select is fed the project's WHOLE interval list — the API applies
+ * no `intervalKind` filter — so Program Increments sit in that dropdown next to
+ * the sprints, indistinguishable. Work items link to a SPRINT, never to a PI, so
+ * the exact `item.intervalId !== f.intervalId` comparison matched nothing and the
+ * board went blank. That is the worst possible failure for a filter: an empty
+ * board reads as "nothing matched", not "this control is broken".
+ *
+ * A PI selection therefore means "any sprint under this PI". The caller resolves
+ * the hierarchy (it already holds the interval list) and passes it down; without
+ * it the clause stays the exact match it always was, so every existing caller is
+ * unaffected rather than silently widened.
+ */
+describe("filtering on a Program Increment", () => {
+  // PI "pi-1" holds sprints s-1 and s-2; PI "pi-2" holds s-9.
+  const children = new Map([
+    ["pi-1", new Set(["s-1", "s-2"])],
+    ["pi-2", new Set(["s-9"])],
+  ]);
+  const byPi1 = filters({ intervalId: "pi-1" });
+  const withTree = { intervalChildren: children };
+
+  it("keeps an item in a sprint under the selected PI", () => {
+    expect(
+      matchesFilters(item({ intervalId: "s-1" }), byPi1, [], new Map(), NOW, withTree),
+    ).toBe(true);
+    // The second child, so this cannot pass by matching one hard-coded id.
+    expect(
+      matchesFilters(item({ intervalId: "s-2" }), byPi1, [], new Map(), NOW, withTree),
+    ).toBe(true);
+  });
+
+  it("drops an item in a sprint under a DIFFERENT PI", () => {
+    expect(
+      matchesFilters(item({ intervalId: "s-9" }), byPi1, [], new Map(), NOW, withTree),
+    ).toBe(false);
+  });
+
+  it("drops a backlog item that is in no interval at all", () => {
+    expect(
+      matchesFilters(item({ intervalId: null }), byPi1, [], new Map(), NOW, withTree),
+    ).toBe(false);
+  });
+
+  it("still filters a plain SPRINT selection exactly, with the tree present", () => {
+    const byS1 = filters({ intervalId: "s-1" });
+    expect(
+      matchesFilters(item({ intervalId: "s-1" }), byS1, [], new Map(), NOW, withTree),
+    ).toBe(true);
+    // A sibling sprint under the same PI must NOT be pulled in by the rollup.
+    expect(
+      matchesFilters(item({ intervalId: "s-2" }), byS1, [], new Map(), NOW, withTree),
+    ).toBe(false);
+  });
+
+  it("falls back to the exact match when no hierarchy is supplied", () => {
+    expect(matchesFilters(item({ intervalId: "s-1" }), byPi1)).toBe(false);
+    expect(matchesFilters(item({ intervalId: "s-1" }), filters({ intervalId: "s-1" }))).toBe(true);
+  });
+});
