@@ -22,6 +22,7 @@ import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { cn } from "@/lib/utils";
+import { isWorkItemDone, isWorkItemResolved } from "@/lib/work-items/done-state";
 import { highlightLabel, highlightStyle } from "@/lib/work-items/highlights";
 import type { WorkItem, OrgMember, Interval, Board, BoardColumn } from "@/types/models";
 import { bareTypeKey } from "@/components/boards/shared/filter-bar";
@@ -335,7 +336,7 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
                             </div>
                           )
                         : feats.map((f) => (
-                            <FeatureCard key={f.id} item={f} onClick={() => setDetailId(f.id)} />
+                            <FeatureCard key={f.id} item={f} columns={columns} onClick={() => setDetailId(f.id)} />
                           ))}
                     </div>
                   );
@@ -374,8 +375,27 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
   );
 }
 
-function FeatureCard({ item, onClick }: { item: WorkItem; onClick: () => void }) {
-  const done = !!item.completedAt;
+function FeatureCard({
+  item,
+  columns,
+  onClick,
+}: {
+  item: WorkItem;
+  columns: readonly BoardColumn[];
+  onClick: () => void;
+}) {
+  // TWO questions, and conflating them is what made this card wrong.
+  //
+  // The tick means DELIVERED, so it stays on done-ness: a cancelled feature must
+  // never show a green check. The strikethrough means SETTLED, which covers work
+  // that was given up on too (bug 635be41c).
+  //
+  // Both now read the board's columns. `done` was `!!item.completedAt` alone,
+  // which also missed an item parked in a DONE-category lane with no end date
+  // stamped — so the tick and the strike would otherwise disagree on the very
+  // same card.
+  const done = isWorkItemDone(item, columns);
+  const resolved = isWorkItemResolved(item, columns);
   return (
     <button
       onClick={onClick}
@@ -387,7 +407,7 @@ function FeatureCard({ item, onClick }: { item: WorkItem; onClick: () => void })
       title={highlightLabel(item.highlight) ?? undefined}
       className={cn(
         "flex w-full items-start gap-1.5 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-left text-xs transition-colors hover:border-[var(--primary)]",
-        done && "opacity-70",
+        resolved && "opacity-70",
       )}
     >
       <span
@@ -399,7 +419,7 @@ function FeatureCard({ item, onClick }: { item: WorkItem; onClick: () => void })
         {done && <Check className="size-2.5" />}
       </span>
       <span className="min-w-0 flex-1">
-        <span className={cn("line-clamp-2 text-[var(--text)]", done && "line-through")}>
+        <span className={cn("line-clamp-2 text-[var(--text)]", resolved && "line-through")}>
           {item.title}
         </span>
         <span className="text-[10px] text-[var(--text-muted)]">#{item.ticketNumber}</span>
