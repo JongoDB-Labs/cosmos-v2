@@ -49,17 +49,6 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
-    version: "2.508.4",
-    date: "2026-11-01",
-    title: "Four major library updates",
-    highlights: [
-      {
-        kind: "improvement",
-        text: "The animation, Google integration, form-validation and Claude client libraries each moved up a major version. Nothing changes in how Cosmos works for you \u2014 and Cosmo keeps talking to Claude over exactly the same API version it did before, which the new library would otherwise have changed underneath us.",
-      },
-    ],
-  },
-  {
     version: "2.508.1",
     date: "2026-11-01",
     title: "Import a Program Increment",
@@ -105,6 +94,17 @@ const RELEASES: Release[] = [
       {
         kind: "improvement",
         text: "Importing a register now understands a few words your spreadsheet uses that Cosmos does not: a deliverable marked \u201cPlanned\u201d arrives as Not Started. Words that mean something Cosmos has no state for are still left blank with a warning, rather than being guessed at.",
+      },
+    ],
+  },
+  {
+    version: "2.508.4",
+    date: "2026-11-01",
+    title: "Four major library updates",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The animation, Google integration, form-validation and Claude client libraries each moved up a major version. Nothing changes in how Cosmos works for you \u2014 and Cosmo keeps talking to Claude over exactly the same API version it did before, which the new library would otherwise have changed underneath us.",
       },
     ],
   },
