@@ -48,6 +48,29 @@ const CLAUDE_CODE_IDENTITY =
   "You are Claude Code, Anthropic's official CLI for Claude.";
 const OAUTH_BETA = "oauth-2025-04-20";
 
+/**
+ * The Anthropic API version this code is written against, pinned EXPLICITLY.
+ *
+ * The SDK sends `anthropic-version` itself, and its default MOVES with the SDK
+ * version: 0.137.0 sent `2023-06-01`, and 1.0.0's sole listed breaking change is
+ * "add support for new API version 2026-10-21" — so upgrading the client library
+ * silently re-pointed every model call at a different server-side API version.
+ *
+ * That is invisible to everything that guards this file. `tsc` sees no change
+ * (the header is internal to the SDK), and `provider.test.ts` mocks the SDK
+ * wholesale, so no test observes the wire at all. The first place it would show
+ * up is a live Cosmo turn in production.
+ *
+ * Pinning it here decouples the two decisions. Bumping the SDK becomes what a
+ * dependency bump should be — client-library internals, fully covered by the type
+ * check and the suite — while moving to a newer API version becomes a deliberate,
+ * separately testable change. `callModel` reads `final.content[].type`,
+ * `block.text`, `block.id/name/input` and `final.stop_reason` off the response,
+ * so an API-version change is exactly the kind of thing that can reshape its
+ * input without any local signal.
+ */
+const API_VERSION = "2023-06-01";
+
 // Short aliases (sonnet/opus/haiku) are a Claude Code CLI convenience — the raw
 // Messages API rejects them with 404 not_found. Normalize to full model IDs here
 // (the single egress point) so every caller works regardless of credential path.
@@ -74,7 +97,7 @@ function clientFor(credential: ModelCredential | undefined): Anthropic {
       throw new NoModelCredentialError();
     }
     if (_envClient) return _envClient;
-    _envClient = new Anthropic({ apiKey });
+    _envClient = new Anthropic({ apiKey, defaultHeaders: { "anthropic-version": API_VERSION } });
     return _envClient;
   }
   if (credential.kind === "oauth") {
@@ -85,11 +108,15 @@ function clientFor(credential: ModelCredential | undefined): Anthropic {
     return new Anthropic({
       apiKey: null,
       authToken: credential.token,
-      defaultHeaders: { "anthropic-beta": OAUTH_BETA },
+      defaultHeaders: { "anthropic-beta": OAUTH_BETA, "anthropic-version": API_VERSION },
     });
   }
   // Likewise pin apiKey explicitly so an env var can't shadow the resolved key.
-  return new Anthropic({ apiKey: credential.apiKey, authToken: null });
+  return new Anthropic({
+    apiKey: credential.apiKey,
+    authToken: null,
+    defaultHeaders: { "anthropic-version": API_VERSION },
+  });
 }
 
 /**
