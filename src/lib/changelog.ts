@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.508.2",
+    date: "2026-11-01",
+    title: "Governance counts what Cosmo was actually shown",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The agent governance page now records every tool result Cosmo\u2019s data gate judged, so its withhold rate reflects your data instead of sitting near zero. It had only been counting prompts \u2014 which the gate always passes \u2014 so a database result that was withheld from the model left no evidence of it unless that result also happened to mint a reference token.",
+      },
+    ],
+  },
+  {
     version: "2.508.1",
     date: "2026-11-01",
     title: "Import a Program Increment",
