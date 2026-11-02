@@ -90,6 +90,17 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.508.3",
+    date: "2026-11-01",
+    title: "Routine dependency updates",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Nine libraries moved to their current releases, including a Next.js patch. Nothing changes in how Cosmos works \u2014 this is housekeeping that keeps security scanning meaningful and stops the backlog of updates from turning into a risky jump later.",
+      },
+    ],
+  },
+  {
     version: "2.507.0",
     date: "2026-10-31",
     title: "Deliverables belong to a contract",
