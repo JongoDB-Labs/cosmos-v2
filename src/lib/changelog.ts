@@ -168,7 +168,7 @@ const RELEASES: Release[] = [
     ],
   },
   {
-    version: "2.510.0",
+    version: "2.511.0",
     date: "2026-11-03",
     title: "Every board's controls come from one place",
     highlights: [
