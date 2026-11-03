@@ -1298,7 +1298,14 @@ function KanbanBoardInner({
                     {lane.items.length}
                   </span>
                 </div>
-                <div className="flex gap-3 overflow-x-auto scrollbar-x">
+                {/* Keyboard-reachable: a horizontally scrollable region needs
+                    to be focusable, or its off-screen columns cannot be reached
+                    without a pointer. axe `scrollable-region-focusable`. */}
+                <div
+                  className="flex gap-3 overflow-x-auto scrollbar-x"
+                  tabIndex={0}
+                  aria-label={`${lane.label} columns`}
+                >
                   {columns.map((col) => (
                     <KanbanColumn
                       key={`${lane.id}${LANE_SEP}${col.id}`}
@@ -1327,9 +1334,15 @@ function KanbanBoardInner({
             )}
           </div>
         ) : (
+          /* Same as the swimlane strip above: scrollable, so focusable. On an
+             EMPTY board this is the case that bites — scrollWidth 1520 against
+             clientWidth 1024 with no cards to tab to, so the later columns'
+             names were unreachable by keyboard entirely. */
           <div
             className="flex gap-3 overflow-x-auto scrollbar-x flex-1 p-4"
             onClick={handleBackgroundClick}
+            tabIndex={0}
+            aria-label="Board columns"
           >
             {columns.map((col) => (
               <KanbanColumn

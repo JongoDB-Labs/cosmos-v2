@@ -168,6 +168,21 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.511.1",
+    date: "2026-11-03",
+    title: "Reaching the board columns without a mouse",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A board's columns can be scrolled from the keyboard. The horizontal strip they sit in was not reachable without a pointer, so on a board with nothing on it yet the columns past the right-hand edge \u2014 and their names \u2014 could not be reached at all.",
+      },
+      {
+        kind: "fix",
+        text: "The table's \u201CGroup by\u201D control now says what it is to a screen reader and to voice control. Its caption sat beside it as plain text rather than as the control's own label, so the control itself announced nothing.",
+      },
+    ],
+  },
+  {
     version: "2.511.0",
     date: "2026-11-03",
     title: "Every board's controls come from one place",

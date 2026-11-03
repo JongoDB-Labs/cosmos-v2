@@ -9,9 +9,11 @@
  * Run with:
  *   npx tsx prisma/seed/test-fixtures.ts
  */
-import { Prisma } from "@prisma/client";
+import { Prisma, type BoardType } from "@prisma/client";
 import { makePrismaClient } from "./shared/prisma-client";
 import { ensureSeedStatuses } from "./shared/statuses";
+import { BOARD_TYPE_REGISTRY } from "../../src/lib/boards/board-types";
+import { DEFAULT_COLUMNS } from "../../src/lib/boards/default-columns";
 
 const prisma = makePrismaClient();
 
@@ -147,6 +149,224 @@ async function ensureSecondBoard(orgId: string, projectId: string): Promise<void
   await prisma.board.create({
     data: { orgId, projectId, name: NAME, type: "KANBAN", sortOrder: 1 },
   });
+}
+
+const GALLERY_KEY = "GALLERY";
+
+/**
+ * The types whose columns ARE the project's workflow — `SEEDED_FROM_PROJECT` in
+ * `src/app/api/v1/orgs/[orgId]/projects/[projectId]/boards/route.ts`.
+ */
+const SEEDED_FROM_WORKFLOW = new Set<BoardType>(["KANBAN", "SCRUM"]);
+
+/**
+ * Every board in the gallery. One per `BoardType`, plus a second TIMELINE for
+ * its Release Timeline variant, so sixteen rows for fifteen types.
+ */
+const GALLERY_BOARDS: {
+  slug: string;
+  name: string;
+  type: BoardType;
+  config?: Record<string, string>;
+}[] = [
+  { slug: "kanban", name: "Kanban", type: "KANBAN" },
+  { slug: "scrum", name: "Scrum", type: "SCRUM" },
+  { slug: "sprint-planning", name: "Sprint Planning", type: "SPRINT_PLANNING" },
+  { slug: "sprint-review", name: "Sprint Review", type: "SPRINT_REVIEW" },
+  { slug: "backlog", name: "Backlog", type: "BACKLOG" },
+  { slug: "table", name: "Table", type: "TABLE" },
+  { slug: "calendar", name: "Calendar", type: "CALENDAR" },
+  { slug: "timeline", name: "Timeline", type: "TIMELINE" },
+  // Same board TYPE as above, second variant: config.mode picks the static
+  // Release Timeline snapshot over the interactive Gantt (board-renderer.tsx).
+  {
+    slug: "release-timeline",
+    name: "Release Timeline",
+    type: "TIMELINE",
+    config: { mode: "release-timeline" },
+  },
+  { slug: "roadmap", name: "Roadmap", type: "ROADMAP" },
+  { slug: "okrs", name: "OKRs", type: "OKR" },
+  { slug: "dashboard", name: "Dashboard", type: "DASHBOARD" },
+  { slug: "portfolio", name: "Portfolio", type: "PORTFOLIO" },
+  { slug: "program", name: "Program", type: "PROGRAM" },
+  { slug: "raid", name: "RAID Log", type: "RAID" },
+  { slug: "cfd", name: "Cumulative Flow", type: "CFD" },
+];
+
+/**
+ * The board gallery: one project carrying a board of EVERY BoardType, each on a
+ * fixed slug, plus just enough data (one active sprint, four work items) for the
+ * views to render their real chrome instead of an empty state.
+ *
+ * Exists because `e2e/a11y.spec.ts` could only ever reach ONE board view. Its
+ * route list goes through `/projects/{KEY}`, which redirects to the TEST
+ * project's default board, and both of TEST's seeded boards are KANBAN — so no
+ * Calendar, Scrum, Table, Timeline, Roadmap, OKR, Dashboard, RAID, CFD or
+ * ceremony board had ever been scanned.
+ *
+ * Why its own project rather than folding the boards into TEST: sixteen more
+ * tabs and four more items on TEST would move the DOM under the dozen mutating
+ * journeys that count its items and read its board tab strip. The gallery is
+ * read-only by contract — the only spec that opens it is the a11y scan.
+ *
+ * Slugs, not ids: `/projects/{key}/boards/{segment}` resolves a slug as well as
+ * a UUID (`boards/[boardId]/page.tsx`), so a seeded slug gives the spec a
+ * STATIC URL per board type with no id to look up at runtime. The spec asserts
+ * the URL does not move, so renaming a slug here fails there rather than
+ * silently scanning a 404.
+ *
+ * Idempotent on the project key.
+ */
+async function ensureBoardGallery(
+  orgId: string,
+  aliceMemberId: string,
+  aliceUserId: string,
+): Promise<void> {
+  const existing = await prisma.project.findFirst({
+    where: { orgId, key: GALLERY_KEY },
+    select: { id: true },
+  });
+  if (existing) return;
+
+  const taskType = await prisma.workItemType.findFirst({
+    where: { isBuiltIn: true, key: "software.task" },
+    select: { id: true },
+  });
+  if (!taskType) return; // ensureBuiltInTaskType runs first
+
+  // Relative to the seed run, not fixed calendar dates: the Scrum and ceremony
+  // boards report on a sprint that is ACTIVE *now*, so a hardcoded window would
+  // age out of ACTIVE and leave them on an empty state.
+  const day = 24 * 60 * 60 * 1000;
+  const now = new Date();
+  const at = (days: number) => new Date(now.getTime() + days * day);
+  // Work-item dates are pinned to a DAY OF THE CURRENT UTC MONTH instead, for
+  // one reason: the Calendar board opens on the current month, so a `now + 11
+  // days` due date falls off the visible grid whenever the seed runs in the last
+  // third of a month — the items would silently vanish from that board on some
+  // days and not others, and the a11y scan anchors on seeing one. Days 7–16 are
+  // inside every month, February included. (CI runs UTC; UTC here too, so a
+  // local-time box agrees with it.)
+  const inMonth = (dayOfMonth: number) =>
+    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), dayOfMonth, 12));
+
+  const projectId = await prisma.$transaction(async (tx) => {
+    const proj = await tx.project.create({
+      data: {
+        orgId,
+        name: "Board Gallery",
+        key: GALLERY_KEY,
+        description: "One board of every type, for the e2e a11y scan",
+      },
+    });
+
+    // Boards first, statuses after: `ensureSeedStatuses` derives the project's
+    // workflow_statuses FROM its boards' columns, and those statuses are what
+    // every other board's Status filter and done-ness check reads. Seed the
+    // items before the statuses exist and their columnKey FK fails; seed the
+    // statuses before the Kanban board and there is nothing to derive them from
+    // (the empty-`board.columns` trap, from the other end).
+    for (const [i, b] of GALLERY_BOARDS.entries()) {
+      await tx.board.create({
+        data: {
+          orgId,
+          projectId: proj.id,
+          name: b.name,
+          slug: b.slug,
+          type: b.type,
+          sortOrder: i,
+          config: (b.config ?? {}) as Prisma.InputJsonValue,
+          // Mirrors what POST /boards does, so the gallery is not a shape the
+          // product never makes: KANBAN and SCRUM start from the project's
+          // workflow, the ceremony types get the registry's prompt columns
+          // (Start/Stop/Continue, Risks/Questions/Decisions), and the rest own
+          // none — Calendar, Table, Timeline and Roadmap genuinely have zero.
+          columns: {
+            create: (SEEDED_FROM_WORKFLOW.has(b.type)
+              ? DEFAULT_COLUMNS.map(({ name, key, color, category }) => ({ name, key, color, category }))
+              : (BOARD_TYPE_REGISTRY[b.type].defaultColumns ?? [])
+            ).map((c, j) => ({ ...c, sortOrder: j })),
+          },
+        },
+      });
+    }
+    await ensureSeedStatuses(tx, proj.id);
+    await tx.projectMember.create({
+      data: { projectId: proj.id, orgMemberId: aliceMemberId, role: "MANAGER" },
+    });
+
+    // One ACTIVE sprint inside a PROGRAM_INCREMENT: the Scrum board scopes to
+    // the active sprint, the ceremony boards report on one, and the Roadmap
+    // counts increments.
+    const pi = await tx.interval.create({
+      data: {
+        orgId,
+        projectId: proj.id,
+        intervalKind: "PROGRAM_INCREMENT",
+        number: 1,
+        name: "PI 1",
+        startDate: at(-14),
+        endDate: at(56),
+        status: "ACTIVE",
+      },
+    });
+    const sprint = await tx.interval.create({
+      data: {
+        orgId,
+        projectId: proj.id,
+        intervalKind: "SPRINT",
+        // `number` is unique per PROJECT, not per kind, so the sprint cannot
+        // reuse the PI's 1 — the first attempt here died on P2002.
+        number: 2,
+        name: "Sprint 1",
+        goal: "Render every board type",
+        startDate: at(-7),
+        endDate: at(7),
+        status: "ACTIVE",
+        parentId: pi.id,
+      },
+    });
+
+    // Four items, one per non-terminal status, all in the active sprint. Two
+    // carry RAID tags so the RAID log has classified cards as well as
+    // unclassified ones, and each sits on its own day so the Calendar renders
+    // one cell per item rather than a "+N more" rollup.
+    const items: {
+      title: string;
+      columnKey: string;
+      tags: string[];
+      /** Day of the current month. Start is three days earlier. */
+      due: number;
+    }[] = [
+      { title: "Gallery item in backlog", columnKey: "backlog", tags: ["risk"], due: 10 },
+      { title: "Gallery item in to do", columnKey: "todo", tags: ["dependency"], due: 12 },
+      { title: "Gallery item in progress", columnKey: "in-progress", tags: [], due: 14 },
+      { title: "Gallery item in review", columnKey: "review", tags: [], due: 16 },
+    ];
+    await tx.workItem.createMany({
+      data: items.map((it, i) => ({
+        orgId,
+        projectId: proj.id,
+        workItemTypeId: taskType.id,
+        title: it.title,
+        columnKey: it.columnKey,
+        ticketNumber: i + 1,
+        sortOrder: i,
+        priority: "MEDIUM" as const,
+        storyPoints: i + 1,
+        intervalId: sprint.id,
+        assigneeId: aliceUserId,
+        startDate: inMonth(it.due - 3),
+        dueDate: inMonth(it.due),
+        createdById: aliceUserId,
+        tags: it.tags,
+      })),
+    });
+    return proj.id;
+  });
+
+  console.log("Seeded board gallery:", { projectId, projectKey: GALLERY_KEY });
 }
 
 /**
@@ -381,6 +601,7 @@ async function main() {
   const projectId = await ensureProjectFixture(org.id, aliceMember.id);
   await ensureSecondBoard(org.id, projectId);
   await ensureBuiltInTaskType();
+  await ensureBoardGallery(org.id, aliceMember.id, alice.id);
   await ensureMentionFixtures(org.id, alice.id);
   await ensureOrgChart(org.id, alice.id, bob.id, carol.id);
 
