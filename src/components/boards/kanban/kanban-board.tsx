@@ -352,8 +352,17 @@ function KanbanBoardInner({
       // read when a realtime event or our own bulk op needs server truth.
       const staleTime = opts?.fresh ? 0 : 30_000;
       try {
-        const [boardData, itemsData, membersData, linksData, milestonesData, teamsData, intervalsData] =
-          await Promise.all([
+        // Two of these seven gate the first paint: the board (for its columns)
+        // and the items (for the cards). The other five feed the filter bar and
+        // card decorations, and three of them were already best-effort
+        // `.catch(() => null)` — yet every one of them used to be inside the
+        // same `Promise.all`, with `loading` cleared in the `finally`, so the
+        // skeleton stayed up until the SLOWEST of seven requests came back.
+        //
+        // All seven still START together, so nothing loses parallelism. The
+        // change is only what we WAIT for before painting. See
+        // kanban-board.first-paint.test.tsx.
+        const criticalP = Promise.all([
           qc.fetchQuery({
             queryKey: boardKey,
             queryFn: () => jsonFetch<Board>(`${basePath}/boards/${boardId}`),
@@ -364,6 +373,8 @@ function KanbanBoardInner({
             queryFn: () => jsonFetch<WorkItem[]>(`${basePath}/work-items`),
             staleTime,
           }),
+        ]);
+        const auxP = Promise.all([
           // Members/intervals are non-critical — tolerate a failure (keep prior state).
           qc
             .fetchQuery({
@@ -415,6 +426,20 @@ function KanbanBoardInner({
             .catch(() => null),
         ]);
 
+        // Lands whenever it lands. Every member of auxP swallows its own
+        // failure, so this never rejects; the seq guard drops it if a newer
+        // fetch has started.
+        void auxP.then(([membersData, linksData, milestonesData, teamsData, intervalsData]) => {
+          if (seq !== reqSeq.current) return;
+          if (membersData) setMembers(membersData);
+          if (linksData) setLinks(linksData);
+          if (milestonesData) setMilestones(milestonesData);
+          if (teamsData) setTeams(teamsData);
+          if (intervalsData) setIntervals(intervalsData);
+        });
+
+        const [boardData, itemsData] = await criticalP;
+
         if (seq !== reqSeq.current) return; // superseded by a newer fetch
 
         setBoard(boardData);
@@ -422,11 +447,6 @@ function KanbanBoardInner({
           (boardData.columns ?? []).sort((a, b) => a.sortOrder - b.sortOrder)
         );
         setItems(itemsData);
-        if (membersData) setMembers(membersData);
-        if (linksData) setLinks(linksData);
-        if (milestonesData) setMilestones(milestonesData);
-        if (teamsData) setTeams(teamsData);
-        if (intervalsData) setIntervals(intervalsData);
       } catch (err) {
         if (seq === reqSeq.current) {
           setError(err instanceof Error ? err.message : "Unknown error");

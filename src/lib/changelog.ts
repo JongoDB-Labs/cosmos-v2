@@ -168,6 +168,17 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.511.3",
+    date: "2026-11-03",
+    title: "Boards show their cards sooner",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A Kanban or sprint board shows its cards as soon as the cards are ready. It used to wait for seven separate requests to all come back before showing anything \u2014 the board, the items, and five more for the filter bar and card badges \u2014 so the slowest of the seven decided how long you looked at a loading screen. All seven still start together; only the two that the cards actually need hold up the board.",
+      },
+    ],
+  },
+  {
     version: "2.511.2",
     date: "2026-11-03",
     title: "The cumulative flow board keeps its heading when it is empty",
