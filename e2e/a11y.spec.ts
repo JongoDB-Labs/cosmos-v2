@@ -335,9 +335,11 @@ const BOARDS: Array<{
     slug: "roadmap",
     ready: (p) => [p.getByRole("button", { name: /^(Collapse all|Expand all)$/ })],
   },
-  // OKR's view switcher. The labels are lowercase in the DOM (`capitalize` is
-  // CSS, which does not change the accessible name).
-  { name: "okrs", slug: "okrs", ready: (p) => [p.getByRole("button", { name: "alignment" })] },
+  // OKR's view switcher. It is a real tablist as of 2.511.0 — it used to be
+  // three plain <button>s whose labels were lowercase literals capitalised by
+  // CSS, so this anchor was `role="button"` named "alignment". Both halves of
+  // that changed in the same release this spec landed beside.
+  { name: "okrs", slug: "okrs", ready: (p) => [p.getByRole("tab", { name: "Alignment" })] },
   {
     name: "dashboard",
     slug: "dashboard",
@@ -360,7 +362,10 @@ const BOARDS: Array<{
   {
     name: "cumulative flow",
     slug: "cfd",
-    ready: (p) => [p.getByRole("heading", { name: "Cumulative Flow Diagram" })],
+    // Not `getByRole("heading")`: 2.511.0 moved this board's title into the
+    // shared `BoardToolbarTitle`, which renders a styled <div>, so there is no
+    // heading role here any more.
+    ready: (p) => [p.getByText("Cumulative Flow Diagram")],
   },
 ];
 

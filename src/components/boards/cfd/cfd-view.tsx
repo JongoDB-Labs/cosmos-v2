@@ -129,16 +129,6 @@ export function CfdView({ orgId, projectId, projectKey, boardId }: CfdViewProps)
     );
   }
 
-  if (items.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-sm text-muted-foreground">
-          No work items to display. Add items to see the cumulative flow diagram.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col h-full">
       {/* This board has no controls at all, but it still gets the shared band
@@ -152,6 +142,17 @@ export function CfdView({ orgId, projectId, projectKey, boardId }: CfdViewProps)
         </BoardToolbarMeta>
       </BoardToolbar>
 
+      {items.length === 0 ? (
+        /* The chrome above stays. This used to be an early return that replaced
+           the whole view, title included — the same shape fixed for the RAID log
+           and the roadmap in 2.509.1, and the reason the a11y scan could not
+           find this board's title to anchor on. */
+        <div className="flex flex-1 items-center justify-center">
+          <p className="text-sm text-muted-foreground">
+            No work items to display. Add items to see the cumulative flow diagram.
+          </p>
+        </div>
+      ) : (
       <div className="flex-1 p-4 min-h-0">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
@@ -206,6 +207,7 @@ export function CfdView({ orgId, projectId, projectKey, boardId }: CfdViewProps)
           </AreaChart>
         </ResponsiveContainer>
       </div>
+      )}
     </div>
   );
 }
