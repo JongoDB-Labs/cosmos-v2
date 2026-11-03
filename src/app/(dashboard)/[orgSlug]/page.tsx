@@ -14,6 +14,13 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { PageShell } from "@/components/ui/page-shell";
 import { PageSection } from "@/components/ui/page-section";
+import { RecentWindowPicker } from "@/components/projects/recent-window-picker";
+import { recentProjectTouchesForUser } from "@/lib/projects/recent";
+import {
+  hoursForWindow,
+  windowFromParam,
+  type RecentWindowKey,
+} from "@/lib/projects/recent-windows";
 import { StatCard } from "@/components/ui/stat-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +30,12 @@ import { HomeDashboard } from "@/components/home/home-dashboard";
 import { PluginSlot } from "@/components/plugins/plugin-slot";
 import { formatDateStable } from "@/lib/format/stable-date";
 
-type PageParams = { params: Promise<{ orgSlug: string }> };
+type PageParams = {
+  params: Promise<{ orgSlug: string }>;
+  /** `?recent=` picks the window for the project teaser. Read inside the
+   *  Suspense boundary, like `params`, because it is a dynamic API. */
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
 
 /**
  * Instant-shell validation requires `await params` and any cookie reads
@@ -38,16 +50,20 @@ type PageParams = { params: Promise<{ orgSlug: string }> };
 // To re-enable: restore the export with `prefetch: "static"`, samples, and
 // unstable_disableBuildValidation: true.
 
-export default function OrgOverviewPage({ params }: PageParams) {
+export default function OrgOverviewPage({ params, searchParams }: PageParams) {
   return (
     <Suspense fallback={<HeaderSkeleton />}>
-      <HeaderAndContent params={params} />
+      <HeaderAndContent params={params} searchParams={searchParams} />
     </Suspense>
   );
 }
 
-async function HeaderAndContent({ params }: PageParams) {
+async function HeaderAndContent({ params, searchParams }: PageParams) {
   const { orgSlug } = await params;
+  const sp = searchParams ? await searchParams : {};
+  const recentWindow = windowFromParam(
+    typeof sp.recent === "string" ? sp.recent : undefined,
+  );
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
 
@@ -85,13 +101,31 @@ async function HeaderAndContent({ params }: PageParams) {
           no dynamic API is read here). */}
       <PluginSlot name="overview.card" orgId={ctx.orgId} />
 
+      {/* "Recent" rather than "Active": the teaser exists to be a jumping-off
+          point, and the org's active projects are a property of the org, not of
+          you — so it could show six projects you never open (d5c10944). Recent
+          means projects YOU have touched, newest first. */}
       <PageSection
-        title="Active projects"
+        title="Recent projects"
         action={{ label: "View all", href: `/${orgSlug}/projects` }}
       >
+        <div className="mb-3 flex justify-end">
+          {/* Its own boundary: RecentWindowPicker reads `useSearchParams`, and
+              a client hook that reads a dynamic API needs a Suspense ancestor
+              under Cache Components. Omitting one is silent in dev, in CI and
+              in the build, and only shows up in production. */}
+          <Suspense fallback={null}>
+            <RecentWindowPicker current={recentWindow} />
+          </Suspense>
+        </div>
         {/* Streaming section 2: project grid. */}
         <Suspense fallback={<ProjectGridSkeleton />}>
-          <ProjectGrid orgId={ctx.orgId} orgSlug={orgSlug} />
+          <ProjectGrid
+            orgId={ctx.orgId}
+            orgSlug={orgSlug}
+            userId={ctx.userId}
+            windowKey={recentWindow}
+          />
         </Suspense>
       </PageSection>
     </PageShell>
@@ -183,9 +217,13 @@ function StatCardsSkeleton() {
 async function ProjectGrid({
   orgId,
   orgSlug,
+  userId,
+  windowKey,
 }: {
   orgId: string;
   orgSlug: string;
+  userId: string;
+  windowKey: RecentWindowKey;
 }) {
   // Cached fetch returns the full active set; slice to the first 6 for the
   // Overview teaser. Slicing client-side from a cached array is cheaper than
@@ -198,7 +236,23 @@ async function ProjectGrid({
   const visibleIds = listCtx
     ? await getVisibleProjectIds(listCtx, allProjects.map((p) => p.id))
     : new Set<string>();
-  const projects = allProjects.filter((p) => visibleIds.has(p.id)).slice(0, 6);
+  const visible = allProjects.filter((p) => visibleIds.has(p.id));
+
+  // The per-user half, uncached on purpose — see recentProjectTouchesForUser.
+  const touched = await recentProjectTouchesForUser(
+    orgId,
+    userId,
+    hoursForWindow(windowKey),
+  );
+  const recent = visible
+    .filter((p) => touched.has(p.id))
+    .sort((a, b) => touched.get(b.id)!.getTime() - touched.get(a.id)!.getTime());
+
+  // Nothing touched in the window — a new member, or a quiet week. Fall back to
+  // the active list rather than showing an empty teaser, and say so, so the
+  // projects on screen are never unexplained.
+  const fellBack = recent.length === 0 && visible.length > 0;
+  const projects = (fellBack ? visible : recent).slice(0, 6);
 
   if (projects.length === 0) {
     return (
@@ -218,6 +272,13 @@ async function ProjectGrid({
   }
 
   return (
+    <>
+      {fellBack && (
+        <p className="mb-3 text-xs text-[var(--text-muted)]">
+          Nothing touched in this window — showing the project&rsquo;s active
+          list instead.
+        </p>
+      )}
     <StaggeredGrid className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
       {projects.map((p) => (
         <Link
@@ -238,6 +299,7 @@ async function ProjectGrid({
         </Link>
       ))}
     </StaggeredGrid>
+    </>
   );
 }
 

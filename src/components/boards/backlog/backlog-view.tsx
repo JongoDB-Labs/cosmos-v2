@@ -35,6 +35,7 @@ import {
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import { teamsByUser, type TeamLike } from "@/lib/teams/item-teams";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
@@ -171,9 +172,10 @@ export function BacklogView({
     void qc.invalidateQueries({ queryKey: itemsKey });
   });
   const membersKey = useOrgQueryKey("members");
+  const teamsKey = useOrgQueryKey("project-teams", projectId);
   const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  const [boardQ, itemsQ, membersQ, intervalsQ] = useQueries({
+  const [boardQ, itemsQ, membersQ, intervalsQ, teamsQ] = useQueries({
     queries: [
       {
         queryKey: boardKey,
@@ -190,6 +192,11 @@ export function BacklogView({
       {
         queryKey: intervalsKey,
         queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`),
+      },
+      {
+        queryKey: teamsKey,
+        queryFn: () =>
+          jsonFetch<TeamLike[]>(`${basePath}/teams`),
       },
     ],
   });
@@ -219,14 +226,20 @@ export function BacklogView({
   // A PI selection in the Interval filter means "any sprint under this PI"
   // (3d90c48e). Items carry a sprint id, never a PI id.
   const intervalChildren = useMemo(() => intervalChildrenById(intervals), [intervals]);
+  // The team rule needs this map, not just the list: a team's work is the items
+  // naming it PLUS its members' items that name no team. Without it the filter
+  // is documented as inert, so the control would look like it worked and do
+  // nothing (board-filters.ts).
+  const teams: TeamLike[] = useMemo(() => teamsQ.data ?? [], [teamsQ.data]);
+  const teamsByUserId = useMemo(() => teamsByUser(teams), [teams]);
   const barFiltered = useMemo(
     () =>
       items.filter((it) =>
         boardQuery.enabled
           ? boardQuery.keep(it)
-          : matchesFilters(it, filters, [], new Map(), undefined, { intervalChildren }),
+          : matchesFilters(it, filters, [], teamsByUserId, undefined, { intervalChildren }),
       ),
-    [items, filters, boardQuery, intervalChildren],
+    [items, filters, boardQuery, intervalChildren, teamsByUserId],
   );
   const members: OrgMember[] = useMemo(() => membersQ.data ?? [], [membersQ.data]);
 
@@ -612,7 +625,7 @@ export function BacklogView({
           onFilterChange={setFilters}
           members={membersQ.data ?? []}
           intervals={intervals}
-          teams={[]}
+          teams={teams}
           orgId={orgId}
           boardColumns={projectStatuses}
         />

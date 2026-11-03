@@ -168,6 +168,25 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.512.0",
+    date: "2026-11-03",
+    title: "Filter by team on every board that filters",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Team filter now works on the backlog, the table, the calendar, the roadmap, the RAID log and the sprint-health dashboard. It had only ever been wired on the Kanban and the Gantt; the other six were handed an empty list of teams, so the control never appeared. A team's work still means the same thing everywhere \u2014 items assigned to that team, plus its members' items that name no team.",
+      },
+      {
+        kind: "improvement",
+        text: "Team and Interval are the two filters that sit under \u201CMore filters\u201D, so if you went looking for them on a board and concluded they were missing, that is why. They are one click in, and now present on every board whose filter bar renders.",
+      },
+      {
+        kind: "feature",
+        text: "The overview opens on your recent projects rather than the organisation's active ones. It lists the projects you have actually worked in, newest first, over the last 24 hours, 7 days or 30 days \u2014 so the panel whose whole job is to be a starting point stops offering projects you never open. If you have touched nothing in the window it shows the active list and says so, rather than going blank.",
+      },
+    ],
+  },
+  {
     version: "2.511.4",
     date: "2026-11-03",
     title: "Save a search as any board that can show it",
