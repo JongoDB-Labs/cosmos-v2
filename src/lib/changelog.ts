@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.510.0",
+    date: "2026-11-03",
+    title: "Pick up a walkthrough where you left off",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Walkthroughs menu in the top bar now lists plugin walkthroughs too, and offers to resume where you left off or start over. The step counter on the card lets you jump to any step, and marks the steps where you left feedback or asked a question.",
+      },
+    ],
+  },
+  {
     version: "2.508.2",
     date: "2026-11-01",
     title: "Governance counts what Cosmo was actually shown",
