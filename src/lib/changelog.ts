@@ -157,6 +157,37 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.510.0",
+    date: "2026-11-03",
+    title: "Every board's controls come from one place",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Board toolbars are now one component instead of eleven hand-written ones. They had drifted to four different band heights, two spacings and three background tints, so moving between boards meant the chrome shifted under you even when the controls were the same. One band, one height, one alignment, on every board.",
+      },
+      {
+        kind: "improvement",
+        text: "\u201CHide done\u201D is one control rather than three lookalikes. The backlog and RAID log drew a small bordered checkbox; the roadmap drew a larger unbordered one, and the release timeline's level filters a third variant. They are the same control now, and the Gantt keeps its toggle inside the Lenses group where it belongs \u2014 sharing the wording so the two cannot drift apart again.",
+      },
+      {
+        kind: "improvement",
+        text: "The primary action is the last thing on every toolbar. The table put its row-density buttons after \u201CNew issue\u201D and the RAID log and backlog put \u201CHide done\u201D after it, so the button you reach for most was in a different position on three boards. The table also drew its filter bar below its toolbar while seven other boards drew it above; it now reads the same way down.",
+      },
+      {
+        kind: "feature",
+        text: "The backlog, calendar, roadmap and RAID log can filter by interval. The control was hidden on those four because they handed the filter bar an empty list of intervals \u2014 the backlog and roadmap were already loading them and simply never passed them on. Selecting a Program Increment rolls up its sprints here too, as it already did elsewhere.",
+      },
+      {
+        kind: "fix",
+        text: "Saving in the board builder no longer discards the rest of the board's configuration. It wrote only its widget layout over the whole settings blob, which silently erased a saved board's query, a table's chosen columns, and the setting that makes a release timeline read-only \u2014 turning one into an editable Gantt. It now merges instead of replacing.",
+      },
+      {
+        kind: "fix",
+        text: "The OKR board's Objectives, Health and Alignment switcher is announced properly by a screen reader. The three were plain buttons with nothing marking them as a set or saying which one was showing, unlike the equivalent switchers on the sprint-health and ceremony boards.",
+      },
+    ],
+  },
+  {
     version: "2.509.1",
     date: "2026-11-03",
     title: "Boards put their controls in the same places",
