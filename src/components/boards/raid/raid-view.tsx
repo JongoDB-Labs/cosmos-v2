@@ -340,10 +340,39 @@ export function RaidView({
     );
   }
 
+  // What this board can DO, handed to whichever filter surface renders below
+  // as its `actions` slot rather than drawn as a `<BoardToolbar>` band of its
+  // own. That band's classes are identical to the filter bar's, so a board
+  // carrying both drew the same band twice -- see ffe324aa and
+  // kanban-board.one-band.test.tsx.
+  const boardActions = (
+    <>
+  <BoardToolbarTitle icon={ShieldAlert}>RAID log</BoardToolbarTitle>
+  <BoardToolbarMeta>
+    {totalShown} item{totalShown === 1 ? "" : "s"}
+  </BoardToolbarMeta>
+  <BoardToolbarActions>
+    <HideDoneToggle checked={hideDone} onChange={setHideDone} />
+    <NewIssueButton
+      ref={newIssueRef}
+      orgId={orgId}
+      projectId={projectId}
+      projectKey={projectKey}
+      boardId={boardId}
+      // Seed a RAID category so a new entry defaults to a real category
+      // instead of "Unclassified" (COSMOS-80). It arrives in the dialog's
+      // Labels field, editable like any other label — a RAID category IS a
+      // tag, so it needs no control of its own.
+      initialLabels={[RAID_CATEGORIES[0].tag]}
+      onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+    />
+  </BoardToolbarActions>
+    </>
+  );
   return (
     <div className="flex flex-col h-full">
       {boardQuery.enabled ? (
-        <BoardQueryBar orgId={orgId} q={boardQuery} />
+        <BoardQueryBar orgId={orgId} q={boardQuery} actions={boardActions} />
       ) : (
         <FilterBar
           filters={filters}
@@ -353,30 +382,9 @@ export function RaidView({
           teams={teams}
           orgId={orgId}
           boardColumns={projectStatuses}
+          actions={boardActions}
         />
       )}
-      <BoardToolbar>
-        <BoardToolbarTitle icon={ShieldAlert}>RAID log</BoardToolbarTitle>
-        <BoardToolbarMeta>
-          {totalShown} item{totalShown === 1 ? "" : "s"}
-        </BoardToolbarMeta>
-        <BoardToolbarActions>
-          <HideDoneToggle checked={hideDone} onChange={setHideDone} />
-          <NewIssueButton
-            ref={newIssueRef}
-            orgId={orgId}
-            projectId={projectId}
-            projectKey={projectKey}
-            boardId={boardId}
-            // Seed a RAID category so a new entry defaults to a real category
-            // instead of "Unclassified" (COSMOS-80). It arrives in the dialog's
-            // Labels field, editable like any other label — a RAID category IS a
-            // tag, so it needs no control of its own.
-            initialLabels={[RAID_CATEGORIES[0].tag]}
-            onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
-          />
-        </BoardToolbarActions>
-      </BoardToolbar>
 
       {items.length === 0 ? (
         /* The chrome above stays: a log with nothing in it is exactly when

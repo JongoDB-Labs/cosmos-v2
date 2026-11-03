@@ -219,10 +219,63 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
 
   const expandedDayItems = expandedDay ? dateItemsMap.get(expandedDay) ?? [] : [];
 
+  // What this board can DO, handed to whichever filter surface renders below
+  // as its `actions` slot rather than drawn as a `<BoardToolbar>` band of its
+  // own. That band's classes are identical to the filter bar's, so a board
+  // carrying both drew the same band twice -- see ffe324aa and
+  // kanban-board.one-band.test.tsx.
+  const boardActions = (
+    <>
+  <div className="flex items-center gap-2">
+    <Button
+      variant="outline"
+      size="icon-xs"
+      onClick={() => navigateMonth(-1)}
+      aria-label="Previous month"
+      title="Previous month"
+    >
+      <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+    </Button>
+    <h2 className="text-sm font-semibold min-w-[140px] text-center">
+      {currentDate.toLocaleString("default", { month: "long", year: "numeric" })}
+    </h2>
+    <Button
+      variant="outline"
+      size="icon-xs"
+      onClick={() => navigateMonth(1)}
+      aria-label="Next month"
+      title="Next month"
+    >
+      <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+    </Button>
+  </div>
+  <BoardToolbarActions>
+    <Button
+      variant="ghost"
+      size="xs"
+      onClick={() => {
+        setCurrentDate(new Date());
+        setExpandedDay(null);
+      }}
+    >
+      Today
+    </Button>
+    {/* Rightmost, like every other board's create control. */}
+    <NewIssueButton
+      ref={newIssueRef}
+      orgId={orgId}
+      projectId={projectId}
+      projectKey={projectKey}
+      boardId={boardId}
+      onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+    />
+  </BoardToolbarActions>
+    </>
+  );
   return (
     <div className="flex flex-col h-full">
       {boardQuery.enabled ? (
-        <BoardQueryBar orgId={orgId} q={boardQuery} />
+        <BoardQueryBar orgId={orgId} q={boardQuery} actions={boardActions} />
       ) : (
         <FilterBar
           filters={filters}
@@ -232,55 +285,10 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
           teams={teams}
           orgId={orgId}
           boardColumns={projectStatuses}
+          actions={boardActions}
         />
       )}
       {/* Header */}
-      <BoardToolbar>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="icon-xs"
-            onClick={() => navigateMonth(-1)}
-            aria-label="Previous month"
-            title="Previous month"
-          >
-            <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
-          </Button>
-          <h2 className="text-sm font-semibold min-w-[140px] text-center">
-            {currentDate.toLocaleString("default", { month: "long", year: "numeric" })}
-          </h2>
-          <Button
-            variant="outline"
-            size="icon-xs"
-            onClick={() => navigateMonth(1)}
-            aria-label="Next month"
-            title="Next month"
-          >
-            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-          </Button>
-        </div>
-        <BoardToolbarActions>
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() => {
-              setCurrentDate(new Date());
-              setExpandedDay(null);
-            }}
-          >
-            Today
-          </Button>
-          {/* Rightmost, like every other board's create control. */}
-          <NewIssueButton
-            ref={newIssueRef}
-            orgId={orgId}
-            projectId={projectId}
-            projectKey={projectKey}
-            boardId={boardId}
-            onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
-          />
-        </BoardToolbarActions>
-      </BoardToolbar>
 
       <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       <div className="flex-1 overflow-auto p-4">

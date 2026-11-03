@@ -615,10 +615,37 @@ export function BacklogView({
 
   const totalVisible = backlogItems.length + intervalSections.reduce((n, s) => n + s.items.length, 0);
 
+  // What this board can DO, handed to whichever filter surface renders below
+  // as its `actions` slot rather than drawn as a `<BoardToolbar>` band of its
+  // own. That band's classes are identical to the filter bar's, so a board
+  // carrying both drew the same band twice -- see ffe324aa and
+  // kanban-board.one-band.test.tsx.
+  const boardActions = (
+    <>
+  <BoardToolbarMeta>
+    {totalVisible} item{totalVisible === 1 ? "" : "s"}
+  </BoardToolbarMeta>
+  {/* "Assigned to me" now comes from the shared FilterBar above — this
+      board carried its own identical copy, so the toolbar showed the
+      control twice. The bar's version has the same semantics, co-assignees
+      included. */}
+  <BoardToolbarActions>
+    <HideDoneToggle checked={hideDone} onChange={setHideDone} />
+    <NewIssueButton
+      ref={newIssueRef}
+      orgId={orgId}
+      projectId={projectId}
+      projectKey={projectKey}
+      boardId={boardId}
+      onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+    />
+  </BoardToolbarActions>
+    </>
+  );
   return (
     <div className="flex h-full flex-col">
       {boardQuery.enabled ? (
-        <BoardQueryBar orgId={orgId} q={boardQuery} />
+        <BoardQueryBar orgId={orgId} q={boardQuery} actions={boardActions} />
       ) : (
         <FilterBar
           filters={filters}
@@ -628,28 +655,9 @@ export function BacklogView({
           teams={teams}
           orgId={orgId}
           boardColumns={projectStatuses}
+          actions={boardActions}
         />
       )}
-      <BoardToolbar>
-        <BoardToolbarMeta>
-          {totalVisible} item{totalVisible === 1 ? "" : "s"}
-        </BoardToolbarMeta>
-        {/* "Assigned to me" now comes from the shared FilterBar above — this
-            board carried its own identical copy, so the toolbar showed the
-            control twice. The bar's version has the same semantics, co-assignees
-            included. */}
-        <BoardToolbarActions>
-          <HideDoneToggle checked={hideDone} onChange={setHideDone} />
-          <NewIssueButton
-            ref={newIssueRef}
-            orgId={orgId}
-            projectId={projectId}
-            projectKey={projectKey}
-            boardId={boardId}
-            onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
-          />
-        </BoardToolbarActions>
-      </BoardToolbar>
 
       <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       {items.length === 0 ? (
