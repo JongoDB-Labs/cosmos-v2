@@ -54,24 +54,3 @@ export async function recentProjectTouchesForUser(
   }
   return touched;
 }
-
-/** The windows the Overview offers, and the one it starts on. */
-export const RECENT_WINDOWS = [
-  { key: "24h", label: "Last 24 hours", hours: 24 },
-  { key: "7d", label: "Last 7 days", hours: 24 * 7 },
-  { key: "30d", label: "Last 30 days", hours: 24 * 30 },
-] as const;
-
-export type RecentWindowKey = (typeof RECENT_WINDOWS)[number]["key"];
-export const DEFAULT_RECENT_WINDOW: RecentWindowKey = "7d";
-
-/** A window key from a URL param, falling back to the default for anything else. */
-export function windowFromParam(value: string | undefined): RecentWindowKey {
-  return RECENT_WINDOWS.some((w) => w.key === value)
-    ? (value as RecentWindowKey)
-    : DEFAULT_RECENT_WINDOW;
-}
-
-export function hoursForWindow(key: RecentWindowKey): number {
-  return RECENT_WINDOWS.find((w) => w.key === key)!.hours;
-}

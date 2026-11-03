@@ -9,7 +9,7 @@ import {
   RECENT_WINDOWS,
   hoursForWindow,
   windowFromParam,
-} from "./recent";
+} from "./recent-windows";
 
 describe("windowFromParam", () => {
   it("accepts every window it offers", () => {

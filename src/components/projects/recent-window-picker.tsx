@@ -1,7 +1,10 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { RECENT_WINDOWS, type RecentWindowKey } from "@/lib/projects/recent";
+import {
+  RECENT_WINDOWS,
+  type RecentWindowKey,
+} from "@/lib/projects/recent-windows";
 
 /**
  * How far back "Recent projects" looks.

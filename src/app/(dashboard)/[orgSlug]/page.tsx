@@ -15,12 +15,12 @@ import { cn } from "@/lib/utils";
 import { PageShell } from "@/components/ui/page-shell";
 import { PageSection } from "@/components/ui/page-section";
 import { RecentWindowPicker } from "@/components/projects/recent-window-picker";
+import { recentProjectTouchesForUser } from "@/lib/projects/recent";
 import {
   hoursForWindow,
-  recentProjectTouchesForUser,
   windowFromParam,
   type RecentWindowKey,
-} from "@/lib/projects/recent";
+} from "@/lib/projects/recent-windows";
 import { StatCard } from "@/components/ui/stat-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
