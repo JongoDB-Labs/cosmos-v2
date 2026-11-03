@@ -49,8 +49,37 @@ afterAll(() => {
   else process.env.SSO_VAULT_KEY = ORIGINAL_VAULT_KEY;
 });
 
-const START = new Date("2026-11-02T15:00:00.000Z");
+/**
+ * The meeting these cases sync, pinned RELATIVE to now.
+ *
+ * It used to be the absolute `new Date("2026-11-02T15:00:00.000Z")`, and that
+ * made the file a time bomb: `liveInvites` only returns meetings matching
+ * `meetingDate: { gte: new Date(now - DAY) }` (calendar-sync.server.ts:582),
+ * so the moment wall-clock passed 2026-11-03T15:00:00Z the meeting fell out of
+ * the window and three cases began failing with "expected [] to have a length
+ * of 1" — on whatever commit happened to run next, which is a false accusation
+ * against an innocent change. Main's CI was green at 13:12Z and 13:49Z and red
+ * at 15:18Z on the same day, with nothing between them touching this code.
+ *
+ * One hour in the FUTURE: comfortably inside the 24h window, never ambiguous
+ * about whether the meeting has happened, and it cannot expire. Nothing here
+ * asserts a specific calendar date, so a relative value loses no coverage —
+ * the three assertions that did hardcode the ISO string now derive it, which
+ * is also what stops them drifting from START again.
+ */
+const START = new Date(Math.floor((Date.now() + 60 * 60 * 1000) / 1000) * 1000);
 const at = (d: Date) => ({ dateTime: d.toISOString().slice(0, 23) + "0000", timeZone: "UTC" });
+/**
+ * The `dateTime` the production push writes for an instant.
+ *
+ * NOT `at(d).dateTime`: `at()` is the shape handed INTO the Graph double and
+ * pads to Graph's 7-digit fraction, while what the pushed event carries back is
+ * the plain 23-character ISO prefix. Deriving from the wrong one of the two is
+ * how my first attempt at this fix broke two different cases.
+ */
+const graphTime = (d: Date) => d.toISOString().slice(0, 23);
+/** START plus the meeting's 45-minute duration. */
+const END = new Date(START.getTime() + 45 * 60 * 1000);
 
 describe("Outlook meeting sync (e2e DB)", () => {
   const orgIds: string[] = [];
@@ -117,8 +146,8 @@ describe("Outlook meeting sync (e2e DB)", () => {
       expect(link).toBeTruthy();
       const ev = g.events.get(link!.externalEventId)!;
       expect(ev.subject).toBe("Sprint review");
-      expect(ev.start.dateTime).toBe("2026-11-02T15:00:00.000");
-      expect(ev.end.dateTime).toBe("2026-11-02T15:45:00.000");
+      expect(ev.start.dateTime).toBe(graphTime(START));
+      expect(ev.end.dateTime).toBe(graphTime(END));
       expect(ev.body?.content).toContain(`https://cosmos.example/${org.slug}/meetings/${meeting.id}`);
       expect(ev.transactionId).toMatch(new RegExp(`^cosmos-${meeting.id}-${u.id}-`));
       expect(link!.changeKey).toBe(ev.changeKey);
@@ -182,7 +211,7 @@ describe("Outlook meeting sync (e2e DB)", () => {
     const audit = await prisma.auditLog.findFirst({ where: { orgId: org.id, action: "microsoft_calendar.writeback_ignored" } });
     expect(audit?.metadata).toMatchObject({ reason: "no_edit_rights" });
     const ev = g.events.get(bLink.externalEventId)!;
-    expect(ev.start.dateTime).toBe("2026-11-02T15:00:00.000");
+    expect(ev.start.dateTime).toBe(graphTime(START));
     expect(ev.subject).toBe("Sprint review");
     // The re-push is recognised as our own on the next pull, not a new edit.
     expect(await pullChanges(org.id, bob.id, deps)).toMatchObject({ ignored: 0, echoes: 1 });
@@ -742,7 +771,7 @@ describe("Outlook meeting sync (e2e DB)", () => {
   it("edits and attendee changes go out as updates; the audit says which parts changed", async () => {
     const { org, alice, g, deps, meeting } = await setup();
     await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
-    await prisma.syncMeeting.update({ where: { id: meeting.id }, data: { title: "Sprint review (moved)", meetingDate: new Date("2026-11-02T16:00:00.000Z") } });
+    await prisma.syncMeeting.update({ where: { id: meeting.id }, data: { title: "Sprint review (moved)", meetingDate: new Date(START.getTime() + 60 * 60 * 1000) } });
     await syncMeeting(org.id, meeting.id, deps);
     const ev = await aliceEvent(org.id, alice.id, meeting.id, g);
     expect(ev.subject).toBe("Sprint review (moved)");
