@@ -1045,21 +1045,19 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         </div>
       </div>
 
-      <div className="border-b border-[var(--border)] px-4 py-2">
-        {boardQuery.enabled ? (
-          <BoardQueryBar orgId={orgId} q={boardQuery} />
-        ) : (
-          <FilterBar
-            filters={filters}
-            onFilterChange={setFilters}
-            members={members}
-            intervals={intervals}
-            teams={[]}
-            orgId={orgId}
-            boardColumns={projectStatuses}
-          />
-        )}
-      </div>
+      {boardQuery.enabled ? (
+        <BoardQueryBar orgId={orgId} q={boardQuery} />
+      ) : (
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={members}
+          intervals={intervals}
+          teams={[]}
+          orgId={orgId}
+          boardColumns={projectStatuses}
+        />
+      )}
       {!boardQuery.enabled && <BoardScopeNotice scope={scope} />}
 
       <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>

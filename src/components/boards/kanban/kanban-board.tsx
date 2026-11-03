@@ -1094,18 +1094,9 @@ function KanbanBoardInner({
           drag is OFF and cards toggle; the action bar appears once something's
           selected. The row renders even without bulk permissions, because
           "New issue" lives here — it replaces the per-column "Add card", which
-          could only ever set a title. */}
+          could only ever set a title. It sits in the row's RIGHT-hand group;
+          see kanban-board.toolbar-placement.test.tsx for why. */}
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-1.5">
-        {!selectMode && (
-          <NewIssueButton
-            ref={newIssueRef}
-            orgId={orgId}
-            projectId={projectId}
-            projectKey={projectKey}
-            boardId={boardId}
-            onCreated={() => void fetchData()}
-          />
-        )}
         {(canBulkEdit || canBulkDelete) && (
           <>
           {!selectMode ? (
@@ -1247,6 +1238,22 @@ function KanbanBoardInner({
             </>
           )}
           </>
+        )}
+        {/* The create control is the band's right-hand group, as on Backlog,
+            Table, RAID, Calendar and Timeline -- and as the Issues page already
+            enforces by test. It left the left edge free for mode and counts.
+            In select mode this is hidden and "Done" takes the ml-auto slot. */}
+        {!selectMode && (
+          <div className="ml-auto">
+            <NewIssueButton
+              ref={newIssueRef}
+              orgId={orgId}
+              projectId={projectId}
+              projectKey={projectKey}
+              boardId={boardId}
+              onCreated={() => void fetchData()}
+            />
+          </div>
         )}
       </div>
 
