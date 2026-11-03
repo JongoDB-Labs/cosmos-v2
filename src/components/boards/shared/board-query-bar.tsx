@@ -52,16 +52,10 @@ export function BoardQueryBar({
     ) : null;
   }
   return (
-    <div className="space-y-1.5 border-b border-[var(--border)] px-4 py-2">
-      {q.problem ? (
-        <p role="alert" className="text-xs text-[var(--status-blocked-text)]">
-          This board shows nothing: {q.problem}.
-        </p>
-      ) : q.baselineCql ? (
-        <p className="text-xs text-[var(--text-muted)]">
-          This board shows <code className="rounded border border-[var(--border)] px-1">{q.baselineCql}</code>
-        </p>
-      ) : null}
+    <div className="space-y-1 border-b border-[var(--border)] px-4 py-2">
+      {/* `variant="inline"`: this band already draws the border and padding, so
+          the builder's own card would be framing inside framing. Measured on
+          prod, that card cost 26 of the band's 147 vertical pixels. */}
       <QueryBuilder
         orgId={orgId}
         schema={q.schema}
@@ -70,9 +64,25 @@ export function BoardQueryBar({
         mode={q.mode}
         onModeChange={q.setMode}
         serverDiagnostics={q.diagnostics}
+        variant="inline"
       />
-      {/* The builder's own Clear empties the query: back to the board's scope. */}
-      <div className="flex flex-wrap items-center gap-2">
+      {/* One bottom row, not three stacked ones. The board's scope used to have
+          a line of its own above the builder; it is small muted text that reads
+          perfectly well beside the other small muted text, and a line to itself
+          cost ~20px on every CQL board. A `problem` still gets priority here,
+          and keeps role="alert".
+          The builder's own Clear empties the query: back to the board's scope. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {q.problem ? (
+          <p role="alert" className="text-xs text-[var(--status-blocked-text)]">
+            This board shows nothing: {q.problem}.
+          </p>
+        ) : q.baselineCql ? (
+          <p className="min-w-0 truncate text-xs text-[var(--text-muted)]" title={q.baselineCql}>
+            This board shows{" "}
+            <code className="rounded border border-[var(--border)] px-1">{q.baselineCql}</code>
+          </p>
+        ) : null}
         {children}
         <span aria-live="polite" className="text-xs text-[var(--text-muted)]">
           {q.pending ? "Filtering…" : ""}

@@ -168,6 +168,21 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.516.0",
+    date: "2026-11-03",
+    title: "The query bar stops taking a third of the screen",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "On boards that use the query language, the filter bar was drawing a bordered, padded panel inside a bar that was already bordered and padded \u2014 framing inside framing. Measured on a live sprint board, the bar was 147 pixels tall and the whole chrome above the first card took 338 of 906 (37% of the screen). The panel now sits directly on the bar, and the line naming the board\u2019s saved query shares the bottom row instead of claiming one of its own.",
+      },
+      {
+        kind: "improvement",
+        text: "A long saved query on that line is now truncated to one line with the full text on hover, so a board scoped by a sentence-long query no longer pushes its own cards down to make room for it.",
+      },
+    ],
+  },
+  {
     version: "2.515.0",
     date: "2026-11-03",
     title: "Every board that filters now has one bar, not two",
