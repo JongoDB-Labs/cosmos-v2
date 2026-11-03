@@ -29,7 +29,12 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock("@/components/work-items/card-detail-sheet", () => ({ CardDetailSheet: () => null }));
-vi.mock("@/components/boards/shared/board-query-bar", () => ({ BoardQueryBar: () => null }));
+// Stubbed to keep the filter surface's control tree out of this test, but it
+// now HOSTS the board's actions (one band instead of two identical ones --
+// ffe324aa). A stub returning null swallows them, and the test then goes green
+// while blind to controls it may be exercising. `never` rather than ReactNode:
+// the automatic JSX runtime does not put `React` in scope in a test file.
+vi.mock("@/components/boards/shared/board-query-bar", () => ({ BoardQueryBar: ({ actions }: { actions?: unknown }) => <>{actions as never}</> }));
 
 const BOARD = {
   id: "b1",

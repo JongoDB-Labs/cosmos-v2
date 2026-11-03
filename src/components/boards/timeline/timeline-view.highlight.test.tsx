@@ -23,10 +23,20 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: v
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 vi.mock("@/components/boards/shared/new-issue-button", () => ({ NewIssueButton: () => null }));
 vi.mock("@/components/work-items/card-detail-sheet", () => ({ CardDetailSheet: () => null }));
+// Stubbed to keep the filter surface's control tree out of this test, but it
+// now HOSTS the board's actions (one band instead of two identical ones --
+// ffe324aa). A stub returning null swallows them, and the test then goes green
+// while blind to controls it may be exercising. `never` rather than ReactNode:
+// the automatic JSX runtime does not put `React` in scope in a test file.
 vi.mock("@/components/boards/shared/filter-bar", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/components/boards/shared/filter-bar")>();
-  return { ...actual, FilterBar: () => null };
+  return { ...actual, FilterBar: ({ actions, notice }: { actions?: unknown; notice?: unknown }) => (
+      <>
+        {notice as never}
+        {actions as never}
+      </>
+    ) };
 });
 
 const item = (

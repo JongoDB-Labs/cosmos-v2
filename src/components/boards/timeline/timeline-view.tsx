@@ -1761,6 +1761,277 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     );
   }
 
+  // What this board can DO, handed to whichever filter surface renders below
+  // as its `actions` slot rather than drawn as a `<BoardToolbar>` band of its
+  // own. That band's classes are identical to the filter bar's, so a board
+  // carrying both drew the same band twice -- see ffe324aa and
+  // kanban-board.one-band.test.tsx.
+  const boardActions = (
+    <>
+  <div className="flex flex-wrap items-center gap-1.5">
+    {/* Analysis lenses — overlay toggles that recolor/annotate the chart
+        rather than change data. Grouped under one label so the toolbar
+        reads as "ways to look at the schedule," not scattered buttons. */}
+    <span className="text-xs font-medium text-muted-foreground">Lenses</span>
+    <LensToggle
+      active={showCritical}
+      onClick={() => setShowCritical((v) => !v)}
+      icon={<Route className="size-3.5" />}
+      label="Critical path"
+      title={
+        CRITICAL_MODES.find((m) => m.key === criticalMode)?.hint ??
+        "Highlight the driving chain of dependencies"
+      }
+      accent="var(--status-critical)"
+    />
+    {/* What "critical" MEANS is a judgement about the plan, not something
+        this board can decide — so the definition is the user's, and the
+        gear sits on the button it governs. */}
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="-ml-1 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+        aria-label="Critical path settings"
+        title="Choose what counts as the critical path"
+      >
+        <Settings2 className="size-3.5" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-72">
+        <DropdownMenuRadioGroup
+          value={criticalMode}
+          onValueChange={(v) => {
+            setCriticalMode(v as CriticalMode);
+            // Choosing a definition implies wanting to see it.
+            setShowCritical(true);
+          }}
+        >
+          {/* The label lives INSIDE the radio group, not beside it.
+              base-ui's Menu.GroupLabel reads MenuGroupContext during
+              render and THROWS when there is no Menu.Group /
+              Menu.RadioGroup above it — and because the popup only
+              mounts on open, that throw landed in the app's error
+              boundary the moment the gear was clicked (in production,
+              as the minified Base UI error #31). Same trap already
+              documented in data-table.tsx and action-menu.tsx.
+              Nesting it here is also the more correct of the two
+              fixes: Menu.RadioGroup supplies that context AND adopts
+              the label's id as its aria-labelledby, so the choices
+              get an accessible name instead of a floating heading. */}
+          <DropdownMenuLabel>Highlight the chain with…</DropdownMenuLabel>
+          {CRITICAL_MODES.map((m) => (
+            <DropdownMenuRadioItem key={m.key} value={m.key}>
+              <span className="flex flex-col">
+                <span>{m.label}</span>
+                <span className="text-[11px] text-muted-foreground">{m.hint}</span>
+              </span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuCheckboxItem
+          checked={criticalIsolate}
+          onCheckedChange={setCriticalIsolate}
+        >
+          Dim everything off the path
+        </DropdownMenuCheckboxItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+    <LensToggle
+      active={showBlocked}
+      onClick={() => setShowBlocked((v) => !v)}
+      icon={<Ban className="size-3.5" />}
+      label="Blocked"
+      title="Show impeded work in red, with arrows to whatever is blocking it"
+      accent="var(--status-critical)"
+    />
+    <LensToggle
+      active={hideDone}
+      onClick={() => setHideDone((v) => !v)}
+      icon={<EyeOff className="size-3.5" />}
+      label={HIDE_DONE_LABEL}
+      title="Drop finished work from the chart so what is still in play has room"
+      accent="var(--status-done)"
+    />
+    <LensToggle
+      active={showDeps}
+      onClick={() => {
+        setShowDeps((v) => !v);
+        void qc.invalidateQueries({ queryKey: linksKey });
+      }}
+      icon={<Waypoints className="size-3.5" />}
+      label="Dependencies"
+      title="Show links between items; hover a bar to trace its upstream (amber) and downstream (blue) dependencies — everything else fades"
+      accent="#0ea5e9"
+    />
+    {/* Scheduling conflicts (COSMOS-154). Saving a date already cascades
+        to parents and downstream successors, so anything still listed
+        here is a constraint the server could NOT resolve by shifting —
+        it needs a human. A button, not a bare label: the arrows that
+        explain it are the Dependencies lens, so the badge turns it on. */}
+    {violations.length > 0 && (
+      <button
+        type="button"
+        onClick={() => setShowDeps(true)}
+        title="A predecessor still finishes after the item waiting on it. Show the dependency arrows."
+        className="inline-flex items-center gap-1.5 rounded-md border border-[var(--status-critical)]/40 bg-[var(--status-critical)]/10 px-2 py-1 text-xs font-medium text-[var(--status-critical)] transition-colors hover:bg-[var(--status-critical)]/20"
+      >
+        <AlertTriangle className="size-3.5" />
+        {violations.length} scheduling{" "}
+        {violations.length === 1 ? "conflict" : "conflicts"}
+      </button>
+    )}
+    <div className="mx-1 h-5 w-px bg-border" />
+    {parentIds.size > 0 && (
+      <button
+        onClick={() =>
+          commitCollapsed(collapsedIds.size > 0 ? new Set() : new Set(parentIds))
+        }
+        className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        title={
+          collapsedIds.size > 0
+            ? "Expand every parent item"
+            : "Collapse every parent item to a single row"
+        }
+      >
+        {collapsedIds.size > 0 ? (
+          <>
+            <ChevronsUpDown className="size-3.5" /> Expand all
+          </>
+        ) : (
+          <>
+            <ChevronsDownUp className="size-3.5" /> Collapse all
+          </>
+        )}
+      </button>
+    )}
+    {/* Zoom is a VIEW control, so it sits outside the canEdit guard — a
+        read-only viewer needs to see the far end of a plan just as much. */}
+    <div className="mx-1 h-5 w-px bg-border" />
+    <span className="text-xs text-muted-foreground">Zoom</span>
+    <Button
+      variant="outline"
+      size="xs"
+      onClick={() => zoomBy(1 / ZOOM_STEP)}
+      disabled={zoom <= ZOOM_MIN + 0.001}
+      title="Zoom out (⌘/Ctrl + scroll over the chart)"
+      aria-label="Zoom out"
+    >
+      <ZoomOut className="size-3" />
+    </Button>
+    <button
+      type="button"
+      onClick={() => setZoom(1)}
+      className="min-w-11 rounded-md px-1 text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+      title="Reset zoom to 100%"
+    >
+      {Math.round(zoom * 100)}%
+    </button>
+    <Button
+      variant="outline"
+      size="xs"
+      onClick={() => zoomBy(ZOOM_STEP)}
+      disabled={zoom >= ZOOM_MAX - 0.001}
+      title="Zoom in (⌘/Ctrl + scroll over the chart)"
+      aria-label="Zoom in"
+    >
+      <ZoomIn className="size-3" />
+    </Button>
+    <Button
+      variant="outline"
+      size="xs"
+      onClick={() => setFullscreen(true)}
+      title="Fullscreen — just the work items and the calendar (Esc to exit)"
+      aria-label="Enter fullscreen"
+    >
+      <Maximize2 className="size-3" />
+    </Button>
+
+    {canEdit && (
+      <>
+        <div className="mx-1 h-5 w-px bg-border" />
+        <span className="text-xs text-muted-foreground">Shift</span>
+        {[-7, -1, 1, 7].map((d) => (
+          <Button
+            key={d}
+            variant="outline"
+            size="xs"
+            // No selection → no shift. Falling back to "then move
+            // everything" is exactly the behaviour being fixed: it turns
+            // a mis-click into a board-wide re-plan.
+            disabled={busy || selectedItems.length === 0}
+            onClick={() => shiftDays(d)}
+            title={
+              selectedItems.length === 0
+                ? "Select the work items to shift first"
+                : `Shift ${selectedItems.length} selected item${selectedItems.length === 1 ? "" : "s"} ${d > 0 ? "+" : ""}${d} day${Math.abs(d) === 1 ? "" : "s"}`
+            }
+          >
+            {d < 0 ? <ChevronLeft className="size-3" /> : null}
+            {d > 0 ? "+" : ""}
+            {d}d
+            {d > 0 ? <ChevronRight className="size-3" /> : null}
+          </Button>
+        ))}
+        {/* The count carries the disabled buttons' reason. A `title` on a
+            disabled button never surfaces (pointer-events are off), so
+            without this the controls would just look broken. */}
+        <span
+          data-testid="gantt-selection-count"
+          className="text-xs text-muted-foreground"
+        >
+          {selectedItems.length === 0
+            ? "Select items to shift"
+            : `${selectedItems.length} selected`}
+        </span>
+        {selectedItems.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setSelectedIds(new Set())}
+            className="rounded-md px-1 text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+            title="Clear the selection"
+          >
+            Clear
+          </button>
+        )}
+        <div className="mx-1 h-5 w-px bg-border" />
+        <Button
+          variant="outline"
+          size="xs"
+          disabled={undoStack.length === 0}
+          onClick={undo}
+          title="Undo reschedule (⌘/Ctrl-Z)"
+        >
+          <Undo2 className="size-3" /> Undo
+        </Button>
+        <Button
+          variant="outline"
+          size="xs"
+          disabled={redoStack.length === 0}
+          onClick={redo}
+          title="Redo reschedule (⌘/Ctrl-Y)"
+        >
+          <Redo2 className="size-3" /> Redo
+        </Button>
+        {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+      </>
+    )}
+  </div>
+  <BoardToolbarActions>
+    {canEdit && (
+      <p className="hidden text-xs text-muted-foreground lg:block">
+        Drag a bar to reschedule · drag edges to resize
+      </p>
+    )}
+    <NewIssueButton
+      ref={newIssueRef}
+      orgId={orgId}
+      projectId={projectId}
+      projectKey={projectKey}
+      boardId={boardId}
+      onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+    />
+  </BoardToolbarActions>
+    </>
+  );
   return (
     // Fullscreen is a pure layout swap on this one container: the panes below
     // keep their slot in the tree, so entering and leaving neither remounts the
@@ -1815,7 +2086,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       )}
       {!fullscreen &&
         (boardQuery.enabled ? (
-          <BoardQueryBar orgId={orgId} q={boardQuery} />
+          <BoardQueryBar orgId={orgId} q={boardQuery} actions={boardActions} />
         ) : (
           <FilterBar
             filters={filters}
@@ -1832,274 +2103,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             customFields={projectCustomFields}
             presentTypeKeys={presentTypeKeys}
             presentCustomFieldKeys={presentCustomFieldKeys}
+            actions={boardActions}
           />
         ))}
-      {!fullscreen && (
-        <BoardToolbar>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {/* Analysis lenses — overlay toggles that recolor/annotate the chart
-                rather than change data. Grouped under one label so the toolbar
-                reads as "ways to look at the schedule," not scattered buttons. */}
-            <span className="text-xs font-medium text-muted-foreground">Lenses</span>
-            <LensToggle
-              active={showCritical}
-              onClick={() => setShowCritical((v) => !v)}
-              icon={<Route className="size-3.5" />}
-              label="Critical path"
-              title={
-                CRITICAL_MODES.find((m) => m.key === criticalMode)?.hint ??
-                "Highlight the driving chain of dependencies"
-              }
-              accent="var(--status-critical)"
-            />
-            {/* What "critical" MEANS is a judgement about the plan, not something
-                this board can decide — so the definition is the user's, and the
-                gear sits on the button it governs. */}
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                className="-ml-1 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
-                aria-label="Critical path settings"
-                title="Choose what counts as the critical path"
-              >
-                <Settings2 className="size-3.5" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-72">
-                <DropdownMenuRadioGroup
-                  value={criticalMode}
-                  onValueChange={(v) => {
-                    setCriticalMode(v as CriticalMode);
-                    // Choosing a definition implies wanting to see it.
-                    setShowCritical(true);
-                  }}
-                >
-                  {/* The label lives INSIDE the radio group, not beside it.
-                      base-ui's Menu.GroupLabel reads MenuGroupContext during
-                      render and THROWS when there is no Menu.Group /
-                      Menu.RadioGroup above it — and because the popup only
-                      mounts on open, that throw landed in the app's error
-                      boundary the moment the gear was clicked (in production,
-                      as the minified Base UI error #31). Same trap already
-                      documented in data-table.tsx and action-menu.tsx.
-                      Nesting it here is also the more correct of the two
-                      fixes: Menu.RadioGroup supplies that context AND adopts
-                      the label's id as its aria-labelledby, so the choices
-                      get an accessible name instead of a floating heading. */}
-                  <DropdownMenuLabel>Highlight the chain with…</DropdownMenuLabel>
-                  {CRITICAL_MODES.map((m) => (
-                    <DropdownMenuRadioItem key={m.key} value={m.key}>
-                      <span className="flex flex-col">
-                        <span>{m.label}</span>
-                        <span className="text-[11px] text-muted-foreground">{m.hint}</span>
-                      </span>
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuCheckboxItem
-                  checked={criticalIsolate}
-                  onCheckedChange={setCriticalIsolate}
-                >
-                  Dim everything off the path
-                </DropdownMenuCheckboxItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <LensToggle
-              active={showBlocked}
-              onClick={() => setShowBlocked((v) => !v)}
-              icon={<Ban className="size-3.5" />}
-              label="Blocked"
-              title="Show impeded work in red, with arrows to whatever is blocking it"
-              accent="var(--status-critical)"
-            />
-            <LensToggle
-              active={hideDone}
-              onClick={() => setHideDone((v) => !v)}
-              icon={<EyeOff className="size-3.5" />}
-              label={HIDE_DONE_LABEL}
-              title="Drop finished work from the chart so what is still in play has room"
-              accent="var(--status-done)"
-            />
-            <LensToggle
-              active={showDeps}
-              onClick={() => {
-                setShowDeps((v) => !v);
-                void qc.invalidateQueries({ queryKey: linksKey });
-              }}
-              icon={<Waypoints className="size-3.5" />}
-              label="Dependencies"
-              title="Show links between items; hover a bar to trace its upstream (amber) and downstream (blue) dependencies — everything else fades"
-              accent="#0ea5e9"
-            />
-            {/* Scheduling conflicts (COSMOS-154). Saving a date already cascades
-                to parents and downstream successors, so anything still listed
-                here is a constraint the server could NOT resolve by shifting —
-                it needs a human. A button, not a bare label: the arrows that
-                explain it are the Dependencies lens, so the badge turns it on. */}
-            {violations.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowDeps(true)}
-                title="A predecessor still finishes after the item waiting on it. Show the dependency arrows."
-                className="inline-flex items-center gap-1.5 rounded-md border border-[var(--status-critical)]/40 bg-[var(--status-critical)]/10 px-2 py-1 text-xs font-medium text-[var(--status-critical)] transition-colors hover:bg-[var(--status-critical)]/20"
-              >
-                <AlertTriangle className="size-3.5" />
-                {violations.length} scheduling{" "}
-                {violations.length === 1 ? "conflict" : "conflicts"}
-              </button>
-            )}
-            <div className="mx-1 h-5 w-px bg-border" />
-            {parentIds.size > 0 && (
-              <button
-                onClick={() =>
-                  commitCollapsed(collapsedIds.size > 0 ? new Set() : new Set(parentIds))
-                }
-                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                title={
-                  collapsedIds.size > 0
-                    ? "Expand every parent item"
-                    : "Collapse every parent item to a single row"
-                }
-              >
-                {collapsedIds.size > 0 ? (
-                  <>
-                    <ChevronsUpDown className="size-3.5" /> Expand all
-                  </>
-                ) : (
-                  <>
-                    <ChevronsDownUp className="size-3.5" /> Collapse all
-                  </>
-                )}
-              </button>
-            )}
-            {/* Zoom is a VIEW control, so it sits outside the canEdit guard — a
-                read-only viewer needs to see the far end of a plan just as much. */}
-            <div className="mx-1 h-5 w-px bg-border" />
-            <span className="text-xs text-muted-foreground">Zoom</span>
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={() => zoomBy(1 / ZOOM_STEP)}
-              disabled={zoom <= ZOOM_MIN + 0.001}
-              title="Zoom out (⌘/Ctrl + scroll over the chart)"
-              aria-label="Zoom out"
-            >
-              <ZoomOut className="size-3" />
-            </Button>
-            <button
-              type="button"
-              onClick={() => setZoom(1)}
-              className="min-w-11 rounded-md px-1 text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
-              title="Reset zoom to 100%"
-            >
-              {Math.round(zoom * 100)}%
-            </button>
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={() => zoomBy(ZOOM_STEP)}
-              disabled={zoom >= ZOOM_MAX - 0.001}
-              title="Zoom in (⌘/Ctrl + scroll over the chart)"
-              aria-label="Zoom in"
-            >
-              <ZoomIn className="size-3" />
-            </Button>
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={() => setFullscreen(true)}
-              title="Fullscreen — just the work items and the calendar (Esc to exit)"
-              aria-label="Enter fullscreen"
-            >
-              <Maximize2 className="size-3" />
-            </Button>
-
-            {canEdit && (
-              <>
-                <div className="mx-1 h-5 w-px bg-border" />
-                <span className="text-xs text-muted-foreground">Shift</span>
-                {[-7, -1, 1, 7].map((d) => (
-                  <Button
-                    key={d}
-                    variant="outline"
-                    size="xs"
-                    // No selection → no shift. Falling back to "then move
-                    // everything" is exactly the behaviour being fixed: it turns
-                    // a mis-click into a board-wide re-plan.
-                    disabled={busy || selectedItems.length === 0}
-                    onClick={() => shiftDays(d)}
-                    title={
-                      selectedItems.length === 0
-                        ? "Select the work items to shift first"
-                        : `Shift ${selectedItems.length} selected item${selectedItems.length === 1 ? "" : "s"} ${d > 0 ? "+" : ""}${d} day${Math.abs(d) === 1 ? "" : "s"}`
-                    }
-                  >
-                    {d < 0 ? <ChevronLeft className="size-3" /> : null}
-                    {d > 0 ? "+" : ""}
-                    {d}d
-                    {d > 0 ? <ChevronRight className="size-3" /> : null}
-                  </Button>
-                ))}
-                {/* The count carries the disabled buttons' reason. A `title` on a
-                    disabled button never surfaces (pointer-events are off), so
-                    without this the controls would just look broken. */}
-                <span
-                  data-testid="gantt-selection-count"
-                  className="text-xs text-muted-foreground"
-                >
-                  {selectedItems.length === 0
-                    ? "Select items to shift"
-                    : `${selectedItems.length} selected`}
-                </span>
-                {selectedItems.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedIds(new Set())}
-                    className="rounded-md px-1 text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
-                    title="Clear the selection"
-                  >
-                    Clear
-                  </button>
-                )}
-                <div className="mx-1 h-5 w-px bg-border" />
-                <Button
-                  variant="outline"
-                  size="xs"
-                  disabled={undoStack.length === 0}
-                  onClick={undo}
-                  title="Undo reschedule (⌘/Ctrl-Z)"
-                >
-                  <Undo2 className="size-3" /> Undo
-                </Button>
-                <Button
-                  variant="outline"
-                  size="xs"
-                  disabled={redoStack.length === 0}
-                  onClick={redo}
-                  title="Redo reschedule (⌘/Ctrl-Y)"
-                >
-                  <Redo2 className="size-3" /> Redo
-                </Button>
-                {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
-              </>
-            )}
-          </div>
-          <BoardToolbarActions>
-            {canEdit && (
-              <p className="hidden text-xs text-muted-foreground lg:block">
-                Drag a bar to reschedule · drag edges to resize
-              </p>
-            )}
-            <NewIssueButton
-              ref={newIssueRef}
-              orgId={orgId}
-              projectId={projectId}
-              projectKey={projectKey}
-              boardId={boardId}
-              onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
-            />
-          </BoardToolbarActions>
-        </BoardToolbar>
-      )}
       {/* Contextual legend — only the keys for what's actually on screen, and
           only outside fullscreen: there the ask is the work items and the
           calendar, so every strip that isn't one of those two gets out of the way. */}

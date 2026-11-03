@@ -168,6 +168,21 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.515.0",
+    date: "2026-11-03",
+    title: "Every board that filters now has one bar, not two",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The backlog, the calendar, the roadmap, the RAID log and the Gantt now put their filters and their buttons on one bar, finishing what the Kanban and the table started. Each of these drew a filter bar and then a second bar built from identical styling directly beneath it, so the board itself began two bars lower than it needed to.",
+      },
+      {
+        kind: "improvement",
+        text: "A board\u2019s bar no longer shrinks when the board beneath it is tall, so the filters and buttons stay the same height however much work is on screen.",
+      },
+    ],
+  },
+  {
     version: "2.514.0",
     date: "2026-11-03",
     title: "Custom dashboards actually draw now",

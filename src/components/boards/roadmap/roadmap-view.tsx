@@ -194,10 +194,34 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
 
   const allCollapsed = rows.every((r) => collapsed.has(r.epic.id));
 
+  // What this board can DO, handed to whichever filter surface renders below
+  // as its `actions` slot rather than drawn as a `<BoardToolbar>` band of its
+  // own. That band's classes are identical to the filter bar's, so a board
+  // carrying both drew the same band twice -- see ffe324aa and
+  // kanban-board.one-band.test.tsx.
+  const boardActions = (
+    <>
+  <BoardToolbarTitle icon={MapIcon}>Roadmap</BoardToolbarTitle>
+  <BoardToolbarMeta>
+    {rows.length} epics · {intervals.length} increments
+  </BoardToolbarMeta>
+  <BoardToolbarActions>
+    <HideDoneToggle checked={hideDone} onChange={setHideDone} />
+    <button
+      onClick={() =>
+        setCollapsed(allCollapsed ? new Set() : new Set(rows.map((r) => r.epic.id)))
+      }
+      className="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
+    >
+      {allCollapsed ? "Expand all" : "Collapse all"}
+    </button>
+  </BoardToolbarActions>
+    </>
+  );
   return (
     <div className="flex h-full flex-col">
       {boardQuery.enabled ? (
-        <BoardQueryBar orgId={orgId} q={boardQuery} />
+        <BoardQueryBar orgId={orgId} q={boardQuery} actions={boardActions} />
       ) : (
         <FilterBar
           filters={filters}
@@ -207,25 +231,9 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
           teams={teams}
           orgId={orgId}
           boardColumns={projectStatuses}
+          actions={boardActions}
         />
       )}
-      <BoardToolbar className="shrink-0">
-        <BoardToolbarTitle icon={MapIcon}>Roadmap</BoardToolbarTitle>
-        <BoardToolbarMeta>
-          {rows.length} epics · {intervals.length} increments
-        </BoardToolbarMeta>
-        <BoardToolbarActions>
-          <HideDoneToggle checked={hideDone} onChange={setHideDone} />
-          <button
-            onClick={() =>
-              setCollapsed(allCollapsed ? new Set() : new Set(rows.map((r) => r.epic.id)))
-            }
-            className="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
-          >
-            {allCollapsed ? "Expand all" : "Collapse all"}
-          </button>
-        </BoardToolbarActions>
-      </BoardToolbar>
 
       {/* grid */}
       {rows.length === 0 ? (
