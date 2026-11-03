@@ -27,8 +27,13 @@ export function BoardScopeNotice({ scope }: { scope: BoardScope }) {
       role="status"
       className={
         "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs " +
+        // `--status-blocked*` and not an invented `--destructive`: these are
+        // the tokens that exist, and they are already what `BoardQueryBar`
+        // uses for its own "this board shows nothing" line, so the two states
+        // of the same idea look like each other. design-tokens.arch.test.ts
+        // caught the invented one.
         (empty
-          ? "bg-[var(--destructive)]/10 text-[var(--destructive)]"
+          ? "bg-[var(--status-blocked)] text-[var(--status-blocked-text)]"
           : "bg-muted text-muted-foreground")
       }
     >
