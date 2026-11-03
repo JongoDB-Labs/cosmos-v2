@@ -164,38 +164,6 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
 
   if (loading) return <RoadmapSkeleton />;
 
-  if (rows.length === 0) {
-    return (
-      // The bar renders ABOVE the empty state on purpose: filtering can now
-      // EMPTY this board, and hiding the control that did it strands the user
-      // on a blank screen with no way back.
-      <div className="flex h-full flex-col">
-        <div className="border-b border-[var(--border)] px-4 py-2">
-          {boardQuery.enabled ? (
-            <BoardQueryBar orgId={orgId} q={boardQuery} />
-          ) : (
-            <FilterBar
-              filters={filters}
-              onFilterChange={setFilters}
-              members={membersQ.data ?? []}
-              intervals={[]}
-              teams={[]}
-              orgId={orgId}
-              boardColumns={projectStatuses}
-            />
-          )}
-        </div>
-        <div className="flex flex-1 items-center justify-center p-6">
-        <EmptyState
-          icon={MapIcon}
-          title="No epics to roadmap yet"
-          description="Create Epic-type work items (with Features under them) and assign them to increments — they'll appear here as strategic swimlanes across your PIs."
-        />
-        </div>
-      </div>
-    );
-  }
-
   const toggle = (id: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -208,21 +176,19 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-[var(--border)] px-4 py-2">
-        {boardQuery.enabled ? (
-          <BoardQueryBar orgId={orgId} q={boardQuery} />
-        ) : (
-          <FilterBar
-            filters={filters}
-            onFilterChange={setFilters}
-            members={membersQ.data ?? []}
-            intervals={[]}
-            teams={[]}
-            orgId={orgId}
-            boardColumns={projectStatuses}
-          />
-        )}
-      </div>
+      {boardQuery.enabled ? (
+        <BoardQueryBar orgId={orgId} q={boardQuery} />
+      ) : (
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={membersQ.data ?? []}
+          intervals={[]}
+          teams={[]}
+          orgId={orgId}
+          boardColumns={projectStatuses}
+        />
+      )}
       {/* toolbar */}
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-[var(--border)] px-4 py-2 text-sm">
         <div className="flex items-center gap-2 font-medium text-[var(--text)]">
@@ -253,6 +219,20 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
       </div>
 
       {/* grid */}
+      {rows.length === 0 ? (
+        /* The chrome above stays. The branch this replaces kept the filter bar
+           for exactly this reason -- "hiding the control that did it strands
+           the user on a blank screen with no way back" -- but dropped the
+           toolbar, and Hide-done lives there. A roadmap whose every epic is
+           done is emptied BY Hide-done, so losing it is a one-way door. */
+        <div className="flex flex-1 items-center justify-center p-6">
+          <EmptyState
+            icon={MapIcon}
+            title="No epics to roadmap yet"
+            description="Create Epic-type work items (with Features under them) and assign them to increments — they'll appear here as strategic swimlanes across your PIs."
+          />
+        </div>
+      ) : (
       <div className="flex-1 overflow-auto">
         <div className="min-w-max">
           {/* column headers */}
@@ -355,6 +335,7 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
           })}
         </div>
       </div>
+      )}
 
       <CardDetailSheet
         statusColumns={projectStatuses}

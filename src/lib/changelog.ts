@@ -157,6 +157,37 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.509.1",
+    date: "2026-11-03",
+    title: "Boards put their controls in the same places",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Boards reclaim a strip of vertical space, and their controls line up. Six of them \u2014 Table, Backlog, Calendar, Roadmap, RAID and the dashboards \u2014 were drawing the filter bar inside a second bordered band, so the bar had two underlines, twice the padding and a left edge that did not match the toolbar beneath it. There is now one band per filter bar on every board.",
+      },
+      {
+        kind: "improvement",
+        text: "\u201CNew issue\u201D sits on the right of the toolbar on every board that has it. On the Kanban and sprint boards it used to lead the row from the left, so the button you reach for most moved depending on which board you were standing on. The left of each bar is now for what the board is and how much is on it; the right is for what you can do.",
+      },
+      {
+        kind: "fix",
+        text: "An empty RAID log now offers \u201CNew issue\u201D. Its no-items screen was built separately from the rest of the board and left the toolbar out, so the one screen whose entire message was \u201Cnothing here yet\u201D was also the one screen with no way to add anything.",
+      },
+      {
+        kind: "fix",
+        text: "An empty roadmap keeps its \u201CHide done\u201D and \u201CCollapse all\u201D controls. Turning \u201CHide done\u201D on when every epic is finished emptied the board, which removed the toolbar, which removed the checkbox that did it \u2014 a one-way door out of your own filter.",
+      },
+      {
+        kind: "fix",
+        text: "The assistant bubble stays where you put it. It would dodge anything tappable underneath, and on a board that is nearly everything, so it gave up on the bottom-right corner and jumped to the left edge \u2014 then jumped again as you scrolled and different cards passed beneath it. It no longer crosses the screen at all, and once it has stepped aside it stays there while that spot is clear.",
+      },
+      {
+        kind: "fix",
+        text: "The calendar's month arrows can be read aloud and spoken to. Both were icon-only buttons with no name at all, so a screen reader announced nothing more than \u201Cbutton\u201D and voice control had nothing to match.",
+      },
+    ],
+  },
+  {
     version: "2.509.0",
     date: "2026-11-02",
     title: "A roomier sprint board, and PI filtering that works",

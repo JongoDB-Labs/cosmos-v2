@@ -9,11 +9,17 @@ import type { BoardQuery } from "./use-board-query";
  * editor as Issues (query design §12.1), under a line naming the board's own
  * scope, which the query narrows and "Clear" returns to. `children` holds
  * presentation controls that aren't filters (swimlanes).
+ *
+ * This owns its own band -- `border-b px-4 py-2`, matching `FilterBar`'s root
+ * and the toolbars beneath it -- because the alternative is every board
+ * wrapping it, and six of them did, which banded the filter surface twice.
+ * Ownership also makes the no-schema case render nothing instead of an empty
+ * bordered strip: see `chrome-bands.arch.test.ts`.
  */
 export function BoardQueryBar({ orgId, q, children }: { orgId: string; q: BoardQuery; children?: ReactNode }) {
   if (!q.schema) return null;
   return (
-    <div className="space-y-1.5 px-1 pb-2">
+    <div className="space-y-1.5 border-b border-[var(--border)] px-4 py-2">
       {q.problem ? (
         <p role="alert" className="text-xs text-[var(--status-blocked-text)]">
           This board shows nothing: {q.problem}.

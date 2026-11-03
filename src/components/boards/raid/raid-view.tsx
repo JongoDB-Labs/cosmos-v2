@@ -305,52 +305,21 @@ export function RaidView({
     );
   }
 
-  if (items.length === 0) {
-    return (
-      <div className="flex h-full flex-col">
-        <div className="border-b border-[var(--border)] px-4 py-2">
-          {boardQuery.enabled ? (
-            <BoardQueryBar orgId={orgId} q={boardQuery} />
-          ) : (
-            <FilterBar
-              filters={filters}
-              onFilterChange={setFilters}
-              members={membersQ.data ?? []}
-              intervals={[]}
-              teams={[]}
-              orgId={orgId}
-              boardColumns={projectStatuses}
-            />
-          )}
-        </div>
-        <div className="flex flex-1 items-center justify-center">
-        <EmptyState
-          icon={ShieldAlert}
-          title="No items to triage"
-          description="Risks, assumptions, issues, and dependencies you tag will show up here. Tag a work item risk, assumption, issue, or dependency to populate the RAID log."
-        />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-[var(--border)] px-4 py-2">
-        {boardQuery.enabled ? (
-          <BoardQueryBar orgId={orgId} q={boardQuery} />
-        ) : (
-          <FilterBar
-            filters={filters}
-            onFilterChange={setFilters}
-            members={membersQ.data ?? []}
-            intervals={[]}
-            teams={[]}
-            orgId={orgId}
-            boardColumns={projectStatuses}
-          />
-        )}
-      </div>
+      {boardQuery.enabled ? (
+        <BoardQueryBar orgId={orgId} q={boardQuery} />
+      ) : (
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={membersQ.data ?? []}
+          intervals={[]}
+          teams={[]}
+          orgId={orgId}
+          boardColumns={projectStatuses}
+        />
+      )}
       {/* Toolbar */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-[var(--border)]">
         <span className="text-sm font-semibold text-[var(--text)]">
@@ -386,6 +355,18 @@ export function RaidView({
         </div>
       </div>
 
+      {items.length === 0 ? (
+        /* The chrome above stays: a log with nothing in it is exactly when
+           "New issue" matters most, and this branch used to be the one screen
+           that hid it. Only the body changes. */
+        <div className="flex flex-1 items-center justify-center">
+          <EmptyState
+            icon={ShieldAlert}
+            title="No items to triage"
+            description="Risks, assumptions, issues, and dependencies you tag will show up here. Tag a work item risk, assumption, issue, or dependency to populate the RAID log."
+          />
+        </div>
+      ) : (
       <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       {/* Columns — drag a card between them to (re)classify it. */}
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
@@ -428,6 +409,7 @@ export function RaidView({
       </div>
       </DndContext>
       </BoardCreateMenu>
+      )}
 
       <BoardItemDetailSheet
         itemId={detailId}
