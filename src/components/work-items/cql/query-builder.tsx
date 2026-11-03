@@ -126,6 +126,20 @@ export interface QueryBuilderProps {
    */
   savedFilters?: SavedFilterOption[];
   onRunFilter?: (f: SavedFilterOption) => void;
+  /**
+   * How much frame to draw around itself.
+   *
+   * "card" (the default) is the Issues page, where this IS the page's control
+   * and a bordered, padded surface is right.
+   *
+   * "inline" is a board's chrome band, which already supplies `px-4 py-2` and
+   * a bottom border -- so the card's own `p-3` plus border was framing inside
+   * framing, and measured 26 of the 147 vertical pixels the sprint board's
+   * chrome occupied (ffe324aa: "pushes the kanban board itself down way too
+   * much to where you have no visibility"). Nothing is removed in this
+   * variant; the same controls sit directly on the band.
+   */
+  variant?: "card" | "inline";
 }
 
 /** Enough of a saved filter to offer it and run it. */
@@ -144,6 +158,7 @@ export function QueryBuilder({
   serverDiagnostics = [],
   savedFilters,
   onRunFilter,
+  variant = "card",
 }: QueryBuilderProps) {
   const parsed = useMemo(() => parseCql(cql), [cql]);
   const chips = useMemo(
@@ -174,7 +189,13 @@ export function QueryBuilder({
   };
 
   return (
-    <div className="space-y-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3">
+    <div
+      className={
+        variant === "card"
+          ? "space-y-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3"
+          : "space-y-2"
+      }
+    >
       <div className="flex flex-wrap items-start gap-2">
         <div className="inline-flex shrink-0 overflow-hidden rounded-md border border-[var(--border)] text-xs" role="group" aria-label="How to filter">
           <button

@@ -385,3 +385,64 @@ describe("QueryBuilder — finding a field by the word you'd type", () => {
     expect(screen.queryAllByRole("option")).toHaveLength(0);
   });
 });
+
+describe("variant", () => {
+  // The `inline` variant exists so a board's chrome band does not draw framing
+  // inside framing: the band already supplies `px-4 py-2` and a bottom border,
+  // and the card's own `p-3` plus border measured 26 of that band's 147
+  // vertical pixels on prod (ffe324aa).
+  //
+  // Asserting the EFFECT, not the prop. `board-query-bar.compact.test.tsx`
+  // checks that the board PASSES `variant="inline"`; on its own that would pass
+  // happily while the variant did nothing, which is how a flag ends up
+  // declared and unwired. A mutation that made `inline` draw the card again
+  // left both suites green until this existed.
+  const rootOf = (c: HTMLElement) => c.firstElementChild as HTMLElement;
+
+  /** The builder's chips call useQuery, so it needs a client like renderBar's. */
+  const renderVariant = (variant?: "card" | "inline") => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <QueryBuilder
+          orgId="o1"
+          schema={SCHEMA}
+          cql=""
+          onCqlChange={() => {}}
+          mode={null}
+          onModeChange={() => {}}
+          variant={variant}
+        />
+      </QueryClientProvider>,
+    );
+  };
+
+  it("draws a bordered, padded card by default", () => {
+    const { container } = renderVariant();
+    // Token checks, not substring or regex: "border" is a token here, while
+    // `border-[var(--border)]` is a colour that merely contains the word. The
+    // same distinction cost three wrong answers elsewhere in this change.
+    const tokens = rootOf(container).className.split(/\s+/);
+    expect(tokens).toContain("p-3");
+    expect(tokens).toContain("border");
+  });
+
+  it("draws neither padding nor a border when inline", () => {
+    const { container } = renderVariant("inline");
+    const tokens = rootOf(container).className.split(/\s+/);
+    expect(tokens).not.toContain("p-3");
+    // `border` as a whole token: `border-[var(--border)]` contains the string
+    // "border" but is a colour, not a border width. A substring check here
+    // would pass on the card variant too.
+    expect(tokens).not.toContain("border");
+  });
+
+  it("keeps the controls either way", () => {
+    // The compaction must not have been bought by dropping anything.
+    for (const variant of ["card", "inline"] as const) {
+      const { container, unmount } = renderVariant(variant);
+      expect(container.querySelector('[role="group"]')).toBeTruthy();
+      unmount();
+    }
+  });
+});
