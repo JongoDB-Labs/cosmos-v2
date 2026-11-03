@@ -161,11 +161,20 @@ test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {
       // "content rendered" signal. networkidle is useless here: a persistent
       // notifications EventSource keeps a connection open forever, so it would
       // just burn its timeout and leave the scan resting on a blind sleep.
-      await page
-        .locator('[data-slot="skeleton"]')
-        .first()
-        .waitFor({ state: "detached", timeout: 15_000 })
-        .catch(() => {});
+      //
+      // This asserts on ALL skeletons and FAILS if they never clear. It used to
+      // be `.first().waitFor({ state: "detached" }).catch(() => {})`, which had
+      // two holes: `.first()` waited for ONE skeleton to detach rather than all
+      // of them, and the empty catch swallowed the timeout — so a route that
+      // never finished loading was scanned AS A LOADING STATE. A skeleton has
+      // no violations, so the scan reported clean and the gate passed on a page
+      // it had never actually seen. The Kanban scan was passing exactly that
+      // way: it failed 15 of 18 local runs once it waited properly, and all
+      // three "passes" had 17 skeletons still on screen.
+      await expect(
+        page.locator('[data-slot="skeleton"]'),
+        `${name} still had loading skeletons on screen — axe would have scanned the loading state, which always passes`,
+      ).toHaveCount(0, { timeout: 20_000 });
       await page.waitForTimeout(500);
 
       // Don't scan a route error boundary — its trivially-accessible UI has no
