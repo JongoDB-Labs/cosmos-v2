@@ -976,7 +976,11 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       <BoardToolbar>
         <div className="flex items-center gap-1">
           <span className="text-xs text-muted-foreground mr-1">Group by:</span>
+          {/* The caption beside it is a plain <span>, so it named nothing: axe
+              reported `select-name` (critical) here the first time a Table board
+              was ever scanned. Matches the visible text, as label-in-name wants. */}
           <select
+            aria-label="Group by"
             value={grouping[0] ?? ""}
             onChange={(e) =>
               setGrouping(e.target.value ? [e.target.value] : [])
