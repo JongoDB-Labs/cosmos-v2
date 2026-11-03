@@ -20,7 +20,7 @@ export function timeEntryRow<T extends { id: string; userId: string }>(over: T) 
     date: new Date("2026-10-20T00:00:00Z"), hours: 1, rate: null, client: null, description: "",
     billableType: "BILLABLE", status: "DRAFT", approvedById: null, approvedAt: null, billedHours: null,
     billedById: null, billedAt: null, tags: [], payRunId: null, clinId: null, timesheetId: null,
-    voidedAt: null, voidedById: null, voidReason: null,
+    voidedAt: null, voidedById: null, voidReason: null, internalCategory: null,
     createdAt: new Date("2026-10-20T00:00:00Z"), updatedAt: new Date("2026-10-20T00:00:00Z"),
   };
   return { ...base, ...over };

@@ -17,6 +17,7 @@ import { hasSealedApiKey } from "@/lib/integrations/org-email-config";
 import { Separator } from "@/components/ui/separator";
 import { QueryLanguageOrgSwitch } from "@/components/settings/query-language-setting";
 import { WorkflowSettingsCard } from "@/components/settings/workflow-settings";
+import { InternalTimeCategoriesCard } from "@/components/settings/internal-time-categories";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -133,6 +134,8 @@ export default async function OrganizationPage({ params }: PageParams) {
         )}
         {/* Shown to whoever holds WORKFLOW_MANAGE; renders nothing otherwise. */}
         <WorkflowSettingsCard orgId={ctx.orgId} />
+        {/* Shown to whoever holds ORG_MANAGE_SETTINGS; renders nothing otherwise. */}
+        <InternalTimeCategoriesCard orgId={ctx.orgId} />
         {canBrand && (
           <>
             <Separator />

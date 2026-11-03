@@ -18,6 +18,7 @@ export interface ExportableTimeEntry {
   billableType: "BILLABLE" | "NON_BILLABLE" | "INTERNAL";
   status: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED";
   tags: string[];
+  internalCategory?: string | null;
 }
 
 const BILLABLE: Record<ExportableTimeEntry["billableType"], string> = {
@@ -41,6 +42,7 @@ export const TIME_CSV_COLUMNS = [
   "CLIN",
   "Description",
   "Billable",
+  "Internal category",
   "Status",
   "Tags",
 ] as const;
@@ -64,6 +66,7 @@ export function timeEntriesToCsv(
       CLIN: e.clinId ? (names.clin(e.clinId) ?? "") : "",
       Description: e.description,
       Billable: BILLABLE[e.billableType],
+      "Internal category": e.internalCategory ?? "",
       Status: STATUS[e.status],
       Tags: e.tags.join("; "),
     }));

@@ -43,6 +43,10 @@ export const updateTimeEntry = defineRoute({
       description: z.string().nullish(),
       billableType: z.enum(E.BillableType).optional(),
       tags: z.array(z.string()).optional(),
+      internalCategory: z
+        .string()
+        .nullish()
+        .describe("One of the org's internal time categories. Only on an entry with no project; makes it INTERNAL."),
     }),
   },
   responses: { 200: TimeEntry },

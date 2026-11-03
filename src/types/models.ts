@@ -367,6 +367,8 @@ export interface TimeEntry {
   billedById: string | null;
   billedAt: string | null;
   tags: string[];
+  /** Which kind of internal time, for an entry with no project. See lib/time/internal-categories. */
+  internalCategory?: string | null;
   createdAt: string;
   updatedAt: string;
 }

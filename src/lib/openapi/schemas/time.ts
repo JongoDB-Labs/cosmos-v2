@@ -22,6 +22,8 @@ export const TimeEntry = z.object({
   billedById: NullableUuid,
   billedAt: NullableDateTime,
   tags: z.array(z.string()),
+  internalCategory: z.string().nullable()
+    .describe("Which kind of internal time, for an entry with no project. Null for project time."),
   payRunId: NullableUuid,
   clinId: NullableUuid,
   timesheetId: NullableUuid,
