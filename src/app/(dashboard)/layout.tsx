@@ -101,24 +101,26 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
         <BackgroundProvider darkUrl={prefs?.bgDarkUrl} lightUrl={prefs?.bgLightUrl} />
         <ApplySavedSkin skinId={prefs?.skinId ?? null} orgDefaultSkinId={orgDefaultSkinId} />
         <BugReporter />
-        <DashboardShell
-          user={{
-            id: user.id,
-            email: user.email,
-            displayName: user.displayName,
-            avatarUrl: user.avatarUrl,
-          }}
-          orgs={orgs}
-          isSystemAdmin={isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)}
-        >
-          {/* Seeds the fail-closed enabled-plugins context that <PluginSlot>
-              reads (per-org, from the shell data + URL). Must wrap every page
-              that embeds a plugin slot (overview card, work-item badge, …). */}
-          <PluginEnablementProvider orgs={orgs}>
+        {/* Seeds the fail-closed enabled-plugins context that <PluginSlot>,
+            the walkthroughs and What's new read (per-org, from the shell data +
+            the URL). It wraps the WHOLE shell, not just the page: the top bar's
+            Walkthroughs menu reads it too, and from outside it saw no plugin
+            enabled, so a plugin's walkthrough was never offered there. */}
+        <PluginEnablementProvider orgs={orgs}>
+          <DashboardShell
+            user={{
+              id: user.id,
+              email: user.email,
+              displayName: user.displayName,
+              avatarUrl: user.avatarUrl,
+            }}
+            orgs={orgs}
+            isSystemAdmin={isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)}
+          >
             <PageTransition>{children}</PageTransition>
-          </PluginEnablementProvider>
-          <CommandPalette orgs={orgs} />
-        </DashboardShell>
+            <CommandPalette orgs={orgs} />
+          </DashboardShell>
+        </PluginEnablementProvider>
       </PermissionsProvider>
     </BrandProvider>
   );

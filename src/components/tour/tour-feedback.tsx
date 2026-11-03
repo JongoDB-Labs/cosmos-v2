@@ -29,11 +29,14 @@ export function TourFeedback({
   step,
   tourName,
   tourId,
+  onSent,
 }: {
   orgId: string;
   step: TourStep;
   tourName: string;
   tourId: string;
+  /** Told once the feedback is in the queue, so the step can be marked as one you commented on. */
+  onSent?: () => void;
 }) {
   const [kind, setKind] = useState<(typeof KINDS)[number]["key"]>("QUESTION");
   const [text, setText] = useState("");
@@ -64,7 +67,10 @@ export function TourFeedback({
         }),
       });
       setState(res.ok ? "sent" : "error");
-      if (res.ok) setText("");
+      if (res.ok) {
+        setText("");
+        onSent?.();
+      }
     } catch {
       setState("error");
     }

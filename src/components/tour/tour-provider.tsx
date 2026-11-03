@@ -2,8 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import type { Tour } from "@/lib/tours/types";
-
-const PROGRESS_KEY = "cosmos:tour-progress";
+import { readProgress, writeProgress } from "@/lib/tours/progress";
 
 interface TourContextValue {
   tour: Tour | null;
@@ -16,35 +15,6 @@ interface TourContextValue {
 }
 
 const TourContext = createContext<TourContextValue | null>(null);
-
-/** Where this browser left off in a given tour, or 0. */
-function readProgress(tourId: string): number {
-  if (typeof window === "undefined") return 0;
-  try {
-    const raw = window.localStorage.getItem(PROGRESS_KEY);
-    if (!raw) return 0;
-    const map = JSON.parse(raw) as Record<string, number>;
-    const n = map[tourId];
-    return typeof n === "number" && n >= 0 ? n : 0;
-  } catch {
-    // A private window, cleared storage, or a value some earlier version wrote
-    // in a different shape. Starting from the beginning is a fine answer; losing
-    // the page to a parse error is not.
-    return 0;
-  }
-}
-
-function writeProgress(tourId: string, index: number) {
-  if (typeof window === "undefined") return;
-  try {
-    const raw = window.localStorage.getItem(PROGRESS_KEY);
-    const map = raw ? (JSON.parse(raw) as Record<string, number>) : {};
-    map[tourId] = index;
-    window.localStorage.setItem(PROGRESS_KEY, JSON.stringify(map));
-  } catch {
-    /* progress is a convenience, never a requirement */
-  }
-}
 
 export function TourProvider({ children }: { children: React.ReactNode }) {
   const [tour, setTour] = useState<Tour | null>(null);
