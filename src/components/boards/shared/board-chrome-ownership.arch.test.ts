@@ -13,6 +13,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { codeWithoutComments } from "../../../lib/arch/code-without-comments";
 
 const BOARDS_DIR = "src/components/boards";
 /** The shared components themselves are where this markup is allowed to live. */
@@ -32,13 +33,12 @@ function walk(dir: string): string[] {
 }
 
 /** Blank block comments rather than dropping them, so line numbers stay true. */
-function code(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-    .split("\n")
-    .map((l) => l.replace(/\/\/.*$/, ""))
-    .join("\n");
-}
+// Shared helper: six copies of this had diverged, and every one stripped
+// block comments BEFORE line comments, so a line comment containing a
+// block-opener sequence was read as a real block opener and blanked the
+// file to the next close. In board-tabs.tsx that hid 371 lines, including
+// the element one of these rules asserts on. See code-without-comments.
+const code = codeWithoutComments;
 
 const views = walk(BOARDS_DIR)
   .filter((f) => !OWNERS.has(f))

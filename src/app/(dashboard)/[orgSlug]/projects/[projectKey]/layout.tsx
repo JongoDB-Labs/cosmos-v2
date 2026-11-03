@@ -158,9 +158,18 @@ export default async function ProjectLayout({
       {/* Data-classification marking strip (FOUO+); renders nothing otherwise. */}
       <ClassificationBanner orgId={ctx.orgId} projectId={project.id} />
 
-      {/* Project header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b">
-        <div className="flex items-center gap-3">
+      {/* Project header AND the board tabs: one band.
+          These were two stacked bands -- `px-4 py-3 border-b` here and the
+          tabs' own `px-4 border-b` beneath -- measured at 53px and 37px on a
+          live board, 90px before the board's own chrome even began. The
+          identity sits left, the tabs scroll in the middle, the project
+          actions sit right, and the band is one row (ffe324aa).
+
+          The tabs keep their own `overflow-x-auto`; `min-w-0 flex-1` on that
+          strip is what confines the scroll to it, so a project with many
+          boards cannot push "Intervals" and the settings gear off screen. */}
+      <div className="flex items-center gap-3 border-b px-4 py-1.5">
+        <div className="flex shrink-0 items-center gap-3">
           <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
             {project.key}
           </span>
@@ -177,7 +186,27 @@ export default async function ProjectLayout({
               component the whole app uses and wants its own pass. */}
           <h1 className="text-lg font-semibold">{project.name}</h1>
         </div>
-        <div className="flex items-center gap-1">
+
+        <ProjectBoardTabs
+          orgSlug={orgSlug}
+          projectKey={projectKey}
+          orgId={ctx.orgId}
+          projectId={project.id}
+          boards={boards}
+          enabledFeatures={queryLanguage ? [...project.enabledFeatures, "filters"] : project.enabledFeatures}
+          canManageBoards={canManageBoards}
+          canCreateBoards={canCreateBoards}
+          canSetProjectDefault={canSetProjectDefault}
+          defaultBoardId={defaultBoardId}
+          defaultTab={defaultTab}
+          projectDefaultTab={projectDefaultTab}
+          hiddenBoardIds={hiddenBoardIds}
+          hiddenFeatureTabs={hiddenFeatureTabs}
+          tabOrder={tabOrder}
+          featureTabLabels={featureTabLabels}
+        />
+
+        <div className="flex shrink-0 items-center gap-1">
           {intervalEnabled && (
             <Link
               href={`/${orgSlug}/projects/${projectKey}/intervals`}
@@ -203,26 +232,6 @@ export default async function ProjectLayout({
           </Link>
         </div>
       </div>
-
-      {/* Board tabs */}
-      <ProjectBoardTabs
-        orgSlug={orgSlug}
-        projectKey={projectKey}
-        orgId={ctx.orgId}
-        projectId={project.id}
-        boards={boards}
-        enabledFeatures={queryLanguage ? [...project.enabledFeatures, "filters"] : project.enabledFeatures}
-        canManageBoards={canManageBoards}
-        canCreateBoards={canCreateBoards}
-        canSetProjectDefault={canSetProjectDefault}
-        defaultBoardId={defaultBoardId}
-        defaultTab={defaultTab}
-        projectDefaultTab={projectDefaultTab}
-        tabOrder={tabOrder}
-        featureTabLabels={featureTabLabels}
-        hiddenBoardIds={hiddenBoardIds}
-        hiddenFeatureTabs={hiddenFeatureTabs}
-      />
 
       {/* Project content. overflow-y-auto + min-h-0 so CONTENT sub-pages
           (settings, milestones, OKRs, KPIs, goals — plain max-w blocks with no

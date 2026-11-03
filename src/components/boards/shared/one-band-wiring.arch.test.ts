@@ -18,6 +18,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { codeWithoutComments } from "../../../lib/arch/code-without-comments";
 
 const BOARDS = "src/components/boards";
 
@@ -31,16 +32,12 @@ function walk(dir: string): string[] {
   return out;
 }
 
-/** Blank comments rather than dropping them: prose naming a tag must not count
- *  as markup, and line numbers must stay true. Counting `<BoardToolbar>` inside
- *  an explanatory comment is exactly how an earlier draft of this miscounted. */
-function code(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-    .split("\n")
-    .map((l) => l.replace(/\/\/.*$/, ""))
-    .join("\n");
-}
+// Shared helper: six copies of this had diverged, and every one stripped
+// block comments BEFORE line comments, so a line comment containing a
+// block-opener sequence was read as a real block opener and blanked the
+// file to the next close. In board-tabs.tsx that hid 371 lines, including
+// the element one of these rules asserts on. See code-without-comments.
+const code = codeWithoutComments;
 
 /** Each opening tag of `name`, with everything up to the end of its props. */
 function openings(src: string, name: string): string[] {
