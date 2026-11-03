@@ -168,6 +168,29 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.514.0",
+    date: "2026-11-03",
+    title: "Custom dashboards actually draw now",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A dashboard, portfolio or programme board now renders the widget layout you arranged in its builder. The builder has been able to SAVE a layout for some time, but nothing read it back \u2014 the saved value had exactly one reader in the whole product, the builder reloading its own state \u2014 so an arranged dashboard looked identical to an untouched one. Boards with no saved layout keep the standard panels, which is still every board that exists today.",
+      },
+      {
+        kind: "feature",
+        text: "The builder has a way in: \u201CEdit layout\u201D on the board\u2019s own menu, for the board types that can actually show a layout. It needs the same permission as renaming or deleting that board.",
+      },
+      {
+        kind: "improvement",
+        text: "Widgets in the builder draw through the same code the board uses, so what you arrange is what you get \u2014 and a widget the board cannot draw says so while you are arranging it, rather than after you save.",
+      },
+      {
+        kind: "fix",
+        text: "Saving a layout no longer risks discarding another change made to the same board while the builder was open.",
+      },
+    ],
+  },
+  {
     version: "2.513.0",
     date: "2026-11-03",
     title: "The sprint board gives its cards the room back",
