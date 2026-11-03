@@ -85,6 +85,38 @@ describe("board chrome ownership", () => {
     expect(offenders).toEqual([]);
   });
 
+  it("no board offers the Team filter with an inert team map", () => {
+    // The Team rule is "items naming the team, PLUS its members' items that
+    // name no team", so it needs the userId -> teams map. `board-filters.ts`
+    // documents the 4th argument as making the filter "inert rather than
+    // silently hiding everything" when absent — which means a board passing
+    // `new Map()` shows a Team control that does nothing. All six boards that
+    // used to do exactly that now fetch teams and derive the map.
+    //
+    // This is the companion to the interval rule above: there the control was
+    // missing, here it would have been present and dead. Both are the same
+    // defect — a filter that looks like it worked.
+    const offenders: string[] = [];
+    for (const { file, lines } of views) {
+      lines.forEach((line, i) => {
+        if (/matchesFilters\(/.test(line) && /new Map\(\)/.test(line)) {
+          offenders.push(`${file}:${i + 1}`);
+        }
+      });
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("no board hides its Team filter by passing an empty list", () => {
+    const offenders: string[] = [];
+    for (const { file, lines } of views) {
+      lines.forEach((line, i) => {
+        if (/teams=\{\[\]\}/.test(line)) offenders.push(`${file}:${i + 1}`);
+      });
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it("every board that shows a Hide-done control imports the shared one", () => {
     const offenders: string[] = [];
     for (const { file, lines } of views) {

@@ -30,6 +30,7 @@ import { notifyError } from "@/lib/errors/notify";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
 import { intervalChildrenById } from "@/lib/intervals/interval-tree";
+import { teamsByUser, type TeamLike } from "@/lib/teams/item-teams";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
@@ -192,9 +193,10 @@ export function RaidView({
   const [detailId, setDetailId] = useState<string | null>(null);
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
+  const teamsKey = useOrgQueryKey("project-teams", projectId);
   const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  const [itemsQ, membersQ, intervalsQ] = useQueries({
+  const [itemsQ, membersQ, intervalsQ, teamsQ] = useQueries({
     queries: [
       {
         queryKey: itemsKey,
@@ -209,6 +211,11 @@ export function RaidView({
         queryKey: intervalsKey,
         queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`),
       },
+      {
+        queryKey: teamsKey,
+        queryFn: () =>
+          jsonFetch<TeamLike[]>(`${basePath}/teams`),
+      },
     ],
   });
 
@@ -217,6 +224,12 @@ export function RaidView({
   // A PI selection in the Interval filter means "any sprint under this PI"
   // (3d90c48e). Items carry a sprint id, never a PI id.
   const intervalChildren = useMemo(() => intervalChildrenById(intervals), [intervals]);
+  // The team rule needs this map, not just the list: a team's work is the items
+  // naming it PLUS its members' items that name no team. Without it the filter
+  // is documented as inert, so the control would look like it worked and do
+  // nothing (board-filters.ts).
+  const teams: TeamLike[] = useMemo(() => teamsQ.data ?? [], [teamsQ.data]);
+  const teamsByUserId = useMemo(() => teamsByUser(teams), [teams]);
 
   // One filter model, one predicate — the same `matchesFilters` the Timeline
   // uses. A board that filters differently from its neighbours is worse than a
@@ -230,9 +243,9 @@ export function RaidView({
       items.filter((it) =>
         boardQuery.enabled
           ? boardQuery.keep(it)
-          : matchesFilters(it, filters, [], new Map(), undefined, { intervalChildren }),
+          : matchesFilters(it, filters, [], teamsByUserId, undefined, { intervalChildren }),
       ),
-    [items, filters, boardQuery, intervalChildren],
+    [items, filters, boardQuery, intervalChildren, teamsByUserId],
   );
 
   const loading = itemsQ.isLoading || membersQ.isLoading || intervalsQ.isLoading;
@@ -337,7 +350,7 @@ export function RaidView({
           onFilterChange={setFilters}
           members={membersQ.data ?? []}
           intervals={intervals}
-          teams={[]}
+          teams={teams}
           orgId={orgId}
           boardColumns={projectStatuses}
         />

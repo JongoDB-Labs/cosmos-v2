@@ -13,7 +13,10 @@ import { test, expect } from "./fixtures/auth";
  * The asserted text is a stable heading rendered by each page's PageShell
  * (<h1>) or PageSection (<h2>) — chosen so it does not depend on seed data:
  *   - overview (/${ORG}) renders org-name as <h1> (varies), so we assert the
- *     static "Active projects" PageSection heading instead.
+ *     static "Recent projects" PageSection heading instead. (It was "Active
+ *     projects" until 2.512.0, when the teaser switched from the org's active
+ *     projects to the ones YOU have touched. The "Active projects" StatCard
+ *     above it is a different element and still says that.)
  *   - the PageShell-based routes render a fixed title as <h1>.
  */
 
@@ -28,7 +31,7 @@ type SmokeRoute = {
 };
 
 const ROUTES: SmokeRoute[] = [
-  { name: "overview", path: `/${ORG}`, heading: /^Active projects$/i },
+  { name: "overview", path: `/${ORG}`, heading: /^Recent projects$/i },
   { name: "analytics", path: `/${ORG}/analytics`, heading: /^Analytics$/ },
   { name: "finance", path: `/${ORG}/accounting/finance`, heading: /^Finance$/ },
   { name: "notes", path: `/${ORG}/notes`, heading: /^Notes$/ },
