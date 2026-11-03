@@ -19,6 +19,7 @@ import {
 import { useBuilderStore } from "@/lib/boards/builder-store";
 import { WidgetPalette, type PaletteWidget } from "./widget-palette";
 import { ConfigPanel } from "./config-panel";
+import { WidgetBody } from "@/components/boards/dashboard/widget-grid";
 import type { BuilderWidget, Board } from "@/types/models";
 
 import "react-grid-layout/css/styles.css";
@@ -128,7 +129,15 @@ export function BoardBuilder({
     } finally {
       setSaving(false);
     }
-  }, [orgId, projectId, boardId, boardName, save, markDirty]);
+    // `initialBoard.config` IS a dependency: it is the blob this Save spreads
+    // in order to keep the keys the builder does not own. Omitted, the callback
+    // keeps the config from the render it was created in — so a `router.refresh()`
+    // that brought a newer board (someone else re-scoped its query) would be
+    // overwritten by the stale copy on the next Save. That is the same data-loss
+    // class `board-builder.save-preserves-config.test.tsx` exists to stop, just
+    // reached through a stale closure instead of a missing spread. Flagged by
+    // eslint's exhaustive-deps, not by a test.
+  }, [orgId, projectId, boardId, boardName, save, markDirty, initialBoard.config]);
 
   const handleLayoutChange = useCallback(
     (layout: Layout) => {
@@ -281,10 +290,13 @@ export function BoardBuilder({
                       widget.type.replace(/-/g, " ")}
                   </h3>
                 </div>
-                <div className="flex items-center justify-center py-6">
-                  <span className="text-xs text-muted-foreground capitalize">
-                    {widget.type.replace(/-/g, " ")} widget
-                  </span>
+                <div className="h-40">
+                  <WidgetBody
+                    widget={widget}
+                    orgId={orgId}
+                    projectId={projectId}
+                    boardId={boardId}
+                  />
                 </div>
               </div>
             ))}
@@ -369,11 +381,18 @@ export function BoardBuilder({
                     )}
                   </div>
 
-                  {/* Widget body placeholder */}
-                  <div className="p-3 flex items-center justify-center h-[calc(100%-33px)]">
-                    <span className="text-xs text-muted-foreground capitalize">
-                      {widget.type.replace(/-/g, " ")} widget
-                    </span>
+                  {/* The widget itself, through the same registry the board
+                      reads — so what you arrange here is what the board shows,
+                      and a type the board cannot draw says so HERE rather than
+                      after you save. No board data in the builder, so each one
+                      shows its own no-data state; the SHAPE is the preview. */}
+                  <div className="p-3 h-[calc(100%-33px)]">
+                    <WidgetBody
+                      widget={widget}
+                      orgId={orgId}
+                      projectId={projectId}
+                      boardId={boardId}
+                    />
                   </div>
                 </div>
               ))}

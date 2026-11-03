@@ -1,16 +1,43 @@
 import type { ComponentType } from "react";
+import type { WidgetDefinition } from "./widget-definitions";
+import type { BoardWidgetData } from "./widget-data";
 
+/**
+ * The render seam between a saved widget and the component that draws it.
+ *
+ * This file shipped with the board builder and had ZERO references outside
+ * itself for as long as it existed: nothing registered, nothing read, and the
+ * builder painted `"{type} widget"` placeholders on its own canvas. The
+ * registrations now live in
+ * `components/boards/dashboard/widgets/board-widgets.tsx` and the reader is
+ * `components/boards/dashboard/widget-grid.tsx`.
+ */
 export interface WidgetProps {
   config: Record<string, unknown>;
   orgId: string;
   projectId?: string;
   boardId?: string;
+  /**
+   * Everything the host board computed from its FILTERED item set.
+   *
+   * Optional so a widget can be mounted in isolation (the builder's own
+   * preview has no board data), which is also why every widget must render
+   * something sensible without it.
+   */
+  data?: BoardWidgetData;
 }
 
 export interface WidgetRegistration {
   slug: string;
   name: string;
-  category: "data" | "layout" | "filter" | "info";
+  /**
+   * Shares the palette's vocabulary (`widget-definitions.ts`) rather than
+   * inventing a second one. It used to read "data" | "layout" | "filter" |
+   * "info" — four names no widget definition has ever used, so a registration
+   * and its palette entry could not have agreed about a widget's category even
+   * in principle.
+   */
+  category: WidgetDefinition["category"];
   icon: string;
   description: string;
   minWidth: number;

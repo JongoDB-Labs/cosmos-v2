@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Trash2, Settings2 } from "lucide-react";
+import { WIDGET_METRICS, WIDGET_GROUPS } from "@/lib/boards/widget-data";
 import type { BuilderWidget } from "@/types/models";
 
 const presetColors = [
@@ -177,8 +178,97 @@ export function ConfigPanel({ widget, onUpdateConfig, onDelete }: ConfigPanelPro
           </div>
         )}
 
+        {/* Which number — for the widgets a DASHBOARD board draws from a single
+            metric. Without this the builder could add a counter but never say
+            WHAT it counts, so every one of them would read the total: a control
+            whose only value was its default. */}
+        {(widget.type === "counter" || widget.type === "kpi-card") && (
+          <>
+            <div className="flex flex-col gap-1.5">
+              <Label>Metric</Label>
+              <Select
+                value={(config.metric as string) ?? "total"}
+                onValueChange={(val) => onUpdateConfig({ metric: val })}
+              >
+                {/* `aria-label`, because `<Label>` renders a <label> with no
+                    `for` and base-ui's trigger is a role="combobox" BUTTON, not
+                    an input — so the visible caption gives it no accessible
+                    name. That is `select-name` (critical), it is already in the
+                    e2e gate's `wcag2a` set, and the gate would never see it:
+                    its route list does not include the builder. The same shape
+                    shipped on Table's "Group by" for exactly that reason.
+                    `filter-bar.tsx` names all eleven of its triggers this way. */}
+                <SelectTrigger className="w-full" aria-label="Metric">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {WIDGET_METRICS.map((m) => (
+                    <SelectItem key={m.key} value={m.key}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="widget-label-text">Label</Label>
+              <Input
+                id="widget-label-text"
+                value={(config.label as string) ?? ""}
+                onChange={(e) => onUpdateConfig({ label: e.target.value })}
+                placeholder="Defaults to the metric's name"
+              />
+            </div>
+          </>
+        )}
+
+        {/* Target — a KPI without one is just a counter. Left blank on purpose
+            when there is no target: the widget then says so rather than
+            comparing against an invented zero. */}
+        {widget.type === "kpi-card" && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="widget-target">Target</Label>
+            <Input
+              id="widget-target"
+              type="number"
+              value={(config.target as number | string) ?? ""}
+              onChange={(e) =>
+                onUpdateConfig({
+                  target: e.target.value === "" ? null : Number(e.target.value),
+                })
+              }
+              placeholder="No target"
+            />
+          </div>
+        )}
+
+        {/* What the bars are. Same reasoning as Metric above. */}
+        {widget.type === "bar-chart" && (
+          <div className="flex flex-col gap-1.5">
+            <Label>Group by</Label>
+            <Select
+              value={(config.groupBy as string) ?? "status"}
+              onValueChange={(val) => onUpdateConfig({ groupBy: val })}
+            >
+              <SelectTrigger className="w-full" aria-label="Group by">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {WIDGET_GROUPS.map((g) => (
+                  <SelectItem key={g.key} value={g.key}>
+                    {g.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         {/* Max items — for lists/feeds */}
-        {(widget.type === "card-list" || widget.type === "activity-feed") && (
+        {(widget.type === "card-list" ||
+          widget.type === "activity-feed" ||
+          widget.type === "list" ||
+          widget.type === "table") && (
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="widget-max-items">Max Items</Label>
             <Input

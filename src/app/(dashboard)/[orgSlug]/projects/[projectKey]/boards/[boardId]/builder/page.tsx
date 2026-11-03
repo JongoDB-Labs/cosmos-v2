@@ -30,8 +30,20 @@ export default async function BuilderPage({ params }: PageParams) {
 
   if (!project) notFound();
 
+  // Resolve slug OR uuid, exactly as the board page beside it does.
+  //
+  // This matched `id` alone, while the board page resolves either and then
+  // canonically REDIRECTS uuid→slug — so the URL any user actually holds is
+  // `/boards/<slug>`, and `<that>/builder` 404'd. The one form that worked was
+  // a uuid nobody sees. Only match the id column when the segment looks like a
+  // uuid, so a slug never hits a uuid column type.
+  const UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const board = await prisma.board.findFirst({
-    where: { id: boardId, projectId: project.id },
+    where: {
+      projectId: project.id,
+      OR: [{ slug: boardId }, ...(UUID_RE.test(boardId) ? [{ id: boardId }] : [])],
+    },
     select: { id: true, name: true, type: true, config: true, teamId: true },
   });
 
