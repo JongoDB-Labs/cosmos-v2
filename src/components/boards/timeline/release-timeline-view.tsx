@@ -13,6 +13,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQueries } from "@tanstack/react-query";
 import { CalendarRange, Lock, Eye, ExternalLink } from "lucide-react";
+import {
+  BoardToggle,
+  BoardToolbar,
+  BoardToolbarActions,
+  BoardToolbarTitle,
+} from "@/components/boards/shared/board-toolbar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
@@ -188,29 +194,20 @@ export function ReleaseTimelineView({ orgId, projectId, projectKey }: ReleaseTim
 
   return (
     <div className="flex h-full flex-col">
-      {/* toolbar */}
-      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-[var(--border)] px-4 py-2 text-sm">
-        <div className="flex items-center gap-2 font-medium text-[var(--text)]">
-          <CalendarRange className="size-4 text-[var(--primary)]" /> Release Timeline
-        </div>
+      <BoardToolbar className="shrink-0">
+        <BoardToolbarTitle icon={CalendarRange}>Release Timeline</BoardToolbarTitle>
         <span className="flex items-center gap-1 rounded-full bg-[var(--surface)]/50 px-2 py-0.5 text-[11px] text-[var(--text-muted)]">
-          <Lock className="size-3" /> read-only snapshot
+          <Lock className="size-3" aria-hidden /> read-only snapshot
         </span>
-        <div className="ml-auto flex items-center gap-3">
+        <BoardToolbarActions>
           <span className="text-xs text-[var(--text-muted)]">Show:</span>
           {LEVELS.map((lvl) => (
-            <label key={lvl.key} className="flex items-center gap-1.5 text-[var(--text-muted)]">
-              <input
-                type="checkbox"
-                checked={active.has(lvl.key)}
-                onChange={() => toggle(lvl.key)}
-                className="accent-[var(--primary)]"
-              />
+            <BoardToggle key={lvl.key} checked={active.has(lvl.key)} onChange={() => toggle(lvl.key)}>
               {lvl.label}
-            </label>
+            </BoardToggle>
           ))}
-        </div>
-      </div>
+        </BoardToolbarActions>
+      </BoardToolbar>
 
       {/* timeline */}
       <div className="flex-1 overflow-auto">
@@ -433,9 +430,9 @@ function MonthChips<T>({
 function ReleaseTimelineSkeleton() {
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-[var(--border)] px-4 py-2">
+      <BoardToolbar>
         <Skeleton className="h-6 w-56" />
-      </div>
+      </BoardToolbar>
       <div className="flex-1 space-y-3 p-3">
         {Array.from({ length: 3 }).map((_, i) => (
           <Skeleton key={i} className="h-20 w-full" />
