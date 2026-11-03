@@ -168,6 +168,17 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.518.0",
+    date: "2026-11-03",
+    title: "The project name, its tabs and its buttons share one row",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A project\u2019s name and its board tabs were two stacked bars, 90 pixels before a board even started drawing its own. They are now one row: the project on the left, the board tabs scrolling in the middle, and Intervals, Import and settings on the right. A project with many boards still scrolls its tabs, and the buttons on the right stay put while it does.",
+      },
+    ],
+  },
+  {
     version: "2.517.0",
     date: "2026-11-03",
     title: "Boards send about seven times less data",

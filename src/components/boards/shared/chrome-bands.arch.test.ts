@@ -24,6 +24,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { codeWithoutComments } from "../../../lib/arch/code-without-comments";
 
 const BOARDS_DIR = "src/components/boards";
 /** How far above a filter surface a wrapper's opening tag can plausibly sit. */
@@ -40,20 +41,12 @@ function walk(dir: string): string[] {
   return out;
 }
 
-/**
- * Strip comments, so prose mentioning a class name is not read as markup.
- *
- * Block comments are blanked rather than removed, so every reported line
- * number still points at the real line in the real file. A gate that names the
- * wrong line sends the next reader to the wrong place.
- */
-function code(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-    .split("\n")
-    .map((l) => l.replace(/\/\/.*$/, ""))
-    .join("\n");
-}
+// Shared helper: six copies of this had diverged, and every one stripped
+// block comments BEFORE line comments, so a line comment containing a
+// block-opener sequence was read as a real block opener and blanked the
+// file to the next close. In board-tabs.tsx that hid 371 lines, including
+// the element one of these rules asserts on. See code-without-comments.
+const code = codeWithoutComments;
 
 const SURFACE = /<(FilterBar|BoardQueryBar)\b/;
 /** An opening div that paints a bottom border. */

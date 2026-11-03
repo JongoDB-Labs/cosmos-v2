@@ -695,7 +695,13 @@ export function ProjectBoardTabs({
   }
 
   return (
-    <div className="flex items-center gap-1 px-4 border-b overflow-x-auto scrollbar-x">
+    // No border, no horizontal padding and no fixed width: the project header
+    // band it used to sit UNDER now wraps it, supplying both, so the identity
+    // and the project actions share this row instead of claiming 53px of their
+    // own above it (ffe324aa -- measured 90px for the two bands together on a
+    // live board). `min-w-0` is what keeps the scroll inside this strip rather
+    // than letting it push the actions off the right edge.
+    <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-x">
       {/* Unified strip — boards + enabled feature views, one order. Drag any tab
           to reorder YOUR OWN strip; a plain click still navigates. The ⋯ menu
           per tab gives everyone Move · Set-as-default · Hide (+ per-user feature
