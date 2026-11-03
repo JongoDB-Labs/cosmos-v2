@@ -13,6 +13,7 @@ import { useAnchor, scrollAnchorIntoView } from "./use-anchor";
 import { TourAsk } from "./tour-ask";
 import { TourFeedback } from "./tour-feedback";
 import { useAskThreads, EMPTY_THREAD } from "./ask-threads";
+import { useTourMarks } from "./use-tour-marks";
 import { toast } from "sonner";
 
 const CARD_W = 380;
@@ -36,7 +37,7 @@ export function TourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string })
 }
 
 function OpenTourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
-  const { tour, index, next, back, stop, start } = useTour();
+  const { tour, index, next, back, stop, start, goTo } = useTour();
   const { tool, width } = useDrawers();
   const router = useRouter();
   const pathname = usePathname();
@@ -49,6 +50,8 @@ function OpenTourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
   const box = useAnchor(step?.anchor);
   // Questions asked in this card, per step, gone when the card closes.
   const asks = useAskThreads(orgId);
+  // Which steps this reader left feedback or a question on, for the step picker.
+  const marks = useTourMarks(orgId, tour?.id ?? "");
 
   // Only when they are not already there: re-pushing the same route every
   // render would fight their scrolling and make the page feel possessed.
@@ -157,9 +160,32 @@ function OpenTourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
       >
         <div className="flex items-start justify-between gap-2 border-b border-[var(--border)] px-4 py-2.5">
           <div className="min-w-0">
-            <p className="text-[0.65rem] uppercase tracking-wider text-[var(--text-muted)]">
-              {tour.name} · {index + 1} of {tour.steps.length}
-            </p>
+            {/*
+              The step number is also the way to jump. A sixty-step walkthrough
+              picked up again after a new session should not take fifty clicks
+              of Next to get back to where somebody was, or to the steps they
+              commented on, which the list marks.
+            */}
+            <label className="flex items-center gap-1 text-[0.65rem] uppercase tracking-wider text-[var(--text-muted)]">
+              <span className="truncate">{tour.name} ·</span>
+              <select
+                aria-label="Go to step"
+                value={index}
+                onChange={(e) => {
+                  setPanel("none");
+                  goTo(Number(e.target.value));
+                }}
+                className="max-w-[9rem] cursor-pointer rounded border-none bg-transparent p-0 text-[0.65rem] uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text)]"
+              >
+                {tour.steps.map((s, i) => (
+                  <option key={s.id} value={i}>
+                    {(i === index ? `${i + 1} of ${tour.steps.length}` : `${i + 1}. ${s.title}`) +
+                      (marks.feedback.has(s.id) ? " · your feedback" : "") +
+                      (marks.asked.has(s.id) ? " · you asked" : "")}
+                  </option>
+                ))}
+              </select>
+            </label>
             <p className="truncate text-sm font-semibold">{step.title}</p>
           </div>
           <Button variant="ghost" size="icon-xs" onClick={close} aria-label="Close the walkthrough">
@@ -204,12 +230,21 @@ function OpenTourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
               step={step}
               tourName={tour.name}
               thread={thread}
-              onThread={(fn) => asks.update(askKey, fn)}
+              onThread={(fn) => {
+                asks.update(askKey, fn);
+                marks.markAsked(step.id);
+              }}
               onReset={() => asks.reset(askKey, thread.conversationId)}
             />
           )}
           {panel === "feedback" && (
-            <TourFeedback orgId={orgId} step={step} tourName={tour.name} tourId={tour.id} />
+            <TourFeedback
+              orgId={orgId}
+              step={step}
+              tourName={tour.name}
+              tourId={tour.id}
+              onSent={marks.feedbackSent}
+            />
           )}
         </div>
 
