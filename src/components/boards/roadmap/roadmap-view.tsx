@@ -11,6 +11,13 @@
  */
 import { useBoardQuery } from "@/components/boards/shared/use-board-query";
 import { BoardQueryBar } from "@/components/boards/shared/board-query-bar";
+import {
+  BoardToolbar,
+  BoardToolbarActions,
+  BoardToolbarMeta,
+  BoardToolbarTitle,
+  HideDoneToggle,
+} from "@/components/boards/shared/board-toolbar";
 import { useMemo, useState } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Map as MapIcon, Check } from "lucide-react";
@@ -183,30 +190,19 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
           filters={filters}
           onFilterChange={setFilters}
           members={membersQ.data ?? []}
-          intervals={[]}
+          intervals={intervals}
           teams={[]}
           orgId={orgId}
           boardColumns={projectStatuses}
         />
       )}
-      {/* toolbar */}
-      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-[var(--border)] px-4 py-2 text-sm">
-        <div className="flex items-center gap-2 font-medium text-[var(--text)]">
-          <MapIcon className="size-4 text-[var(--primary)]" /> Roadmap
-        </div>
-        <span className="text-[var(--text-muted)]">
+      <BoardToolbar className="shrink-0">
+        <BoardToolbarTitle icon={MapIcon}>Roadmap</BoardToolbarTitle>
+        <BoardToolbarMeta>
           {rows.length} epics · {intervals.length} increments
-        </span>
-        <div className="ml-auto flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-[var(--text-muted)]">
-            <input
-              type="checkbox"
-              checked={hideDone}
-              onChange={(e) => setHideDone(e.target.checked)}
-              className="accent-[var(--primary)]"
-            />
-            Hide done
-          </label>
+        </BoardToolbarMeta>
+        <BoardToolbarActions>
+          <HideDoneToggle checked={hideDone} onChange={setHideDone} />
           <button
             onClick={() =>
               setCollapsed(allCollapsed ? new Set() : new Set(rows.map((r) => r.epic.id)))
@@ -215,8 +211,8 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
           >
             {allCollapsed ? "Expand all" : "Collapse all"}
           </button>
-        </div>
-      </div>
+        </BoardToolbarActions>
+      </BoardToolbar>
 
       {/* grid */}
       {rows.length === 0 ? (
@@ -421,9 +417,9 @@ function FeatureCard({
 function RoadmapSkeleton() {
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-[var(--border)] px-4 py-2">
+      <BoardToolbar>
         <Skeleton className="h-6 w-48" />
-      </div>
+      </BoardToolbar>
       <div className="flex-1 space-y-2 p-3">
         {Array.from({ length: 6 }).map((_, i) => (
           <Skeleton key={i} className="h-16 w-full" />

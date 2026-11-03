@@ -64,6 +64,12 @@ import {
   NewIssueButton,
   type NewIssueHandle,
 } from "@/components/boards/shared/new-issue-button";
+import {
+  BoardToolbar,
+  BoardToolbarActions,
+  BoardToolbarMeta,
+  HideDoneToggle,
+} from "@/components/boards/shared/board-toolbar";
 import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import { useCurrentUserId } from "@/lib/hooks/use-current-user";
@@ -605,22 +611,22 @@ export function BacklogView({
           filters={filters}
           onFilterChange={setFilters}
           members={membersQ.data ?? []}
-          intervals={[]}
+          intervals={intervals}
           teams={[]}
           orgId={orgId}
           boardColumns={projectStatuses}
         />
       )}
-      {/* Toolbar */}
-      <div className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)]/50 px-4 py-2">
-        <span className="text-xs text-[var(--text-muted)]">
+      <BoardToolbar>
+        <BoardToolbarMeta>
           {totalVisible} item{totalVisible === 1 ? "" : "s"}
-        </span>
+        </BoardToolbarMeta>
         {/* "Assigned to me" now comes from the shared FilterBar above — this
             board carried its own identical copy, so the toolbar showed the
             control twice. The bar's version has the same semantics, co-assignees
             included. */}
-        <div className="ml-auto flex items-center gap-3">
+        <BoardToolbarActions>
+          <HideDoneToggle checked={hideDone} onChange={setHideDone} />
           <NewIssueButton
             ref={newIssueRef}
             orgId={orgId}
@@ -629,17 +635,8 @@ export function BacklogView({
             boardId={boardId}
             onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
           />
-        <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-[var(--text-muted)]">
-          <input
-            type="checkbox"
-            checked={hideDone}
-            onChange={(e) => setHideDone(e.target.checked)}
-            className="h-3.5 w-3.5 rounded border-[var(--border)] accent-[var(--primary)]"
-          />
-          Hide done
-        </label>
-        </div>
-      </div>
+        </BoardToolbarActions>
+      </BoardToolbar>
 
       <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       {items.length === 0 ? (
@@ -1038,10 +1035,10 @@ function SortableRow(props: Omit<Parameters<typeof RowContent>[0], "dragHandle">
 function BacklogSkeleton() {
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-2">
+      <BoardToolbar>
         <Skeleton className="h-5 w-16" />
         <Skeleton className="ml-auto h-5 w-20" />
-      </div>
+      </BoardToolbar>
       <div className="flex-1 space-y-1 p-4">
         <Skeleton className="h-8 w-40" />
         {Array.from({ length: 8 }).map((_, i) => (

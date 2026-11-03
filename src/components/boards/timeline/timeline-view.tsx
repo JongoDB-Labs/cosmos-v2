@@ -2,6 +2,11 @@
 
 import { useBoardQuery } from "@/components/boards/shared/use-board-query";
 import { BoardQueryBar } from "@/components/boards/shared/board-query-bar";
+import {
+  BoardToolbar,
+  BoardToolbarActions,
+  HIDE_DONE_LABEL,
+} from "@/components/boards/shared/board-toolbar";
 import { useState, useMemo, useRef, useCallback, useEffect, useLayoutEffect } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -1830,7 +1835,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           />
         ))}
       {!fullscreen && (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
+        <BoardToolbar>
           <div className="flex flex-wrap items-center gap-1.5">
             {/* Analysis lenses — overlay toggles that recolor/annotate the chart
                 rather than change data. Grouped under one label so the toolbar
@@ -1910,7 +1915,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               active={hideDone}
               onClick={() => setHideDone((v) => !v)}
               icon={<EyeOff className="size-3.5" />}
-              label="Hide done"
+              label={HIDE_DONE_LABEL}
               title="Drop finished work from the chart so what is still in play has room"
               accent="var(--status-done)"
             />
@@ -2078,7 +2083,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               </>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <BoardToolbarActions>
             {canEdit && (
               <p className="hidden text-xs text-muted-foreground lg:block">
                 Drag a bar to reschedule · drag edges to resize
@@ -2092,8 +2097,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               boardId={boardId}
               onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
             />
-          </div>
-        </div>
+          </BoardToolbarActions>
+        </BoardToolbar>
       )}
       {/* Contextual legend — only the keys for what's actually on screen, and
           only outside fullscreen: there the ask is the work items and the

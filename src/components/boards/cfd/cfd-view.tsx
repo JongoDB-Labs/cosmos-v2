@@ -10,6 +10,12 @@ import {
   ResponsiveContainer,
   Legend,
 } from "@/components/charts/lazy-recharts";
+import { Activity } from "lucide-react";
+import {
+  BoardToolbar,
+  BoardToolbarMeta,
+  BoardToolbarTitle,
+} from "@/components/boards/shared/board-toolbar";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { WorkItem, Board, BoardColumn } from "@/types/models";
 import { cumulativeFlow, type CfdCategory } from "@/lib/dashboard/cfd";
@@ -135,14 +141,16 @@ export function CfdView({ orgId, projectId, projectKey, boardId }: CfdViewProps)
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 py-3 border-b bg-background/50">
-        <h2 className="text-sm font-semibold">Cumulative Flow Diagram</h2>
-        <p className="text-xs text-muted-foreground mt-0.5">
+      {/* This board has no controls at all, but it still gets the shared band
+          so its header is the same height as every other board's toolbar. */}
+      <BoardToolbar>
+        <BoardToolbarTitle icon={Activity}>Cumulative Flow Diagram</BoardToolbarTitle>
+        <BoardToolbarMeta>
           {hasHistory
             ? "Item distribution over the last 30 days"
             : "Current distribution shown (add items over time to see flow trends)"}
-        </p>
-      </div>
+        </BoardToolbarMeta>
+      </BoardToolbar>
 
       <div className="flex-1 p-4 min-h-0">
         <ResponsiveContainer width="100%" height="100%">
@@ -205,10 +213,10 @@ export function CfdView({ orgId, projectId, projectKey, boardId }: CfdViewProps)
 function CfdSkeleton() {
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 py-3 border-b">
+      <BoardToolbar>
         <Skeleton className="h-5 w-48" />
         <Skeleton className="h-3 w-64 mt-2" />
-      </div>
+      </BoardToolbar>
       <div className="flex-1 p-4">
         <Skeleton className="h-full w-full" />
       </div>

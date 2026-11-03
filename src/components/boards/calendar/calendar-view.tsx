@@ -9,19 +9,21 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import { intervalChildrenById } from "@/lib/intervals/interval-tree";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import {
   NewIssueButton,
   type NewIssueHandle,
 } from "@/components/boards/shared/new-issue-button";
+import { BoardToolbar, BoardToolbarActions } from "@/components/boards/shared/board-toolbar";
 import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { highlightColor, highlightLabel } from "@/lib/work-items/highlights";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import type { WorkItem, OrgMember } from "@/types/models";
+import type { WorkItem, OrgMember, Interval } from "@/types/models";
 
 interface CalendarViewProps {
   orgId: string;
@@ -89,8 +91,9 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
   const [detailId, setDetailId] = useState<string | null>(null);
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
+  const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  const [itemsQ, membersQ] = useQueries({
+  const [itemsQ, membersQ, intervalsQ] = useQueries({
     queries: [
       {
         queryKey: itemsKey,
@@ -100,10 +103,18 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
         queryKey: membersKey,
         queryFn: () => jsonFetch<OrgMember[]>(`/api/v1/orgs/${orgId}/members`),
       },
+      {
+        queryKey: intervalsKey,
+        queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`),
+      },
     ],
   });
 
   const items: WorkItem[] = itemsQ.data ?? [];
+  const intervals: Interval[] = useMemo(() => intervalsQ.data ?? [], [intervalsQ.data]);
+  // A PI selection in the Interval filter means "any sprint under this PI"
+  // (3d90c48e). Items carry a sprint id, never a PI id.
+  const intervalChildren = useMemo(() => intervalChildrenById(intervals), [intervals]);
 
   // One filter model, one predicate — the same `matchesFilters` the Timeline
   // uses. A board that filters differently from its neighbours is worse than a
@@ -113,11 +124,16 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
   // With the query language on, the bar and the board's scope are one CQL query (boards/shared/use-board-query).
   const boardQuery = useBoardQuery({ orgId, projectId, config: undefined, rows: items as unknown as Record<string, unknown>[] });
   const visibleItems = useMemo(
-    () => items.filter((it) => (boardQuery.enabled ? boardQuery.keep(it) : matchesFilters(it, filters))),
-    [items, filters, boardQuery],
+    () =>
+      items.filter((it) =>
+        boardQuery.enabled
+          ? boardQuery.keep(it)
+          : matchesFilters(it, filters, [], new Map(), undefined, { intervalChildren }),
+      ),
+    [items, filters, boardQuery, intervalChildren],
   );
   const members: OrgMember[] = membersQ.data ?? [];
-  const loading = itemsQ.isLoading || membersQ.isLoading;
+  const loading = itemsQ.isLoading || membersQ.isLoading || intervalsQ.isLoading;
   const error = itemsQ.error
     ? itemsQ.error instanceof Error
       ? itemsQ.error.message
@@ -199,14 +215,14 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
           filters={filters}
           onFilterChange={setFilters}
           members={members}
-          intervals={[]}
+          intervals={intervals}
           teams={[]}
           orgId={orgId}
           boardColumns={projectStatuses}
         />
       )}
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b bg-background/50">
+      <BoardToolbar>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -230,7 +246,7 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
             <ChevronRight className="h-3.5 w-3.5" aria-hidden />
           </Button>
         </div>
-        <div className="flex items-center gap-2">
+        <BoardToolbarActions>
           <Button
             variant="ghost"
             size="xs"
@@ -250,8 +266,8 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
             boardId={boardId}
             onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
           />
-        </div>
-      </div>
+        </BoardToolbarActions>
+      </BoardToolbar>
 
       <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       <div className="flex-1 overflow-auto p-4">
@@ -438,14 +454,14 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
 function CalendarSkeleton() {
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-3 border-b">
+      <BoardToolbar>
         <div className="flex items-center gap-2">
           <Skeleton className="h-6 w-6" />
           <Skeleton className="h-5 w-36" />
           <Skeleton className="h-6 w-6" />
         </div>
         <Skeleton className="h-6 w-16" />
-      </div>
+      </BoardToolbar>
       <div className="flex-1 p-4">
         <div className="grid grid-cols-7 gap-px">
           {Array.from({ length: 35 }).map((_, i) => (
