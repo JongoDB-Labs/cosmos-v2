@@ -16,8 +16,41 @@ import type { BoardQuery } from "./use-board-query";
  * Ownership also makes the no-schema case render nothing instead of an empty
  * bordered strip: see `chrome-bands.arch.test.ts`.
  */
-export function BoardQueryBar({ orgId, q, children }: { orgId: string; q: BoardQuery; children?: ReactNode }) {
-  if (!q.schema) return null;
+export function BoardQueryBar({
+  orgId,
+  q,
+  children,
+  actions,
+}: {
+  orgId: string;
+  q: BoardQuery;
+  children?: ReactNode;
+  /**
+   * The board's own actions, in this band's bottom row beside the pending
+   * indicator. Same slot and same reason as `FilterBar`'s: these used to be a
+   * second `<BoardToolbar>` band stacked underneath, holding two controls with
+   * an empty middle. See ffe324aa.
+   *
+   * These must NOT be gated on `q.schema`. This band returns null until the
+   * schema arrives (fetched, `retry: false`), and an earlier draft let the
+   * actions go with it -- so on a CQL-enabled org "New issue", "Group by" and
+   * the density toggles vanished until a request that may simply have FAILED
+   * came back. `table-view.grouping.test.tsx` caught it. None of these controls
+   * needs a schema; creating an issue is not a query.
+   */
+  actions?: ReactNode;
+}) {
+  // No schema yet: show the actions alone rather than nothing, so they survive
+  // a slow or failed /cql/schema. With nothing to put in it, still render
+  // nothing -- an empty bordered strip where the filter bar belongs is the
+  // failure `chrome-bands.arch.test.ts` was written about.
+  if (!q.schema) {
+    return actions ? (
+      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-4 py-2">
+        {actions}
+      </div>
+    ) : null;
+  }
   return (
     <div className="space-y-1.5 border-b border-[var(--border)] px-4 py-2">
       {q.problem ? (
@@ -39,11 +72,12 @@ export function BoardQueryBar({ orgId, q, children }: { orgId: string; q: BoardQ
         serverDiagnostics={q.diagnostics}
       />
       {/* The builder's own Clear empties the query: back to the board's scope. */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {children}
         <span aria-live="polite" className="text-xs text-[var(--text-muted)]">
           {q.pending ? "Filtering…" : ""}
         </span>
+        {actions}
       </div>
     </div>
   );

@@ -168,6 +168,25 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.513.0",
+    date: "2026-11-03",
+    title: "The sprint board gives its cards the room back",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A board\u2019s filters and its buttons now share one bar instead of two stacked ones. The filter bar and the toolbar beneath it were built from identical styling, so most boards drew the same bar twice \u2014 and in normal use the second one held just \u201CSelect\u201D on the far left and \u201CNew issue\u201D on the far right, with a wide empty gap between them. On a sprint board that was four horizontal bars before the first card. It is now two, and the cards start that much higher.",
+      },
+      {
+        kind: "improvement",
+        text: "The note telling you a board is narrowed by the filter it was saved with no longer takes a bar of its own; it sits with the filters, which is where the rest of \u201Cwhat is narrowing this board\u201D already lives.",
+      },
+      {
+        kind: "fix",
+        text: "On organisations using the query language, a board\u2019s buttons no longer wait for its query schema to load before appearing. \u201CNew issue\u201D, \u201CGroup by\u201D and the row-density controls need no schema, and if that request was slow \u2014 or had failed outright \u2014 they were simply absent.",
+      },
+    ],
+  },
+  {
     version: "2.512.0",
     date: "2026-11-03",
     title: "Filter by team on every board that filters",

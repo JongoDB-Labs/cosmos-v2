@@ -1081,14 +1081,192 @@ function KanbanBoardInner({
     );
   }
 
+  // Everything this board can DO, handed to whichever filter surface renders
+  // below as its `actions` slot.
+  //
+  // This was a `<BoardToolbar>` band of its own, stacked directly under the
+  // filter bar -- whose root classes are character-for-character identical, so
+  // it was the same band drawn twice. In normal mode it held exactly two
+  // controls, "Select" against the left edge and "New issue" at the right, with
+  // nothing between; on a sprint board that was the fourth horizontal band
+  // above the first card. Reported as ffe324aa: "cluttered and stacked on top
+  // of each other, which just pushes the kanban board itself down way too much
+  // to where you have no visibility."
+  //
+  // In SELECT mode the same slot legitimately fills with the bulk controls, and
+  // they wrap onto a second ROW of the one band rather than adding a border and
+  // another pair of paddings.
+  const boardActions = (
+    <>
+  {(canBulkEdit || canBulkDelete) && (
+    <>
+    {!selectMode ? (
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setSelectMode(true)}
+        className="text-muted-foreground"
+      >
+        <CheckSquare className="h-4 w-4" />
+        Select
+      </Button>
+    ) : (
+      <>
+        <span className="text-sm font-medium">
+          {visibleSelectedIds.length} selected
+          {selectedIds.size > visibleSelectedIds.length && (
+            <span className="ml-1 font-normal text-muted-foreground">
+              ({selectedIds.size - visibleSelectedIds.length} hidden by
+              filters)
+            </span>
+          )}
+        </span>
+        {visibleSelectedIds.length > 0 && (
+          <>
+            {canBulkEdit && (
+              <Select
+                value=""
+                onValueChange={(v) => {
+                  if (!v) return;
+                  const col = columns.find((c) => c.key === v);
+                  void bulkUpdate(visibleSelectedIds, { columnKey: v }, `moved to ${col?.name ?? v}`);
+                }}
+              >
+                <SelectTrigger size="sm" className="h-7">
+                  <SelectValue placeholder="Move to…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {columns.map((c) => (
+                    <SelectItem key={c.key} value={c.key}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {canBulkEdit && (
+              <Select
+                value=""
+                onValueChange={(v) =>
+                  v && bulkUpdate(visibleSelectedIds, { priority: v }, `priority ${titleCase(v)}`)
+                }
+              >
+                <SelectTrigger size="sm" className="h-7">
+                  <SelectValue placeholder="Priority…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {["CRITICAL", "HIGH", "MEDIUM", "LOW"].map((p) => (
+                    <SelectItem key={p} value={p}>
+                      {titleCase(p)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {canBulkEdit && members.length > 0 && (
+              <Select
+                value=""
+                onValueChange={(v) => {
+                  if (!v) return;
+                  const m = members.find((mm) => mm.userId === v);
+                  void bulkUpdate(
+                    visibleSelectedIds,
+                    { assigneeId: v },
+                    `assigned to ${m?.user?.displayName ?? "member"}`,
+                  );
+                }}
+              >
+                <SelectTrigger size="sm" className="h-7">
+                  <SelectValue placeholder="Assign…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {members.map((m) => (
+                    <SelectItem key={m.userId} value={m.userId}>
+                      {m.user?.displayName ?? "Member"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {canBulkEdit && intervals.length > 0 && (
+              <Select
+                value=""
+                onValueChange={(v) => {
+                  if (!v) return;
+                  const target = v === "__none__" ? null : v;
+                  const c = intervals.find((cy) => cy.id === v);
+                  void bulkUpdate(
+                    visibleSelectedIds,
+                    { intervalId: target },
+                    target ? `moved to ${c?.name ?? "interval"}` : "removed from interval",
+                  );
+                }}
+              >
+                <SelectTrigger size="sm" className="h-7">
+                  <SelectValue placeholder="Interval…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No interval</SelectItem>
+                  {intervals.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {canBulkDelete && (
+              <ConfirmButton
+                size="sm"
+                pending={bulkPending}
+                confirmLabel={`Delete ${visibleSelectedIds.length}`}
+                onConfirm={() => void bulkDelete(visibleSelectedIds)}
+              >
+                Delete
+              </ConfirmButton>
+            )}
+          </>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={exitSelectMode}
+          className="ml-auto text-muted-foreground"
+        >
+          <X className="h-4 w-4" />
+          Done
+        </Button>
+      </>
+    )}
+    </>
+  )}
+  {/* The create control is the band's right-hand group, as on Backlog,
+      Table, RAID, Calendar and Timeline -- and as the Issues page already
+      enforces by test. It left the left edge free for mode and counts.
+      In select mode this is hidden and "Done" takes the ml-auto slot. */}
+  {!selectMode && (
+    <BoardToolbarActions>
+      <NewIssueButton
+        ref={newIssueRef}
+        orgId={orgId}
+        projectId={projectId}
+        projectKey={projectKey}
+        boardId={boardId}
+        onCreated={() => void fetchData()}
+      />
+    </BoardToolbarActions>
+  )}
+    </>
+  );
+
+
   return (
     <div className="flex flex-col h-full">
       {boardQuery.enabled ? (
-        <BoardQueryBar orgId={orgId} q={boardQuery}>
+        <BoardQueryBar orgId={orgId} q={boardQuery} actions={boardActions}>
           <SwimlaneSelect value={filters.swimlaneBy} onChange={(swimlaneBy) => setFilters((f) => ({ ...f, swimlaneBy }))} />
         </BoardQueryBar>
       ) : (
-        <>
           <FilterBar
             filters={filters}
             onFilterChange={setFilters}
@@ -1106,177 +1284,11 @@ function KanbanBoardInner({
             presentCustomFieldKeys={presentCustomFieldKeys}
             baseFilters={baseFilters}
             showSwimlane
+            actions={boardActions}
+            notice={<BoardScopeNotice scope={scope} />}
           />
-          <BoardScopeNotice scope={scope} />
-        </>
       )}
 
-      {/* Board toolbar: create, then bulk-select. "Select" enters a mode where
-          drag is OFF and cards toggle; the action bar appears once something's
-          selected. The row renders even without bulk permissions, because
-          "New issue" lives here — it replaces the per-column "Add card", which
-          could only ever set a title. It sits in the row's RIGHT-hand group;
-          see kanban-board.toolbar-placement.test.tsx for why. */}
-      <BoardToolbar>
-        {(canBulkEdit || canBulkDelete) && (
-          <>
-          {!selectMode ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSelectMode(true)}
-              className="text-muted-foreground"
-            >
-              <CheckSquare className="h-4 w-4" />
-              Select
-            </Button>
-          ) : (
-            <>
-              <span className="text-sm font-medium">
-                {visibleSelectedIds.length} selected
-                {selectedIds.size > visibleSelectedIds.length && (
-                  <span className="ml-1 font-normal text-muted-foreground">
-                    ({selectedIds.size - visibleSelectedIds.length} hidden by
-                    filters)
-                  </span>
-                )}
-              </span>
-              {visibleSelectedIds.length > 0 && (
-                <>
-                  {canBulkEdit && (
-                    <Select
-                      value=""
-                      onValueChange={(v) => {
-                        if (!v) return;
-                        const col = columns.find((c) => c.key === v);
-                        void bulkUpdate(visibleSelectedIds, { columnKey: v }, `moved to ${col?.name ?? v}`);
-                      }}
-                    >
-                      <SelectTrigger size="sm" className="h-7">
-                        <SelectValue placeholder="Move to…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {columns.map((c) => (
-                          <SelectItem key={c.key} value={c.key}>
-                            {c.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {canBulkEdit && (
-                    <Select
-                      value=""
-                      onValueChange={(v) =>
-                        v && bulkUpdate(visibleSelectedIds, { priority: v }, `priority ${titleCase(v)}`)
-                      }
-                    >
-                      <SelectTrigger size="sm" className="h-7">
-                        <SelectValue placeholder="Priority…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {["CRITICAL", "HIGH", "MEDIUM", "LOW"].map((p) => (
-                          <SelectItem key={p} value={p}>
-                            {titleCase(p)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {canBulkEdit && members.length > 0 && (
-                    <Select
-                      value=""
-                      onValueChange={(v) => {
-                        if (!v) return;
-                        const m = members.find((mm) => mm.userId === v);
-                        void bulkUpdate(
-                          visibleSelectedIds,
-                          { assigneeId: v },
-                          `assigned to ${m?.user?.displayName ?? "member"}`,
-                        );
-                      }}
-                    >
-                      <SelectTrigger size="sm" className="h-7">
-                        <SelectValue placeholder="Assign…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {members.map((m) => (
-                          <SelectItem key={m.userId} value={m.userId}>
-                            {m.user?.displayName ?? "Member"}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {canBulkEdit && intervals.length > 0 && (
-                    <Select
-                      value=""
-                      onValueChange={(v) => {
-                        if (!v) return;
-                        const target = v === "__none__" ? null : v;
-                        const c = intervals.find((cy) => cy.id === v);
-                        void bulkUpdate(
-                          visibleSelectedIds,
-                          { intervalId: target },
-                          target ? `moved to ${c?.name ?? "interval"}` : "removed from interval",
-                        );
-                      }}
-                    >
-                      <SelectTrigger size="sm" className="h-7">
-                        <SelectValue placeholder="Interval…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">No interval</SelectItem>
-                        {intervals.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {canBulkDelete && (
-                    <ConfirmButton
-                      size="sm"
-                      pending={bulkPending}
-                      confirmLabel={`Delete ${visibleSelectedIds.length}`}
-                      onConfirm={() => void bulkDelete(visibleSelectedIds)}
-                    >
-                      Delete
-                    </ConfirmButton>
-                  )}
-                </>
-              )}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={exitSelectMode}
-                className="ml-auto text-muted-foreground"
-              >
-                <X className="h-4 w-4" />
-                Done
-              </Button>
-            </>
-          )}
-          </>
-        )}
-        {/* The create control is the band's right-hand group, as on Backlog,
-            Table, RAID, Calendar and Timeline -- and as the Issues page already
-            enforces by test. It left the left edge free for mode and counts.
-            In select mode this is hidden and "Done" takes the ml-auto slot. */}
-        {!selectMode && (
-          <BoardToolbarActions>
-            <NewIssueButton
-              ref={newIssueRef}
-              orgId={orgId}
-              projectId={projectId}
-              projectKey={projectKey}
-              boardId={boardId}
-              onCreated={() => void fetchData()}
-            />
-          </BoardToolbarActions>
-        )}
-      </BoardToolbar>
 
       <DndContext
         // No sensors while selecting → drag is fully disabled, so toggling a

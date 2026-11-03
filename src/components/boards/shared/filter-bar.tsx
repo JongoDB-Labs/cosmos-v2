@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -149,6 +149,34 @@ const OVERFLOW_KEYS: FilterKey[] = [
 ];
 
 interface FilterBarProps {
+  /**
+   * The board's own actions, rendered in this band's right-hand group.
+   *
+   * Boards used to render these in a SECOND `<BoardToolbar>` band immediately
+   * below this one -- whose classes are character-for-character identical to
+   * this root's, so it was the same band drawn twice. In normal mode a Kanban
+   * board's copy held exactly two controls: "Select" hard against the left
+   * edge and "New issue" at the right, with nothing between. Four bands stacked
+   * above the first card, which is what ffe324aa reports as "stacked on top of
+   * each other, which just pushes the kanban board itself down way too much to
+   * where you have no visibility."
+   *
+   * Same reading order the toolbar contract already defined: view toggles
+   * first, primary action last. Wrap the primary action in
+   * `<BoardToolbarActions>` -- that is what puts it on the band's right edge;
+   * this slot does not do it for you, because in select mode the content
+   * belongs on the left. `BoardToolbar` remains for boards with NO filter
+   * surface (Kanban's pre-data path, CFD, OKR).
+   */
+  actions?: ReactNode;
+  /**
+   * A scope notice for this band, e.g. {@link BoardScopeNotice}'s chip.
+   *
+   * Also used to own a band of its own (`border-b px-4 py-1`), conditionally,
+   * so a board saved from Issues stacked a fourth. It belongs with the filters
+   * because it says the same KIND of thing: what is narrowing this board.
+   */
+  notice?: ReactNode;
   filters: BoardFilters;
   onFilterChange: (filters: BoardFilters) => void;
   members: OrgMember[];
@@ -496,6 +524,8 @@ export function FilterBar({
   presentTypeKeys,
   presentCustomFieldKeys,
   baseFilters = emptyFilters,
+  actions,
+  notice,
 }: FilterBarProps) {
   const [searchFocused, setSearchFocused] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -696,6 +726,20 @@ export function FilterBar({
           Clear
         </Button>
       )}
+      {/* The scope notice, inline. It says what is narrowing this board, which
+          is what the rest of this band says, so it reads here and costs no
+          vertical space. */}
+      {notice}
+
+      {/* The board's own actions, rendered BARE rather than wrapped in an
+          `ml-auto` group here. Boards already wrap their primary action in
+          `<BoardToolbarActions>` (which IS that group), and a wrapper added
+          here would fight it: in select mode the content legitimately starts
+          left -- "N selected", then the bulk controls -- with only "Done"
+          taking the right edge. Reusing the existing idiom keeps one concept
+          instead of two, and the band's reading order unchanged. */}
+      {actions}
+
       {showOverflow && (
         // Second row rather than a popover: these controls are Selects, and a
         // Select inside a dropdown portal is a well-known focus/click-outside
