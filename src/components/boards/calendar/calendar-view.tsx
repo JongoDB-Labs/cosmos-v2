@@ -192,43 +192,45 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b px-4 py-2">
-        {boardQuery.enabled ? (
-          <BoardQueryBar orgId={orgId} q={boardQuery} />
-        ) : (
-          <FilterBar
-            filters={filters}
-            onFilterChange={setFilters}
-            members={members}
-            intervals={[]}
-            teams={[]}
-            orgId={orgId}
-            boardColumns={projectStatuses}
-          />
-        )}
-      </div>
+      {boardQuery.enabled ? (
+        <BoardQueryBar orgId={orgId} q={boardQuery} />
+      ) : (
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={members}
+          intervals={[]}
+          teams={[]}
+          orgId={orgId}
+          boardColumns={projectStatuses}
+        />
+      )}
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-background/50">
+      <div className="flex items-center justify-between px-4 py-2 border-b bg-background/50">
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon-xs" onClick={() => navigateMonth(-1)}>
-            <ChevronLeft className="h-3.5 w-3.5" />
+          <Button
+            variant="outline"
+            size="icon-xs"
+            onClick={() => navigateMonth(-1)}
+            aria-label="Previous month"
+            title="Previous month"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
           </Button>
           <h2 className="text-sm font-semibold min-w-[140px] text-center">
             {currentDate.toLocaleString("default", { month: "long", year: "numeric" })}
           </h2>
-          <Button variant="outline" size="icon-xs" onClick={() => navigateMonth(1)}>
-            <ChevronRight className="h-3.5 w-3.5" />
+          <Button
+            variant="outline"
+            size="icon-xs"
+            onClick={() => navigateMonth(1)}
+            aria-label="Next month"
+            title="Next month"
+          >
+            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
           </Button>
         </div>
         <div className="flex items-center gap-2">
-          <NewIssueButton
-            ref={newIssueRef}
-            orgId={orgId}
-            projectId={projectId}
-            projectKey={projectKey}
-            boardId={boardId}
-            onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
-          />
           <Button
             variant="ghost"
             size="xs"
@@ -239,6 +241,15 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
           >
             Today
           </Button>
+          {/* Rightmost, like every other board's create control. */}
+          <NewIssueButton
+            ref={newIssueRef}
+            orgId={orgId}
+            projectId={projectId}
+            projectKey={projectKey}
+            boardId={boardId}
+            onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+          />
         </div>
       </div>
 

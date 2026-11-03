@@ -88,6 +88,13 @@ export function FloatingAgentBubble({ orgId }: { orgId: string | undefined }) {
  * `hover:scale-105` cannot shift the sample points either. Together those make
  * repeated checks over an unchanged page idempotent, which is the property the
  * tests pin.
+ *
+ * Idempotence over an UNCHANGED page was never enough on its own, though: a
+ * board being scrolled changes the page on every frame, so each check was
+ * correct and the answer still kept changing (feedback item 36938fd0, the
+ * third report of the bubble moving). Two further rules settle that case, both
+ * in `bubble-dodge`: the bubble never crosses to the other side of the
+ * viewport, and the offset in force is fed back in so a held slot wins ties.
  */
 function useDodge(active: boolean) {
   const ref = useRef<HTMLButtonElement>(null);
@@ -112,7 +119,10 @@ function useDodge(active: boolean) {
         el.offsetHeight,
         current.current,
       );
-      const next = pickOffset(rest, window.innerWidth, domIsBlocked(el));
+      // The offset in force is passed back in, so an already-lifted bubble
+      // keeps its slot while that slot stays clear. Without it, a board
+      // scrolling under the corner re-picks on every check (feedback 36938fd0).
+      const next = pickOffset(rest, window.innerWidth, domIsBlocked(el), current.current);
       if (next.x !== current.current.x || next.y !== current.current.y) {
         current.current = next;
         setOffset(next);

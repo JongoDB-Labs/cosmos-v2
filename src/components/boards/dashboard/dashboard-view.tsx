@@ -537,7 +537,7 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
       <div
         role="tablist"
         aria-label="Sprint health view"
-        className="flex flex-wrap gap-0.5 border-b border-[var(--border)] px-3 py-2"
+        className="flex flex-wrap gap-0.5 border-b border-[var(--border)] px-4 py-2"
       >
         {HEALTH_VIEWS.map((v) => (
           <button
@@ -560,20 +560,18 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
       {/* Filters apply to EVERY view, including the ones that read intervals —
           the burndown charts filtered items, so "my team's burndown" is the same
           question asked once. */}
-      <div className="border-b border-[var(--border)] px-3 py-2">
-        {boardQuery.enabled ? (
-          <BoardQueryBar orgId={orgId} q={boardQuery} />
-        ) : (
-          <FilterBar
-            filters={filters}
-            onFilterChange={setFilters}
-            members={members}
-            intervals={intervals}
-            orgId={orgId}
-            boardColumns={columns.map((c) => ({ key: c.key, name: c.name }))}
-          />
-        )}
-      </div>
+      {boardQuery.enabled ? (
+        <BoardQueryBar orgId={orgId} q={boardQuery} />
+      ) : (
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={members}
+          intervals={intervals}
+          orgId={orgId}
+          boardColumns={columns.map((c) => ({ key: c.key, name: c.name }))}
+        />
+      )}
 
       {healthView !== "current" ? (
         <div className="flex-1 overflow-auto p-4">

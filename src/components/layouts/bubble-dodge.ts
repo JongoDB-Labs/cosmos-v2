@@ -3,10 +3,24 @@
  *
  * The bubble is `position: fixed` at the bottom-right, so whatever the page
  * scrolls under it (a card, a link, a form field) becomes untappable. These
- * helpers pick the first slot, from the resting spot outwards, where nothing
+ * helpers lift it, within its own column, to the nearest slot where nothing
  * tappable sits beneath it. They run at every viewport size: an earlier
  * attempt gated this on a phone-width media query and so did nothing on
  * phones turned to landscape, where the viewport is wider than the gate.
+ *
+ * Two rules keep the launcher findable, both from feedback item 36938fd0
+ * ("kicking the assistant bubble over to the left of the screen, sometimes
+ * causing it to jump between places erratically"):
+ *
+ * 1. It never crosses the viewport. There used to be a second column of slots
+ *    on the left edge, taken whenever the right-hand side was full -- which on
+ *    a board is most of the time, because a board's right-hand side is cards.
+ *    A launcher that changes corners is harder to find than one that sometimes
+ *    overlaps a card, so a fully blocked column now simply stays put.
+ * 2. The slot it already holds wins ties. The choice used to be recomputed
+ *    from scratch on every check, so content scrolling under the corner
+ *    re-picked continuously even though each decision was individually
+ *    correct. See the `current` argument to {@link pickOffset}.
  */
 
 export interface Offset {
@@ -33,20 +47,21 @@ export const MAX_LIFTS = 4;
 export const EDGE = 16;
 
 /**
- * The slots to try, nearest first: the resting spot, then lifted in steps;
- * then the same on the left edge. Slots that would leave the viewport are
- * dropped.
+ * The slots to try, nearest first: the resting spot, then lifted in steps, all
+ * in the bubble's own column. Slots that would leave the viewport are dropped.
+ *
+ * `x` is always 0 -- the bubble does not change which side of the screen it is
+ * on. The horizontal check is therefore about the resting spot itself: a box
+ * already poking past a viewport edge (a transient during a resize) offers no
+ * slots at all, and `pickOffset` then leaves the bubble where it is.
  */
 export function candidateOffsets(rest: Box, viewportWidth: number): Offset[] {
-  const toLeft = -(rest.left - EDGE);
+  if (rest.left < 0 || rest.left + rest.width > viewportWidth) return [];
   const out: Offset[] = [];
-  for (const x of [0, toLeft]) {
-    for (let i = 0; i <= MAX_LIFTS; i++) {
-      const y = i === 0 ? 0 : -i * LIFT_STEP;
-      if (rest.top + y < EDGE) break;
-      if (rest.left + x < 0 || rest.left + x + rest.width > viewportWidth) break;
-      out.push({ x, y });
-    }
+  for (let i = 0; i <= MAX_LIFTS; i++) {
+    const y = i === 0 ? 0 : -i * LIFT_STEP;
+    if (rest.top + y < EDGE) break;
+    out.push({ x: 0, y });
   }
   return out;
 }
@@ -94,20 +109,33 @@ export function samplePoints(box: Box, inset = 4): [number, number][] {
 }
 
 /**
- * The first slot with nothing tappable under it, or the resting spot when
- * every slot is blocked (moving would then just trade one covered control for
+ * The slot to occupy: the one already held if it is still on offer and still
+ * clear, otherwise the nearest clear one, otherwise the resting spot (when
+ * every slot is blocked, moving would only trade one covered control for
  * another). `isBlocked(x, y)` reports whether a tappable element is the
  * topmost thing at that point, ignoring the bubble itself.
+ *
+ * `current` is the offset in force. Passing it is what stops a scrolling board
+ * re-picking on every check: without it each decision is made afresh, so the
+ * bubble drops back the instant the resting corner clears and lifts again on
+ * the next card. Passing a `current` that is no longer among the candidates --
+ * a left-edge offset persisted from an older build, say -- is safe: it is
+ * ignored, so a stale value cannot pin the bubble off to one side forever.
  */
 export function pickOffset(
   rest: Box,
   viewportWidth: number,
   isBlocked: (x: number, y: number) => boolean,
+  current?: Offset,
 ): Offset {
-  for (const o of candidateOffsets(rest, viewportWidth)) {
+  const slots = candidateOffsets(rest, viewportWidth);
+  const isClear = (o: Offset) => {
     const box = { ...rest, left: rest.left + o.x, top: rest.top + o.y };
-    if (!samplePoints(box).some(([x, y]) => isBlocked(x, y))) return o;
-  }
+    return !samplePoints(box).some(([x, y]) => isBlocked(x, y));
+  };
+  const held = current && slots.some((o) => o.x === current.x && o.y === current.y);
+  if (held && isClear(current)) return current;
+  for (const o of slots) if (isClear(o)) return o;
   return { x: 0, y: 0 };
 }
 
