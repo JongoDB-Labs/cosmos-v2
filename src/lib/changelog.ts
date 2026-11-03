@@ -168,6 +168,17 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.511.2",
+    date: "2026-11-03",
+    title: "The cumulative flow board keeps its heading when it is empty",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A cumulative flow board with nothing on it yet still shows its title and the note explaining what it needs, instead of replacing the whole board with one line of grey text. It was the last board whose empty screen threw away its own heading.",
+      },
+    ],
+  },
+  {
     version: "2.511.1",
     date: "2026-11-03",
     title: "Reaching the board columns without a mouse",
