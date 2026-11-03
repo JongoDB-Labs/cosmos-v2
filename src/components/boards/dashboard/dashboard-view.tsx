@@ -43,6 +43,13 @@ import { burndown } from "@/lib/intervals/burndown";
 import { defaultCeremonyInterval } from "@/lib/intervals/ceremony-intervals";
 import { cn } from "@/lib/utils";
 import { assigneeLabel, workloadBuckets } from "./workload";
+import { workTypeMix } from "@/lib/dashboard/delivery-metrics";
+import { WidgetGrid } from "./widget-grid";
+import {
+  readBuilderWidgets,
+  EMPTY_WIDGET_DATA,
+  type BoardWidgetData,
+} from "@/lib/boards/widget-data";
 import type { WorkItem, Board, BoardColumn, OrgMember, Interval } from "@/types/models";
 
 import "react-grid-layout/css/styles.css";
@@ -405,6 +412,78 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     [filteredItems, columns],
   );
 
+  // ── The widget layout this board has saved, if any ─────────────────────────
+  //
+  // `Board.config.widgets` is what the builder at
+  // `boards/[boardId]/builder` writes, and until now THIS BOARD was the
+  // missing half: the key had exactly one reader in the repo (the builder
+  // reloading its own state), so a saved layout was never drawn anywhere. An
+  // empty or malformed value falls through to `DEFAULT_LAYOUTS` below, which
+  // is still the normal case for every board that exists today.
+  const savedWidgets = useMemo(
+    () => readBuilderWidgets(board?.config),
+    [board?.config],
+  );
+
+  // Everything a saved widget may read, derived from the SAME filtered set the
+  // stock panels use — so the filter bar above narrows a custom layout exactly
+  // as it narrows the default one.
+  const widgetData: BoardWidgetData = useMemo(() => {
+    // Short-circuit on the default board, which is every board today. This
+    // derives a SECOND work-type mix (the stock panel computes one already) and
+    // a row per filtered item; doing that on a board that renders none of it
+    // would be a cost paid by every dashboard in the product for nothing.
+    if (savedWidgets.length === 0) return EMPTY_WIDGET_DATA;
+
+    const columnNameByKey = new Map(columns.map((c) => [c.key, c.name]));
+    return {
+      metrics: {
+        total: metrics.total,
+        completed: metrics.completed,
+        inProgress: metrics.inProgress,
+        overdue: metrics.overdue,
+      },
+      series: {
+        status: statusData,
+        priority: priorityData,
+        assignee: workloadData.map((w) => ({ name: w.name, value: w.items })),
+        // The SHARED work-type aggregation (lib/dashboard/delivery-metrics),
+        // the one the stock "Work Type Mix" panel uses — not a second count,
+        // which is how two numbers on one screen come to disagree.
+        type: workTypeMix(deliveryItems).byType.map((t) => ({
+          name: t.name,
+          value: t.count,
+          color: t.color ?? undefined,
+        })),
+      },
+      burndown: burndownData,
+      rows: filteredItems.map((i) => ({
+        id: i.id,
+        key: `${projectKey}-${i.ticketNumber}`,
+        title: i.title,
+        // The column's display NAME, not its category: "In Review" is what the
+        // project calls it, and the category would collapse three columns into
+        // one word.
+        status: columnNameByKey.get(i.columnKey) ?? i.columnKey,
+        priority: i.priority.charAt(0) + i.priority.slice(1).toLowerCase(),
+        assignee: assigneeLabel(i, memberMap) ?? "Unassigned",
+        dueDate: i.dueDate,
+      })),
+    };
+  }, [
+    savedWidgets,
+    columns,
+    metrics,
+    statusData,
+    priorityData,
+    workloadData,
+    deliveryItems,
+    burndownData,
+    filteredItems,
+    memberMap,
+    projectKey,
+  ]);
+
   if (loading) return <DashboardSkeleton />;
 
   if (error) {
@@ -656,6 +735,18 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
             </div>
           )}
         </div>
+      ) : savedWidgets.length > 0 ? (
+        /* A board someone laid out in the builder shows THAT, not the stock
+           panels. Only the Current-sprint BODY is replaced: the view tablist
+           above and the filter band stay, so Burndown and Across-time remain
+           reachable and the saved widgets are filtered by the same control. */
+        <WidgetGrid
+          widgets={savedWidgets}
+          data={widgetData}
+          orgId={orgId}
+          projectId={projectId}
+          boardId={boardId}
+        />
       ) : (
       <>
       {/* Mobile: vertical stack of widget cards. Drag/resize is mouse-only,

@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Plus, Users, Trash2, Star, Pencil, ChevronLeft, ChevronRight, EyeOff, Eye } from "lucide-react";
+import { Plus, Users, Trash2, Star, Pencil, ChevronLeft, ChevronRight, EyeOff, Eye, LayoutDashboard } from "lucide-react";
+import { rendersSavedWidgets } from "@/lib/boards/board-types";
 import {
   DndContext,
   DragEndEvent,
@@ -590,6 +591,37 @@ export function ProjectBoardTabs({
             setTabToRename(tab);
           },
         });
+        // The widget builder's only way in. Three conditions, each load-bearing:
+        //
+        //  - `canManageBoards` — the SAME flag Rename/Delete use, derived once
+        //    in `layout.tsx` (BOARD_DELETE && canManageBoardsInProject ||
+        //    canManageProject) and passed down. Deriving it a second time here
+        //    is how a board hidden in one place reappears in another; the
+        //    layout's own comment says so. Restructuring a shared board row is
+        //    the same authority as renaming one, and the builder's Save goes to
+        //    the board PUT, which gates on BOARD_UPDATE-or-project-manager.
+        //  - `rendersSavedWidgets(type)` — only DASHBOARD/PORTFOLIO/PROGRAM
+        //    draw `config.widgets`. The builder would happily SAVE a layout
+        //    onto a Kanban board that no view would ever show, and a one-click
+        //    path to that is worse than no path.
+        //  - the board's `id`, not its slug — the board page canonicalises
+        //    UUID→slug, so a user's URL is the slug and `<slug>/builder` was
+        //    the one form never exercised. (`builder/page.tsx` resolves both
+        //    now; this link does not depend on that.)
+        if (rendersSavedWidgets(tab.board!.type)) {
+          renameItems.push({
+            // Names the board, so the row's accessible name (which for a menu
+            // item IS its visible text) identifies the target on its own —
+            // WCAG 2.5.3, and useful when a screen reader reads the row out of
+            // the menu's context.
+            label: `Edit layout: ${tab.label}`,
+            icon: LayoutDashboard,
+            onClick: () =>
+              router.push(
+                `/${orgSlug}/projects/${projectKey}/boards/${tab.board!.id}/builder`,
+              ),
+          });
+        }
       }
     } else {
       renameItems.push({
