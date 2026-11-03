@@ -964,6 +964,110 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
     );
   }
 
+  // What this board can DO, handed to the filter surface below as its
+  // `actions` slot rather than rendered as a `<BoardToolbar>` band of its own.
+  // That band's classes are identical to the filter bar's, so a board carrying
+  // both drew the same band twice -- see ffe324aa and
+  // kanban-board.one-band.test.tsx.
+  const boardActions = (
+    <>
+  <div className="flex items-center gap-1">
+    <span className="text-xs text-muted-foreground mr-1">Group by:</span>
+    {/* The caption beside it is a plain <span>, so it named nothing: axe
+        reported `select-name` (critical) here the first time a Table board
+        was ever scanned. Matches the visible text, as label-in-name wants. */}
+    <select
+      aria-label="Group by"
+      value={grouping[0] ?? ""}
+      onChange={(e) =>
+        setGrouping(e.target.value ? [e.target.value] : [])
+      }
+      className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
+    >
+      {GROUPING_OPTIONS.map((opt) => (
+        <option key={opt.value} value={opt.value}>
+          {opt.label}
+        </option>
+      ))}
+    </select>
+  </div>
+
+  {/* Type filter (FR debd4e39): scope the board to specific item types. */}
+  {typeOptions.length > 1 && (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className={cn(
+          "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium transition-colors",
+          typeKeys.length > 0
+            ? "border-primary/50 text-foreground"
+            : "border-input text-muted-foreground hover:bg-muted",
+        )}
+      >
+        <ListFilter className="h-3.5 w-3.5" />
+        {typeKeys.length === 0
+          ? "All types"
+          : typeKeys.length === 1
+            ? (typeOptions.find((t) => t.key === typeKeys[0])?.name ?? "1 type")
+            : `${typeKeys.length} types`}
+        <ChevronDown className="h-3 w-3" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-44">
+        {typeOptions.map((t) => (
+          <DropdownMenuCheckboxItem
+            key={t.key}
+            checked={typeKeys.includes(t.key)}
+            onCheckedChange={(c) =>
+              setTypeKeys(
+                c ? [...typeKeys, t.key] : typeKeys.filter((k) => k !== t.key),
+              )
+            }
+          >
+            {t.name}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )}
+
+  <span className="text-xs text-muted-foreground">
+    {items.length}
+    {typeKeys.length > 0 ? ` of ${allItems.length}` : ""} items
+  </span>
+
+  {selectedCount > 0 && (
+    <span className="text-xs text-primary font-medium">
+      {selectedCount} selected
+    </span>
+  )}
+
+  {/* View toggles first, then the primary action, so "New issue" is the
+      band's right edge here as on every other board. */}
+  <BoardToolbarActions>
+    <DensityButton
+      label="Comfortable rows"
+      active={density === "comfortable"}
+      onClick={() => setDensity("comfortable")}
+      icon={<Rows3 className="h-3.5 w-3.5" />}
+    />
+    <DensityButton
+      label="Compact rows"
+      active={density === "compact"}
+      onClick={() => setDensity("compact")}
+      icon={<Rows4 className="h-3.5 w-3.5" />}
+    />
+    <NewIssueButton
+      ref={newIssueRef}
+      orgId={orgId}
+      projectId={projectId}
+      projectKey={projectKey}
+      boardId={boardId}
+      onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+    />
+  </BoardToolbarActions>
+    </>
+  );
+
+
   return (
     <div className="flex flex-col h-full">
       {transitionDialog}
@@ -972,7 +1076,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           other way round, so the one board whose chrome you read top-down
           read it in a different order. */}
       {boardQuery.enabled ? (
-        <BoardQueryBar orgId={orgId} q={boardQuery} />
+        <BoardQueryBar orgId={orgId} q={boardQuery} actions={boardActions} />
       ) : (
         <FilterBar
           filters={filters}
@@ -982,105 +1086,11 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           teams={teams}
           orgId={orgId}
           boardColumns={projectStatuses}
+          actions={boardActions}
+          notice={<BoardScopeNotice scope={scope} />}
         />
       )}
-      {!boardQuery.enabled && <BoardScopeNotice scope={scope} />}
 
-      <BoardToolbar>
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-muted-foreground mr-1">Group by:</span>
-          {/* The caption beside it is a plain <span>, so it named nothing: axe
-              reported `select-name` (critical) here the first time a Table board
-              was ever scanned. Matches the visible text, as label-in-name wants. */}
-          <select
-            aria-label="Group by"
-            value={grouping[0] ?? ""}
-            onChange={(e) =>
-              setGrouping(e.target.value ? [e.target.value] : [])
-            }
-            className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
-          >
-            {GROUPING_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Type filter (FR debd4e39): scope the board to specific item types. */}
-        {typeOptions.length > 1 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              className={cn(
-                "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium transition-colors",
-                typeKeys.length > 0
-                  ? "border-primary/50 text-foreground"
-                  : "border-input text-muted-foreground hover:bg-muted",
-              )}
-            >
-              <ListFilter className="h-3.5 w-3.5" />
-              {typeKeys.length === 0
-                ? "All types"
-                : typeKeys.length === 1
-                  ? (typeOptions.find((t) => t.key === typeKeys[0])?.name ?? "1 type")
-                  : `${typeKeys.length} types`}
-              <ChevronDown className="h-3 w-3" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-44">
-              {typeOptions.map((t) => (
-                <DropdownMenuCheckboxItem
-                  key={t.key}
-                  checked={typeKeys.includes(t.key)}
-                  onCheckedChange={(c) =>
-                    setTypeKeys(
-                      c ? [...typeKeys, t.key] : typeKeys.filter((k) => k !== t.key),
-                    )
-                  }
-                >
-                  {t.name}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-
-        <span className="text-xs text-muted-foreground">
-          {items.length}
-          {typeKeys.length > 0 ? ` of ${allItems.length}` : ""} items
-        </span>
-
-        {selectedCount > 0 && (
-          <span className="text-xs text-primary font-medium">
-            {selectedCount} selected
-          </span>
-        )}
-
-        {/* View toggles first, then the primary action, so "New issue" is the
-            band's right edge here as on every other board. */}
-        <BoardToolbarActions>
-          <DensityButton
-            label="Comfortable rows"
-            active={density === "comfortable"}
-            onClick={() => setDensity("comfortable")}
-            icon={<Rows3 className="h-3.5 w-3.5" />}
-          />
-          <DensityButton
-            label="Compact rows"
-            active={density === "compact"}
-            onClick={() => setDensity("compact")}
-            icon={<Rows4 className="h-3.5 w-3.5" />}
-          />
-          <NewIssueButton
-            ref={newIssueRef}
-            orgId={orgId}
-            projectId={projectId}
-            projectKey={projectKey}
-            boardId={boardId}
-            onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
-          />
-        </BoardToolbarActions>
-      </BoardToolbar>
 
       <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       {/* Table */}

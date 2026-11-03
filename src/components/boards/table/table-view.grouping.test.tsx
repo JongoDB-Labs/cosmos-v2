@@ -28,10 +28,26 @@ vi.mock("@/components/boards/shared/new-issue-button", () => ({
 vi.mock("@/components/work-items/board-item-detail-sheet", () => ({
   BoardItemDetailSheet: () => null,
 }));
+// FilterBar is stubbed to keep its heavy control tree out of this test, but it
+// now HOSTS the board's actions in its `actions` slot (one band instead of two
+// identical ones -- see kanban-board.one-band.test.tsx). A stub returning null
+// therefore swallows "Group by", the type filter, the density toggles and
+// "New issue". It must pass them through, or this file goes green while blind
+// to the controls it exists to exercise.
 vi.mock("@/components/boards/shared/filter-bar", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/components/boards/shared/filter-bar")>();
-  return { ...actual, FilterBar: () => null };
+  return {
+    ...actual,
+    // `never` rather than ReactNode: the automatic JSX runtime does not put
+    // `React` in scope here, and `never` is assignable to ReactNode.
+    FilterBar: ({ actions, notice }: { actions?: unknown; notice?: unknown }) => (
+      <>
+        {notice as never}
+        {actions as never}
+      </>
+    ),
+  };
 });
 
 const item = (
