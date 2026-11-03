@@ -6,6 +6,7 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
 import { BoardQueryBar } from "@/components/boards/shared/board-query-bar";
+import { BoardToolbar, BoardToolbarActions } from "@/components/boards/shared/board-toolbar";
 import { useBoardQuery } from "@/components/boards/shared/use-board-query";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { boardScope, inBoardScope } from "@/lib/boards/saved-filter";
@@ -953,8 +954,26 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   return (
     <div className="flex flex-col h-full">
       {transitionDialog}
-      {/* Toolbar */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b bg-background/50">
+      {/* The filter surface sits ABOVE the toolbar, as on Kanban, Backlog,
+          Calendar, Roadmap, RAID and Timeline. This board had the two the
+          other way round, so the one board whose chrome you read top-down
+          read it in a different order. */}
+      {boardQuery.enabled ? (
+        <BoardQueryBar orgId={orgId} q={boardQuery} />
+      ) : (
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={members}
+          intervals={intervals}
+          teams={[]}
+          orgId={orgId}
+          boardColumns={projectStatuses}
+        />
+      )}
+      {!boardQuery.enabled && <BoardScopeNotice scope={scope} />}
+
+      <BoardToolbar>
         <div className="flex items-center gap-1">
           <span className="text-xs text-muted-foreground mr-1">Group by:</span>
           <select
@@ -1020,16 +1039,9 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           </span>
         )}
 
-        {/* New issue + density toggle — pushed to the right edge of the toolbar */}
-        <div className="ml-auto flex items-center gap-2">
-          <NewIssueButton
-            ref={newIssueRef}
-            orgId={orgId}
-            projectId={projectId}
-            projectKey={projectKey}
-            boardId={boardId}
-            onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
-          />
+        {/* View toggles first, then the primary action, so "New issue" is the
+            band's right edge here as on every other board. */}
+        <BoardToolbarActions>
           <DensityButton
             label="Comfortable rows"
             active={density === "comfortable"}
@@ -1042,23 +1054,16 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
             onClick={() => setDensity("compact")}
             icon={<Rows4 className="h-3.5 w-3.5" />}
           />
-        </div>
-      </div>
-
-      {boardQuery.enabled ? (
-        <BoardQueryBar orgId={orgId} q={boardQuery} />
-      ) : (
-        <FilterBar
-          filters={filters}
-          onFilterChange={setFilters}
-          members={members}
-          intervals={intervals}
-          teams={[]}
-          orgId={orgId}
-          boardColumns={projectStatuses}
-        />
-      )}
-      {!boardQuery.enabled && <BoardScopeNotice scope={scope} />}
+          <NewIssueButton
+            ref={newIssueRef}
+            orgId={orgId}
+            projectId={projectId}
+            projectKey={projectKey}
+            boardId={boardId}
+            onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+          />
+        </BoardToolbarActions>
+      </BoardToolbar>
 
       <BoardCreateMenu onCreate={(seed) => newIssueRef.current?.open(seed)}>
       {/* Table */}
@@ -1349,10 +1354,10 @@ function EditableInput({
 function TableViewSkeleton() {
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 px-4 py-2 border-b">
+      <BoardToolbar>
         <Skeleton className="h-7 w-32" />
         <Skeleton className="h-6 w-20" />
-      </div>
+      </BoardToolbar>
       <div className="flex-1 p-4 space-y-2">
         <Skeleton className="h-9 w-full" />
         {Array.from({ length: 10 }).map((_, i) => (

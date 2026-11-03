@@ -105,7 +105,17 @@ export function BoardBuilder({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: boardName,
-            config: { widgets: savedWidgets },
+            // Merge, don't replace. The PUT route writes `config` wholesale, so
+            // sending only `widgets` erased every other key in the blob -- and
+            // all of them have live readers: `query`/`savedFilter` are the
+            // board's CQL baseline (boardBaseline in use-board-query, read by
+            // every board type), `mode` decides Gantt vs Release Timeline
+            // (boards/[boardId]/page.tsx), and `typeKeys` is a Table's type
+            // columns. A Save here used to silently un-scope a saved board.
+            config: {
+              ...((initialBoard.config as Record<string, unknown> | null) ?? {}),
+              widgets: savedWidgets,
+            },
           }),
         }
       );

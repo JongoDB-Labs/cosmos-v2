@@ -24,6 +24,7 @@ import { OkrHealthView } from "./okr-health-view";
 import { OkrAlignmentView } from "./okr-alignment-view";
 import { ObjectiveLinksDialog } from "./objective-links-dialog";
 import { notifyError } from "@/lib/errors/notify";
+import { BoardToolbar } from "@/components/boards/shared/board-toolbar";
 import { cn } from "@/lib/utils";
 import type { Objective, KeyResult } from "@/types/models";
 
@@ -31,6 +32,13 @@ interface OkrBoardProps {
   orgId: string;
   projectId: string;
 }
+
+/** The three OKR views, with the labels actually shown. */
+const OKR_VIEWS = [
+  { key: "objectives", label: "Objectives" },
+  { key: "health", label: "Health" },
+  { key: "alignment", label: "Alignment" },
+] as const;
 
 export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
   const [showAddForm, setShowAddForm] = useState(false);
@@ -300,22 +308,33 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-1 border-b border-[var(--border)] px-4 py-2">
-        {(["objectives", "health", "alignment"] as const).map((v) => (
-          <button
-            key={v}
-            onClick={() => setView(v)}
-            className={cn(
-              "rounded-md px-3 py-1 text-sm capitalize transition-colors",
-              view === v
-                ? "bg-[var(--primary)] text-white"
-                : "text-[var(--text-muted)] hover:text-[var(--text)]",
-            )}
-          >
-            {v}
-          </button>
-        ))}
-      </div>
+      {/* A real tablist, as on the sprint-health dashboard and the ceremony
+          board. These were three plain <button>s with no role, no tablist and
+          no aria-selected, so a screen reader announced "button" three times
+          and never said which view was showing. The labels were also lowercase
+          literals capitalised by CSS, so the accessible name and the visible
+          text disagreed in case. */}
+      <BoardToolbar>
+        <div role="tablist" aria-label="OKR view" className="flex items-center gap-1">
+          {OKR_VIEWS.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={view === key}
+              onClick={() => setView(key)}
+              className={cn(
+                "rounded-md px-3 py-1 text-sm transition-colors",
+                view === key
+                  ? "bg-[var(--primary)] text-white"
+                  : "text-[var(--text-muted)] hover:text-[var(--text)]",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </BoardToolbar>
 
       {view === "health" ? (
         <div className="flex-1 overflow-auto">

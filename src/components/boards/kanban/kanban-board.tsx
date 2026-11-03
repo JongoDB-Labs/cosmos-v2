@@ -26,6 +26,7 @@ import {
   NewIssueButton,
   type NewIssueHandle,
 } from "@/components/boards/shared/new-issue-button";
+import { BoardToolbar, BoardToolbarActions } from "@/components/boards/shared/board-toolbar";
 import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { columnCollision } from "@/components/boards/shared/column-collision";
 import { KanbanCard } from "./kanban-card";
@@ -1096,7 +1097,7 @@ function KanbanBoardInner({
           "New issue" lives here — it replaces the per-column "Add card", which
           could only ever set a title. It sits in the row's RIGHT-hand group;
           see kanban-board.toolbar-placement.test.tsx for why. */}
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-1.5">
+      <BoardToolbar>
         {(canBulkEdit || canBulkDelete) && (
           <>
           {!selectMode ? (
@@ -1244,7 +1245,7 @@ function KanbanBoardInner({
             enforces by test. It left the left edge free for mode and counts.
             In select mode this is hidden and "Done" takes the ml-auto slot. */}
         {!selectMode && (
-          <div className="ml-auto">
+          <BoardToolbarActions>
             <NewIssueButton
               ref={newIssueRef}
               orgId={orgId}
@@ -1253,9 +1254,9 @@ function KanbanBoardInner({
               boardId={boardId}
               onCreated={() => void fetchData()}
             />
-          </div>
+          </BoardToolbarActions>
         )}
-      </div>
+      </BoardToolbar>
 
       <DndContext
         // No sensors while selecting → drag is fully disabled, so toggling a
@@ -1413,11 +1414,11 @@ function KanbanBoardInner({
 function KanbanBoardSkeleton() {
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 px-4 py-2 border-b">
+      <BoardToolbar>
         <Skeleton className="h-7 w-40" />
         <Skeleton className="h-6 w-24" />
         <Skeleton className="h-6 w-24" />
-      </div>
+      </BoardToolbar>
       <div className="flex gap-3 overflow-x-auto flex-1 p-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="w-[84vw] max-w-[19rem] shrink-0 space-y-3 sm:w-72">

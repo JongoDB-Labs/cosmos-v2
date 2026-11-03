@@ -29,6 +29,7 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import { intervalChildrenById } from "@/lib/intervals/interval-tree";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
@@ -44,6 +45,13 @@ import {
   NewIssueButton,
   type NewIssueHandle,
 } from "@/components/boards/shared/new-issue-button";
+import {
+  BoardToolbar,
+  BoardToolbarActions,
+  BoardToolbarMeta,
+  BoardToolbarTitle,
+  HideDoneToggle,
+} from "@/components/boards/shared/board-toolbar";
 import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -53,7 +61,7 @@ import {
   type ActionMenuGroup,
 } from "@/components/ui/action-menu";
 import { cn } from "@/lib/utils";
-import type { WorkItem, OrgMember } from "@/types/models";
+import type { WorkItem, OrgMember, Interval } from "@/types/models";
 
 interface RaidViewProps {
   orgId: string;
@@ -184,8 +192,9 @@ export function RaidView({
   const [detailId, setDetailId] = useState<string | null>(null);
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
+  const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  const [itemsQ, membersQ] = useQueries({
+  const [itemsQ, membersQ, intervalsQ] = useQueries({
     queries: [
       {
         queryKey: itemsKey,
@@ -196,10 +205,18 @@ export function RaidView({
         queryFn: () =>
           jsonFetch<OrgMember[]>(`/api/v1/orgs/${orgId}/members`),
       },
+      {
+        queryKey: intervalsKey,
+        queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`),
+      },
     ],
   });
 
   const items: WorkItem[] = useMemo(() => itemsQ.data ?? [], [itemsQ.data]);
+  const intervals: Interval[] = useMemo(() => intervalsQ.data ?? [], [intervalsQ.data]);
+  // A PI selection in the Interval filter means "any sprint under this PI"
+  // (3d90c48e). Items carry a sprint id, never a PI id.
+  const intervalChildren = useMemo(() => intervalChildrenById(intervals), [intervals]);
 
   // One filter model, one predicate — the same `matchesFilters` the Timeline
   // uses. A board that filters differently from its neighbours is worse than a
@@ -209,11 +226,16 @@ export function RaidView({
   // With the query language on, the bar and the board's scope are one CQL query (boards/shared/use-board-query).
   const boardQuery = useBoardQuery({ orgId, projectId, config: undefined, rows: items as unknown as Record<string, unknown>[] });
   const visibleItems = useMemo(
-    () => items.filter((it) => (boardQuery.enabled ? boardQuery.keep(it) : matchesFilters(it, filters))),
-    [items, filters, boardQuery],
+    () =>
+      items.filter((it) =>
+        boardQuery.enabled
+          ? boardQuery.keep(it)
+          : matchesFilters(it, filters, [], new Map(), undefined, { intervalChildren }),
+      ),
+    [items, filters, boardQuery, intervalChildren],
   );
 
-  const loading = itemsQ.isLoading || membersQ.isLoading;
+  const loading = itemsQ.isLoading || membersQ.isLoading || intervalsQ.isLoading;
   const fatalError = itemsQ.error;
   const error = fatalError
     ? fatalError instanceof Error
@@ -314,22 +336,19 @@ export function RaidView({
           filters={filters}
           onFilterChange={setFilters}
           members={membersQ.data ?? []}
-          intervals={[]}
+          intervals={intervals}
           teams={[]}
           orgId={orgId}
           boardColumns={projectStatuses}
         />
       )}
-      {/* Toolbar */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-[var(--border)]">
-        <span className="text-sm font-semibold text-[var(--text)]">
-          RAID log
-        </span>
-        <span className="text-xs text-[var(--text-muted)]">
+      <BoardToolbar>
+        <BoardToolbarTitle icon={ShieldAlert}>RAID log</BoardToolbarTitle>
+        <BoardToolbarMeta>
           {totalShown} item{totalShown === 1 ? "" : "s"}
-        </span>
-
-        <div className="ml-auto flex items-center gap-3">
+        </BoardToolbarMeta>
+        <BoardToolbarActions>
+          <HideDoneToggle checked={hideDone} onChange={setHideDone} />
           <NewIssueButton
             ref={newIssueRef}
             orgId={orgId}
@@ -343,17 +362,8 @@ export function RaidView({
             initialLabels={[RAID_CATEGORIES[0].tag]}
             onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
           />
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--text-muted)]">
-            <input
-              type="checkbox"
-              checked={hideDone}
-              onChange={(e) => setHideDone(e.target.checked)}
-              className="h-3.5 w-3.5 rounded border-[var(--border)] accent-[var(--primary)]"
-            />
-            Hide done
-          </label>
-        </div>
-      </div>
+        </BoardToolbarActions>
+      </BoardToolbar>
 
       {items.length === 0 ? (
         /* The chrome above stays: a log with nothing in it is exactly when
@@ -742,10 +752,10 @@ function RaidCard({
 function RaidViewSkeleton() {
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-[var(--border)]">
+      <BoardToolbar>
         <Skeleton className="h-6 w-24" />
         <Skeleton className="h-5 w-16" />
-      </div>
+      </BoardToolbar>
       <div className="flex gap-3 overflow-x-auto flex-1 p-4">
         {Array.from({ length: 5 }).map((_, i) => (
           <div key={i} className="w-72 shrink-0 space-y-3">
