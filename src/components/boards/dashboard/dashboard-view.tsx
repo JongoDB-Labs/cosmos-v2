@@ -37,6 +37,7 @@ import type { WorkItemLinkLike, ObjectiveLike } from "@/lib/dashboard/impediment
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
 import { projectStatusColumns } from "@/lib/boards/project-statuses";
+import { teamsByUser, type TeamLike } from "@/lib/teams/item-teams";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { burndown } from "@/lib/intervals/burndown";
 import { defaultCeremonyInterval } from "@/lib/intervals/ceremony-intervals";
@@ -143,8 +144,9 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   const membersKey = useOrgQueryKey("members");
   const intervalsKey = useOrgQueryKey("intervals", projectId);
   const boardsKey = useOrgQueryKey("boards", projectId);
+  const teamsKey = useOrgQueryKey("project-teams", projectId);
 
-  const [boardQ, itemsQ, membersQ, intervalsQ, changesQ, linksQ, objectivesQ, boardsQ] =
+  const [boardQ, itemsQ, membersQ, intervalsQ, changesQ, linksQ, objectivesQ, boardsQ, teamsQ] =
     useQueries({
     queries: [
       {
@@ -192,6 +194,10 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
         // below. Same key the boards list already uses, so this is shared.
         queryKey: boardsKey,
         queryFn: () => jsonFetch<Board[]>(`${basePath}/boards`),
+      },
+      {
+        queryKey: teamsKey,
+        queryFn: () => jsonFetch<TeamLike[]>(`${basePath}/teams`),
       },
     ],
     });
@@ -242,14 +248,20 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   // A PI selection in the Interval filter means "any sprint under this PI"
   // (3d90c48e). Items carry a sprint id, never a PI id.
   const intervalChildren = useMemo(() => intervalChildrenById(intervals), [intervals]);
+  // The team rule needs this map, not just the list: a team's work is the items
+  // naming it PLUS its members' items that name no team. Without it the filter
+  // is documented as inert (board-filters.ts), so the control would look like
+  // it worked and do nothing.
+  const teams: TeamLike[] = useMemo(() => teamsQ.data ?? [], [teamsQ.data]);
+  const teamsByUserId = useMemo(() => teamsByUser(teams), [teams]);
   const filteredItems = useMemo(() => {
     const now = new Date();
     return items.filter((i) =>
       boardQuery.enabled
         ? boardQuery.keep(i)
-        : matchesFilters(i, filters, [], new Map(), now, { intervalChildren }),
+        : matchesFilters(i, filters, [], teamsByUserId, now, { intervalChildren }),
     );
-  }, [items, filters, boardQuery, intervalChildren]);
+  }, [items, filters, boardQuery, intervalChildren, teamsByUserId]);
 
   const columnCategoryMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -568,6 +580,7 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
           onFilterChange={setFilters}
           members={members}
           intervals={intervals}
+          teams={teams}
           orgId={orgId}
           boardColumns={columns.map((c) => ({ key: c.key, name: c.name }))}
         />

@@ -8,6 +8,7 @@ import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/
 import { BoardQueryBar } from "@/components/boards/shared/board-query-bar";
 import { BoardToolbar, BoardToolbarActions } from "@/components/boards/shared/board-toolbar";
 import { useBoardQuery } from "@/components/boards/shared/use-board-query";
+import { teamsByUser, type TeamLike } from "@/lib/teams/item-teams";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { boardScope, inBoardScope } from "@/lib/boards/saved-filter";
 import { BoardScopeNotice } from "@/components/boards/shared/board-scope-notice";
@@ -145,9 +146,10 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   const boardKey = useOrgQueryKey("board", boardId);
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
+  const teamsKey = useOrgQueryKey("project-teams", projectId);
   const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  const [boardQ, itemsQ, membersQ, intervalsQ] = useQueries({
+  const [boardQ, itemsQ, membersQ, intervalsQ, teamsQ] = useQueries({
     queries: [
       {
         queryKey: boardKey,
@@ -164,6 +166,11 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       {
         queryKey: intervalsKey,
         queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`),
+      },
+      {
+        queryKey: teamsKey,
+        queryFn: () =>
+          jsonFetch<TeamLike[]>(`${basePath}/teams`),
       },
     ],
   });
@@ -217,15 +224,21 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   // A PI selection in the Interval filter means "any sprint under this PI"
   // (3d90c48e). Items carry a sprint id, never a PI id.
   const intervalChildren = useMemo(() => intervalChildrenById(intervals), [intervals]);
+  // The team rule needs this map, not just the list: a team's work is the items
+  // naming it PLUS its members' items that name no team. Without it the filter
+  // is documented as inert, so the control would look like it worked and do
+  // nothing (board-filters.ts).
+  const teams: TeamLike[] = useMemo(() => teamsQ.data ?? [], [teamsQ.data]);
+  const teamsByUserId = useMemo(() => teamsByUser(teams), [teams]);
   const visibleItems = useMemo(
     () =>
       items.filter((it) =>
         boardQuery.enabled
           ? boardQuery.keep(it)
           : inBoardScope(scope, it) &&
-            matchesFilters(it, filters, [], new Map(), undefined, { intervalChildren }),
+            matchesFilters(it, filters, [], teamsByUserId, undefined, { intervalChildren }),
       ),
-    [items, filters, scope, boardQuery, intervalChildren],
+    [items, filters, scope, boardQuery, intervalChildren, teamsByUserId],
   );
 
   // Persist a change to the board's type filter (optimistic: patch the board
@@ -966,7 +979,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           onFilterChange={setFilters}
           members={members}
           intervals={intervals}
-          teams={[]}
+          teams={teams}
           orgId={orgId}
           boardColumns={projectStatuses}
         />

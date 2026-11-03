@@ -168,6 +168,21 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.512.0",
+    date: "2026-11-03",
+    title: "Filter by team on every board that filters",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Team filter now works on the backlog, the table, the calendar, the roadmap, the RAID log and the sprint-health dashboard. It had only ever been wired on the Kanban and the Gantt; the other six were handed an empty list of teams, so the control never appeared. A team's work still means the same thing everywhere \u2014 items assigned to that team, plus its members' items that name no team.",
+      },
+      {
+        kind: "improvement",
+        text: "Team and Interval are the two filters that sit under \u201CMore filters\u201D, so if you went looking for them on a board and concluded they were missing, that is why. They are one click in, and now present on every board whose filter bar renders.",
+      },
+    ],
+  },
+  {
     version: "2.511.3",
     date: "2026-11-03",
     title: "Boards show their cards sooner",
