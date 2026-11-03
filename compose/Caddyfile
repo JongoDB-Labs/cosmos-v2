@@ -9,6 +9,19 @@
 #   • Leave it UNSET (default ":80") → Caddy serves plaintext :80, for a deploy where
 #     TLS terminates UPSTREAM (a reverse proxy / tunnel / cloud LB in front of Caddy).
 {$COSMOS_SITE_ADDRESS::80} {
+	# ── Compression ─────────────────────────────────────────────────────────
+	# Measured on a live board: the app's JSON responses went over the wire
+	# UNCOMPRESSED while static assets were gzipped, because Next compresses what
+	# it serves itself and nothing compressed what it proxies. One board load
+	# fetched ~906 KB of JSON, of which /work-items alone was 494 KB carrying no
+	# Content-Encoding header at all.
+	#
+	# This sits above the routes below so it applies to everything proxied. Caddy
+	# skips any response that already has a Content-Encoding, so Next's own
+	# gzipped assets are not compressed twice, and WebSocket upgrades (the
+	# sidecar routes) are 101 responses it does not touch.
+	encode zstd gzip
+
 	# ── Realtime sidecars ───────────────────────────────────────────────────
 	# Matched BEFORE the catch-all below, which would otherwise send these
 	# WebSocket upgrades to the app. Each plugin has its OWN sidecar process,
