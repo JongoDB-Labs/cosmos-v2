@@ -168,6 +168,21 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.511.4",
+    date: "2026-11-03",
+    title: "Save a search as any board that can show it",
+    highlights: [
+      {
+        kind: "feature",
+        text: "\u201CSave as board\u201D now offers eleven board types instead of two. A search you have set up can become a Backlog, a Calendar, a Gantt, a Roadmap, a RAID log, a Scrum board, a Dashboard, a Portfolio or a Program board, as well as the Kanban and Table it already offered. Those eleven are exactly the boards that read a saved filter, so the one you pick will actually honour it.",
+      },
+      {
+        kind: "improvement",
+        text: "OKRs, the cumulative flow diagram and the two sprint ceremonies are deliberately not on that list: they do not show a filtered list of work items, so a filter saved as one of them would be quietly ignored.",
+      },
+    ],
+  },
+  {
     version: "2.511.3",
     date: "2026-11-03",
     title: "Boards show their cards sooner",

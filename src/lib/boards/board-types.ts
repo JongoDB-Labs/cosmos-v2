@@ -56,13 +56,13 @@ export const BOARD_TYPE_REGISTRY: Record<BoardType, BoardTypeDef> = {
   SCRUM: {
     label: "Scrum / Sprint",
     description: "Active-sprint board with the Kanban scoped to it.",
-    savableFromView: false,
+    savableFromView: true,
     columnsAreStatuses: true,
   },
   BACKLOG: {
     label: "Backlog",
     description: "Ranked product backlog with sprint assignment.",
-    savableFromView: false,
+    savableFromView: true,
     columnsAreStatuses: true,
   },
   TABLE: {
@@ -74,20 +74,20 @@ export const BOARD_TYPE_REGISTRY: Record<BoardType, BoardTypeDef> = {
   CALENDAR: {
     label: "Calendar",
     description: "Due dates & ceremonies on a month/week view.",
-    savableFromView: false,
+    savableFromView: true,
     columnsAreStatuses: true,
   },
   TIMELINE: {
     label: "Timeline / Gantt",
     description:
       "Interactive schedule with dependencies (or a static Release Timeline).",
-    savableFromView: false,
+    savableFromView: true,
     columnsAreStatuses: true,
   },
   ROADMAP: {
     label: "Roadmap",
     description: "Strategic epic swimlanes across increments.",
-    savableFromView: false,
+    savableFromView: true,
     columnsAreStatuses: true,
   },
   OKR: {
@@ -99,25 +99,25 @@ export const BOARD_TYPE_REGISTRY: Record<BoardType, BoardTypeDef> = {
   DASHBOARD: {
     label: "Dashboard",
     description: "Rollup widgets & metrics.",
-    savableFromView: false,
+    savableFromView: true,
     columnsAreStatuses: true,
   },
   PORTFOLIO: {
     label: "Portfolio",
     description: "Cross-project rollup dashboard.",
-    savableFromView: false,
+    savableFromView: true,
     columnsAreStatuses: true,
   },
   PROGRAM: {
     label: "Program",
     description: "Program-level rollup dashboard.",
-    savableFromView: false,
+    savableFromView: true,
     columnsAreStatuses: true,
   },
   RAID: {
     label: "RAID Log",
     description: "Risks, assumptions, issues & dependencies.",
-    savableFromView: false,
+    savableFromView: true,
     columnsAreStatuses: true,
   },
   CFD: {

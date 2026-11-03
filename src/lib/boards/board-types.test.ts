@@ -44,11 +44,35 @@ describe("board type registry", () => {
 });
 
 describe("savableFromViewTypes", () => {
-  it("offers only types that render a list of work items", () => {
-    // "Save as board" starts from a filtered work-item view, so it can only
-    // produce a board that shows work items. A ceremony or a chart cannot be
-    // built from a filter.
-    expect(savableFromViewTypes()).toEqual([BoardType.KANBAN, BoardType.TABLE]);
+  it("offers every type whose view honours a saved filter", () => {
+    // "Save as board" stores the view's filter as the board's baseline, which
+    // `boardBaseline()` in boards/shared/use-board-query reads back. So the
+    // line is mechanical, not aesthetic: a type is savable exactly when its
+    // view reads that baseline.
+    //
+    // It used to be [KANBAN, TABLE] with the rationale "only types that render
+    // a list of work items" — true as far as it went, but eight views call
+    // `useBoardQuery` and only two were on offer, so a filter could not be kept
+    // as the backlog, calendar, Gantt, roadmap or RAID board it was clearly
+    // for. SCRUM wraps KanbanBoard and inherits its baseline; PORTFOLIO and
+    // PROGRAM are the DashboardView.
+    //
+    // Excluded, and `savable-honours-filter.arch.test.ts` proves WHY rather
+    // than taking it on trust: OKR shows objectives, not work items; CFD has
+    // no filter surface at all; the two ceremonies are bound to an interval.
+    expect(savableFromViewTypes()).toEqual([
+      BoardType.KANBAN,
+      BoardType.SCRUM,
+      BoardType.BACKLOG,
+      BoardType.TABLE,
+      BoardType.CALENDAR,
+      BoardType.TIMELINE,
+      BoardType.ROADMAP,
+      BoardType.DASHBOARD,
+      BoardType.PORTFOLIO,
+      BoardType.PROGRAM,
+      BoardType.RAID,
+    ]);
   });
 
   it("is a subset of the registry, never a parallel list", () => {
