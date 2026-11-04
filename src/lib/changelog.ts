@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.525.0",
+    date: "2026-11-04",
+    title: "Close and reopen phases",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Phases can now be closed and reopened from the phase details. With the closing rule on, closing asks for a supporting file or a reason, and the panel shows who closed it and when.",
+      },
+    ],
+  },
+  {
     version: "2.524.0",
     date: "2026-11-04",
     title: "The closing rule for deliverables and phases",
