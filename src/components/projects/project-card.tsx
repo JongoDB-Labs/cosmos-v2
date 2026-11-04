@@ -50,6 +50,8 @@ export interface ProjectCardProject {
   id: string;
   key: string;
   name: string;
+  /** Under the org's numbering standard (e.g. 26-001); absent or null where it has none. */
+  number?: string | null;
   archived: boolean;
   updatedAt: Date | string;
   totalItems: number;
@@ -193,6 +195,10 @@ export function ProjectCard({ project, orgSlug, orgId }: ProjectCardProps) {
                 {project.name.charAt(0).toUpperCase()}
               </div>
               <h3 className="font-medium truncate flex-1">{project.name}</h3>
+              {project.number && !project.name.includes(project.number) && (
+                // Skipped when the naming pattern already put it in the name.
+                <span className="shrink-0 font-mono text-xs text-[var(--text-muted)]">{project.number}</span>
+              )}
               {/* Every manager is named in the tooltip even though only the
                   first two get an avatar — the card has room for two, and
                   silently dropping the rest is what made this display
@@ -348,7 +354,12 @@ export function ProjectsPortfolio({
     return projects.filter((p) => {
       if (status === "active" && p.archived) return false;
       if (status === "archived" && !p.archived) return false;
-      if (q && !p.name.toLowerCase().includes(q) && !p.key.toLowerCase().includes(q)) {
+      if (
+        q &&
+        !p.name.toLowerCase().includes(q) &&
+        !p.key.toLowerCase().includes(q) &&
+        !(p.number ?? "").toLowerCase().includes(q)
+      ) {
         return false;
       }
       return true;
@@ -582,6 +593,9 @@ function ProjectsTable({
                     {p.name.charAt(0).toUpperCase()}
                   </div>
                   <span className="truncate font-medium">{p.name}</span>
+                  {p.number && !p.name.includes(p.number) && (
+                    <span className="shrink-0 font-mono text-xs text-[var(--text-muted)]">{p.number}</span>
+                  )}
                   {p.archived && (
                     <Badge variant="neutral" showDot={false}>
                       Archived

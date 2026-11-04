@@ -454,6 +454,13 @@
               "null"
             ]
           },
+          "number": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The project's number under the org's numbering standard, e.g. 26-001."
+          },
           "krLinkTypeId": {
             "type": [
               "string",
@@ -509,6 +516,7 @@
           "teamScopedAccess",
           "clientId",
           "externalRef",
+          "number",
           "krLinkTypeId",
           "objectiveLinkTypeId",
           "createdAt",
@@ -586,6 +594,13 @@
               "null"
             ]
           },
+          "number": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The project's number under the org's numbering standard, e.g. 26-001."
+          },
           "krLinkTypeId": {
             "type": [
               "string",
@@ -646,6 +661,7 @@
           "teamScopedAccess",
           "clientId",
           "externalRef",
+          "number",
           "krLinkTypeId",
           "objectiveLinkTypeId",
           "createdAt",
@@ -860,6 +876,13 @@
               "null"
             ]
           },
+          "number": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The project's number under the org's numbering standard, e.g. 26-001."
+          },
           "krLinkTypeId": {
             "type": [
               "string",
@@ -932,6 +955,7 @@
           "teamScopedAccess",
           "clientId",
           "externalRef",
+          "number",
           "krLinkTypeId",
           "objectiveLinkTypeId",
           "createdAt",
@@ -1236,6 +1260,13 @@
               "null"
             ]
           },
+          "number": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The project's number under the org's numbering standard, e.g. 26-001."
+          },
           "krLinkTypeId": {
             "type": [
               "string",
@@ -1290,6 +1321,7 @@
           "teamScopedAccess",
           "clientId",
           "externalRef",
+          "number",
           "krLinkTypeId",
           "objectiveLinkTypeId",
           "createdAt",
@@ -8997,7 +9029,7 @@
       "post": {
         "operationId": "createProject",
         "summary": "Create a project",
-        "description": "Creates a project, optionally from a template (which sets up its boards and enabled features). The creator becomes its manager. Returns 409 when the key is taken.",
+        "description": "Creates a project, optionally from a template (which sets up its boards and enabled features). The creator becomes its manager. Returns 409 when the key or number is taken. Where the org has a numbering standard, a project created without a number gets the next one, and the org's naming pattern (if any) is applied to its name.",
         "tags": [
           "Projects"
         ],
@@ -9063,6 +9095,15 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "number": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "description": "The project number. Omit it to take the next one in the org's numbering standard, if it has one."
                   }
                 },
                 "required": [
@@ -9466,6 +9507,15 @@
                   },
                   "teamScopedAccess": {
                     "type": "boolean"
+                  },
+                  "number": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "description": "The project number. 409 when another project in the org holds it."
                   }
                 }
               }
@@ -9547,6 +9597,24 @@
           },
           "404": {
             "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (`conflict`).",
             "headers": {
               "X-Request-Id": {
                 "description": "This request's id. Echoed when you send one; quote it to support.",
