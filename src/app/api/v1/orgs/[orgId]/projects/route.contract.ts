@@ -34,7 +34,9 @@ export const createProject = defineRoute({
   summary: "Create a project",
   description:
     "Creates a project, optionally from a template (which sets up its boards and enabled features). " +
-    "The creator becomes its manager. Returns 409 when the key is taken.",
+    "The creator becomes its manager. Returns 409 when the key or number is taken. Where the org has a " +
+    "numbering standard, a project created without a number gets the next one, and the org's naming " +
+    "pattern (if any) is applied to its name.",
   tags: ["Projects"],
   stability: "stable",
   scopes: ["items:write"],
@@ -46,6 +48,8 @@ export const createProject = defineRoute({
       description: z.string().nullish(),
       templateId: z.string().uuid().nullish(),
       sector: z.string().nullish(),
+      number: z.string().trim().min(1).max(40).nullish()
+        .describe("The project number. Omit it to take the next one in the org's numbering standard, if it has one."),
     }),
   },
   responses: { 201: ProjectWithBoards },
