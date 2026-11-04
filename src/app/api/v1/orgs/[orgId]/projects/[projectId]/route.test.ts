@@ -170,3 +170,46 @@ describe("PUT teamScopedAccess — stricter than an ordinary settings edit", () 
     expect(prisma.project.update).toHaveBeenCalled();
   });
 });
+
+describe("PUT number — numbering an existing project", () => {
+  it("sets the number when no other project holds it", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(Permission.PROJECT_UPDATE));
+    // First lookup: the project itself. Second: who else holds the number.
+    prisma.project.findFirst
+      .mockResolvedValueOnce({ id: PROJECT_ID, orgId: ORG_ID, settings: {}, number: null })
+      .mockResolvedValueOnce(null);
+
+    const res = await PUT(putRequest({ number: "26-014" }), { params });
+
+    expect(res.status).toBe(200);
+    expect(prisma.project.update.mock.calls[0][0].data.number).toBe("26-014");
+    // The uniqueness check excludes the project being edited.
+    expect(prisma.project.findFirst.mock.calls[1][0].where).toMatchObject({
+      orgId: ORG_ID,
+      number: "26-014",
+      id: { not: PROJECT_ID },
+    });
+  });
+
+  it("409s when another project in the org holds it, and never writes", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(Permission.PROJECT_UPDATE));
+    prisma.project.findFirst
+      .mockResolvedValueOnce({ id: PROJECT_ID, orgId: ORG_ID, settings: {}, number: null })
+      .mockResolvedValueOnce({ id: "someone-else" });
+
+    const res = await PUT(putRequest({ number: "26-001" }), { params });
+
+    expect(res.status).toBe(409);
+    expect(prisma.project.update).not.toHaveBeenCalled();
+  });
+
+  it("null clears it", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(Permission.PROJECT_UPDATE));
+    prisma.project.findFirst.mockResolvedValueOnce({ id: PROJECT_ID, orgId: ORG_ID, settings: {}, number: "26-001" });
+
+    const res = await PUT(putRequest({ number: null }), { params });
+
+    expect(res.status).toBe(200);
+    expect(prisma.project.update.mock.calls[0][0].data.number).toBeNull();
+  });
+});

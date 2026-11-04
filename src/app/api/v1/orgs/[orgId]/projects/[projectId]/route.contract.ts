@@ -65,8 +65,11 @@ export const updateProject = defineRoute({
       objectiveLinkTypeId: z.string().uuid().nullable().optional(),
       // Opt-in read narrowing (#35); see src/lib/rbac/project-access.ts.
       teamScopedAccess: z.boolean().optional(),
+      // Numbering an existing project, or correcting one. Null clears it.
+      number: z.string().trim().min(1).max(40).nullable().optional()
+        .describe("The project number. 409 when another project in the org holds it."),
     }),
   },
   responses: { 200: UpdatedProject },
-  errors: [400, 401, 403, 404],
+  errors: [400, 401, 403, 404, 409],
 });

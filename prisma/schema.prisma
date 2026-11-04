@@ -825,6 +825,11 @@ model Project {
   /// updates these rows instead of forking a second copy of every project.
   /// Same shape as RoadmapNode.externalRef.
   externalRef         String?       @map("external_ref")
+  /// The project's number under the org's numbering standard (e.g. 26-001;
+  /// see src/lib/projects/numbering.ts). Separate from `key`, which prefixes
+  /// ticket ids and must stay uppercase-alphanumeric. Null where the org does
+  /// not number projects. Unique per org; NULLs don't collide.
+  number              String?
   krLinkTypeId        String?       @map("kr_link_type_id") @db.Uuid
   // Objectives ladder to other objectives by default (Objective.parentId), so
   // NULL here means objective→objective. Set it to offer objective→work-item
@@ -883,6 +888,7 @@ model Project {
   /// Unique per org, so a re-import can never fork one source record into two.
   /// NULLs are distinct in Postgres, so hand-created projects coexist freely.
   @@unique([orgId, externalRef])
+  @@unique([orgId, number])
   @@index([orgId, status])
   @@map("projects")
 }
