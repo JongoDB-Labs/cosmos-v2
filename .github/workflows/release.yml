@@ -153,6 +153,7 @@ jobs:
             echo "IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}"
             echo "MIGRATE_IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}-migrate"
             echo "POSTGRES_IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}-postgres"
+            echo "PROXY_IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}-proxy"
           } >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -219,18 +220,36 @@ jobs:
           cache-to: type=registry,ref=${{ env.POSTGRES_IMAGE }}:buildcache-${{ matrix.arch }},mode=max
           provenance: false
 
+      # Front-door image: upstream Caddy with this repo's Caddyfile baked in
+      # (compose/proxy/Dockerfile). Published so the config ships WITH the
+      # release instead of living on the host, where the deploy could never
+      # reach it — 2.517.0's compression directive merged and deployed inert.
+      - name: Build + push proxy (by digest)
+        id: build-proxy
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: compose/proxy/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=${{ env.PROXY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=registry,ref=${{ env.PROXY_IMAGE }}:buildcache-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.PROXY_IMAGE }}:buildcache-${{ matrix.arch }},mode=max
+          provenance: false
+
       # Export the digests as files named by their digest; the merge job
       # collects every arch's digest to assemble the manifest list.
       - name: Export digests
         run: |
-          mkdir -p /tmp/d/runtime /tmp/d/migrate /tmp/d/postgres
+          mkdir -p /tmp/d/runtime /tmp/d/migrate /tmp/d/postgres /tmp/d/proxy
           touch "/tmp/d/runtime/${RUNTIME_DIGEST#sha256:}"
           touch "/tmp/d/migrate/${MIGRATE_DIGEST#sha256:}"
           touch "/tmp/d/postgres/${POSTGRES_DIGEST#sha256:}"
+          touch "/tmp/d/proxy/${PROXY_DIGEST#sha256:}"
         env:
           RUNTIME_DIGEST: ${{ steps.build.outputs.digest }}
           MIGRATE_DIGEST: ${{ steps.build-migrate.outputs.digest }}
           POSTGRES_DIGEST: ${{ steps.build-postgres.outputs.digest }}
+          PROXY_DIGEST: ${{ steps.build-proxy.outputs.digest }}
 
       - name: Upload digests
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -279,6 +298,7 @@ jobs:
             echo "IMAGE=ghcr.io/$OWNER/cosmos-v2"
             echo "MIGRATE_IMAGE=ghcr.io/$OWNER/cosmos-v2-migrate"
             echo "POSTGRES_IMAGE=ghcr.io/$OWNER/cosmos-v2-postgres"
+            echo "PROXY_IMAGE=ghcr.io/$OWNER/cosmos-v2-proxy"
           } >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -312,7 +332,7 @@ jobs:
           set -euo pipefail
           SHA="sha-$GIT_SHA"
           # Guard: both arches must be present, else fail (no silent single-arch image).
-          for kind in runtime migrate postgres; do
+          for kind in runtime migrate postgres proxy; do
             n=0
             for f in "/tmp/d/$kind"/*; do [ -e "$f" ] && n=$((n + 1)); done
             [ "$n" -eq 2 ] || { echo "::error::expected 2 arch digests for $kind, found $n"; exit 1; }
@@ -323,19 +343,25 @@ jobs:
           for f in /tmp/d/migrate/*; do migrate_refs+=("$MIGRATE_IMAGE@sha256:$(basename "$f")"); done
           postgres_refs=()
           for f in /tmp/d/postgres/*; do postgres_refs+=("$POSTGRES_IMAGE@sha256:$(basename "$f")"); done
+          proxy_refs=()
+          for f in /tmp/d/proxy/*; do proxy_refs+=("$PROXY_IMAGE@sha256:$(basename "$f")"); done
           docker buildx imagetools create \
             -t "$IMAGE:$VERSION" -t "$IMAGE:latest" -t "$IMAGE:$SHA" "${runtime_refs[@]}"
           docker buildx imagetools create \
             -t "$MIGRATE_IMAGE:$VERSION" -t "$MIGRATE_IMAGE:latest" -t "$MIGRATE_IMAGE:$SHA" "${migrate_refs[@]}"
           docker buildx imagetools create \
             -t "$POSTGRES_IMAGE:$VERSION" -t "$POSTGRES_IMAGE:latest" -t "$POSTGRES_IMAGE:$SHA" "${postgres_refs[@]}"
+          docker buildx imagetools create \
+            -t "$PROXY_IMAGE:$VERSION" -t "$PROXY_IMAGE:latest" -t "$PROXY_IMAGE:$SHA" "${proxy_refs[@]}"
           RUNTIME_DIGEST="$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}')"
           MIGRATE_DIGEST="$(docker buildx imagetools inspect "$MIGRATE_IMAGE:$VERSION" --format '{{.Manifest.Digest}}')"
           POSTGRES_DIGEST="$(docker buildx imagetools inspect "$POSTGRES_IMAGE:$VERSION" --format '{{.Manifest.Digest}}')"
+          PROXY_DIGEST="$(docker buildx imagetools inspect "$PROXY_IMAGE:$VERSION" --format '{{.Manifest.Digest}}')"
           {
             echo "runtime_digest=$RUNTIME_DIGEST"
             echo "migrate_digest=$MIGRATE_DIGEST"
             echo "postgres_digest=$POSTGRES_DIGEST"
+            echo "proxy_digest=$PROXY_DIGEST"
           } >> "$GITHUB_OUTPUT"
           echo "Merged $IMAGE:$VERSION → $RUNTIME_DIGEST"
 
@@ -365,6 +391,7 @@ jobs:
           cosign sign --yes "${{ env.IMAGE }}@${{ steps.manifest.outputs.runtime_digest }}"
           cosign sign --yes "${{ env.MIGRATE_IMAGE }}@${{ steps.manifest.outputs.migrate_digest }}"
           cosign sign --yes "${{ env.POSTGRES_IMAGE }}@${{ steps.manifest.outputs.postgres_digest }}"
+          cosign sign --yes "${{ env.PROXY_IMAGE }}@${{ steps.manifest.outputs.proxy_digest }}"
 
       - name: cosign sign (KMS — when COSIGN_KEY configured)
         if: ${{ env.HAS_KMS == 'true' }}
@@ -375,6 +402,7 @@ jobs:
           cosign sign --yes --key "env://COSIGN_KEY" "${{ env.IMAGE }}@${{ steps.manifest.outputs.runtime_digest }}"
           cosign sign --yes --key "env://COSIGN_KEY" "${{ env.MIGRATE_IMAGE }}@${{ steps.manifest.outputs.migrate_digest }}"
           cosign sign --yes --key "env://COSIGN_KEY" "${{ env.POSTGRES_IMAGE }}@${{ steps.manifest.outputs.postgres_digest }}"
+          cosign sign --yes --key "env://COSIGN_KEY" "${{ env.PROXY_IMAGE }}@${{ steps.manifest.outputs.proxy_digest }}"
 
       # SLSA build provenance attestation, bound to the merged runtime manifest digest.
       - name: Attest build provenance (SLSA)
@@ -417,6 +445,7 @@ jobs:
           verify_one "$IMAGE"
           verify_one "$MIGRATE_IMAGE"
           verify_one "$POSTGRES_IMAGE"
+          verify_one "$PROXY_IMAGE"
 
       # ── Release notes, readable WITHOUT pulling the image ───────────────────
       # `src/lib/changelog.ts` ships inside the image, so a running instance has
