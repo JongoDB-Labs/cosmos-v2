@@ -168,6 +168,32 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.518.0",
+    date: "2026-11-03",
+    title: "The project name, its tabs and its buttons share one row",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A project\u2019s name and its board tabs were two stacked bars, 90 pixels before a board even started drawing its own. They are now one row: the project on the left, the board tabs scrolling in the middle, and Intervals, Import and settings on the right. A project with many boards still scrolls its tabs, and the buttons on the right stay put while it does.",
+      },
+    ],
+  },
+  {
+    version: "2.517.0",
+    date: "2026-11-03",
+    title: "Boards send about seven times less data",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The server now compresses the data it sends to the browser. It always compressed the application\u2019s code and styles, but not the project data itself \u2014 so a board that loaded roughly 900 KB of data was sending all of it uncompressed. The same data now goes over the wire at about a seventh of the size, which is most of the waiting on a slow or distant connection.",
+      },
+      {
+        kind: "improvement",
+        text: "Measured on a live board for reference: the page starts drawing in under half a second and the cards appear just under two, with the data arriving at almost exactly the same moment \u2014 so the remaining wait was the transfer itself, not the database or the rendering.",
+      },
+    ],
+  },
+  {
     version: "2.516.0",
     date: "2026-11-03",
     title: "The query bar stops taking a third of the screen",
