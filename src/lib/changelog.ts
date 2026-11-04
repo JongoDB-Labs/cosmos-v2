@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.521.0",
+    date: "2026-11-04",
+    title: "Time-off balances",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Time off: see requested, approved, used and remaining time off for the year. Admins see everyone and can set a person's allowance; everyone else sees only their own.",
+      },
+    ],
+  },
+  {
     version: "2.520.0",
     date: "2026-11-04",
     title: "Automatic project numbers",

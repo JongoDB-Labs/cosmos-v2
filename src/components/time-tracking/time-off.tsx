@@ -121,6 +121,7 @@ export function TimeOff({ orgId }: { orgId: string }) {
   const qc = useQueryClient();
   const mineKey = useOrgQueryKey(["time-off", "mine"]);
   const teamKey = useOrgQueryKey(["time-off", "team"]);
+  const summaryKey = useOrgQueryKey("time-off-summary");
 
   const mine = useQuery({
     queryKey: mineKey,
@@ -144,6 +145,8 @@ export function TimeOff({ orgId }: { orgId: string }) {
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: mineKey });
     void qc.invalidateQueries({ queryKey: teamKey });
+    // Balances are derived from these requests, so they move with them.
+    void qc.invalidateQueries({ queryKey: summaryKey });
   };
 
   const [open, setOpen] = useState(false);
