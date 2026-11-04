@@ -83,6 +83,8 @@ export interface ProjectRollup {
   id: string;
   key: string;
   name: string;
+  /** Under the org's numbering standard; null where it has none. */
+  number: string | null;
   archived: boolean;
   updatedAt: Date;
   /** Total non-deleted work items in the project. */
@@ -138,6 +140,7 @@ export async function getActiveProjectsForOrg(
       id: true,
       key: true,
       name: true,
+      number: true,
       archived: true,
       updatedAt: true,
     },
@@ -231,6 +234,7 @@ export async function getActiveProjectsForOrg(
       id: p.id,
       key: p.key,
       name: p.name,
+      number: p.number,
       archived: p.archived,
       updatedAt: p.updatedAt,
       totalItems,

@@ -108,6 +108,7 @@ export const Project = z.object({
   teamScopedAccess: z.boolean().describe("Only project members (and org admins) can see it."),
   clientId: NullableUuid,
   externalRef: z.string().nullable(),
+  number: z.string().nullable().describe("The project's number under the org's numbering standard, e.g. 26-001."),
   krLinkTypeId: NullableUuid,
   objectiveLinkTypeId: NullableUuid,
   createdAt: IsoDateTime,

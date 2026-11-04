@@ -12,6 +12,7 @@ import { Loader2, ChevronLeft, LayoutGrid } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { applyNamePattern, type ProjectNumbering } from "@/lib/projects/numbering";
 
 interface BoardTemplate {
   id: string;
@@ -54,6 +55,10 @@ export function ProjectMetadataStep({
   const [key, setKey] = useState("");
   const [keyEdited, setKeyEdited] = useState(false);
   const [description, setDescription] = useState("");
+  // Null until the person types one: an untouched field lets the server take
+  // the next number at create time, so two people creating at once can't
+  // both submit the number the form previewed.
+  const [numberDraft, setNumberDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -68,12 +73,21 @@ export function ProjectMetadataStep({
     enabled: !!templateId,
   });
 
+  const { data: numbering } = useQuery({
+    queryKey: useOrgQueryKey("project-numbering"),
+    queryFn: () =>
+      jsonFetch<ProjectNumbering & { next: string | null }>(`/api/v1/orgs/${orgId}/project-numbering`),
+  });
+  const numbered = !!numbering?.pattern;
+  const shownNumber = numberDraft ?? numbering?.next ?? "";
+
   type ProjectPayload = {
     name: string;
     key: string;
     description: string | null;
     templateId: string | null;
     sector: string | null;
+    number?: string;
   };
 
   const createProject = useOrgMutation<{ key: string }, Error, ProjectPayload>({
@@ -128,6 +142,7 @@ export function ProjectMetadataStep({
       description: description.trim() || null,
       templateId: templateId ?? null,
       sector: sector ?? null,
+      ...(numbered && numberDraft !== null && numberDraft.trim() && { number: numberDraft.trim() }),
     });
   }
 
@@ -181,6 +196,37 @@ export function ProjectMetadataStep({
               <span className="font-mono">{key || "PROJ"}-1</span>)
             </p>
           </div>
+
+          {numbered && (
+            <div className="space-y-2">
+              <FormField label="Project number">
+                {(p) => (
+                  <Input
+                    {...p}
+                    value={shownNumber}
+                    onChange={(e) => setNumberDraft(e.target.value)}
+                    placeholder={numbering?.pattern ?? ""}
+                    maxLength={40}
+                    disabled={isPending}
+                  />
+                )}
+              </FormField>
+              <p className="text-xs text-[var(--text-muted)]">
+                {numberDraft === null
+                  ? `The next number in your organization's ${numbering?.pattern} sequence. Change it only to use a different one.`
+                  : "A number you choose must not already be in use."}
+                {numbering?.namePattern && name.trim() && (
+                  <>
+                    {" "}It will be created as{" "}
+                    <span className="font-medium text-[var(--text)]">
+                      {applyNamePattern(numbering.namePattern, { name: name.trim(), number: shownNumber.trim() || null })}
+                    </span>
+                    .
+                  </>
+                )}
+              </p>
+            </div>
+          )}
 
           <FormField label="Description (optional)">
             {(p) => (
