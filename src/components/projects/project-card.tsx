@@ -45,6 +45,7 @@ import { cn } from "@/lib/utils";
 import { formatDateStable, formatDateShortStable } from "@/lib/format/stable-date";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { PluginSlot } from "@/components/plugins/plugin-slot";
 
 export interface ProjectCardProject {
   id: string;
@@ -266,6 +267,13 @@ export function ProjectCard({ project, orgSlug, orgId }: ProjectCardProps) {
                   {formatDueDate(project.nextDueDate)}
                 </Badge>
               )}
+            </div>
+
+            {/* Plugin contributions, e.g. current phase and its % complete.
+                `empty:hidden` so a card with nothing contributed keeps its
+                old spacing. Display-only: this is inside the link. */}
+            <div className="mt-3 empty:hidden" data-slot="project.card">
+              <PluginSlot name="project.card" orgId={orgId} projectId={project.id} projectKey={project.key} />
             </div>
 
             <p className="mt-3 text-xs text-[var(--text-muted)]">

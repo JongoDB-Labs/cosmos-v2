@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, type ComponentType, type ReactNode } from "react";
+import { Component, createContext, useContext, type ComponentType, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import {
   PluginRegistry,
@@ -62,6 +62,27 @@ export function slotContributions<K extends PluginSlotName>(
     .map((p) => ({ slug: p.slug, Comp: p.slots![name]! as ComponentType<PluginSlotProps[K]> }));
 }
 
+/**
+ * One contribution failing must not take the page with it.
+ *
+ * A slot can repeat — `project.card` renders once per card — so a plugin that
+ * throws on one project would otherwise blank the whole Projects grid. Each
+ * contribution gets its own boundary and renders nothing on error, the same
+ * fail-closed outcome as a plugin that isn't enabled.
+ */
+class SlotBoundary extends Component<{ slug: string; slot: string; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error: unknown) {
+    console.error(`[plugin-slot] ${this.props.slug} failed in ${this.props.slot}`, error);
+  }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
 export function PluginSlot<K extends PluginSlotName>(
   props: { name: K } & PluginSlotProps[K],
 ) {
@@ -74,7 +95,9 @@ export function PluginSlot<K extends PluginSlotName>(
       {contributions.map(({ slug, Comp }) => (
         // rest IS PluginSlotProps[K] at runtime; TS can't narrow Omit<…,"name"> for a
         // generic K, so the double-cast is the sanctioned workaround (not a real risk).
-        <Comp key={slug} {...(rest as unknown as PluginSlotProps[K])} />
+        <SlotBoundary key={slug} slug={slug} slot={name}>
+          <Comp {...(rest as unknown as PluginSlotProps[K])} />
+        </SlotBoundary>
       ))}
     </>
   );
