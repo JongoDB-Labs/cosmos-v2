@@ -26,6 +26,7 @@ async function load(orgId: string) {
 const putSchema = z.strictObject({
   blockParentWithOpenChildren: z.boolean().optional(),
   resolutions: z.array(z.string().trim().min(1).max(60)).min(1).max(30).optional(),
+  closingRule: z.boolean().optional(),
 });
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
@@ -69,6 +70,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       entityId: org.id,
       metadata: {
         changes: Object.keys(patch).join(", "),
+        ...(patch.closingRule !== undefined && { closingRule: `${before.closingRule} -> ${after.closingRule}` }),
         ...(patch.blockParentWithOpenChildren !== undefined && {
           blockParentWithOpenChildren: `${before.blockParentWithOpenChildren} -> ${after.blockParentWithOpenChildren}`,
         }),

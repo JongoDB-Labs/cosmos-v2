@@ -92,6 +92,7 @@ function renderSettings(over: Partial<Record<string, unknown>> = {}) {
         boards={[{ id: "b1", name: "Sprint Board", type: "SCRUM" }]}
         hiddenBoardIds={[]}
         teamScopedAccess={false}
+        closingRule={null}
         krLinkTypeId={null}
         objectiveLinkTypeId={null}
         {...over}

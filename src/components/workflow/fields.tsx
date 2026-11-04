@@ -52,6 +52,7 @@ export const SYSTEM_FIELD_LABELS: Record<(typeof SYSTEM_FIELDS)[number], string>
   labels: "Labels",
   cancelReason: "Cancel reason",
   cancelNote: "Cancel note",
+  closeEvidenceNote: "No-file reason",
 };
 
 export const fieldKey = (f: FieldRef): string => ("custom" in f ? `custom:${f.custom}` : `system:${f.system}`);

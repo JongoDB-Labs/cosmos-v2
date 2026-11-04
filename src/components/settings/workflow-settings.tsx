@@ -46,6 +46,20 @@ export function WorkflowSettingsCard({ orgId }: { orgId: string }) {
             disabled={save.isPending}
           />
         </label>
+        <label className="flex items-start justify-between gap-4 text-sm">
+          <span>
+            Closing rule
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              {"An item can't move to a Done status without a supporting file attached, or a recorded reason one isn't needed, and it's read-only once closed until someone reopens it. A project can turn this on or off for itself."}
+            </span>
+          </span>
+          <ToggleSwitch
+            aria-label="Closing rule"
+            checked={data.closingRule}
+            onCheckedChange={(v) => save.mutate({ closingRule: v })}
+            disabled={save.isPending}
+          />
+        </label>
         <ResolutionsEditor
           key={data.resolutions.join("\n")}
           resolutions={data.resolutions}

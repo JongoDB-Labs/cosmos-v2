@@ -30,6 +30,7 @@ import { runValidators, type ValidationFacts } from "@/lib/workflow/validators";
 import { applyActions, applyInput } from "@/lib/workflow/actions";
 import { TransitionError, type AvailableTransition, type TransitionErrorBody, type TransitionInputField } from "@/lib/workflow/contract";
 import { workflowDefinitionSchema, type ConditionNode, type FieldRef, type TransitionSpec, type ValidatorSpec, type WorkflowDefinition } from "@/lib/workflow/definition";
+import { CLOSE_EVIDENCE_LABEL, CLOSED_READ_ONLY_MESSAGE, closingRuleOn } from "@/lib/workflow/closing-rule";
 import { workflowSettings, type WorkflowSettings } from "@/lib/workflow/settings";
 import { CANCEL_REASONS } from "@/lib/work-items/cancel";
 
@@ -314,7 +315,23 @@ export function workflowResolver(tx: Tx, orgId: string, projectId: string) {
     byType.set(key, p);
     return p;
   };
-  return Object.assign(resolve, { settings });
+  // The closing rule: the project's own choice, else the org's (closing-rule.ts).
+  let closing: Promise<boolean> | null = null;
+  const closingRule = () =>
+    (closing ??= Promise.all([
+      settings(),
+      tx.project.findUnique({ where: { id: projectId }, select: { settings: true } }),
+    ]).then(([s, p]) => closingRuleOn(s.closingRule, p?.settings)));
+  return Object.assign(resolve, { settings, closingRule });
+}
+
+/**
+ * Does this patch EDIT the item, for the closing rule's read-only check?
+ * Reordering it, archiving it and the cascade's bookkeeping are not edits.
+ */
+const CLOSED_ITEM_HOUSEKEEPING = new Set<string>(["columnKey", "sortOrder", "archivedAt", "cascadeSkipIds"]);
+export function editsClosedItem(patch: WorkItemPatch): boolean {
+  return Object.entries(patch).some(([k, v]) => v !== undefined && !CLOSED_ITEM_HOUSEKEEPING.has(k));
 }
 
 /** The item as conditions and validators read it, with `patch` applied on top. */
@@ -343,6 +360,7 @@ export function conditionItem(item: WorkItem, assigneeIds: readonly string[], pa
       labels: pick("tags", item.tags),
       cancelReason: pick("cancelReason", item.cancelReason),
       cancelNote: pick("cancelNote", item.cancelNote),
+      closeEvidenceNote: pick("closeEvidenceNote", item.closeEvidenceNote),
     },
     customFields: { ...existingCustom, ...(patch.customFields ?? {}) },
   };
@@ -602,6 +620,21 @@ export async function gateChange(
 
     const moving = args.patch.columnKey !== undefined && args.patch.columnKey !== null && args.patch.columnKey !== item.columnKey;
     if (!moving) {
+      // The closing rule: a closed item is read-only until it is reopened
+      // (moved out of Done). Reordering it on a board and archiving it are
+      // housekeeping, not edits, and stay allowed.
+      if (
+        args.level === "full" &&
+        wf.categories.get(item.columnKey) === "DONE" &&
+        editsClosedItem(args.patch) &&
+        (await governing.closingRule())
+      ) {
+        if (refuse({
+          error: CLOSED_READ_ONLY_MESSAGE,
+          code: "transition_invalid",
+          reasons: [{ validator: "closingRule", message: CLOSED_READ_ONLY_MESSAGE }],
+        })) continue;
+      }
       // Not a move: the current status's field rules still hold.
       const status = wf.compiled.definition.statuses.find((s) => s.key === item.columnKey);
       const proposed = conditionItem(item, assignees.get(item.id) ?? [], args.patch);
@@ -673,7 +706,28 @@ export async function gateChange(
     // Request input: fold in what the transition asks for, then see what is still missing.
     const destCategory = wf.categories.get(to);
     const asked = await inputFields(tx, t, destCategory, typeId, await governing.settings());
+    // The closing rule: into Done needs a supporting file or a reason there
+    // isn't one, asked for like any other transition input.
+    if (
+      person &&
+      destCategory === "DONE" &&
+      wf.categories.get(item.columnKey) !== "DONE" &&
+      !asked.some((a) => "system" in a.field && a.field.system === "closeEvidenceNote") &&
+      (await governing.closingRule())
+    ) {
+      // No file: ask for the reason. A reason the item already holds (closed
+      // before, then reopened) satisfies it through the required-input check
+      // below, which reads the item's current value.
+      const files = await tx.document.count({ where: { orgId: args.orgId, workItemId: item.id } });
+      if (files === 0) {
+        asked.push({ field: { system: "closeEvidenceNote" }, required: true, label: CLOSE_EVIDENCE_LABEL });
+      }
+    }
     let patch = applyInput(args.patch, asked, args.transition?.input ?? {});
+    // A reason of only spaces is no reason.
+    if (typeof patch.closeEvidenceNote === "string" && !patch.closeEvidenceNote.trim()) {
+      patch = { ...patch, closeEvidenceNote: undefined };
+    }
     const proposed = conditionItem(item, assignees.get(item.id) ?? [], patch);
     const missing = asked.filter((a) => a.required && isEmpty(fieldOf(proposed, a.field)));
     if (missing.length > 0 && person) {

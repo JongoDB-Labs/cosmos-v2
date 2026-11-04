@@ -162,6 +162,10 @@ export function computeItemChange(args: {
   if (data.resolution !== undefined && (data.resolution?.trim() || null) !== existing.resolution) {
     trackFields.push({ field: "resolution", oldVal: existing.resolution, newVal: data.resolution?.trim() || null });
   }
+  if (data.closeEvidenceNote !== undefined && (data.closeEvidenceNote?.trim() || null) !== existing.closeEvidenceNote) {
+    // Who recorded which reason is the closing rule's audit trail (read.server.ts allowlists it).
+    trackFields.push({ field: "closeEvidenceNote", oldVal: existing.closeEvidenceNote, newVal: data.closeEvidenceNote?.trim() || null });
+  }
   if (data.intervalId !== undefined && data.intervalId !== existing.intervalId) {
     trackFields.push({ field: "intervalId", oldVal: existing.intervalId, newVal: data.intervalId });
   }
@@ -198,6 +202,7 @@ export function computeItemChange(args: {
   if (data.completedAt !== undefined) updateData.completedAt = data.completedAt ? new Date(data.completedAt) : null;
   if (data.workCategory !== undefined) updateData.workCategory = data.workCategory;
   if (data.resolution !== undefined) updateData.resolution = data.resolution?.trim() || null;
+  if (data.closeEvidenceNote !== undefined) updateData.closeEvidenceNote = data.closeEvidenceNote?.trim() || null;
   if (data.archivedAt !== undefined) updateData.archivedAt = data.archivedAt ? new Date(data.archivedAt) : null;
   if (data.highlight !== undefined) updateData.highlight = data.highlight;
   if (data.customFields !== undefined) {

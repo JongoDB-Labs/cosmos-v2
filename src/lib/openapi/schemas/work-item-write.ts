@@ -49,6 +49,9 @@ const patchFields = z.object({
   // The outcome of a finished or cancelled item ("Fixed", "Won't do"); free
   // text so values imported from another tracker stay as they were.
   resolution: z.string().max(200).nullable().optional(),
+  // Why no supporting file was needed, where the closing rule is on.
+  closeEvidenceNote: z.string().max(500).nullable().optional()
+    .describe("Why closing needs no supporting file. Asked for when the org's closing rule is on and nothing is attached."),
   // Archive / unarchive. A timestamp in, or null to bring it back.
   //
   // It rides on this route rather than getting an endpoint of its own because

@@ -10,12 +10,16 @@ export interface WorkflowSettings {
   blockParentWithOpenChildren: boolean;
   /** The outcomes a transition into Done or Cancelled offers (design §3.7). Stored as text. */
   resolutions: string[];
+  /** Items need a supporting file (or a reason) to close, and are read-only once closed. See closing-rule.ts. Default off. */
+  closingRule: boolean;
 }
 
 export const DEFAULT_RESOLUTIONS = ["Fixed", "Won't do", "Duplicate", "Cannot reproduce"];
 
 export function workflowSettings(settings: unknown): WorkflowSettings {
-  const s = (settings ?? {}) as { workflow?: { blockParentWithOpenChildren?: unknown; resolutions?: unknown } };
+  const s = (settings ?? {}) as {
+    workflow?: { blockParentWithOpenChildren?: unknown; resolutions?: unknown; closingRule?: unknown };
+  };
   const resolutions = s.workflow?.resolutions;
   return {
     blockParentWithOpenChildren: s.workflow?.blockParentWithOpenChildren !== false,
@@ -23,6 +27,7 @@ export function workflowSettings(settings: unknown): WorkflowSettings {
       Array.isArray(resolutions) && resolutions.length > 0 && resolutions.every((r) => typeof r === "string")
         ? resolutions
         : DEFAULT_RESOLUTIONS,
+    closingRule: s.workflow?.closingRule === true,
   };
 }
 

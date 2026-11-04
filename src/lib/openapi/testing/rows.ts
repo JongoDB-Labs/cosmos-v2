@@ -45,7 +45,7 @@ export function workItemRow<T extends Record<string, unknown>>(over: T & { id: s
     createdById: "44444444-4444-4444-8444-444444444444",
     createdAt: new Date("2026-10-02T00:00:00Z"), updatedAt: new Date("2026-10-02T00:00:00Z"),
     workItemTypeId: "55555555-5555-4555-8555-555555555555", intervalId: null, teamId: null,
-    externalSource: null, externalId: null, externalKey: null, sourceStatus: null, resolution: null,
+    externalSource: null, externalId: null, externalKey: null, sourceStatus: null, resolution: null, closeEvidenceNote: null,
     originalEstimate: null, remainingEstimate: null, timeSpent: null,
     searchVector: { title: "item" }, sourceRecord: null,
     ...over,

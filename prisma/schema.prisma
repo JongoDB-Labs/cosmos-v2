@@ -1348,6 +1348,10 @@ model WorkItem {
   sourceStatus      String? @map("source_status")
   // Original resolution text from the source (e.g. "Fixed", "Won't Do").
   resolution        String?
+  /// Why no supporting file was needed, recorded when an item closed without
+  /// one under the closing rule (src/lib/workflow/closing-rule.ts). Null when
+  /// a file was attached or the rule was off.
+  closeEvidenceNote String? @map("close_evidence_note")
   // Verbatim original source row — true losslessness for unmapped columns.
   sourceRecord      Json?   @map("source_record")
   // Time tracking, stored in SECONDS to match Jira's worklog unit.
@@ -2395,21 +2399,21 @@ enum RevenueType {
 }
 
 model TimeEntry {
-  id           String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId        String          @map("org_id") @db.Uuid
-  org          Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  userId       String          @map("user_id") @db.Uuid
-  projectId    String?         @map("project_id") @db.Uuid
-  workItemId   String?         @map("work_item_id") @db.Uuid
-  date         DateTime        @db.Date
-  hours        Float
-  rate         Decimal?        @db.Decimal(19, 4)
-  client       String?
-  description  String          @default("")
-  billableType BillableType    @default(BILLABLE) @map("billable_type")
-  status       TimeEntryStatus @default(DRAFT)
-  approvedById String?         @map("approved_by_id") @db.Uuid
-  approvedAt   DateTime?       @map("approved_at")
+  id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId            String          @map("org_id") @db.Uuid
+  org              Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId           String          @map("user_id") @db.Uuid
+  projectId        String?         @map("project_id") @db.Uuid
+  workItemId       String?         @map("work_item_id") @db.Uuid
+  date             DateTime        @db.Date
+  hours            Float
+  rate             Decimal?        @db.Decimal(19, 4)
+  client           String?
+  description      String          @default("")
+  billableType     BillableType    @default(BILLABLE) @map("billable_type")
+  status           TimeEntryStatus @default(DRAFT)
+  approvedById     String?         @map("approved_by_id") @db.Uuid
+  approvedAt       DateTime?       @map("approved_at")
   // What the client is BILLED, decided separately from what was logged.
   //
   // NULL means "bill what was logged" -- the ordinary case, and the reason this
@@ -2420,33 +2424,33 @@ model TimeEntry {
   //
   // An explicit value is a decision, and 0 is a real one: "worked, not billed"
   // is different from "not yet decided", and only an explicit zero can say it.
-  billedHours  Float?          @map("billed_hours")
-  billedById   String?         @map("billed_by_id") @db.Uuid
-  billedAt     DateTime?       @map("billed_at")
-  tags         String[]        @default([])
+  billedHours      Float?          @map("billed_hours")
+  billedById       String?         @map("billed_by_id") @db.Uuid
+  billedAt         DateTime?       @map("billed_at")
+  tags             String[]        @default([])
   // Which kind of INTERNAL time this is (overhead, business development, ...),
   // from the org's list on Organization.settings.time.internalCategories. Text,
   // copied at write time, so renaming a category never rewrites history. Set
   // only on entries with no project: internal time is reported separately from
   // project time, and an entry in both would be counted twice.
-  internalCategory String?     @map("internal_category")
+  internalCategory String?         @map("internal_category")
   // Pay run this entry was rolled into (prod-parity). Plain scalar, NO relation/FK —
   // matches prod exactly (prod's time_entries.pay_run_id has no FK constraint and
   // prod's Prisma defines it as a bare scalar, not a PayRun relation).
-  payRunId     String?         @map("pay_run_id") @db.Uuid
-  clinId       String?         @map("clin_id") @db.Uuid
+  payRunId         String?         @map("pay_run_id") @db.Uuid
+  clinId           String?         @map("clin_id") @db.Uuid
   // The pay period this entry rolls up into. Nullable ONLY so the column could
   // be added to a live table; every write path sets it.
-  timesheetId  String?         @map("timesheet_id") @db.Uuid
+  timesheetId      String?         @map("timesheet_id") @db.Uuid
   // VOIDED, never deleted. Hard deletion makes the dataset inadmissible: an
   // auditor cannot tell "never entered" from "removed afterwards". Every read
   // filters `voidedAt: null`, so a void is invisible in the product and
   // permanent in the record.
-  voidedAt     DateTime?       @map("voided_at")
-  voidedById   String?         @map("voided_by_id") @db.Uuid
-  voidReason   String?         @map("void_reason")
-  createdAt    DateTime        @default(now()) @map("created_at")
-  updatedAt    DateTime        @updatedAt @map("updated_at")
+  voidedAt         DateTime?       @map("voided_at")
+  voidedById       String?         @map("voided_by_id") @db.Uuid
+  voidReason       String?         @map("void_reason")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
 
   timesheet        Timesheet?          @relation(fields: [timesheetId], references: [id], onDelete: SetNull)
   revisions        TimeEntryRevision[]

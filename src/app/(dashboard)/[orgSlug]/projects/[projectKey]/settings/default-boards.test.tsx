@@ -71,6 +71,7 @@ function renderSettings(hiddenBoardIds: string[] = []) {
       krLinkTypeId={null}
       objectiveLinkTypeId={null}
       teamScopedAccess={false}
+      closingRule={null}
     />
     </QueryClientProvider>,
   );

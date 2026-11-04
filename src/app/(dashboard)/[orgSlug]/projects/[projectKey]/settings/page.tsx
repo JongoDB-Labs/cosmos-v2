@@ -45,6 +45,9 @@ export default async function ProjectSettingsPage({ params }: PageParams) {
   const hiddenBoardIds =
     ((project.settings as { hiddenBoardIds?: string[] } | null)?.hiddenBoardIds) ?? [];
 
+  const own = (project.settings as { closingRule?: unknown } | null)?.closingRule;
+  const closingRuleChoice = typeof own === "boolean" ? own : null;
+
   // No PageShell here: the project layout already renders the project name as
   // the page's single <h1>; this section uses an <h2> so we don't stack two H1s.
   return (
@@ -66,6 +69,7 @@ export default async function ProjectSettingsPage({ params }: PageParams) {
         boards={project.boards}
         hiddenBoardIds={hiddenBoardIds}
         teamScopedAccess={project.teamScopedAccess}
+        closingRule={closingRuleChoice}
       />
       <MentionedIn
         orgId={ctx.orgId}

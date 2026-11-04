@@ -1826,6 +1826,13 @@
                     "null"
                   ]
                 },
+                "closeEvidenceNote": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Why it closed without a supporting file, under the closing rule."
+                },
                 "originalEstimate": {
                   "type": [
                     "integer",
@@ -1896,6 +1903,7 @@
                 "externalKey",
                 "sourceStatus",
                 "resolution",
+                "closeEvidenceNote",
                 "originalEstimate",
                 "remainingEstimate",
                 "timeSpent",
@@ -3430,6 +3438,13 @@
               "null"
             ]
           },
+          "closeEvidenceNote": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it closed without a supporting file, under the closing rule."
+          },
           "originalEstimate": {
             "type": [
               "integer",
@@ -3507,6 +3522,7 @@
           "externalKey",
           "sourceStatus",
           "resolution",
+          "closeEvidenceNote",
           "originalEstimate",
           "remainingEstimate",
           "timeSpent",
@@ -3851,6 +3867,13 @@
               "null"
             ]
           },
+          "closeEvidenceNote": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it closed without a supporting file, under the closing rule."
+          },
           "originalEstimate": {
             "type": [
               "integer",
@@ -3968,6 +3991,7 @@
           "externalKey",
           "sourceStatus",
           "resolution",
+          "closeEvidenceNote",
           "originalEstimate",
           "remainingEstimate",
           "timeSpent",
@@ -4315,6 +4339,13 @@
               "null"
             ]
           },
+          "closeEvidenceNote": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it closed without a supporting file, under the closing rule."
+          },
           "originalEstimate": {
             "type": [
               "integer",
@@ -4409,6 +4440,7 @@
           "externalKey",
           "sourceStatus",
           "resolution",
+          "closeEvidenceNote",
           "originalEstimate",
           "remainingEstimate",
           "timeSpent",
@@ -4893,6 +4925,13 @@
               "null"
             ]
           },
+          "closeEvidenceNote": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it closed without a supporting file, under the closing rule."
+          },
           "originalEstimate": {
             "type": [
               "integer",
@@ -5056,6 +5095,7 @@
           "externalKey",
           "sourceStatus",
           "resolution",
+          "closeEvidenceNote",
           "originalEstimate",
           "remainingEstimate",
           "timeSpent",
@@ -5269,6 +5309,14 @@
               "null"
             ],
             "maxLength": 200
+          },
+          "closeEvidenceNote": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500,
+            "description": "Why closing needs no supporting file. Asked for when the org's closing rule is on and nothing is attached."
           },
           "archivedAt": {
             "type": [
@@ -5750,6 +5798,13 @@
               "null"
             ]
           },
+          "closeEvidenceNote": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it closed without a supporting file, under the closing rule."
+          },
           "originalEstimate": {
             "type": [
               "integer",
@@ -5858,6 +5913,7 @@
           "externalKey",
           "sourceStatus",
           "resolution",
+          "closeEvidenceNote",
           "originalEstimate",
           "remainingEstimate",
           "timeSpent",
@@ -6084,6 +6140,13 @@
                   "null"
                 ]
               },
+              "closeEvidenceNote": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Why it closed without a supporting file, under the closing rule."
+              },
               "originalEstimate": {
                 "type": [
                   "integer",
@@ -6190,6 +6253,7 @@
               "externalKey",
               "sourceStatus",
               "resolution",
+              "closeEvidenceNote",
               "originalEstimate",
               "remainingEstimate",
               "timeSpent",
@@ -6405,6 +6469,13 @@
                   "null"
                 ]
               },
+              "closeEvidenceNote": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Why it closed without a supporting file, under the closing rule."
+              },
               "originalEstimate": {
                 "type": [
                   "integer",
@@ -6511,6 +6582,7 @@
               "externalKey",
               "sourceStatus",
               "resolution",
+              "closeEvidenceNote",
               "originalEstimate",
               "remainingEstimate",
               "timeSpent",
