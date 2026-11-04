@@ -25,6 +25,9 @@ export const PROBLEM_CODES = {
   workflow_in_use: "Workflow in use",
   // An automation rule that names what its project or org doesn't have (src/lib/automation/rules.server.ts).
   automation_invalid: "Automation rule has errors",
+  // The closing rule on a deliverable or phase (src/lib/pm/closing-evidence.ts).
+  close_evidence_required: "Supporting file or reason required",
+  closed_read_only: "Closed and read-only",
 } as const;
 
 export type ProblemCode = keyof typeof PROBLEM_CODES;

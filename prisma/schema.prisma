@@ -4712,6 +4712,11 @@ model Document {
   /// uploaded. The attachment detaches and the document stays in the project
   /// library, which is the only answer that cannot lose work.
   workItemId          String?             @map("work_item_id") @db.Uuid
+  /// A supporting file for a deliverable or a phase, as workItemId is for an
+  /// item: what the closing rule counts as evidence (src/lib/pm/closing-evidence.ts).
+  /// SetNull, like workItemId: removing the record never deletes the file.
+  deliverableId       String?             @map("deliverable_id") @db.Uuid
+  phaseId             String?             @map("phase_id") @db.Uuid
   /// Who may SEE this file. INHERIT by default, so nothing changes for the files
   /// that already exist: they stay exactly as visible as the place they live.
   visibility          DocumentVisibility  @default(INHERIT)
@@ -4730,13 +4735,17 @@ model Document {
   createdAt           DateTime            @default(now()) @map("created_at")
   updatedAt           DateTime            @updatedAt @map("updated_at")
 
-  org      Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project  Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  workItem WorkItem?       @relation(fields: [workItemId], references: [id], onDelete: SetNull)
-  blocks   DocumentBlock[]
-  shares   DocumentShare[]
+  org         Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project     Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workItem    WorkItem?       @relation(fields: [workItemId], references: [id], onDelete: SetNull)
+  deliverable Deliverable?    @relation(fields: [deliverableId], references: [id], onDelete: SetNull)
+  phase       ProjectPhase?   @relation(fields: [phaseId], references: [id], onDelete: SetNull)
+  blocks      DocumentBlock[]
+  shares      DocumentShare[]
 
   @@index([orgId, projectId])
+  @@index([deliverableId])
+  @@index([phaseId])
   @@index([orgId, workItemId])
   @@map("documents")
 }
@@ -5101,27 +5110,30 @@ model Risk {
 }
 
 model Deliverable {
-  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId            String               @map("org_id") @db.Uuid
-  projectId        String               @map("project_id") @db.Uuid
-  code             String
-  title            String
-  description      String?
-  clin             String?
-  status           DeliverableStatus    @default(NOT_STARTED)
-  baselineDue      DateTime?            @map("baseline_due")
-  actualSubmission DateTime?            @map("actual_submission")
-  govAcceptance    DateTime?            @map("gov_acceptance")
+  id                String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId             String               @map("org_id") @db.Uuid
+  projectId         String               @map("project_id") @db.Uuid
+  code              String
+  title             String
+  description       String?
+  clin              String?
+  status            DeliverableStatus    @default(NOT_STARTED)
+  baselineDue       DateTime?            @map("baseline_due")
+  actualSubmission  DateTime?            @map("actual_submission")
+  govAcceptance     DateTime?            @map("gov_acceptance")
   /// @deprecated free-text owner, superseded by ownerUserId. Kept for one
   /// release so existing rows keep their text; read ownerUser first.
-  owner            String?
-  revisionCycle    Int                  @default(0) @map("revision_cycle")
-  escalate         Boolean              @default(false)
+  owner             String?
+  revisionCycle     Int                  @default(0) @map("revision_cycle")
+  escalate          Boolean              @default(false)
+  /// Why no supporting file was needed, recorded when it was accepted without
+  /// one under the closing rule. Null otherwise.
+  closeEvidenceNote String?              @map("close_evidence_note")
   /// Null unless the org is a GOV tenant - see lib/compliance/classification.ts.
   /// Undefaulted on purpose: `@default(CUI)` stamped every tenant's rows CUI.
-  classification   ClassificationLevel?
-  createdAt        DateTime             @default(now()) @map("created_at")
-  updatedAt        DateTime             @updatedAt @map("updated_at")
+  classification    ClassificationLevel?
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
 
   /// The contract this CDRL is deliverable under. Null for every row that
   /// predates contract scoping, and for any deliverable tracked outside a
@@ -5144,6 +5156,7 @@ model Deliverable {
   intervalId      String?               @map("interval_id") @db.Uuid
   org             Organization          @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project         Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  documents       Document[]
   contract        Contract?             @relation(fields: [contractId], references: [id], onDelete: SetNull)
   interval        Interval?             @relation(fields: [intervalId], references: [id], onDelete: SetNull)
   deliverableType String?               @map("deliverable_type")
@@ -5764,6 +5777,14 @@ model ProjectPhase {
   endDate   DateTime? @map("end_date") @db.Date
   sortOrder Int       @default(0) @map("sort_order")
 
+  /// Closed by an explicit Close action — NOT inferred from percentComplete,
+  /// since 100% done is not the same as accepted. Reopening clears both, and
+  /// both directions are audited. A closed phase is read-only (closing-evidence.ts).
+  closedAt          DateTime? @map("closed_at")
+  closedById        String?   @map("closed_by_id") @db.Uuid
+  /// Why no supporting file was needed, under the closing rule.
+  closeEvidenceNote String?   @map("close_evidence_note")
+
   org                 Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project             Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
   templateItem        PhaseTemplateItem?  @relation(fields: [templateItemId], references: [id], onDelete: SetNull)
@@ -5771,6 +5792,7 @@ model ProjectPhase {
   timeEntries         TimeEntryPhase[]
   milestonePhases     MilestonePhase[]
   weeklyReportEntries WeeklyReportEntry[]
+  documents           Document[]
 
   // @plugin-backrel:ProjectPhase
 

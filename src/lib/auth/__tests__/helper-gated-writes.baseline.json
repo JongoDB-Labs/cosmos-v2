@@ -337,6 +337,12 @@
   "POST v1/orgs/[orgId]/projects/[projectId]/objectives": [
     "requireProjectManage"
   ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/phases/[phaseId]/close": [
+    "requireProjectManage"
+  ],
+  "POST v1/orgs/[orgId]/projects/[projectId]/phases/[phaseId]/reopen": [
+    "requireProjectManage"
+  ],
   "POST v1/orgs/[orgId]/projects/[projectId]/pm-links": [
     "requireProjectManage"
   ],

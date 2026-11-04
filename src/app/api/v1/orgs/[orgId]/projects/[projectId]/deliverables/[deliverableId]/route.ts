@@ -12,6 +12,8 @@ import { classificationOmit } from "@/lib/compliance/classification";
 import { assertOrgMember } from "@/lib/rbac/assert-org-member";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { assertDeliverableLinks } from "@/lib/pm/deliverable-scope";
+import { CLOSED_DELIVERABLE_STATUSES, CLOSED_RECORD_READ_ONLY_MESSAGE, closingDecision } from "@/lib/pm/closing-evidence";
+import { closingProblem, closingRuleForProject, evidenceFiles } from "@/lib/pm/closing-evidence.server";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; deliverableId: string }>;
@@ -46,6 +48,8 @@ const updateSchema = z.object({
   contractId: z.string().uuid().nullish(),
   intervalId: z.string().uuid().nullish(),
   notes: z.string().nullish(),
+  /** Why acceptance needs no supporting file, where the closing rule is on. */
+  closeEvidenceNote: z.string().max(500).nullish(),
 });
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
@@ -67,6 +71,23 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     // Same for the contract and the sprint: the FKs cannot express "in this
     // org, for this project".
     await assertDeliverableLinks(data, orgId, projectId);
+
+    // The closing rule: accepting needs a file or a reason, and an accepted
+    // deliverable is read-only until it is moved back out of acceptance.
+    const wasClosed = CLOSED_DELIVERABLE_STATUSES.includes(existing.status);
+    const willBeClosed = CLOSED_DELIVERABLE_STATUSES.includes(data.status ?? existing.status);
+    if (wasClosed || willBeClosed) {
+      const refusal = closingDecision({
+        ruleOn: await closingRuleForProject(orgId, projectId),
+        wasClosed,
+        willBeClosed,
+        // Anything but the status is an edit; so is moving between the two accepted statuses.
+        edits: Object.entries(data).some(([k, v]) => v !== undefined && (k !== "status" || v !== existing.status)),
+        files: willBeClosed && !wasClosed ? await evidenceFiles(orgId, { deliverableId }) : 0,
+        note: data.closeEvidenceNote !== undefined ? data.closeEvidenceNote : existing.closeEvidenceNote,
+      });
+      if (refusal) return closingProblem(refusal, request);
+    }
 
     const updateData: Prisma.DeliverableUncheckedUpdateInput = {};
     if (data.title !== undefined) updateData.title = data.title;
@@ -90,6 +111,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (data.contractId !== undefined) updateData.contractId = data.contractId ?? null;
     if (data.intervalId !== undefined) updateData.intervalId = data.intervalId ?? null;
     if (data.notes !== undefined) updateData.notes = data.notes ?? null;
+    if (data.closeEvidenceNote !== undefined) updateData.closeEvidenceNote = data.closeEvidenceNote?.trim() || null;
 
     const updated = await prisma.deliverable.update({
       where: { id: deliverableId },
@@ -114,6 +136,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         revisionCycle: existing.revisionCycle,
         revRequired: existing.revRequired,
         escalate: existing.escalate,
+        // The closing rule's "no file needed" reason is the audit trail it exists for.
+        closeEvidenceNote: existing.closeEvidenceNote,
         // Which contract a CDRL is deliverable under, which sprint it is
         // planned into, and which gate it is due at are all re-plannable and
         // worth a trail. `piObjective` is not here on purpose: it is prose, and
@@ -134,6 +158,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         revisionCycle: updated.revisionCycle,
         revRequired: updated.revRequired,
         escalate: updated.escalate,
+        closeEvidenceNote: updated.closeEvidenceNote,
         contractId: updated.contractId,
         intervalId: updated.intervalId,
         dueGate: updated.dueGate,
@@ -158,6 +183,10 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
 
     const existing = await prisma.deliverable.findFirst({ where: { id: deliverableId, orgId, projectId } });
     if (!existing) return new Response("Not found", { status: 404 });
+    // An accepted deliverable is a record under the closing rule: reopen it first.
+    if (CLOSED_DELIVERABLE_STATUSES.includes(existing.status) && (await closingRuleForProject(orgId, projectId))) {
+      return closingProblem({ code: "closed_read_only", message: CLOSED_RECORD_READ_ONLY_MESSAGE }, _request);
+    }
 
     await prisma.deliverable.delete({ where: { id: deliverableId } });
     return success({ id: deliverableId });

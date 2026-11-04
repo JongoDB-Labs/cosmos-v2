@@ -10,6 +10,11 @@ import { readableDocument, canManageDocument } from "@/lib/files/access";
 import { withUploaders } from "@/lib/files/uploader";
 import { logAudit } from "@/lib/audit";
 
+import { evidenceLocked, closingProblem } from "@/lib/pm/closing-evidence.server";
+
+const CLOSED_EVIDENCE_LOCKED_MESSAGE =
+  "This file supports a closed deliverable or phase. Reopen it before taking the file off.";
+
 type RouteParams = { params: Promise<{ orgId: string; docId: string }> };
 
 const patchSchema = z
@@ -29,6 +34,9 @@ const patchSchema = z
      * is where somebody is when they notice a file is on the wrong ticket.
      */
     workItemId: z.string().uuid().nullable().optional(),
+    /** Attach as a deliverable's or a phase's supporting file (the closing rule's evidence), or null to take it off. */
+    deliverableId: z.string().uuid().nullable().optional(),
+    phaseId: z.string().uuid().nullable().optional(),
     /**
      * Who may see it. RESTRICTED hides it from the rest of its project; INHERIT
      * puts it back to being as visible as the place it lives. Existing grants are
@@ -38,7 +46,7 @@ const patchSchema = z
      */
     visibility: z.enum(["INHERIT", "RESTRICTED"]).optional(),
   })
-  .refine((v) => v.title !== undefined || v.workItemId !== undefined || v.visibility !== undefined, {
+  .refine((v) => v.title !== undefined || v.workItemId !== undefined || v.deliverableId !== undefined || v.phaseId !== undefined || v.visibility !== undefined, {
     message: "Nothing to change",
   });
 
@@ -95,6 +103,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const data: {
       title?: string;
       workItemId?: string | null;
+      deliverableId?: string | null;
+      phaseId?: string | null;
       visibility?: "INHERIT" | "RESTRICTED";
     } = {};
     if (body.title !== undefined) data.title = body.title;
@@ -114,6 +124,33 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         if (!item)
           return new Response("That item is not on this file's project", { status: 400 });
         data.workItemId = item.id;
+      }
+    }
+
+    // The closing rule: a file can join a deliverable or a phase, on this
+    // document's project, and can't leave a closed one.
+    const links = await prisma.document.findFirst({ where: { id: docId, orgId }, select: { deliverableId: true, phaseId: true } });
+    const moving =
+      (body.deliverableId !== undefined && body.deliverableId !== links?.deliverableId && links?.deliverableId) ||
+      (body.phaseId !== undefined && body.phaseId !== links?.phaseId && links?.phaseId);
+    if (moving && links && (await evidenceLocked(orgId, links))) {
+      return closingProblem({ code: "closed_read_only", message: CLOSED_EVIDENCE_LOCKED_MESSAGE }, req);
+    }
+    const scope = { orgId, ...(doc.projectId ? { projectId: doc.projectId } : {}) };
+    if (body.deliverableId !== undefined) {
+      if (body.deliverableId === null) data.deliverableId = null;
+      else {
+        const d = await prisma.deliverable.findFirst({ where: { id: body.deliverableId, ...scope }, select: { id: true } });
+        if (!d) return new Response("That deliverable is not on this file's project", { status: 400 });
+        data.deliverableId = d.id;
+      }
+    }
+    if (body.phaseId !== undefined) {
+      if (body.phaseId === null) data.phaseId = null;
+      else {
+        const p = await prisma.projectPhase.findFirst({ where: { id: body.phaseId, ...scope }, select: { id: true } });
+        if (!p) return new Response("That phase is not on this file's project", { status: 400 });
+        data.phaseId = p.id;
       }
     }
 
@@ -141,6 +178,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         filename: updated.filename,
         ...(body.title !== undefined ? { title: updated.title } : {}),
         ...(body.workItemId !== undefined ? { workItemId: updated.workItemId } : {}),
+        ...(body.deliverableId !== undefined ? { deliverableId: body.deliverableId ?? "" } : {}),
+        ...(body.phaseId !== undefined ? { phaseId: body.phaseId ?? "" } : {}),
         ...(body.visibility !== undefined ? { visibility: body.visibility } : {}),
         // Said plainly, because "who may change this" is the question an auditor
         // asks about a rename they did not expect.
@@ -176,10 +215,14 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       where: { id: docId, orgId },
       select: {
         storageKey: true, filename: true, size: true, contentType: true,
-        uploadedById: true, workItemId: true, createdAt: true,
+        uploadedById: true, workItemId: true, createdAt: true, deliverableId: true, phaseId: true,
       },
     });
     if (!full) return new Response("Not found", { status: 404 });
+    // Deleting a closed record's evidence would edit it after the fact.
+    if (await evidenceLocked(orgId, full)) {
+      return closingProblem({ code: "closed_read_only", message: CLOSED_EVIDENCE_LOCKED_MESSAGE }, req);
+    }
 
     await getStorage().delete(full.storageKey).catch(() => {});
     await prisma.document.delete({ where: { id: docId } });

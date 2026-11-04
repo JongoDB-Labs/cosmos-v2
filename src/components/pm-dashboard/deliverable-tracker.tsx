@@ -33,6 +33,7 @@ import {
 import { Loader2, Trash2, FileText, AlertTriangle, Eye, Flag, CircleDot } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
+import { useCloseEvidencePrompt } from "@/components/pm-dashboard/close-evidence-prompt";
 import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
 import { bulkFanOut } from "@/lib/pm/bulk";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
@@ -377,10 +378,18 @@ export function DeliverableTracker({ orgId, projectId, sprints }: DeliverableTra
     onError: (e) => notifyError(e, "Couldn't delete the deliverable."),
   });
 
-  const patch = useCallback(
+  // Accepting under the closing rule may need a "no file needed" reason: the
+  // prompt asks for it and retries, wherever the status was changed from.
+  const closeEvidence = useCloseEvidencePrompt();
+  const { withEvidence } = closeEvidence;
+  const rawPatch = useCallback(
     (id: string, body: Record<string, unknown>) =>
       jsonFetch(`${apiBase}/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
     [apiBase],
+  );
+  const patch = useCallback(
+    (id: string, body: Record<string, unknown>) => withEvidence((extra) => rawPatch(id, { ...body, ...extra })),
+    [rawPatch, withEvidence],
   );
 
   // Right-click / ⋯ row menu: view+edit, quick status, escalate toggle, delete.
@@ -650,7 +659,9 @@ export function DeliverableTracker({ orgId, projectId, sprints }: DeliverableTra
                   <Select
                     onValueChange={async (v) => {
                       if (!v) return;
-                      await bulkFanOut(ids, (id) => patch(id, { status: v }));
+                      // Raw, not the prompting patch: one reason can't be asked per row
+                      // in parallel. Rows the rule refuses are reported as failed.
+                      await bulkFanOut(ids, (id) => rawPatch(id, { status: v }));
                       void refetch();
                       clear();
                     }}
@@ -710,12 +721,14 @@ export function DeliverableTracker({ orgId, projectId, sprints }: DeliverableTra
           title={openDeliverable.title}
           code={openDeliverable.code}
           patchPath={`${apiBase}/${openDeliverable.id}`}
+          patch={(body) => patch(openDeliverable.id, body)}
           fields={deliverableFields(openDeliverable)}
           open={openDeliverableId !== null}
           onOpenChange={(o) => !o && setOpenDeliverableId(null)}
           onSaved={() => void refetch()}
         />
       )}
+      {closeEvidence.dialog}
       {/* Delete confirm */}
       <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>
         <DialogContent className="sm:max-w-sm">

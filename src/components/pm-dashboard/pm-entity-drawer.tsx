@@ -153,6 +153,8 @@ export interface PmEntityDrawerProps {
   onOpenChange: (open: boolean) => void;
   /** Called after a field PATCH succeeds (so the parent can refetch its list). */
   onSaved?: () => void;
+  /** Sends a field change; defaults to a PATCH to `patchPath`. Lets a tracker wrap it (e.g. the closing rule's prompt). */
+  patch?: (body: Record<string, unknown>) => Promise<unknown>;
 }
 
 // Comment shape from the pm-comments GET contract.
@@ -227,6 +229,7 @@ export function PmEntityDrawer({
   code,
   fields,
   patchPath,
+  patch,
   open,
   onOpenChange,
   onSaved,
@@ -312,10 +315,12 @@ export function PmEntityDrawer({
       // Optimistic local set.
       setValues((v) => ({ ...v, [key]: local }));
       try {
-        await jsonFetch(patchPath, {
-          method: "PATCH",
-          body: JSON.stringify({ [key]: wire }),
-        });
+        if (patch) await patch({ [key]: wire });
+        else
+          await jsonFetch(patchPath, {
+            method: "PATCH",
+            body: JSON.stringify({ [key]: wire }),
+          });
         onSaved?.();
         // A field change may have produced derived/audited changes server-side
         // (score/level) and an Activity row — refresh the activity log.
@@ -328,7 +333,7 @@ export function PmEntityDrawer({
     },
     // patchPath/fields are stable enough per-open; values setter is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [patchPath, onSaved, fields],
+    [patchPath, onSaved, fields, patch],
   );
 
   // --- Comment composer (with @-mention typeahead) ---------------------------
