@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.522.0",
+    date: "2026-11-04",
+    title: "Plugins on project cards",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Plugins can show a line on each Projects card, such as the current phase and its % complete, and one plugin's error no longer blanks the whole page.",
+      },
+    ],
+  },
+  {
     version: "2.521.0",
     date: "2026-11-04",
     title: "Time-off balances",
