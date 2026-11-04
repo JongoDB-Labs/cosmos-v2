@@ -9,6 +9,7 @@ import { redactRates } from "@/lib/time/visibility";
 import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
 import { timesheetIdForEntry, isTimesheetOpen } from "@/lib/time/timesheet";
 import { recordRevision } from "@/lib/time/revisions";
+import { checkInternalCategory, internalCategories } from "@/lib/time/internal-categories";
 import { noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { parseRequest, respond } from "@/lib/openapi/respond";
@@ -89,6 +90,22 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // Moving an entry's date can move it to a DIFFERENT pay period, which
     // reparents it. Refuse if the destination period is already settled,
     // otherwise hours could be walked into a closed period after the fact.
+    // The category is checked against the entry as it will be AFTER this
+    // edit: moving a categorised entry onto a project without clearing the
+    // category would leave it counted as both.
+    const nextCategory = data.internalCategory !== undefined ? data.internalCategory : existing.internalCategory;
+    const check = checkInternalCategory({
+      category: nextCategory,
+      projectId: data.projectId !== undefined ? data.projectId : existing.projectId,
+      allowed: nextCategory && nextCategory !== existing.internalCategory
+        ? internalCategories(
+            (await prisma.organization.findUnique({ where: { id: orgId }, select: { settings: true } }))?.settings,
+          )
+        : [],
+      previous: existing.internalCategory,
+    });
+    if (!check.ok) return problem(400, "invalid_request", check.reason, { request });
+
     let timesheetId = existing.timesheetId;
     if (data.date) {
       const destination = await timesheetIdForEntry(orgId, existing.userId, data.date);
@@ -112,6 +129,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.description !== undefined && { description: data.description ?? "" }),
         ...(data.billableType !== undefined && { billableType: data.billableType }),
         ...(data.tags !== undefined && { tags: data.tags }),
+        ...(data.internalCategory !== undefined && { internalCategory: check.category }),
+        // A categorised entry IS internal time, whatever else the caller sent.
+        ...(check.category && { billableType: "INTERNAL" as const }),
       },
     });
 

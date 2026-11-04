@@ -6,6 +6,8 @@ import { requireProjectRead, requireProjectVisibleIf } from "@/lib/rbac/require-
 import { redactRates } from "@/lib/time/visibility";
 import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
 import { timesheetIdForEntry } from "@/lib/time/timesheet";
+import { checkInternalCategory, internalCategories } from "@/lib/time/internal-categories";
+import { problem } from "@/lib/openapi/problem";
 import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { parseRequest, respond } from "@/lib/openapi/respond";
@@ -85,6 +87,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     await requireProjectVisibleIf(ctx, data.projectId);
     requirePermission(ctx, Permission.TIME_CREATE);
 
+    // Internal time is checked against the org's own list, and never sits on a
+    // project — see checkInternalCategory.
+    let internalCategory: string | null = null;
+    if (data.internalCategory) {
+      const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { settings: true } });
+      const check = checkInternalCategory({
+        category: data.internalCategory,
+        projectId: data.projectId,
+        allowed: internalCategories(org?.settings),
+      });
+      if (!check.ok) return problem(400, "invalid_request", check.reason, { request });
+      internalCategory = check.category;
+    }
+
     // Resolve the pay period BEFORE the insert so an entry is never briefly
     // unattached — a row with no timesheet is invisible to every period-level
     // read, and "briefly" is long enough for a concurrent report to miss it.
@@ -103,8 +119,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         workItemId: data.workItemId ?? null,
         clinId: data.clinId ?? null,
         description: data.description ?? "",
-        billableType: data.billableType ?? "BILLABLE",
+        // A categorised entry IS internal time, whatever else the caller sent.
+        billableType: internalCategory ? "INTERNAL" : (data.billableType ?? "BILLABLE"),
         tags: data.tags ?? [],
+        internalCategory,
       },
     });
 

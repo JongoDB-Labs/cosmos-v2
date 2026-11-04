@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.519.0",
+    date: "2026-11-04",
+    title: "Categories for internal time",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Time Tracking: log time that isn't on a project as overhead, business development or professional development (categories set per organization), and see it reported separately from project time, including in the CSV export.",
+      },
+    ],
+  },
+  {
     version: "2.510.0",
     date: "2026-11-03",
     title: "Pick up a walkthrough where you left off",

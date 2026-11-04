@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import type { TimeEntry } from "@/types/models";
+import { TimeSplitSummary } from "./time-split-summary";
 import { BilledHoursCell } from "./billed-hours-cell";
 import { notifyError } from "@/lib/errors/notify";
 import { downloadBlob } from "@/lib/export/download";
@@ -253,6 +254,8 @@ interface EntryFormData {
   description: string;
   billableType: TimeEntry["billableType"];
   tags: string;
+  /** "" = not internal time. Only offered when no project is picked. */
+  internalCategory: string;
 }
 
 const emptyForm: EntryFormData = {
@@ -263,6 +266,7 @@ const emptyForm: EntryFormData = {
   description: "",
   billableType: "BILLABLE",
   tags: "",
+  internalCategory: "",
 };
 
 export function TimeTracker({ orgId, selfUserId }: TimeTrackerProps) {
@@ -290,6 +294,9 @@ export function TimeTracker({ orgId, selfUserId }: TimeTrackerProps) {
   const [showFilters, setShowFilters] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [clins, setClins] = useState<Clin[]>([]);
+  // The org's internal time categories (overhead, business development, ...).
+  // Empty = the org doesn't categorise internal time, and the picker is hidden.
+  const [internalCategories, setInternalCategories] = useState<string[]>([]);
   // Whose time is on screen. This page shows ONE person at a time on purpose:
   // getDayTotal/weekTotal below sum every row they are handed, so a response
   // mixing several people would turn "your week" into their hours added
@@ -380,6 +387,20 @@ export function TimeTracker({ orgId, selfUserId }: TimeTrackerProps) {
         }
       } catch {
         /* ignore */
+      }
+    })();
+  }, [orgId]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`/api/v1/orgs/${orgId}/time-categories`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data?.categories)) setInternalCategories(data.categories);
+        }
+      } catch {
+        /* no picker beats a broken page */
       }
     })();
   }, [orgId]);
@@ -590,6 +611,8 @@ export function TimeTracker({ orgId, selfUserId }: TimeTrackerProps) {
           .split(",")
           .map((t) => t.trim())
           .filter(Boolean),
+        // Internal time never sits on a project; the server refuses the pair.
+        internalCategory: form.projectId ? null : form.internalCategory || null,
       };
 
       const url = editingEntry
@@ -694,6 +717,7 @@ export function TimeTracker({ orgId, selfUserId }: TimeTrackerProps) {
       description: entry.description,
       billableType: entry.billableType,
       tags: entry.tags.join(", "),
+      internalCategory: entry.internalCategory ?? "",
     });
     setDialogOpen(true);
   };
@@ -719,7 +743,8 @@ export function TimeTracker({ orgId, selfUserId }: TimeTrackerProps) {
   const groupedByRow = (() => {
     const map = new Map<string, Map<string, TimeEntry[]>>();
     entries.forEach((entry) => {
-      const rowKey = `${entry.projectId || "none"}|${entry.description}`;
+      // Description LAST, so a "|" inside it cannot shift the other parts.
+      const rowKey = `${entry.projectId || "none"}|${entry.internalCategory ?? ""}|${entry.description}`;
       if (!map.has(rowKey)) map.set(rowKey, new Map());
       const dateKey = entry.date.split("T")[0];
       const dateMap = map.get(rowKey)!;
@@ -871,6 +896,8 @@ export function TimeTracker({ orgId, selfUserId }: TimeTrackerProps) {
                         ...form,
                         projectId: !val || val === "none" ? "" : val,
                         clinId: "",
+                        // A project makes it project time, not internal time.
+                        internalCategory: !val || val === "none" ? form.internalCategory : "",
                       })
                     }
                   >
@@ -904,6 +931,41 @@ export function TimeTracker({ orgId, selfUserId }: TimeTrackerProps) {
                         {clins.map((c) => (
                           <SelectItem key={c.id} value={c.id}>
                             {c.code} — {c.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {!form.projectId && internalCategories.length > 0 && (
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Internal time category (optional)</Label>
+                    <Select
+                      value={form.internalCategory || "none"}
+                      onValueChange={(val) => {
+                        const internalCategory = !val || val === "none" ? "" : val;
+                        setForm({
+                          ...form,
+                          internalCategory,
+                          // Internal time is internal; the server enforces it too.
+                          billableType: internalCategory ? "INTERNAL" : form.billableType,
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="w-full" aria-label="Internal time category">
+                        <SelectValue placeholder="Select a category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">— Not internal time —</SelectItem>
+                        {/* An entry logged under a since-removed category keeps it. */}
+                        {[
+                          ...internalCategories,
+                          ...(form.internalCategory && !internalCategories.includes(form.internalCategory)
+                            ? [form.internalCategory]
+                            : []),
+                        ].map((c) => (
+                          <SelectItem key={c} value={c}>
+                            {c}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -992,6 +1054,10 @@ export function TimeTracker({ orgId, selfUserId }: TimeTrackerProps) {
             </Select>
           </div>
         </div>
+      )}
+
+      {!loading && !loadError && (
+        <TimeSplitSummary entries={entries} categories={internalCategories} />
       )}
 
       {loading ? (
@@ -1538,12 +1604,16 @@ function WeekView({
               </tr>
             ) : (
               Array.from(groupedByRow.entries()).map(([rowKey, dateMap]) => {
-                const desc = rowKey.split("|")[1] || "No description";
+                const [, category, ...rest] = rowKey.split("|");
+                const desc = rest.join("|") || "No description";
                 let rowTotal = 0;
                 return (
                   <tr key={rowKey} className="border-b last:border-0 hover:bg-muted/30">
                     <td className="max-w-48 truncate px-3 py-2 font-medium">
                       {desc}
+                      {category && (
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">{category}</span>
+                      )}
                     </td>
                     {weekDates.map((d) => {
                       const ds = toDateString(d);
@@ -1732,6 +1802,7 @@ function ListView({
       cell: ({ row }) => (
         <Badge variant="neutral" className="text-xs">
           {BILLABLE_LABELS[row.original.billableType]}
+          {row.original.internalCategory ? ` · ${row.original.internalCategory}` : ""}
         </Badge>
       ),
     },

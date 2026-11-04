@@ -2424,6 +2424,12 @@ model TimeEntry {
   billedById   String?         @map("billed_by_id") @db.Uuid
   billedAt     DateTime?       @map("billed_at")
   tags         String[]        @default([])
+  // Which kind of INTERNAL time this is (overhead, business development, ...),
+  // from the org's list on Organization.settings.time.internalCategories. Text,
+  // copied at write time, so renaming a category never rewrites history. Set
+  // only on entries with no project: internal time is reported separately from
+  // project time, and an entry in both would be counted twice.
+  internalCategory String?     @map("internal_category")
   // Pay run this entry was rolled into (prod-parity). Plain scalar, NO relation/FK —
   // matches prod exactly (prod's time_entries.pay_run_id has no FK constraint and
   // prod's Prisma defines it as a bare scalar, not a PayRun relation).

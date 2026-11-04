@@ -35,9 +35,21 @@ describe("timeEntriesToCsv", () => {
       CLIN: "0001 — Engineering",
       Description: "Pairing on the importer",
       Billable: "Billable",
+      "Internal category": "",
       Status: "Draft",
       Tags: "",
     });
+  });
+
+  it("names the internal time category, so internal time can be reported apart from project time", () => {
+    const { rows } = parseCSV(
+      timeEntriesToCsv(
+        [entry({ projectId: null, clinId: null, billableType: "INTERNAL", internalCategory: "Business development" })],
+        names,
+      ),
+    );
+
+    expect(rows[0]).toMatchObject({ Project: "", Billable: "Internal", "Internal category": "Business development" });
   });
 
   it("bills the override when one was set, including a deliberate zero", () => {
