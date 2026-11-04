@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.523.0",
+    date: "2026-11-04",
+    title: "A closing rule for work items",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Workflows: an optional closing rule. An item can't be moved to Done without a supporting file attached or a recorded reason one isn't needed, and it's read-only once closed until reopened. Turn it on for the organization in Settings \u2192 Organization \u2192 Workflows; each project can follow the org or switch it on or off.",
+      },
+    ],
+  },
+  {
     version: "2.522.0",
     date: "2026-11-04",
     title: "Plugins on project cards",
