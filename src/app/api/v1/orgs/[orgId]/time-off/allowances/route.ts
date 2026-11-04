@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { ForbiddenError } from "@/lib/rbac/check";
+import { requirePermission } from "@/lib/rbac/check";
+import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
-import { canManageAllowances } from "@/lib/time/time-off-balance";
 import { updateTimeOffAllowance } from "./route.contract";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -22,7 +22,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx, org } = await orgContext((await params).orgId, updateTimeOffAllowance);
     const { body } = await parseRequest(updateTimeOffAllowance, request, params);
-    if (!canManageAllowances(ctx.permissions)) throw new ForbiddenError("Setting time-off allowances needs org-wide time access and approval rights");
+    // Both bits, checked visibly here rather than through a helper, so the
+    // scope tests can read what this write requires. Same rule as
+    // canManageAllowances, which tells the UI whether to offer editing.
+    requirePermission(ctx, Permission.TIME_READ_ALL);
+    requirePermission(ctx, Permission.TIME_APPROVE);
 
     const audit = (metadata: Record<string, string>) =>
       logAudit({

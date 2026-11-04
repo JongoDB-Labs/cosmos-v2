@@ -62,6 +62,12 @@ describe("PUT /time-off/allowances", () => {
     expect((await put({ userId: PERSON, year: 2026, hours: 160 })).status).toBe(403);
   });
 
+  it("finance-style org-wide READ access without approval rights is refused too", async () => {
+    getAuthContext.mockResolvedValue(withPerms(Permission.TIME_READ | Permission.TIME_READ_ALL));
+    expect((await put({ userId: PERSON, year: 2026, hours: 160 })).status).toBe(403);
+    expect(prisma.timeOffAllowance.upsert).not.toHaveBeenCalled();
+  });
+
   it("sets one person's allowance for one year", async () => {
     getAuthContext.mockResolvedValue(withPerms(MANAGER));
     const res = await put({ userId: PERSON, year: 2026, hours: 160 });
