@@ -24,6 +24,7 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
 import { jsonFetch } from "@/lib/query/json-fetcher";
+import { PhaseClosure, type PhaseClosureState } from "@/components/pm-dashboard/phase-closure";
 import { useOrgQueryKey, useOrgSlug, orgQueryKey } from "@/lib/query/keys";
 import {
   MentionPicker,
@@ -155,6 +156,12 @@ export interface PmEntityDrawerProps {
   onSaved?: () => void;
   /** Sends a field change; defaults to a PATCH to `patchPath`. Lets a tracker wrap it (e.g. the closing rule's prompt). */
   patch?: (body: Record<string, unknown>) => Promise<unknown>;
+  /**
+   * For a drawer showing a PHASE: its close/reopen control (phase-closure.tsx),
+   * shown under the title. Core lists no phases itself, so whatever renders a
+   * phase drawer passes this; every other subject leaves it out.
+   */
+  phaseClosure?: { phase: PhaseClosureState; onChanged?: () => void };
 }
 
 // Comment shape from the pm-comments GET contract.
@@ -230,6 +237,7 @@ export function PmEntityDrawer({
   fields,
   patchPath,
   patch,
+  phaseClosure,
   open,
   onOpenChange,
   onSaved,
@@ -512,6 +520,17 @@ export function PmEntityDrawer({
         </SheetHeader>
 
         <div className="space-y-4 px-4 pb-4">
+          {phaseClosure && (
+            <PhaseClosure
+              orgId={orgId}
+              projectId={projectId}
+              phase={phaseClosure.phase}
+              onChanged={() => {
+                phaseClosure.onChanged?.();
+                invalidateActivity();
+              }}
+            />
+          )}
           {/* Details — inline-editable fields. Each persists on blur/change. */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {fields.map((f) => (
