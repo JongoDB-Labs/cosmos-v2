@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.520.0",
+    date: "2026-11-04",
+    title: "Automatic project numbers",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Projects: set a project-number standard such as YY-NNN in Organization settings, and new projects are numbered automatically from this year's sequence, with an optional naming pattern. Numbers show on project cards and can be searched.",
+      },
+    ],
+  },
+  {
     version: "2.519.0",
     date: "2026-11-04",
     title: "Categories for internal time",
