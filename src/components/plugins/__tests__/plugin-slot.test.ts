@@ -42,3 +42,11 @@ describe("plugin slot selection (fail-closed)", () => {
     expect(slotContributions("workItem.detailBadge", [withSlot], new Set(["foo"]))).toEqual([]);
   });
 });
+
+describe("project.card slot", () => {
+  it("is selected like every other slot, and only for an enabled plugin", () => {
+    const m = { ...manifest("phases", false), slots: { "project.card": Card } };
+    expect(slotContributions("project.card", [m], new Set(["phases"])).map((c) => c.slug)).toEqual(["phases"]);
+    expect(slotContributions("project.card", [m], new Set())).toEqual([]);
+  });
+});
