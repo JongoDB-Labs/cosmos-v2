@@ -150,7 +150,9 @@
               "workflow_invalid",
               "migration_map_required",
               "workflow_in_use",
-              "automation_invalid"
+              "automation_invalid",
+              "close_evidence_required",
+              "closed_read_only"
             ]
           },
           "requestId": {

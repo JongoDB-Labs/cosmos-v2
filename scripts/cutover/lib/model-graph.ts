@@ -627,6 +627,7 @@ export const BARE_USER_REF_COLUMNS: ReadonlyMap<string, readonly string[]> = new
   ["person_aliases", ["user_id", "set_by_id"]],
   ["milestone_slips", ["recorded_by_id"]],
   ["project_closeout_snapshots", ["captured_by_id"]],
+  ["project_phases", ["closed_by_id"]],
   ["overhead_allocations", ["user_id"]],
   ["weekly_reports", ["user_id"]],
   ["org_member_profiles", ["user_id"]],
