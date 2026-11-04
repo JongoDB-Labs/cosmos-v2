@@ -235,6 +235,7 @@ export const WorkItem = z.object({
   externalKey: z.string().nullable(),
   sourceStatus: z.string().nullable(),
   resolution: z.string().nullable(),
+  closeEvidenceNote: z.string().nullable().describe("Why it closed without a supporting file, under the closing rule."),
   originalEstimate: z.number().int().nullable(),
   remainingEstimate: z.number().int().nullable(),
   timeSpent: z.number().int().nullable(),

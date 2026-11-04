@@ -56,6 +56,7 @@ const SYSTEM_LABELS: Record<string, string> = {
   labels: "Labels",
   cancelReason: "Reason",
   cancelNote: "Note",
+  closeEvidenceNote: "Why no supporting file is needed",
 };
 
 const empty = (v: unknown) => v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
@@ -254,6 +255,18 @@ function FieldEditor({
         min={0}
         value={typeof value === "number" ? value : ""}
         onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+        disabled={disabled}
+        aria-required={required}
+      />
+    );
+  } else if (system === "closeEvidenceNote") {
+    control = (
+      <Textarea
+        id={id}
+        value={typeof value === "string" ? value : ""}
+        maxLength={500}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="e.g. Verbal sign-off on site; nothing to file"
         disabled={disabled}
         aria-required={required}
       />

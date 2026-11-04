@@ -46,6 +46,8 @@ export const SYSTEM_FIELDS = [
   // The cancel reason and note: inputs of a transition into Cancelled.
   "cancelReason",
   "cancelNote",
+  // Why closing needs no supporting file: an input of a move into Done under the closing rule.
+  "closeEvidenceNote",
 ] as const;
 export type SystemField = (typeof SYSTEM_FIELDS)[number];
 

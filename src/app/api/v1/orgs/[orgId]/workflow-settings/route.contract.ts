@@ -7,6 +7,9 @@ const Settings = z.object({
     .boolean()
     .describe("A parent cannot move into a Done status while a child is still open. Default on."),
   resolutions: z.array(z.string()).describe("The outcomes a transition into Done or Cancelled offers."),
+  closingRule: z
+    .boolean()
+    .describe("Items need a supporting file, or a recorded reason, to close, and are read-only once closed. A project can override it. Default off."),
 });
 
 const params = z.object({ orgId: Uuid });

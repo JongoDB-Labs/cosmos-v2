@@ -142,6 +142,9 @@ export async function readableItemProjectId(
 export const ACTIVITY_VALUE_FIELDS: ReadonlySet<string> = new Set([
   "title", "columnKey", "priority", "assigneeId", "resolution", "intervalId", "teamId",
   "workItemTypeId", "cancelReason", "transition", "startDate", "dueDate", "mergedIntoId", "mergedFrom",
+  // The closing rule's "no file needed" reason: readable on the item itself by
+  // anyone who can read the history, and the audit trail is why it exists.
+  "closeEvidenceNote",
 ]);
 
 /** Activity rows as the history returns them: values only for ACTIVITY_VALUE_FIELDS. */

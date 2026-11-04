@@ -38,6 +38,7 @@ const PATCH_KEY: Partial<Record<Extract<FieldRef, { system: string }>["system"],
   resolution: "resolution",
   cancelReason: "cancelReason",
   cancelNote: "cancelNote",
+  closeEvidenceNote: "closeEvidenceNote",
 };
 
 /** `fieldKey` for an input field, as the transition dialog and its request name it. */

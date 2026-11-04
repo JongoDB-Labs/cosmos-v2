@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { ProjectClosingRule } from "@/components/settings/project-closing-rule";
 import {
   BOARD_TYPE_ORDER,
   BOARD_TYPE_REGISTRY,
@@ -48,6 +49,8 @@ interface ProjectSettingsClientProps {
   boards: { id: string; name: string; type: string }[];
   hiddenBoardIds: string[];
   teamScopedAccess: boolean;
+  /** This project's own closing-rule choice; null follows the organization. */
+  closingRule: boolean | null;
 }
 
 // Every board VIEW type, derived from the one registry so this list cannot
@@ -74,6 +77,7 @@ export function ProjectSettingsClient({
   boards,
   hiddenBoardIds,
   teamScopedAccess,
+  closingRule,
 }: ProjectSettingsClientProps) {
   const router = useRouter();
   const { can } = usePermissions();
@@ -563,6 +567,7 @@ export function ProjectSettingsClient({
             Edit workflows
           </Link>
         </div>
+        <ProjectClosingRule orgId={orgId} projectId={projectId} value={closingRule} canUpdate={canUpdate} />
       </div>
 
       {/* Automations */}
