@@ -15,6 +15,8 @@ import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createProject, listProjects } from "./route.contract";
 import { seedBoardColumns } from "@/lib/workflow/provision.server";
+import { applyNamePattern, projectNumbering } from "@/lib/projects/numbering";
+import { allocateProjectNumber, isProjectNumberConflict } from "@/lib/projects/numbering.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -97,6 +99,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return problem(409, "conflict", "Project key already exists", { request });
     }
 
+    // The org's numbering standard. A number the caller chose is checked up
+    // front for a readable 409; one we allocate is retried on a race below.
+    const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { settings: true } });
+    const numbering = projectNumbering(org?.settings);
+    const chosenNumber = data.number ?? null;
+    if (chosenNumber) {
+      const taken = await prisma.project.findFirst({ where: { orgId, number: chosenNumber }, select: { id: true } });
+      if (taken) return problem(409, "conflict", "Project number already exists", { request });
+    }
+
     // Optionally load the template
     type TemplateWithBoards = {
       id: string;
@@ -131,7 +143,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       template = tpl;
     }
 
-    const project = await prisma.$transaction(async (tx) => {
+    const createWith = (number: string | null) => prisma.$transaction(async (tx) => {
       // Extract enabledFeatures from template defaultConfig if available
       let enabledFeatures: string[] = [];
       if (template) {
@@ -144,8 +156,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const proj = await tx.project.create({
         data: {
           orgId,
-          name: data.name,
+          // Max 100, as the contract allows for the name as typed.
+          name: applyNamePattern(numbering.namePattern, { name: data.name, number }).slice(0, 100),
           key: data.key,
+          number,
           description: data.description ?? null,
           projectTemplateId: template?.id ?? null,
           enabledFeatures,
@@ -222,13 +236,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       });
     });
 
+    // Two creates can compute the same next number; the unique index refuses
+    // the second, which takes the one after. A number the CALLER chose is
+    // theirs to change, so that conflict is a 409, never a silent renumber.
+    let project: Awaited<ReturnType<typeof createWith>> | undefined;
+    for (let attempt = 0; ; attempt++) {
+      const number = chosenNumber ?? (numbering.pattern ? await allocateProjectNumber(prisma, orgId, numbering.pattern) : null);
+      try {
+        project = await createWith(number);
+        break;
+      } catch (e) {
+        if (!isProjectNumberConflict(e)) throw e;
+        if (chosenNumber) return problem(409, "conflict", "Project number already exists", { request });
+        if (attempt >= 4) throw e;
+      }
+    }
+
     logAudit({
       orgId,
       userId: ctx.userId,
       action: "project.created",
       entity: "project",
       entityId: project!.id,
-      metadata: { name: data.name, key: data.key } as Record<string, string>,
+      metadata: { name: project!.name, key: data.key, ...(project!.number && { number: project!.number }) } as Record<string, string>,
       ipAddress: getIpAddress(request),
     }).catch(() => {});
 

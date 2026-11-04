@@ -49,6 +49,39 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.522.0",
+    date: "2026-11-04",
+    title: "Plugins on project cards",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Plugins can show a line on each Projects card, such as the current phase and its % complete, and one plugin's error no longer blanks the whole page.",
+      },
+    ],
+  },
+  {
+    version: "2.521.0",
+    date: "2026-11-04",
+    title: "Time-off balances",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Time off: see requested, approved, used and remaining time off for the year. Admins see everyone and can set a person's allowance; everyone else sees only their own.",
+      },
+    ],
+  },
+  {
+    version: "2.520.0",
+    date: "2026-11-04",
+    title: "Automatic project numbers",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Projects: set a project-number standard such as YY-NNN in Organization settings, and new projects are numbered automatically from this year's sequence, with an optional naming pattern. Numbers show on project cards and can be searched.",
+      },
+    ],
+  },
+  {
     version: "2.519.0",
     date: "2026-11-04",
     title: "Categories for internal time",

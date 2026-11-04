@@ -152,6 +152,24 @@ export type PluginSlotProps = {
    * figures it shows are not core's to clear.
    */
   "finance.revenuePanel": { orgId: string };
+  /**
+   * A compact line or two on each card in the Projects grid — e.g. the
+   * project's current phase, that phase's % complete and the project's total.
+   *
+   * Three rules a contributor owes, because of where this renders:
+   *   - It is INSIDE the card's link, so it must be display-only: no buttons,
+   *     links or inputs (nested interactive content is invalid HTML and steals
+   *     the card's click).
+   *   - It renders once PER CARD. Fetch once per org and select the project
+   *     from that (one React Query key shared by every card), never one
+   *     request per card.
+   *   - Render nothing for a project it has nothing to say about; core leaves
+   *     no gap when the slot is empty.
+   * The project is one the viewer can already see — the list is narrowed
+   * before any card renders — but the contributor still owes its own check
+   * on anything beyond core's project read.
+   */
+  "project.card": { orgId: string; projectId: string; projectKey: string };
 };
 export type PluginSlotName = keyof PluginSlotProps;
 export type PluginSlots = {

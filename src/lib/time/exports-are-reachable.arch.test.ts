@@ -136,7 +136,6 @@ const KNOWN_UNIMPORTED = [
   "routing.ts: routeFor",
   "submit-gate.ts: submitGate",
   "time-off.ts: RESERVES_CAPACITY",
-  "time-off.ts: hoursInWindow",
   "time-off.ts: isWeekend",
   "time-off.ts: workingDaysBetween",
 ];

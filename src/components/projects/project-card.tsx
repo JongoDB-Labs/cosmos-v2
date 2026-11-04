@@ -45,11 +45,14 @@ import { cn } from "@/lib/utils";
 import { formatDateStable, formatDateShortStable } from "@/lib/format/stable-date";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { PluginSlot } from "@/components/plugins/plugin-slot";
 
 export interface ProjectCardProject {
   id: string;
   key: string;
   name: string;
+  /** Under the org's numbering standard (e.g. 26-001); absent or null where it has none. */
+  number?: string | null;
   archived: boolean;
   updatedAt: Date | string;
   totalItems: number;
@@ -193,6 +196,10 @@ export function ProjectCard({ project, orgSlug, orgId }: ProjectCardProps) {
                 {project.name.charAt(0).toUpperCase()}
               </div>
               <h3 className="font-medium truncate flex-1">{project.name}</h3>
+              {project.number && !project.name.includes(project.number) && (
+                // Skipped when the naming pattern already put it in the name.
+                <span className="shrink-0 font-mono text-xs text-[var(--text-muted)]">{project.number}</span>
+              )}
               {/* Every manager is named in the tooltip even though only the
                   first two get an avatar — the card has room for two, and
                   silently dropping the rest is what made this display
@@ -266,6 +273,13 @@ export function ProjectCard({ project, orgSlug, orgId }: ProjectCardProps) {
                   {formatDueDate(project.nextDueDate)}
                 </Badge>
               )}
+            </div>
+
+            {/* Plugin contributions, e.g. current phase and its % complete.
+                `empty:hidden` so a card with nothing contributed keeps its
+                old spacing. Display-only: this is inside the link. */}
+            <div className="mt-3 empty:hidden" data-slot="project.card">
+              <PluginSlot name="project.card" orgId={orgId} projectId={project.id} projectKey={project.key} />
             </div>
 
             <p className="mt-3 text-xs text-[var(--text-muted)]">
@@ -348,7 +362,12 @@ export function ProjectsPortfolio({
     return projects.filter((p) => {
       if (status === "active" && p.archived) return false;
       if (status === "archived" && !p.archived) return false;
-      if (q && !p.name.toLowerCase().includes(q) && !p.key.toLowerCase().includes(q)) {
+      if (
+        q &&
+        !p.name.toLowerCase().includes(q) &&
+        !p.key.toLowerCase().includes(q) &&
+        !(p.number ?? "").toLowerCase().includes(q)
+      ) {
         return false;
       }
       return true;
@@ -582,6 +601,9 @@ function ProjectsTable({
                     {p.name.charAt(0).toUpperCase()}
                   </div>
                   <span className="truncate font-medium">{p.name}</span>
+                  {p.number && !p.name.includes(p.number) && (
+                    <span className="shrink-0 font-mono text-xs text-[var(--text-muted)]">{p.number}</span>
+                  )}
                   {p.archived && (
                     <Badge variant="neutral" showDot={false}>
                       Archived

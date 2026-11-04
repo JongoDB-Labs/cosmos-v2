@@ -109,6 +109,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return problem(403, "forbidden", "Only a project manager or org admin can change who this project is visible to.", { request });
     }
 
+    if (data.number && data.number !== existing.number) {
+      const taken = await prisma.project.findFirst({ where: { orgId, number: data.number, id: { not: projectId } }, select: { id: true } });
+      if (taken) return problem(409, "conflict", "Project number already exists", { request });
+    }
+
     const updated = await prisma.project.update({
       where: { id: projectId },
       data: {
@@ -134,6 +139,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           objectiveLinkTypeId: data.objectiveLinkTypeId,
         }),
         ...(data.teamScopedAccess !== undefined && { teamScopedAccess: data.teamScopedAccess }),
+        ...(data.number !== undefined && { number: data.number }),
       },
       include: {
         _count: { select: { boards: true, intervals: true, members: true } },
