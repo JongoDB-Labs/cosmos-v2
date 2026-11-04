@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.524.0",
+    date: "2026-11-04",
+    title: "The closing rule for deliverables and phases",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The closing rule now covers deliverables and phases: accepting a deliverable or closing a phase needs a supporting file or a reason, and closed records are read-only until reopened.",
+      },
+    ],
+  },
+  {
     version: "2.523.0",
     date: "2026-11-04",
     title: "A closing rule for work items",
