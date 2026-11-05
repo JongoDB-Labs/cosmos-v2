@@ -5,6 +5,8 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { MAX_MARKUP_PCT } from "@/lib/finance/markup";
+import { assertBillLinks } from "@/lib/payables/links.server";
 import { updateBill } from "@/lib/payables/service";
 
 type RouteParams = { params: Promise<{ orgId: string; billId: string }> };
@@ -18,6 +20,8 @@ const patchSchema = z.object({
   dueDate: DATE.nullish(),
   terms: z.enum(["DUE_DATE", "PAY_WHEN_PAID"]).optional(),
   invoiceId: z.string().uuid().nullish(),
+  /** Percent (15 = 15%). Null inherits the project's, then the org's. */
+  markupPct: z.number().finite().min(0).max(MAX_MARKUP_PCT).nullish(),
   projectId: z.string().uuid().nullish(),
   notes: z.string().max(2000).nullish(),
 });
@@ -33,6 +37,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     requirePermission(ctx, Permission.FINANCE_MANAGE);
 
     const patch = patchSchema.parse(await request.json());
+    await assertBillLinks(ctx, orgId, patch);
     const updated = await updateBill(orgId, billId, patch);
     if (!updated) return new Response("Not found", { status: 404 });
     return success(updated);

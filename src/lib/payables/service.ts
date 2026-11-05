@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import type { Prisma } from "@prisma/client";
 import { billTotals, type BillLike } from "./bills";
+import { financeSettings, resolveMarkup, type MarkupSource } from "@/lib/finance/markup";
 
 /**
  * Reading and writing what the practice owes.
@@ -26,9 +27,10 @@ const SELECT = {
   currency: true,
   amount: true,
   amountPaid: true,
+  markupPct: true,
   notes: true,
   createdAt: true,
-  project: { select: { key: true, name: true } },
+  project: { select: { key: true, name: true, feeTerms: { select: { markupPct: true } } } },
   partner: { select: { name: true } },
   invoice: { select: { number: true, status: true } },
 } as const;
@@ -52,9 +54,23 @@ export type BillDto = BillLike & {
   project: { key: string; name: string } | null;
   partner: { name: string } | null;
   invoice: { number: string; status: string } | null;
+  /** The bill's own markup percent; null inherits the project's, then the org's. */
+  markupPct: number | null;
+  /**
+   * The percent that applies when this bill is re-billed to the client, and
+   * which level set it. Null for a bill on no project: there is no client to
+   * re-bill it to.
+   */
+  markup: { pct: number; source: MarkupSource } | null;
 };
 
-function shape(r: Row): BillDto {
+/** The org's default markup percent, from its finance settings. */
+async function orgMarkupPct(orgId: string): Promise<number> {
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { settings: true } });
+  return financeSettings(org?.settings).reimbursableMarkupPct;
+}
+
+function shape(r: Row, orgPct: number): BillDto {
   return {
     id: r.id,
     reference: r.reference,
@@ -72,9 +88,13 @@ function shape(r: Row): BillDto {
     amountPaid: Number(r.amountPaid),
     notes: r.notes,
     createdAt: r.createdAt.toISOString(),
-    project: r.project,
+    project: r.project ? { key: r.project.key, name: r.project.name } : null,
     partner: r.partner,
     invoice: r.invoice,
+    markupPct: r.markupPct === null ? null : Number(r.markupPct),
+    markup: r.projectId
+      ? resolveMarkup({ bill: r.markupPct, project: r.project?.feeTerms?.markupPct, org: orgPct })
+      : null,
   };
 }
 
@@ -102,7 +122,8 @@ export async function listBills(orgId: string, f: BillFilters = {}) {
     select: SELECT,
     orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
   });
-  const data = bills.map(shape);
+  const orgPct = await orgMarkupPct(orgId);
+  const data = bills.map((b) => shape(b, orgPct));
   // Computed here, not in the browser: the summary has to describe the same
   // set the table shows, and a client-side sum of a filtered page would not.
   const today = new Date().toISOString().slice(0, 10);
@@ -116,6 +137,7 @@ export type BillInput = {
   partnerId?: string | null;
   projectId?: string | null;
   invoiceId?: string | null;
+  markupPct?: number | null;
   status?: "DRAFT" | "OPEN" | "PAID" | "VOID";
   terms?: "DUE_DATE" | "PAY_WHEN_PAID";
   issueDate?: string | null;
@@ -138,6 +160,7 @@ export async function createBill(orgId: string, userId: string, input: BillInput
       partnerId: input.partnerId ?? null,
       projectId: input.projectId ?? null,
       invoiceId: input.invoiceId ?? null,
+      markupPct: input.markupPct ?? null,
       status: input.status ?? "OPEN",
       terms: input.terms ?? "DUE_DATE",
       issueDate: date(input.issueDate),
@@ -148,7 +171,7 @@ export async function createBill(orgId: string, userId: string, input: BillInput
     },
     select: SELECT,
   });
-  return shape(created);
+  return shape(created, await orgMarkupPct(orgId));
 }
 
 export type BillPatch = {
@@ -159,6 +182,7 @@ export type BillPatch = {
   terms?: "DUE_DATE" | "PAY_WHEN_PAID";
   invoiceId?: string | null;
   projectId?: string | null;
+  markupPct?: number | null;
   notes?: string | null;
 };
 
@@ -196,9 +220,10 @@ export async function updateBill(orgId: string, billId: string, patch: BillPatch
           : {}),
       ...(patch.invoiceId !== undefined ? { invoiceId: patch.invoiceId } : {}),
       ...(patch.projectId !== undefined ? { projectId: patch.projectId } : {}),
+      ...(patch.markupPct !== undefined ? { markupPct: patch.markupPct } : {}),
       ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
     },
     select: SELECT,
   });
-  return shape(updated);
+  return shape(updated, await orgMarkupPct(orgId));
 }
