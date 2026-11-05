@@ -49,6 +49,18 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+      version: "2.531.0",
+      date: "2026-11-06",
+      title: "Pages that show people load faster",
+      highlights: [
+        {
+          kind: "improvement",
+          text:
+            "Profile pictures no longer travel inside every list that names someone. Each picture is now fetched once and reused everywhere it appears, so boards, backlogs, timelines and planning views that show a whole team start up markedly faster \u2014 and the saving grows with the size of the organisation.",
+        },
+      ],
+    },
+  {
     version: "2.529.0",
     date: "2026-11-06",
     title: "Unbilled reimbursables by project",

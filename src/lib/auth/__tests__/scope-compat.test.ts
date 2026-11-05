@@ -57,6 +57,10 @@ const BEFORE: Record<string, bigint> = {
 const LOST_WITHOUT_READ: Record<string, string[]> = {
   listMembers: ["rules:run", "members:read"],
   updateSavedView: ["rules:run", "members:read"],
+  // Same shape as listMembers, whose payload hands out the URLs this serves,
+  // and it carries the same scope. New, so no key loses anything: before it
+  // existed the bytes arrived inline in the list itself.
+  getUserAvatar: ["rules:run", "members:read"],
 };
 /** Exception 2: writes with no bit check that now need a write scope. */
 const SAVED_VIEW_WRITES = new Set([

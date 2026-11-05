@@ -53,6 +53,15 @@ const ALLOWED: Record<string, string> = {
     "removed. Scoped to `orgId`, so it cannot name a user from another org. The " +
     "`search` handler beside it stays filtered — a removed person is not mentionable.",
 
+  "src/app/api/v1/orgs/[orgId]/users/[userId]/avatar/route.ts":
+    "HISTORICAL ATTRIBUTION. The avatar a payload points at has to keep "
+    + "resolving for someone since removed, because their face still sits on "
+    + "the comments, assignments and history they left behind — which this "
+    + "caller can already see. Filtered, every one of those would 404 to a "
+    + "broken image. Scoped to `orgId`, so a user from another org stays "
+    + "unreadable; only the soft-delete filter is bypassed, and the row is "
+    + "read for existence alone.",
+
   "src/app/api/v1/orgs/[orgId]/export/json/route.ts":
     "HISTORICAL ATTRIBUTION. A whole-org archive carries former members too, told " +
     "apart by `removedAt`; dropping them would make the export disagree with the " +
