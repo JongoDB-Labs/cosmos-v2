@@ -100,6 +100,22 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return new Response("You did not upload this file and cannot change it", { status: 403 });
 
     const body = patchSchema.parse(await req.json());
+
+    // A file with no project has no project to validate a link against, and
+    // the `doc.projectId ? … : {}` spreads below degrade their lookups to the
+    // whole org when it is null -- so any deliverable, phase or item in the
+    // org could be attached to such a file, including ones on projects this
+    // caller cannot see. The disclosure is the one the workItemId comment
+    // below already describes: the attachment list on the target record would
+    // surface the file to that project's readers. Refuse rather than widen.
+    // Detaching (an explicit null) stays allowed; it narrows nothing.
+    if (!doc.projectId && (body.workItemId || body.deliverableId || body.phaseId)) {
+      return new Response(
+        "This file is not on a project, so it cannot be attached to a project's items",
+        { status: 400 },
+      );
+    }
+
     const data: {
       title?: string;
       workItemId?: string | null;
