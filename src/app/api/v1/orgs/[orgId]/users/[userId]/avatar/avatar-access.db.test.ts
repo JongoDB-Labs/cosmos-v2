@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { AuthContext } from "@/lib/rbac/check";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { Permission } from "@/lib/rbac/permissions";
 
 const h = vi.hoisted(() => ({ ctx: null as unknown }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext: async () => h.ctx, getCurrentUser: async () => null }));
@@ -25,7 +26,8 @@ const PNG = `data:image/png;base64,${Buffer.from("PNG-BYTES").toString("base64")
 const SVG = `data:image/svg+xml;base64,${Buffer.from("<svg onload=alert(1)/>").toString("base64")}`;
 
 let orgA = "", orgB = "";
-let withAvatar = "", removed = "", noAvatar = "", svgAvatar = "", outsider = "";
+let withAvatar = "", removed = "", noAvatar = "", svgAvatar = "", outsider = "", offProject = "";
+let projectA = "";
 
 const mkUser = async (name: string, avatarUrl: string | null) =>
   (await prisma.user.create({ data: { email: `${name}-${stamp}@av.test`, displayName: name, avatarUrl } })).id;
@@ -45,10 +47,18 @@ beforeAll(async () => {
   noAvatar = await mkUser("NoAvatar", null);
   svgAvatar = await mkUser("SvgAvatar", SVG);
   outsider = await mkUser("Outsider", PNG);
+  offProject = await mkUser("OffProject", PNG);
 
-  for (const userId of [withAvatar, noAvatar, svgAvatar]) {
-    await prisma.orgMember.create({ data: { orgId: orgA, userId, role: "MEMBER", permissions: "0" } });
+  const memberships: Record<string, string> = {};
+  for (const userId of [withAvatar, noAvatar, svgAvatar, offProject]) {
+    memberships[userId] = (
+      await prisma.orgMember.create({ data: { orgId: orgA, userId, role: "MEMBER", permissions: "0" } })
+    ).id;
   }
+  // withAvatar is on projectA; offProject is in the org but on no project, so a
+  // key scoped to projectA must not see them.
+  projectA = (await prisma.project.create({ data: { orgId: orgA, name: "A", key: `AV${stamp.slice(0, 3).toUpperCase()}` } })).id;
+  await prisma.projectMember.create({ data: { projectId: projectA, orgMemberId: memberships[withAvatar] } });
   await prismaUnfiltered.orgMember.create({
     data: { orgId: orgA, userId: removed, role: "MEMBER", permissions: "0", removedAt: new Date() },
   });
@@ -58,7 +68,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await prismaUnfiltered.orgMember.deleteMany({ where: { orgId: { in: [orgA, orgB] } } });
   await prisma.organization.deleteMany({ where: { id: { in: [orgA, orgB] } } });
-  await prisma.user.deleteMany({ where: { id: { in: [withAvatar, removed, noAvatar, svgAvatar, outsider] } } });
+  await prisma.user.deleteMany({ where: { id: { in: [withAvatar, removed, noAvatar, svgAvatar, outsider, offProject] } } });
 });
 
 describe("avatar endpoint", () => {
@@ -112,6 +122,25 @@ describe("avatar endpoint", () => {
   it("refuses an API key without `read`, rather than declaring a scope it never checks", async () => {
     h.ctx = { ...caller(withAvatar, orgA), isApiKey: true, scopes: ["members:read"] };
     expect((await GET(req(), at(orgA, withAvatar))).status).toBe(403);
+  });
+
+  // listMembers narrows its roster for a project-scoped key, and this endpoint
+  // serves the URLs that list hands out. If only the list narrowed, it would
+  // hide a colleague while this served their face.
+  it("applies the same project-scope narrowing the members list does", async () => {
+    const scopedKey = {
+      ...caller(withAvatar, orgA),
+      orgRole: "OWNER" as const,
+      permissions: Permission.PROJECT_READ | Permission.ITEM_READ,
+      isApiKey: true,
+      scopes: ["read"],
+      projectScope: [projectA],
+    };
+    h.ctx = scopedKey;
+    // on the key's project: visible
+    expect((await GET(req(), at(orgA, withAvatar))).status).toBe(200);
+    // in the org but outside the key's projects: not disclosed
+    expect((await GET(req(), at(orgA, offProject))).status).toBe(404);
   });
 
   it("404s an org that does not exist", async () => {

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 
 import { handleApiError } from "@/lib/api-helpers";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { scopedRosterUserIds } from "@/lib/members/scoped-roster.server";
 import { orgContext } from "@/lib/openapi/org-context";
 import { decodeAvatarDataUri } from "@/lib/users/avatar-url.server";
 
@@ -26,7 +27,15 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     // through here rather than by hand so the `read` scope this operation
     // declares is actually enforced — a key that can list members can fetch
     // the avatars that list points at, and nothing else gets in.
-    await orgContext(orgId, getUserAvatar);
+    const { ctx } = await orgContext(orgId, getUserAvatar);
+
+    // The same narrowing the members list applies. A project-scoped key sees
+    // only the people tied to its projects -- in a gov tenant who works here is
+    // itself information -- and this endpoint serves the URLs that list hands
+    // out. Without this, the list would hide a colleague while this served
+    // their face. Null means no narrowing: a session, or an org-wide key.
+    const roster = await scopedRosterUserIds(ctx);
+    if (roster && !roster.includes(userId)) return new Response("Not found", { status: 404 });
 
     // The SUBJECT must belong to this org too. Without this, the orgId in the
     // path would gate only the caller, and a member of any org could read any
