@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requireInvoiceVisible } from "@/lib/invoicing/visibility.server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
@@ -19,6 +20,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.FINANCE_MANAGE);
+    await requireInvoiceVisible(ctx, orgId, invoiceId);
 
     const body = bodySchema.parse(await request.json().catch(() => ({})));
     return success(await sendInvoice(orgId, invoiceId, ctx.userId, body.issueDate));

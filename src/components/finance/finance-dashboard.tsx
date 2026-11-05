@@ -151,6 +151,8 @@ interface ExpenseFormData {
   recurring: boolean;
   /** Empty string means the firm's cost rather than a job's — see the schema. */
   projectId: string;
+  /** Billable to the client; only with a project. */
+  reimbursable: boolean;
 }
 
 const emptyRevenueForm: RevenueFormData = {
@@ -172,6 +174,7 @@ const emptyExpenseForm: ExpenseFormData = {
   description: "",
   recurring: false,
   projectId: "",
+  reimbursable: false,
 };
 
 export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
@@ -399,6 +402,8 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
       description: expenseForm.description,
       recurring: expenseForm.recurring,
       projectId: expenseForm.projectId || null,
+      // Without a project there is nobody to bill it to (the server refuses the pair).
+      reimbursable: expenseForm.projectId ? expenseForm.reimbursable : false,
     };
     if (editingExpense) {
       updateExpenseMutation.mutate({ id: editingExpense, body });
@@ -448,6 +453,7 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
       description: exp.description,
       recurring: exp.recurring,
       projectId: exp.projectId ?? "",
+      reimbursable: exp.reimbursable ?? false,
     });
     setExpenseDialogOpen(true);
   };
@@ -463,6 +469,7 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
       description: exp.description,
       recurring: exp.recurring,
       projectId: exp.projectId ?? "",
+      reimbursable: exp.reimbursable ?? false,
     });
     setExpenseDialogOpen(true);
   };
@@ -1062,7 +1069,11 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
                         id="exp-project"
                         value={expenseForm.projectId}
                         onChange={(e) =>
-                          setExpenseForm({ ...expenseForm, projectId: e.target.value })
+                          setExpenseForm({
+                            ...expenseForm,
+                            projectId: e.target.value,
+                            reimbursable: e.target.value ? expenseForm.reimbursable : false,
+                          })
                         }
                         className="h-9 rounded-md border border-border bg-background px-2 text-sm"
                       >
@@ -1088,6 +1099,23 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
                         className="size-4 rounded border-border"
                       />
                       Recurring expense
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={expenseForm.reimbursable}
+                        disabled={!expenseForm.projectId}
+                        onChange={(e) =>
+                          setExpenseForm({ ...expenseForm, reimbursable: e.target.checked })
+                        }
+                        className="size-4 rounded border-border"
+                      />
+                      <span>
+                        Reimbursable — bill to the client
+                        {!expenseForm.projectId && (
+                          <span className="block text-xs text-muted-foreground">Choose a project first.</span>
+                        )}
+                      </span>
                     </label>
                   </div>
                   <DialogFooter>

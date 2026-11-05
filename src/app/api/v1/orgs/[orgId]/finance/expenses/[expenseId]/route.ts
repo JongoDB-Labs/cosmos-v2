@@ -7,7 +7,8 @@ import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
-import { inVisibleProject } from "@/lib/rbac/require-project-read";
+import { inVisibleProject, requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
+import { reimbursableNeedsProject } from "@/lib/finance/reimbursable";
 
 const updateExpenseSchema = z.object({
   amount: z.number().positive().optional(),
@@ -18,6 +19,9 @@ const updateExpenseSchema = z.object({
   description: z.string().nullish(),
   recurring: z.boolean().optional(),
   clinId: z.string().uuid().nullish(),
+  // The form has always sent the project; it was dropped here until now.
+  projectId: z.string().uuid().nullish(),
+  reimbursable: z.boolean().optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string; expenseId: string }> };
@@ -82,6 +86,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = updateExpenseSchema.parse(body);
+    // Moving it to a project is writing to that project.
+    await requireProjectVisibleIf(ctx, data.projectId);
+    const nextProject = data.projectId !== undefined ? data.projectId : existing.projectId;
+    const nextReimbursable = data.reimbursable ?? existing.reimbursable;
+    if (nextReimbursable && !nextProject) return reimbursableNeedsProject();
 
     const updated = await prisma.expense.update({
       where: { id: expenseId },
@@ -94,6 +103,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.description !== undefined && { description: data.description ?? "" }),
         ...(data.recurring !== undefined && { recurring: data.recurring }),
         ...(data.clinId !== undefined && { clinId: data.clinId }),
+        ...(data.projectId !== undefined && { projectId: data.projectId }),
+        ...(data.reimbursable !== undefined && { reimbursable: data.reimbursable }),
       },
     });
 

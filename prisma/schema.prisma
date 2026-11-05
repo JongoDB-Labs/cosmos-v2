@@ -872,6 +872,7 @@ model Project {
 
   weeklyReportEntries WeeklyReportEntry[]
   contracts           Contract[]
+  invoices            Invoice[]
 
   projectPhases ProjectPhase[]
 
@@ -2616,6 +2617,11 @@ model Expense {
   /// project's profit-and-loss has had to treat its expenses as zero.
   projectId    String?       @map("project_id") @db.Uuid
   project      Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// Billable to the client: a reimbursable cost on its project, re-billed at
+  /// cost plus the project's markup. Needs a project. The expense keeps its
+  /// exact amount either way; project cost and P&L read the amount, never the
+  /// marked-up figure.
+  reimbursable Boolean       @default(false)
   approvedById String?       @map("approved_by_id") @db.Uuid
   submittedAt  DateTime?     @map("submitted_at")
   approvedAt   DateTime?     @map("approved_at")
@@ -4427,6 +4433,10 @@ model Invoice {
   number      String
   contactId   String?       @map("contact_id") @db.Uuid
   contractId  String?       @map("contract_id") @db.Uuid
+  /// The project this invoice bills. Nullable: an invoice can bill a retainer
+  /// or several jobs at once. Set, it is what "Add reimbursables" draws from.
+  projectId   String?       @map("project_id") @db.Uuid
+  project     Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
   billToName  String        @map("bill_to_name")
   billToEmail String?       @map("bill_to_email")
   status      InvoiceStatus @default(DRAFT)
@@ -4449,6 +4459,7 @@ model Invoice {
 
   @@unique([orgId, number])
   @@index([orgId, status])
+  @@index([orgId, projectId])
   @@map("invoices")
 }
 
