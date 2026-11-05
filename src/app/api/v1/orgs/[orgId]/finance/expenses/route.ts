@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { reimbursableNeedsProject } from "@/lib/finance/reimbursable";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
@@ -19,6 +20,8 @@ const createExpenseSchema = z.object({
   recurring: z.boolean().optional(),
   clinId: z.string().uuid().nullish(),
   projectId: z.string().uuid().nullish(),
+  /** Billable to the client; needs a project. See the schema. */
+  reimbursable: z.boolean().optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -50,6 +53,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const projectId = sp.get("projectId");
 
     if (projectId) where.projectId = projectId;
+    const reimbursable = sp.get("reimbursable");
+    if (reimbursable === "true" || reimbursable === "false") where.reimbursable = reimbursable === "true";
     if (category) where.category = category;
     if (vendor) where.vendor = vendor;
     if (status && ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED"].includes(status)) {
@@ -96,6 +101,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const data = createExpenseSchema.parse(body);
     // Filing it under a project is writing to that project.
     await requireProjectVisibleIf(ctx, data.projectId);
+    if (data.reimbursable && !data.projectId) return reimbursableNeedsProject();
 
     const expense = await prisma.expense.create({
       data: {
@@ -109,6 +115,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         recurring: data.recurring ?? false,
         clinId: data.clinId ?? null,
         projectId: data.projectId ?? null,
+        reimbursable: data.reimbursable ?? false,
         createdById: ctx.userId,
       },
     });
