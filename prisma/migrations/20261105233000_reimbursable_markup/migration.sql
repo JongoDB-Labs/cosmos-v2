@@ -7,11 +7,13 @@
 -- project rows every project read returns never carry finance data.
 
 CREATE TABLE IF NOT EXISTS "project_fee_terms" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "project_id" UUID NOT NULL,
     "markup_pct" DECIMAL(7,4),
     "updated_at" TIMESTAMP(3) NOT NULL,
-    CONSTRAINT "project_fee_terms_pkey" PRIMARY KEY ("project_id")
+    CONSTRAINT "project_fee_terms_pkey" PRIMARY KEY ("id")
 );
+CREATE UNIQUE INDEX IF NOT EXISTS "project_fee_terms_project_id_key" ON "project_fee_terms"("project_id");
 
 DO $$ BEGIN
   ALTER TABLE "project_fee_terms"

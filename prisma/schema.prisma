@@ -6316,7 +6316,8 @@ model TeamsOutbox {
 /// they are finance data, read and written only behind the finance
 /// permissions. One row per project, created on first write.
 model ProjectFeeTerms {
-  projectId String   @id @map("project_id") @db.Uuid
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String   @unique @map("project_id") @db.Uuid
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   /// Markup on reimbursable costs, as a percent (15 = 15%). Null uses the
   /// org's default; a bill can override it again (src/lib/finance/markup.ts).
