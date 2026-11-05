@@ -50,6 +50,8 @@ export function InvoiceBuilderDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [contactId, setContactId] = useState<string>("");
+  // "" = an invoice for no one project (a retainer, several jobs).
+  const [projectId, setProjectId] = useState<string>("");
   const [billToName, setBillToName] = useState("");
   const [billToEmail, setBillToEmail] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -63,8 +65,15 @@ export function InvoiceBuilderDialog({
     queryFn: () => jsonFetch<Contact[]>(`/api/v1/orgs/${orgId}/crm/contacts`),
   });
 
+  const projectsQ = useQuery({
+    queryKey: useOrgQueryKey("projects", "picker"),
+    enabled: open,
+    queryFn: () => jsonFetch<{ id: string; name: string; key: string }[]>(`/api/v1/orgs/${orgId}/projects`),
+  });
+
   function reset() {
     setContactId("");
+    setProjectId("");
     setBillToName("");
     setBillToEmail("");
     setDueDate("");
@@ -79,6 +88,7 @@ export function InvoiceBuilderDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contactId: contactId || null,
+          projectId: projectId || null,
           billToName: billToName.trim(),
           billToEmail: billToEmail.trim() || null,
           dueDate: dueDate || null,
@@ -158,6 +168,22 @@ export function InvoiceBuilderDialog({
                 onChange={(e) => setBillToName(e.target.value)}
                 placeholder="Acme Corp"
               />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="invoice-project" className="text-xs">Project</Label>
+              <select
+                id="invoice-project"
+                className="h-9 rounded-md border bg-background px-2 text-sm"
+                value={projectId}
+                onChange={(e) => setProjectId(e.target.value)}
+              >
+                <option value="">— no one project —</option>
+                {(projectsQ.data ?? []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.key} · {p.name}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="flex flex-col gap-1">
               <Label className="text-xs">Bill-to email</Label>

@@ -27,6 +27,8 @@ export type LineInput = {
 export type InvoiceInput = {
   contactId?: string | null;
   contractId?: string | null;
+  /** The project this invoice bills; see the schema. */
+  projectId?: string | null;
   billToName: string;
   billToEmail?: string | null;
   dueDate?: Date | null;
@@ -77,12 +79,18 @@ async function assertContactInOrg(orgId: string, contactId: string) {
   if (!c) throw new NotFoundError("Contact not found");
 }
 
+async function assertProjectInOrg(orgId: string, projectId: string) {
+  const p = await prisma.project.findFirst({ where: { id: projectId, orgId }, select: { id: true } });
+  if (!p) throw new NotFoundError("Project not found");
+}
+
 export async function createInvoice(
   orgId: string,
   createdById: string,
   input: InvoiceInput,
 ) {
   if (input.contactId) await assertContactInOrg(orgId, input.contactId);
+  if (input.projectId) await assertProjectInOrg(orgId, input.projectId);
   const computed = computeLines(input.lines);
   const totals = invoiceTotals(computed);
   const year = new Date().getFullYear();
@@ -100,6 +108,7 @@ export async function createInvoice(
             createdById,
             contactId: input.contactId ?? null,
             contractId: input.contractId ?? null,
+            projectId: input.projectId ?? null,
             billToName: input.billToName,
             billToEmail: input.billToEmail ?? null,
             dueDate: input.dueDate ?? null,
@@ -135,6 +144,7 @@ export async function updateInvoice(
     throw new ConflictError("Only a draft invoice can be edited");
   }
   if (input.contactId) await assertContactInOrg(orgId, input.contactId);
+  if (input.projectId) await assertProjectInOrg(orgId, input.projectId);
   const computed = computeLines(input.lines);
   const totals = invoiceTotals(computed);
 
@@ -145,6 +155,9 @@ export async function updateInvoice(
       data: {
         contactId: input.contactId ?? null,
         contractId: input.contractId ?? null,
+        // Omitted means "leave it": an update from a client that predates the
+        // field must not detach the invoice from its project.
+        ...(input.projectId !== undefined && { projectId: input.projectId }),
         billToName: input.billToName,
         billToEmail: input.billToEmail ?? null,
         dueDate: input.dueDate ?? null,
@@ -290,11 +303,21 @@ export async function getInvoice(orgId: string, invoiceId: string) {
   });
 }
 
-export async function listInvoices(orgId: string, opts?: { status?: string }) {
+/**
+ * `visible`: the caller's project-visibility clause (visibleProjectRecordsWhere),
+ * so an invoice on a project hidden from them is left out in the WHERE, as that
+ * project's expenses are. One on no project is the org's and stays.
+ */
+export async function listInvoices(
+  orgId: string,
+  opts?: { status?: string; projectId?: string; visible?: Prisma.InvoiceWhereInput },
+) {
   return prisma.invoice.findMany({
     where: {
       orgId,
       ...(opts?.status ? { status: opts.status as InvoiceStatusValue } : {}),
+      ...(opts?.projectId ? { projectId: opts.projectId } : {}),
+      ...(opts?.visible ? { AND: [opts.visible] } : {}),
     },
     orderBy: { createdAt: "desc" },
   });

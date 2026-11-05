@@ -24,6 +24,8 @@ export const invoiceLineSchema = z.object({
 export const invoiceInputSchema = z.object({
   contactId: z.string().uuid().nullish(),
   contractId: z.string().uuid().nullish(),
+  /** Omit to leave an existing invoice's project as it is; null detaches it. */
+  projectId: z.string().uuid().nullable().optional(),
   billToName: z.string().trim().min(1),
   billToEmail: z.string().email().nullish(),
   dueDate: z.coerce.date().nullish(),
