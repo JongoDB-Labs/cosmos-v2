@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requireInvoiceVisible } from "@/lib/invoicing/visibility.server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
@@ -17,6 +18,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.FINANCE_READ);
+    await requireInvoiceVisible(ctx, orgId, invoiceId);
 
     const data = await prisma.payment.findMany({
       where: { orgId, invoiceId },
@@ -36,6 +38,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.FINANCE_MANAGE);
+    await requireInvoiceVisible(ctx, orgId, invoiceId);
 
     const input = paymentInputSchema.parse(await request.json());
     return success(await recordPayment(orgId, invoiceId, ctx.userId, input));

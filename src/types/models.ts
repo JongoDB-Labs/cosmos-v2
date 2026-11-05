@@ -406,6 +406,8 @@ export interface Expense {
   createdById: string;
   createdAt: string;
   updatedAt: string;  projectId: string | null;
+  /** Billable to the client (needs a project). */
+  reimbursable?: boolean;
 }
 
 export interface SyncMeeting {
