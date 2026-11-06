@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useTransition, useCallback, useMemo, useRef, type ComponentProps } from "react";
 import {
   Sheet,
   SheetContent,
@@ -154,6 +154,12 @@ interface CardDetailSheetProps {
   onChildrenReordered?: () => void;
   /** Open another work item (sub-item or linked item) in this same sheet. */
   onOpenItem?: (id: string) => void;
+  /**
+   * Where focus goes when the sheet closes. Hosts that open it through `open`
+   * rather than a trigger, and whose opener can re-render away while the sheet
+   * is up (a table cell), say where to return; otherwise base-ui's default.
+   */
+  finalFocus?: ComponentProps<typeof SheetContent>["finalFocus"];
 }
 
 const priorityOptions = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
@@ -192,6 +198,7 @@ export function CardDetailSheet({
   onItemCreated,
   onChildrenReordered,
   onOpenItem,
+  finalFocus,
 }: CardDetailSheetProps) {
   const { can } = usePermissions();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -1174,6 +1181,7 @@ export function CardDetailSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
+        finalFocus={finalFocus}
         // Match the base Sheet's data-[side=right] width variants so twMerge
         // actually overrides them — a plain `w-full` loses to the base
         // `data-[side=right]:w-3/4`, leaving the sheet at 75% on mobile.
