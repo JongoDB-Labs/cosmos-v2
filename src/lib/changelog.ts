@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.528.0",
+    date: "2026-11-06",
+    title: "Add reimbursables to an invoice",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Add reimbursables: a draft invoice with a project adds the project's unbilled bills and reimbursable expenses at cost plus markup, as one line or two, and marks each cost billed so it is never billed twice. Markup posts to revenue, the cost to a new Reimbursable Cost Recovery account.",
+      },
+    ],
+  },
+  {
     version: "2.527.0",
     date: "2026-11-06",
     title: "Markup on reimbursable costs",
