@@ -3,13 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Popover } from "@base-ui/react/popover";
 import { Bell, Check, Mail, MailOpen, X } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -91,6 +85,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
   // which describe the whole inbox whatever is picked, so the chips never hide
   // the way back.
   const [kind, setKind] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   const [kinds, setKinds] = useState<{ type: string; count: number }[]>([]);
   const kindRef = useRef<string | null>(null);
   useEffect(() => {
@@ -297,14 +292,19 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     unreadNotLoaded + notifications.filter((n) => !n.read).length;
 
   function handleNotificationClick(n: BellItem) {
+    setOpen(false);
     if (!n.read) void setRead(n.id, true, true);
     if (!orgSlug || !n.url) return;
     router.push(notificationHref(orgSlug, n.url));
   }
 
+  // A popover, not a menu: the panel holds buttons, chips, a scroll region and
+  // a link, which role="menu" may not contain (axe aria-required-children).
+  // It's a labelled non-modal dialog; Tab moves through it and Escape returns
+  // focus to the bell.
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger
         render={
           <Button
             variant="ghost"
@@ -324,242 +324,255 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
-        <div className="flex items-center justify-between px-3 py-2">
-          <p className="text-sm font-medium">Notifications</p>
-          {confirmingClear ? (
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-muted-foreground">Clear all?</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setConfirmingClear(false);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void clearAll();
-                }}
-              >
-                Clear
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1">
-              {unreadCount > 0 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs gap-1 h-7"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    markAllRead();
-                  }}
-                >
-                  <Check className="h-3 w-3" />
-                  Mark all read
-                </Button>
-              )}
-              {notifications.length > 0 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setConfirmingClear(true);
-                  }}
-                >
-                  Clear all…
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-        <DropdownMenuSeparator />
-        {kinds.length > 1 && (
-          <div
-            role="group"
-            aria-label="Show"
-            className="flex gap-1 overflow-x-auto px-3 py-2"
-          >
-            {[
-              {
-                type: null as string | null,
-                label: "All",
-                count: undefined as number | undefined,
-              },
-              ...kinds.map((k) => ({
-                type: k.type as string | null,
-                label: kindLabel(k.type),
-                count: k.count as number | undefined,
-              })),
-            ].map((c) => (
-              <button
-                key={c.type ?? "all"}
-                type="button"
-                aria-pressed={kind === c.type}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  // Drop the old kind's cursor first, so nothing loads "older"
-                  // from the wrong list before the new first page lands.
-                  setCursor(null);
-                  setKind(c.type);
-                }}
-                className={cn(
-                  "shrink-0 rounded-full border px-2 py-0.5 text-xs",
-                  kind === c.type
-                    ? "border-transparent bg-[var(--primary)] text-[var(--primary-foreground)]"
-                    : "border-[var(--border)] text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {c.label}
-                {c.count !== undefined && (
-                  <span className="ml-1 tabular-nums opacity-70">
-                    {c.count}
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner
+          side="bottom"
+          align="end"
+          sideOffset={4}
+          className="isolate z-50"
+        >
+          <Popover.Popup className="z-50 w-80 rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-none">
+            <div className="flex items-center justify-between px-3 py-2">
+              <Popover.Title className="text-sm font-medium">
+                Notifications
+              </Popover.Title>
+              {confirmingClear ? (
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-muted-foreground">
+                    Clear all?
                   </span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {notifications.length === 0 ? (
-          <div className="py-8 text-center">
-            <Bell className="mx-auto h-8 w-8 text-muted-foreground/30 mb-2" />
-            <p className="text-sm text-muted-foreground">
-              No notifications yet
-            </p>
-          </div>
-        ) : (
-          // Its own scroll region, so older notifications are a scroll away
-          // instead of cut off at ten.
-          <div
-            ref={setScrollEl}
-            className="max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain"
-            data-testid="notification-scroll"
-          >
-            {notifications.map((notification) => (
-              // The toggle sits beside the item, not inside it: a button
-              // nested in a menuitem is two controls in one, and using it
-              // would also open the notification.
-              <NotificationPreview
-                key={notification.id}
-                orgId={orgId}
-                notification={notification}
-              >
-                <div
-                  className={cn(
-                    "flex items-start",
-                    !notification.read && "bg-muted/50",
-                  )}
-                >
-                  <DropdownMenuItem
-                    className="min-w-0 flex-1 flex-col items-start gap-1 py-2.5"
-                    onClick={() => handleNotificationClick(notification)}
-                  >
-                    <div className="flex items-start gap-2 w-full">
-                      {!notification.read && (
-                        <div className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p
-                          className={cn(
-                            "text-sm truncate",
-                            !notification.read && "font-medium",
-                          )}
-                        >
-                          {notification.title}
-                        </p>
-                        <p className="text-xs text-muted-foreground line-clamp-2">
-                          {notification.body}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
-                          {timeAgo(notification.createdAt)}
-                        </p>
-                      </div>
-                    </div>
-                  </DropdownMenuItem>
                   <Button
                     variant="ghost"
-                    size="icon-sm"
-                    className="mt-1.5 mr-1 shrink-0 text-muted-foreground"
-                    aria-label={
-                      notification.read
-                        ? `Mark "${notification.title}" unread`
-                        : `Mark "${notification.title}" read`
-                    }
-                    title={notification.read ? "Mark unread" : "Mark read"}
+                    size="sm"
+                    className="h-7 text-xs"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void setRead(notification.id, !notification.read);
+                      setConfirmingClear(false);
                     }}
                   >
-                    {notification.read ? (
-                      <Mail className="size-4" />
-                    ) : (
-                      <MailOpen className="size-4" />
-                    )}
+                    Cancel
                   </Button>
                   <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="mt-1.5 mr-1 shrink-0 text-muted-foreground"
-                    aria-label={`Clear "${notification.title}"`}
-                    title="Clear"
+                    variant="destructive"
+                    size="sm"
+                    className="h-7 text-xs"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void clearOne(notification.id);
+                      void clearAll();
                     }}
                   >
-                    <X className="size-4" />
+                    Clear
                   </Button>
                 </div>
-              </NotificationPreview>
-            ))}
-            {hasMore ? (
-              <button
-                ref={setSentinel}
-                type="button"
-                className="w-full px-3 py-2 text-center text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
-                disabled={loadingMore}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void loadOlder();
-                }}
+              ) : (
+                <div className="flex items-center gap-1">
+                  {unreadCount > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs gap-1 h-7"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        markAllRead();
+                      }}
+                    >
+                      <Check className="h-3 w-3" />
+                      Mark all read
+                    </Button>
+                  )}
+                  {notifications.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmingClear(true);
+                      }}
+                    >
+                      Clear all…
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="-mx-1 my-1 h-px bg-border" />
+            {kinds.length > 1 && (
+              <div
+                role="group"
+                aria-label="Show"
+                className="flex gap-1 overflow-x-auto px-3 py-2"
               >
-                {loadingMore
-                  ? "Loading older…"
-                  : loadFailed
-                    ? "Couldn't load older notifications. Try again"
-                    : "Load older"}
-              </button>
-            ) : (
-              <p className="px-3 py-2 text-center text-xs text-muted-foreground">
-                No older notifications
-              </p>
+                {[
+                  {
+                    type: null as string | null,
+                    label: "All",
+                    count: undefined as number | undefined,
+                  },
+                  ...kinds.map((k) => ({
+                    type: k.type as string | null,
+                    label: kindLabel(k.type),
+                    count: k.count as number | undefined,
+                  })),
+                ].map((c) => (
+                  <button
+                    key={c.type ?? "all"}
+                    type="button"
+                    aria-pressed={kind === c.type}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // Drop the old kind's cursor first, so nothing loads "older"
+                      // from the wrong list before the new first page lands.
+                      setCursor(null);
+                      setKind(c.type);
+                    }}
+                    className={cn(
+                      "shrink-0 rounded-full border px-2 py-0.5 text-xs",
+                      kind === c.type
+                        ? "border-transparent bg-[var(--primary)] text-[var(--primary-foreground)]"
+                        : "border-[var(--border)] text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {c.label}
+                    {c.count !== undefined && (
+                      <span className="ml-1 tabular-nums">{c.count}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
             )}
-          </div>
-        )}
-        <div className="border-t border-[var(--border)] px-3 py-2">
-          <Link
-            href={`/${orgSlug}/inbox`}
-            className="text-sm text-[var(--primary)] hover:underline"
-          >
-            Open inbox
-          </Link>
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
+
+            {notifications.length === 0 ? (
+              <div className="py-8 text-center">
+                <Bell className="mx-auto h-8 w-8 text-muted-foreground/30 mb-2" />
+                <p className="text-sm text-muted-foreground">
+                  No notifications yet
+                </p>
+              </div>
+            ) : (
+              // Its own scroll region, so older notifications are a scroll away
+              // instead of cut off at ten.
+              <div
+                ref={setScrollEl}
+                className="max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain"
+                data-testid="notification-scroll"
+              >
+                {notifications.map((notification) => (
+                  // The toggle sits beside the item, not inside it: a button
+                  // nested in a menuitem is two controls in one, and using it
+                  // would also open the notification.
+                  <NotificationPreview
+                    key={notification.id}
+                    orgId={orgId}
+                    notification={notification}
+                  >
+                    <div
+                      className={cn(
+                        "flex items-start",
+                        !notification.read && "bg-muted/50",
+                      )}
+                    >
+                      <button
+                        type="button"
+                        className="flex min-w-0 flex-1 flex-col items-start gap-1 rounded-md px-1.5 py-2.5 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+                        onClick={() => handleNotificationClick(notification)}
+                      >
+                        <div className="flex items-start gap-2 w-full">
+                          {!notification.read && (
+                            <div className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p
+                              className={cn(
+                                "text-sm truncate",
+                                !notification.read && "font-medium",
+                              )}
+                            >
+                              {notification.title}
+                            </p>
+                            <p className="text-xs text-muted-foreground line-clamp-2">
+                              {notification.body}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                              {timeAgo(notification.createdAt)}
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="mt-1.5 mr-1 shrink-0 text-muted-foreground"
+                        aria-label={
+                          notification.read
+                            ? `Mark "${notification.title}" unread`
+                            : `Mark "${notification.title}" read`
+                        }
+                        title={notification.read ? "Mark unread" : "Mark read"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void setRead(notification.id, !notification.read);
+                        }}
+                      >
+                        {notification.read ? (
+                          <Mail className="size-4" />
+                        ) : (
+                          <MailOpen className="size-4" />
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="mt-1.5 mr-1 shrink-0 text-muted-foreground"
+                        aria-label={`Clear "${notification.title}"`}
+                        title="Clear"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void clearOne(notification.id);
+                        }}
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    </div>
+                  </NotificationPreview>
+                ))}
+                {hasMore ? (
+                  <button
+                    ref={setSentinel}
+                    type="button"
+                    className="w-full px-3 py-2 text-center text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
+                    disabled={loadingMore}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void loadOlder();
+                    }}
+                  >
+                    {loadingMore
+                      ? "Loading older…"
+                      : loadFailed
+                        ? "Couldn't load older notifications. Try again"
+                        : "Load older"}
+                  </button>
+                ) : (
+                  <p className="px-3 py-2 text-center text-xs text-muted-foreground">
+                    No older notifications
+                  </p>
+                )}
+              </div>
+            )}
+            <div className="border-t border-[var(--border)] px-3 py-2">
+              <Link
+                href={`/${orgSlug}/inbox`}
+                className="text-sm text-[var(--primary)] hover:underline"
+                onClick={() => setOpen(false)}
+              >
+                Open inbox
+              </Link>
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
