@@ -14,6 +14,16 @@ const { getAuthContext } = vi.hoisted(() => ({ getAuthContext: vi.fn() }));
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
+// The list now narrows to the caller's visible projects, which reads the
+// project tables this mocked prisma does not carry. Unrestricted here, so the
+// assertions below stay about filtering and totals; the visibility behaviour
+// itself is proven against a real database in
+// src/lib/rbac/team-scope-bills.db.test.ts.
+vi.mock("@/lib/rbac/project-access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rbac/project-access")>()),
+  hiddenProjectIds: async () => [],
+  visibleProjectRecordsWhere: async () => ({}),
+}));
 
 import { GET, POST } from "./route";
 
