@@ -9,6 +9,8 @@ import {
   resetFingerprint,
   fingerprintMatches,
 } from "@/lib/auth/password-reset";
+import { resolveSenderOrg } from "@/lib/auth/sender-org";
+import { logAudit } from "@/lib/audit";
 
 const schema = z.object({
   token: z.string().min(1).max(4096),
@@ -48,7 +50,13 @@ export async function POST(request: NextRequest) {
       isBot: false,
       deactivatedAt: null,
     },
-    select: { id: true, passwordHash: true, passwordSetAt: true },
+    select: {
+      id: true,
+      email: true,
+      passwordHash: true,
+      passwordSetAt: true,
+      memberships: { select: { org: { select: { id: true, slug: true } } } },
+    },
   });
   if (!user) return NextResponse.json({ error: INVALID }, { status: 400 });
 
@@ -69,6 +77,29 @@ export async function POST(request: NextRequest) {
       mustChangePassword: false,
     },
   });
+
+  // A credential actually changed, so this is the half of the flow that most
+  // needs a durable trail. Paired with auth.password_reset.requested, the two
+  // answer "was a reset asked for, and did anyone complete it" — which no
+  // record could answer before. Best-effort: the password IS already changed,
+  // so a failed audit write must not report the reset as failed.
+  const org = await resolveSenderOrg({ email: user.email, memberships: user.memberships });
+  if (org) {
+    try {
+      await logAudit({
+        orgId: org.id,
+        userId: user.id,
+        action: "auth.password_reset.completed",
+        entity: "user",
+        entityId: user.id,
+        metadata: { email: user.email.toLowerCase(), via: org.source },
+        ipAddress: ip,
+      });
+    } catch (e) {
+      // eslint-disable-next-line no-restricted-syntax -- operator-facing, best-effort
+      console.error(`[password-reset] completion audit failed for ${user.id}:`, e);
+    }
+  }
 
   return NextResponse.json({ ok: true });
 }
