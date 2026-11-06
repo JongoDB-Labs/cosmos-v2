@@ -49,6 +49,18 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+      version: "2.532.0",
+      date: "2026-11-06",
+      title: "A file off-project can no longer be attached across projects",
+      highlights: [
+        {
+          kind: "fix",
+          text:
+            "A file that did not belong to a project could be attached to a deliverable, phase or work item on any project in the organisation \u2014 including ones the person attaching it cannot open \u2014 and the attachment then appeared on that record. A file can now be attached only once it belongs to a project; detaching and renaming are unaffected.",
+        },
+      ],
+    },
+  {
       version: "2.531.0",
       date: "2026-11-06",
       title: "Pages that show people load faster",

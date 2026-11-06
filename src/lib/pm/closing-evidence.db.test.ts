@@ -210,6 +210,40 @@ describe("evidence on a closed record", () => {
     expect((await patchD(p, d, { status: "ACCEPTED" })).status).toBe(200);
   });
 
+  // A file with no project has no project to validate a link against, and the
+  // route's `doc.projectId ? … : {}` scope degraded to the whole org when it
+  // was null -- so a deliverable or phase on ANY project could be attached,
+  // including ones this caller cannot see, and the attachment list on that
+  // record would then disclose the file. One guard covers all three link
+  // targets (workItemId, deliverableId, phaseId); two are exercised here.
+  it("a file on no project cannot be attached to a project's deliverable or phase", async () => {
+    const p = await project();
+    const d = await deliverable(p);
+    const ph = await phase(p);
+    const orphan = (
+      await prisma.document.create({
+        data: {
+          orgId, projectId: null, title: "Orphan", storageKey: `k/${Math.random()}`,
+          filename: "o.pdf", contentType: "application/pdf", size: 1, uploadedById: aliceId,
+        },
+      })
+    ).id;
+    const at = () => ({ params: Promise.resolve({ orgId, docId: orphan }) });
+
+    expect((await patchDocument(req("PATCH", { deliverableId: d }), at())).status).toBe(400);
+    expect((await patchDocument(req("PATCH", { phaseId: ph }), at())).status).toBe(400);
+
+    // Nothing stuck to it.
+    expect(
+      await prisma.document.findUniqueOrThrow({ where: { id: orphan }, select: { deliverableId: true, phaseId: true } }),
+    ).toEqual({ deliverableId: null, phaseId: null });
+
+    // The refusal is about links, not the file: renaming still works, and so
+    // does an explicit detach, which narrows nothing.
+    expect((await patchDocument(req("PATCH", { title: "Renamed" }), at())).status).toBe(200);
+    expect((await patchDocument(req("PATCH", { deliverableId: null }), at())).status).toBe(200);
+  });
+
   it("deleting the deliverable keeps the file (SET NULL)", async () => {
     const p = await project({ closingRule: false });
     const d = await deliverable(p);
