@@ -28,19 +28,27 @@ const D = (v: number | string | Prisma.Decimal) => new Prisma.Decimal(v);
 /** Not recovered by any invoice: never stamped, or stamped by one since voided. */
 const UNBILLED = { OR: [{ invoiceId: null }, { invoice: { status: "VOID" as const } }] };
 
-const BILLABLE_BILL = (orgId: string, projectId: string): Prisma.BillWhereInput => ({
-  orgId,
-  projectId,
-  status: { in: ["OPEN", "PAID"] },
-  ...UNBILLED,
+/** Which projects a read covers: one, or every project the caller can see (visibleProjectRecordsWhere). */
+type Scope = { projectId?: string; visible?: { OR?: ({ projectId: null } | { projectId: { notIn: string[] } })[] } };
+
+const scoped = (s: Scope) => ({
+  projectId: s.projectId ?? { not: null },
+  ...(s.visible?.OR ? { AND: [s.visible] } : {}),
 });
 
-const BILLABLE_EXPENSE = (orgId: string, projectId: string): Prisma.ExpenseWhereInput => ({
+const BILLABLE_BILL = (orgId: string, s: Scope): Prisma.BillWhereInput => ({
   orgId,
-  projectId,
+  status: { in: ["OPEN", "PAID"] },
+  ...UNBILLED,
+  ...scoped(s),
+});
+
+const BILLABLE_EXPENSE = (orgId: string, s: Scope): Prisma.ExpenseWhereInput => ({
+  orgId,
   reimbursable: true,
   status: "APPROVED",
   ...UNBILLED,
+  ...scoped(s),
 });
 
 export interface UnbilledReimbursable {
@@ -61,6 +69,49 @@ const expenseLabel = (e: { vendor: string | null; category: string; description:
   [e.vendor || e.category, e.description.trim()].filter(Boolean).join(" — ");
 
 /**
+ * The unbilled reimbursable costs in scope, oldest first (bills, then
+ * expenses), each priced at the markup that applies to it, with the project
+ * it belongs to; and the org's line preference.
+ */
+async function collectUnbilled(
+  db: Db,
+  orgId: string,
+  scope: Scope,
+): Promise<{ items: (UnbilledReimbursable & { projectId: string })[]; lines: ReimbursableLines }> {
+  const [org, bills, expenses] = await Promise.all([
+    db.organization.findUnique({ where: { id: orgId }, select: { settings: true } }),
+    db.bill.findMany({
+      where: BILLABLE_BILL(orgId, scope),
+      select: { id: true, projectId: true, vendorName: true, reference: true, amount: true, markupPct: true, issueDate: true, createdAt: true },
+      orderBy: [{ issueDate: "asc" }, { createdAt: "asc" }],
+    }),
+    db.expense.findMany({
+      where: BILLABLE_EXPENSE(orgId, scope),
+      select: { id: true, projectId: true, vendor: true, category: true, description: true, amount: true, date: true },
+      orderBy: [{ date: "asc" }, { createdAt: "asc" }],
+    }),
+  ]);
+  const projectIds = [...new Set([...bills, ...expenses].map((c) => c.projectId!))];
+  const terms = projectIds.length
+    ? await db.projectFeeTerms.findMany({ where: { projectId: { in: projectIds } }, select: { projectId: true, markupPct: true } })
+    : [];
+  const projectPct = new Map(terms.map((t) => [t.projectId, t.markupPct]));
+  const settings = financeSettings(org?.settings);
+  const item = (source: RebillSource, id: string, projectId: string, label: string, date: Date | null, amount: Prisma.Decimal, own: Prisma.Decimal | null) => {
+    const markup = resolveMarkup({ bill: own, project: projectPct.get(projectId), org: settings.reimbursableMarkupPct });
+    const m = markedUp(Number(amount), markup.pct);
+    return { source, id, projectId, label, date: iso(date), cost: m.cost, markup, markupAmount: m.markup, total: m.total };
+  };
+  return {
+    lines: settings.reimbursableLines,
+    items: [
+      ...bills.map((b) => item("bill", b.id, b.projectId!, billLabel(b), b.issueDate, b.amount, b.markupPct)),
+      ...expenses.map((e) => item("expense", e.id, e.projectId!, expenseLabel(e), e.date, e.amount, null)),
+    ],
+  };
+}
+
+/**
  * A project's unbilled reimbursable costs, oldest first, each with the markup
  * that applies to it and what it would bill at; and the org's line preference.
  */
@@ -69,33 +120,68 @@ export async function listUnbilledReimbursables(
   projectId: string,
   db: Db = prisma,
 ): Promise<{ items: UnbilledReimbursable[]; lines: ReimbursableLines }> {
-  const [org, terms, bills, expenses] = await Promise.all([
-    db.organization.findUnique({ where: { id: orgId }, select: { settings: true } }),
-    db.projectFeeTerms.findUnique({ where: { projectId }, select: { markupPct: true } }),
-    db.bill.findMany({
-      where: BILLABLE_BILL(orgId, projectId),
-      select: { id: true, vendorName: true, reference: true, amount: true, markupPct: true, issueDate: true, createdAt: true },
-      orderBy: [{ issueDate: "asc" }, { createdAt: "asc" }],
-    }),
-    db.expense.findMany({
-      where: BILLABLE_EXPENSE(orgId, projectId),
-      select: { id: true, vendor: true, category: true, description: true, amount: true, date: true },
-      orderBy: [{ date: "asc" }, { createdAt: "asc" }],
-    }),
-  ]);
-  const settings = financeSettings(org?.settings);
-  const item = (source: RebillSource, id: string, label: string, date: Date | null, amount: Prisma.Decimal, own: Prisma.Decimal | null) => {
-    const markup = resolveMarkup({ bill: own, project: terms?.markupPct, org: settings.reimbursableMarkupPct });
-    const m = markedUp(Number(amount), markup.pct);
-    return { source, id, label, date: iso(date), cost: m.cost, markup, markupAmount: m.markup, total: m.total };
-  };
-  return {
-    lines: settings.reimbursableLines,
-    items: [
-      ...bills.map((b) => item("bill", b.id, billLabel(b), b.issueDate, b.amount, b.markupPct)),
-      ...expenses.map((e) => item("expense", e.id, expenseLabel(e), e.date, e.amount, null)),
-    ],
-  };
+  const { items, lines } = await collectUnbilled(db, orgId, { projectId });
+  // Same items, without the projectId the caller already named.
+  return { lines, items: items.map((i) => omitProject(i)) };
+}
+
+export interface UnbilledTotals {
+  count: number;
+  cost: number;
+  markup: number;
+  total: number;
+}
+
+export interface ProjectUnbilled {
+  projectId: string;
+  projectKey: string;
+  projectName: string;
+  items: UnbilledReimbursable[];
+  totals: UnbilledTotals;
+}
+
+function omitProject<T extends { projectId: string }>(i: T): Omit<T, "projectId"> {
+  const { projectId, ...rest } = i;
+  void projectId;
+  return rest;
+}
+
+/** Summed in integer cents, so a project's totals are exactly the sum of its rows. */
+function totalsOf(items: readonly UnbilledReimbursable[]): UnbilledTotals {
+  const c = (n: number) => Math.round(n * 100);
+  const cost = items.reduce((s, i) => s + c(i.cost), 0);
+  const markup = items.reduce((s, i) => s + c(i.markupAmount), 0);
+  return { count: items.length, cost: cost / 100, markup: markup / 100, total: (cost + markup) / 100 };
+}
+
+/**
+ * Unbilled reimbursable costs grouped by project, for the reports that show
+ * what is still to be billed: one project (`projectId`), or every project the
+ * caller can see (`visible`, in the WHERE so a hidden project's costs are never
+ * read). Projects with nothing unbilled are left out; projects are ordered by
+ * key. Each project carries its totals, and so does the whole.
+ */
+export async function unbilledReimbursablesByProject(
+  orgId: string,
+  scope: Scope,
+): Promise<{ projects: ProjectUnbilled[]; totals: UnbilledTotals; lines: ReimbursableLines }> {
+  const { items, lines } = await collectUnbilled(prisma, orgId, scope);
+  const byProject = new Map<string, UnbilledReimbursable[]>();
+  for (const { projectId, ...i } of items) {
+    const list = byProject.get(projectId) ?? [];
+    list.push(i);
+    byProject.set(projectId, list);
+  }
+  const meta = byProject.size
+    ? await prisma.project.findMany({ where: { orgId, id: { in: [...byProject.keys()] } }, select: { id: true, key: true, name: true } })
+    : [];
+  const projects = meta
+    .map((p) => {
+      const rows = byProject.get(p.id)!;
+      return { projectId: p.id, projectKey: p.key, projectName: p.name, items: rows, totals: totalsOf(rows) };
+    })
+    .sort((a, b) => a.projectKey.localeCompare(b.projectKey));
+  return { projects, totals: totalsOf(projects.flatMap((p) => p.items)), lines };
 }
 
 const withDetail = {

@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.529.0",
+    date: "2026-11-06",
+    title: "Unbilled reimbursables by project",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Unbilled reimbursable costs can be read by project, for reports of what is still to be billed.",
+      },
+    ],
+  },
+  {
     version: "2.528.1",
     date: "2026-11-06",
     title: "Update screen shows the right version",
