@@ -7,6 +7,8 @@ import { resolveSenderOrg } from "@/lib/auth/sender-org";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { createPasswordResetToken } from "@/lib/auth/password-reset";
 import { sendPasswordResetEmail } from "@/lib/integrations/invitation-email";
+import { logAudit } from "@/lib/audit";
+import { maskEmail, truncateForLog } from "@/lib/auth/mask-email";
 
 const schema = z.object({
   email: z.string().email().max(320),
@@ -14,6 +16,26 @@ const schema = z.object({
   // email-delivery config (and never to confirm/deny membership to the caller).
   orgSlug: z.string().max(200).optional(),
 });
+
+/**
+ * What became of a reset request. Recorded for the OPERATOR only — every one of
+ * these returns the same generic body to the caller, so naming them here never
+ * becomes an enumeration oracle.
+ *
+ * This exists because the absence of a signal used to be ambiguous. The route
+ * logged only on send failure, so "no log line" meant *mail went out*, *no
+ * account matched*, and *nobody ever submitted the form* equally well. A member
+ * reported a reset that never arrived and there was no way to tell which of the
+ * three had happened — see the reset-flow tests, which pin each outcome.
+ */
+type ResetOutcome =
+  | "sent"
+  | "send_failed"
+  | "lookup_failed"
+  | "no_such_email"
+  | "sso_only"
+  | "inactive"
+  | "throttled";
 
 /**
  * Self-service "forgot password" — begin a reset for an email/password account.
@@ -40,75 +62,154 @@ export async function POST(request: NextRequest) {
   const { email, orgSlug } = parsed.data;
   const normalized = email.trim().toLowerCase();
 
+  let outcome: ResetOutcome = "no_such_email";
+  let org: Awaited<ReturnType<typeof resolveSenderOrg>> = null;
+  let userId: string | undefined;
+  // Why a send failed, verbatim, for the operator line and the audit row. Never
+  // returned to the caller.
+  let detail: string | undefined;
+
   // Per-account brake so nobody can flood a specific inbox with reset mail.
   const acctRl = rateLimit(`pwreset:acct:${normalized}`, {
     capacity: 3,
     refillPerSecond: 0.02,
   });
-  if (!acctRl.allowed) return NextResponse.json({ ok: true });
 
-  try {
-    const user = await prisma.user.findFirst({
-      where: {
-        email: { equals: normalized, mode: "insensitive" },
-        // SSO/Google-only accounts have no passwordHash → nothing to reset.
-        passwordHash: { not: null },
-        isBot: false,
-        deactivatedAt: null,
-      },
-      select: {
-        id: true,
-        email: true,
-        passwordHash: true,
-        passwordSetAt: true,
-        memberships: {
-          select: { org: { select: { id: true, slug: true } } },
+  if (!acctRl.allowed) {
+    outcome = "throttled";
+  } else {
+    try {
+      // The ELIGIBLE account decides whether mail goes out, filtered in SQL
+      // exactly as before. `User.email` carries no unique constraint, so an
+      // address can legitimately match several rows (a deactivated row kept for
+      // attribution plus a current one, say). Classifying from an unfiltered
+      // findFirst would let an ineligible row win the race and refuse a reset
+      // to a perfectly good account — the diagnosis below must never be able to
+      // change that decision.
+      const eligible = await prisma.user.findFirst({
+        where: {
+          email: { equals: normalized, mode: "insensitive" },
+          passwordHash: { not: null },
+          isBot: false,
+          deactivatedAt: null,
         },
-      },
-    });
-
-    if (user) {
-      // Choose the org whose email-delivery config sends the mail. Membership
-      // first, then the org that invited them -- see resolveSenderOrg for why
-      // that fallback is the whole point rather than a nicety.
-      const org = await resolveSenderOrg({
-        email: normalized,
-        orgSlug,
-        memberships: user.memberships,
+        select: {
+          id: true,
+          email: true,
+          passwordHash: true,
+          passwordSetAt: true,
+          memberships: {
+            select: { org: { select: { id: true, slug: true } } },
+          },
+        },
       });
 
-      const token = createPasswordResetToken(user);
-      const resetUrl = `${getPublicOrigin(request)}/reset-password?token=${encodeURIComponent(token)}`;
+      // Only when nothing eligible matched do we look again to NAME why, which
+      // is purely diagnostic and reached only on the no-mail paths.
+      const others = eligible
+        ? []
+        : await prisma.user.findMany({
+            where: { email: { equals: normalized, mode: "insensitive" } },
+            select: {
+              id: true,
+              passwordHash: true,
+              isBot: true,
+              deactivatedAt: true,
+              memberships: {
+                select: { org: { select: { id: true, slug: true } } },
+              },
+            },
+          });
 
-      try {
-        await sendPasswordResetEmail({
-          orgId: org?.id,
-          toEmail: user.email,
-          resetUrl,
-        });
-      } catch (e) {
-        // Swallow toward the CALLER — surfacing it would reveal the account
-        // exists. But log it: the caller and the operator are different
-        // audiences, and staying silent to both is what made this invisible.
-        //
-        // This log line is what found the delivery bug: an invited-but-not-yet-
-        // joined account resolved NO org, fell through to the deployment-wide
-        // RESEND_API_KEY/EMAIL_FROM, and threw where those are unset. That path
-        // now resolves the inviting org instead, so reaching the env fallback
-        // means the address has neither a membership nor a pending invitation.
-        // eslint-disable-next-line no-restricted-syntax -- operator-facing, see above
-        console.error(
-          `[password-reset] send failed for ${normalized}` +
-            `${org ? ` (org ${org.slug}, via ${org.source})` : " (no org and no pending invitation — using env config)"}:`,
-          e,
-        );
+      // Choose the org whose email-delivery config sends the mail. Membership
+      // first, then the org that invited them -- see resolveSenderOrg for why
+      // that fallback is the whole point rather than a nicety. Resolved even
+      // when no account matched, so an invited-but-not-yet-joined address still
+      // attributes its audit row somewhere.
+      org = await resolveSenderOrg({
+        email: normalized,
+        orgSlug,
+        memberships: eligible?.memberships ?? others[0]?.memberships ?? [],
+      });
+
+      if (eligible) {
+        userId = eligible.id;
+        const token = createPasswordResetToken(eligible);
+        const resetUrl = `${getPublicOrigin(request)}/reset-password?token=${encodeURIComponent(token)}`;
+        try {
+          await sendPasswordResetEmail({
+            orgId: org?.id,
+            toEmail: eligible.email,
+            resetUrl,
+          });
+          outcome = "sent";
+        } catch (e) {
+          // Swallowed toward the CALLER — surfacing it would reveal the
+          // account exists. The operator gets it below: the caller and the
+          // operator are different audiences, and staying silent to both is
+          // what made this invisible.
+          outcome = "send_failed";
+          detail = e instanceof Error ? e.message : String(e);
+        }
+      } else if (others.length === 0) {
+        outcome = "no_such_email";
+      } else {
+        userId = others[0].id;
+        // Most specific reason first, so the answer doesn't depend on which of
+        // several rows a query happened to return.
+        outcome = others.some((u) => u.passwordHash && (u.isBot || u.deactivatedAt))
+          ? "inactive"
+          : // SSO/Google-only: there is no password to reset. Correct to send
+            // nothing, but it is the outcome most often reported as "broken",
+            // so it is named rather than left silent.
+            "sso_only";
       }
+    } catch (e) {
+      // Never surface lookup errors to the caller either — stay indistinguishable.
+      outcome = "lookup_failed";
+      detail = e instanceof Error ? e.message : String(e);
     }
-  } catch (e) {
-    // Never surface lookup errors to the caller either — stay indistinguishable.
-    // Still logged, for the same reason as above.
-    // eslint-disable-next-line no-restricted-syntax -- operator-facing, see above
-    console.error(`[password-reset] lookup failed for ${normalized}:`, e);
+  }
+
+  // ONE operator line per request, whatever happened. "sent" is logged too: a
+  // success signal is what makes the absence of one meaningful.
+  //
+  // The address is logged in full ONLY when it matched a real account, which is
+  // the case an operator is actually asked to explain and whose address we
+  // already hold in `users` and in the audit row below. Anything else is an
+  // arbitrary string from an unauthenticated caller, so it is masked: without
+  // that, anyone could spray third-party addresses into the operator's logs by
+  // POSTing this endpoint. Note the caller cannot read any of this — the
+  // response is byte-identical on every path — so this is about not retaining
+  // other people's PII, not about enumeration.
+  const where = org ? `org ${org.slug}, via ${org.source}` : "no org and no pending invitation";
+  const who = userId ? normalized : maskEmail(normalized);
+  console.info(
+    `[password-reset] ${outcome} for ${who} (${where})` +
+      `${userId ? ` user=${userId}` : ""}${detail ? `: ${truncateForLog(detail)}` : ""}`,
+  );
+
+  // Durable trail, for the org that owns the account. AuditLog.orgId is NOT
+  // nullable, so a request that resolves no org at all (no membership, no
+  // pending invitation) has nowhere to attribute itself and is covered by the
+  // operator line alone.
+  if (org) {
+    try {
+      await logAudit({
+        orgId: org.id,
+        userId,
+        action: "auth.password_reset.requested",
+        entity: "user",
+        entityId: userId,
+        metadata: { outcome, email: normalized, ...(detail ? { detail } : {}) },
+        ipAddress: ip,
+      });
+    } catch (e) {
+      // An audit write must never turn a reset into a visible error, and must
+      // never change what the caller sees.
+      // eslint-disable-next-line no-restricted-syntax -- operator-facing, best-effort
+      console.error(`[password-reset] audit write failed for ${normalized}:`, e);
+    }
   }
 
   return NextResponse.json({ ok: true });

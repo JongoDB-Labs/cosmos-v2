@@ -28,7 +28,9 @@ vi.mock("@/lib/integrations/invitation-email", () => ({
 
 import { prisma } from "@/lib/db/client";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
+import { parsePasswordResetToken } from "@/lib/auth/password-reset";
 import { POST as requestReset } from "./request/route";
+import { maskEmail } from "@/lib/auth/mask-email";
 import { POST as confirmReset } from "./confirm/route";
 
 const E_PW = "zz-reset-pw@example.com";
@@ -122,5 +124,185 @@ describe("self-service password reset", () => {
   it("rejects a malformed/garbage token at confirm", async () => {
     const res = await confirmReset(req({ token: "garbage", newPassword: NEW_PASSWORD }));
     expect(res.status).toBe(400);
+  });
+});
+
+/**
+ * The outcome trail. Before this, the route logged ONLY on send failure, so an
+ * absent signal meant "mail went out", "no account matched" and "nobody ever
+ * submitted" equally well — a member reported a reset that never arrived and
+ * there was no way to tell which had happened. These pin each outcome to a
+ * durable, org-scoped audit row.
+ *
+ * Each case needs a real org: AuditLog.orgId is NOT nullable, so a requester
+ * who resolves no org at all is covered by the operator log line alone (the
+ * users in the suite above are deliberately org-less, which is why they assert
+ * mail rather than audit rows).
+ */
+describe("self-service password reset leaves an outcome trail", () => {
+  const stamp = Date.now().toString(36);
+  const slug = `zzpwr-${stamp}`;
+  const E_MEMBER = `zz-pwr-member-${stamp}@example.com`;
+  const E_MEMBER_SSO = `zz-pwr-sso-${stamp}@example.com`;
+  const E_INVITED = `zz-pwr-invited-${stamp}@example.com`;
+  let orgId = "";
+
+  async function outcomeOf(action: string): Promise<Record<string, unknown>> {
+    const row = await prisma.auditLog.findFirstOrThrow({
+      where: { orgId, action },
+      orderBy: { createdAt: "desc" },
+    });
+    return row.metadata as Record<string, unknown>;
+  }
+
+  beforeAll(async () => {
+    orgId = (
+      await prisma.organization.create({ data: { name: `pwr ${stamp}`, slug } })
+    ).id;
+    for (const [email, extra] of [
+      [E_MEMBER, { passwordHash: hashPassword(OLD_PASSWORD), passwordSetAt: new Date() }],
+      [E_MEMBER_SSO, { googleId: `zz-pwr-gid-${stamp}` }],
+    ] as const) {
+      const u = await prisma.user.create({
+        data: { email: email as string, displayName: "PWR", ...extra },
+      });
+      await prisma.orgMember.create({
+        data: { orgId, userId: u.id, role: "MEMBER", permissions: "0" },
+      });
+    }
+    // Invited but never joined: no account, but the org that courted them is
+    // still the right one to attribute the attempt to.
+    await prisma.invitation.create({
+      data: {
+        orgId,
+        email: E_INVITED,
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+  });
+
+  it("records `sent` — a success signal, which is what makes its absence mean something", async () => {
+    sentEmails.length = 0;
+    expect((await requestReset(req({ email: E_MEMBER }))).status).toBe(200);
+    expect(sentEmails).toHaveLength(1);
+
+    const meta = await outcomeOf("auth.password_reset.requested");
+    expect(meta.outcome).toBe("sent");
+    expect(meta.email).toBe(E_MEMBER);
+  });
+
+  it("names `sso_only` instead of going silent — the outcome most often reported as broken", async () => {
+    sentEmails.length = 0;
+    expect((await requestReset(req({ email: E_MEMBER_SSO }))).status).toBe(200);
+    // Still no mail, and still the same generic body: the trail is for the
+    // operator, never the caller.
+    expect(sentEmails).toHaveLength(0);
+
+    const meta = await outcomeOf("auth.password_reset.requested");
+    expect(meta.outcome).toBe("sso_only");
+  });
+
+  it("attributes an unknown address to the org whose invitation is pending", async () => {
+    sentEmails.length = 0;
+    expect((await requestReset(req({ email: E_INVITED }))).status).toBe(200);
+    expect(sentEmails).toHaveLength(0);
+
+    const meta = await outcomeOf("auth.password_reset.requested");
+    expect(meta.outcome).toBe("no_such_email");
+    expect(meta.email).toBe(E_INVITED);
+  });
+
+  it("records the completed reset as its own action, so 'asked for' and 'used' are distinguishable", async () => {
+    sentEmails.length = 0;
+    await requestReset(req({ email: E_MEMBER }));
+    const token = tokenFrom(sentEmails[0].resetUrl);
+
+    const done = await confirmReset(req({ token, newPassword: NEW_PASSWORD }));
+    expect(done.status).toBe(200);
+
+    const meta = await outcomeOf("auth.password_reset.completed");
+    expect(meta.email).toBe(E_MEMBER);
+    // Distinct from the request action: a request that nobody completes is
+    // exactly the state this pair exists to make visible.
+    expect(
+      await prisma.auditLog.count({
+        where: { orgId, action: "auth.password_reset.completed" },
+      }),
+    ).toBe(1);
+  });
+
+  it("still mails the eligible account when an INELIGIBLE row shares the address", async () => {
+    // `User.email` has no unique constraint, so one address can match several
+    // rows -- e.g. a deactivated row kept for attribution alongside a current
+    // one. Diagnosing the outcome from an unfiltered lookup let the ineligible
+    // row win and refused a reset to a good account. The ineligible row is
+    // created FIRST so an unordered findFirst would reach it first.
+    const dupe = `zz-pwr-dupe-${stamp}@example.com`;
+    const dead = await prisma.user.create({
+      data: {
+        email: dupe,
+        displayName: "PWR dead",
+        passwordHash: hashPassword(OLD_PASSWORD),
+        passwordSetAt: new Date(),
+        deactivatedAt: new Date(),
+      },
+    });
+    await prisma.orgMember.create({
+      data: { orgId, userId: dead.id, role: "MEMBER", permissions: "0" },
+    });
+    const live = await prisma.user.create({
+      data: {
+        email: dupe,
+        displayName: "PWR live",
+        passwordHash: hashPassword(OLD_PASSWORD),
+        passwordSetAt: new Date(),
+      },
+    });
+    await prisma.orgMember.create({
+      data: { orgId, userId: live.id, role: "MEMBER", permissions: "0" },
+    });
+
+    sentEmails.length = 0;
+    expect((await requestReset(req({ email: dupe }))).status).toBe(200);
+    expect(sentEmails).toHaveLength(1);
+
+    const meta = await outcomeOf("auth.password_reset.requested");
+    expect(meta.outcome).toBe("sent");
+
+    // Both rows carry the SAME address, so asserting the email proves nothing
+    // about WHICH account was mailed -- the token has to be decoded. Without
+    // this the spec passed against the very bug it exists to catch.
+    const decoded = parsePasswordResetToken(tokenFrom(sentEmails[0].resetUrl));
+    expect(decoded?.uid).toBe(live.id);
+    expect(decoded?.uid).not.toBe(dead.id);
+  });
+
+  it("a reset for an address with no account and no invitation writes no row, and still returns OK", async () => {
+    sentEmails.length = 0;
+    const before = await prisma.auditLog.count({ where: { orgId } });
+    const res = await requestReset(req({ email: `zz-pwr-nowhere-${stamp}@example.com` }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(sentEmails).toHaveLength(0);
+    // Nowhere to attribute it: no membership, no pending invitation.
+    expect(await prisma.auditLog.count({ where: { orgId } })).toBe(before);
+  });
+});
+
+describe("maskEmail keeps an unmatched address out of the operator log", () => {
+  it("leaves one letter and the domain — correlatable, not a copy of the address", () => {
+    expect(maskEmail("alice@example.com")).toBe("a***@example.com");
+    expect(maskEmail("a@example.com")).toBe("a***@example.com");
+  });
+
+  it("masks the local part even when it contains an @-like string", () => {
+    // Split on the LAST @, so a quoted local part can't leak through.
+    expect(maskEmail('"weird@inner"@example.com')).toBe('"***@example.com');
+  });
+
+  it("never returns the input when there is no usable local part", () => {
+    for (const bad of ["@example.com", "nope", ""]) {
+      expect(maskEmail(bad)).toBe("***");
+    }
   });
 });

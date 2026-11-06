@@ -554,6 +554,18 @@ function LoginInner() {
                   to reset its password. The link expires in an hour and can be
                   used once.
                 </p>
+                {/*
+                  Shown to everyone, so it reveals nothing about the address —
+                  but it is the one thing a Google/Microsoft/SSO user needs to
+                  read. Those accounts have no password to reset, so the
+                  message above is, for them, a dead end that looks like a
+                  failure of the product.
+                */}
+                <p className="text-sm text-muted-foreground">
+                  Signing in with Google, Microsoft or your organization&apos;s
+                  SSO? Those accounts have no password to reset — go back and
+                  use that button instead.
+                </p>
                 <Button
                   type="button"
                   className="w-full"

@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.534.0",
+    date: "2026-11-06",
+    title: "Password resets you can actually account for",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The \u201ccheck your email\u201d screen after a password reset now says that accounts signing in with Google, Microsoft or your organization\u2019s SSO have no password to reset. Those accounts never received a reset email and never could, so the old message was a dead end that read as a broken feature.",
+      },
+      {
+        kind: "improvement",
+        text: "Password resets are now recorded in the audit log \u2014 both the request and its completion, as separate entries. An administrator can see that a reset was asked for, whether an email was actually sent, and whether anyone used the link. Previously a reset that went missing left no trace at all, so there was no way to tell a delivered email from one that was never sent.",
+      },
+    ],
+  },
+  {
       version: "2.533.0",
       date: "2026-11-06",
       title: "A check that secrets never ride along in a listing",
