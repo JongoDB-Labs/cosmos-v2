@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+      version: "2.536.0",
+      date: "2026-11-06",
+      title: "Bills respect who can see a project",
+      highlights: [
+        {
+          kind: "fix",
+          text: "Bills belonging to a project with restricted access are now hidden from people outside that project\u2019s team, as that project\u2019s invoices and expenses already were. Previously anyone who could read finance saw every bill in the organization, whatever they could see of the project it belonged to.",
+        },
+        {
+          kind: "fix",
+          text: "Editing a bill on a restricted project, or linking a bill to an invoice on one, is now refused for anyone outside that team \u2014 answered the same way as a bill that does not exist, so it reveals nothing.",
+        },
+      ],
+    },
+  {
     version: "2.535.0",
     date: "2026-11-06",
     title: "Request an account, and approve it",

@@ -104,6 +104,14 @@ export type BillFilters = {
   partnerId?: string;
   /** "none" for bills with no client invoice behind them. */
   invoice?: string;
+  /**
+   * The caller's project-visibility clause (visibleProjectRecordsWhere), so a
+   * bill on a project hidden from them is left out in the WHERE — as that
+   * project's invoices and expenses already are. One on no project is the
+   * org's and stays. Omitting this showed every bill in the org to anyone with
+   * FINANCE_READ, whatever they could see of its project.
+   */
+  visible?: Prisma.BillWhereInput;
 };
 
 export async function listBills(orgId: string, f: BillFilters = {}) {
@@ -118,6 +126,7 @@ export async function listBills(orgId: string, f: BillFilters = {}) {
       ...(f.partnerId ? { partnerId: f.partnerId } : {}),
       ...(f.invoice === "none" ? { invoiceId: null } : {}),
       ...(f.invoice === "linked" ? { NOT: { invoiceId: null } } : {}),
+      ...(f.visible ? { AND: [f.visible] } : {}),
     },
     select: SELECT,
     orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
