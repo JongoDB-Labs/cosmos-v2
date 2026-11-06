@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/client";
-import { ConflictError } from "@/lib/rbac/check";
+import { ConflictError, ForbiddenError } from "@/lib/rbac/check";
 import { logAudit } from "@/lib/audit";
 import {
   sendInvitationEmail,
@@ -22,6 +22,8 @@ export interface CreateOrgInvitationParams {
   mfaRequired: boolean;
   /** The admin doing this: mail is sent as them, and the audit row is theirs. */
   actorUserId: string;
+  /** The admin's OWN org role, which bounds the role they may hand out. */
+  actorOrgRole: OrgRole;
   actorDisplayName: string | null;
   /** Public origin, for the accept/login link. */
   origin: string;
@@ -67,6 +69,19 @@ export async function createOrgInvitation(
 ): Promise<CreateOrgInvitationResult> {
   const email = p.email.trim().toLowerCase();
   const workRoleIds = p.workRoleIds ?? [];
+
+  // Only an OWNER may hand out the OWNER role. Without this an ADMIN holding
+  // ORG_MANAGE_MEMBERS could invite an address they control as OWNER, accept
+  // it, and gain the OWNER-only bits (ORG_DELETE, ORG_MANAGE_BILLING) — which
+  // also breaks the assumption that bounds the work-role escalation model.
+  //
+  // The members route has enforced exactly this on a role CHANGE for a while;
+  // the invitation path did not, so the same escalation was reachable by
+  // inviting instead of promoting. It lives here, not in a route, so both the
+  // invitations endpoint and account-request approval are covered by one copy.
+  if (p.role === "OWNER" && p.actorOrgRole !== "OWNER") {
+    throw new ForbiddenError("Only an owner can grant the owner role");
+  }
 
   // Case-insensitive so a differently-cased row can't slip past the guards
   // below (matches provisionEmailPasswordInvite's own lookup).

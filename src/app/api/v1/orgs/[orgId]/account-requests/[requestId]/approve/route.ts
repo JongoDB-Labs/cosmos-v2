@@ -12,14 +12,12 @@ import {
   NotPending,
   DomainNowDisallowed,
 } from "@/lib/auth/account-requests";
-import { OrgRole } from "@prisma/client";
 
 const bodySchema = z.object({
   // The admin's per-request choice: an invitation link, or a temporary
   // password. On an address that already has an account the service coerces
   // this to "oauth" and never sets a credential — see createOrgInvitation.
   signInMethod: z.enum(SIGN_IN_METHODS).default("oauth"),
-  role: z.nativeEnum(OrgRole).default(OrgRole.MEMBER),
   mfaRequired: z.boolean().default(false),
 });
 
@@ -28,7 +26,7 @@ type RouteParams = { params: Promise<{ orgId: string; requestId: string }> };
 /**
  * Approve a request, minting the account through the one shared path.
  *
- * Work-roles are deliberately NOT accepted here. Assigning them requires
+ * Neither a base role nor work-roles are accepted here. Assigning them requires
  * checking each against the approver's own permission ceiling, and an approval
  * screen is the wrong place to make that decision — the admin adjusts roles on
  * the member once they have joined.
@@ -55,9 +53,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       orgSlug: org.slug,
       requestId,
       signInMethod: body.signInMethod,
-      role: body.role,
       mfaRequired: body.mfaRequired,
       actorUserId: ctx.userId,
+      actorOrgRole: ctx.orgRole,
       actorDisplayName: actor ? actor.displayName : null,
       origin: getPublicOrigin(request),
       ipAddress: getIpAddress(request),

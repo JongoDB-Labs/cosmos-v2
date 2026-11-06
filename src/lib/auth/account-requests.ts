@@ -173,9 +173,10 @@ export async function approveAccountRequest(params: {
   requestId: string;
   /** The admin's per-request choice: an invitation link, or a temp password. */
   signInMethod: SignInMethod;
-  role: OrgRole;
   mfaRequired: boolean;
   actorUserId: string;
+  /** The approver's own org role, which bounds what approval can grant. */
+  actorOrgRole: OrgRole;
   actorDisplayName: string | null;
   origin: string;
   ipAddress?: string | null;
@@ -218,10 +219,17 @@ export async function approveAccountRequest(params: {
       orgName: params.orgName,
       orgSlug: params.orgSlug,
       email: req.email,
-      role: params.role,
+      // Approval always mints a plain MEMBER. Handing out a role here would
+      // need the same ceiling check promoting someone does, and an approval
+      // screen is the wrong place for that decision -- the admin adjusts the
+      // role on the member once they have joined, through the members route
+      // that already enforces it. Same reasoning as work-roles, which
+      // approval also does not accept.
+      role: OrgRole.MEMBER,
       signInMethod: params.signInMethod,
       mfaRequired: params.mfaRequired,
       actorUserId: params.actorUserId,
+      actorOrgRole: params.actorOrgRole,
       actorDisplayName: params.actorDisplayName,
       origin: params.origin,
       ipAddress: params.ipAddress,

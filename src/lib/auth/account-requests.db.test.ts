@@ -48,9 +48,9 @@ async function approveAs(requestId: string, signInMethod: "oauth" | "email_passw
     orgSlug: slug,
     requestId,
     signInMethod,
-    role: OrgRole.MEMBER,
     mfaRequired: false,
     actorUserId: adminId,
+    actorOrgRole: OrgRole.OWNER,
     actorDisplayName: "Admin",
     origin: "http://localhost",
   });
