@@ -48,6 +48,8 @@ type UpdateCheck = {
   } | null;
   candidateDigest: string | null;
   candidateTag: string | null;
+  /** The version the candidate's tag and digest belong to: the newer release, or the running one when it is a rebuild. */
+  candidateVersion?: string | null;
   /** The image for the RUNNING version was rebuilt; null when the instance does not know its own digest. */
   rebuildAvailable: boolean | null;
   preflights: Preflight[];
@@ -863,9 +865,16 @@ export function UpdatesManager() {
               <dt className="text-muted-foreground">Newest available</dt>
               <dd className="font-mono">{status?.latest ?? "—"}</dd>
               {data.candidateTag && (
+                // The candidate under its OWN version, beside its own tag. It
+                // used to be a bare "Candidate tag" under "Newest available",
+                // which read as the newest release's tag even when the
+                // candidate was something else.
                 <>
-                  <dt className="text-muted-foreground">Candidate tag</dt>
-                  <dd className="font-mono">{data.candidateTag}</dd>
+                  <dt className="text-muted-foreground">Offered</dt>
+                  <dd className="font-mono" data-testid="update-offered">
+                    {data.candidateVersion ?? "—"}{" "}
+                    <span className="text-muted-foreground">(tag {data.candidateTag})</span>
+                  </dd>
                 </>
               )}
               {data.candidateDigest && (

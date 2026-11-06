@@ -21,6 +21,7 @@ const OK = {
   status: { current: "2.276.8", latest: "2.277.1", newer: ["2.277.0", "2.277.1"], updateAvailable: true, ahead: false },
   candidateDigest: `sha256:${"a".repeat(64)}`,
   candidateTag: "2.277.1-alpha",
+  candidateVersion: "2.277.1",
   preflights: [
     { id: "candidate-resolves", title: "Candidate image exists", status: "pass", detail: "resolves", blocking: true },
     { id: "disk-headroom", title: "Disk headroom", status: "unknown", detail: "not observable here", blocking: true, deferredTo: "host-runner" },
@@ -124,6 +125,25 @@ describe("UpdatesManager — the install control", () => {
   });
 });
 
+describe("UpdatesManager — the offered candidate", () => {
+  it("shows the candidate under its own version, beside its own tag", async () => {
+    // Newest available and the candidate can differ (the newest's images not
+    // yet both published): the candidate row must say which version it is.
+    stubFetch({ ...OK, candidateVersion: "2.277.0", candidateTag: "2.277.0-alpha" });
+    renderPanel();
+    const offered = await screen.findByTestId("update-offered");
+    expect(offered.textContent).toBe("2.277.0 (tag 2.277.0-alpha)");
+    expect(screen.queryByText("Candidate tag")).toBeNull();
+  });
+
+  it("shows no candidate row when there is no candidate", async () => {
+    stubFetch({ ...OK, candidateDigest: null, candidateTag: null, candidateVersion: null });
+    renderPanel();
+    expect(await screen.findByText("Newest available")).toBeTruthy();
+    expect(screen.queryByTestId("update-offered")).toBeNull();
+  });
+});
+
 describe("UpdatesManager — reinstalling a rebuilt image", () => {
   // A composed image carries the CORE version, so a plugin-only release
   // republishes the tag this instance already runs. It is not "up to date", and
@@ -132,6 +152,7 @@ describe("UpdatesManager — reinstalling a rebuilt image", () => {
     ...OK,
     status: { current: "2.277.1", latest: "2.277.1", newer: [], updateAvailable: false, ahead: false },
     candidateTag: "2.277.1-alpha",
+    candidateVersion: "2.277.1",
     rebuildAvailable: true,
     notes: [],
     notesOmitted: 0,
@@ -201,7 +222,7 @@ describe("UpdatesManager", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(OK), { status: 200 })));
     renderPanel();
     const { container } = renderPanelResult!;
-    expect(await screen.findByText("2.277.1-alpha")).toBeTruthy(); // candidate tag surfaced
+    expect((await screen.findByTestId("update-offered")).textContent).toBe("2.277.1 (tag 2.277.1-alpha)"); // candidate surfaced, with its version
     // The version now appears in BOTH the comparison row and the notes block,
     // so scope this to the definition list that IS the comparison.
     await waitFor(() => {
@@ -287,7 +308,7 @@ describe("UpdatesManager", () => {
     expect(screen.queryByRole("button", { name: /^Install/ })).toBeNull();
 
     // Assert on things only this card renders — the version string alone also
-    // appears as Running / Newest available / Candidate tag.
+    // appears as Running / Newest available / Offered.
     expect(await screen.findByText(/Last install/i)).toBeTruthy();
     expect(await screen.findByText(/succeeded/i)).toBeTruthy();
     expect(await screen.findByText(/DEPLOY OK - app serving 2\.277\.1/)).toBeTruthy();
