@@ -839,6 +839,7 @@ model Project {
   updatedAt           DateTime      @updatedAt @map("updated_at")
 
   org                 Organization              @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  feeTerms            ProjectFeeTerms?
   /// SetNull, not Cascade: removing a client must never delete the work done for
   /// them.
   client              Client?                   @relation(fields: [clientId], references: [id], onDelete: SetNull)
@@ -6184,6 +6185,11 @@ model Bill {
   currency    String       @default("USD")
   amount      Decimal      @db.Decimal(19, 4)
   amountPaid  Decimal      @default(0) @map("amount_paid") @db.Decimal(19, 4)
+  /// Markup when re-billed to the client, as a percent (15 = 15%). Null
+  /// inherits the project's, then the org's (src/lib/finance/markup.ts). The
+  /// amount stays the vendor's exact figure; markup lives only on the client
+  /// invoice.
+  markupPct   Decimal?     @map("markup_pct") @db.Decimal(7, 4)
   notes       String?
   createdById String       @map("created_by_id") @db.Uuid
   createdAt   DateTime     @default(now()) @map("created_at")
@@ -6314,4 +6320,20 @@ model TeamsOutbox {
 
   @@index([nextAttemptAt])
   @@map("teams_outbox")
+}
+
+/// A project's commercial terms, kept apart from Project so that nothing which
+/// returns a project row (every project read in the public API) carries them:
+/// they are finance data, read and written only behind the finance
+/// permissions. One row per project, created on first write.
+model ProjectFeeTerms {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String   @unique @map("project_id") @db.Uuid
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// Markup on reimbursable costs, as a percent (15 = 15%). Null uses the
+  /// org's default; a bill can override it again (src/lib/finance/markup.ts).
+  markupPct Decimal? @map("markup_pct") @db.Decimal(7, 4)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("project_fee_terms")
 }

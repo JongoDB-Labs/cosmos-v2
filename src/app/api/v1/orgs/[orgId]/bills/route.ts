@@ -5,6 +5,8 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { MAX_MARKUP_PCT } from "@/lib/finance/markup";
+import { assertBillLinks } from "@/lib/payables/links.server";
 import { listBills, createBill } from "@/lib/payables/service";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -18,6 +20,8 @@ const billInputSchema = z.object({
   partnerId: z.string().uuid().nullish(),
   projectId: z.string().uuid().nullish(),
   invoiceId: z.string().uuid().nullish(),
+  /** Percent (15 = 15%). Null inherits the project's, then the org's. */
+  markupPct: z.number().finite().min(0).max(MAX_MARKUP_PCT).nullish(),
   status: z.enum(["DRAFT", "OPEN", "PAID", "VOID"]).optional(),
   terms: z.enum(["DUE_DATE", "PAY_WHEN_PAID"]).optional(),
   issueDate: DATE.nullish(),
@@ -59,6 +63,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     requirePermission(ctx, Permission.FINANCE_MANAGE);
 
     const input = billInputSchema.parse(await request.json());
+    await assertBillLinks(ctx, orgId, input);
     return success(await createBill(orgId, ctx.userId, input), 201);
   } catch (error) {
     return handleApiError(error);

@@ -3,6 +3,8 @@ import { getAuthContext } from "@/lib/auth/session";
 import { redirect, notFound } from "next/navigation";
 import { ProjectSettingsClient } from "./project-settings-client";
 import { MentionedIn } from "@/components/mentions/mentioned-in";
+import { ProjectFeeTerms } from "@/components/finance/project-fee-terms";
+import { hasPermission, Permission } from "@/lib/rbac/permissions";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
@@ -71,6 +73,10 @@ export default async function ProjectSettingsPage({ params }: PageParams) {
         teamScopedAccess={project.teamScopedAccess}
         closingRule={closingRuleChoice}
       />
+      {/* Finance data: only for those who can read it (the route gates it too). */}
+      {hasPermission(ctx.permissions, Permission.FINANCE_READ) && (
+        <ProjectFeeTerms orgId={ctx.orgId} projectId={project.id} />
+      )}
       <MentionedIn
         orgId={ctx.orgId}
         type="project"

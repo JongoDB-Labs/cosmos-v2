@@ -12,6 +12,9 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Receipt } from "lucide-react";
 import { dueLabel, isPastDue, outstanding, type BillLike } from "@/lib/payables/bills";
+import { FinanceSettingsCard, useFinanceSettings } from "@/components/finance/finance-settings-card";
+import { MarkupCell } from "@/components/finance/markup-cell";
+import type { MarkupSource } from "@/lib/finance/markup";
 
 /**
  * What the practice owes.
@@ -31,6 +34,8 @@ type Bill = BillLike & {
   currency: string;
   project: { key: string; name: string } | null;
   invoice: { number: string; status: string } | null;
+  markupPct: number | null;
+  markup: { pct: number; source: MarkupSource } | null;
 };
 
 type Payload = {
@@ -75,12 +80,16 @@ export function BillsWorkspace({ orgId }: { orgId: string }) {
   const [term, setTerm] = useState("");
 
   const q = useQuery({
-    queryKey: useOrgQueryKey(["bills", status]),
+    // Flat parts, so invalidating ["bills"] reaches every filter's cache.
+    queryKey: useOrgQueryKey("bills", status),
     queryFn: () =>
       jsonFetch<Payload>(
         `/api/v1/orgs/${orgId}/bills${status === "all" ? "" : `?status=${status}`}`,
       ),
   });
+
+  const finance = useFinanceSettings(orgId);
+  const canManage = finance.data?.canManage ?? false;
 
   const bills = useMemo(() => q.data?.data ?? [], [q.data]);
   const today = q.data?.today ?? new Date().toISOString().slice(0, 10);
@@ -102,6 +111,7 @@ export function BillsWorkspace({ orgId }: { orgId: string }) {
 
   return (
     <div className="space-y-6">
+      <FinanceSettingsCard orgId={orgId} />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total">
           <p className="text-2xl font-semibold tabular-nums">{money(t.total)}</p>
@@ -172,6 +182,7 @@ export function BillsWorkspace({ orgId }: { orgId: string }) {
                 <th className="px-4 py-2 font-medium">Issued</th>
                 <th className="px-4 py-2 text-right font-medium">Amount</th>
                 <th className="px-4 py-2 text-right font-medium">Outstanding</th>
+                <th className="px-4 py-2 text-right font-medium">Markup</th>
                 <th className="px-4 py-2 font-medium">Client invoice</th>
                 <th className="px-4 py-2 font-medium">Status</th>
                 <th className="px-4 py-2 font-medium">Due</th>
@@ -194,6 +205,9 @@ export function BillsWorkspace({ orgId }: { orgId: string }) {
                     <td className="px-4 py-2 text-right tabular-nums">{money(b.amount)}</td>
                     <td className="px-4 py-2 text-right tabular-nums">
                       {left > 0 ? money(left) : "—"}
+                    </td>
+                    <td className="px-4 py-2 text-right whitespace-nowrap">
+                      <MarkupCell orgId={orgId} bill={b} canManage={canManage} />
                     </td>
                     <td className="px-4 py-2 text-[var(--text-muted)]">
                       {b.invoice ? `${b.invoice.number} · ${b.invoice.status}` : "No client invoice"}
