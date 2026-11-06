@@ -21,6 +21,31 @@
 	# gzipped assets are not compressed twice, and WebSocket upgrades (the
 	# sidecar routes) are 101 responses it does not touch.
 	encode zstd gzip
+	#
+	# An automated review flagged this as a BREACH compression side-channel
+	# (MEDIUM). BREACH needs three things together: a secret in a compressed
+	# response, attacker-controlled input reflected into that SAME response, and
+	# the secret staying CONSTANT across many requests so response size becomes
+	# an oracle to search it. The third does not hold here, and the routes say so
+	# deliberately:
+	#
+	#   GET  /calendar-feeds  the select excludes the token -- "a token is shown
+	#                         once, at creation, and never again"
+	#   POST /calendar-feeds  returns the URL once, freshly minted per request
+	#   GET  /api-keys        "NEVER select `keyHash`"
+	#   POST /api-keys        plaintext token once, freshly minted per request
+	#   integrations          secret config fields are sealed into the vault,
+	#                         never written to the plaintext Integration.config
+	#   CSRF                  a cookie; `encode` compresses bodies, not headers
+	#
+	# Hammering those POSTs mints a DIFFERENT secret every time, so there is no
+	# oracle. The path exclusions the review suggested (/api/*keys*,
+	# /api/*token*) would cost compression on responses carrying no secret.
+	#
+	# That holds only while it stays true, so it is enforced rather than trusted:
+	# src/lib/http/no-stable-secret-in-compressed-get.arch.test.ts fails if any
+	# GET handler selects long-lived secret material into its payload. Add such a
+	# route and either exclude its path here or stop returning the secret.
 
 	# ── Realtime sidecars ───────────────────────────────────────────────────
 	# Matched BEFORE the catch-all below, which would otherwise send these

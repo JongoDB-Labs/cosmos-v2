@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+      version: "2.533.0",
+      date: "2026-11-06",
+      title: "A check that secrets never ride along in a listing",
+      highlights: [
+        {
+          kind: "improvement",
+          text: "Added an automated check that no read endpoint can return long-lived secret material \u2014 an API key hash, a calendar-feed token, an integration secret \u2014 alongside ordinary data. None did; the check is there so none starts to. Secrets of this kind are shown once when created and never again, and that is now enforced rather than relied upon.",
+        },
+      ],
+    },
+  {
       version: "2.532.0",
       date: "2026-11-06",
       title: "A file off-project can no longer be attached across projects",
