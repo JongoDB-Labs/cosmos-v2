@@ -78,6 +78,7 @@ const READY: UpdateCheck = {
   candidateDigest: `sha256:${"a".repeat(64)}`,
   rebuildAvailable: null,
   candidateTag: `${VERSION}-alpha`,
+  candidateVersion: VERSION,
   preflights: [],
   notes: [],
   notesOmitted: 0,

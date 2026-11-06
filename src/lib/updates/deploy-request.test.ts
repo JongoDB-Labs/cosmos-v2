@@ -25,6 +25,7 @@ const READY: UpdateCheck = {
   candidateDigest: `sha256:${"a".repeat(64)}`,
   rebuildAvailable: null,
   candidateTag: "2.279.0-alpha",
+  candidateVersion: "2.279.0",
   preflights: [pass("candidate-resolves", "Candidate image exists"), pass("sidecars-paired", "Plugin sidecar images")],
   notes: [],
   notesOmitted: 0,

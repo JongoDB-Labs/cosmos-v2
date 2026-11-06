@@ -290,6 +290,55 @@ describe("checkForUpdates — the same version, rebuilt", () => {
     expect(out.applyable).toBe(false);
   });
 
+  it("never fills a newer release's slot with the running version's rebuild", async () => {
+    // The reported bug: 2.277.0's app and migrate images had not both
+    // resolved yet, the running 2.276.8 had been rebuilt, and the rebuild was
+    // taken as "the candidate" because none had been found. The screen then
+    // showed 2.277.0 as newest beside 2.276.8's tag and digest, and the resolve
+    // preflight passed 2.277.0 on the old image's digest.
+    const resolveDigest = vi.fn(async (repo: string, tag: string) =>
+      tag.startsWith("2.276.8") ? REBUILT : repo.includes("-migrate") ? null : DIGEST,
+    ) as unknown as CheckDeps["resolveDigest"];
+    const out = await checkForUpdates(
+      "2.276.8",
+      { ...CONFIG, runningDigest: RUNNING },
+      deps({ listTags: vi.fn(async () => ["2.276.8-alpha", "2.277.0-alpha"]), resolveDigest }),
+    );
+    expect(out.status!.updateAvailable).toBe(true);
+    expect(out.rebuildAvailable).toBe(true);
+    expect(out.candidateDigest).toBeNull();
+    expect(out.candidateTag).toBeNull();
+    expect(out.candidateVersion).toBeNull();
+    const resolves = out.preflights.find((p) => p.id === "candidate-resolves");
+    expect(resolves?.status).toBe("fail");
+    expect(resolves?.detail).toContain("2.277.0 did not resolve");
+    expect(out.applyable).toBe(false);
+  });
+
+  it("names the candidate's own version: the newer release on an upgrade, the running one on a reinstall", async () => {
+    const upgrade = await checkForUpdates("2.275.0", CONFIG, deps());
+    expect([upgrade.candidateVersion, upgrade.candidateTag]).toEqual(["2.276.8", "2.276.8-alpha"]);
+    const reinstall = await checkForUpdates(
+      "2.276.8",
+      { ...CONFIG, runningDigest: RUNNING },
+      deps({ ...sameVersionOnly, resolveDigest: vi.fn(async () => REBUILT) }),
+    );
+    expect([reinstall.candidateVersion, reinstall.candidateTag]).toEqual(["2.276.8", "2.276.8-alpha"]);
+    const none = await checkForUpdates("2.276.8", CONFIG, deps(sameVersionOnly));
+    expect(none.candidateVersion).toBeNull();
+  });
+
+  it("names the running version for its rebuild even when the registry's newest is older", async () => {
+    // Ahead of the registry: "newest" is 2.275.0, but the rebuilt image is 2.276.8's.
+    const out = await checkForUpdates(
+      "2.276.8",
+      { ...CONFIG, runningDigest: RUNNING },
+      deps({ listTags: vi.fn(async () => ["2.275.0-alpha"]), resolveDigest: vi.fn(async () => REBUILT) }),
+    );
+    expect(out.status!.ahead).toBe(true);
+    expect([out.candidateVersion, out.candidateTag]).toEqual(["2.276.8", "2.276.8-alpha"]);
+  });
+
   it("prefers a NEWER version over a reinstall when both exist", async () => {
     const resolveDigest = vi.fn(async (_repo: string, tag: string) =>
       tag.startsWith("2.276.8") ? REBUILT : DIGEST,
@@ -302,6 +351,7 @@ describe("checkForUpdates — the same version, rebuilt", () => {
     expect(out.status!.updateAvailable).toBe(true);
     expect(out.rebuildAvailable).toBe(true);
     expect(out.candidateTag).toBe("2.277.0-alpha");
+    expect(out.candidateVersion).toBe("2.277.0");
     expect(out.candidateDigest).toBe(DIGEST);
   });
 });

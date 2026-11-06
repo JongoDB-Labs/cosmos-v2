@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.528.1",
+    date: "2026-11-06",
+    title: "Update screen shows the right version",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Admin \u203a Updates labels the offered update with its own version and tag, and no longer offers the running version's rebuild while a newer release is still being published.",
+      },
+    ],
+  },
+  {
     version: "2.528.0",
     date: "2026-11-06",
     title: "Add reimbursables to an invoice",
