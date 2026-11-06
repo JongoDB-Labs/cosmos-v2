@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { ConflictError, ForbiddenError } from "@/lib/rbac/check";
+import { emailDomainAllowed } from "@/lib/auth/allowed-domains";
 import { logAudit } from "@/lib/audit";
 import {
   sendInvitationEmail,
@@ -81,6 +82,24 @@ export async function createOrgInvitation(
   // invitations endpoint and account-request approval are covered by one copy.
   if (p.role === "OWNER" && p.actorOrgRole !== "OWNER") {
     throw new ForbiddenError("Only an owner can grant the owner role");
+  }
+
+  // The org's email-domain restriction, enforced for EVERY way an account is
+  // minted. An empty list is unrestricted, as everywhere else.
+  //
+  // This was a route-level check only, so approving an account request could
+  // mint an invitation for an address the invitations endpoint would refuse
+  // outright: the request modes (ALLOWLIST / OPEN) govern what may be
+  // SUBMITTED, and reading the mode at decision time made the restriction
+  // conditional on it. It is not — it bounds who may newly join, full stop.
+  // The invitations route keeps its own copy for the friendlier message that
+  // names the domains; this one is the guarantee.
+  const sec = await prisma.orgSecuritySettings.findUnique({
+    where: { orgId: p.orgId },
+    select: { allowedDomains: true },
+  });
+  if (!emailDomainAllowed(email, sec?.allowedDomains)) {
+    throw new ForbiddenError("That address is not on this organization's allowed domains");
   }
 
   // Case-insensitive so a differently-cased row can't slip past the guards

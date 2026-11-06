@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+      version: "2.538.0",
+      date: "2026-11-06",
+      title: "Approved accounts respect the approved domains",
+      highlights: [
+        {
+          kind: "fix",
+          text: "Approving an account request now refuses an address outside the organization\u2019s approved email domains, as inviting someone directly always did. Whether requests are open to any address only governs who may ask \u2014 it never widens who may join.",
+        },
+        {
+          kind: "fix",
+          text: "Restricting requests to the approved domains while no domains are configured is now refused in both directions: it cannot be saved, and it is not honoured if it somehow exists. With no domains the restriction would have accepted every address while appearing to be locked down.",
+        },
+        {
+          kind: "improvement",
+          text: "A password-reset entry is recorded only for the organization the account actually belongs to. An address that has only been invited no longer leaves a reset record in that organization\u2019s audit log, and delivery error text is kept out of it.",
+        },
+      ],
+    },
+  {
           version: "2.537.0",
           date: "2026-11-06",
           title: "Front-door settings now ship with the release",

@@ -62,11 +62,19 @@ export async function submitAccountRequest(params: {
   const mode = org.securitySettings?.accountRequestMode ?? AccountRequestMode.OFF;
   if (mode === AccountRequestMode.OFF) return { outcome: "mode_off", orgId: org.id };
 
-  if (
-    mode === AccountRequestMode.ALLOWLIST &&
-    !emailDomainAllowed(email, org.securitySettings?.allowedDomains)
-  ) {
-    return { outcome: "domain_not_allowed", orgId: org.id };
+  if (mode === AccountRequestMode.ALLOWLIST) {
+    const domains = (org.securitySettings?.allowedDomains ?? [])
+      .map((d) => d.trim())
+      .filter(Boolean);
+    // Fail CLOSED on a configuration that cannot mean what it says: an empty
+    // list is "unrestricted" everywhere else, so ALLOWLIST with no domains
+    // would accept every address while reading as locked down. The settings
+    // route refuses to create that state; this refuses to honour it if it
+    // arrives some other way.
+    if (domains.length === 0) return { outcome: "domain_not_allowed", orgId: org.id };
+    if (!emailDomainAllowed(email, domains)) {
+      return { outcome: "domain_not_allowed", orgId: org.id };
+    }
   }
 
   // Someone who is already a member has nothing to ask for. Checked so the

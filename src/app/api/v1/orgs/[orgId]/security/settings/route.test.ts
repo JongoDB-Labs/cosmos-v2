@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { clampGovRetentionDays, GOV_AUDIT_RETENTION_FLOOR_DAYS } from "./route";
+import { AccountRequestMode } from "@prisma/client";
+import {
+  clampGovRetentionDays,
+  GOV_AUDIT_RETENTION_FLOOR_DAYS,
+  allowlistWithoutDomains,
+} from "./route";
 
 describe("clampGovRetentionDays (AU-11 gov retention floor)", () => {
   it("coerces a GOV tenant below the 3yr floor up to 1095 days", () => {
@@ -20,5 +25,22 @@ describe("clampGovRetentionDays (AU-11 gov retention floor)", () => {
   it("passes through undefined (no retention change requested)", () => {
     expect(clampGovRetentionDays("GOV", undefined)).toBeUndefined();
     expect(clampGovRetentionDays("COMMERCIAL", undefined)).toBeUndefined();
+  });
+});
+
+describe("allowlistWithoutDomains (a restriction that would accept everyone)", () => {
+  it("refuses ALLOWLIST with no usable domains", () => {
+    expect(allowlistWithoutDomains(AccountRequestMode.ALLOWLIST, [])).toBe(true);
+    expect(allowlistWithoutDomains(AccountRequestMode.ALLOWLIST, ["  ", ""])).toBe(true);
+  });
+
+  it("allows ALLOWLIST once a domain is configured", () => {
+    expect(allowlistWithoutDomains(AccountRequestMode.ALLOWLIST, ["corp.test"])).toBe(false);
+  });
+
+  it("does not interfere with the other modes, where an empty list is meaningless", () => {
+    for (const mode of [AccountRequestMode.OFF, AccountRequestMode.OPEN, undefined]) {
+      expect(allowlistWithoutDomains(mode, [])).toBe(false);
+    }
   });
 });

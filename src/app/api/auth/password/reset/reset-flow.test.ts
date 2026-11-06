@@ -202,14 +202,18 @@ describe("self-service password reset leaves an outcome trail", () => {
     expect(meta.outcome).toBe("sso_only");
   });
 
-  it("attributes an unknown address to the org whose invitation is pending", async () => {
+  it("writes NO tenant row for an invited address that is not a member", async () => {
+    // An invited-but-not-joined address resolves an org only through the
+    // pending-invitation fallback. That is the right org to send mail AS and
+    // the wrong basis for a tenant-readable audit row: the address may already
+    // have an account elsewhere, so attributing its outcome to the inviting
+    // org would put a non-member's state into that org's log. The operator
+    // line still records it, so nothing diagnostic is lost.
     sentEmails.length = 0;
+    const before = await prisma.auditLog.count({ where: { orgId } });
     expect((await requestReset(req({ email: E_INVITED }))).status).toBe(200);
     expect(sentEmails).toHaveLength(0);
-
-    const meta = await outcomeOf("auth.password_reset.requested");
-    expect(meta.outcome).toBe("no_such_email");
-    expect(meta.email).toBe(E_INVITED);
+    expect(await prisma.auditLog.count({ where: { orgId } })).toBe(before);
   });
 
   it("records the completed reset as its own action, so 'asked for' and 'used' are distinguishable", async () => {

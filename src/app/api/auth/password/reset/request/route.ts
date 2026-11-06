@@ -189,19 +189,31 @@ export async function POST(request: NextRequest) {
       `${userId ? ` user=${userId}` : ""}${detail ? `: ${truncateForLog(detail)}` : ""}`,
   );
 
-  // Durable trail, for the org that owns the account. AuditLog.orgId is NOT
-  // nullable, so a request that resolves no org at all (no membership, no
-  // pending invitation) has nowhere to attribute itself and is covered by the
-  // operator line alone.
-  if (org) {
+  // Durable trail, for the org the account actually BELONGS to — a membership
+  // the org can see for itself, never the pending-invitation fallback.
+  //
+  // resolveSenderOrg deliberately falls back to whoever invited the address,
+  // because that is the right org to send the mail AS. It is the wrong basis
+  // for a tenant-readable audit row: an invited address may already have an
+  // account elsewhere, and attributing its outcome (or its userId) to the
+  // inviting org would put a non-member's state into that org's log. An
+  // address with no membership is covered by the operator line, which records
+  // every outcome whatever org resolved — so nothing diagnostic is lost.
+  //
+  // AuditLog.orgId is NOT nullable, so there is nowhere else such a row could go.
+  const auditOrg = org && (org.source === "membership" || org.source === "named") ? org : null;
+  if (auditOrg) {
     try {
       await logAudit({
-        orgId: org.id,
+        orgId: auditOrg.id,
         userId,
         action: "auth.password_reset.requested",
         entity: "user",
         entityId: userId,
-        metadata: { outcome, email: normalized, ...(detail ? { detail } : {}) },
+        // `detail` is upstream error text — not ours, not bounded, and of no
+        // use to a tenant reading their audit log. It stays in the operator
+        // line only.
+        metadata: { outcome, email: normalized },
         ipAddress: ip,
       });
     } catch (e) {

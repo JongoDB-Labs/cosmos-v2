@@ -243,6 +243,32 @@ describe("deciding a request", () => {
     expect(sent).toHaveLength(0);
   });
 
+  it("refuses to approve an address off the org's allowed domains, even in OPEN mode", async () => {
+    // The bypass: OPEN governs what may be SUBMITTED. The allowed-domain list
+    // bounds who may JOIN, and reading the request MODE at decision time made
+    // the restriction conditional on it -- so approval could mint an
+    // invitation for an address the invitations endpoint would refuse.
+    await setMode(AccountRequestMode.OPEN, ["allowed.test"]);
+    const off = `zz-ar-offlist-${stamp}@elsewhere.test`;
+    const { requestId } = await submitAccountRequest({ orgSlug: slug, email: off });
+
+    await expect(approveAs(requestId!, "oauth")).rejects.toThrow(/allowed domains/i);
+    expect(await prisma.invitation.count({ where: { orgId, email: off } })).toBe(0);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("ALLOWLIST with NO domains refuses every submission instead of accepting every one", async () => {
+    // An empty list means "unrestricted" everywhere else, so this combination
+    // would accept anyone while reading as locked down. The settings route
+    // refuses to create the state; the service refuses to honour it.
+    await setMode(AccountRequestMode.ALLOWLIST, []);
+    const r = await submitAccountRequest({
+      orgSlug: slug,
+      email: `zz-ar-emptylist-${stamp}@allowed.test`,
+    });
+    expect(r.outcome).toBe("domain_not_allowed");
+  });
+
   it("denying keeps the row, so the decision stays attributable", async () => {
     await setMode(AccountRequestMode.OPEN);
     const { requestId } = await submitAccountRequest({ orgSlug: slug, email: addr("deny") });
