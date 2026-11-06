@@ -75,6 +75,7 @@ export const JournalSource = ["MANUAL","REVENUE","EXPENSE","INVOICE","PAYMENT","
 export const JournalStatus = ["DRAFT","POSTED","VOID"] as const;
 export const EntryDirection = ["DEBIT","CREDIT"] as const;
 export const PeriodStatus = ["OPEN","CLOSED"] as const;
+export const ReimbursableLineKind = ["COMBINED","COST","MARKUP"] as const;
 export const DocumentStatus = ["UPLOADED","PARSING","READY","FAILED"] as const;
 export const DocumentBlockKind = ["HEADING","PARAGRAPH","LIST","TABLE","CODE","IMAGE","QUOTE","PAGE_BREAK"] as const;
 export const DocumentVisibility = ["INHERIT","RESTRICTED"] as const;

@@ -2622,6 +2622,11 @@ model Expense {
   /// exact amount either way; project cost and P&L read the amount, never the
   /// marked-up figure.
   reimbursable Boolean       @default(false)
+  /// The client invoice that re-billed this reimbursable expense, so it is
+  /// never billed twice. Null while unbilled; cleared if the invoice is
+  /// deleted or the line that carried it is removed.
+  invoiceId    String?       @map("invoice_id") @db.Uuid
+  invoice      Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   approvedById String?       @map("approved_by_id") @db.Uuid
   submittedAt  DateTime?     @map("submitted_at")
   approvedAt   DateTime?     @map("approved_at")
@@ -2629,9 +2634,12 @@ model Expense {
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
+  invoiceLines InvoiceLineItem[]
+
   @@index([orgId, date])
   @@index([orgId, status])
   @@index([orgId, projectId])
+  @@index([orgId, invoiceId])
   @@map("expenses")
 }
 
@@ -4456,6 +4464,7 @@ model Invoice {
   lineItems InvoiceLineItem[]
   payments  Payment[]
   bills     Bill[]
+  expenses  Expense[]
 
   @@unique([orgId, number])
   @@index([orgId, status])
@@ -4474,10 +4483,32 @@ model InvoiceLineItem {
   productId   String? @map("product_id") @db.Uuid
   sortOrder   Int     @default(0) @map("sort_order")
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  /// A line re-billing a reimbursable cost names the bill or expense it came
+  /// from (src/lib/invoicing/reimbursables.ts). The cost's own invoiceId is
+  /// what stops it being billed twice; this is what lets removing the line
+  /// release the cost again.
+  billId            String?               @map("bill_id") @db.Uuid
+  expenseId         String?               @map("expense_id") @db.Uuid
+  reimbursableKind  ReimbursableLineKind? @map("reimbursable_kind")
+  /// The part of this line that is the cost itself, passed through to the
+  /// client: the cost on a COST or COMBINED line, 0 on a MARKUP line. The rest
+  /// of the line is revenue. Snapshotted when the line is added.
+  passThroughAmount Decimal?              @map("pass_through_amount") @db.Decimal(19, 4)
+
+  invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  bill    Bill?    @relation(fields: [billId], references: [id], onDelete: SetNull)
+  expense Expense? @relation(fields: [expenseId], references: [id], onDelete: SetNull)
 
   @@index([invoiceId])
   @@map("invoice_line_items")
+}
+
+/// What a re-billed line carries: the cost and its markup on one line
+/// (COMBINED), or the cost and the markup as two lines (COST, MARKUP).
+enum ReimbursableLineKind {
+  COMBINED
+  COST
+  MARKUP
 }
 
 model Payment {
@@ -6194,6 +6225,8 @@ model Bill {
   createdById String       @map("created_by_id") @db.Uuid
   createdAt   DateTime     @default(now()) @map("created_at")
   updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  invoiceLines InvoiceLineItem[]
 
   @@index([orgId, status])
   @@index([orgId, dueDate])

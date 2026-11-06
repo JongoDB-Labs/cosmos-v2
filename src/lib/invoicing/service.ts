@@ -8,6 +8,7 @@ import {
   postPaymentToLedger,
   reverseInvoiceLedger,
 } from "./posting";
+import { reconcileReimbursableLines, type LineTag } from "./reimbursables.server";
 
 const D = (v: number | string) => new Prisma.Decimal(v);
 
@@ -16,13 +17,15 @@ const withDetail: Prisma.InvoiceInclude = {
   payments: { orderBy: { receivedAt: "asc" } },
 };
 
-export type LineInput = {
+export type LineInput = LineTag & {
   description: string;
   quantity: number | string;
   unitPrice: number | string;
   taxRate?: number | string;
   productId?: string | null;
 };
+
+const hasTag = (l: LineInput) => !!(l.billId || l.expenseId || l.reimbursableKind);
 
 export type InvoiceInput = {
   contactId?: string | null;
@@ -91,6 +94,11 @@ export async function createInvoice(
 ) {
   if (input.contactId) await assertContactInOrg(orgId, input.contactId);
   if (input.projectId) await assertProjectInOrg(orgId, input.projectId);
+  // A new invoice has re-billed nothing yet: those lines come only from
+  // addReimbursables, which stamps the cost as it adds them.
+  if (input.lines.some(hasTag)) {
+    throw new ConflictError("A re-billed line can be kept or removed, not added by hand: use Add reimbursables");
+  }
   const computed = computeLines(input.lines);
   const totals = invoiceTotals(computed);
   const year = new Date().getFullYear();
@@ -145,11 +153,28 @@ export async function updateInvoice(
   }
   if (input.contactId) await assertContactInOrg(orgId, input.contactId);
   if (input.projectId) await assertProjectInOrg(orgId, input.projectId);
-  const computed = computeLines(input.lines);
-  const totals = invoiceTotals(computed);
+  const plain = computeLines(input.lines);
 
   return prisma.$transaction(async (tx) => {
+    // Re-billed lines survive only if the edit sends their tag back; the
+    // costs whose lines are gone go back to unbilled (reimbursables.server.ts).
+    const rebilled = await reconcileReimbursableLines(
+      tx,
+      orgId,
+      invoiceId,
+      input.lines.map((l, i) => ({ ...l, amount: plain[i].amount })),
+      input.projectId,
+    );
+    const computed = plain.map((l, i) => {
+      const t = input.lines[i];
+      const pass = rebilled.passThrough[i];
+      return pass === null
+        ? l
+        : { ...l, billId: t.billId ?? null, expenseId: t.expenseId ?? null, reimbursableKind: t.reimbursableKind ?? null, passThroughAmount: pass };
+    });
+    const totals = invoiceTotals(computed);
     await tx.invoiceLineItem.deleteMany({ where: { invoiceId } });
+    await rebilled.release();
     return tx.invoice.update({
       where: { id: invoiceId },
       data: {

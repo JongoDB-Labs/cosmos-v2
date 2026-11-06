@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { AddReimbursables } from "./add-reimbursables";
 
 const fmt = (v: string | number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
@@ -49,6 +50,7 @@ type Invoice = {
   total: string;
   amountPaid: string;
   terms: string | null;
+  projectId?: string | null;
   lineItems: LineItem[];
   payments: PaymentRow[];
 };
@@ -177,6 +179,8 @@ export function InvoiceDetailDialog({
                 </tbody>
               </table>
             </div>
+
+            {inv.status === "DRAFT" && inv.projectId && <AddReimbursables orgId={orgId} invoiceId={inv.id} />}
 
             {/* Totals */}
             <div className="flex justify-end">
