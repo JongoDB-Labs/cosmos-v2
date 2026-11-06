@@ -9,7 +9,6 @@ import {
   resetFingerprint,
   fingerprintMatches,
 } from "@/lib/auth/password-reset";
-import { resolveSenderOrg } from "@/lib/auth/sender-org";
 import { logAudit } from "@/lib/audit";
 
 const schema = z.object({
@@ -83,16 +82,21 @@ export async function POST(request: NextRequest) {
   // answer "was a reset asked for, and did anyone complete it" — which no
   // record could answer before. Best-effort: the password IS already changed,
   // so a failed audit write must not report the reset as failed.
-  const org = await resolveSenderOrg({ email: user.email, memberships: user.memberships });
-  if (org) {
+  // The org the account BELONGS to, read straight off the membership. Not
+  // resolveSenderOrg: that deliberately falls back to whoever invited the
+  // address, which is the right org to send mail AS and the wrong one to hand
+  // a tenant-readable record of someone else's credential change. It also
+  // costs a query here, and there is no mail to send on this path.
+  const auditOrgId = user.memberships[0]?.org.id ?? null;
+  if (auditOrgId) {
     try {
       await logAudit({
-        orgId: org.id,
+        orgId: auditOrgId,
         userId: user.id,
         action: "auth.password_reset.completed",
         entity: "user",
         entityId: user.id,
-        metadata: { email: user.email.toLowerCase(), via: org.source },
+        metadata: { email: user.email.toLowerCase() },
         ipAddress: ip,
       });
     } catch (e) {

@@ -54,6 +54,53 @@ beforeAll(async () => {
   });
 });
 
+describe("the org's allowed-domain restriction binds every way an account is minted", () => {
+  it("refuses an address off the list, whatever the account-request mode says", async () => {
+    await prisma.orgSecuritySettings.upsert({
+      where: { orgId },
+      create: { orgId, allowedDomains: ["allowed.test"], accountRequestMode: "OPEN" },
+      update: { allowedDomains: ["allowed.test"], accountRequestMode: "OPEN" },
+    });
+    // OPEN governs what may be SUBMITTED. It does not widen who may JOIN --
+    // reading the mode here let approval mint an invitation for an address the
+    // invitations endpoint would refuse outright.
+    await expect(invite(OrgRole.MEMBER, OrgRole.ADMIN, "offlist")).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    expect(
+      await prisma.invitation.count({
+        where: { orgId, email: `zz-ci-offlist-${stamp}@example.com` },
+      }),
+    ).toBe(0);
+  });
+
+  it("allows an address on the list", async () => {
+    const r = await createOrgInvitation({
+      orgId,
+      orgName: `CI ${stamp}`,
+      orgSlug: slug,
+      email: `zz-ci-onlist-${stamp}@allowed.test`,
+      role: OrgRole.MEMBER,
+      signInMethod: "oauth",
+      mfaRequired: false,
+      actorUserId: actorId,
+      actorOrgRole: OrgRole.ADMIN,
+      actorDisplayName: "Actor",
+      origin: "http://localhost",
+    });
+    expect(r.invitation.email).toBe(`zz-ci-onlist-${stamp}@allowed.test`);
+  });
+
+  it("an empty list stays unrestricted, as it does everywhere else", async () => {
+    await prisma.orgSecuritySettings.update({
+      where: { orgId },
+      data: { allowedDomains: [] },
+    });
+    const r = await invite(OrgRole.MEMBER, OrgRole.ADMIN, "nolist");
+    expect(r.invitation.role).toBe(OrgRole.MEMBER);
+  });
+});
+
 describe("only an owner can hand out the owner role", () => {
   it("refuses an ADMIN inviting someone as OWNER", async () => {
     await expect(invite(OrgRole.OWNER, OrgRole.ADMIN, "esc")).rejects.toBeInstanceOf(

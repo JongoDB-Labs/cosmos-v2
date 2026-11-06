@@ -65,6 +65,24 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 }
 
+/**
+ * True when a settings state would claim to restrict account requests while
+ * accepting every address. An empty allowed-domains list means "unrestricted"
+ * everywhere else (see allowed-domains.ts), so ALLOWLIST with no domains is
+ * the stricter-looking setting behaving as the weaker one.
+ *
+ * Takes EFFECTIVE values, not just the ones a request sets. Reading only an
+ * incoming mode was fail-open on drift: an org already on ALLOWLIST could
+ * clear its domains without naming the mode and land in exactly this state.
+ */
+export function allowlistWithoutDomains(
+  mode: AccountRequestMode | undefined,
+  domains: string[],
+): boolean {
+  if (mode !== AccountRequestMode.ALLOWLIST) return false;
+  return domains.map((d) => d.trim()).filter(Boolean).length === 0;
+}
+
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
@@ -84,7 +102,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // Snapshot the prior posture so we can detect a *tightening* below (false→true).
     const prior = await prisma.orgSecuritySettings.findUnique({
       where: { orgId },
-      select: { ssoEnforced: true, mfaRequired: true, allowedDomains: true },
+      select: { ssoEnforced: true, mfaRequired: true, allowedDomains: true, accountRequestMode: true },
     });
 
     // ALLOWLIST with no domains configured is NOT a restriction: an empty list
@@ -92,10 +110,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // combination would quietly behave exactly like OPEN while reading as
     // locked down. Refuse it rather than let the stricter-looking setting be
     // the weaker one. Considers the domains being set in this same request.
-    const effectiveDomains = data.allowedDomains ?? prior?.allowedDomains ?? [];
     if (
-      data.accountRequestMode === AccountRequestMode.ALLOWLIST &&
-      effectiveDomains.map((d) => d.trim()).filter(Boolean).length === 0
+      allowlistWithoutDomains(
+        data.accountRequestMode ?? prior?.accountRequestMode,
+        data.allowedDomains ?? prior?.allowedDomains ?? [],
+      )
     ) {
       return new Response(
         JSON.stringify({
