@@ -49,6 +49,28 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.527.0",
+    date: "2026-11-06",
+    title: "Markup on reimbursable costs",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Set a markup on reimbursable costs: an org default in finance settings, overridden per project in its fee terms and again per bill. Bills now show the markup that applies and where it comes from.",
+      },
+    ],
+  },
+  {
+    version: "2.526.0",
+    date: "2026-11-05",
+    title: "Reimbursable expenses",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Invoices can be tied to a project, and expenses can be marked reimbursable (billable to the client), the groundwork for re-billing costs with markup.",
+      },
+    ],
+  },
+  {
     version: "2.525.0",
     date: "2026-11-04",
     title: "Close and reopen phases",
