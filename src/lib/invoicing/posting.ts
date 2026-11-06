@@ -8,23 +8,35 @@ export type InvoicingAccounts = {
   cash: string;
   salesRevenue: string;
   salesTaxPayable: string;
+  /** Where a re-billed reimbursable cost lands: pass-through, not fee income. */
+  recovery: string;
 };
 
 /** Resolve (lazy-seed) the accounts an invoice/payment posts to. */
 export async function invoicingAccounts(orgId: string): Promise<InvoicingAccounts> {
-  const [ar, cash, salesRevenue, salesTaxPayable] = await Promise.all([
+  const [ar, cash, salesRevenue, salesTaxPayable, recovery] = await Promise.all([
     resolveAccount(orgId, ACCOUNT_CODES.ACCOUNTS_RECEIVABLE),
     resolveAccount(orgId, ACCOUNT_CODES.CASH),
     resolveAccount(orgId, ACCOUNT_CODES.SALES_REVENUE),
     resolveAccount(orgId, ACCOUNT_CODES.SALES_TAX_PAYABLE),
+    resolveAccount(orgId, ACCOUNT_CODES.REIMBURSABLE_RECOVERY),
   ]);
-  return { ar, cash, salesRevenue, salesTaxPayable };
+  return { ar, cash, salesRevenue, salesTaxPayable, recovery };
+}
+
+/** Σ of the lines' pass-through part: the re-billed costs on an invoice, at cost. */
+export function passThroughOf(lines: readonly { passThroughAmount?: Prisma.Decimal | null }[] | undefined): Prisma.Decimal {
+  return (lines ?? []).reduce((acc, l) => (l.passThroughAmount ? acc.plus(l.passThroughAmount) : acc), new Prisma.Decimal(0));
 }
 
 /**
  * PURE. Invoice issued (accrual) → Dr Accounts Receivable (total) /
- * Cr Sales Revenue (subtotal) + Cr Sales Tax Payable (taxTotal). The tax credit is
- * omitted when zero. Balances because total = subtotal + taxTotal.
+ * Cr Sales Revenue (subtotal less pass-through) + Cr Reimbursable Cost
+ * Recovery (pass-through) + Cr Sales Tax Payable (taxTotal). A zero credit is
+ * omitted (an invoice of costs re-billed at cost has no revenue line at all).
+ * Balances because total = subtotal + taxTotal and the two credits split the
+ * subtotal; pass-through is clamped to the subtotal so the split can't go
+ * negative.
  */
 export function invoiceToPostingLines(
   inv: {
@@ -32,13 +44,22 @@ export function invoiceToPostingLines(
     taxTotal: Prisma.Decimal;
     total: Prisma.Decimal;
     contractId?: string | null;
+    /** The re-billed costs on the invoice, at cost (passThroughOf its lines). */
+    passThrough?: Prisma.Decimal;
   },
   accts: InvoicingAccounts,
 ): PostingLine[] {
+  const pass = Prisma.Decimal.min(Prisma.Decimal.max(inv.passThrough ?? 0, 0), inv.subtotal);
+  const revenue = inv.subtotal.minus(pass);
   const lines: PostingLine[] = [
     { accountId: accts.ar, direction: "DEBIT", amount: inv.total, contractId: inv.contractId ?? null },
-    { accountId: accts.salesRevenue, direction: "CREDIT", amount: inv.subtotal, contractId: inv.contractId ?? null },
   ];
+  if (!revenue.isZero()) {
+    lines.push({ accountId: accts.salesRevenue, direction: "CREDIT", amount: revenue, contractId: inv.contractId ?? null });
+  }
+  if (!pass.isZero()) {
+    lines.push({ accountId: accts.recovery, direction: "CREDIT", amount: pass, contractId: inv.contractId ?? null });
+  }
   if (!inv.taxTotal.isZero()) {
     lines.push({ accountId: accts.salesTaxPayable, direction: "CREDIT", amount: inv.taxTotal });
   }
@@ -67,6 +88,7 @@ export async function postInvoiceToLedger(inv: {
   issueDate: Date | null;
   contractId?: string | null;
   createdById: string;
+  lineItems?: { passThroughAmount: Prisma.Decimal | null }[];
 }): Promise<void> {
   await postEntry({
     orgId: inv.orgId,
@@ -75,7 +97,10 @@ export async function postInvoiceToLedger(inv: {
     source: "INVOICE",
     sourceId: inv.id,
     memo: `Invoice ${inv.number}`,
-    lines: invoiceToPostingLines(inv, await invoicingAccounts(inv.orgId)),
+    lines: invoiceToPostingLines(
+      { ...inv, passThrough: passThroughOf(inv.lineItems) },
+      await invoicingAccounts(inv.orgId),
+    ),
   });
 }
 

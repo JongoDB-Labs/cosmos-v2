@@ -19,6 +19,11 @@ export const invoiceLineSchema = z.object({
   unitPrice: nonNegMoneyIn,
   taxRate: nonNegMoneyIn.optional(),
   productId: z.string().uuid().nullish(),
+  // A re-billed line's tag, sent back unchanged to keep it on an edit
+  // (src/lib/invoicing/reimbursables.server.ts). Never set by hand.
+  billId: z.string().uuid().nullish(),
+  expenseId: z.string().uuid().nullish(),
+  reimbursableKind: z.enum(["COMBINED", "COST", "MARKUP"]).nullish(),
 });
 
 export const invoiceInputSchema = z.object({
