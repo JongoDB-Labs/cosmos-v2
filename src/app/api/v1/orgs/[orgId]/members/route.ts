@@ -6,6 +6,7 @@ import { cursorPage } from "@/lib/openapi/paginate";
 import { listMembers } from "./route.contract";
 import { scopedRosterUserIds } from "@/lib/members/scoped-roster.server";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { avatarSrc } from "@/lib/users/avatar-url.server";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
@@ -58,8 +59,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       take: page.take,
     });
     const { rows: members, headers } = page.finish(fetched);
+    // Avatars are stored as `data:` URIs. Sent inline, three of them were 93%
+    // of this response and base64 does not compress, so `encode` could not
+    // claw it back. Point at the avatar endpoint, which serves them once.
+    const withAvatars = members.map((m) => ({
+      ...m,
+      user: { ...m.user, avatarUrl: avatarSrc(orgId, m.user.id, m.user.avatarUrl) },
+    }));
 
-    return respond(listMembers, 200, members, { headers, ctx });
+    return respond(listMembers, 200, withAvatars, { headers, ctx });
   } catch (error) {
     return handleApiError(error, request);
   }
