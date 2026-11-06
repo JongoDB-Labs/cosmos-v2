@@ -12,9 +12,22 @@ export function normalizeDomain(d: string): string {
   return d.trim().toLowerCase().replace(/^@+/, "");
 }
 
-/** The domain portion of an email address (lowercased), or "" if malformed. */
+/**
+ * The domain portion of an email address (lowercased), or "" if malformed.
+ *
+ * Splits on the LAST "@", which is the one that decides where mail goes. The
+ * earlier `split("@")[1]` took the SECOND segment, so `a@allowed.com@evil.com`
+ * read as `allowed.com` while delivery would go to `evil.com` — the allowlist
+ * would have passed an address it meant to refuse. Nothing could exploit it,
+ * because every caller validates with `z.string().email()` first and that
+ * rejects a second "@" (verified), but the allowlist's correctness should not
+ * rest on a validator in another file. An address with no local part, such as
+ * "@evil.com", is malformed and gets "".
+ */
 export function emailDomain(email: string): string {
-  return email.toLowerCase().split("@")[1]?.trim() ?? "";
+  const at = email.lastIndexOf("@");
+  if (at <= 0 || at === email.length - 1) return "";
+  return email.slice(at + 1).toLowerCase().trim();
 }
 
 /**

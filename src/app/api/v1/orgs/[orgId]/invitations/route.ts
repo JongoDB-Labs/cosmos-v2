@@ -4,17 +4,10 @@ import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission, isPermissionSubset, maskFromDb } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
-import { logAudit } from "@/lib/audit";
 import { getPublicOrigin } from "@/lib/auth/public-url";
-import {
-  sendInvitationEmail,
-  sendPasswordInviteEmail,
-} from "@/lib/integrations/invitation-email";
-import {
-  provisionEmailPasswordInvite,
-  SIGN_IN_METHODS,
-} from "@/lib/auth/invite-credentials";
+import { SIGN_IN_METHODS } from "@/lib/auth/invite-credentials";
 import { emailDomainAllowed } from "@/lib/auth/allowed-domains";
+import { createOrgInvitation } from "@/lib/auth/create-invitation";
 import { z } from "zod";
 import { OrgRole } from "@prisma/client";
 
@@ -118,185 +111,41 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const isEmailPassword = data.signInMethod === "email_password";
-
-    // Case-insensitive so a differently-cased row can't slip past the guards
-    // below (matches provisionEmailPasswordInvite's own lookup).
-    const existingUser = await prisma.user.findFirst({
-      where: { email: { equals: email, mode: "insensitive" } },
-    });
-    if (existingUser) {
-      const existingMember = await prisma.orgMember.findUnique({
-        where: {
-          orgId_userId: { orgId, userId: existingUser.id },
-        },
-      });
-      if (existingMember) {
-        return new Response(
-          JSON.stringify({ error: "User is already a member" }),
-          { status: 409, headers: { "Content-Type": "application/json" } }
-        );
-      }
-    }
-
-    // An email that already resolves to a User is NEVER a dead end. Whatever
-    // sign-in method the inviter chose, a pre-existing (non-member) account joins
-    // this org through a NORMAL pending invitation — allowlist upsert +
-    // invitation.create, consumed at their next sign-in by
-    // consumePendingInvitations — and NEVER an admin-set password.
-    //
-    // SECURITY (cross-tenant account takeover): `provisionPassword` therefore
-    // gates on BOTH "email_password was chosen" AND "this is a brand-new
-    // account". We must never attach an admin-generated credential
-    // (passwordHash / mustChangePassword / mfaRequired) to a pre-existing (e.g.
-    // OAuth-only) account — sessions are user-global, so that would hand the
-    // inviter that user's access everywhere. An existing account silently falls
-    // back to the OAuth-style invite (see `effectiveSignInMethod`), and the
-    // caller is told via `existingAccount` so the UI can show a friendly
-    // "they'll rejoin on next sign-in" note instead of the old 409.
-    const existingAccount = Boolean(existingUser);
-    const provisionPassword = isEmailPassword && !existingAccount;
-    const effectiveSignInMethod = provisionPassword ? "email_password" : "oauth";
-
-    // Auto-allowlist so the recipient's first sign-in passes the gate.
-    // The OAuth callback consumes pending invitations on its own.
-    await prisma.allowedEmail.upsert({
-      where: { email },
-      update: {},
-      create: { email, addedBy: ctx.userId },
-    });
-
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
-
-    // Provision the local credential (email/password invites only) and create the
-    // invitation row in ONE transaction: a failure on either side rolls both
-    // back, so we never leave an orphan User (password hash, no invite) nor a
-    // dangling invite. provisionEmailPasswordInvite re-checks for an existing
-    // user inside the tx and throws (→ 409) if one appeared since the guard above
-    // (TOCTOU-safe). The returned tempPassword is emailed only, never logged.
-    let tempPassword: string | null = null;
-    const invitation = await prisma.$transaction(async (tx) => {
-      if (provisionPassword) {
-        const provisioned = await provisionEmailPasswordInvite({
-          email,
-          mfaRequired: data.mfaRequired,
-          client: tx,
-        });
-        tempPassword = provisioned.tempPassword;
-      }
-      return tx.invitation.create({
-        data: {
-          orgId,
-          email,
-          role: data.role,
-          workRoleIds,
-          expiresAt,
-          // For a pre-existing account this is coerced to "oauth" (no credential
-          // was provisioned) so the invariant "signInMethod === email_password ⇒
-          // a temp password exists" holds and the resend flow stays consistent.
-          signInMethod: effectiveSignInMethod,
-          mfaRequired: data.mfaRequired,
-        },
-      });
-    });
-
     const inviter = await getCurrentUser();
-    const origin = getPublicOrigin(request);
-    // OAuth invitees accept via a sign-in link; email/password invitees go to the
-    // branded login screen and sign in with their credentials.
-    const acceptUrl = provisionPassword
-      ? `${origin}/login?org=${encodeURIComponent(org.slug)}`
-      : `${origin}/login?invite=${invitation.token}`;
-    let emailSent = false;
-    let emailError: string | null = null;
-    if (inviter) {
-      try {
-        // An invitee who already has a LOCAL password signs in with it, not with
-        // Google. Sending them the OAuth email told such users to "sign in with
-        // your Google account" for an account that has no Google identity -- an
-        // instruction that cannot be followed. Route them to the password email
-        // instead, with a pointer to the reset form, since a forgotten password
-        // is the likeliest reason they are stuck.
-        //
-        // No credential is provisioned and none is quoted: the rule that an
-        // inviter may never set a password on a pre-existing account (see
-        // `provisionPassword`) is untouched.
-        if (!provisionPassword && existingUser?.passwordHash) {
-          await sendPasswordInviteEmail({
-            fromUserId: ctx.userId,
-            orgId,
-            toEmail: email,
-            orgName: org.name,
-            inviterName: inviter.displayName,
-            loginUrl: acceptUrl,
-            tempPassword: null,
-            mfaRequired: data.mfaRequired,
-            // Deliberately NOT folded into `acceptUrl`: that is returned to the
-            // ADMIN in the response below. This belongs only in the invitee's mail.
-            resetUrl: `${origin}/login?forgot=1`,
-          });
-        } else if (provisionPassword) {
-          await sendPasswordInviteEmail({
-            fromUserId: ctx.userId,
-            orgId,
-            toEmail: email,
-            orgName: org.name,
-            inviterName: inviter.displayName,
-            loginUrl: acceptUrl,
-            tempPassword,
-            mfaRequired: data.mfaRequired,
-          });
-        } else {
-          await sendInvitationEmail({
-            fromUserId: ctx.userId,
-            orgId,
-            toEmail: email,
-            orgName: org.name,
-            inviterName: inviter.displayName,
-            acceptUrl,
-          });
-        }
-        emailSent = true;
-      } catch (e) {
-        // Don't fail the invite creation — admin can copy the link / credential.
-        emailError = e instanceof Error ? e.message : "send_failed";
-      }
-    }
-
-    await logAudit({
+    // One shared path for minting an account, used by this route and by
+    // approving an account request -- see createOrgInvitation for why the
+    // credential rule must not be copied.
+    const result = await createOrgInvitation({
       orgId,
-      userId: ctx.userId,
-      action: "invitation.created",
-      entity: "invitation",
-      entityId: invitation.id,
-      // NB: the temporary password is NEVER written to the audit log.
-      metadata: {
-        email,
-        role: data.role,
-        signInMethod: effectiveSignInMethod,
-        existingAccount: String(existingAccount),
-        mfaRequired: String(data.mfaRequired),
-        emailSent: String(emailSent),
-        ...(emailError ? { emailError } : {}),
-      } as Record<string, string>,
+      orgName: org.name,
+      orgSlug: org.slug,
+      email,
+      role: data.role,
+      workRoleIds,
+      signInMethod: data.signInMethod,
+      mfaRequired: data.mfaRequired,
+      actorUserId: ctx.userId,
+      actorOrgRole: ctx.orgRole,
+      // null means "no signed-in inviter", which is what suppresses the mail.
+      actorDisplayName: inviter ? inviter.displayName : null,
+      origin: getPublicOrigin(request),
       ipAddress: getIpAddress(request),
     });
 
-    // The temporary password is delivered ONLY by email (sendPasswordInviteEmail)
-    // and is deliberately NOT returned here — a plaintext secret in an API
-    // response leaks into proxies, server logs and browser history. If the email
-    // failed (emailSent === false) the admin resends the invitation from the team
-    // list; we never surface the secret.
+    // The temporary password is delivered ONLY by email and is deliberately NOT
+    // returned here — a plaintext secret in an API response leaks into proxies,
+    // server logs and browser history. If the email failed (emailSent === false)
+    // the admin resends the invitation from the team list; we never surface the
+    // secret.
     return created({
-      invitation,
-      acceptUrl,
-      emailSent,
-      emailError,
+      invitation: result.invitation,
+      acceptUrl: result.acceptUrl,
+      emailSent: result.emailSent,
+      emailError: result.emailError,
       // True when the invite targeted an email that already has an account: the
       // UI surfaces a "they'll rejoin on next sign-in" note instead of an error,
       // and no admin password was set on the pre-existing account.
-      existingAccount,
+      existingAccount: result.existingAccount,
     });
   } catch (error) {
     return handleApiError(error);

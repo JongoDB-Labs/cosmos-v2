@@ -26,7 +26,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   ms_not_configured: "Microsoft sign-in isn't configured yet.",
 };
 
-type SsoStatus = { enabled: boolean; enforced: boolean };
+type SsoStatus = { enabled: boolean; enforced: boolean; accountRequests?: boolean };
 
 function LoginInner() {
   const brand = useBrand();
@@ -167,10 +167,15 @@ function LoginInner() {
     | "recovery"
     | "forgot"
     | "forgot_sent"
+    // Asking this org for an account. Offered only when the org has opted in
+    // (see the SSO status endpoint's accountRequests flag).
+    | "request"
+    | "request_sent"
     // Opening "forgot" straight from a link. An invitation sent to an address
     // that already has a password account has no credential to quote, so the
     // email points here rather than leaving the reader to find it.
   >(params.get("forgot") === "1" ? "forgot" : "creds");
+  const [requestNote, setRequestNote] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
   // Forced first-login state.
@@ -272,6 +277,32 @@ function LoginInner() {
     } catch {
       // Even on a network error, don't leak anything — show the neutral screen.
       setPhase("forgot_sent");
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  // Ask this org for an account. Like the reset endpoint, the answer is the
+  // same whatever happened — it never says whether the org accepts the address
+  // — so any non-error response shows the same neutral confirmation.
+  async function submitRequest(e?: React.FormEvent) {
+    e?.preventDefault();
+    setPwBusy(true);
+    setPwError(null);
+    try {
+      await fetch("/api/auth/account-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orgSlug,
+          email: email.trim(),
+          ...(requestNote.trim() ? { note: requestNote.trim() } : {}),
+        }),
+      });
+      setPhase("request_sent");
+    } catch {
+      // Even on a network error, don't leak anything — neutral screen.
+      setPhase("request_sent");
     } finally {
       setPwBusy(false);
     }
@@ -508,6 +539,24 @@ function LoginInner() {
                 >
                   Forgot password?
                 </button>
+                {/*
+                  Offered only when this org has switched account requests on.
+                  An org with the mode OFF, and an unknown slug, both report
+                  false, so the absence of this link says nothing either way.
+                */}
+                {sso?.accountRequests && (
+                  <button
+                    type="button"
+                    className="w-full text-center text-xs text-[var(--text-muted)] underline-offset-2 hover:underline"
+                    onClick={() => {
+                      setPwError(null);
+                      setPassword("");
+                      setPhase("request");
+                    }}
+                  >
+                    Request an account
+                  </button>
+                )}
               </div>
             ) : phase === "forgot" ? (
               <div className="mt-3 space-y-2">
@@ -571,6 +620,75 @@ function LoginInner() {
                   className="w-full"
                   onClick={() => {
                     setPwError(null);
+                    setPhase("creds");
+                  }}
+                >
+                  Back to sign in
+                </Button>
+              </div>
+            ) : phase === "request" ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs text-[var(--text-muted)]">
+                  Ask an administrator for an account. They decide whether to
+                  approve it, and you&apos;ll hear by email if they do.
+                </p>
+                <Input
+                  type="email"
+                  autoComplete="email"
+                  autoFocus
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+                <Input
+                  type="text"
+                  placeholder="Who you are, and why you need access (optional)"
+                  value={requestNote}
+                  onChange={(e) => setRequestNote(e.target.value)}
+                  maxLength={1000}
+                  onKeyDown={(e) => e.key === "Enter" && void submitRequest()}
+                />
+                {pwError && (
+                  <p className="text-xs text-[var(--status-critical)]">{pwError}</p>
+                )}
+                <Button
+                  type="button"
+                  className="w-full"
+                  disabled={pwBusy || !email.trim()}
+                  onClick={() => void submitRequest()}
+                >
+                  {pwBusy ? "Sending…" : "Send request"}
+                </Button>
+                <button
+                  type="button"
+                  className="w-full text-center text-xs text-[var(--text-muted)] underline-offset-2 hover:underline"
+                  onClick={() => {
+                    setPwError(null);
+                    setPhase("creds");
+                  }}
+                >
+                  Back to sign in
+                </button>
+              </div>
+            ) : phase === "request_sent" ? (
+              <div className="mt-3 space-y-3">
+                {/*
+                  Deliberately neutral, for the same reason the reset
+                  confirmation is: it must not say whether this org accepts the
+                  address, whether one already has an account, or what the
+                  allowed domains are.
+                */}
+                <p className="text-sm">
+                  Your request has been sent. If an administrator approves it,
+                  you&apos;ll get an email with a link to sign in.
+                </p>
+                <Button
+                  type="button"
+                  className="w-full"
+                  onClick={() => {
+                    setPwError(null);
+                    setRequestNote("");
                     setPhase("creds");
                   }}
                 >

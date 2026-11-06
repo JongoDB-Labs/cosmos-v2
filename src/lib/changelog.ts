@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.535.0",
+    date: "2026-11-06",
+    title: "Request an account, and approve it",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Someone without an account can now ask an organization for one from the sign-in screen, instead of needing an administrator to invite them first. Administrators see the requests on the Org page and approve or decline each one. Nothing is created until someone approves: a request grants no access by itself.",
+      },
+      {
+        kind: "feature",
+        text: "Each approval chooses how that person will sign in \u2014 an invitation link for anyone using Google, Microsoft or single sign-on, or a temporary password for anyone who needs one. The choice is made per request, because the right answer differs per person.",
+      },
+      {
+        kind: "improvement",
+        text: "Requests are off until an organization turns them on, under Settings \u2192 Security. They can then be accepted from any address, or only from the organization\u2019s approved email domains. Every request and decision is recorded in the audit log, including who decided and when, and a declined request is kept rather than erased.",
+      },
+    ],
+  },
+  {
     version: "2.534.0",
     date: "2026-11-06",
     title: "Password resets you can actually account for",

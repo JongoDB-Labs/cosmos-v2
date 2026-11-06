@@ -232,6 +232,7 @@ model Organization {
 
   members                OrgMember[]
   invitations            Invitation[]
+  accountRequests        AccountRequest[]
   apiKeys                ApiKey[]
   projects               Project[]
   clients                Client[]
@@ -436,6 +437,7 @@ model User {
   chatThreadFollows           ChatThreadFollower[]
   chatAlertKeywords           ChatAlertKeyword[]
   apiKeys                     ApiKey[]             @relation("ApiKeyCreatedBy")
+  accountDecisions            AccountRequest[]     @relation("AccountRequestDecider")
   ownedDeliverables           Deliverable[]        @relation("DeliverableOwner")
   workItemAssignments         WorkItemAssignee[]
   workItemWatches             WorkItemWatcher[]
@@ -570,6 +572,63 @@ model OrgMember {
   @@unique([orgId, userId])
   @@index([orgId, removedAt])
   @@map("org_members")
+}
+
+/// How (and whether) people outside an org may ask for an account. OFF is the
+/// default, so an org gains nothing it did not switch on.
+///   OFF       — no request form; the only way in is an admin-sent invitation.
+///   ALLOWLIST — only addresses on OrgSecuritySettings.allowedDomains may ask.
+///   OPEN      — any address may ask.
+/// Neither non-OFF mode creates an account: a request is a queue entry that an
+/// admin approves, and approval is what mints the invitation.
+enum AccountRequestMode {
+  OFF
+  ALLOWLIST
+  OPEN
+}
+
+enum AccountRequestStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+/// Someone asking an org for an account, for an admin to approve or deny.
+///
+/// Deliberately NOT a credential of any kind: a row here grants nothing, and
+/// approving it goes through the same Invitation path an admin-initiated invite
+/// uses, so there is exactly one way an account comes into being.
+///
+/// Rows are RETAINED after a decision — who asked, who decided and when is the
+/// audit question this table exists to answer, so a denial is recorded rather
+/// than deleted. A partial unique index (see the migration) keeps at most ONE
+/// PENDING row per address per org, so resubmitting cannot flood the queue
+/// while still allowing a fresh request after a denial.
+model AccountRequest {
+  id    String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId String @map("org_id") @db.Uuid
+  email String
+  /// What the requester said about themselves, shown to whoever decides.
+  /// Free text, never interpreted, length-capped at the route.
+  note   String?
+  status AccountRequestStatus @default(PENDING)
+  /// Which mode was in force when this was accepted, so a later change to the
+  /// org's policy doesn't rewrite the history of why a request was taken.
+  modeAtRequest AccountRequestMode @map("mode_at_request")
+  ipAddress     String?            @map("ip_address")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  /// Null while PENDING.
+  decidedAt   DateTime? @map("decided_at")
+  decidedById String?   @map("decided_by_id") @db.Uuid
+  /// The invitation an approval minted, so the queue can show what was sent.
+  invitationId String? @map("invitation_id") @db.Uuid
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  decidedBy User?        @relation("AccountRequestDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([orgId, status])
+  @@index([orgId, email])
+  @@map("account_requests")
 }
 
 model Invitation {
@@ -3064,6 +3123,7 @@ model OrgSecuritySettings {
   ssoEnforced        Boolean  @default(false) @map("sso_enforced")
   ssoConnectionId    String?  @map("sso_connection_id")
   allowedDomains     String[] @default([]) @map("allowed_domains")
+  accountRequestMode AccountRequestMode @default(OFF) @map("account_request_mode")
   auditRetentionDays Int      @default(365) @map("audit_retention_days")
 
   // ── Session policy (prod-parity; enforced server-side in the auth path) ──────
