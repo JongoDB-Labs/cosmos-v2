@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
+import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { MAX_MARKUP_PCT } from "@/lib/finance/markup";
@@ -46,6 +47,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         projectId: sp.get("projectId") ?? undefined,
         partnerId: sp.get("partnerId") ?? undefined,
         invoice: sp.get("invoice") ?? undefined,
+        visible: await visibleProjectRecordsWhere(ctx),
       }),
     );
   } catch (error) {

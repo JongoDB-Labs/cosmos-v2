@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { MAX_MARKUP_PCT } from "@/lib/finance/markup";
+import { inVisibleProject } from "@/lib/rbac/require-project-read";
 import { assertBillLinks } from "@/lib/payables/links.server";
 import { updateBill } from "@/lib/payables/service";
 
@@ -35,6 +36,20 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.FINANCE_MANAGE);
+
+    // The bill's CURRENT project, before anything in the patch is considered.
+    // assertBillLinks checks the project the body NAMES, which stops a bill
+    // being moved onto a hidden project but says nothing about one that is
+    // already there — so a FINANCE_MANAGE holder could edit, and move out, a
+    // bill on a project they cannot see. Same 404 as no such bill, as the
+    // invoice route answers.
+    const existing = await prisma.bill.findFirst({
+      where: { id: billId, orgId },
+      select: { projectId: true },
+    });
+    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) {
+      return new Response("Not found", { status: 404 });
+    }
 
     const patch = patchSchema.parse(await request.json());
     await assertBillLinks(ctx, orgId, patch);

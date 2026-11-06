@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
-import { requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
+import { requireProjectVisibleIf, inVisibleProject } from "@/lib/rbac/require-project-read";
 import { ProblemError } from "@/lib/openapi/problem";
 
 /**
@@ -20,7 +20,18 @@ export async function assertBillLinks(
 ): Promise<void> {
   await requireProjectVisibleIf(ctx, links.projectId);
   if (links.invoiceId) {
-    const invoice = await prisma.invoice.findFirst({ where: { id: links.invoiceId, orgId }, select: { id: true } });
-    if (!invoice) throw new ProblemError(400, "invalid_request", "That invoice isn't one of this organization's.");
+    const invoice = await prisma.invoice.findFirst({
+      where: { id: links.invoiceId, orgId },
+      // projectId, because an invoice this org owns may still sit on a project
+      // the caller cannot see. Selecting only `id` meant visibility could not
+      // be checked even in principle.
+      select: { id: true, projectId: true },
+    });
+    // An invoice on a hidden project is answered exactly like one from another
+    // org: a malformed id. Saying "you may not see that invoice" would confirm
+    // it exists, which is the thing project scoping hides.
+    if (!invoice || !(await inVisibleProject(ctx, invoice.projectId))) {
+      throw new ProblemError(400, "invalid_request", "That invoice isn't one of this organization's.");
+    }
   }
 }
