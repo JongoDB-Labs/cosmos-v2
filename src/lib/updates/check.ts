@@ -204,6 +204,13 @@ export interface UpdateCheck {
   rebuildAvailable: boolean | null;
   /** Tag the candidate resolved at, for display and for the actuator to reuse. */
   candidateTag: string | null;
+  /**
+   * The version the candidate IS: the newer release for an upgrade, the
+   * running version for a reinstall of its rebuilt image. Null with no
+   * candidate. The candidate's digest and tag always belong to this version,
+   * so a screen labels them with it, never with "newest available".
+   */
+  candidateVersion: string | null;
   preflights: PreflightResult[];
   /** Notes for the newer releases, newest first. Empty when none are published. */
   notes: ReleaseNote[];
@@ -232,6 +239,7 @@ const unconfigured = (now: Date): UpdateCheck => ({
   candidateDigest: null,
   rebuildAvailable: null,
   candidateTag: null,
+  candidateVersion: null,
   preflights: [],
   notes: [],
   notesOmitted: 0,
@@ -256,6 +264,7 @@ export async function checkForUpdates(
     checkedAt: now.toISOString(),
     candidateDigest: null as string | null,
     candidateTag: null as string | null,
+    candidateVersion: null as string | null,
   };
 
   let tags: string[];
@@ -283,6 +292,7 @@ export async function checkForUpdates(
 
   let candidateDigest: string | null = null;
   let candidateTag: string | null = null;
+  let candidateVersion: string | null = null;
   let migrateImagePresent: boolean | null = null;
   let missingSidecars: string[] = [];
 
@@ -298,6 +308,7 @@ export async function checkForUpdates(
       if (app && migrate) {
         candidateDigest = app;
         candidateTag = tag;
+        candidateVersion = status.latest;
         migrateImagePresent = true;
         // Sidecars are tagged with the SAME core version + suffix, so they are
         // checked at the tag the app and migrate images agreed on — never a
@@ -328,13 +339,20 @@ export async function checkForUpdates(
       // a migration image from another build is how a schema gets corrupted.
       if (app && migrate) {
         rebuildAvailable = app !== config.runningDigest;
-        if (rebuildAvailable && !candidateDigest) {
+        // Only when NO newer version is on offer. Keying this on "no candidate
+        // yet" let a newer release whose images had not both resolved be
+        // filled in with the RUNNING version's rebuild: the screen then showed
+        // the new version as newest available beside the installed version's
+        // tag and digest, and the resolve preflight passed the new version on
+        // the old image's digest.
+        if (rebuildAvailable && !status.updateAvailable) {
           // The rebuild IS the candidate when no newer version is on offer, so
           // it is held to the same pairing the upgrade path checks above —
           // including the sidecars, at this same tag — before it can be
           // reinstalled.
           candidateDigest = app;
           candidateTag = tag;
+          candidateVersion = currentVersion;
           migrateImagePresent = true;
           const found = await Promise.all(
             config.sidecarRepos.map((r) => deps.resolveDigest(r, tag, auth).then((d) => ({ r, ok: !!d }))),
@@ -411,6 +429,7 @@ export async function checkForUpdates(
     status,
     candidateDigest,
     candidateTag,
+    candidateVersion,
     rebuildAvailable,
     preflights,
     notes,
