@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+          version: "2.537.0",
+          date: "2026-11-06",
+          title: "Front-door settings now ship with the release",
+          highlights: [
+            {
+              kind: "fix",
+              text: "The web server\u2019s own configuration now travels with each release instead of living on the server. It had been a file on the machine that nothing in the release process could update, so a change to it could pass every check, be released and be deployed while having no effect at all \u2014 which is exactly what happened to the compression change in 2.517.0, until it was applied by hand. The configuration is now built into a signed image alongside the application, so what runs is always what was released, and it rolls back with the release.",
+            },
+            {
+              kind: "improvement",
+              text: "An automated check fails the build if that configuration goes back to being read from the machine, because nothing else would notice: the application would run, every test would pass, and configuration changes would silently stop taking effect.",
+            },
+          ],
+        },
+  {
       version: "2.536.0",
       date: "2026-11-06",
       title: "Bills respect who can see a project",
