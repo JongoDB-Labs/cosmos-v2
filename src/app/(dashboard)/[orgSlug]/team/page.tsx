@@ -13,6 +13,7 @@ import {
 import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 import { TeamTable } from "./team-table";
 import { InviteMemberButton } from "./invite-member-button";
+import { AccountRequestQueue } from "./account-request-queue";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -109,6 +110,18 @@ async function TeamPageContent({ params }: PageParams) {
 
   const canInvite = hasPermission(ctx.permissions, Permission.ORG_MANAGE_MEMBERS);
 
+  // Pending account requests, for the same permission that governs inviting.
+  // Read only when the viewer can act on them — there is no point fetching a
+  // queue nobody on this page is allowed to decide.
+  const pendingRequests = canInvite
+    ? await prisma.accountRequest.findMany({
+        where: { orgId: ctx.orgId, status: "PENDING" },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: { id: true, email: true, note: true, createdAt: true },
+      })
+    : [];
+
   return (
     <PageShell
       tourAnchor="team"
@@ -116,6 +129,10 @@ async function TeamPageContent({ params }: PageParams) {
       description={`${members.length} members across ${org.name}`}
       actions={canInvite ? <InviteMemberButton orgId={ctx.orgId} /> : null}
     >
+      <AccountRequestQueue
+        orgId={ctx.orgId}
+        requests={pendingRequests.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }))}
+      />
       <TeamTable
         rows={rows}
         workRoleOptions={workRoleOptions}

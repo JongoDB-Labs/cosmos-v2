@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { logAudit } from "@/lib/audit";
 import { emailDomainAllowed } from "@/lib/auth/allowed-domains";
@@ -15,6 +16,7 @@ import { AccountRequestMode, AccountRequestStatus, OrgRole } from "@prisma/clien
 export type SubmitOutcome =
   | "queued"
   | "no_such_org"
+  | "malformed_email"
   | "mode_off"
   | "domain_not_allowed"
   | "already_member"
@@ -41,6 +43,14 @@ export async function submitAccountRequest(params: {
   ipAddress?: string | null;
 }): Promise<SubmitResult> {
   const email = params.email.trim().toLowerCase();
+
+  // Validated HERE as well as at the route. This function is exported, and the
+  // domain allowlist below must not depend on a check in a caller it cannot
+  // see — the allowlist reads the domain after the last "@", so a malformed
+  // address should never reach it in the first place.
+  if (!z.string().email().max(320).safeParse(email).success) {
+    return { outcome: "malformed_email" };
+  }
 
   const org = await prisma.organization.findUnique({
     where: { slug: params.orgSlug },

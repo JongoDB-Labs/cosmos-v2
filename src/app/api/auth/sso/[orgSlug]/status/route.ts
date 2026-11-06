@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
+import { AccountRequestMode } from "@prisma/client";
 
 /**
  * Public, pre-auth SSO discovery for the login page. Given an org slug, reports
@@ -13,6 +14,13 @@ import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
  * Google callback independently re-checks `tenantClass==="GOV" && enabled &&
  * enforced` before minting a session — this endpoint is a UI hint, never a trust
  * boundary.
+ *
+ * `accountRequests` says whether this org accepts requests for an account, so
+ * the login page knows whether to offer the form. An unknown slug and an org
+ * with the mode OFF both report false, so this does not become a way to test
+ * whether an org exists; a true answer discloses only that the org has
+ * deliberately opted into a public request form, which is what opting in means.
+ * It does NOT say which mode, so the allowed-domain list stays private.
  */
 
 type RouteParams = { params: Promise<{ orgSlug: string }> };
@@ -26,7 +34,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     refillPerSecond: 2,
   });
   if (!rl.allowed) {
-    return NextResponse.json({ enabled: false, enforced: false }, { status: 429 });
+    return NextResponse.json(
+      { enabled: false, enforced: false, accountRequests: false },
+      { status: 429 },
+    );
   }
 
   const org = await prisma.organization.findUnique({
@@ -34,6 +45,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     select: {
       tenantClass: true,
       idpConnection: { select: { enabled: true, enforced: true } },
+      securitySettings: { select: { accountRequestMode: true } },
     },
   });
 
@@ -45,5 +57,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   const enforced =
     enabled && Boolean(conn?.enforced) && org?.tenantClass === "GOV";
 
-  return NextResponse.json({ enabled, enforced });
+  // A missing settings row is OFF — the secure default, same as the service.
+  const accountRequests =
+    (org?.securitySettings?.accountRequestMode ?? AccountRequestMode.OFF) !==
+    AccountRequestMode.OFF;
+
+  return NextResponse.json({ enabled, enforced, accountRequests });
 }

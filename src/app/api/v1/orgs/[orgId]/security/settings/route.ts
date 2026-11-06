@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
+import { AccountRequestMode } from "@prisma/client";
 
 const updateSettingsSchema = z.object({
   mfaRequired: z.boolean().optional(),
@@ -16,6 +17,9 @@ const updateSettingsSchema = z.object({
   ssoConnectionId: z.string().nullable().optional(),
   allowedDomains: z.array(z.string()).optional(),
   auditRetentionDays: z.number().int().min(30).max(3650).optional(),
+  // Whether outsiders may ask this org for an account, and who may ask.
+  // OFF is the default everywhere; see the AccountRequest model.
+  accountRequestMode: z.nativeEnum(AccountRequestMode).optional(),
 });
 
 /**
@@ -80,8 +84,28 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // Snapshot the prior posture so we can detect a *tightening* below (false→true).
     const prior = await prisma.orgSecuritySettings.findUnique({
       where: { orgId },
-      select: { ssoEnforced: true, mfaRequired: true },
+      select: { ssoEnforced: true, mfaRequired: true, allowedDomains: true },
     });
+
+    // ALLOWLIST with no domains configured is NOT a restriction: an empty list
+    // means "unrestricted" everywhere else (see allowed-domains.ts), so this
+    // combination would quietly behave exactly like OPEN while reading as
+    // locked down. Refuse it rather than let the stricter-looking setting be
+    // the weaker one. Considers the domains being set in this same request.
+    const effectiveDomains = data.allowedDomains ?? prior?.allowedDomains ?? [];
+    if (
+      data.accountRequestMode === AccountRequestMode.ALLOWLIST &&
+      effectiveDomains.map((d) => d.trim()).filter(Boolean).length === 0
+    ) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "Add at least one allowed email domain before restricting account "
+            + "requests to the allowlist — with no domains it would accept every address.",
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
 
     const settings = await prisma.orgSecuritySettings.upsert({
       where: { orgId },
@@ -99,6 +123,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.ssoConnectionId !== undefined && { ssoConnectionId: data.ssoConnectionId }),
         ...(data.allowedDomains !== undefined && { allowedDomains: data.allowedDomains }),
         ...(data.auditRetentionDays !== undefined && { auditRetentionDays: data.auditRetentionDays }),
+        ...(data.accountRequestMode !== undefined && { accountRequestMode: data.accountRequestMode }),
       },
     });
 
