@@ -44,7 +44,7 @@ vi.mock("@/components/providers/permissions-provider", async (orig) => {
 vi.mock("@/hooks/use-project-statuses", () => ({ useProjectStatuses: () => [] }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 vi.mock("./capacity-dialog", () => ({ CapacityDialog: () => null }));
-vi.mock("./add-issues-dialog", () => ({ AddIssuesDialog: () => null }));
+vi.mock("./add-work-items-dialog", () => ({ AddWorkItemsDialog: () => null }));
 vi.mock("./start-sprint-dialog", () => ({ StartSprintDialog: () => null }));
 
 import { IntervalsWorkspace } from "./intervals-workspace";

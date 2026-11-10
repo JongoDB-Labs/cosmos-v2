@@ -43,9 +43,9 @@ import { Permission } from "@/lib/rbac/permissions";
 import { DeleteWorkItemDialog } from "@/components/work-items/delete-work-item-dialog";
 import { highlightLabel, highlightStyle } from "@/lib/work-items/highlights";
 import {
-  NewIssueButton,
-  type NewIssueHandle,
-} from "@/components/boards/shared/new-issue-button";
+  NewWorkItemButton,
+  type NewWorkItemHandle,
+} from "@/components/boards/shared/new-work-item-button";
 import {
   BoardToolbar,
   BoardToolbarActions,
@@ -182,7 +182,7 @@ export function RaidView({
   projectKey,
   boardId,
 }: RaidViewProps) {
-  const newIssueRef = useRef<NewIssueHandle>(null);
+  const newIssueRef = useRef<NewWorkItemHandle>(null);
   const [hideDone, setHideDone] = useState(false);
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
@@ -353,7 +353,7 @@ export function RaidView({
   </BoardToolbarMeta>
   <BoardToolbarActions>
     <HideDoneToggle checked={hideDone} onChange={setHideDone} />
-    <NewIssueButton
+    <NewWorkItemButton
       ref={newIssueRef}
       orgId={orgId}
       projectId={projectId}
@@ -388,7 +388,7 @@ export function RaidView({
 
       {items.length === 0 ? (
         /* The chrome above stays: a log with nothing in it is exactly when
-           "New issue" matters most, and this branch used to be the one screen
+           "New work item" matters most, and this branch used to be the one screen
            that hid it. Only the body changes. */
         <div className="flex flex-1 items-center justify-center">
           <EmptyState

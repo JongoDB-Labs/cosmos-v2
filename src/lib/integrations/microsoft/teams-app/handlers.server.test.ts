@@ -84,25 +84,38 @@ describe("Cosmos for Teams invokes (e2e DB)", () => {
   }
 
   it("parses only this instance's item links", () => {
-    expect(parseItemLink(`${ORIGIN}/acme/issues?item=ACME-12`, ORIGIN)).toEqual({ slug: "acme", ref: "ACME-12" });
-    expect(parseItemLink(`https://evil.example/acme/issues?item=ACME-12`, ORIGIN)).toBeNull();
-    expect(parseItemLink(`${ORIGIN}/acme/issues`, ORIGIN)).toBeNull();
+    expect(parseItemLink(`${ORIGIN}/acme/work-items?item=ACME-12`, ORIGIN)).toEqual({ slug: "acme", ref: "ACME-12" });
+    expect(parseItemLink(`https://evil.example/acme/work-items?item=ACME-12`, ORIGIN)).toBeNull();
+    expect(parseItemLink(`${ORIGIN}/acme/work-items`, ORIGIN)).toBeNull();
     expect(parseItemLink("not a url", ORIGIN)).toBeNull();
+  });
+
+  it("still parses a link minted before the Work Items rename", () => {
+    // The page moved from /issues to /work-items in 2.544.0. A server-side
+    // redirect covers anyone who CLICKS an old link, but this function never
+    // fetches anything -- it matches the pasted string. Links shared into
+    // Teams before the rename live in chat histories forever, so the old
+    // segment has to keep parsing or they silently stop unfurling.
+    expect(parseItemLink(`${ORIGIN}/acme/issues?item=ACME-12`, ORIGIN)).toEqual({ slug: "acme", ref: "ACME-12" });
+    // The guards that matter are unchanged by accepting a second segment:
+    // another origin is still refused, and so is a path that is neither.
+    expect(parseItemLink(`https://evil.example/acme/issues?item=ACME-12`, ORIGIN)).toBeNull();
+    expect(parseItemLink(`${ORIGIN}/acme/tickets?item=ACME-12`, ORIGIN)).toBeNull();
   });
 
   it("(a) a pasted item link becomes a card with its title, status, assignee and a link back", async () => {
     const s = await setup();
-    const r = await handleActivity(s.invoke(s.oid("alice"), "composeExtension/queryLink", { url: `${ORIGIN}/${s.org.slug}/issues?item=${s.ref}` }), ORIGIN);
+    const r = await handleActivity(s.invoke(s.oid("alice"), "composeExtension/queryLink", { url: `${ORIGIN}/${s.org.slug}/work-items?item=${s.ref}` }), ORIGIN);
     expect(r.status).toBe(200);
     const [card] = attachments(r);
     const t = text(card);
-    for (const want of [s.ref, "Fix the login page", "In progress", "Alice", "Teams project", `${ORIGIN}/${s.org.slug}/issues?item=${s.ref}`]) expect(t).toContain(want);
+    for (const want of [s.ref, "Fix the login page", "In progress", "Alice", "Teams project", `${ORIGIN}/${s.org.slug}/work-items?item=${s.ref}`]) expect(t).toContain(want);
   });
 
   it("(a) a restricted item's card is its key and 'Restricted', nothing from inside it", async () => {
     const s = await setup();
     await prisma.dataClassification.create({ data: { orgId: s.org.id, projectId: s.project.id, level: "FOUO", appliedById: s.alice.id } });
-    const r = await handleActivity(s.invoke(s.oid("alice"), "composeExtension/queryLink", { url: `${ORIGIN}/${s.org.slug}/issues?item=${s.ref}` }), ORIGIN);
+    const r = await handleActivity(s.invoke(s.oid("alice"), "composeExtension/queryLink", { url: `${ORIGIN}/${s.org.slug}/work-items?item=${s.ref}` }), ORIGIN);
     const t = text(r.body);
     expect(t).toContain(s.ref);
     expect(t).toContain("Restricted");
@@ -112,7 +125,7 @@ describe("Cosmos for Teams invokes (e2e DB)", () => {
   it("(a) a marking in the title alone is enough to restrict the card", async () => {
     const s = await setup();
     await prisma.workItem.update({ where: { id: s.item.id }, data: { title: "CUI//SP-PRVCY payroll export" } });
-    const r = await handleActivity(s.invoke(s.oid("alice"), "composeExtension/queryLink", { url: `${ORIGIN}/${s.org.slug}/issues?item=${s.ref}` }), ORIGIN);
+    const r = await handleActivity(s.invoke(s.oid("alice"), "composeExtension/queryLink", { url: `${ORIGIN}/${s.org.slug}/work-items?item=${s.ref}` }), ORIGIN);
     expect(text(r.body)).not.toContain("payroll");
   });
 
@@ -120,18 +133,18 @@ describe("Cosmos for Teams invokes (e2e DB)", () => {
     const s = await setup();
     // A team-scoped project bob isn't a member of.
     await prisma.project.update({ where: { id: s.project.id }, data: { teamScopedAccess: true } });
-    const asBob = await handleActivity(s.invoke(s.oid("bob"), "composeExtension/queryLink", { url: `${ORIGIN}/${s.org.slug}/issues?item=${s.ref}` }), ORIGIN);
+    const asBob = await handleActivity(s.invoke(s.oid("bob"), "composeExtension/queryLink", { url: `${ORIGIN}/${s.org.slug}/work-items?item=${s.ref}` }), ORIGIN);
     expect(attachments(asBob)).toEqual([]);
-    const missing = await handleActivity(s.invoke(s.oid("alice"), "composeExtension/queryLink", { url: `${ORIGIN}/${s.org.slug}/issues?item=${s.project.key}-999` }), ORIGIN);
+    const missing = await handleActivity(s.invoke(s.oid("alice"), "composeExtension/queryLink", { url: `${ORIGIN}/${s.org.slug}/work-items?item=${s.project.key}-999` }), ORIGIN);
     expect(attachments(missing)).toEqual([]);
-    const other = await handleActivity(s.invoke(s.oid("alice"), "composeExtension/queryLink", { url: `${ORIGIN}/some-other-org/issues?item=${s.ref}` }), ORIGIN);
+    const other = await handleActivity(s.invoke(s.oid("alice"), "composeExtension/queryLink", { url: `${ORIGIN}/some-other-org/work-items?item=${s.ref}` }), ORIGIN);
     expect(attachments(other)).toEqual([]);
   });
 
   it("someone Cosmos can't match gets the connect card, and nothing about the item", async () => {
     const s = await setup();
     for (const who of ["oid-stranger", ""]) {
-      const r = await handleActivity(s.invoke(who, "composeExtension/queryLink", { url: `${ORIGIN}/${s.org.slug}/issues?item=${s.ref}` }), ORIGIN);
+      const r = await handleActivity(s.invoke(who, "composeExtension/queryLink", { url: `${ORIGIN}/${s.org.slug}/work-items?item=${s.ref}` }), ORIGIN);
       const t = text(r.body);
       expect(t).toContain("Connect your Cosmos account");
       expect(t).toContain(`${ORIGIN}/${s.org.slug}/settings/preferences`);
@@ -145,13 +158,13 @@ describe("Cosmos for Teams invokes (e2e DB)", () => {
 
   it("a person who left the org, or was deactivated, is no longer matched", async () => {
     const s = await setup();
-    const url = `${ORIGIN}/${s.org.slug}/issues?item=${s.ref}`;
+    const url = `${ORIGIN}/${s.org.slug}/work-items?item=${s.ref}`;
     await prisma.orgMember.deleteMany({ where: { orgId: s.org.id, userId: s.alice.id } });
     expect(text((await handleActivity(s.invoke(s.oid("alice"), "composeExtension/queryLink", { url }), ORIGIN)).body)).toContain("Connect your Cosmos account");
     const t = await setup();
     await prisma.user.update({ where: { id: t.bob.id }, data: { deactivatedAt: new Date() } });
     try {
-      const r = await handleActivity(t.invoke(t.oid("bob"), "composeExtension/queryLink", { url: `${ORIGIN}/${t.org.slug}/issues?item=${t.ref}` }), ORIGIN);
+      const r = await handleActivity(t.invoke(t.oid("bob"), "composeExtension/queryLink", { url: `${ORIGIN}/${t.org.slug}/work-items?item=${t.ref}` }), ORIGIN);
       expect(text(r.body)).toContain("Connect your Cosmos account");
     } finally {
       await prisma.user.update({ where: { id: t.bob.id }, data: { deactivatedAt: null } });
@@ -160,7 +173,7 @@ describe("Cosmos for Teams invokes (e2e DB)", () => {
 
   it("answers only for the org's own tenant, and only while the Teams app is installed", async () => {
     const s = await setup();
-    const url = `${ORIGIN}/${s.org.slug}/issues?item=${s.ref}`;
+    const url = `${ORIGIN}/${s.org.slug}/work-items?item=${s.ref}`;
     const other = await handleActivity(s.invoke(s.oid("alice"), "composeExtension/queryLink", { url }, "99999999-0000-0000-0000-000000000000"), ORIGIN);
     expect(other.status).toBe(403);
     expect(other.body).toBeUndefined();

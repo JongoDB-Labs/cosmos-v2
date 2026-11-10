@@ -95,7 +95,7 @@ export function FiltersMenu({ orgId, orgSlug, activeId, onRun, onEdit, onSubscri
   }
   function copyLink(f: SavedFilter) {
     try {
-      void navigator.clipboard?.writeText(`${window.location.origin}/${orgSlug}/issues?filter=${f.id}`);
+      void navigator.clipboard?.writeText(`${window.location.origin}/${orgSlug}/work-items?filter=${f.id}`);
       toast.success("Link copied");
     } catch {
       /* clipboard unavailable */

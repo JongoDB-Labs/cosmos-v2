@@ -42,7 +42,7 @@ import {
 } from "lucide-react";
 import { buildIntervalTree } from "@/lib/intervals/interval-tree";
 import { CapacityDialog } from "./capacity-dialog";
-import { AddIssuesDialog } from "./add-issues-dialog";
+import { AddWorkItemsDialog } from "./add-work-items-dialog";
 import { StartSprintDialog } from "./start-sprint-dialog";
 import { computeSprintReview, type SprintReview } from "@/lib/intervals/sprint-review";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
@@ -156,7 +156,7 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
   const [startTarget, setStartTarget] = useState<Interval | null>(null);
 
   // "Add issues to this interval" picker (FR 0e31d1ef).
-  const [addIssuesTarget, setAddIssuesTarget] = useState<Interval | null>(null);
+  const [addIssuesTarget, setAddWorkItemsTarget] = useState<Interval | null>(null);
   // intervalId → name, for the "currently in X" badge in the picker.
   const intervalNames = Object.fromEntries(intervals.map((c) => [c.id, c.name]));
 
@@ -202,7 +202,7 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
     onEdit: () => openEdit(interval),
     onDelete: () => setDeleteTarget(interval),
     onCapacity: () => setCapacityTarget(interval),
-    onAddIssues: () => setAddIssuesTarget(interval),
+    onAddWorkItems: () => setAddWorkItemsTarget(interval),
     onAssignPI: (parentId: string | null) => assignToPI(interval.id, parentId),
   });
 
@@ -813,13 +813,13 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
       )}
 
       {/* Add issues to an interval (FR 0e31d1ef) — bulk-move project issues in. */}
-      <AddIssuesDialog
+      <AddWorkItemsDialog
         orgId={orgId}
         projectId={projectId}
         projectKey={projectKey}
         interval={addIssuesTarget}
         open={addIssuesTarget !== null}
-        onOpenChange={(o) => !o && setAddIssuesTarget(null)}
+        onOpenChange={(o) => !o && setAddWorkItemsTarget(null)}
         onAdded={fetchIntervals}
         intervalNames={intervalNames}
       />
@@ -1096,7 +1096,7 @@ interface IntervalCardProps {
   onEdit: () => void;
   onDelete: () => void;
   onCapacity: () => void;
-  onAddIssues: () => void;
+  onAddWorkItems: () => void;
   onAssignPI: (parentId: string | null) => void;
 }
 
@@ -1114,7 +1114,7 @@ function IntervalCard({
   onEdit,
   onDelete,
   onCapacity,
-  onAddIssues,
+  onAddWorkItems,
   onAssignPI,
 }: IntervalCardProps) {
   const itemCount = interval._count?.workItems ?? 0;
@@ -1229,10 +1229,10 @@ function IntervalCard({
               size="sm"
               variant="outline"
               disabled={busy}
-              onClick={onAddIssues}
+              onClick={onAddWorkItems}
             >
               <ListPlus className="h-3.5 w-3.5 mr-1" />
-              Add issues
+              Add work items
             </Button>
           )}
           {interval.status !== "COMPLETED" && (

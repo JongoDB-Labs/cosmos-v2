@@ -65,7 +65,7 @@ describe("the Filters tab can turn a filter into a board", () => {
     renderTab(true);
     const [first] = await screen.findAllByRole("link", { name: /save .*as board/i });
     const href = first.getAttribute("href") ?? "";
-    expect(href).toContain("/acme/issues?");
+    expect(href).toContain("/acme/work-items?");
     expect(href).toContain("filter=f1");
     expect(href).toContain("saveBoard=1");
   });

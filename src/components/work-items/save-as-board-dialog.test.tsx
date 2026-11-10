@@ -24,7 +24,7 @@ if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => 
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
-  usePathname: () => "/acme/issues",
+  usePathname: () => "/acme/work-items",
   useParams: () => ({ orgSlug: "acme" }),
 }));
 vi.mock("@/lib/query/json-fetcher", async (importActual) => {

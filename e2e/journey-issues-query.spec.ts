@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/auth";
-import { editor, openIssues, resetQueryLanguage, runCql, setQueryLanguage, urlCql } from "./fixtures/issues-query";
+import { editor, openIssues, resetQueryLanguage, runCql, setQueryLanguage, urlCql } from "./fixtures/work-items-query";
 
 /**
  * Issues with the query language on (query design §14.3): write a query with
@@ -55,7 +55,7 @@ test.describe("Issues — query language", () => {
     await setQueryLanguage(page.request, true);
     await openIssues(page, { cql: "project = FAL", mode: "basic" });
 
-    const box = page.getByRole("textbox", { name: "Search issues" });
+    const box = page.getByRole("textbox", { name: "Search work items" });
     await box.fill("radar");
     await box.press("Enter");
     await expect.poll(() => urlCql(page)).toBe('project = FAL AND text ~ "radar"');
@@ -109,7 +109,7 @@ test.describe("Issues — query language", () => {
     // reporter typed it: the search box, which otherwise searches issue TEXT
     // and would find nothing while saying nothing about why.
     await openIssues(page, { mode: "basic" });
-    await page.getByRole("textbox", { name: "Search issues" }).fill("Radar probe");
+    await page.getByRole("textbox", { name: "Search work items" }).fill("Radar probe");
     const hit = page.getByRole("button", { name, exact: true });
     await expect(hit).toBeVisible({ timeout: 15_000 });
     await hit.click();

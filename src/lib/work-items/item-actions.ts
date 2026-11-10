@@ -52,7 +52,7 @@ export function copyLinkAction(
     icon: Link2,
     onClick: () => {
       // Prefer the TICKET KEY over the uuid. A link is something a person reads
-      // in Slack and, increasingly often, retypes — ".../issues?item=ACME-320"
+      // in Slack and, increasingly often, retypes — ".../work-items?item=ACME-320"
       // says which ticket before anyone clicks it, and a uuid says nothing at
       // all. The deep-link route resolves either, so nothing is lost: an older
       // link with a uuid keeps working.
@@ -61,7 +61,7 @@ export function copyLinkAction(
       if (!href) return;
       try {
         void navigator.clipboard?.writeText(`${window.location.origin}${href}`);
-        toast.success("Issue link copied");
+        toast.success("Work item link copied");
       } catch {
         /* clipboard unavailable (insecure origin, or denied) — no toast lies */
       }

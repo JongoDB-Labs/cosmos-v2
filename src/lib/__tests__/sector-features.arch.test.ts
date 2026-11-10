@@ -14,7 +14,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { TOGGLEABLE_FEATURES } from "@/lib/project-features";
+import { TOGGLEABLE_FEATURES, isRetiredFeature } from "@/lib/project-features";
 
 const SECTORS_DIR = join(process.cwd(), "prisma/seed/sectors");
 
@@ -51,6 +51,25 @@ describe("sector templates only enable features that exist", () => {
 
     // Named so the failure says WHICH key in WHICH template is dead.
     expect(unknown, `dead feature key(s) in ${file}`).toEqual([]);
+  });
+
+  it.each(sectorFiles)("%s hands out no RETIRED feature key", (file) => {
+    // A retired key is still a REAL key -- it stays in TOGGLEABLE_FEATURES so
+    // projects already holding it keep working -- so the "dead key" check
+    // above passes it happily. Without this, retiring a module would quietly
+    // keep stamping it into every project created from a sector template,
+    // which is the one place the retirement would have no visible symptom.
+    const source = readFileSync(join(SECTORS_DIR, file), "utf8");
+    const retired = enabledFeatureLiterals(source).flat().filter(isRetiredFeature);
+    expect(retired, `retired feature key(s) still seeded by ${file}`).toEqual([]);
+  });
+
+  it("would catch a retired key if one were reintroduced", () => {
+    // Positive control: the assertion above is an "equals []", which passes
+    // just as well when the matcher finds nothing at all.
+    const fake = `enabledFeatures: ["goal", "pm-dashboard", "risk-register"],`;
+    const retired = enabledFeatureLiterals(fake).flat().filter(isRetiredFeature);
+    expect(retired).toEqual(["pm-dashboard", "risk-register"]);
   });
 
   it("rejects a key that only looks plausible", () => {

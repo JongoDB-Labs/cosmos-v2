@@ -26,7 +26,7 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 
 const csvHeaders = (slug: string) => ({
   "Content-Type": "text/csv; charset=utf-8",
-  "Content-Disposition": `attachment; filename="issues-${slug}-${new Date()
+  "Content-Disposition": `attachment; filename="work-items-${slug}-${new Date()
     .toISOString()
     .slice(0, 10)}.csv"`,
 });

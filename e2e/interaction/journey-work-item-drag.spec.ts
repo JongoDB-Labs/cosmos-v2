@@ -43,7 +43,7 @@ const PROJECT_KEY = process.env.E2E_PROJECT_KEY ?? "test";
 const SOURCE_COLUMN = "Backlog";
 const TARGET_COLUMN = "To Do";
 
-/** Create a card in a named column via the board's shared "New issue" dialog,
+/** Create a card in a named column via the board's shared "New work item" dialog,
  *  and return once its accessible button ("Open …: {title}") is visible.
  *
  *  The per-column quick-create is gone — the column is now chosen through the

@@ -21,7 +21,7 @@ const run = (o: Partial<FeedOptions> = {}) => feedEvents({ ...base, options: { .
 describe("feedEvents", () => {
   it("spans a work item from its start to its due date, inclusive", () => {
     const e = run().find((x) => x.uid === "workitem-w1@example.com")!;
-    expect(e).toMatchObject({ allDay: true, summary: "ALPHA-7 Ship it", url: "https://example.com/alpha/issues?item=ALPHA-7" });
+    expect(e).toMatchObject({ allDay: true, summary: "ALPHA-7 Ship it", url: "https://example.com/alpha/work-items?item=ALPHA-7" });
     expect(e.start.toISOString()).toBe("2026-10-20T00:00:00.000Z");
     expect(e.end.toISOString()).toBe("2026-10-25T00:00:00.000Z"); // exclusive: the day after the due date
   });

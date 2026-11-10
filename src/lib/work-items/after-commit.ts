@@ -127,7 +127,7 @@ export async function runAfterCommit(
     }
   }
 
-  // Live updates: tell other clients viewing this project's boards/issues to
+  // Live updates: tell other clients viewing this project's boards/work-items to
   // refresh. Best-effort — a broker error never breaks the change.
   try {
     if (bulk) {
@@ -173,7 +173,7 @@ export async function runAfterCommit(
           message: `${actorName} assigned you a work item`,
           relatedType: "work_item",
           relatedId: item.id,
-          url: `/${org?.slug ?? ""}/issues?item=${item.id}`,
+          url: `/${org?.slug ?? ""}/work-items?item=${item.id}`,
         }).catch(() => {
           /* notification is convenience, not load-bearing */
         });

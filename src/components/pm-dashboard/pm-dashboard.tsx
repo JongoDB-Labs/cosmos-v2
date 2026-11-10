@@ -164,6 +164,16 @@ interface PmDashboardProps {
   scope: DashboardScope;
   data: PmDashboardData;
   audience?: AudienceView;
+  /**
+   * Drop this component's own title + scope line, for a host page that already
+   * renders both. The audience subtitle stays either way.
+   */
+  hideScopeHeading?: boolean;
+  /**
+   * The host withheld contract money from this viewer (no finance permission),
+   * so an empty CLIN list means "not yours to see", not "none on file".
+   */
+  moneyWithheld?: boolean;
 }
 
 const AUDIENCES: {
@@ -226,7 +236,13 @@ function MirrorToSharePointButton({ orgId, projectId }: { orgId: string; project
   );
 }
 
-export function PmDashboard({ scope, data, audience: initialAudience }: PmDashboardProps) {
+export function PmDashboard({
+  scope,
+  data,
+  audience: initialAudience,
+  hideScopeHeading,
+  moneyWithheld,
+}: PmDashboardProps) {
   const { can } = usePermissions();
 
   const audiences = useMemo(() => {
@@ -248,10 +264,25 @@ export function PmDashboard({ scope, data, audience: initialAudience }: PmDashbo
     <div className="mx-auto flex max-w-6xl flex-col gap-6 p-6" data-tour="pm-dashboard">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-[var(--text)]">{header.title}</h2>
-          <p className="text-sm text-[var(--text-muted)]">
-            {scopeLabel} — {header.subtitle}
-          </p>
+          {/* On a page that already titles itself and names its scope (the
+              org-level Program Management page), this block would repeat both
+              -- the same words twice, one above the other. The audience
+              subtitle still shows, because it is the only thing that says
+              WHICH of the three views you are reading. */}
+          {hideScopeHeading ? (
+            // The subtitles are written to follow "{scope} — "; standing alone they
+            // read as a lowercase fragment.
+            <p className="text-sm text-[var(--text-muted)]">
+              {header.subtitle.charAt(0).toUpperCase() + header.subtitle.slice(1)}
+            </p>
+          ) : (
+            <>
+              <h2 className="text-xl font-semibold text-[var(--text)]">{header.title}</h2>
+              <p className="text-sm text-[var(--text-muted)]">
+                {scopeLabel} — {header.subtitle}
+              </p>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {scope.kind === "project" && (
@@ -305,8 +336,10 @@ export function PmDashboard({ scope, data, audience: initialAudience }: PmDashbo
         </div>
       </div>
 
-      {audience === "pm" && <PmView data={data} stats={stats} />}
-      {audience === "government" && <GovernmentView data={data} stats={stats} />}
+      {audience === "pm" && <PmView data={data} stats={stats} moneyWithheld={moneyWithheld} />}
+      {audience === "government" && (
+        <GovernmentView data={data} stats={stats} moneyWithheld={moneyWithheld} />
+      )}
       {audience === "executive" && <ExecutiveView data={data} stats={stats} />}
     </div>
   );
@@ -316,7 +349,7 @@ export function PmDashboard({ scope, data, audience: initialAudience }: PmDashbo
 // Audience views
 // ---------------------------------------------------------------------------
 
-function PmView({ data, stats }: ViewProps) {
+function PmView({ data, stats, moneyWithheld }: ViewProps) {
   const decisions = computeDecisions(data);
   return (
     <>
@@ -329,14 +362,14 @@ function PmView({ data, stats }: ViewProps) {
         <BlockersPanel blockers={data.blockers} />
         <DeliverablesPanel deliverables={data.deliverables} />
         <ChangesPanel changes={data.changes} />
-        <ClinBurnPanel clins={data.clins} className="lg:col-span-2" />
+        <ClinBurnPanel clins={data.clins} withheld={moneyWithheld} className="lg:col-span-2" />
         <GoalsPanel goals={data.goals} />
       </div>
     </>
   );
 }
 
-function GovernmentView({ data, stats }: ViewProps) {
+function GovernmentView({ data, stats, moneyWithheld }: ViewProps) {
   const decisions = computeDecisions(data);
   return (
     <>
@@ -357,7 +390,7 @@ function GovernmentView({ data, stats }: ViewProps) {
         <MilestonesPanel milestones={data.milestones} title="Schedule" />
         <DeliverablesPanel deliverables={data.deliverables} title="Contract Deliverables (CDRLs)" />
         <ChangesPanel changes={data.changes} title="Change Requests & MODs" />
-        <ClinBurnPanel clins={data.clins} className="lg:col-span-2" />
+        <ClinBurnPanel clins={data.clins} withheld={moneyWithheld} className="lg:col-span-2" />
         <KpisPanel kpis={data.kpis} title="Performance vs. Target" />
         <RisksPanel
           risks={data.risks.filter((r) => r.escalate)}
@@ -391,6 +424,7 @@ function ExecutiveView({ data, stats }: ViewProps) {
 interface ViewProps {
   data: PmDashboardData;
   stats: ReturnType<typeof computeStats>;
+  moneyWithheld?: boolean;
 }
 
 const AUDIENCE_HEADER: Record<AudienceView, { title: string; subtitle: string }> = {
@@ -676,13 +710,23 @@ function BurnBar({ percent }: { percent: number | null }) {
   );
 }
 
-function ClinBurnPanel({ clins, className }: { clins: ClinBurnLite[]; className?: string }) {
+function ClinBurnPanel({
+  clins,
+  withheld,
+  className,
+}: {
+  clins: ClinBurnLite[];
+  withheld?: boolean;
+  className?: string;
+}) {
   const totalValue = clins.reduce((s, c) => s + c.value, 0);
   const totalBurned = clins.reduce((s, c) => s + c.burned, 0);
   const totalPct = totalValue > 0 ? Math.round((totalBurned / totalValue) * 100) : null;
   return (
     <Panel title="CLIN Burn" className={className}>
-      {clins.length === 0 ? (
+      {withheld ? (
+        <EmptyRow label="CLIN burn needs Finance or Accounting access." />
+      ) : clins.length === 0 ? (
         <EmptyRow label="No CLINs yet." />
       ) : (
         <div className="flex flex-col gap-3">

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// Reported twice: clicking a ticket link (`/issues?item=<id>`) dropped the user
+// Reported twice: clicking a ticket link (`/work-items?item=<id>`) dropped the user
 // on the Issues list with no explanation. It was first assumed to be a deleted
 // ticket, but the second report named a ticket that existed — so the deep link
 // was broken for VALID items too.
@@ -39,7 +39,7 @@ vi.mock("next/navigation", () => ({
     },
   }),
   useSearchParams: () => ({ get: (k: string) => (k === "item" ? itemParam : null) }),
-  usePathname: () => "/acme/issues",
+  usePathname: () => "/acme/work-items",
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
@@ -76,7 +76,7 @@ vi.mock("@/lib/query/json-fetcher", async (importActual) => {
   return { ...actual, jsonFetch: vi.fn() };
 });
 
-import { IssuesView } from "./issues-view";
+import { WorkItemsView } from "./work-items-view";
 import { jsonFetch, FetchError } from "@/lib/query/json-fetcher";
 
 const FACETS = {
@@ -137,7 +137,7 @@ function renderView() {
   // on never happen — and the test pass against the very bug it guards.
   const tree = () => (
     <QueryClientProvider client={qc}>
-      <IssuesView orgId="o1" orgSlug="acme" />
+      <WorkItemsView orgId="o1" orgSlug="acme" />
     </QueryClientProvider>
   );
   const r = render(tree());
@@ -153,7 +153,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("IssuesView — ?item= deep link", () => {
+describe("WorkItemsView — ?item= deep link", () => {
   it("opens the sheet even when the item param disappears mid-fetch", async () => {
     // The precise old failure: the param goes away while the row fetch is still
     // in flight, so the effect re-runs and its cleanup fires. The old code let

@@ -1,4 +1,5 @@
 import type { BoardType } from "@prisma/client";
+import { isRetiredFeature } from "@/lib/project-features";
 
 interface TemplateBase {
   slug: string;
@@ -41,7 +42,10 @@ export function boardTypeTemplates() {
  *
  * `built-in-templates.test.ts` asserts every BoardType appears here.
  */
-export const BUILT_IN_BOARD_TEMPLATES: BuiltInBoardTemplate[] = [
+// Every built-in board ever offered, retired ones included. A board created from
+// a retired card still exists under that card's name, so anything that has to
+// handle every board name (the breadcrumb labels) reads this list.
+export const ALL_BOARD_TEMPLATES: BuiltInBoardTemplate[] = [
   {
     slug: "kanban",
     name: "Kanban Board",
@@ -194,3 +198,10 @@ export const BUILT_IN_BOARD_TEMPLATES: BuiltInBoardTemplate[] = [
     boardType: "SPRINT_REVIEW",
   },
 ];
+
+// A card for a RETIRED project feature is kept above but not offered: picking it
+// would switch the module back on for a project that never had it. Projects that
+// already run it reach it from their own tabs.
+export const BUILT_IN_BOARD_TEMPLATES: BuiltInBoardTemplate[] = ALL_BOARD_TEMPLATES.filter(
+  (t) => t.feature === undefined || !isRetiredFeature(t.feature),
+);

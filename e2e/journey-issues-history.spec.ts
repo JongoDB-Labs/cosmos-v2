@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/auth";
-import { openIssues, resetQueryLanguage, runCql, setQueryLanguage } from "./fixtures/issues-query";
+import { openIssues, resetQueryLanguage, runCql, setQueryLanguage } from "./fixtures/work-items-query";
 
 /**
  * Query history (query design §3.6, phase 4): edit an item the ordinary way,

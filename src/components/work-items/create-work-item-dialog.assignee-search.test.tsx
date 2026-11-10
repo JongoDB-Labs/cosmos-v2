@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// COSMOS-171 — the Assignees list in "New issue" rendered the members in
+// COSMOS-171 — the Assignees list in "New work item" rendered the members in
 // whatever order the API returned them, with no way to narrow it. Once an org
 // grew past a screenful, picking someone meant scrolling a 28px-high box hunting
 // for a name. This locks the two affordances that fixed it: alphabetical order,

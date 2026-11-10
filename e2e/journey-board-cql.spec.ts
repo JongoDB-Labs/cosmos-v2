@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/auth";
-import { openIssues, resetQueryLanguage, setQueryLanguage } from "./fixtures/issues-query";
+import { openIssues, resetQueryLanguage, setQueryLanguage } from "./fixtures/work-items-query";
 
 /**
  * Boards on the query language (query design §12.1, §14.3): save an Issues

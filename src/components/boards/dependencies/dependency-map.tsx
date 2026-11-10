@@ -97,7 +97,7 @@ function directedEdge(l: WorkItemLink): { from: string; to: string } | null {
  * left→right layered DAG — each item sits one column right of its deepest
  * predecessor — with blocked / blocker / cycle summaries. Reuses the same
  * longest-chain DP the Gantt uses for the critical path. Clicking a node opens
- * that item via the canonical /issues?item deep-link.
+ * that item via the canonical /work-items?item deep-link.
  */
 export function DependencyMap({ orgId, projectId, projectKey }: DependencyMapProps) {
   const params = useParams<{ orgSlug: string }>();
@@ -463,7 +463,7 @@ export function DependencyMap({ orgId, projectId, projectKey }: DependencyMapPro
                 </div>
                 <div className="border-t border-[var(--border)] px-3 py-2">
                   <Link
-                    href={`/${orgSlug}/issues?item=${selected}`}
+                    href={`/${orgSlug}/work-items?item=${selected}`}
                     className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--primary)] hover:underline"
                   >
                     <ExternalLink className="size-3.5" /> Open full ticket

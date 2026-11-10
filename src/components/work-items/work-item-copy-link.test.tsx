@@ -21,7 +21,7 @@ describe("issue deep link (what Copy link copies)", () => {
 
   it("addresses the item, not the board or project", () => {
     const href = entityUrl("workItem", { orgSlug, id });
-    expect(href).toBe(`/${orgSlug}/issues?item=${id}`);
+    expect(href).toBe(`/${orgSlug}/work-items?item=${id}`);
   });
 
   it("is not the project page the old implementation copied", () => {
@@ -32,7 +32,7 @@ describe("issue deep link (what Copy link copies)", () => {
   });
 
   it("carries the item id in the param the issues view reads", () => {
-    // issues-view.tsx does `searchParams.get("item")`. If this param is ever
+    // work-items-view.tsx does `searchParams.get("item")`. If this param is ever
     // renamed, every deep link in the product breaks together — which is the
     // point of having one builder.
     const href = entityUrl("workItem", { orgSlug, id })!;
@@ -44,7 +44,7 @@ describe("issue deep link (what Copy link copies)", () => {
     // The row's project key is irrelevant to addressing the item; requiring it
     // would break Copy link on any row whose project wasn't loaded.
     expect(entityUrl("workItem", { orgSlug, id, projectKey: null })).toBe(
-      `/${orgSlug}/issues?item=${id}`,
+      `/${orgSlug}/work-items?item=${id}`,
     );
   });
 });
@@ -61,7 +61,7 @@ describe("issue deep link (what Copy link copies)", () => {
 import { readFileSync } from "node:fs";
 
 describe("Copy link call site", () => {
-  const SRC = "src/components/work-items/issues-view.tsx";
+  const SRC = "src/components/work-items/work-items-view.tsx";
   const src = readFileSync(SRC, "utf8");
 
   /** The `{ label: "Copy link", … }` menu entry, up to the end of its handler.
@@ -105,7 +105,7 @@ describe("Copy link call site", () => {
  * or it promises something the data model cannot deliver.
  */
 describe("the project-board menu entry names what it opens", () => {
-  const SRC = "src/components/work-items/issues-view.tsx";
+  const SRC = "src/components/work-items/work-items-view.tsx";
   const src = readFileSync(SRC, "utf8");
 
   it("does not claim to open the board holding this item", () => {

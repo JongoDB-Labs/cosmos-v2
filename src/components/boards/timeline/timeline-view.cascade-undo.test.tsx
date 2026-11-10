@@ -43,7 +43,7 @@ vi.mock("@/components/providers/permissions-provider", async (importOriginal) =>
 });
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
-vi.mock("@/components/boards/shared/new-issue-button", () => ({ NewIssueButton: () => null }));
+vi.mock("@/components/boards/shared/new-work-item-button", () => ({ NewWorkItemButton: () => null }));
 vi.mock("@/components/work-items/card-detail-sheet", () => ({ CardDetailSheet: () => null }));
 // Stubbed to keep the filter surface's control tree out of this test, but it
 // now HOSTS the board's actions (one band instead of two identical ones --

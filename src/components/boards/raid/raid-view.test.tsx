@@ -6,7 +6,7 @@
 //      per-card "Categorize" menu (edit) and drag-and-drop.
 //   2. The view actually buckets tagged items into their columns (so not
 //      "everything Unclassified").
-//   3. "New issue" from the RAID log seeds a category preset, so a new entry
+//   3. "New work item" from the RAID log seeds a category preset, so a new entry
 //      defaults to a real column instead of Unclassified.
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, within } from "@testing-library/react";
@@ -34,10 +34,10 @@ vi.mock("next/navigation", () => ({
 // Capture the props the RAID log hands the shared create button — that's the
 // COSMOS-80 wiring (a seeded category so new entries aren't Unclassified).
 const createIssueProps = vi.fn();
-vi.mock("@/components/boards/shared/new-issue-button", () => ({
-  NewIssueButton: (props: Record<string, unknown>) => {
+vi.mock("@/components/boards/shared/new-work-item-button", () => ({
+  NewWorkItemButton: (props: Record<string, unknown>) => {
     createIssueProps(props);
-    return <button type="button">New issue</button>;
+    return <button type="button">New work item</button>;
   },
 }));
 

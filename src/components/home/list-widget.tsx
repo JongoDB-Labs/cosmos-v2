@@ -68,7 +68,7 @@ function RecentActivity({ orgId, orgSlug }: { orgId: string; orgSlug: string }) 
                 <>
                   {" "}
                   <Link
-                    href={`/${orgSlug}/issues?item=${a.item.id}`}
+                    href={`/${orgSlug}/work-items?item=${a.item.id}`}
                     className="font-medium text-[var(--primary)] hover:underline"
                   >
                     {a.item.ticketKey}
@@ -106,7 +106,7 @@ function MyWatched({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
     <WidgetShell
       title="My watched items"
       icon={<Star className="size-3.5" />}
-      moreHref={`/${orgSlug}/issues?watching=1`}
+      moreHref={`/${orgSlug}/work-items?watching=1`}
     >
       {isLoading ? (
         <Skeletons />
@@ -117,7 +117,7 @@ function MyWatched({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
           {rows.map((r) => (
             <li key={r.id} className="flex items-center gap-2 text-xs">
               <Link
-                href={`/${orgSlug}/issues?item=${r.id}`}
+                href={`/${orgSlug}/work-items?item=${r.id}`}
                 className="min-w-0 flex-1 truncate hover:underline"
                 title={`${r.ticketKey} · ${r.title}`}
               >

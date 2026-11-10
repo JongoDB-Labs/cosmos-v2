@@ -43,10 +43,10 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/components/boards/shared/board-query-bar", () => ({
   BoardQueryBar: ({ actions }: { actions?: unknown }) => <>{actions as never}</>,
 }));
-vi.mock("@/components/boards/shared/new-issue-button", () => ({
-  NewIssueButton: () => (
-    <button type="button" data-testid="new-issue">
-      New issue
+vi.mock("@/components/boards/shared/new-work-item-button", () => ({
+  NewWorkItemButton: () => (
+    <button type="button" data-testid="new-work-item">
+      New work item
     </button>
   ),
 }));
@@ -107,11 +107,11 @@ describe("Calendar month navigation is nameable", () => {
     expect(unnamed).toEqual([]);
   });
 
-  it("still offers Today and New issue on the month bar", async () => {
+  it("still offers Today and New work item on the month bar", async () => {
     // Information-preservation control: naming the arrows must not disturb the
     // controls already on that bar.
     renderCalendar();
     expect(await screen.findByRole("button", { name: /today/i })).toBeTruthy();
-    expect(screen.getByTestId("new-issue")).toBeTruthy();
+    expect(screen.getByTestId("new-work-item")).toBeTruthy();
   });
 });

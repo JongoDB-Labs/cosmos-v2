@@ -130,13 +130,13 @@ describe("CardDetailSheet — Split per assignee (COSMOS-89)", () => {
     renderSheet(["ann", "bo"]);
 
     fireEvent.click(screen.getByRole("button", { name: "Split per assignee" }));
-    const dialog = await screen.findByRole("dialog", { name: "Split into one issue per assignee?" });
+    const dialog = await screen.findByRole("dialog", { name: "Split into one work item per assignee?" });
     expect(dialog.textContent).toContain("stays with Ann Lee");
     expect(dialog.textContent).toContain("Bo Chen each get their own copy");
     // Nothing is created until the user confirms.
     expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith("/split-assignees"))).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: "Split into 2 issues" }));
+    fireEvent.click(screen.getByRole("button", { name: "Split into 2 work items" }));
 
     await waitFor(() =>
       expect(

@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ActionRow, guardScroll } from "@/components/ui/action-menu";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
-import type { NewIssueSeed } from "@/components/boards/shared/new-issue-button";
+import type { NewWorkItemSeed } from "@/components/boards/shared/new-work-item-button";
 
 /** A right-click inside an element carrying one of these creates into it:
  *  a Status column (`data-board-column="<key>"`) or a calendar day
@@ -18,7 +18,7 @@ const COLUMN_ATTR = "data-board-column";
 const DATE_ATTR = "data-board-date";
 
 interface CreateTarget {
-  seed: NewIssueSeed;
+  seed: NewWorkItemSeed;
   label: string;
 }
 
@@ -46,20 +46,20 @@ export function boardCreateTarget(
     return undefined;
   }
   const date = el?.closest(`[${DATE_ATTR}]`)?.getAttribute(DATE_ATTR);
-  if (date) return { seed: { date }, label: `New issue on ${dayLabel(date)}` };
+  if (date) return { seed: { date }, label: `New work item on ${dayLabel(date)}` };
   const key = el?.closest(`[${COLUMN_ATTR}]`)?.getAttribute(COLUMN_ATTR);
   const column = key ? columns.find((c) => c.key === key) : undefined;
-  if (column) return { seed: { columnKey: column.key }, label: `New issue in ${column.name}` };
-  return { seed: {}, label: "New issue" };
+  if (column) return { seed: { columnKey: column.key }, label: `New work item in ${column.name}` };
+  return { seed: {}, label: "New work item" };
 }
 
 /**
  * COSMOS-88: right-click empty space on a board to create the board's item.
  *
  * Wraps the board's surface. A right-click on empty space opens a one-row menu
- * at the cursor: "New issue", or "New issue in <column>" / "New issue on
+ * at the cursor: "New work item", or "New work item in <column>" / "New work item on
  * <day>" over a marked column or calendar day. Choosing it calls `onCreate`,
- * which every board wires to its own `NewIssueButton`, so this is the same
+ * which every board wires to its own `NewWorkItemButton`, so this is the same
  * create dialog and the same defaults as the toolbar button, pre-scoped by the
  * seed. Hidden-anchor positioning mirrors `data-table.tsx`'s row menu.
  */
@@ -69,16 +69,16 @@ export function BoardCreateMenu({
   disabled = false,
   children,
 }: {
-  onCreate: (seed: NewIssueSeed) => void;
+  onCreate: (seed: NewWorkItemSeed) => void;
   /** The board's columns, so a right-clicked column can be named in the menu. */
   columns?: readonly { key: string; name: string }[];
-  /** Off while the board is in a mode that hides "New issue" (bulk select). */
+  /** Off while the board is in a mode that hides "New work item" (bulk select). */
   disabled?: boolean;
   children: ReactNode;
 }) {
   const { can } = usePermissions();
   const [open, setOpen] = useState(false);
-  const [target, setTarget] = useState<CreateTarget>({ seed: {}, label: "New issue" });
+  const [target, setTarget] = useState<CreateTarget>({ seed: {}, label: "New work item" });
   const anchorRef = useRef<HTMLButtonElement>(null);
 
   // The create API is ITEM_CREATE-gated: without it, keep the browser's menu
@@ -148,7 +148,7 @@ export function BoardCreateMenu({
           sideOffset={2}
           positionMethod="fixed"
           // Size to the label: the 1px anchor would otherwise cap the width and
-          // truncate "New issue in <column>".
+          // truncate "New work item in <column>".
           className="w-max min-w-[160px] max-w-80"
         >
           <ActionRow

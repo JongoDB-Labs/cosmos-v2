@@ -102,7 +102,10 @@ const AEC_PROJECT_TEMPLATE = {
     // nav into the register); phase-gated construction genuinely tracks risk.
     // "interval" was missing entirely, which is why a new AEC project had no
     // Intervals button despite this template declaring PHASE intervals.
-    enabledFeatures: ["kpi", "milestone", "interval", "pm-dashboard", "risk-register"],
+    // The PM Dashboard suite is retired (see lib/project-features.ts): it is
+    // superseded by the org-level Program Management page, so a NEW project
+    // from this template no longer starts with those tabs.
+    enabledFeatures: ["kpi", "milestone", "interval"],
   },
 };
 

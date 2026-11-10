@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// COSMOS-223: picking an interval in the New issue dialog fills the planned
+// COSMOS-223: picking an interval in the New work item dialog fills the planned
 // start and end from the interval, but only where they are still empty.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";

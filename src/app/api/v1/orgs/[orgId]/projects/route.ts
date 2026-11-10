@@ -7,6 +7,7 @@ import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { revalidateOrgProjects } from "@/lib/cache/queries";
 import { getEntitlements, isSectorEnabled } from "@/lib/entitlements";
+import { isRetiredFeature } from "@/lib/project-features";
 import { seedSectorFields } from "@/lib/custom-fields/seed-sector-fields";
 import { DEFAULT_COLUMNS } from "@/lib/boards/default-columns";
 import { parseRequest, respond } from "@/lib/openapi/respond";
@@ -149,7 +150,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       if (template) {
         const cfg = template.defaultConfig as Record<string, unknown> | null;
         if (cfg && Array.isArray(cfg.enabledFeatures)) {
-          enabledFeatures = cfg.enabledFeatures as string[];
+          // A template can still list a retired module: the built-in rows were
+          // written by migrations, and seeds only run at bootstrap. A new
+          // project never starts with one.
+          enabledFeatures = (cfg.enabledFeatures as string[]).filter((f) => !isRetiredFeature(f));
         }
       }
 

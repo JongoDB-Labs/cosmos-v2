@@ -121,11 +121,11 @@ export function ActionItems({
                         // `/projects/<key>/items/<id>` is NOT a route — this was
                         // the only place in the app using it, and it 404'd, so
                         // the one control that makes a retro consequential led
-                        // nowhere. `/<org>/issues?item=<id>` is the app's real
+                        // nowhere. `/<org>/work-items?item=<id>` is the app's real
                         // deep link; it opens the detail sheet even when the item
-                        // is outside the current filter (see issues-view).
+                        // is outside the current filter (see work-items-view).
                         <a
-                          href={`/${orgSlug}/issues?item=${a.workItemId}`}
+                          href={`/${orgSlug}/work-items?item=${a.workItemId}`}
                           className="inline-flex items-center gap-1 text-xs text-[var(--status-done-text,var(--status-done))]"
                         >
                           <Check className="h-3.5 w-3.5" />

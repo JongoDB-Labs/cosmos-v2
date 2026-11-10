@@ -17,8 +17,8 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 
 // Portal/observer-heavy children; none of them touch the grouping headers.
-vi.mock("@/components/boards/shared/new-issue-button", () => ({
-  NewIssueButton: () => null,
+vi.mock("@/components/boards/shared/new-work-item-button", () => ({
+  NewWorkItemButton: () => null,
 }));
 const sheet = vi.hoisted(() => ({
   itemId: null as string | null,
@@ -35,7 +35,7 @@ vi.mock("@/components/boards/shared/filter-bar", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/components/boards/shared/filter-bar")>();
   // Render the `actions` slot through rather than returning null. A converted
-  // board puts "New issue", "Group by" and the density toggles INTO this
+  // board puts "New work item", "Group by" and the density toggles INTO this
   // surface, so a stub that drops them removes controls the board still owns
   // and the next reader reports them as missing. `never` rather than
   // ReactNode: the automatic JSX runtime does not put `React` in scope here,

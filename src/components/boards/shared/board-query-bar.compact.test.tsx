@@ -74,11 +74,11 @@ describe("the CQL band is one padded surface", () => {
       <BoardQueryBar
         orgId="o1"
         q={q()}
-        actions={<button type="button">New issue</button>}
+        actions={<button type="button">New work item</button>}
       />,
     );
     const scope = screen.getByText(/This board shows/);
-    const newIssue = screen.getByRole("button", { name: "New issue" });
+    const newIssue = screen.getByRole("button", { name: "New work item" });
     // Same parent row. Previously the scope line was a sibling of the builder,
     // one level up, and cost ~20px on every CQL board.
     expect(scope.closest("div")).toBe(newIssue.closest("div"));
@@ -109,10 +109,10 @@ describe("the CQL band is one padded surface", () => {
       <BoardQueryBar
         orgId="o1"
         q={q({ schema: null as unknown as Q["schema"] })}
-        actions={<button type="button">New issue</button>}
+        actions={<button type="button">New work item</button>}
       />,
     );
-    expect(screen.getByRole("button", { name: "New issue" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New work item" })).toBeTruthy();
     expect(screen.queryByTestId("builder")).toBeNull();
   });
 });

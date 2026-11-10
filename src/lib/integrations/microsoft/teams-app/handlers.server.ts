@@ -101,7 +101,17 @@ export async function findItem(u: TeamsUser, ref: string): Promise<IssueRow | nu
   return r.data[0] ?? null;
 }
 
-/** "https://cosmos.example/acme/issues?item=ACME-12" -> { slug, ref }, only for our own origin. */
+/**
+ * "https://cosmos.example/acme/work-items?item=ACME-12" -> { slug, ref }, only
+ * for our own origin.
+ *
+ * `/issues` is accepted too, and must stay accepted: this parses a link a
+ * person PASTES into Teams, and links minted before the Work Items rename are
+ * already sitting in chat histories we cannot rewrite. The server-side
+ * redirect never runs for these -- nothing is fetched, the string is matched
+ * here -- so dropping the old segment would quietly stop unfurling every link
+ * shared before the rename.
+ */
 export function parseItemLink(link: string, origin: string): { slug: string; ref: string } | null {
   let u: URL;
   try {
@@ -110,7 +120,7 @@ export function parseItemLink(link: string, origin: string): { slug: string; ref
     return null;
   }
   if (u.origin !== new URL(origin).origin) return null;
-  const m = /^\/([^/]+)\/issues\/?$/.exec(u.pathname);
+  const m = /^\/([^/]+)\/(?:work-items|issues)\/?$/.exec(u.pathname);
   const ref = u.searchParams.get("item");
   return m && ref ? { slug: decodeURIComponent(m[1]), ref } : null;
 }

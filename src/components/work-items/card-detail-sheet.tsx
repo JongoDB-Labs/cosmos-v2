@@ -1043,7 +1043,7 @@ export function CardDetailSheet({
       const fresh = await fetch(`${basePath}/${item.id}`);
       if (fresh.ok) onUpdate((await fresh.json()) as WorkItem);
       toast.success(
-        `Split into ${result.copies.length + 1} issues`,
+        `Split into ${result.copies.length + 1} work items`,
         { description: `New: ${result.copies.map((c) => `#${c.ticketNumber}`).join(", ")}` },
       );
     } catch (err) {
@@ -1256,7 +1256,7 @@ export function CardDetailSheet({
                       void navigator.clipboard?.writeText(
                         `${window.location.origin}${href}`,
                       );
-                      toast.success("Issue link copied");
+                      toast.success("Work item link copied");
                     } catch {
                       /* clipboard unavailable — say nothing rather than lie */
                     }
@@ -1826,7 +1826,7 @@ export function CardDetailSheet({
                   aria-label="Parent"
                   className="w-full text-xs"
                   contentClassName="min-w-[16rem]"
-                  searchPlaceholder="Search issues…"
+                  searchPlaceholder="Search work items…"
                   options={[
                     { value: "__none__", label: "None" },
                     ...parentCandidates.map((p) => ({
@@ -2246,7 +2246,7 @@ export function CardDetailSheet({
       <Dialog open={splitPrompt} onOpenChange={(o) => !o && setSplitPrompt(false)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Split into one issue per assignee?</DialogTitle>
+            <DialogTitle>Split into one work item per assignee?</DialogTitle>
             <DialogDescription>
               #{item.ticketNumber} stays with{" "}
               {assigneeOptions.find((o) => o.value === assigneeIds[0])?.label ?? "its first assignee"}.{" "}
@@ -2262,7 +2262,7 @@ export function CardDetailSheet({
               Cancel
             </Button>
             <Button onClick={() => void handleSplit()} disabled={actionPending === "split"}>
-              {actionPending === "split" ? "Splitting…" : `Split into ${assigneeIds.length} issues`}
+              {actionPending === "split" ? "Splitting…" : `Split into ${assigneeIds.length} work items`}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -58,7 +58,7 @@ describe("DashboardShell — the main scroll region", () => {
   it("does not take focus by itself, on load or on navigation", () => {
     const { rerender } = render(<DashboardShell user={user} orgs={orgs}><p>a</p></DashboardShell>);
     expect(document.activeElement).not.toBe(document.getElementById("main"));
-    nav.pathname = "/acme/issues";
+    nav.pathname = "/acme/work-items";
     rerender(<DashboardShell user={user} orgs={orgs}><p>b</p></DashboardShell>);
     expect(document.activeElement).not.toBe(document.getElementById("main"));
   });

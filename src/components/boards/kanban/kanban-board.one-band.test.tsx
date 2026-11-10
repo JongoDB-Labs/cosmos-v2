@@ -10,7 +10,7 @@
 // (`flex flex-wrap items-center gap-3 px-4 py-2 border-b bg-background/50`), so
 // a board rendering both drew the SAME band twice -- and in normal mode the
 // second one held exactly two controls, "Select" against the left edge and
-// "New issue" at the right, with nothing between. `BoardScopeNotice` owned a
+// "New work item" at the right, with nothing between. `BoardScopeNotice` owned a
 // third. On a sprint board, whose wrapper adds its own, that was four
 // horizontal bands before the first card.
 //
@@ -128,7 +128,7 @@ afterEach(() => {
 
 // `~=` matches a whole class TOKEN, not a substring. `*=` looks right and is
 // wrong: "border-b" is a substring of "border-border", so a `*=` selector
-// matches any element carrying that utility -- including the New issue button
+// matches any element carrying that utility -- including the New work item button
 // itself, which made an earlier draft of this file report two bands and claim
 // the two controls were in different ones. The selector was the defect, not the
 // chrome.
@@ -146,14 +146,14 @@ describe("Kanban chrome is one band", () => {
     // all of them would pass vacuously on a board that rendered neither.
     installFetch({});
     renderKanban();
-    expect(await screen.findByRole("button", { name: "New issue" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "New work item" })).toBeTruthy();
     expect(screen.getByPlaceholderText(/search/i)).toBeTruthy();
   });
 
-  it("puts the search box and New issue in the SAME bordered band", async () => {
+  it("puts the search box and New work item in the SAME bordered band", async () => {
     installFetch({});
     renderKanban();
-    const newIssue = await screen.findByRole("button", { name: "New issue" });
+    const newIssue = await screen.findByRole("button", { name: "New work item" });
     const search = screen.getByPlaceholderText(/search/i);
 
     const band = bandOf(search);
@@ -166,7 +166,7 @@ describe("Kanban chrome is one band", () => {
   it("draws exactly one band above the cards", async () => {
     installFetch({});
     const { container } = renderKanban();
-    await screen.findByRole("button", { name: "New issue" });
+    await screen.findByRole("button", { name: "New work item" });
     expect(bands(container)).toHaveLength(1);
   });
 
@@ -176,7 +176,7 @@ describe("Kanban chrome is one band", () => {
     installFetch({ savedFilter: { priorities: ["CRITICAL"] } });
     const { container } = renderKanban();
     const notice = await screen.findByText(/filter this board was saved with/);
-    const newIssue = screen.getByRole("button", { name: "New issue" });
+    const newIssue = screen.getByRole("button", { name: "New work item" });
 
     expect(bandOf(notice)).toBe(bandOf(newIssue));
     expect(bands(container)).toHaveLength(1);
@@ -187,7 +187,7 @@ describe("Kanban chrome is one band", () => {
     installFetch({ savedFilter: { priorities: ["CRITICAL"] } });
     renderKanban();
     expect(await screen.findByText(/filter this board was saved with/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "New issue" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New work item" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^select$/i })).toBeTruthy();
     expect(screen.getByPlaceholderText(/search/i)).toBeTruthy();
   });

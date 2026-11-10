@@ -23,9 +23,9 @@ import {
 } from "@dnd-kit/core";
 import { KanbanColumn } from "./kanban-column";
 import {
-  NewIssueButton,
-  type NewIssueHandle,
-} from "@/components/boards/shared/new-issue-button";
+  NewWorkItemButton,
+  type NewWorkItemHandle,
+} from "@/components/boards/shared/new-work-item-button";
 import { BoardToolbar, BoardToolbarActions } from "@/components/boards/shared/board-toolbar";
 import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { columnCollision } from "@/components/boards/shared/column-collision";
@@ -228,7 +228,7 @@ function KanbanBoardInner({
   // Bulk-select mode: toggling it disables drag (the DndContext gets no sensors)
   // and turns cards into checkbox toggles, so selection never fights dnd-kit.
   const { can } = usePermissions();
-  const newIssueRef = useRef<NewIssueHandle>(null);
+  const newIssueRef = useRef<NewWorkItemHandle>(null);
   const canBulkEdit = can(Permission.ITEM_BULK_EDIT);
   const canBulkDelete = can(Permission.ITEM_DELETE);
   const [selectMode, setSelectMode] = useState(false);
@@ -1087,7 +1087,7 @@ function KanbanBoardInner({
   // This was a `<BoardToolbar>` band of its own, stacked directly under the
   // filter bar -- whose root classes are character-for-character identical, so
   // it was the same band drawn twice. In normal mode it held exactly two
-  // controls, "Select" against the left edge and "New issue" at the right, with
+  // controls, "Select" against the left edge and "New work item" at the right, with
   // nothing between; on a sprint board that was the fourth horizontal band
   // above the first card. Reported as ffe324aa: "cluttered and stacked on top
   // of each other, which just pushes the kanban board itself down way too much
@@ -1246,7 +1246,7 @@ function KanbanBoardInner({
       In select mode this is hidden and "Done" takes the ml-auto slot. */}
   {!selectMode && (
     <BoardToolbarActions>
-      <NewIssueButton
+      <NewWorkItemButton
         ref={newIssueRef}
         orgId={orgId}
         projectId={projectId}
@@ -1300,7 +1300,7 @@ function KanbanBoardInner({
         onDragEnd={handleDragEnd}
       >
         {/* Right-click a column (or the space between) to create into it
-            (COSMOS-88). Off in select mode, which hides "New issue". */}
+            (COSMOS-88). Off in select mode, which hides "New work item". */}
         <BoardCreateMenu
           columns={columns}
           disabled={selectMode}

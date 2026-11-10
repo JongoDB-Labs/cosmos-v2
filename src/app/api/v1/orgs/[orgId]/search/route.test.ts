@@ -55,7 +55,7 @@ describe("GET /search — global palette search (COSMOS-33)", () => {
 
   it("passes the registry's canonical EntityType straight through (no legacy remap)", async () => {
     const hits: EntityHit[] = [
-      { type: "workItem", id: "w1", label: "FSC-1 · Ship it", url: "/acme/issues?item=w1" },
+      { type: "workItem", id: "w1", label: "FSC-1 · Ship it", url: "/acme/work-items?item=w1" },
       { type: "document", id: "d1", label: "Design", url: "/acme/projects/FSC/files/d1" },
       { type: "objective", id: "o1", label: "Grow", url: "/acme/projects/FSC/okrs" },
     ];
@@ -65,7 +65,7 @@ describe("GET /search — global palette search (COSMOS-33)", () => {
     const body = (await res.json()) as { id: string; type: string; name: string; url: string }[];
 
     expect(body).toEqual([
-      { id: "w1", type: "workItem", name: "FSC-1 · Ship it", url: "/acme/issues?item=w1" },
+      { id: "w1", type: "workItem", name: "FSC-1 · Ship it", url: "/acme/work-items?item=w1" },
       { id: "d1", type: "document", name: "Design", url: "/acme/projects/FSC/files/d1" },
       { id: "o1", type: "objective", name: "Grow", url: "/acme/projects/FSC/okrs" },
     ]);

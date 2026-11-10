@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Every inbox row links to the notification's target inside the current org,
-// with the org slug exactly once. On 2.465.0 a stored "/{slug}/issues?item=…"
+// with the org slug exactly once. On 2.465.0 a stored "/{slug}/work-items?item=…"
 // was prefixed again, so every row pointed at "/{slug}/{slug}/…" and opened a 404.
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
@@ -11,8 +11,8 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/acme/inbox" }));
 
 const PAGE = {
   data: [
-    { id: "n1", type: "work_item.assigned", title: "Assigned: PRJ-1", body: "", url: "/acme/issues?item=w1", read: false, createdAt: "2026-10-20T10:00:00.000Z" },
-    { id: "n2", type: "work_item.mention", title: "Mentioned on PRJ-2", body: "", url: "/issues?item=w2", read: false, createdAt: "2026-10-19T10:00:00.000Z" },
+    { id: "n1", type: "work_item.assigned", title: "Assigned: PRJ-1", body: "", url: "/acme/work-items?item=w1", read: false, createdAt: "2026-10-20T10:00:00.000Z" },
+    { id: "n2", type: "work_item.mention", title: "Mentioned on PRJ-2", body: "", url: "/work-items?item=w2", read: false, createdAt: "2026-10-19T10:00:00.000Z" },
     { id: "n3", type: "feedback.status", title: "Your report is being worked on", body: "", url: "/acme/feedback", read: true, createdAt: "2026-10-18T10:00:00.000Z" },
   ],
   nextCursor: null,
@@ -37,8 +37,8 @@ describe("InboxWorkspace — row links", () => {
     const href = async (title: string) =>
       (await screen.findByText(title)).closest("a")?.getAttribute("href");
 
-    expect(await href("Assigned: PRJ-1")).toBe("/acme/issues?item=w1");
-    expect(await href("Mentioned on PRJ-2")).toBe("/acme/issues?item=w2");
+    expect(await href("Assigned: PRJ-1")).toBe("/acme/work-items?item=w1");
+    expect(await href("Mentioned on PRJ-2")).toBe("/acme/work-items?item=w2");
     expect(await href("Your report is being worked on")).toBe("/acme/feedback");
   });
 });

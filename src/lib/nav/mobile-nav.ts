@@ -33,7 +33,7 @@ export interface MobileNavDest {
 export const MOBILE_NAV_DESTINATIONS: MobileNavDest[] = [
   { key: "overview", label: "Overview", href: "", icon: LayoutDashboard },
   { key: "projects", label: "Projects", href: "/projects", icon: FolderKanban },
-  { key: "issues", label: "Issues", href: "/issues", icon: ListChecks },
+  { key: "issues", label: "Work Items", href: "/work-items", icon: ListChecks },
   { key: "notes", label: "Notes", href: "/notes", icon: FileText },
   { key: "meetings", label: "Meetings", href: "/meetings", icon: Video },
   { key: "team", label: "Org", href: "/team", icon: Users },

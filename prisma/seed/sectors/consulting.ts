@@ -77,7 +77,10 @@ const CONSULTING_PROJECT_TEMPLATE = {
     // Dead keys removed ("risk"/"decision"/"meeting_note" are not in
     // TOGGLEABLE_FEATURES). "risk" becomes pm-dashboard + risk-register, and
     // "interval" is added so the Intervals button matches the PHASE kinds above.
-    enabledFeatures: ["goal", "kpi", "milestone", "interval", "pm-dashboard", "risk-register"],
+    // The PM Dashboard suite is retired (see lib/project-features.ts): it is
+    // superseded by the org-level Program Management page, so a NEW project
+    // from this template no longer starts with those tabs.
+    enabledFeatures: ["goal", "kpi", "milestone", "interval"],
   },
 };
 

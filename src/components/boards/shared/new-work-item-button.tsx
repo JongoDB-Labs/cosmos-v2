@@ -18,19 +18,19 @@ interface ProjectRow {
 
 /** Where a board's right-click landed: the Status column, or the calendar day
  *  (`YYYY-MM-DD`, seeding both planned dates). Seeds only, all editable. */
-export interface NewIssueSeed {
+export interface NewWorkItemSeed {
   columnKey?: string | null;
   date?: string | null;
 }
 
 /** Opens the button's dialog from elsewhere on the board (the right-click
- *  create menu, COSMOS-88), optionally pre-scoped by a {@link NewIssueSeed}. */
-export interface NewIssueHandle {
-  open: (seed?: NewIssueSeed) => void;
+ *  create menu, COSMOS-88), optionally pre-scoped by a {@link NewWorkItemSeed}. */
+export interface NewWorkItemHandle {
+  open: (seed?: NewWorkItemSeed) => void;
 }
 
 /**
- * "New issue" for a board.
+ * "New work item" for a board.
  *
  * Every board that shows issues gets the SAME create dialog the Issues page
  * uses, rather than a reduced board-local one. Boards previously had two
@@ -42,13 +42,13 @@ export interface NewIssueHandle {
  * The dialog is project-scoped here (the board fixes the project), and `boardId`
  * points its Status picker at this board's own workflow.
  */
-export function NewIssueButton({
+export function NewWorkItemButton({
   orgId,
   projectId,
   projectKey,
   boardId,
   onCreated,
-  label = "New issue",
+  label = "New work item",
   variant = "outline",
   initialLabels,
   ref,
@@ -60,13 +60,13 @@ export function NewIssueButton({
   onCreated: () => void;
   label?: string;
   variant?: "outline" | "default" | "ghost";
-  /** Labels applied to the new issue by default — the RAID log seeds its
+  /** Labels applied to the new work item by default — the RAID log seeds its
    *  category so a new entry doesn't land in "Unclassified" (COSMOS-80). */
   initialLabels?: string[];
-  ref?: Ref<NewIssueHandle>;
+  ref?: Ref<NewWorkItemHandle>;
 }) {
   const [open, setOpen] = useState(false);
-  const [seed, setSeed] = useState<NewIssueSeed>({});
+  const [seed, setSeed] = useState<NewWorkItemSeed>({});
 
   // The board's right-click menu opens this same dialog rather than a second
   // create surface, so every field and default stays identical (COSMOS-88).

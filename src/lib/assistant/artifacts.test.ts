@@ -20,7 +20,7 @@ describe("toolCallToArtifact — mutating tool results become linked cards", () 
       action: "created",
       id: "wi-123",
       typeLabel: "Work item",
-      url: "/acme/issues?item=wi-123",
+      url: "/acme/work-items?item=wi-123",
     });
     // ticket + title compose the label.
     expect(a?.label).toBe("#42 Fix login bug");
@@ -93,7 +93,7 @@ describe("toolCallToArtifact — mutating tool results become linked cards", () 
       },
       ORG,
     );
-    expect(a).toMatchObject({ action: "updated", id: "wi-77", url: "/acme/issues?item=wi-77" });
+    expect(a).toMatchObject({ action: "updated", id: "wi-77", url: "/acme/work-items?item=wi-77" });
   });
 
   it("returns null for a FAILED mutation (error result, no id)", () => {

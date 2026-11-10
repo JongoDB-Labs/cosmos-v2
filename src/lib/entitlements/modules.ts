@@ -12,7 +12,7 @@
 
 export const MODULES = [
   { key: "projects", label: "Projects" },
-  { key: "issues", label: "Issues" },
+  { key: "issues", label: "Work Items" },
   { key: "time-tracking", label: "Time Tracking" },
   { key: "crm", label: "CRM" },
   { key: "accounting", label: "Accounting" },

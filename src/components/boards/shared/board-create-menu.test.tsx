@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // COSMOS-88: right-click a board to create the board's item. A right-click on
-// empty board space opens one "New issue" row at the cursor, pre-scoped by
+// empty board space opens one "New work item" row at the cursor, pre-scoped by
 // where it landed (a Status column, or a calendar day). It must leave every
 // other right-click alone: a card's or row's own menu (which calls
 // preventDefault first), and text fields and links, whose native menu
@@ -83,7 +83,7 @@ describe("BoardCreateMenu", () => {
     render(<Board onCreate={onCreate} />);
 
     expect(rightClick(screen.getByTestId("col-review"))).toBe(false);
-    await userEvent.click(await screen.findByRole("menuitem", { name: "New issue in Review" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "New work item in Review" }));
 
     expect(onCreate).toHaveBeenCalledWith({ columnKey: "review" });
   });
@@ -93,17 +93,17 @@ describe("BoardCreateMenu", () => {
     render(<Board onCreate={onCreate} />);
 
     rightClick(screen.getByTestId("day"));
-    await userEvent.click(await screen.findByRole("menuitem", { name: /^New issue on / }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: /^New work item on / }));
 
     expect(onCreate).toHaveBeenCalledWith({ date: "2026-10-24" });
   });
 
-  it("offers a plain New issue on empty board space", async () => {
+  it("offers a plain New work item on empty board space", async () => {
     const onCreate = vi.fn();
     render(<Board onCreate={onCreate} />);
 
     rightClick(screen.getByTestId("board"));
-    await userEvent.click(await screen.findByRole("menuitem", { name: "New issue" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "New work item" }));
 
     expect(onCreate).toHaveBeenCalledWith({});
   });

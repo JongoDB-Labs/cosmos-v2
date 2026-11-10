@@ -38,7 +38,7 @@ export interface BulkDeleteSummary {
   errorMessage: string | null;
 }
 
-const issues = (n: number) => `${n} issue${n === 1 ? "" : "s"}`;
+const workItems = (n: number) => `${n} work item${n === 1 ? "" : "s"}`;
 
 export function summarizeBulkDelete(
   groups: BulkDeleteGroupResult[],
@@ -66,8 +66,8 @@ export function summarizeBulkDelete(
   const detail = reasons.join("; ");
   const errorMessage =
     deleted === 0
-      ? `Couldn't delete ${issues(failed)}: ${detail}.`
-      : `Deleted ${issues(deleted)} of ${deleted + failed}. Couldn't delete ${failed}: ${detail}.`;
+      ? `Couldn't delete ${workItems(failed)}: ${detail}.`
+      : `Deleted ${workItems(deleted)} of ${deleted + failed}. Couldn't delete ${failed}: ${detail}.`;
 
   return { deleted, failedIds, errorMessage };
 }

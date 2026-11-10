@@ -34,7 +34,7 @@ describe("summarizeBulkDelete", () => {
     // Failed ids stay selected so the user can retry just those.
     expect(s.failedIds).toEqual(["c", "d"]);
     expect(s.errorMessage).toBe(
-      "Deleted 2 issues of 4. Couldn't delete 2: BETA: Forbidden.",
+      "Deleted 2 work items of 4. Couldn't delete 2: BETA: Forbidden.",
     );
   });
 
@@ -42,7 +42,7 @@ describe("summarizeBulkDelete", () => {
     const s = summarizeBulkDelete([fail("p1", ["a"], "Server error", "ACME")]);
     expect(s.deleted).toBe(0);
     expect(s.failedIds).toEqual(["a"]);
-    expect(s.errorMessage).toBe("Couldn't delete 1 issue: ACME: Server error.");
+    expect(s.errorMessage).toBe("Couldn't delete 1 work item: ACME: Server error.");
   });
 
   it("aggregates multiple failing projects into one message", () => {
@@ -52,12 +52,12 @@ describe("summarizeBulkDelete", () => {
     ]);
     expect(s.failedIds).toEqual(["a", "b", "c"]);
     expect(s.errorMessage).toBe(
-      "Couldn't delete 3 issues: ACME: Forbidden; BETA: Not found.",
+      "Couldn't delete 3 work items: ACME: Forbidden; BETA: Not found.",
     );
   });
 
   it("falls back to a friendly reason and omits an unknown project label", () => {
     const s = summarizeBulkDelete([fail("p1", ["a"])]);
-    expect(s.errorMessage).toBe("Couldn't delete 1 issue: an unexpected error.");
+    expect(s.errorMessage).toBe("Couldn't delete 1 work item: an unexpected error.");
   });
 });

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-// COSMOS-86 — the org-wide "New issue" dialog let users fill in the form but
+// COSMOS-86 — the org-wide "New work item" dialog let users fill in the form but
 // never created the item, while the Kanban board's inline quick-create worked.
 // Two anomalies unique to THIS dialog caused it, and both are locked here:
 //
-//   1. The "Create issue" button was disabled until `workItemTypeId` was set,
+//   1. The "Create work item" button was disabled until `workItemTypeId` was set,
 //      so if the org's work-item types were slow / failed to load the button
 //      stayed permanently disabled — the user could type a title but never
 //      submit. Every working create path (CardQuickCreate, CreateIssueButton)
@@ -87,7 +87,7 @@ async function fillPlannedDates(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText(/planned end/i), "2026-07-15");
 }
 
-describe("CreateWorkItemDialog — New issue button creates the item (COSMOS-86)", () => {
+describe("CreateWorkItemDialog — New work item button creates the item (COSMOS-86)", () => {
   beforeEach(() => {
     vi.mocked(useCustomFields).mockReturnValue({ fields: [] } as never);
   });
@@ -125,7 +125,7 @@ describe("CreateWorkItemDialog — New issue button creates the item (COSMOS-86)
     // Regression: the button must NOT be gated on a resolved TYPE. Title,
     // project and the planned dates DO gate it — that is the deliberate
     // contract, and all of them are satisfied above.
-    const createBtn = screen.getByRole("button", { name: "Create issue" });
+    const createBtn = screen.getByRole("button", { name: "Create work item" });
     expect(createBtn).not.toBeDisabled();
 
     await user.click(createBtn);
@@ -168,7 +168,7 @@ describe("CreateWorkItemDialog — New issue button creates the item (COSMOS-86)
     await screen.findByRole("dialog");
     await user.type(screen.getByLabelText("Title"), "User story: sign-in");
     await fillPlannedDates(user);
-    await user.click(screen.getByRole("button", { name: "Create issue" }));
+    await user.click(screen.getByRole("button", { name: "Create work item" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
     const body = postBody();
@@ -226,7 +226,7 @@ describe("CreateWorkItemDialog — interval is settable at creation (COSMOS-64)"
     await user.type(screen.getByLabelText("Title"), "Scoped to a sprint");
     await user.selectOptions(intervalSelect, "c2");
     await fillPlannedDates(user);
-    await user.click(screen.getByRole("button", { name: "Create issue" }));
+    await user.click(screen.getByRole("button", { name: "Create work item" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
     expect(postBody().intervalId).toBe("c2");
@@ -249,14 +249,14 @@ describe("CreateWorkItemDialog — interval is settable at creation (COSMOS-64)"
     await screen.findByLabelText("Interval"); // picker present but left untouched
     await user.type(screen.getByLabelText("Title"), "No sprint yet");
     await fillPlannedDates(user);
-    await user.click(screen.getByRole("button", { name: "Create issue" }));
+    await user.click(screen.getByRole("button", { name: "Create work item" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
     expect(postBody()).not.toHaveProperty("intervalId");
   });
 });
 
-describe("CreateWorkItemDialog — Duplicate issue draft (COSMOS-13)", () => {
+describe("CreateWorkItemDialog — Duplicate work item draft (COSMOS-13)", () => {
   // The source issue the draft is seeded from. Its GET payload carries the core
   // fields; comments/activity/status are deliberately absent from create, so a
   // duplicate can never carry them over.
@@ -302,7 +302,7 @@ describe("CreateWorkItemDialog — Duplicate issue draft (COSMOS-13)", () => {
     }) as never);
   });
 
-  it("pre-fills the draft from the source, lets you edit it, and creates a NEW issue (not a /duplicate clone)", async () => {
+  it("pre-fills the draft from the source, lets you edit it, and creates a NEW work item (not a /duplicate clone)", async () => {
     const user = userEvent.setup();
     const onCreated = vi.fn();
     render(
@@ -318,7 +318,7 @@ describe("CreateWorkItemDialog — Duplicate issue draft (COSMOS-13)", () => {
 
     await screen.findByRole("dialog");
     // AC: the action reads as a duplicate.
-    expect(screen.getByText("Duplicate issue")).toBeInTheDocument();
+    expect(screen.getByText("Duplicate work item")).toBeInTheDocument();
 
     // AC: core fields are pre-filled from the source.
     const title = await screen.findByDisplayValue("Copy of Review vendor A codebase");
@@ -334,11 +334,11 @@ describe("CreateWorkItemDialog — Duplicate issue draft (COSMOS-13)", () => {
     // Deliberately NOT calling fillPlannedDates: the draft arrives pre-filled
     // from the source, and overwriting its dates would destroy the carry-over
     // this test exists to prove.
-    await user.click(screen.getByRole("button", { name: "Create issue" }));
+    await user.click(screen.getByRole("button", { name: "Create work item" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
     const body = postBody();
-    // AC: saving creates a distinct new issue seeded from the source's fields.
+    // AC: saving creates a distinct new work item seeded from the source's fields.
     expect(body.title).toBe("Review vendor B codebase");
     expect(body.priority).toBe("HIGH");
     expect(body.workItemTypeId).toBe("t2");
@@ -365,7 +365,7 @@ describe("CreateWorkItemDialog — Duplicate issue draft (COSMOS-13)", () => {
 });
 
 // The board-local create dialogs this one replaces all let you choose where the
-// new issue lands. This dialog didn't — it silently took the project's first
+// new work item lands. This dialog didn't — it silently took the project's first
 // board's first column. Making every board share this dialog would have been a
 // downgrade without a real Status picker, so these lock it.
 describe("CreateWorkItemDialog — Status picker", () => {
@@ -425,7 +425,7 @@ describe("CreateWorkItemDialog — Status picker", () => {
     await user.type(screen.getByLabelText("Title"), "Wire the importer");
     await user.selectOptions(status, "doing");
     await fillPlannedDates(user);
-    await user.click(screen.getByRole("button", { name: "Create issue" }));
+    await user.click(screen.getByRole("button", { name: "Create work item" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
     expect(postBody().columnKey).toBe("doing");
@@ -461,7 +461,7 @@ describe("CreateWorkItemDialog — Status picker", () => {
     await screen.findByRole("dialog");
     await user.type(screen.getByLabelText("Title"), "Created anyway");
     await fillPlannedDates(user);
-    await user.click(screen.getByRole("button", { name: "Create issue" }));
+    await user.click(screen.getByRole("button", { name: "Create work item" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
     expect(postBody().columnKey).toBe("backlog");
@@ -476,18 +476,18 @@ describe("CreateWorkItemDialog — Status picker", () => {
 
     await user.type(screen.getByLabelText("Title"), "A new risk");
     await fillPlannedDates(user);
-    await user.click(screen.getByRole("button", { name: "Create issue" }));
+    await user.click(screen.getByRole("button", { name: "Create work item" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
     expect(postBody().tags).toEqual(["risk"]);
   });
 });
 
-// Found by e2e-interaction, not by unit tests: "Create issue" sat permanently
+// Found by e2e-interaction, not by unit tests: "Create work item" sat permanently
 // disabled because the title had been silently emptied.
 //
 // The reset effect blanks the form, and it depended on the IDENTITY of the
-// `projects` array. `NewIssueButton` loads that list lazily (`enabled: open`),
+// `projects` array. `NewWorkItemButton` loads that list lazily (`enabled: open`),
 // so it arrives moments AFTER the dialog opens — long enough for someone to
 // have started typing — and the new identity re-ran the reset, wiping the
 // title. The Issues view has the same hazard: it rebuilds `facets.projects` on
@@ -542,7 +542,7 @@ describe("CreateWorkItemDialog — a late-arriving project list must not wipe th
     expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe(
       "Half-typed title",
     );
-    expect(screen.getByRole("button", { name: "Create issue" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create work item" })).not.toBeDisabled();
   });
 
   // Planned start and end are REQUIRED. Without them an item can never be placed
@@ -559,7 +559,7 @@ describe("CreateWorkItemDialog — a late-arriving project list must not wipe th
       />,
     );
     await screen.findByRole("dialog");
-    const create = () => screen.getByRole("button", { name: "Create issue" });
+    const create = () => screen.getByRole("button", { name: "Create work item" });
 
     await user.type(screen.getByLabelText("Title"), "Needs dates");
     // A title and a project used to be enough.

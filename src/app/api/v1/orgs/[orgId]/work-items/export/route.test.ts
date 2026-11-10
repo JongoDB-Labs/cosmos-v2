@@ -78,6 +78,16 @@ const req = () => new NextRequest(`http://localhost/api/v1/orgs/${ORG}/work-item
 const params = Promise.resolve({ orgId: ORG });
 const lines = async (res: Response) => (await res.text()).split("\n");
 
+describe("GET /work-items/export — the download", () => {
+  it("is named for Work Items, not the page's old name", async () => {
+    setup({ tenantClass: "COMMERCIAL", items: [item(P_PLAIN, "Anything")] });
+    const res = await GET(req(), { params });
+    expect(res.headers.get("Content-Disposition")).toMatch(
+      /^attachment; filename="work-items-[^"]+-\d{4}-\d{2}-\d{2}\.csv"$/,
+    );
+  });
+});
+
 describe("GET /work-items/export — classification", () => {
   it("COMMERCIAL: no Classification column, no banner, never reads the ceilings", async () => {
     setup({ tenantClass: "COMMERCIAL", items: [item(P_CUI, "CUI roster")] });

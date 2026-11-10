@@ -24,7 +24,7 @@ describe("copyLinkAction", () => {
     const [action] = copyLinkAction(item, "acme");
     action.onClick!();
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-      "https://cosmos.example/acme/issues?item=w1",
+      "https://cosmos.example/acme/work-items?item=w1",
     );
   });
 
@@ -37,7 +37,7 @@ describe("copyLinkAction", () => {
     const [action] = copyLinkAction({ id: "w1", ticketKey: "ACME-320" }, "acme");
     action.onClick!();
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-      "https://cosmos.example/acme/issues?item=ACME-320",
+      "https://cosmos.example/acme/work-items?item=ACME-320",
     );
   });
 
@@ -45,7 +45,7 @@ describe("copyLinkAction", () => {
     const [action] = copyLinkAction({ id: "w1", ticketKey: null }, "acme");
     action.onClick!();
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-      "https://cosmos.example/acme/issues?item=w1",
+      "https://cosmos.example/acme/work-items?item=w1",
     );
   });
 
@@ -57,7 +57,7 @@ describe("copyLinkAction", () => {
       const [action] = copyLinkAction({ id: "w1", ticketKey: key }, "acme");
       action.onClick!();
       expect(navigator.clipboard.writeText, JSON.stringify(key)).toHaveBeenCalledWith(
-        "https://cosmos.example/acme/issues?item=w1",
+        "https://cosmos.example/acme/work-items?item=w1",
       );
     }
   });

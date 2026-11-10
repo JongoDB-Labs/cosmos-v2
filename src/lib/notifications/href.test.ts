@@ -4,11 +4,11 @@ import { notificationHref } from "./href";
 describe("notificationHref", () => {
   it("prefixes an org-relative path with the org slug", () => {
     expect(notificationHref("acme", "/notes/n1")).toBe("/acme/notes/n1");
-    expect(notificationHref("acme", "/issues?item=abc")).toBe("/acme/issues?item=abc");
+    expect(notificationHref("acme", "/work-items?item=abc")).toBe("/acme/work-items?item=abc");
   });
 
   it("does not prefix a path that already carries the slug", () => {
-    expect(notificationHref("acme", "/acme/issues?item=abc")).toBe("/acme/issues?item=abc");
+    expect(notificationHref("acme", "/acme/work-items?item=abc")).toBe("/acme/work-items?item=abc");
     expect(notificationHref("acme", "/acme/feedback")).toBe("/acme/feedback");
     expect(notificationHref("acme", "/acme")).toBe("/acme");
   });
@@ -19,7 +19,7 @@ describe("notificationHref", () => {
   });
 
   it("adds the missing leading slash to a bare relative path", () => {
-    expect(notificationHref("acme", "issues?item=abc")).toBe("/acme/issues?item=abc");
+    expect(notificationHref("acme", "work-items?item=abc")).toBe("/acme/work-items?item=abc");
   });
 
   it("leaves a URL with a scheme alone", () => {
@@ -27,8 +27,8 @@ describe("notificationHref", () => {
   });
 
   it("never builds a protocol-relative URL when no org is in view", () => {
-    expect(notificationHref(null, "/issues?item=abc")).toBe("/issues?item=abc");
-    expect(notificationHref("", "/issues")).toBe("/issues");
+    expect(notificationHref(null, "/work-items?item=abc")).toBe("/work-items?item=abc");
+    expect(notificationHref("", "/work-items")).toBe("/work-items");
   });
 
   it("sends the root to the org home", () => {

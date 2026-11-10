@@ -23,8 +23,8 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
 }));
-vi.mock("@/components/boards/shared/new-issue-button", () => ({
-  NewIssueButton: () => <button type="button">New issue</button>,
+vi.mock("@/components/boards/shared/new-work-item-button", () => ({
+  NewWorkItemButton: () => <button type="button">New work item</button>,
 }));
 vi.mock("@/components/work-items/card-detail-sheet", () => ({
   CardDetailSheet: () => null,

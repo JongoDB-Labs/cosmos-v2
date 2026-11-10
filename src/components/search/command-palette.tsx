@@ -63,10 +63,10 @@ import {
 } from "./quick-create-work-item";
 import { CreateWorkItemDialog } from "@/components/work-items/create-work-item-dialog";
 import {
-  getNewIssueContext,
+  getNewWorkItemContext,
   newIssueActionLabel,
-  type NewIssueContext,
-} from "@/lib/boards/new-issue-context";
+  type NewWorkItemContext,
+} from "@/lib/boards/new-work-item-context";
 
 // ⌘K is a GLOBAL search: the route returns the shared registry's canonical
 // `EntityType`, so the palette groups/labels every entity class the platform
@@ -121,13 +121,13 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
   const [mode, setMode] = useState<Mode>("search");
   const [projects, setProjects] = useState<PaletteProject[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
-  // The surface-published "new issue, here" context, SNAPSHOT when the palette
+  // The surface-published "new work item, here" context, SNAPSHOT when the palette
   // opens (COSMOS-166). Snapshotting rather than subscribing keeps the globally
   // mounted palette out of the Gantt's hover re-render path, and it is the right
   // semantics anyway: the action applies to what you were looking at when you
   // pressed ⌘K, not to whatever the pointer drifted onto afterwards.
-  const [newIssueCtx, setNewIssueCtx] = useState<NewIssueContext | null>(null);
-  const [newIssueOpen, setNewIssueOpen] = useState(false);
+  const [newIssueCtx, setNewWorkItemCtx] = useState<NewWorkItemContext | null>(null);
+  const [newIssueOpen, setNewWorkItemOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const { openDrawer } = useDrawers();
@@ -164,7 +164,7 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
     if (open) {
-      setNewIssueCtx(getNewIssueContext());
+      setNewWorkItemCtx(getNewWorkItemContext());
     } else {
       setMode("search");
       setQuery("");
@@ -256,12 +256,12 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
     void ensureProjects();
   }, [ensureProjects]);
 
-  // Hand off to the SAME full create dialog the surface's own "New issue"
+  // Hand off to the SAME full create dialog the surface's own "New work item"
   // button opens — project, board, and the dates of the row in focus already
   // filled in — rather than the palette's cut-down capture form.
-  const openNewIssue = useCallback(() => {
+  const openNewWorkItem = useCallback(() => {
     setOpen(false);
-    setNewIssueOpen(true);
+    setNewWorkItemOpen(true);
   }, []);
 
   const openProjectPicker = useCallback(() => {
@@ -318,7 +318,7 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
   const navItems: { id: string; label: string; suffix: string; drawer?: DrawerTool; icon: React.ReactNode }[] = [
     { id: "overview", label: "Overview", suffix: "", icon: <LayoutDashboard className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "projects", label: "Projects", suffix: "/projects", icon: <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "issues", label: "Issues", suffix: "/issues", icon: <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "issues", label: "Work Items", suffix: "/work-items", icon: <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "chat", label: "Chat", suffix: "/chat", drawer: "chat", icon: <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "notes", label: "Notes", suffix: "/notes", icon: <FileText className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "meetings", label: "Meetings", suffix: "/meetings", icon: <Video className="h-4 w-4 shrink-0 text-muted-foreground" /> },
@@ -438,7 +438,7 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
           {showActions && fixedActionLabels.some(matchesAction) && (
             <CommandGroup heading="Actions">
               {newIssueLabel && matchesAction(newIssueLabel) && (
-                <CommandItem value="action-new-issue" onSelect={openNewIssue}>
+                <CommandItem value="action-new-work-item" onSelect={openNewWorkItem}>
                   <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="flex-1 truncate">{newIssueLabel}…</span>
                   <CornerDownLeft className="ml-2 h-3.5 w-3.5 text-muted-foreground/60" />
@@ -574,7 +574,7 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
       <CreateWorkItemDialog
         orgId={newIssueCtx.orgId}
         open={newIssueOpen}
-        onOpenChange={setNewIssueOpen}
+        onOpenChange={setNewWorkItemOpen}
         projects={[
           {
             id: newIssueCtx.projectId,

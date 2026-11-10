@@ -71,8 +71,8 @@ import {
 import { matchesEstimateBand, hasAnyEstimate } from "@/lib/work-items/estimate-filter";
 import { useOrgQueryKey, useOrgSlug, orgQueryKey } from "@/lib/query/keys";
 import { dateOnlyKey } from "@/lib/time/date-only";
-import { usePublishNewIssueContext } from "@/hooks/use-new-issue-context";
-import type { NewIssueContext } from "@/lib/boards/new-issue-context";
+import { usePublishNewWorkItemContext } from "@/hooks/use-new-work-item-context";
+import type { NewWorkItemContext } from "@/lib/boards/new-work-item-context";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { cn } from "@/lib/utils";
@@ -90,9 +90,9 @@ import {
 } from "@/components/boards/shared/filter-bar";
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import {
-  NewIssueButton,
-  type NewIssueHandle,
-} from "@/components/boards/shared/new-issue-button";
+  NewWorkItemButton,
+  type NewWorkItemHandle,
+} from "@/components/boards/shared/new-work-item-button";
 import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { planDriftPhantoms, type DriftColor } from "@/lib/boards/plan-drift";
@@ -402,7 +402,7 @@ function LensToggle({
 }
 
 export function TimelineView({ orgId, projectId, projectKey, boardId }: TimelineViewProps) {
-  const newIssueRef = useRef<NewIssueHandle>(null);
+  const newIssueRef = useRef<NewWorkItemHandle>(null);
   const [hoveredItem, setHoveredItem] = useState<WorkItem | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
 
@@ -1505,9 +1505,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const allVisibleSelected =
     sortedItems.length > 0 && selectedItems.length === sortedItems.length;
 
-  // ── ⌘K / Ctrl+K → "New issue in <KEY> timeline" ──────────────────────────
+  // ── ⌘K / Ctrl+K → "New work item in <KEY> timeline" ──────────────────────────
   // Publish this board's create context so the command palette can offer the
-  // SAME full dialog the toolbar's "New issue" button opens (COSMOS-166). The
+  // SAME full dialog the toolbar's "New work item" button opens (COSMOS-166). The
   // toolbar is hidden in fullscreen, which is precisely when the keyboard is
   // the only way in, so the registration lives on the view rather than on the
   // button. The row in FOCUS — the one selected, else the one under the
@@ -1519,7 +1519,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       queryKey: orgQueryKey(orgSlug, "work-items", projectId),
     });
   }, [qc, orgSlug, projectId]);
-  const newIssueContext = useMemo<NewIssueContext>(
+  const newIssueContext = useMemo<NewWorkItemContext>(
     () => ({
       scopeLabel: `${projectKey} timeline`,
       orgId,
@@ -1532,7 +1532,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     }),
     [orgId, projectId, projectKey, boardId, focusItem, refetchItems],
   );
-  usePublishNewIssueContext(newIssueContext);
+  usePublishNewWorkItemContext(newIssueContext);
 
   // ── Bulk schedule ops ────────────────────────────────────────────────────
   // Shift moves the SELECTED items by N days. The target list is a parameter
@@ -2021,7 +2021,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         Drag a bar to reschedule · drag edges to resize
       </p>
     )}
-    <NewIssueButton
+    <NewWorkItemButton
       ref={newIssueRef}
       orgId={orgId}
       projectId={projectId}

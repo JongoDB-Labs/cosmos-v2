@@ -181,7 +181,7 @@ describe("Cosmos bot in Teams (e2e DB)", () => {
     expect(first).toContain("Assigned to you");
     expect(first).toContain(`${s.key}-1`);
     expect(first).toContain("Fix the login page");
-    expect(first).toContain(`${ORIGIN}/${s.org.slug}/issues?item=${s.key}-1`);
+    expect(first).toContain(`${ORIGIN}/${s.org.slug}/work-items?item=${s.key}-1`);
     expect(second).toContain(`${s.key}-2`);
     expect(second).toContain("Restricted");
     expect(second).not.toContain("payroll");

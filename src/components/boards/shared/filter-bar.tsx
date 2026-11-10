@@ -156,7 +156,7 @@ interface FilterBarProps {
    * below this one -- whose classes are character-for-character identical to
    * this root's, so it was the same band drawn twice. In normal mode a Kanban
    * board's copy held exactly two controls: "Select" hard against the left
-   * edge and "New issue" at the right, with nothing between. Four bands stacked
+   * edge and "New work item" at the right, with nothing between. Four bands stacked
    * above the first card, which is what ffe324aa reports as "stacked on top of
    * each other, which just pushes the kanban board itself down way too much to
    * where you have no visibility."

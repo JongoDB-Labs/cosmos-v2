@@ -8,7 +8,7 @@ import { SHADOW_TYPE_KEYS } from "./use-work-item-types";
  *
  * Six entities — Goal, KeyResult, Kpi, Milestone, Objective, Risk — exist as
  * Prisma models AND were also seeded as work-item types. A "Milestone" filed
- * from a New issue dialog is a WorkItem, so it never reaches the Milestones
+ * from a New work item dialog is a WorkItem, so it never reaches the Milestones
  * board. SHADOW_TYPE_KEYS hides those from creation.
  *
  * That list was first written as "the cross-cutting types", so it caught every

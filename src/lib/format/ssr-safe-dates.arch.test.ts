@@ -74,7 +74,7 @@ const CONVERTED = [
  * "converts" them a second time.
  */
 const ALREADY_PINNED = [
-  "src/components/work-items/issues-view.tsx",
+  "src/components/work-items/work-items-view.tsx",
   "src/components/pm-dashboard/pm-dashboard.tsx",
   // Server-rendered client component (rows arrive as props from team/page.tsx).
   // Its own comment records the hydration mismatch that pinned it; it was just

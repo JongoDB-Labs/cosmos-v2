@@ -29,6 +29,18 @@ export const ACCOUNTING_SECTION_DEFAULT = "/accounting/finance";
  * the point of the move — there is only one "Accounting" breadcrumb now.
  */
 export const LEGACY_ORG_PATH_REDIRECTS: Readonly<Record<string, string>> = {
+  // Issues -> Work Items. The page, the API, the models and the components all
+  // said "work item"; only the sidebar label and this URL still said "issue",
+  // so the rename moved the outlier rather than the eight things it disagreed
+  // with. Every link already in the wild keeps working through here, and there
+  // are a lot of them: stored notification rows, filter-subscription emails,
+  // Teams message-extension cards, automation `item.url` payloads and whatever
+  // anyone has pasted into a chat since the page existed.
+  "/issues": "/work-items",
+  "/issues/labels": "/work-items/labels",
+  // PM Dashboard -> Program Management. Same page, renamed and given a project
+  // picker; the old path is in bookmarks and in at least one shared report.
+  "/pm-dashboard": "/program-management",
   "/finance": ACCOUNTING_SECTION_DEFAULT,
   "/finance/accounting": ACCOUNTING_SECTION_DEFAULT,
   "/finance/banking": "/accounting/banking",

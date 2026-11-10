@@ -57,7 +57,7 @@ describe("search_work_items", () => {
     const r = await search({ cql: "priority in (low, high) order by priority", limit: 1 });
     expect(r.cql).toBe("priority IN (LOW, HIGH) ORDER BY priority ASC");
     const slug = (await prisma.organization.findUniqueOrThrow({ where: { id: w.orgA } })).slug;
-    expect(r.url).toBe(`/${slug}/issues?cql=${encodeURIComponent(r.cql)}`);
+    expect(r.url).toBe(`/${slug}/work-items?cql=${encodeURIComponent(r.cql)}`);
     expect(r.count).toBe(1);
     expect(r.total).toBe(2);
     expect(titles(r)).toEqual(["p1-coowned"]);
@@ -93,7 +93,7 @@ describe("search_work_items", () => {
 
   it("a GOV tenant's view keeps counts and ids and drops titles, the query text and the link", () => {
     const output = {
-      count: 1, total: 1, totalCapped: false, cql: 'summary ~ "Secret"', url: "/x/issues?cql=…",
+      count: 1, total: 1, totalCapped: false, cql: 'summary ~ "Secret"', url: "/x/work-items?cql=…",
       items: [{ id: "i1", ticketNumber: 3, ticketKey: "ACME-3", projectId: "p", title: "Secret", columnKey: "todo", assigneeName: "Ada", labels: ["a"] }],
     };
     expect(entityTypeForTool("search_work_items")).toBe("work_item");

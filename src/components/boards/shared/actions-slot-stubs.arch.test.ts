@@ -6,7 +6,7 @@
 //
 // Fifteen test files stub those surfaces to `() => null` to keep their control
 // trees out of an unrelated test. That was free when the toolbar was a SIBLING
-// band. Now it swallows "New issue", "Group by", the density toggles and the
+// band. Now it swallows "New work item", "Group by", the density toggles and the
 // scope notice -- and the test goes green while blind to the controls it exists
 // to exercise. `table-view.grouping.test.tsx` hit exactly this and only said
 // "the Group by select is gone", which cost real time to trace.

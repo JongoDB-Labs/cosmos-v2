@@ -33,7 +33,7 @@ if (!Element.prototype.hasPointerCapture) {
 }
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/acme/issues",
+  usePathname: () => "/acme/work-items",
   useRouter: () => ({ push: () => {}, refresh: () => {} }),
   useParams: () => ({ projectKey: "FSC" }),
   useSearchParams: () => new URLSearchParams(),

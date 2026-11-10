@@ -197,8 +197,8 @@ describe("POST /work-items/[itemId]/comments — live updates (COSMOS-127)", () 
 // /[orgSlug]/projects/[projectKey]/work-items/[id] page, and no catch-all — so
 // every variant of that path 404s.
 //
-// The app's actual work-item deep link is /[orgSlug]/issues?item=<id>: 7 call
-// sites use it, including issue-copy-link, and issues-view.tsx consumes it via
+// The app's actual work-item deep link is /[orgSlug]/work-items?item=<id>: 7 call
+// sites use it, including work-item-copy-link, and work-items-view.tsx consumes it via
 // searchParams.get("item").
 //
 // These tests therefore assert the URL's SHAPE (pathname + item param), not a
@@ -224,7 +224,7 @@ describe("POST /work-items/[itemId]/comments — mention notification link (COSM
     ]);
   }
 
-  it("links a mention notification to a work-item route that EXISTS (/issues?item=)", async () => {
+  it("links a mention notification to a work-item route that EXISTS (/work-items?item=)", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE")));
     findAuthor.mockResolvedValue({ id: ACTOR_ID, displayName: "Dana" });
     prisma.orgMember.findMany.mockResolvedValue([
@@ -245,10 +245,16 @@ describe("POST /work-items/[itemId]/comments — mention notification link (COSM
 
     // Parse it the way the dropdown does, and check it names a route that exists.
     const u = new URL(call.url, "http://x");
-    expect(u.pathname).toBe("/acme/issues");
+    expect(u.pathname).toBe("/acme/work-items");
     expect(u.searchParams.get("item")).toBe(ITEM_ID);
-    // The dead route, in any form, must never come back.
-    expect(call.url).not.toContain("work-items");
+    // The bug this guards was a notification pointing at the API path --
+    // /orgs/<id>/projects/<id>/work-items/<id> -- which renders nothing. It
+    // used to be written as "must not contain work-items", because back then
+    // the PAGE lived at /issues and only the API said work-items. The page is
+    // now /work-items too, so that literal no longer separates the two. What
+    // actually distinguishes them is the API's project segment, so say that.
+    expect(call.url).not.toContain("/projects/");
+    expect(call.url).not.toContain("/api/");
   });
 
   it("names the mentioned person in the body, and never shows a raw id", async () => {

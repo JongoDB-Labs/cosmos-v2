@@ -114,7 +114,7 @@ export async function searchWorkItems(input: Record<string, unknown>, ctx: ToolC
       total: result.total,
       totalCapped: result.totalCapped,
       cql: result.cql,
-      url: `/${org.slug}/issues?cql=${encodeURIComponent(result.cql)}`,
+      url: `/${org.slug}/work-items?cql=${encodeURIComponent(result.cql)}`,
       items: result.data.map((r) => itemForModel(r, pick)),
       ...(result.diagnostics.length ? { warnings: diagnosticsForModel(result.diagnostics) } : {}),
     };

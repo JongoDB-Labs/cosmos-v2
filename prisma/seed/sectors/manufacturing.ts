@@ -82,7 +82,10 @@ const MANUFACTURING_PROJECT_TEMPLATE = {
     // Dead keys removed ("risk"/"decision" are not in TOGGLEABLE_FEATURES).
     // "risk" becomes pm-dashboard + risk-register — quality/production risk is
     // core here — and "interval" surfaces the RUN intervals declared above.
-    enabledFeatures: ["kpi", "interval", "pm-dashboard", "risk-register"],
+    // The PM Dashboard suite is retired (see lib/project-features.ts): it is
+    // superseded by the org-level Program Management page, so a NEW project
+    // from this template no longer starts with those tabs.
+    enabledFeatures: ["kpi", "interval"],
   },
 };
 

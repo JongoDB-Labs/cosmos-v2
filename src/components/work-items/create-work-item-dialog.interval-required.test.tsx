@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-// COSMOS-86 — the org-wide "New issue" dialog let users fill in the form but
+// COSMOS-86 — the org-wide "New work item" dialog let users fill in the form but
 // never created the item, while the Kanban board's inline quick-create worked.
 // Two anomalies unique to THIS dialog caused it, and both are locked here:
 //
-//   1. The "Create issue" button was disabled until `workItemTypeId` was set,
+//   1. The "Create work item" button was disabled until `workItemTypeId` was set,
 //      so if the org's work-item types were slow / failed to load the button
 //      stayed permanently disabled — the user could type a title but never
 //      submit. Every working create path (CardQuickCreate, CreateIssueButton)
@@ -114,7 +114,7 @@ describe("CreateWorkItemDialog: a Story or Feature needs an interval (COSMOS-205
     await fillRequired(user, "Story");
 
     const interval = await screen.findByRole("combobox", { name: "Interval" });
-    const create = screen.getByRole("button", { name: "Create issue" });
+    const create = screen.getByRole("button", { name: "Create work item" });
     expect(create).toBeDisabled();
     expect(interval).toHaveAttribute("aria-required", "true");
     expect(screen.getByText(/can't be created without one/)).toBeTruthy();
@@ -137,7 +137,7 @@ describe("CreateWorkItemDialog: a Story or Feature needs an interval (COSMOS-205
     renderDialog();
     await fillRequired(user, "Feature");
     await screen.findByRole("combobox", { name: "Interval" });
-    expect(screen.getByRole("button", { name: "Create issue" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create work item" })).toBeDisabled();
   });
 
   it("leaves a Task optional", async () => {
@@ -146,7 +146,7 @@ describe("CreateWorkItemDialog: a Story or Feature needs an interval (COSMOS-205
     renderDialog();
     await fillRequired(user, "Task");
     await screen.findByRole("combobox", { name: "Interval" });
-    expect(screen.getByRole("button", { name: "Create issue" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create work item" })).not.toBeDisabled();
   });
 
   it("does not block a Story in a project that has no intervals", async () => {
@@ -155,6 +155,6 @@ describe("CreateWorkItemDialog: a Story or Feature needs an interval (COSMOS-205
     renderDialog();
     await fillRequired(user, "Story");
     expect(screen.queryByRole("combobox", { name: "Interval" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Create issue" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create work item" })).not.toBeDisabled();
   });
 });

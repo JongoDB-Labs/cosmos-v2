@@ -299,7 +299,7 @@ describe("NotificationDropdown read and unread", () => {
   });
 
   it("marks one read without opening it", async () => {
-    const withUrl = { ...notif("a", false), url: "/issues?item=a" };
+    const withUrl = { ...notif("a", false), url: "/work-items?item=a" };
     const fetchMock = mockInbox({ "": { data: [withUrl], nextCursor: null } });
     render(<NotificationDropdown orgId={ORG_ID} />);
     await openBell();
@@ -338,12 +338,12 @@ describe("NotificationDropdown read and unread", () => {
   });
 
   it("opening an already-read notification doesn't write it again", async () => {
-    const withUrl = { ...notif("a", true), url: "/issues?item=a" };
+    const withUrl = { ...notif("a", true), url: "/work-items?item=a" };
     const fetchMock = mockInbox({ "": { data: [withUrl], nextCursor: null } });
     render(<NotificationDropdown orgId={ORG_ID} />);
     await openBell();
     fireEvent.click(await screen.findByRole("button", { name: /^Title a\b/ }));
-    expect(push).toHaveBeenCalledWith("/acme/issues?item=a");
+    expect(push).toHaveBeenCalledWith("/acme/work-items?item=a");
     expect(putBodies(fetchMock)).toEqual([]);
   });
 });

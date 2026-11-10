@@ -131,7 +131,7 @@ export async function fetchIssueRows(
       storyPoints: true,
       tags: true,
       // Keep in step with `IssueRow` above AND the client-side copy in
-      // issues-view.tsx. A field missing from THIS select is `undefined` at
+      // work-items-view.tsx. A field missing from THIS select is `undefined` at
       // runtime with a perfectly green type-check — Prisma's selected type is
       // inferred, so the interface below is a claim, not a constraint.
       highlight: true,

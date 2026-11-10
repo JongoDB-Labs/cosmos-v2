@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/auth";
-import { editor, openIssues, resetQueryLanguage, setQueryLanguage, urlCql } from "./fixtures/issues-query";
+import { editor, openIssues, resetQueryLanguage, setQueryLanguage, urlCql } from "./fixtures/work-items-query";
 
 /**
  * Saved filters (query design §10, §14.3): save a query shared with a project,

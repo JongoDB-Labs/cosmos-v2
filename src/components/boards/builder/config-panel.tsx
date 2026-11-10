@@ -173,7 +173,7 @@ export function ConfigPanel({ widget, onUpdateConfig, onDelete }: ConfigPanelPro
               id="widget-label"
               value={(config.label as string) ?? ""}
               onChange={(e) => onUpdateConfig({ label: e.target.value })}
-              placeholder="e.g. Open Issues"
+              placeholder="e.g. Open work items"
             />
           </div>
         )}

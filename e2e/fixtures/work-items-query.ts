@@ -38,7 +38,7 @@ export async function openIssues(page: Page, opts: { cql?: string; mode?: "basic
   const qs = new URLSearchParams();
   if (opts.cql) qs.set("cql", opts.cql);
   if (opts.mode) qs.set("mode", opts.mode);
-  await page.goto(`/${ORG_SLUG}/issues${qs.size ? `?${qs}` : ""}`);
+  await page.goto(`/${ORG_SLUG}/work-items${qs.size ? `?${qs}` : ""}`);
   await expect(page.getByRole("group", { name: "How to filter" })).toBeVisible({ timeout: 30_000 });
 }
 

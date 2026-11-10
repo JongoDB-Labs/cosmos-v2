@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-// COSMOS-86 — the org-wide "New issue" dialog let users fill in the form but
+// COSMOS-86 — the org-wide "New work item" dialog let users fill in the form but
 // never created the item, while the Kanban board's inline quick-create worked.
 // Two anomalies unique to THIS dialog caused it, and both are locked here:
 //
-//   1. The "Create issue" button was disabled until `workItemTypeId` was set,
+//   1. The "Create work item" button was disabled until `workItemTypeId` was set,
 //      so if the org's work-item types were slow / failed to load the button
 //      stayed permanently disabled — the user could type a title but never
 //      submit. Every working create path (CardQuickCreate, CreateIssueButton)
@@ -112,7 +112,7 @@ describe("CreateWorkItemDialog: write-up template (COSMOS-208)", () => {
     await user.type(screen.getByLabelText("Description"), "Keep the row about current work.");
     await user.type(screen.getByLabelText("Acceptance criteria"), "- Past PIs start collapsed");
     await user.type(screen.getByLabelText("Definition of done"), "- Demoed to the RTE");
-    await user.click(screen.getByRole("button", { name: "Create issue" }));
+    await user.click(screen.getByRole("button", { name: "Create work item" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
     expect(postBody().description).toBe(

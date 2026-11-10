@@ -40,6 +40,9 @@ describe("legacy /finance -> /accounting redirects", () => {
     // Pinned in full: adding a route to the section without adding its legacy
     // path here is fine, but silently DROPPING one of these is not.
     expect(LEGACY_ORG_PATH_REDIRECTS).toEqual({
+      "/issues": "/work-items",
+      "/issues/labels": "/work-items/labels",
+      "/pm-dashboard": "/program-management",
       "/finance": "/accounting/finance",
       // The old ledger page has no 1:1 successor — its panels are tabs on the
       // Finance page now.
@@ -110,6 +113,27 @@ describe("legacy /finance -> /accounting redirects", () => {
     expect(rules).toContainEqual({
       source: "/:orgSlug/finance/invoices",
       destination: "/:orgSlug/accounting/invoices",
+      permanent: false,
+    });
+  });
+
+  it("keeps every stored /issues link working after the Work Items rename", () => {
+    // These are not merely bookmarks. `notification.url` rows written before
+    // the rename hold "/{slug}/issues?item=<id>" permanently, and so do sent
+    // emails and Teams cards -- none of which can be rewritten after the fact.
+    // Next matches redirects before the filesystem and carries the query
+    // string across, so "?item=" survives the hop.
+    const rules = legacyRedirectRules();
+    expect(rules).toContainEqual({
+      source: "/:orgSlug/issues",
+      destination: "/:orgSlug/work-items",
+      permanent: false,
+    });
+    // The labels page moved with it, and "/issues" would NOT cover it: these
+    // rules match a whole path, not a prefix.
+    expect(rules).toContainEqual({
+      source: "/:orgSlug/issues/labels",
+      destination: "/:orgSlug/work-items/labels",
       permanent: false,
     });
   });

@@ -141,7 +141,7 @@ export function RoadmapWorkspace({ orgId, projectId, orgSlug, projectKey }: Prop
         <MapIcon className="mx-auto h-10 w-10 text-muted-foreground" />
         <h2 className="mt-4 text-lg font-semibold text-foreground">No roadmap yet</h2>
         <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-          Ingest your program roadmap so issues can link to phases, risks and
+          Ingest your program roadmap so work items can link to phases, risks and
           decisions as source-of-truth. Have your LLM convert your roadmap doc to
           the import format and POST it, or use the roadmap MCP server.
         </p>
@@ -333,7 +333,7 @@ function NodeDetail({
         <button
           onClick={onCopyLink}
           className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-          title="Copy a deep link to paste into an issue description"
+          title="Copy a deep link to paste into a work item description"
         >
           <Link2 className="h-3.5 w-3.5" />
           Copy link

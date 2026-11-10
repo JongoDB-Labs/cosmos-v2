@@ -29,8 +29,8 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
-vi.mock("@/components/boards/shared/new-issue-button", () => ({
-  NewIssueButton: () => null,
+vi.mock("@/components/boards/shared/new-work-item-button", () => ({
+  NewWorkItemButton: () => null,
 }));
 vi.mock("@/components/work-items/card-detail-sheet", () => ({
   CardDetailSheet: () => null,
