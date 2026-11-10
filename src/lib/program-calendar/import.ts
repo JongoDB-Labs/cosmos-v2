@@ -23,6 +23,8 @@
  */
 import type { EventRecurrence } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
+import type { AuthContext } from "@/lib/rbac/check";
+import { hiddenProjectIds } from "@/lib/rbac/project-access";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { normalizeRange } from "./time";
 
@@ -350,7 +352,15 @@ function firstByName<T extends { id: string }>(rows: T[], nameOf: (r: T) => stri
 export async function resolveProgramEventLookups(
   orgId: string,
   rows: ImportableRow[],
+  auth: AuthContext,
 ): Promise<void> {
+  // Teams and deliverables both hang off a project, and both are rendered by
+  // NAME once resolved. Narrow them to what this caller may see, exactly as
+  // `assertReferencesInOrg` does for a user-supplied id — an unresolvable name
+  // gets the same warning whether it is absent or merely hidden, so the
+  // warning never doubles as a probe.
+  const hidden = await hiddenProjectIds(auth);
+  const notHidden = hidden.length ? { projectId: { notIn: hidden } } : {};
   for (const row of rows) {
     if (row.error) continue;
     const raw = text(row.fields, "startDate");
@@ -383,7 +393,7 @@ export async function resolveProgramEventLookups(
     // in the service, so an import cannot produce a two-owner event the UI
     // would have to pick a lane for.
     const [teams, members] = await Promise.all([
-      prisma.team.findMany({ where: { orgId }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+      prisma.team.findMany({ where: { orgId, ...notHidden }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
       prisma.orgMember.findMany({
         where: { orgId, removedAt: null },
         select: { id: true, user: { select: { displayName: true, email: true } } },
@@ -413,7 +423,7 @@ export async function resolveProgramEventLookups(
   const deliverableTitles = new Set(live.map((r) => lower(text(r.fields, "deliverable"))).filter(Boolean));
   if (deliverableTitles.size) {
     const deliverables = await prisma.deliverable.findMany({
-      where: { orgId },
+      where: { orgId, ...notHidden },
       select: { id: true, title: true },
       orderBy: { title: "asc" },
     });
@@ -500,6 +510,26 @@ export async function createProgramEventRow(
   const built = eventRangeFromRow(fields);
   if (!built) throw new Error("Start date is missing or unreadable");
   const { range } = built;
+
+  // The create-or-update map only ever offers ORG-LEVEL events, so an external
+  // id already held by a PROJECT'S event is not ours to claim — updating it
+  // would edit that project's calendar from outside it. The unique index is
+  // org-wide, so the create below is what refuses it; this turns the raw
+  // constraint name into something the person importing can act on. The engine
+  // records it per row and carries on with the rest of the file.
+  const externalId = str(fields, "externalId");
+  if (externalId) {
+    const held = await prisma.programEvent.findFirst({
+      where: { orgId: ctx.orgId, externalId, projectId: { not: null } },
+      select: { id: true },
+    });
+    if (held) {
+      throw new Error(
+        `External ID "${externalId}" already belongs to an event filed under a project. `
+        + "Imported events are organization-level, so this row was left alone.",
+      );
+    }
+  }
 
   await prisma.programEvent.create({
     data: {

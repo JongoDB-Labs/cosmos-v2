@@ -71,7 +71,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // has never heard of.
     if (!def.pluginSlug) {
       return success(
-        await runEntityImport({ orgId: org.id, projectId: null, userId: ctx.userId }, req),
+        await runEntityImport({ orgId: org.id, projectId: null, userId: ctx.userId, auth: ctx }, req),
       );
     }
 
