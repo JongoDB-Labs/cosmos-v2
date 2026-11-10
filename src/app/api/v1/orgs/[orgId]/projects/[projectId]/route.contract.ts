@@ -29,7 +29,7 @@ export const updateProject = defineRoute({
   summary: "Update a project",
   description:
     "Partial update: send only the fields to change. `settings` is merged into the existing " +
-    "settings, not replaced. Changing `teamScopedAccess` (who can see the project) needs a " +
+    "settings, not replaced. Changing `teamScopedAccess` or `eventVisibility` (who can see the project, or its calendar) needs a " +
     "project manager or org admin.",
   tags: ["Projects"],
   stability: "stable",
@@ -65,6 +65,11 @@ export const updateProject = defineRoute({
       objectiveLinkTypeId: z.string().uuid().nullable().optional(),
       // Opt-in read narrowing (#35); see src/lib/rbac/project-access.ts.
       teamScopedAccess: z.boolean().optional(),
+      // Who may see this project's program-calendar events. PROJECT (the
+      // default) means members only; ORG opens the calendar to the whole
+      // organization. Needs the same project-manager gate as
+      // `teamScopedAccess`, because it widens rather than narrows.
+      eventVisibility: z.enum(["PROJECT", "ORG"]).optional(),
       // Numbering an existing project, or correcting one. Null clears it.
       number: z.string().trim().min(1).max(40).nullable().optional()
         .describe("The project number. 409 when another project in the org holds it."),

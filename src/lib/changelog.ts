@@ -67,7 +67,7 @@ const RELEASES: Release[] = [
       },
       {
         kind: "improvement",
-        text: "An all-day event falls on its dates in every time zone, and an event on a team-scoped project is visible only to that team \u2014 in the list, in the counts and when opened directly.",
+        text: "A project\u2019s calendar is private to its members by default. A project manager can open it to the whole organization from the project\u2019s settings; events that belong to no project stay visible to everyone. An all-day event falls on its dates in every time zone.",
       },
     ],
   },

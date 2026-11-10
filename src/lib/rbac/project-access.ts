@@ -217,7 +217,7 @@ async function isProjectMember(ctx: AuthContext, projectId: string): Promise<boo
   return pm !== null;
 }
 
-async function memberProjectIds(ctx: AuthContext): Promise<Set<string>> {
+export async function memberProjectIds(ctx: AuthContext): Promise<Set<string>> {
   const member = await prisma.orgMember.findUnique({
     where: { orgId_userId: { orgId: ctx.orgId, userId: ctx.userId } },
     select: { id: true },

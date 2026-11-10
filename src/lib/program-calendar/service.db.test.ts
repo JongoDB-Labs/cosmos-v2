@@ -44,7 +44,13 @@ beforeAll(async () => {
   restricted = (await prisma.project.create({
     data: { orgId, name: "Restricted", key: `PR${key}`, teamScopedAccess: true },
   })).id;
-  openProj = (await prisma.project.create({ data: { orgId, name: "Open", key: `PO${key}` } })).id;
+  // Opened to the whole org: this fixture's "open" project means one every
+  // member can see, and since the calendar's default is now PROJECT-only that
+  // has to be said explicitly rather than assumed from the absence of
+  // teamScopedAccess.
+  openProj = (await prisma.project.create({
+    data: { orgId, name: "Open", key: `PO${key}`, eventVisibility: "ORG" },
+  })).id;
   await prisma.projectMember.create({ data: { projectId: restricted, orgMemberId: im.id, role: "MEMBER" } });
 
   teamId = (await prisma.team.create({ data: { orgId, projectId: openProj, name: `PM Team ${stamp}` } })).id;

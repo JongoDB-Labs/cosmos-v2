@@ -106,6 +106,12 @@ export const Project = z.object({
   enabledFeatures: z.array(z.string()).describe("Optional board tabs this project has switched on."),
   sector: z.string().nullable().describe("Sector of the template the project was created from."),
   teamScopedAccess: z.boolean().describe("Only project members (and org admins) can see it."),
+  eventVisibility: z
+    .enum(["PROJECT", "ORG"])
+    .describe(
+      "Who may see this project's program-calendar events. PROJECT (the default) means project "
+      + "members and org admins only; ORG opens the calendar to every member of the organization.",
+    ),
   clientId: NullableUuid,
   externalRef: z.string().nullable(),
   number: z.string().nullable().describe("The project's number under the org's numbering standard, e.g. 26-001."),

@@ -109,6 +109,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return problem(403, "forbidden", "Only a project manager or org admin can change who this project is visible to.", { request });
     }
 
+    // eventVisibility takes the SAME gate, and for the mirror-image reason.
+    // `teamScopedAccess` can hide a project from non-members; this one can
+    // expose a project's whole calendar to every member of the org. Both are
+    // decisions about audience, so both belong to whoever administers the
+    // project rather than to any org-wide PROJECT_UPDATE holder.
+    if (data.eventVisibility !== undefined && !(await canManageProject(ctx, projectId, Permission.PROJECT_MANAGE))) {
+      return problem(403, "forbidden", "Only a project manager or org admin can change who this project's calendar is visible to.", { request });
+    }
+
     if (data.number && data.number !== existing.number) {
       const taken = await prisma.project.findFirst({ where: { orgId, number: data.number, id: { not: projectId } }, select: { id: true } });
       if (taken) return problem(409, "conflict", "Project number already exists", { request });
@@ -139,6 +148,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           objectiveLinkTypeId: data.objectiveLinkTypeId,
         }),
         ...(data.teamScopedAccess !== undefined && { teamScopedAccess: data.teamScopedAccess }),
+        ...(data.eventVisibility !== undefined && { eventVisibility: data.eventVisibility }),
         ...(data.number !== undefined && { number: data.number }),
       },
       include: {
