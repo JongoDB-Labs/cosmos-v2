@@ -4,7 +4,7 @@
 // committed change becomes one signed delivery per subscribed webhook, under
 // the right event name, carrying ids and keys but no free text; failures are
 // retried with backoff and then given up; nothing is queued twice.
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import { createHmac, randomBytes } from "crypto";
 import { prisma } from "@/lib/db/client";
 import { sealField } from "@/lib/crypto/field-seal";
@@ -63,6 +63,10 @@ const move = (id: string, columnKey: string, source: "API" | "MIGRATION" = "API"
   prisma.$transaction((tx) => applyWorkItemChange(tx, { orgId, projectId, actorId: userId, actor: null, source, itemIds: [id], patch: { columnKey } }));
 
 const run = () => processOutboxBatch(prisma, { orgId });
+// Scoped like `run`: the sender is global, and other spec files queue deliveries
+// in this database too (backlog.db.test.ts does). Unscoped, this file sent them
+// with its fake `post`, and counted them as its own.
+const send = (opts: Omit<NonNullable<Parameters<typeof sendDueDeliveries>[1]>, "orgId"> = {}) => sendDueDeliveries(prisma, { ...opts, orgId });
 const deliveriesOf = (webhookId: string) => prisma.webhookDelivery.findMany({ where: { webhookId }, orderBy: [{ eventId: "asc" }, { createdAt: "asc" }] });
 
 describe("the outbox worker", () => {
@@ -167,8 +171,8 @@ describe("the webhook sender", () => {
       calls.push({ url, headers: o.headers, body: o.body });
       return { status: 204, body: "" };
     };
-    const r = await sendDueDeliveries(prisma, { post });
-    expect(r.succeeded).toBeGreaterThanOrEqual(1);
+    const r = await send({ post });
+    expect(r).toMatchObject({ sent: 1, succeeded: 1 });
     const [d] = await deliveriesOf(h.id);
     expect(d).toMatchObject({ status: "SUCCESS", attempts: 1, statusCode: 204, nextAttemptAt: null });
     const call = calls.find((c) => c.headers["X-Webhook-Delivery"] === d.id)!;
@@ -184,16 +188,16 @@ describe("the webhook sender", () => {
     const now = () => new Date(t);
     const fail: Post = async () => ({ status: 500, body: "boom" });
     const failOne: Post = async (url, o) => (o.headers["X-Webhook-Delivery"] === d.id ? fail(url, o) : { status: 200, body: "" });
-    await sendDueDeliveries(prisma, { post: failOne, now });
+    await send({ post: failOne, now });
     let row = await prisma.webhookDelivery.findUniqueOrThrow({ where: { id: d.id } });
     expect(row).toMatchObject({ status: "PENDING", attempts: 1, statusCode: 500, responseBody: "boom" });
     expect(row.nextAttemptAt!.getTime()).toBe(t + RETRY_DELAYS_MS[0]);
     // Not due yet: nothing is sent.
-    await sendDueDeliveries(prisma, { post: failOne, now });
+    await send({ post: failOne, now });
     expect((await prisma.webhookDelivery.findUniqueOrThrow({ where: { id: d.id } })).attempts).toBe(1);
     for (let attempt = 2; attempt <= MAX_ATTEMPTS; attempt++) {
       t = row.nextAttemptAt!.getTime();
-      await sendDueDeliveries(prisma, { post: failOne, now });
+      await send({ post: failOne, now });
       row = await prisma.webhookDelivery.findUniqueOrThrow({ where: { id: d.id } });
       expect(row.attempts).toBe(attempt);
     }
@@ -206,13 +210,13 @@ describe("the webhook sender", () => {
     const refuse: Post = async () => {
       throw new OutboundRefused("hooks.example resolves to an address that isn't public");
     };
-    await sendDueDeliveries(prisma, { post: refuse });
+    await send({ post: refuse });
     expect(await prisma.webhookDelivery.findUniqueOrThrow({ where: { id: d.id } })).toMatchObject({ status: "PENDING", attempts: 1, statusCode: null, responseBody: expect.stringMatching(/isn't public/) });
 
     await prisma.webhook.update({ where: { id: h.id }, data: { active: false } });
     await prisma.webhookDelivery.update({ where: { id: d.id }, data: { nextAttemptAt: new Date(0) } });
     let sent = 0;
-    await sendDueDeliveries(prisma, { post: async () => (sent++, { status: 200, body: "" }) });
+    await send({ post: async () => (sent++, { status: 200, body: "" }) });
     expect(sent).toBe(0);
     expect(await prisma.webhookDelivery.findUniqueOrThrow({ where: { id: d.id } })).toMatchObject({ status: "FAILED", nextAttemptAt: null });
   });
@@ -228,12 +232,61 @@ describe("the webhook sender", () => {
       await gate;
       return { status: 200, body: "" };
     };
-    const first = sendDueDeliveries(prisma, { post: slow });
+    const first = send({ post: slow });
     // Let the first sender lease and start sending before the second looks.
     await new Promise((r) => setTimeout(r, 300));
-    await sendDueDeliveries(prisma, { post: async (_u, o) => (o.headers["X-Webhook-Delivery"] === d.id && calls++, { status: 200, body: "" }) });
+    await send({ post: async (_u, o) => (o.headers["X-Webhook-Delivery"] === d.id && calls++, { status: 200, body: "" }) });
     release();
     await first;
     expect(calls).toBe(1);
+  });
+
+  describe("another org's deliveries", () => {
+    let other = "";
+    beforeEach(async () => {
+      const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      other = (await prisma.organization.create({ data: { name: `ob-other ${stamp}`, slug: `ob-other-${stamp}` } })).id;
+    });
+    afterEach(async () => {
+      await prisma.organization.deleteMany({ where: { id: other } });
+    });
+    // A queued delivery shaped like the one backlog.db.test.ts writes: PENDING, plaintext secret.
+    const theirs = async (nextAttemptAt: Date) => {
+      const w = await prisma.webhook.create({ data: { orgId: other, url: "https://hooks.example/in", events: [], secret: "s" } });
+      return prisma.webhookDelivery.create({ data: { webhookId: w.id, event: "e", payload: {}, status: "PENDING", nextAttemptAt } });
+    };
+    const recording = (to: string[]): Post => async (_url, o) => (to.push(o.headers["X-Webhook-Delivery"]), { status: 200, body: "" });
+
+    it("are left alone by a sender scoped to one org: not leased, not sent, not counted", async () => {
+      // Both due in an hour, and the sender's clock two hours on: a sender
+      // running in real time against this database (a dev server's job) can't
+      // take either, so only the scope decides what this one takes.
+      const due = new Date(Date.now() + 3_600_000);
+      const foreign = await theirs(due);
+      const h = await queued();
+      const [d] = await deliveriesOf(h.id);
+      await prisma.webhookDelivery.update({ where: { id: d.id }, data: { nextAttemptAt: due } });
+      const sentTo: string[] = [];
+      const r = await send({ post: recording(sentTo), now: () => new Date(due.getTime() + 3_600_000) });
+      // The sender did run, and sent this org's delivery...
+      expect(sentTo).toEqual([d.id]);
+      expect(r).toMatchObject({ sent: 1, succeeded: 1 });
+      // ...and never touched the other org's, which is still due exactly as queued.
+      expect(await prisma.webhookDelivery.findUniqueOrThrow({ where: { id: foreign.id } })).toMatchObject({ status: "PENDING", attempts: 0, nextAttemptAt: due, lastAttemptAt: null });
+    });
+
+    it("are all taken by the unscoped sender, as the webhook-deliveries job runs it", async () => {
+      // Due at the epoch, and the sender's clock a second after it: only rows a
+      // test parked at 1970 are due, so this can't take another file's queue.
+      const epoch = new Date(0);
+      const foreign = await theirs(epoch);
+      const h = await queued();
+      const [d] = await deliveriesOf(h.id);
+      await prisma.webhookDelivery.update({ where: { id: d.id }, data: { nextAttemptAt: epoch } });
+      const sentTo: string[] = [];
+      await sendDueDeliveries(prisma, { post: recording(sentTo), now: () => new Date(1_000) });
+      expect(sentTo.sort()).toEqual([d.id, foreign.id].sort());
+      expect(await prisma.webhookDelivery.findUniqueOrThrow({ where: { id: foreign.id } })).toMatchObject({ status: "SUCCESS", attempts: 1 });
+    });
   });
 });

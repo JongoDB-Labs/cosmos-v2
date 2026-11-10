@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.544.1",
+    date: "2026-11-10",
+    title: "A steadier webhook test",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Nothing changes in how webhooks are sent. The automated test for the webhook sender ran it across the whole shared test database, so it could send another test\u2019s queued delivery and make that test fail at random. It now sends only its own, and a new test checks that the real sender still delivers for every organisation.",
+      },
+    ],
+  },
+  {
     version: "2.544.0",
     date: "2026-11-10",
     title: "Issues are now Work Items, and PM Dashboard becomes Program Management",
