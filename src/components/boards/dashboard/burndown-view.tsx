@@ -232,7 +232,7 @@ export function BurndownView({
 
       {/* The two disclosures that decide whether the line above can be trusted. */}
       {series.undatedCompletions > 0 && (
-        <p className="text-xs text-amber-600 dark:text-amber-500">
+        <p className="text-xs text-[var(--status-blocked-text)]">
           {series.undatedCompletions} completed{" "}
           {series.undatedCompletions === 1 ? "item has" : "items have"} no recorded completion date,
           so {series.undatedCompletions === 1 ? "it is" : "they are"} counted today rather than on
@@ -240,7 +240,7 @@ export function BurndownView({
         </p>
       )}
       {pointsThin && (
-        <p className="text-xs text-amber-600 dark:text-amber-500">
+        <p className="text-xs text-[var(--status-blocked-text)]">
           Only {series.pointsCoverage.estimated} of {series.pointsCoverage.total} items carry an
           estimate. Unestimated items count as zero here, so the points view understates the sprint —
           the Items view counts every one.
