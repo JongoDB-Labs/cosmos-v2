@@ -330,6 +330,9 @@ const INVITE_PREFIX = "invite:";
  * retries the cancellation. The reason follows the prefix.
  */
 const PENDING_CANCEL = `${INVITE_PREFIX}cancel:`;
+/** Whether a link's event is a live invitation: written in invite mode, not awaiting its cancellation. */
+const isSentInvite = (hash: string | null | undefined) =>
+  !!hash?.startsWith(INVITE_PREFIX) && !hash.startsWith(PENDING_CANCEL);
 export const MAX_INVITEES = 100;
 /** What a cancellation says. Never the meeting's own title, details or link. */
 const CANCELLED_SUBJECT = "Meeting cancelled";
@@ -521,6 +524,14 @@ export interface InvitePreview {
   recipients: { name: string; email: string; outside: boolean }[];
   /** Its cancellation is waiting for the organizer to reconnect Outlook. */
   pendingCancel: boolean;
+  /**
+   * Outlook accepted the organizer's event with the attendees on it. False
+   * while on: nobody has been invited yet (refused, or the organizer must
+   * reconnect); every sync retries.
+   */
+  sent: boolean;
+  /** This person is the organizer: theirs is the Outlook that sends, or must be reconnected. */
+  isOrganizer: boolean;
   domains: string[];
   /**
    * How invitations last ended, while off: "released" (left in Outlook, no
@@ -570,6 +581,8 @@ export async function invitePreview(orgId: string, meetingId: string, actorId: s
     // Addresses are for whoever may send or stop the invitation, not every reader.
     recipients: canEdit ? invitees.map((i) => ({ name: i.name, email: i.email, outside: away.has(i.userId) })) : [],
     pendingCancel: !!own?.contentHash?.startsWith(PENDING_CANCEL),
+    sent: isSentInvite(own?.contentHash),
+    isOrganizer: m.inviteOrganizerId === actorId,
     domains,
     ended: how && last ? { how, reason: last.newValue, at: last.createdAt.toISOString() } : null,
   };

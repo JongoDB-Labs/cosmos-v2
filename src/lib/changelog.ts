@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+      version: "2.544.7",
+      date: "2026-11-10",
+      title: "Outlook invitations say when nobody has been invited yet",
+      highlights: [
+        {
+          kind: "fix",
+          text: "When Outlook refused a meeting\u2019s invitation, Cosmos still showed the invitations as on and confirmed they were sent, though no attendee had received one. The meeting now says plainly that nobody has been invited yet. The organizer is told Cosmos keeps trying and to reconnect Outlook if it doesn\u2019t clear; everyone else is told it is waiting on the organizer\u2019s Outlook. Turning invitations on now confirms they were sent only once Outlook accepts them.",
+        },
+        {
+          kind: "fix",
+          text: "Someone who can edit a meeting but didn\u2019t organize it was told to reconnect their own Outlook when the invitations were waiting on the organizer\u2019s. It now says they are waiting on the organizer, and they can still stop the invitations.",
+        },
+        {
+          kind: "fix",
+          text: "On a meeting\u2019s page, the back button now has a name screen readers announce, and the Delete button\u2019s text has enough contrast to read.",
+        },
+      ],
+    },
+  {
       version: "2.544.6",
       date: "2026-11-10",
       title: "Work items stuck under an old status spelling are back on their board",

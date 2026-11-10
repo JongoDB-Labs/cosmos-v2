@@ -862,8 +862,11 @@ describe("Outlook meeting sync (e2e DB)", () => {
     const { org, alice, bob, g, deps, meeting } = await setup();
     await syncMeeting(org.id, meeting.id, deps);
     const bobCopy = (await linkOf(bob.id, meeting.id))!.externalEventId;
+    expect((await invitePreview(org.id, meeting.id, alice.id))!.isOrganizer).toBe(false); // nobody sends yet
     await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
     expect(attendeesOf(await aliceEvent(org.id, alice.id, meeting.id, g))).toEqual(["bob@test.local"]);
+    expect(await invitePreview(org.id, meeting.id, alice.id)).toMatchObject({ on: true, sent: true, isOrganizer: true });
+    expect(await invitePreview(org.id, meeting.id, bob.id)).toMatchObject({ on: true, sent: true, isOrganizer: false });
     expect(g.events.get(bobCopy)!.removed).toBe(true); // the invitation is his copy now
     expect(await linkOf(bob.id, meeting.id)).toBeNull();
     const sent = await prisma.auditLog.findFirst({ where: { orgId: org.id, action: "microsoft_calendar.invite_sent" } });
@@ -871,6 +874,31 @@ describe("Outlook meeting sync (e2e DB)", () => {
     // His own Sync now doesn't bring the duplicate back.
     await syncUserNow(org.id, bob.id, deps);
     expect(await linkOf(bob.id, meeting.id)).toBeNull();
+  });
+
+  it("an invitation Outlook refuses is reported as not sent, until a later sync sends it", async () => {
+    // Turning invitations on claims the meeting, then writes the organizer's
+    // event with the attendees on it: that write is what invites them. When
+    // Outlook refuses it the toggle still succeeds (invite mode is on, and every
+    // sync retries), but nobody has been invited, and nothing may say they were.
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps); // alice has her mirrored copy, as an organizer usually does
+    const mirror = (await linkOf(alice.id, meeting.id))!;
+    expect(mirror.contentHash?.startsWith("invite:"), "a mirrored copy is not an invitation").toBe(false);
+    const graph = refusing(
+      g,
+      (c) => (c.method === "PATCH" || c.method === "POST") && Array.isArray(c.body?.attendees) && (c.body!.attendees as unknown[]).length > 0,
+      403,
+      "ErrorAccessDenied",
+    );
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, { ...deps, fetch: graph.fetch });
+    expect(graph.refused).toBe(1);
+    expect(await invitePreview(org.id, meeting.id, alice.id)).toMatchObject({ on: true, sent: false, pendingCancel: false });
+    expect(await prisma.auditLog.count({ where: { orgId: org.id, action: "microsoft_calendar.invite_sent" } })).toBe(0);
+    // The next sync, with Outlook accepting, sends it.
+    await syncMeeting(org.id, meeting.id, deps);
+    expect(attendeesOf(await aliceEvent(org.id, alice.id, meeting.id, g))).toEqual(["bob@test.local"]);
+    expect(await invitePreview(org.id, meeting.id, alice.id)).toMatchObject({ on: true, sent: true, pendingCancel: false });
   });
 
   it("refuses to turn on for a classified meeting, someone who can't edit it, or someone not connected", async () => {
@@ -1118,7 +1146,7 @@ describe("Outlook meeting sync (e2e DB)", () => {
     await setMeetingInvite(org.id, meeting.id, alice.id, false, deps);
     expect(g.calls.slice(before)).toEqual([]); // nothing sent to Outlook, nothing turned into a copy
     expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).inviteOrganizerId).toBe(alice.id);
-    expect((await invitePreview(org.id, meeting.id, alice.id))!).toMatchObject({ on: true, pendingCancel: true });
+    expect((await invitePreview(org.id, meeting.id, alice.id))!).toMatchObject({ on: true, pendingCancel: true, sent: false });
     expect(await prisma.notification.count({ where: { orgId: org.id, userId: alice.id, type: "integration.outlook_invite_cancel_pending" } })).toBe(1);
     // Syncs meanwhile change nothing, and nobody gets a mirror copy of it.
     await syncMeeting(org.id, meeting.id, deps);
