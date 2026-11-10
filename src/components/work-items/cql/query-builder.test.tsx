@@ -111,7 +111,7 @@ describe("QueryBuilder — Filters", () => {
     expect(screen.getByRole("group", { name: "Filter: Priority" })).toBeTruthy();
     // `text ~` is the box, not a chip.
     expect(screen.queryByRole("group", { name: "Filter: Text" })).toBeNull();
-    expect((screen.getByRole("textbox", { name: "Search issues" }) as HTMLInputElement).value).toBe("login");
+    expect((screen.getByRole("textbox", { name: "Search work items" }) as HTMLInputElement).value).toBe("login");
   });
 
   it("removing a chip prints the rest of the query", () => {
@@ -123,7 +123,7 @@ describe("QueryBuilder — Filters", () => {
 
   it("the search box writes `text ~` and keeps the chips and ORDER BY", () => {
     renderBar("assignee = me ORDER BY due ASC");
-    const box = screen.getByRole("textbox", { name: "Search issues" });
+    const box = screen.getByRole("textbox", { name: "Search work items" });
     fireEvent.change(box, { target: { value: "login page" } });
     fireEvent.keyDown(box, { key: "Enter" });
     expect(onCqlChange).toHaveBeenLastCalledWith('assignee = me AND text ~ "login page" ORDER BY due ASC');
@@ -289,7 +289,7 @@ describe("QueryBuilder — finding a saved filter from the search box", () => {
 
   it("offers a saved filter whose name matches what is typed, and runs it", () => {
     renderBar("", null, { savedFilters: FILTERS });
-    const box = screen.getByRole("textbox", { name: "Search issues" });
+    const box = screen.getByRole("textbox", { name: "Search work items" });
     fireEvent.change(box, { target: { value: "open bu" } });
 
     const hit = screen.getByRole("button", { name: "My open bugs" });
@@ -303,7 +303,7 @@ describe("QueryBuilder — finding a saved filter from the search box", () => {
 
   it("stays quiet for one character, and for text matching no filter", () => {
     renderBar("", null, { savedFilters: FILTERS });
-    const box = screen.getByRole("textbox", { name: "Search issues" });
+    const box = screen.getByRole("textbox", { name: "Search work items" });
     fireEvent.change(box, { target: { value: "m" } });
     expect(screen.queryByRole("button", { name: "My open bugs" })).toBeNull();
     fireEvent.change(box, { target: { value: "login page" } });
@@ -312,7 +312,7 @@ describe("QueryBuilder — finding a saved filter from the search box", () => {
 
   it("offers nothing where there are no saved filters to run", () => {
     renderBar("", null);
-    fireEvent.change(screen.getByRole("textbox", { name: "Search issues" }), { target: { value: "open bugs" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search work items" }), { target: { value: "open bugs" } });
     expect(screen.queryByRole("button", { name: "My open bugs" })).toBeNull();
   });
 });

@@ -443,7 +443,7 @@ export function CreateWorkItemDialog({
             : {},
         );
       } catch (err) {
-        if (!cancelled) notifyError(err, "Couldn't load the issue to duplicate.");
+        if (!cancelled) notifyError(err, "Couldn't load the work item to duplicate.");
       }
     })();
     return () => {
@@ -550,7 +550,7 @@ export function CreateWorkItemDialog({
       onOpenChange(false);
       onCreated?.();
     } catch (err) {
-      notifyError(err, "Couldn't create the issue.");
+      notifyError(err, "Couldn't create the work item.");
     } finally {
       setSubmitting(false);
     }

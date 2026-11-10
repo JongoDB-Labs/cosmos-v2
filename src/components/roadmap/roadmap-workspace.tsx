@@ -141,7 +141,7 @@ export function RoadmapWorkspace({ orgId, projectId, orgSlug, projectKey }: Prop
         <MapIcon className="mx-auto h-10 w-10 text-muted-foreground" />
         <h2 className="mt-4 text-lg font-semibold text-foreground">No roadmap yet</h2>
         <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-          Ingest your program roadmap so issues can link to phases, risks and
+          Ingest your program roadmap so work items can link to phases, risks and
           decisions as source-of-truth. Have your LLM convert your roadmap doc to
           the import format and POST it, or use the roadmap MCP server.
         </p>

@@ -72,7 +72,7 @@ export function ApiReference({ orgId }: { orgId: string }) {
                 </thead>
                 <tbody className="align-top">
                   <ScopeRow scope="read" grants="Read projects, items, comments, OKRs, sprints (templates + listing)." />
-                  <ScopeRow scope="items:write" grants="Create AND update items — issues, milestones, OKRs, goals, sprints, roadmap — and post comments. Does NOT include deleting: destroying work stays with a person. Archive an item instead (it is reversible)." />
+                  <ScopeRow scope="items:write" grants="Create AND update items — work items, milestones, OKRs, goals, sprints, roadmap — and post comments. Does NOT include deleting: destroying work stays with a person. Archive an item instead (it is reversible)." />
                   <ScopeRow scope="documents:write" grants="Upload documents and convert their blocks into items." />
                   <ScopeRow scope="rules:run" grants="Trigger rule evaluation. Nothing else — not even reading projects." />
                 </tbody>

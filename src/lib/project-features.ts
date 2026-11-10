@@ -72,7 +72,7 @@ export const FEATURE_OPTIONS = [
   { key: "kpi", label: "KPIs", description: "Track metrics with targets and trend charts." },
   { key: "milestone", label: "Milestones", description: "Key dates on a delivery timeline." },
   { key: "interval", label: "Intervals / Sprints", description: "Time-boxed iterations of work." },
-  { key: "roadmap", label: "Roadmap", description: "Navigable program roadmap (phases, LOEs, risks, decisions) that issues link to as source-of-truth." },
+  { key: "roadmap", label: "Roadmap", description: "Navigable program roadmap (phases, LOEs, risks, decisions) that work items link to as source-of-truth." },
   { key: "files", label: "Files", description: "Upload & navigate project documents (docx/pdf/pptx/xlsx); convert them to items." },
   // ── RETIRED: the PM Dashboard suite ───────────────────────────────────
   // Superseded by the org-level Program Management page (/program-management),

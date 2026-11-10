@@ -567,7 +567,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
                   await jsonFetch(`${basePath}/work-items/${item.id}/duplicate`, {
                     method: "POST",
                   });
-                  toast.success("Issue duplicated");
+                  toast.success("Work item duplicated");
                   void qc.invalidateQueries({ queryKey: itemsKey });
                 } catch (err) {
                   notifyError(err, "Couldn't duplicate the work item.");

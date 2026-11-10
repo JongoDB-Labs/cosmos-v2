@@ -38,7 +38,7 @@ export function ProjectFilters({
       <EmptyState
         illustration={<Filter className="mx-auto h-10 w-10 text-[var(--text-muted)]" strokeWidth={1.5} aria-hidden />}
         title="No filters shared with this project"
-        description={`On Issues, save a filter and choose "A project" → ${projectKey} to share it here.`}
+        description={`On Work Items, save a filter and choose "A project" → ${projectKey} to share it here.`}
       />
     );
   }

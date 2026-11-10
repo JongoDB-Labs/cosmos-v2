@@ -1232,7 +1232,7 @@ function IntervalCard({
               onClick={onAddWorkItems}
             >
               <ListPlus className="h-3.5 w-3.5 mr-1" />
-              Add issues
+              Add work items
             </Button>
           )}
           {interval.status !== "COMPLETED" && (

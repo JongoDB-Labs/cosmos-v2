@@ -150,7 +150,7 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
     onSuccess: (res) =>
       toast.success(
         res.itemType === "ISSUE"
-          ? `Created issue #${res.ticketNumber}`
+          ? `Created work item #${res.ticketNumber}`
           : `Created ${CONVERT_TYPES.find((t) => t.value === res.itemType)?.noun ?? "item"} "${res.title}"`,
       ),
     onError: (e) => notifyError(e, "Couldn't create the item."),
@@ -588,8 +588,8 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
           <DialogHeader>
             <DialogTitle>Map table rows to work items</DialogTitle>
             <DialogDescription>
-              Create one issue per row. Pick the column to use as the issue title; the
-              remaining columns become each issue&apos;s description.
+              Create one work item per row. Pick the column to use as the work item title; the
+              remaining columns become each work item&apos;s description.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-sm">
@@ -616,7 +616,7 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
               </select>
             </div>
             <p className="text-xs text-[var(--text-muted)]">
-              Will create {tablePreviewCount} issue{tablePreviewCount === 1 ? "" : "s"}.
+              Will create {tablePreviewCount} work item{tablePreviewCount === 1 ? "" : "s"}.
             </p>
           </div>
           <DialogFooter>
@@ -637,7 +637,7 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
               {tableConvertMutation.isPending ? (
                 <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
               ) : null}
-              Create {tablePreviewCount} issue{tablePreviewCount === 1 ? "" : "s"}
+              Create {tablePreviewCount} work item{tablePreviewCount === 1 ? "" : "s"}
             </Button>
           </DialogFooter>
         </DialogContent>

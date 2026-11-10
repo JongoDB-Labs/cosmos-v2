@@ -317,7 +317,7 @@ function BasicMode({
           onBlur={commitText}
           placeholder="Search title, description or comments…"
           className="pl-8"
-          aria-label="Search issues"
+          aria-label="Search work items"
         />
       </div>
       <QueryChips orgId={orgId} schema={schema} chips={rest} matchAny={matchAny} onChange={(c, any) => emit(c, any, text)} />

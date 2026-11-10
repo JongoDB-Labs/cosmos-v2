@@ -116,7 +116,7 @@ describe("Issues — Save as board placement", () => {
   it("is offered even though NOTHING matches (the old header button was not)", async () => {
     renderView();
     // The empty state really is on screen — so this is the zero-row branch.
-    await screen.findByText("No issues yet");
+    await screen.findByText("No work items yet");
     await waitFor(() => expect(boardButton()).not.toBeNull());
   });
 
@@ -153,7 +153,7 @@ describe("Issues — Save as board placement", () => {
   it("control: no board-create permission and no managed project → no button", async () => {
     can.mockImplementation(((p: unknown) => p !== Permission.BOARD_CREATE) as never);
     renderView();
-    await screen.findByText("No issues yet");
+    await screen.findByText("No work items yet");
     // Positive control: wait until the toolbar is fully settled (Save filter
     // is the last of these to appear), so "no board button" is a real absence
     // and not a snapshot taken too early.
@@ -309,14 +309,14 @@ describe("Issues — query actions sit with the query", () => {
     // unless a filter is active. A brand-new org therefore saw "No issues yet"
     // with no way to create the first one from this page.
     renderView();
-    await screen.findByText("No issues yet");
+    await screen.findByText("No work items yet");
     await waitFor(() => expect(screen.queryByRole("button", { name: /New work item/i })).not.toBeNull());
   });
 
   it("control: no create permission → still no New work item button", async () => {
     can.mockImplementation(((p: unknown) => p !== Permission.ITEM_CREATE) as never);
     renderView();
-    await screen.findByText("No issues yet");
+    await screen.findByText("No work items yet");
     await screen.findByRole("button", { name: "Save filter" });
     expect(screen.queryByRole("button", { name: /New work item/i })).toBeNull();
   });

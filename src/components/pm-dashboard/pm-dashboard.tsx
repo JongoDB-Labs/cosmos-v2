@@ -264,7 +264,11 @@ export function PmDashboard({
               subtitle still shows, because it is the only thing that says
               WHICH of the three views you are reading. */}
           {hideScopeHeading ? (
-            <p className="text-sm text-[var(--text-muted)]">{header.subtitle}</p>
+            // The subtitles are written to follow "{scope} — "; standing alone they
+            // read as a lowercase fragment.
+            <p className="text-sm text-[var(--text-muted)]">
+              {header.subtitle.charAt(0).toUpperCase() + header.subtitle.slice(1)}
+            </p>
           ) : (
             <>
               <h2 className="text-xl font-semibold text-[var(--text)]">{header.title}</h2>

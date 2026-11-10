@@ -61,7 +61,7 @@ export function copyLinkAction(
       if (!href) return;
       try {
         void navigator.clipboard?.writeText(`${window.location.origin}${href}`);
-        toast.success("Issue link copied");
+        toast.success("Work item link copied");
       } catch {
         /* clipboard unavailable (insecure origin, or denied) — no toast lies */
       }

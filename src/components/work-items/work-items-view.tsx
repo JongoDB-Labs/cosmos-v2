@@ -320,8 +320,8 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
         const status = err instanceof FetchError ? err.status : 0;
         setDeepLinkError(
           status === 404 || status === 403
-            ? "That issue no longer exists, or you don't have access to it."
-            : "Couldn't open that issue. Check your connection and try the link again.",
+            ? "That work item no longer exists, or you don't have access to it."
+            : "Couldn't open that work item. Check your connection and try the link again.",
         );
       })
       .finally(() => {
@@ -407,7 +407,7 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
         toast.success(`${row.ticketKey} · ${label}`);
         void refetch();
       } catch (err) {
-        if (!(err instanceof TransitionBackedOut)) notifyError(err, "Couldn't update the issue.");
+        if (!(err instanceof TransitionBackedOut)) notifyError(err, "Couldn't update the work item.");
       }
     },
     [orgId, refetch, askTransition],
@@ -553,10 +553,10 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
       for (const id of map.keys()) next[id] = true;
       setRowSelection(next);
       if (total > SELECT_ALL_CAP) {
-        toast.info(`Selected the first ${SELECT_ALL_CAP.toLocaleString()} matching issues.`);
+        toast.info(`Selected the first ${SELECT_ALL_CAP.toLocaleString()} matching work items.`);
       }
     } catch (err) {
-      notifyError(err, "Couldn't select all matching issues.");
+      notifyError(err, "Couldn't select all matching work items.");
     } finally {
       setSelectingAll(false);
     }
@@ -909,10 +909,10 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
                 onClick: async () => {
                   try {
                     await jsonFetch(itemBase, { method: "DELETE" });
-                    toast.success("Issue deleted");
+                    toast.success("Work item deleted");
                     await refetch();
                   } catch (err) {
-                    notifyError(err, "Couldn't delete the issue.");
+                    notifyError(err, "Couldn't delete the work item.");
                   }
                 },
               },
@@ -1076,7 +1076,7 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
                 if (!href) return;
                 try {
                   void navigator.clipboard?.writeText(`${window.location.origin}${href}`);
-                  toast.success("Issue link copied");
+                  toast.success("Work item link copied");
                 } catch {
                   /* clipboard unavailable */
                 }
@@ -1172,7 +1172,7 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
       <a
         href={`/api/v1/orgs/${orgId}/work-items/export?${exportQs}`}
         className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
-        title="Download these issues (your current filters applied) as a CSV"
+        title="Download these work items (your current filters applied) as a CSV"
       >
         <Download className="h-4 w-4" /> Export CSV
       </a>
@@ -1349,7 +1349,7 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
         <span>
           {isError || isLoading || cqlSchema.isLoading ? null : (
             <>
-              {total.toLocaleString()} issue{total === 1 ? "" : "s"}
+              {total.toLocaleString()} work item{total === 1 ? "" : "s"}
               {isFetching && <span className="ml-2 opacity-70">updating…</span>}
             </>
           )}
@@ -1373,7 +1373,7 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
       </div>
       {isError ? (
         <LoadError
-          title="Couldn't load issues"
+          title="Couldn't load work items"
           description={
             queryRejected
               ? "This query can't run as written. The problems are listed under the query."
@@ -1386,7 +1386,7 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
       ) : rows.length === 0 ? (
         <EmptyState
           illustration={<ListFilter className="mx-auto h-12 w-12 text-[var(--text-muted)]" strokeWidth={1.5} aria-hidden />}
-          title={filtering ? "No issues match these filters" : "No issues yet"}
+          title={filtering ? "No work items match these filters" : "No work items yet"}
           description={
             filtering
               ? "Try widening or clearing some filters."
@@ -1427,7 +1427,7 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
           {total > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-3 text-xs text-[var(--text-muted)]">
               <div className="flex items-center gap-2">
-                <span>{total} issue{total === 1 ? "" : "s"}</span>
+                <span>{total} work item{total === 1 ? "" : "s"}</span>
                 <span aria-hidden>·</span>
                 <label className="flex items-center gap-1">
                   Per page
@@ -1677,7 +1677,7 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
       <Dialog open={deepLinkError !== null} onOpenChange={(o) => !o && setDeepLinkError(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Can&rsquo;t open that issue</DialogTitle>
+            <DialogTitle>Can&rsquo;t open that work item</DialogTitle>
             <DialogDescription>{deepLinkError}</DialogDescription>
           </DialogHeader>
           <DialogFooter>

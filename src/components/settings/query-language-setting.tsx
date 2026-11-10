@@ -37,7 +37,7 @@ export function QueryLanguageOrgSwitch({ orgId }: { orgId: string }) {
         <span>
           Turn on the query language
           <span className="mt-0.5 block text-xs text-muted-foreground">
-            Replaces the filter dropdowns on Issues with Basic (chips) and Advanced (typed queries with
+            Replaces the filter dropdowns on Work Items with Basic (chips) and Advanced (typed queries with
             completion). Links with a query keep working only while it is on.
           </span>
         </span>

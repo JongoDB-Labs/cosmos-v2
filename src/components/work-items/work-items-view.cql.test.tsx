@@ -117,7 +117,7 @@ describe("WorkItemsView with CQL on", () => {
     // Never a legacy search first: it waits for the flag.
     expect(searchUrls().every((u) => u.includes("cql="))).toBe(true);
     // The query builder replaced the facet selects; the search box survives.
-    expect(await screen.findByRole("textbox", { name: "Search issues" })).toBeTruthy();
+    expect(await screen.findByRole("textbox", { name: "Search work items" })).toBeTruthy();
     expect(screen.queryByRole("combobox", { name: "Project" })).toBeNull();
     expect(screen.getByRole("group", { name: "Filter: Priority" })).toBeTruthy();
   });

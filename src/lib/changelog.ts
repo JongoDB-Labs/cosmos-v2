@@ -55,7 +55,7 @@ const RELEASES: Release[] = [
     highlights: [
       {
         kind: "improvement",
-        text: "The Issues page is now called Work Items, and lives at /work-items. Everything underneath it already used that name \u2014 the records, the API and the import \u2014 so the page was the last thing still calling them issues. \u201CNew issue\u201D is now \u201CNew work item\u201D wherever it appears, on every board and in the command palette. Every link you have already shared, bookmarked or been notified about keeps working.",
+        text: "The Issues page is now called Work Items, and lives at /work-items. Everything underneath it already used that name \u2014 the records, the API and the import \u2014 so the page was the last thing still calling them issues. \u201CNew issue\u201D is now \u201CNew work item\u201D wherever it appears, on every board and in the command palette, and the same goes for the messages, dialogs and import fields that still said \u201Cissue\u201D. A CSV export now downloads as work-items-\u2026.csv rather than issues-\u2026.csv. Every link you have already shared, bookmarked or been notified about keeps working.",
       },
       {
         kind: "feature",
