@@ -40,6 +40,7 @@ export const TOGGLEABLE_FEATURES = [
   "vendors",
   "staffing",
   "clin-burn",
+  "program-calendar",
 ] as const;
 
 export type ToggleableFeature = (typeof TOGGLEABLE_FEATURES)[number];
@@ -69,6 +70,7 @@ export const FEATURE_OPTIONS = [
   { key: "vendors", label: "PM · Vendors", description: "Vendor/subcontract register sub-tab (agreements, value, performance)." },
   { key: "staffing", label: "PM · Staffing", description: "Staffing & compliance sub-tab (allocation, CAC/NDA/training status)." },
   { key: "clin-burn", label: "PM · CLIN Burn", description: "CLIN funding/burn sub-tab (ceiling, funded, period of performance)." },
+  { key: "program-calendar", label: "PM · Program Calendar", description: "Program events, engagements and milestones on a month/week/day calendar, with category and owner overlays." },
 ] as const satisfies readonly FeatureOption[];
 
 /**

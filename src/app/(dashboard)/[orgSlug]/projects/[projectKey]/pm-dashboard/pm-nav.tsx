@@ -20,6 +20,7 @@ const ITEMS: { feature: string | null; label: string; seg: string }[] = [
   { feature: "vendors", label: "Vendors", seg: "/vendors" },
   { feature: "staffing", label: "Staffing", seg: "/staffing" },
   { feature: "clin-burn", label: "CLIN Burn", seg: "/clins" },
+  { feature: "program-calendar", label: "Program Calendar", seg: "/calendar" },
 ];
 
 export function PmDashboardNav({
