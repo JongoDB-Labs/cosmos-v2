@@ -559,7 +559,20 @@ async function chipContrastVerdicts(page: Page): Promise<Record<"passes" | "viol
           const chip = el?.closest(".pc-chip");
           return chip ? (chip.getAttribute("title") ?? "").replace(/ \d+$/, " #") : `(not a chip) ${el?.outerHTML.slice(0, 80)}`;
         });
-    return { passes: titles("passes"), violations: titles("violations"), incomplete: titles("incomplete") };
+    // An unmeasured chip names axe's reason and where the text sat: CI renders
+    // with other fonts than a laptop, and a bare title can't be diagnosed.
+    const unmeasured = res.incomplete
+      .flatMap((r) => r.nodes as Array<{ target: string[]; any?: Array<{ message: string }> }>)
+      .map((n) => ({ n, el: document.querySelector(n.target[0]) }))
+      .filter(({ el }) => !el?.closest('[aria-hidden="true"]'))
+      .map(({ n, el }) => {
+        const chip = el?.closest(".pc-chip");
+        const name = chip ? (chip.getAttribute("title") ?? "").replace(/ \d+$/, " #") : `(not a chip) ${el?.outerHTML.slice(0, 80)}`;
+        const r = el?.getBoundingClientRect();
+        const at = r ? ` at ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)} in ${innerWidth}x${innerHeight}` : "";
+        return `${name}: ${n.any?.map((a) => a.message).join("; ") || "no reason given"}${at}`;
+      });
+    return { passes: titles("passes"), violations: titles("violations"), incomplete: unmeasured };
   });
 }
 
