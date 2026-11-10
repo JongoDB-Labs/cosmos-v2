@@ -1,8 +1,10 @@
+import { Suspense } from "react";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { redirect, notFound } from "next/navigation";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { hiddenProjectIds } from "@/lib/rbac/project-access";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ProgramCalendar } from "@/components/program-calendar/program-calendar";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
@@ -17,7 +19,25 @@ type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
  * calendar shows everything the reader may see, and `projectId` on an event is
  * an optional link rather than its home.
  */
-export default async function ProgramCalendarPage({ params }: PageParams) {
+/**
+ * `params` is handed DOWN as a promise and awaited inside the Suspense child,
+ * not awaited here.
+ *
+ * Cache Components is on, and this page reads cookies (the auth context) and
+ * the database. Awaiting at the top does those reads OUTSIDE a boundary, which
+ * Next reports as "uncached data during prerendering or a navigation" — this
+ * route was the only one in the dev log doing it. See
+ * `(dashboard)/[orgSlug]/page.tsx` for the same shape.
+ */
+export default function ProgramCalendarPage({ params }: PageParams) {
+  return (
+    <Suspense fallback={<div className="p-4"><Skeleton className="h-[640px] w-full rounded-lg" /></div>}>
+      <ProgramCalendarContent params={params} />
+    </Suspense>
+  );
+}
+
+async function ProgramCalendarContent({ params }: PageParams) {
   const { orgSlug, projectKey } = await params;
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");

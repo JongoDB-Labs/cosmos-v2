@@ -86,7 +86,12 @@ export function EventChip({
       )}
     >
       {continuesBefore ? <span aria-hidden>◂</span> : null}
-      {time ? <span className="shrink-0 tabular-nums opacity-80">{time}</span> : null}
+      {/* De-emphasised by WEIGHT, not opacity. `opacity-80` on this ink fades
+          it toward the chip tint behind it and drops the pair under AA — axe
+          reported it as the one serious violation on this page. Dropping the
+          semibold the row inherits reads as secondary without touching
+          contrast at all. */}
+      {time ? <span className="shrink-0 font-normal tabular-nums">{time}</span> : null}
       <span className="truncate">{title}</span>
       {continuesAfter ? <span className="ml-auto shrink-0" aria-hidden>▸</span> : null}
     </button>

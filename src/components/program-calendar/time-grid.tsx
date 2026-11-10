@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { EventChip } from "./event-chip";
 import type { CalendarEvent } from "./month-grid";
@@ -39,6 +39,36 @@ export function TimeGrid({
   const band = useMemo(() => packWeek(allDay, from, 3), [allDay, from]);
   const today = utcMidnight(new Date()).getTime();
 
+  // Open on the working day, not on midnight.
+  //
+  // The hour grid runs 00:00-23:00 because events can land anywhere in it, but
+  // a calendar that opens at midnight shows eight empty rows before the first
+  // thing anyone scheduled. Scroll to just before the earliest timed event, or
+  // to 08:00 when the day has none.
+  //
+  // A DOM side-effect, not derived state: there is nothing to render from it,
+  // and computing a scroll offset during render would fight the user the
+  // moment they scrolled away.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const earliestHour = useMemo(() => {
+    const hours = timed.map((e) =>
+      Number(
+        new Intl.DateTimeFormat("en-GB", {
+          hour: "2-digit", hour12: false, timeZone: e.timeZone || "UTC",
+        }).format(e.startsAt),
+      ),
+    );
+    return hours.length ? Math.min(...hours) : 8;
+  }, [timed]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // One hour of headroom above, so the first event is not flush against the
+    // top edge and the hour before it stays readable as context.
+    el.scrollTop = Math.max(0, (earliestHour - 1) * 48);
+  }, [earliestHour]);
+
   const cols = days.length;
 
   return (
@@ -53,7 +83,16 @@ export function TimeGrid({
             key={d.toISOString()}
             className={cn("border-r px-2 py-1.5", d.getTime() === today && "bg-primary/5")}
           >
-            <div className="text-[11px] font-semibold tracking-wide text-muted-foreground">
+            <div
+              className={cn(
+                "text-[11px] font-semibold tracking-wide",
+                // Muted ink over the today column's `bg-primary/5` tint falls
+                // under AA — axe reported exactly this pair. Today's heading
+                // takes the full foreground, which also reads better: the
+                // column is meant to stand out.
+                d.getTime() === today ? "text-foreground" : "text-muted-foreground",
+              )}
+            >
               {new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(d).toUpperCase()}
             </div>
             <div className="text-sm font-semibold tabular-nums">{d.getUTCDate()}</div>
@@ -93,7 +132,17 @@ export function TimeGrid({
       </div>
 
       {/* Hour grid */}
-      <div className="relative max-h-[60vh] overflow-y-auto">
+      {/* A scrollable region needs to be reachable by keyboard, or its content
+          is unreachable without a mouse — axe flags this as
+          `scrollable-region-focusable`. `tabIndex={0}` plus a group label
+          makes it a stop with a name, rather than an anonymous box. */}
+      <div
+        ref={scrollRef}
+        tabIndex={0}
+        role="group"
+        aria-label="Hours"
+        className="relative max-h-[60vh] overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
         <div
           className="grid"
           style={{
