@@ -252,6 +252,11 @@ const BOARDS: Array<{
    *  visible before axe runs. */
   ready: (page: Page) => Locator[];
   /**
+   * Puts the page in the state to scan, before it loads — for a state the seed
+   * cannot hold still. Runs after sign-in, before `goto`.
+   */
+  prepare?: (page: Page) => Promise<void>;
+  /**
    * Rule ids this scan FOUND and that are deliberately NOT fixed here, because
    * the fix is outside the "give a control a name" boundary this change was
    * scoped to (a colour token, in both cases below). The assertion is an EXACT
@@ -272,6 +277,28 @@ const BOARDS: Array<{
     slug: "scrum",
     ready: (p) => [
       p.getByRole("heading", { name: "Sprint 1" }),
+      p.getByText("Gallery item in progress"),
+    ],
+  },
+  // The same board once its Program Increment is OVER. The picker then marks the
+  // PI "Past" and warns that edits change past work (sprint-board.tsx) — and
+  // none of that markup exists while the PI is current, which is the only state
+  // the scan above can see. All three serious contrast failures on this board
+  // lived there: the amber warning at 3.19:1 and the past PI's pill and chip
+  // at 3.24:1 / 3.1:1.
+  //
+  // The seed's PI ends 56 days after the seed runs, so the BROWSER clock is
+  // moved past it rather than adding a second, completed PI: that would change
+  // the Roadmap, ceremony and dashboard boards this gallery also scans. The
+  // server and the data are untouched; the sprint is still ACTIVE, so the board
+  // still scopes to it and still renders its cards.
+  {
+    name: "scrum (viewing a past PI)",
+    slug: "scrum",
+    prepare: (p) => p.clock.install({ time: Date.now() + 70 * 24 * 60 * 60 * 1000 }),
+    ready: (p) => [
+      p.getByRole("status").filter({ hasText: "a past Program Increment" }),
+      p.getByRole("button", { name: "Show all work in PI 1" }).filter({ hasText: "Past" }),
       p.getByText("Gallery item in progress"),
     ],
   },
@@ -370,13 +397,14 @@ const BOARDS: Array<{
 ];
 
 test.describe("a11y — every board type", () => {
-  for (const { name, slug, ready, known } of BOARDS) {
+  for (const { name, slug, ready, prepare, known } of BOARDS) {
     test(`${name} board has no serious/critical axe violations`, async ({ page, signInAs }) => {
       // Each board view is its own client chunk under `next dev`, so the first
       // visit pays a compile the shared 30s default does not cover.
       test.setTimeout(90_000);
       await signInAs(EMAIL);
       await page.emulateMedia({ reducedMotion: "reduce" });
+      if (prepare) await prepare(page);
 
       const path = `/${ORG}/projects/${GALLERY_KEY}/boards/${slug}`;
       await page.goto(path, { waitUntil: "domcontentloaded" });
@@ -425,6 +453,188 @@ test.describe("a11y — every board type", () => {
           `\n  A rule listed as known that no longer fires has been FIXED — delete it from` +
           ` BOARDS rather than leaving a standing exemption.`,
       ).toEqual([...(known ?? [])].sort());
+    });
+  }
+});
+
+/**
+ * The program calendar: PM Dashboard → Program Calendar.
+ *
+ * Not a board, so the gallery loop above never reached it; and until the seed
+ * gave it events (`ensureProgramCalendarFixture` in test-fixtures.ts), CI had
+ * no event to draw, so a scan would have been of an empty grid.
+ *
+ * EVERY event category is scanned on TODAY's column. Its `bg-primary/5` tint
+ * is the darkest ground a chip sits on, and the one "Reviews & Demos" failed on
+ * (4.16:1; it passes at 4.52:1 on a plain day). The first version of this test
+ * pinned the clock to one day and scanned whichever chips rendered there, and
+ * it failed in two ways:
+ *   - The seed put four categories on that day. The grid shows three lanes, and
+ *     the hidden one is chosen by event id, a random uuid. CI hid a different
+ *     chip from the local DB and failed while the local run passed.
+ *   - The pin did nothing. The grid read `new Date()` during SSR, so the tint
+ *     sat on the SERVER's date, and hydration does not patch attributes. It only
+ *     agreed with the pin because the test was written on that very day.
+ *
+ * So the seed now spreads the categories over four pin days, and no day holds
+ * more chips than it shows except the overflow day, whose four events share one
+ * category. The test pins the browser clock to each day in turn. Before
+ * scanning it proves the tint is on that day (`aria-current="date"`) and that
+ * each expected title sits over that column. After scanning it proves axe
+ * MEASURED each of those titles, rather than leaving one "incomplete", which
+ * would scan clean and prove nothing. Both themes run, because dark mode mixes
+ * the ink from the tint: a different formula, with failures of its own.
+ *
+ * The edit dialog is scanned last, in both themes. Its Delete button was
+ * `text-destructive`, 3.67:1. Opening it saves nothing, and Escape closes it.
+ */
+const CALENDAR_PINS: Array<{ day: number; onToday: string[]; overflow?: string }> = [
+  { day: 3, onToday: ["Gallery contract award", "Gallery decision board", "Gallery deliverable due"] },
+  { day: 6, onToday: ["Gallery business rhythm", "Gallery milestone", "Gallery sprint demo"] },
+  // Four events of ONE category, three lanes. Which one is hidden is decided by
+  // a random id, so the control counts them (the trailing number is dropped)
+  // rather than naming them.
+  {
+    day: 10,
+    onToday: ["Gallery staffing review #", "Gallery staffing review #", "Gallery staffing review #"],
+    overflow: "+1 more",
+  },
+  // The eight-day bar starts here, so its title is over this column.
+  { day: 17, onToday: ["Gallery delivery cadence", "Gallery site engagement"] },
+];
+
+/** The chip titles, and the overflow button, that sit over TODAY's column. The
+ *  column is found from the day number marked `aria-current="date"`. A title's
+ *  centre is what axe samples its background at. */
+async function onTodayColumn(page: Page): Promise<{ today: string; titles: string[]; overflow: string[] }> {
+  return page.evaluate(() => {
+    const disc = document.querySelector('[aria-current="date"]');
+    const cell = disc?.parentElement;
+    const week = disc?.closest(".grid");
+    if (!disc || !cell || !week) return { today: "", titles: [], overflow: [] };
+    const col = cell.getBoundingClientRect();
+    const row = week.getBoundingClientRect();
+    const over = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      return x >= col.left && x <= col.right && y >= row.top && y <= row.bottom;
+    };
+    return {
+      today: disc.textContent?.trim() ?? "",
+      titles: [...document.querySelectorAll(".pc-chip")]
+        .filter((c) => {
+          const t = c.querySelector(".truncate");
+          return !!t && over(t);
+        })
+        .map((c) => (c.getAttribute("title") ?? "").replace(/ \d+$/, " #"))
+        .sort(),
+      overflow: [...document.querySelectorAll("button")]
+        .filter((b) => /^\+\d+ more$/.test(b.textContent?.trim() ?? "") && over(b))
+        .map((b) => b.textContent?.trim() ?? ""),
+    };
+  });
+}
+
+/** axe's color-contrast verdict for every text node inside a chip, keyed by
+ *  the chip's title. Run after `runAxe`, which has already injected axe.
+ *  Skips the `aria-hidden` ◂ ▸ continuation arrows: axe files a lone glyph as
+ *  "incomplete" (too short to judge as text), and they are decoration. */
+async function chipContrastVerdicts(page: Page): Promise<Record<"passes" | "violations" | "incomplete", string[]>> {
+  return page.evaluate(async () => {
+    type Result = { nodes: Array<{ target: string[] }> };
+    const axe = (window as unknown as {
+      axe: { run: (c: unknown, o: unknown) => Promise<Record<"passes" | "violations" | "incomplete", Result[]>> };
+    }).axe;
+    const res = await axe.run(
+      { include: [[".pc-chip"]] },
+      { runOnly: ["color-contrast"], resultTypes: ["passes", "violations", "incomplete"] },
+    );
+    const titles = (k: "passes" | "violations" | "incomplete") =>
+      res[k]
+        .flatMap((r) => r.nodes)
+        .map((n) => document.querySelector(n.target[0]))
+        .filter((el) => !el?.closest('[aria-hidden="true"]'))
+        .map((el) => {
+          const chip = el?.closest(".pc-chip");
+          return chip ? (chip.getAttribute("title") ?? "").replace(/ \d+$/, " #") : `(not a chip) ${el?.outerHTML.slice(0, 80)}`;
+        });
+    return { passes: titles("passes"), violations: titles("violations"), incomplete: titles("incomplete") };
+  });
+}
+
+test.describe("a11y — program calendar", () => {
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`program calendar (${colorScheme}: every category on today's column, then the event dialog) has no serious/critical axe violations`, async ({
+      page,
+      signInAs,
+    }) => {
+      test.setTimeout(240_000);
+      await signInAs(EMAIL);
+      await page.emulateMedia({ reducedMotion: "reduce", colorScheme });
+
+      const now = new Date();
+      const pinned = (day: number) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), day, 12));
+      await page.clock.install({ time: pinned(CALENDAR_PINS[0].day) });
+      const path = `/${ORG}/projects/${GALLERY_KEY}/pm-dashboard/calendar`;
+      const report = (state: string, found: Awaited<ReturnType<typeof runAxe>>) =>
+        `serious/critical a11y violations on the program calendar (${colorScheme}, ${state}):\n` +
+        found.map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets.join(" | ")}`).join("\n");
+
+      for (const pin of CALENDAR_PINS) {
+        const state = `month view, today = day ${pin.day}`;
+        await page.clock.setSystemTime(pinned(pin.day));
+        await page.goto(path, { waitUntil: "domcontentloaded" });
+        expect(new URL(page.url()).pathname, `expected to stay on ${path}`).toBe(path);
+        await page.waitForSelector("main", { timeout: 20_000 });
+        await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0, { timeout: 30_000 });
+
+        // The sub-tab is the CURRENT page: the project has the feature, and this
+        // is its page rather than a 404 that happens to sit at the URL.
+        await expect(page.locator('a[aria-current="page"]', { hasText: "Program Calendar" })).toBeVisible({
+          timeout: 30_000,
+        });
+        // The tint is on the PINNED day. Not `new Date()` in the page: that
+        // reads the browser clock, which the pin moves whether or not the
+        // grid listens to it.
+        await expect(
+          page.locator('[aria-current="date"]'),
+          `${state}: today's column is not the pinned day, so nothing below is on the today tint`,
+        ).toHaveText(String(pin.day), { timeout: 30_000 });
+        await expect(
+          page.locator(".pc-chip").first(),
+          `${state}: the calendar drew no events. An empty grid scans clean and proves nothing`,
+        ).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByRole("button", { name: /^retry$/i })).toHaveCount(0);
+        await page.waitForTimeout(500);
+
+        const today = await onTodayColumn(page);
+        expect(today.titles, `${state}: these chips should be the ones over today's column`).toEqual(pin.onToday);
+        expect(today.overflow, `${state}: the "+N more" button over today's column`).toEqual(
+          pin.overflow ? [pin.overflow] : [],
+        );
+
+        const found = blocking(await runAxe(page));
+        expect(found, report(state, found)).toHaveLength(0);
+
+        const verdicts = await chipContrastVerdicts(page);
+        expect(verdicts.incomplete, `${state}: axe could not measure these chips`).toEqual([]);
+        for (const title of pin.onToday) {
+          expect(verdicts.passes, `${state}: axe never measured "${title}" on today's column`).toContain(title);
+        }
+      }
+
+      // "Gallery milestone" is on day 6; the page is still on the last pin.
+      await page.getByRole("button", { name: "Gallery milestone" }).first().click();
+      const dialog = page.getByRole("dialog", { name: "Edit event" });
+      await expect(dialog).toBeVisible({ timeout: 10_000 });
+      await expect(dialog.getByLabel("Event title")).toHaveValue("Gallery milestone");
+      await expect(dialog.getByRole("button", { name: "Delete" })).toBeVisible();
+      await page.waitForTimeout(500);
+
+      const edit = blocking(await runAxe(page));
+      expect(edit, report("event dialog", edit)).toHaveLength(0);
+      await page.keyboard.press("Escape");
     });
   }
 });

@@ -49,6 +49,33 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+      version: "2.544.5",
+      date: "2026-11-10",
+      title: "Easier-to-read warnings on the Scrum board and the program calendar",
+      highlights: [
+        {
+          kind: "fix",
+          text: "On a Scrum board, the warning that you are looking at a past Program Increment is now dark enough to read comfortably in light mode, and the past increment’s own pill and “Past” tag are no longer faded. All three were below the contrast that accessibility guidelines ask of small text. A past increment is still easy to tell apart: it keeps its plain dashed outline and its “Past” tag.",
+        },
+        {
+          kind: "fix",
+          text: "On the program calendar, the “+N more” link on a busy day is now full-strength text, so it stays readable on today’s shaded column. In the event dialog, the Delete button and any error message now use a darker red that is readable in both light and dark mode.",
+        },
+        {
+          kind: "fix",
+          text: "The “Reviews & Demos” event category now uses a deeper teal for its text. The old teal fell below the contrast accessibility guidelines ask of small text when the event sat on today’s shaded column. Calendars that already have the category pick up the new colour automatically, unless someone has changed it.",
+        },
+        {
+          kind: "fix",
+          text: "The program calendar now shades today by your own date. It used to take the date from the server’s clock, so near midnight UTC it could shade the day before or after. Screen readers now also announce today’s date as the current date.",
+        },
+        {
+          kind: "improvement",
+          text: "The automated accessibility check that runs on every change now opens the program calendar, in light and dark mode, with every event category placed on today’s shaded column and with an event open for editing. It also opens a Scrum board whose Program Increment has ended. Those are the screens these problems were on, and the check had never looked at either.",
+        },
+      ],
+    },
+  {
       version: "2.544.4",
       date: "2026-11-10",
       title: "Foreman keeps its update status readable after a deploy",

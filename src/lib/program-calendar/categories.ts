@@ -32,7 +32,10 @@ export const DEFAULT_CATEGORIES: CategorySeed[] = [
   { name: "Governance & Decisions", tintRgb: "244 114 182", tintAlpha: 0.2, textColor: "#9D174D" },
   { name: "Milestones", tintRgb: "167 139 250", tintAlpha: 0.24, textColor: "#6D28D9" },
   { name: "Business Rhythm", tintRgb: "59 130 246", tintAlpha: 0.18, textColor: "#1D4ED8" },
-  { name: "Reviews & Demos", tintRgb: "45 212 191", tintAlpha: 0.22, textColor: "#0F766E" },
+  // Teal-800, not teal-700 (#0F766E): 700 on this tint measured 4.52:1 on a
+  // plain day and 4.16:1 on today's tinted column, under AA. The migration
+  // 20261110230000_reviews_demos_chip_ink moves rows already stored with it.
+  { name: "Reviews & Demos", tintRgb: "45 212 191", tintAlpha: 0.22, textColor: "#115E59" },
   { name: "Delivery Cadence", tintRgb: "251 113 133", tintAlpha: 0.22, textColor: "#9F1239" },
   { name: "Staffing", tintRgb: "251 146 60", tintAlpha: 0.24, textColor: "#9A3412" },
 ];

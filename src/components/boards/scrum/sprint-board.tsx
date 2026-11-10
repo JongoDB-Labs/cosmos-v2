@@ -291,7 +291,12 @@ export function SprintPicker({
                     aria-label={label}
                     className={cn(
                       "inline-flex flex-wrap items-center gap-1 rounded-full border border-dashed px-1 py-0.5",
-                      past ? "border-[var(--border)] opacity-80" : "border-[var(--primary)]/40",
+                      // A past PI is set apart by its neutral border and its
+                      // "Past" chip, not by opacity: `opacity-80` here faded
+                      // the muted text inside toward the page, taking the name
+                      // pill to 3.24:1 and the chip to 3.1:1 (axe, serious).
+                      // At full opacity both clear 4.5:1 in either theme.
+                      past ? "border-[var(--border)]" : "border-[var(--primary)]/40",
                     )}
                   >
                     {/* Two controls, deliberately: the chevron expands, the
@@ -352,8 +357,12 @@ export function SprintPicker({
           All items
         </button>
       </div>
+      {/* The AA-safe amber token rather than Tailwind's amber-600, which is
+          3.19:1 on the light page (2.88:1 on the darkest light skin) — and
+          this is 12px text, so it needs 4.5:1. The token measures 5.02:1
+          here and stays above 4.5:1 on every skin's page background. */}
       {viewingPast && (
-        <p role="status" className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+        <p role="status" className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-[var(--status-blocked-text)]">
           <History className="h-3.5 w-3.5" aria-hidden />
           You&apos;re viewing {shownPi.interval.name || `PI ${shownPi.interval.number}`}, a past
           Program Increment. Changes here edit past work.
