@@ -34,7 +34,10 @@ export default async function ProgramCalendarPage({ params }: PageParams) {
   // an event to a function ("Contracts", "PM Team") as readily as to a person.
   const [teams, members, deliverables] = await Promise.all([
     prisma.team.findMany({
-      where: { orgId: ctx.orgId },
+      // Narrowed by project visibility for the same reason deliverables are: a
+      // team belongs to a project, so a team on a project this reader cannot
+      // open must not be named in the owner picker.
+      where: { orgId: ctx.orgId, ...(hidden.length ? { projectId: { notIn: hidden } } : {}) },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
