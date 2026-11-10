@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+      version: "2.544.3",
+      date: "2026-11-10",
+      title: "Work items of deleted projects are cleaned up",
+      highlights: [
+        {
+          kind: "fix",
+          text: "Work items left behind by projects deleted before October\u2019s workflow update are now removed, together with their own activity and comments. Nothing could reach them \u2014 no page, board or report shows an item whose project is gone \u2014 and their presence was the one thing keeping the database from enforcing that every work item belongs to a real project with a real status. It now enforces both. A work item whose status had gone missing keeps it, as an archived status, rather than being lost. Each organisation\u2019s audit log records how many items were removed and which.",
+        },
+      ],
+    },
+  {
       version: "2.544.2",
       date: "2026-11-10",
       title: "Outlook calendar sync says when a meeting didn’t reach Outlook",
