@@ -84,21 +84,62 @@ const linkKey = (orgId: string, userId: string, entityId: string) => ({
   orgId_provider_userId_entityType_entityId: { orgId, provider: MS_CALENDAR, userId, entityType: ENTITY, entityId },
 });
 
-/** Run `jobs` with at most `n` in flight; one failing never stops the rest. */
-export async function pool<T>(items: T[], n: number, job: (item: T) => Promise<void>): Promise<void> {
+/**
+ * Run `jobs` with at most `n` in flight; one failing never stops the rest.
+ *
+ * Returns why each failed one failed, plus any failures a job hands back from
+ * work of its own (a nested pool), so the caller can say what didn't reach
+ * Outlook. Failures this pool caught itself are logged once, here, with
+ * `where` (whose sync it was). It used to swallow a Graph error of any status
+ * without a count or a log line, and Sync now answered exactly as it would
+ * for a sync that wrote everything.
+ */
+export async function pool<T>(
+  items: T[], n: number, job: (item: T) => Promise<void | string[]>, where = "",
+): Promise<string[]> {
   let i = 0;
+  const caught: string[] = [];
+  const nested: string[] = [];
   const worker = async () => {
     while (i < items.length) {
       const item = items[i++];
       try {
-        await job(item);
+        const theirs = await job(item);
+        if (theirs) nested.push(...theirs);
       } catch (e) {
+        caught.push(failureReason(e));
         if (!personal(e)) console.error("outlook sync failed:", e instanceof Error ? e.message : "unknown");
       }
     }
   };
   await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+  if (caught.length) {
+    console.warn(
+      `outlook sync: ${caught.length} Outlook write${caught.length === 1 ? "" : "s"} failed${where ? ` (${where})` : ""}: ` +
+        Object.entries(countReasons(caught)).map(([r, k]) => `${r} x${k}`).join(", ") + "; the next sync retries",
+    );
+  }
+  return [...caught, ...nested];
 }
+
+/**
+ * Why one write didn't happen, as a caller may be told it: Graph's status and
+ * error code, or the connection state. Never a response body, address, title
+ * or token; anything else is "internal" (its message is logged, not returned).
+ */
+function failureReason(e: unknown): string {
+  if (e instanceof GraphError) return e.message; // "graph 400 ErrorInvalidRequest"
+  if (e instanceof CalendarReconnectNeeded) return "reconnect_needed";
+  if (e instanceof CalendarNotConnected) return "not_connected";
+  if (e instanceof InviteDeferred) return "invite_deferred";
+  return "internal";
+}
+
+const countReasons = (reasons: string[]) => {
+  const out: Record<string, number> = {};
+  for (const r of reasons) out[r] = (out[r] ?? 0) + 1;
+  return out;
+};
 
 /** Errors that end one person's sync without failing anyone else's. */
 const personal = (e: unknown) =>
@@ -770,9 +811,10 @@ async function removeFor(orgId: string, userId: string, meetingId: string, deps:
  * update it for attendees who may see it, remove it for anyone else (no longer
  * attending, lost access, or the meeting was cancelled or deleted). One
  * person's failure never stops another's. `skipUserId` is someone whose copy
- * is already current.
+ * is already current. Returns why each copy that couldn't be written failed
+ * (empty when every write landed); they are logged already.
  */
-export async function syncMeeting(orgId: string, meetingId: string, deps: GraphDeps = {}, skipUserId?: string) {
+export async function syncMeeting(orgId: string, meetingId: string, deps: GraphDeps = {}, skipUserId?: string): Promise<string[]> {
   const m = (await prisma.syncMeeting.findFirst({
     where: { id: meetingId, orgId },
     include: { attendees: { select: { userId: true } } },
@@ -797,30 +839,31 @@ export async function syncMeeting(orgId: string, meetingId: string, deps: GraphD
     const organizer = m.inviteOrganizerId;
     // A cancellation that couldn't be delivered earlier: try it again first.
     const own = await prisma.externalEventLink.findUnique({ where: linkKey(orgId, organizer, m.id) });
+    // "pending" is not a silent drop: stopInvite marked the link, every later
+    // sync retries it, and the organizer was notified to reconnect.
     if (own?.contentHash?.startsWith(PENDING_CANCEL)) {
       const reason = own.contentHash.slice(PENDING_CANCEL.length) as InviteStopReason;
-      if ((await stopInvite(orgId, m, reason, deps, organizer)) === "pending") return;
+      if ((await stopInvite(orgId, m, reason, deps, organizer)) === "pending") return [];
       return syncMeeting(orgId, meetingId, deps, skipUserId);
     }
     const blocked = await inviteBlocker(orgId, m, cls);
-    if (blocked === "paused") return; // organizer must reconnect; nothing changes meanwhile
+    if (blocked === "paused") return []; // organizer must reconnect; nothing changes meanwhile
     if (blocked) {
-      if ((await stopInvite(orgId, m, blocked, deps, organizer)) === "pending") return;
+      if ((await stopInvite(orgId, m, blocked, deps, organizer)) === "pending") return [];
       return syncMeeting(orgId, meetingId, deps, skipUserId);
     }
     const invitees = await inviteesFor(m);
     const work: (() => Promise<void>)[] = [];
     if (organizer !== skipUserId) work.push(() => pushFor(orgId, organizer, m, deps, cls, false, invitees));
     for (const l of links) if (l.userId !== organizer) work.push(() => removeFor(orgId, l.userId, meetingId, deps));
-    await pool(work, CONCURRENCY, (w) => w());
-    return;
+    return pool(work, CONCURRENCY, (w) => w(), `org ${orgId} meeting ${meetingId}`);
   }
   const keep = new Set<string>();
   for (const userId of connected) if (await (await viewerFor(orgId, userId)).canSee(m!)) keep.add(userId);
   const work: (() => Promise<void>)[] = [];
   for (const userId of keep) if (userId !== skipUserId) work.push(() => pushFor(orgId, userId, m!, deps, cls));
   for (const l of links) if (!keep.has(l.userId)) work.push(() => removeFor(orgId, l.userId, meetingId, deps));
-  await pool(work, CONCURRENCY, (w) => w());
+  return pool(work, CONCURRENCY, (w) => w(), `org ${orgId} meeting ${meetingId}`);
 }
 
 /** The meeting fields that show in Outlook: only these changing needs a push. */
@@ -865,6 +908,27 @@ export interface PullResult {
   ignored: number;
   echoes: number;
   detached: number;
+  /**
+   * Writes to Outlook (a copy created, updated or removed) that failed this
+   * run. None is given up on: the next run's reconcile pass retries them.
+   */
+  unsynced: number;
+  /**
+   * `unsynced` by reason: "graph <status> <code>", "reconnect_needed",
+   * "not_connected", "invite_deferred" or "internal". Counts only, never which
+   * meeting: a failed removal can be of a meeting this person may no longer see.
+   */
+  unsyncedReasons: Record<string, number>;
+}
+
+const emptyPull = (): PullResult => ({ applied: 0, ignored: 0, echoes: 0, detached: 0, unsynced: 0, unsyncedReasons: {} });
+
+/** Count failed writes into a result. */
+function noteUnsynced(out: PullResult, reasons: string[]) {
+  for (const r of reasons) {
+    out.unsynced++;
+    out.unsyncedReasons[r] = (out.unsyncedReasons[r] ?? 0) + 1;
+  }
 }
 
 /**
@@ -875,7 +939,7 @@ export interface PullResult {
  * between pages when `deps.signal` aborts.
  */
 export async function pullChanges(orgId: string, userId: string, deps: SyncDeps = {}): Promise<PullResult> {
-  const out: PullResult = { applied: 0, ignored: 0, echoes: 0, detached: 0 };
+  const out = emptyPull();
   const conn = await calendarConnection(orgId, userId);
   if (!conn?.meta.calendarId) return out;
   const now = (deps.now ?? Date.now)();
@@ -907,7 +971,7 @@ export async function pullChanges(orgId: string, userId: string, deps: SyncDeps 
       if (e instanceof GraphError && e.status === 404) {
         await forgetCalendar(orgId, userId);
         await prisma.externalEventLink.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId } });
-        await reconcileUser(orgId, userId, deps, cls, viewer);
+        noteUnsynced(out, await reconcileUser(orgId, userId, deps, cls, viewer));
         return out;
       }
       throw e;
@@ -924,7 +988,7 @@ export async function pullChanges(orgId: string, userId: string, deps: SyncDeps 
       lastSyncAt: new Date(now).toISOString(),
     });
   }
-  await reconcileUser(orgId, userId, deps, cls, viewer);
+  noteUnsynced(out, await reconcileUser(orgId, userId, deps, cls, viewer));
   return out;
 }
 
@@ -1014,7 +1078,7 @@ async function applyOne(
     const blocked = await inviteBlocker(orgId, mw, cls);
     if (blocked === "paused") return;
     if (blocked) {
-      if ((await stopInvite(orgId, mw, blocked, deps, userId)) === "stopped") await syncMeeting(orgId, m.id, deps);
+      if ((await stopInvite(orgId, mw, blocked, deps, userId)) === "stopped") noteUnsynced(out, await syncMeeting(orgId, m.id, deps));
       return;
     }
     await pushFor(orgId, userId, m, deps, cls, true, await inviteesFor(mw));
@@ -1032,7 +1096,7 @@ async function applyOne(
   await prisma.externalEventLink.update({ where: { id: link.id }, data: { changeKey: ev.changeKey ?? null, contentHash: hash, lastSyncedAt: new Date() } });
   out.applied++;
   // Everyone else's copy follows; this person's is already the source.
-  await syncMeeting(orgId, m.id, deps, userId);
+  noteUnsynced(out, await syncMeeting(orgId, m.id, deps, userId));
 }
 
 // ── Reconcile ───────────────────────────────────────────────────────────────
@@ -1044,11 +1108,11 @@ async function applyOne(
  * since we last wrote it (an edit whose push failed, or a classification
  * change, which no meeting update records); and add meetings in the window
  * they have no copy of. A copy they deleted in Outlook stays gone until the
- * meeting next changes.
+ * meeting next changes. Returns why each write that failed failed.
  */
 async function reconcileUser(
   orgId: string, userId: string, deps: SyncDeps, cls: ClassificationResolver, viewer: Viewer,
-): Promise<void> {
+): Promise<string[]> {
   const now = (deps.now ?? Date.now)();
   const [links, attended, detached] = await Promise.all([
     prisma.externalEventLink.findMany({
@@ -1096,15 +1160,15 @@ async function reconcileUser(
     }
     toPush.push(m);
   }
-  const work: (() => Promise<void>)[] = [
+  const work: (() => Promise<void | string[]>)[] = [
     ...[...linked].filter((id) => !keepIds.has(id)).map((id) => () => removeFor(orgId, userId, id, deps)),
     ...toPush.map((m) => () => pushFor(orgId, userId, m, deps, cls)), // a no-op when the body is unchanged
     ...[...new Set(organizing)].map((id) => () => syncMeeting(orgId, id, deps)),
   ];
-  await pool(work, CONCURRENCY, async (w) => {
+  return pool(work, CONCURRENCY, async (w) => {
     if (deps.signal?.aborted) return;
-    await w();
-  });
+    return w();
+  }, `org ${orgId} user ${userId}`);
 }
 
 /**
@@ -1138,7 +1202,7 @@ export async function runCalendarPulls(
     where: { provider: MS_CALENDAR, userId: { not: null } },
     select: { orgId: true, userId: true, meta: true },
   });
-  const out: PullRunResult = { applied: 0, ignored: 0, echoes: 0, detached: 0, people: 0, throttled: 0, failed: 0 };
+  const out: PullRunResult = { ...emptyPull(), people: 0, throttled: 0, failed: 0 };
   for (const c of creds.sort(() => random() - 0.5)) {
     const meta = c.meta as unknown as CalendarMeta;
     if (meta?.status !== "connected" || !meta.calendarId) continue;
@@ -1147,6 +1211,8 @@ export async function runCalendarPulls(
     try {
       const r = await pullChanges(c.orgId, c.userId as string, deps);
       out.applied += r.applied; out.ignored += r.ignored; out.echoes += r.echoes; out.detached += r.detached;
+      out.unsynced += r.unsynced;
+      for (const [reason, n] of Object.entries(r.unsyncedReasons)) out.unsyncedReasons[reason] = (out.unsyncedReasons[reason] ?? 0) + n;
       out.people++;
     } catch (e) {
       if (e instanceof GraphThrottled) out.throttled++;
@@ -1195,7 +1261,7 @@ export async function removeCosmosCalendar(orgId: string, userId: string, deps: 
     });
     const kept = links.filter((l) => l.contentHash?.startsWith(INVITE_PREFIX));
     if (shared > 0 || !mine || kept.length) {
-      await pool(links.filter((l) => !kept.includes(l)), CONCURRENCY, (l) => removeFor(orgId, userId, l.entityId, deps));
+      await pool(links.filter((l) => !kept.includes(l)), CONCURRENCY, (l) => removeFor(orgId, userId, l.entityId, deps), `org ${orgId} user ${userId}`);
       return true;
     }
     await graphRequest(orgId, userId, "DELETE", `/me/calendars/${encodeURIComponent(conn.meta.calendarId)}`, undefined, deps);

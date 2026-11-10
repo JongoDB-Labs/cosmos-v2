@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+      version: "2.544.2",
+      date: "2026-11-10",
+      title: "Outlook calendar sync says when a meeting didn’t reach Outlook",
+      highlights: [
+        {
+          kind: "fix",
+          text: "Sync now no longer says “Outlook Calendar synced” when Microsoft refused part of the sync. Each meeting is written to Outlook on its own, so one refusal never stops the rest — but a refused write used to be dropped without a count or a log line, and the meeting was simply missing from Outlook. Sync now tells you how many calendar updates didn’t reach Outlook, its response carries the count and Microsoft’s reason, the server logs it with whose sync it was, and the scheduled sync counts them too. Nothing is given up: every later sync tries them again.",
+        },
+      ],
+    },
+  {
     version: "2.544.1",
     date: "2026-11-10",
     title: "A steadier webhook test",
