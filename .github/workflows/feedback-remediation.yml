@@ -5,8 +5,11 @@ name: feedback-remediation
 # into the work backlog (AI-triaged). Idempotent: each item is delivered once.
 #
 # Activation (maintainer): set repo/environment
-#   - Variable  COSMOS_BASE_URL   e.g. https://example.com
-#   - Variable  COSMOS_ORG_ID     the target org's UUID
+#   - Secret    COSMOS_BASE_URL   e.g. https://example.com
+#   - Secret    COSMOS_ORG_ID     the target org's UUID
+#     SECRETS, not variables: a step's env is printed in the run log, this
+#     repository's logs are public, and only a secret's value is masked there.
+#     (A variable of the same name is still read, as a fallback.)
 #   - Secret    COSMOS_API_KEY    an org API key (cosmos_… , scope items:write)
 # Until these exist the job no-ops (guards below), so the workflow is inert by
 # default. It NEVER merges or deploys — it only asks the app to file work items.
@@ -34,8 +37,8 @@ jobs:
     steps:
       - name: Trigger remediation pass
         env:
-          BASE_URL: ${{ vars.COSMOS_BASE_URL }}
-          ORG_ID: ${{ vars.COSMOS_ORG_ID }}
+          BASE_URL: ${{ secrets.COSMOS_BASE_URL || vars.COSMOS_BASE_URL }}
+          ORG_ID: ${{ secrets.COSMOS_ORG_ID || vars.COSMOS_ORG_ID }}
           API_KEY: ${{ secrets.COSMOS_API_KEY }}
           LIMIT: ${{ github.event.inputs.limit || '10' }}
         run: |
@@ -49,9 +52,12 @@ jobs:
             -H "Authorization: Bearer $API_KEY" \
             -H "Content-Type: application/json" \
             -d "{\"limit\": $LIMIT}")
-          echo "HTTP $code"
-          cat /tmp/resp.json
-          echo
+          # The outcome only, never the body: this repo is public, so its Actions
+          # logs are too, and the body carries per-item triage text (rationale,
+          # acceptance criteria) and the org's counts. `|| true`: a body with
+          # none of these keys must not abort the step under -eo pipefail.
+          outcome=$(grep -o -E '"(skipped|error)":"[a-z_-]*"' /tmp/resp.json | tr '\n' ' ' || true)
+          echo "HTTP $code ${outcome}"
           if [ "$code" -ge 300 ]; then
             echo "::error::remediation trigger failed (HTTP $code)"
             exit 1

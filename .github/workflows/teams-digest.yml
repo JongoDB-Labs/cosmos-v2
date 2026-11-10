@@ -4,7 +4,8 @@ name: teams-digest
 # org's Teams channel — only when the org has the Teams integration active AND
 # the dailyDigest toggle on (the endpoint short-circuits otherwise, so this
 # workflow is safe to leave scheduled). Inert until COSMOS_BASE_URL and
-# COSMOS_ORG_ID are configured.
+# COSMOS_ORG_ID are configured -- as SECRETS, so the run log (public, like this
+# repository) masks them; a variable of the same name is read as a fallback.
 #
 # It needs its OWN key, COSMOS_DIGEST_API_KEY, with the `read` and `rules:run`
 # scopes: posting the digest is a gated write that counts what the key can read.
@@ -30,8 +31,8 @@ jobs:
     steps:
       - name: Post the digest
         env:
-          BASE_URL: ${{ vars.COSMOS_BASE_URL }}
-          ORG_ID: ${{ vars.COSMOS_ORG_ID }}
+          BASE_URL: ${{ secrets.COSMOS_BASE_URL || vars.COSMOS_BASE_URL }}
+          ORG_ID: ${{ secrets.COSMOS_ORG_ID || vars.COSMOS_ORG_ID }}
           API_KEY: ${{ secrets.COSMOS_DIGEST_API_KEY }}
         run: |
           if [ -z "$BASE_URL" ] || [ -z "$ORG_ID" ]; then

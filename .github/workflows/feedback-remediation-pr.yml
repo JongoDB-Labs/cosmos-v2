@@ -59,8 +59,8 @@ jobs:
     steps:
       - id: pick
         env:
-          BASE_URL: ${{ vars.COSMOS_BASE_URL }}
-          ORG_ID: ${{ vars.COSMOS_ORG_ID }}
+          BASE_URL: ${{ secrets.COSMOS_BASE_URL || vars.COSMOS_BASE_URL }}
+          ORG_ID: ${{ secrets.COSMOS_ORG_ID || vars.COSMOS_ORG_ID }}
           API_KEY: ${{ secrets.COSMOS_API_KEY }}
           ENABLED: ${{ vars.FEEDBACK_PR_ENABLED }}
           DISPATCH_TICKET: ${{ github.event.inputs.ticket }}
