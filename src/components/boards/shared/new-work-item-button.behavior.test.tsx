@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-// COSMOS-63 — two reported defects in the board "New issue" dialog:
+// COSMOS-63 — two reported defects in the board "New work item" dialog:
 //   1. Escape does not close it.
 //   2. It "orphans" across a client-side route change: the body scroll lock
 //      stays applied and Cancel is inert.
 //
-// Boards now share the one CreateWorkItemDialog (COSMOS-40); NewIssueButton is
+// Boards now share the one CreateWorkItemDialog (COSMOS-40); NewWorkItemButton is
 // the thin wrapper that owns its `open` state. So this drives the wrapper, which
 // is the surface a user actually touches on a board.
 //
@@ -47,7 +47,7 @@ vi.mock("@/lib/query/keys", () => ({
 vi.mock("@tanstack/react-query", () => ({ useQuery: () => ({ data: undefined }) }));
 
 import { createRef } from "react";
-import { NewIssueButton, type NewIssueHandle } from "./new-issue-button";
+import { NewWorkItemButton, type NewWorkItemHandle } from "./new-work-item-button";
 import { useWorkItemTypes } from "@/hooks/use-work-item-types";
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -76,14 +76,14 @@ afterEach(() => {
 });
 
 async function open(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: /new issue/i }));
+  await user.click(screen.getByRole("button", { name: /new work item/i }));
   await screen.findByRole("dialog");
 }
 
-describe("board New issue dialog", () => {
+describe("board New work item dialog", () => {
   it("closes when Escape is pressed", async () => {
     const user = userEvent.setup();
-    render(<NewIssueButton {...BASE} boardId="b1" />);
+    render(<NewWorkItemButton {...BASE} boardId="b1" />);
     await open(user);
 
     await user.keyboard("{Escape}");
@@ -93,21 +93,21 @@ describe("board New issue dialog", () => {
 
   it("closes when the board changes underneath it (same view type, no remount)", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<NewIssueButton {...BASE} boardId="b1" />);
+    const { rerender } = render(<NewWorkItemButton {...BASE} boardId="b1" />);
     await open(user);
 
-    rerender(<NewIssueButton {...BASE} boardId="b2" />);
+    rerender(<NewWorkItemButton {...BASE} boardId="b2" />);
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("closes when the project changes underneath it", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<NewIssueButton {...BASE} boardId="b1" />);
+    const { rerender } = render(<NewWorkItemButton {...BASE} boardId="b1" />);
     await open(user);
 
     rerender(
-      <NewIssueButton {...BASE} projectId="p2" projectKey="OPS" boardId="b1" />,
+      <NewWorkItemButton {...BASE} projectId="p2" projectKey="OPS" boardId="b1" />,
     );
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -116,7 +116,7 @@ describe("board New issue dialog", () => {
 
 // COSMOS-88 — the board's right-click menu opens this same dialog through the
 // handle, pre-scoped to where the user clicked.
-describe("board New issue dialog, opened from a board right-click", () => {
+describe("board New work item dialog, opened from a board right-click", () => {
   const BOARDS = [
     {
       id: "b1",
@@ -133,8 +133,8 @@ describe("board New issue dialog, opened from a board right-click", () => {
   });
 
   it("starts on the right-clicked column's Status", async () => {
-    const ref = createRef<NewIssueHandle>();
-    render(<NewIssueButton {...BASE} boardId="b1" ref={ref} />);
+    const ref = createRef<NewWorkItemHandle>();
+    render(<NewWorkItemButton {...BASE} boardId="b1" ref={ref} />);
 
     act(() => ref.current!.open({ columnKey: "review" }));
     await screen.findByRole("dialog");
@@ -145,8 +145,8 @@ describe("board New issue dialog, opened from a board right-click", () => {
   });
 
   it("seeds both planned dates from a right-clicked calendar day", async () => {
-    const ref = createRef<NewIssueHandle>();
-    render(<NewIssueButton {...BASE} boardId="b1" ref={ref} />);
+    const ref = createRef<NewWorkItemHandle>();
+    render(<NewWorkItemButton {...BASE} boardId="b1" ref={ref} />);
 
     act(() => ref.current!.open({ date: "2026-10-24" }));
     await screen.findByRole("dialog");
@@ -157,8 +157,8 @@ describe("board New issue dialog, opened from a board right-click", () => {
 
   it("does not carry a right-click's column into the next toolbar open", async () => {
     const user = userEvent.setup();
-    const ref = createRef<NewIssueHandle>();
-    render(<NewIssueButton {...BASE} boardId="b1" ref={ref} />);
+    const ref = createRef<NewWorkItemHandle>();
+    render(<NewWorkItemButton {...BASE} boardId="b1" ref={ref} />);
 
     act(() => ref.current!.open({ columnKey: "review" }));
     await screen.findByRole("dialog");

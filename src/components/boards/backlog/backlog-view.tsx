@@ -62,9 +62,9 @@ import { usePermissions, Permission } from "@/components/providers/permissions-p
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import {
-  NewIssueButton,
-  type NewIssueHandle,
-} from "@/components/boards/shared/new-issue-button";
+  NewWorkItemButton,
+  type NewWorkItemHandle,
+} from "@/components/boards/shared/new-work-item-button";
 import {
   BoardToolbar,
   BoardToolbarActions,
@@ -152,7 +152,7 @@ export function BacklogView({
   projectKey,
   boardId,
 }: BacklogViewProps) {
-  const newIssueRef = useRef<NewIssueHandle>(null);
+  const newIssueRef = useRef<NewWorkItemHandle>(null);
   const qc = useQueryClient();
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
   const currentUserId = useCurrentUserId();
@@ -631,7 +631,7 @@ export function BacklogView({
       included. */}
   <BoardToolbarActions>
     <HideDoneToggle checked={hideDone} onChange={setHideDone} />
-    <NewIssueButton
+    <NewWorkItemButton
       ref={newIssueRef}
       orgId={orgId}
       projectId={projectId}

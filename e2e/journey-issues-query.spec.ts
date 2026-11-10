@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/auth";
-import { editor, openIssues, resetQueryLanguage, runCql, setQueryLanguage, urlCql } from "./fixtures/issues-query";
+import { editor, openIssues, resetQueryLanguage, runCql, setQueryLanguage, urlCql } from "./fixtures/work-items-query";
 
 /**
  * Issues with the query language on (query design §14.3): write a query with

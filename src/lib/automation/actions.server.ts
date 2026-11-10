@@ -227,7 +227,7 @@ async function values(run: ActionRun, item: Item): Promise<Partial<Record<Templa
     "item.key": key,
     "item.title": item.title,
     "item.status": status?.name ?? item.columnKey,
-    "item.url": `/${item.project.org.slug}/issues?item=${item.id}`,
+    "item.url": `/${item.project.org.slug}/work-items?item=${item.id}`,
     "actor.name": actor?.displayName ?? null,
     "rule.name": run.rule.name,
   };

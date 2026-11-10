@@ -164,6 +164,11 @@ interface PmDashboardProps {
   scope: DashboardScope;
   data: PmDashboardData;
   audience?: AudienceView;
+  /**
+   * Drop this component's own title + scope line, for a host page that already
+   * renders both. The audience subtitle stays either way.
+   */
+  hideScopeHeading?: boolean;
 }
 
 const AUDIENCES: {
@@ -226,7 +231,12 @@ function MirrorToSharePointButton({ orgId, projectId }: { orgId: string; project
   );
 }
 
-export function PmDashboard({ scope, data, audience: initialAudience }: PmDashboardProps) {
+export function PmDashboard({
+  scope,
+  data,
+  audience: initialAudience,
+  hideScopeHeading,
+}: PmDashboardProps) {
   const { can } = usePermissions();
 
   const audiences = useMemo(() => {
@@ -248,10 +258,21 @@ export function PmDashboard({ scope, data, audience: initialAudience }: PmDashbo
     <div className="mx-auto flex max-w-6xl flex-col gap-6 p-6" data-tour="pm-dashboard">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-[var(--text)]">{header.title}</h2>
-          <p className="text-sm text-[var(--text-muted)]">
-            {scopeLabel} — {header.subtitle}
-          </p>
+          {/* On a page that already titles itself and names its scope (the
+              org-level Program Management page), this block would repeat both
+              -- the same words twice, one above the other. The audience
+              subtitle still shows, because it is the only thing that says
+              WHICH of the three views you are reading. */}
+          {hideScopeHeading ? (
+            <p className="text-sm text-[var(--text-muted)]">{header.subtitle}</p>
+          ) : (
+            <>
+              <h2 className="text-xl font-semibold text-[var(--text)]">{header.title}</h2>
+              <p className="text-sm text-[var(--text-muted)]">
+                {scopeLabel} — {header.subtitle}
+              </p>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {scope.kind === "project" && (

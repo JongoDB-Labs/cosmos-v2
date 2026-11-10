@@ -3,7 +3,7 @@
 // Sprint Health's drill-down opens the ticket, it does not leave the board.
 //
 // WHY THIS EXISTS: clicking a row in the Overdue drill-down was an <a href> to
-// `/{org}/issues?item=…`. Every other board — Table, Calendar, RAID — opens the
+// `/{org}/work-items?item=…`. Every other board — Table, Calendar, RAID — opens the
 // same editable sheet in place, so the one surface a lead reaches an overdue
 // ticket from was also the one that threw them off the page to edit it, and
 // left them on Issues afterwards. Nothing about that is visible to a typecheck:

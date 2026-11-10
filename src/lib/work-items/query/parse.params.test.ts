@@ -26,7 +26,7 @@ describe("unknownQueryParams", () => {
   });
 
   it("accepts every parameter the UI actually sends", () => {
-    // Taken from issues-view's toQueryString. If this ever fails, the guard is
+    // Taken from work-items-view's toQueryString. If this ever fails, the guard is
     // about to 400 the product's own list view.
     const ui = "project=p&type=t&status=s&assignee=a&label=l&priority=HIGH"
       + "&text=hello&archived=only&createdFrom=2026-01-01&createdTo=2026-02-01"

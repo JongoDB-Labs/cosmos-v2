@@ -123,12 +123,6 @@ const SOFTWARE_PROJECT_TEMPLATE = {
       "goal",
       "milestone",
       "interval",
-      "pm-dashboard",
-      "risk-register",
-      "change-log",
-      "blocked-items",
-      "schedule-variance",
-      "deliverables-tracker",
     ],
   },
 };

@@ -118,7 +118,7 @@ export function useCqlUrlState(): {
       }
       const qs = next.toString();
       // Shallow, through the History API (which the App Router syncs into
-      // useSearchParams): the query is client state, read by IssuesView and by
+      // useSearchParams): the query is client state, read by WorkItemsView and by
       // nothing on the server. router.replace re-rendered the page on the
       // server first and changed the URL only when that returned, so under
       // load the query, and the results with it, lagged a running query by

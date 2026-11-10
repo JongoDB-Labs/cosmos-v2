@@ -18,7 +18,7 @@ import { isChunkLoadError } from "@/lib/telemetry/ignore-error";
  * session window. The flag is cleared after the page has stayed up for a bit,
  * so a LATER deploy can still trigger a fresh single recovery.
  *
- * Never mid-edit (COSMOS-221): a reload while someone is typing a new issue or
+ * Never mid-edit (COSMOS-221): a reload while someone is typing a new work item or
  * a comment throws their input away. When there is unsaved input, a toast
  * offers the reload instead, and they take it once they are done.
  */

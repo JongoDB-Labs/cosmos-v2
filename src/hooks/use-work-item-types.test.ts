@@ -3,7 +3,7 @@ import { SHADOW_TYPE_KEYS, selectableTypes } from "./use-work-item-types";
 
 // Six entities exist twice: Goal, KeyResult, Kpi, Milestone, Objective and Risk
 // each have a dedicated Prisma model AND a cross-cutting work-item type. A
-// "Milestone" created from a New issue dialog is therefore a WorkItem, and never
+// "Milestone" created from a New work item dialog is therefore a WorkItem, and never
 // appears on the Milestones board — the reported symptom.
 //
 // They are hidden from creation, NOT deleted: existing items keep their type and

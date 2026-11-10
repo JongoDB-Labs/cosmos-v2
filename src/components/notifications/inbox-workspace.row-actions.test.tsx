@@ -11,7 +11,7 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/acme/inbox" }));
 
 const PAGE = {
   data: [
-    { id: "n1", type: "work_item.mention", title: "You were mentioned on FSC-7", body: "", url: "/issues?item=FSC-7", read: false, createdAt: "2026-10-20T10:00:00.000Z" },
+    { id: "n1", type: "work_item.mention", title: "You were mentioned on FSC-7", body: "", url: "/work-items?item=FSC-7", read: false, createdAt: "2026-10-20T10:00:00.000Z" },
     { id: "n2", type: "time.approved", title: "Your timesheet was approved", body: "", url: null, read: true, createdAt: "2026-10-19T10:00:00.000Z" },
   ],
   nextCursor: null,
@@ -89,6 +89,6 @@ describe("InboxWorkspace — one notification at a time", () => {
     renderInbox();
     const title = await screen.findByText("You were mentioned on FSC-7");
 
-    expect(title.closest("a")?.getAttribute("href")).toBe("/acme/issues?item=FSC-7");
+    expect(title.closest("a")?.getAttribute("href")).toBe("/acme/work-items?item=FSC-7");
   });
 });

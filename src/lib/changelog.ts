@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.544.0",
+    date: "2026-11-10",
+    title: "Issues are now Work Items, and PM Dashboard becomes Program Management",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Issues page is now called Work Items, and lives at /work-items. Everything underneath it already used that name \u2014 the records, the API and the import \u2014 so the page was the last thing still calling them issues. \u201CNew issue\u201D is now \u201CNew work item\u201D wherever it appears, on every board and in the command palette. Every link you have already shared, bookmarked or been notified about keeps working.",
+      },
+      {
+        kind: "feature",
+        text: "A new Program Management page gathers schedule, risk and delivery for the whole organisation in one place, with a dropdown to narrow it to a single project. It replaces the org-wide PM Dashboard, which now redirects here. The page is marked as under construction on purpose: the figures on it are live, but the registers behind them are still being folded into the same model as the rest of your work, so it will grow.",
+      },
+      {
+        kind: "improvement",
+        text: "Contract money on the Program Management page \u2014 CLIN burn and a change request\u2019s cost impact \u2014 now needs a finance permission of its own. Everyone who can read the page still sees how a programme is tracking, including how many days a change adds; what it costs is a separate question and is now a separate permission.",
+      },
+      {
+        kind: "improvement",
+        text: "The PM Dashboard module is no longer offered when setting up a project or a template, because the Program Management page replaces it. Projects already using it keep it, and can still turn it off \u2014 nothing was removed.",
+      },
+    ],
+  },
+  {
     version: "2.543.0",
     date: "2026-11-10",
     title: "Import a program calendar from a spreadsheet",

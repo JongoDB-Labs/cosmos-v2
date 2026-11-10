@@ -93,7 +93,7 @@ export async function notifyDeliveryEvent(
       event === "parked"
         ? `${info.title} — ${info.reason ?? "parked for review"}${info.prUrl ? `. Draft PR: ${info.prUrl}` : ""}`
         : `${info.title}${info.prUrl ? ` — ${info.prUrl}` : ""}`;
-    const url = `/${org.slug}/issues?item=${info.workItemId}`;
+    const url = `/${org.slug}/work-items?item=${info.workItemId}`;
 
     await fanOutToOwners(orgId, {
       type: event === "parked" ? "delivery.parked" : "delivery.shipped",

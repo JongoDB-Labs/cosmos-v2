@@ -6,7 +6,7 @@ import { PageShell } from "@/components/ui/page-shell";
 import { canViewPage } from "@/lib/nav/page-access";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IssuesView } from "@/components/work-items/issues-view";
+import { WorkItemsView } from "@/components/work-items/work-items-view";
 import { Lock, Tag } from "lucide-react";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
@@ -17,7 +17,7 @@ type PageParams = { params: Promise<{ orgSlug: string }> };
  * Org-wide Issues view — a JQL-lite cross-project work-item search. Per Cache
  * Components: `await params` + `getAuthContext` (cookie read) live INSIDE the
  * <Suspense> boundary; the synchronous default export ships a header skeleton.
- * The actual data load happens client-side (IssuesView's React Query).
+ * The actual data load happens client-side (WorkItemsView's React Query).
  */
 export default function IssuesPage({ params }: PageParams) {
   return (
@@ -37,12 +37,12 @@ async function IssuesPageContent({ params }: PageParams) {
 
   // Derived from the sidebar's own declaration rather than repeated here —
   // two copies of one rule is how the page and the nav drift apart.
-  const canRead = canViewPage(ctx.permissions, "/issues");
+  const canRead = canViewPage(ctx.permissions, "/work-items");
 
   return (
     <PageShell
       tourAnchor="issues"
-      title="Issues"
+      title="Work Items"
       description={`Search work items across every project in ${org.name}`}
       // Labels are managed from here because this is where they are used and
       // filtered — a top-level nav entry for them would be a lot of chrome for
@@ -50,7 +50,7 @@ async function IssuesPageContent({ params }: PageParams) {
       actions={
         canRead ? (
           <Link
-            href={`/${orgSlug}/issues/labels`}
+            href={`/${orgSlug}/work-items/labels`}
             className={buttonVariants({ variant: "outline" })}
           >
             <Tag className="h-4 w-4" aria-hidden />
@@ -60,11 +60,11 @@ async function IssuesPageContent({ params }: PageParams) {
       }
     >
       {canRead ? (
-        <IssuesView orgId={ctx.orgId} orgSlug={orgSlug} />
+        <WorkItemsView orgId={ctx.orgId} orgSlug={orgSlug} />
       ) : (
         <EmptyState
           illustration={<Lock className="mx-auto h-12 w-12 text-[var(--text-muted)]" strokeWidth={1.5} aria-hidden />}
-          title="No access to issues"
+          title="No access to work items"
           description="You don't have permission to read work items in this organization."
         />
       )}

@@ -99,11 +99,22 @@ export const SIDEBAR_NAV: NavEntry[] = [
     anyOf: [Permission.PROJECT_READ],
   },
   {
+    // Labelled "Work Items" since 2.544.0 -- the models (WorkItem,
+    // WorkItemType), the API (/work-items) and the components all said so
+    // already; the sidebar was the last place still calling them issues.
+    //
+    // The `id` deliberately does NOT follow the label. It is persisted: it is
+    // the module key in `Organization.settings.enabledModules` (see
+    // entitlements/modules.ts, where module keys ARE nav ids) and the key an
+    // admin's custom nav order/hidden list is written against. Renaming it
+    // would drop this entry for every org that has ever customised its nav or
+    // holds an entitlement allowlist -- a silent loss of a page, with no
+    // migration to point at. The label is what anyone actually reads.
     type: "leaf",
     id: "issues",
     icon: ListChecks,
-    label: "Issues",
-    href: "/issues",
+    label: "Work Items",
+    href: "/work-items",
     anyOf: [Permission.ITEM_READ],
   },
   {
@@ -258,14 +269,29 @@ export const SIDEBAR_NAV: NavEntry[] = [
     anyOf: [Permission.ANALYTICS_READ],
   },
   {
-    // The org-wide roll-up of every project's PM Dashboard (milestones, KPIs,
-    // risks, deliverables, blockers, changes, CLIN burn). Portfolio reporting,
-    // so it is gated like Analytics.
+    // Program Management: schedule, risk and delivery across the portfolio,
+    // scoped by a project picker on the page rather than by a URL segment.
+    //
+    // This replaces the org-wide PM Dashboard roll-up that lived at
+    // /pm-dashboard, and is where the per-project PM Dashboard tab is headed
+    // -- that tab is no longer offered on new projects (see
+    // lib/project-features.ts) but still renders for projects that already
+    // have it, so nothing disappears mid-migration.
+    //
+    // `id` stays "pm-dashboard" for the same reason the Work Items entry keeps
+    // "issues": it is the key an admin's nav order/hidden list is written
+    // against in Organization.settings, and renaming it would silently drop
+    // the entry for anyone who has customised their sidebar.
+    //
+    // ANALYTICS_READ, as before -- this is portfolio reporting. Contract money
+    // on the page (CLIN burn, change-request cost impact) is gated separately
+    // inside it on FINANCE_READ / ACCOUNTING_READ: reading that a program has
+    // slipped is a different question from reading what it is worth.
     type: "leaf",
     id: "pm-dashboard",
     icon: Gauge,
-    label: "PM Dashboard",
-    href: "/pm-dashboard",
+    label: "Program Management",
+    href: "/program-management",
     anyOf: [Permission.ANALYTICS_READ],
   },
   {

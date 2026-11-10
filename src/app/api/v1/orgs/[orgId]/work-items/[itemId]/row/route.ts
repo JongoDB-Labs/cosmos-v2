@@ -10,7 +10,7 @@ type RouteParams = { params: Promise<{ orgId: string; itemId: string }> };
 /**
  * A single work item in the IssueRow shape (same projection/RBAC scoping as the
  * org-wide search). Lets the Issues view open the detail sheet from a deep-link
- * (`/issues?item=<id>`) even when the item isn't on the current page. Returns
+ * (`/work-items?item=<id>`) even when the item isn't on the current page. Returns
  * 404 when the item is outside the caller's readable projects.
  */
 export async function GET(_request: NextRequest, { params }: RouteParams) {

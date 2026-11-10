@@ -33,7 +33,7 @@ for (const m of ["hasPointerCapture", "setPointerCapture", "releasePointerCaptur
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => ({ get: () => null }),
-  usePathname: () => "/acme/issues",
+  usePathname: () => "/acme/work-items",
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
@@ -67,7 +67,7 @@ vi.mock("@/components/providers/permissions-provider", async (importActual) => {
 
 vi.mock("@/lib/query/json-fetcher", () => ({ jsonFetch: vi.fn() }));
 
-import { IssuesView } from "./issues-view";
+import { WorkItemsView } from "./work-items-view";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 
 const FACETS = {
@@ -139,7 +139,7 @@ function renderView() {
   });
   return render(
     <QueryClientProvider client={client}>
-      <IssuesView orgId="o1" orgSlug="acme" />
+      <WorkItemsView orgId="o1" orgSlug="acme" />
     </QueryClientProvider>,
   );
 }
@@ -164,7 +164,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-describe("IssuesView — inline status edit (COSMOS-30)", () => {
+describe("WorkItemsView — inline status edit (COSMOS-30)", () => {
   it("opens a project-scoped status picker and persists the pick via columnKey", async () => {
     renderView();
 
@@ -207,7 +207,7 @@ describe("IssuesView — inline status edit (COSMOS-30)", () => {
 // and priority") already applies to the Priority and Assignee cells. Status was
 // the only field locked by a test; these cover the other two so a regression of
 // either quick-edit is caught (COSMOS-30).
-describe("IssuesView — inline priority & assignee edit (COSMOS-30)", () => {
+describe("WorkItemsView — inline priority & assignee edit (COSMOS-30)", () => {
   it("opens a priority picker and persists the pick", async () => {
     renderView();
     await screen.findByText("ENG-1");

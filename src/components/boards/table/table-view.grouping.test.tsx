@@ -22,8 +22,8 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 
 // Portal/observer-heavy children; none of them touch the grouping headers.
-vi.mock("@/components/boards/shared/new-issue-button", () => ({
-  NewIssueButton: () => null,
+vi.mock("@/components/boards/shared/new-work-item-button", () => ({
+  NewWorkItemButton: () => null,
 }));
 vi.mock("@/components/work-items/board-item-detail-sheet", () => ({
   BoardItemDetailSheet: () => null,
@@ -32,7 +32,7 @@ vi.mock("@/components/work-items/board-item-detail-sheet", () => ({
 // now HOSTS the board's actions in its `actions` slot (one band instead of two
 // identical ones -- see kanban-board.one-band.test.tsx). A stub returning null
 // therefore swallows "Group by", the type filter, the density toggles and
-// "New issue". It must pass them through, or this file goes green while blind
+// "New work item". It must pass them through, or this file goes green while blind
 // to the controls it exists to exercise.
 vi.mock("@/components/boards/shared/filter-bar", async (importOriginal) => {
   const actual =

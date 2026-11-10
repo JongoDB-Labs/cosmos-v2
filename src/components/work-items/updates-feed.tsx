@@ -340,7 +340,7 @@ export function UpdatesFeed({
                           {" "}
                           on{" "}
                           <Link
-                            href={`/${orgSlug}/issues?item=${a.item.id}`}
+                            href={`/${orgSlug}/work-items?item=${a.item.id}`}
                             className="font-medium text-[var(--primary)] hover:underline"
                           >
                             {a.item.ticketKey}

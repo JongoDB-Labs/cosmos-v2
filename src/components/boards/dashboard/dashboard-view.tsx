@@ -335,7 +335,7 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   // Drill-down (FR 81918e0e): clicking a metric or chart segment opens a list
   // of the matching tickets.
   //
-  // A row used to be a <Link> to `/{org}/issues?item=…`, which threw the reader
+  // A row used to be a <Link> to `/{org}/work-items?item=…`, which threw the reader
   // out of Sprint Health entirely to edit one overdue ticket — and left them on
   // the Issues page afterwards. Every other board opens the ticket in place, so
   // this does too: same sheet, same editing, and a save lands in the very

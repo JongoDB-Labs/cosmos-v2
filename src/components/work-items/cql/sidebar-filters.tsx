@@ -26,7 +26,7 @@ export function SidebarFilters({ orgId, orgSlug }: { orgId: string; orgSlug: str
       {starred.map((f) => (
         <li key={f.id}>
           <Link
-            href={`/${orgSlug}/issues?filter=${f.id}`}
+            href={`/${orgSlug}/work-items?filter=${f.id}`}
             aria-current={active === f.id ? "page" : undefined}
             className={cn(
               "flex items-center gap-1.5 truncate rounded px-1.5 py-1 text-xs",

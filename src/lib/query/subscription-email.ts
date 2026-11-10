@@ -49,7 +49,7 @@ const safe = (s: string, fallback: string) => (detectMarkings(s) ? fallback : s)
 export function buildSubscriptionEmail(i: SubscriptionEmailInput): { subject: string; text: string; html: string } {
   const name = safe(i.filterName, "Saved filter");
   const base = `${i.origin}/${i.orgSlug}`;
-  const viewAll = `${base}/issues?filter=${encodeURIComponent(i.viewId)}`;
+  const viewAll = `${base}/work-items?filter=${encodeURIComponent(i.viewId)}`;
   const n = i.onlyChanges ? i.rows.length : i.total;
   const count = n === null ? `${i.rows.length}+` : String(n);
   const noun = `${count} ${i.onlyChanges ? "new " : ""}item${n === 1 ? "" : "s"}`;
@@ -57,7 +57,7 @@ export function buildSubscriptionEmail(i: SubscriptionEmailInput): { subject: st
 
   const shown = i.format === "LIST" ? i.rows.slice(0, EMAIL_MAX_ROWS) : [];
   const line = (r: EmailRow) => (i.includeTitles ? `${r.ticketKey}  ${safe(r.title, MARKED)}` : r.ticketKey);
-  const itemUrl = (r: EmailRow) => `${base}/issues?item=${encodeURIComponent(r.id)}`;
+  const itemUrl = (r: EmailRow) => `${base}/work-items?item=${encodeURIComponent(r.id)}`;
   const more = i.format === "LIST" && (n === null || n > shown.length);
 
   const text = [

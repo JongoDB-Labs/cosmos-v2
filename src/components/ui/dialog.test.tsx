@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// Reported: users had to zoom the browser to 75% to see the whole "New issue"
+// Reported: users had to zoom the browser to 75% to see the whole "New work item"
 // dialog — first on Windows, then on a smaller macOS screen.
 //
 // The popup is centered with -translate-y-1/2, so a dialog taller than the

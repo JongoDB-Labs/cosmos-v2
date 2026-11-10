@@ -16,7 +16,7 @@ if (!("ResizeObserver" in globalThis)) {
 }
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/acme/issues", useParams: () => ({ orgSlug: "acme" }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/acme/work-items", useParams: () => ({ orgSlug: "acme" }) }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/query/json-fetcher", async (importActual) => {
   const actual = await importActual<typeof import("@/lib/query/json-fetcher")>();

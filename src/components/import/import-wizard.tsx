@@ -193,7 +193,7 @@ function EntityPicker({
             key: "work-item" as Selected,
             label: "Work Items",
             icon: "ListChecks",
-            blurb: "Issues / tasks / epics from a Jira, Linear, or CSV export — with status + assignee mapping.",
+            blurb: "Work items / tasks / epics from a Jira, Linear, or CSV export — with status + assignee mapping.",
           },
         ]
       : []),

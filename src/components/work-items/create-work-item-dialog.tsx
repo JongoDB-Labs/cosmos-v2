@@ -95,7 +95,7 @@ interface DuplicateSourceItem {
 }
 
 /**
- * Full-field "New issue" dialog (Jira-style): every common field is available
+ * Full-field "New work item" dialog (Jira-style): every common field is available
  * at creation — title, project, type, priority, assignee, interval, story points,
  * due date, description, labels — not just a title. Resolves the project's first
  * board + column for the required columnKey; the work-items POST already
@@ -145,7 +145,7 @@ export function CreateWorkItemDialog({
    * column, the picker falls back to its first status.
    */
   initialColumnKey?: string | null;
-  /** When set, the dialog opens as a "Duplicate issue" draft pre-filled from
+  /** When set, the dialog opens as a "Duplicate work item" draft pre-filled from
    *  this source item (COSMOS-13). The user edits before creating; comments,
    *  activity, and status are never carried over (they aren't part of create). */
   duplicateSource?: DuplicateSource | null;
@@ -154,7 +154,7 @@ export function CreateWorkItemDialog({
   const isDuplicate = Boolean(duplicateSource);
   // Every opener drives this dialog through `open` rather than a
   // Dialog.Trigger, so base-ui has no trigger to hand focus back to and closing
-  // dropped it on <body>. Remember what had focus as it opened (the New issue
+  // dropped it on <body>. Remember what had focus as it opened (the New work item
   // button, or wherever the keyboard was) and return there on close.
   const [opener, setOpener] = useState<HTMLElement | null>(null);
   const [wasOpen, setWasOpen] = useState(open);
@@ -283,11 +283,11 @@ export function CreateWorkItemDialog({
     // Depend on VALUES, never on the identity of `projects` or `initialLabels`.
     // This effect wipes the form, so anything in its dependency list that gets
     // a fresh identity mid-edit blanks whatever the user has typed. Both are
-    // live hazards, not hypotheticals: `NewIssueButton` loads its project list
+    // live hazards, not hypotheticals: `NewWorkItemButton` loads its project list
     // lazily (`enabled: open`), so the array's identity changes moments AFTER
     // the dialog opens — long enough for someone to have started typing — and
     // the Issues view rebuilds `facets.projects` on every refetch. Depending on
-    // the array meant the title silently emptied and "Create issue" went back
+    // the array meant the title silently emptied and "Create work item" went back
     // to disabled.
   }, [
     open,
@@ -402,7 +402,7 @@ export function CreateWorkItemDialog({
 
   // Duplicate mode (COSMOS-13): when opened to duplicate an existing issue, fetch
   // the source and pre-fill every core field so the user edits a DRAFT and then
-  // creates a brand-new issue. This runs after the reset effect above (which
+  // creates a brand-new work item. This runs after the reset effect above (which
   // fires first, in declaration order), so the fetched values win. Only the
   // create-payload fields are copied — comments, activity, and status are never
   // carried over because they aren't part of the create flow at all.
@@ -565,7 +565,7 @@ export function CreateWorkItemDialog({
         finalFocus={() => (opener?.isConnected ? opener : true)}
       >
         <DialogHeader>
-          <DialogTitle>{isDuplicate ? "Duplicate issue" : "New issue"}</DialogTitle>
+          <DialogTitle>{isDuplicate ? "Duplicate work item" : "New work item"}</DialogTitle>
           <DialogDescription>
             {isDuplicate
               ? "Pre-filled from the original — edit anything, then create. Comments, activity, and status aren't carried over."
@@ -944,7 +944,7 @@ export function CreateWorkItemDialog({
               // "TASK" when none is chosen (COSMOS-86).
               disabled={!title.trim() || !projectId || !startDate || !dueDate || intervalMissing || submitting}
             >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create issue"}
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create work item"}
             </Button>
           </div>
         </DialogFooter>

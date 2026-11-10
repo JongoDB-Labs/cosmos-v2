@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 //
-// COSMOS-166 — "Ctrl+K New Issue (via anywhere)".
+// COSMOS-166 — "Ctrl+K New work item (via anywhere)".
 //
 // Reported from the Gantt: pressing ⌘K / Ctrl+K there gave a search box and a
-// cut-down capture form, and in fullscreen the toolbar's "New issue" button is
+// cut-down capture form, and in fullscreen the toolbar's "New work item" button is
 // gone entirely, so the keyboard was a dead end for the one thing the reporter
 // wanted from it.
 //
 // ASSUMPTION UNDER TEST (flagged for the reviewer): ⌘K opens the EXISTING
-// command palette with a "New issue" action registered for the surface in
+// command palette with a "New work item" action registered for the surface in
 // scope — it does not jump straight into a form — and choosing it opens the
 // standard create dialog pre-filled with the project/board in scope plus the
 // dates of the row in focus.
@@ -48,7 +48,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 vi.mock("@/components/work-items/card-detail-sheet", () => ({ CardDetailSheet: () => null }));
-vi.mock("@/components/boards/shared/new-issue-button", () => ({ NewIssueButton: () => null }));
+vi.mock("@/components/boards/shared/new-work-item-button", () => ({ NewWorkItemButton: () => null }));
 vi.mock("@/components/boards/shared/filter-bar", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/components/boards/shared/filter-bar")>();
@@ -116,7 +116,7 @@ vi.mock("@/lib/query/json-fetcher", () => ({
 import { CommandPalette } from "./command-palette";
 import { TimelineView } from "@/components/boards/timeline/timeline-view";
 import { DrawerProvider } from "@/components/drawers/drawer-provider";
-import { setNewIssueContext } from "@/lib/boards/new-issue-context";
+import { setNewWorkItemContext } from "@/lib/boards/new-work-item-context";
 
 function renderApp({ timeline }: { timeline: boolean }) {
   return render(
@@ -137,19 +137,19 @@ afterEach(() => {
   cleanup();
   // The context is a module-level slot; unmounting clears it, but reset
   // explicitly so one spec can never seed the next.
-  setNewIssueContext(null);
+  setNewWorkItemContext(null);
   push.mockClear();
   vi.clearAllMocks();
 });
 
-describe("⌘K → New issue, from the Gantt (COSMOS-166)", () => {
+describe("⌘K → New work item, from the Gantt (COSMOS-166)", () => {
   it("offers the action for the board in scope and opens the standard create dialog", async () => {
     renderApp({ timeline: true });
     await screen.findByTestId("gantt-bar-i1");
 
     fireEvent.keyDown(document, { key: "k", ctrlKey: true });
 
-    const action = await screen.findByText("New issue in FSC timeline…");
+    const action = await screen.findByText("New work item in FSC timeline…");
     fireEvent.click(action);
 
     const dialog = await screen.findByTestId("create-issue-dialog");
@@ -163,7 +163,7 @@ describe("⌘K → New issue, from the Gantt (COSMOS-166)", () => {
     fireEvent.mouseOver(await screen.findByTestId("gantt-bar-i1"));
 
     fireEvent.keyDown(document, { key: "k", ctrlKey: true });
-    fireEvent.click(await screen.findByText("New issue in FSC timeline…"));
+    fireEvent.click(await screen.findByText("New work item in FSC timeline…"));
 
     const dialog = await screen.findByTestId("create-issue-dialog");
     expect(dialog.getAttribute("data-start")).toBe("2026-01-05");
@@ -175,7 +175,7 @@ describe("⌘K → New issue, from the Gantt (COSMOS-166)", () => {
     await screen.findByTestId("gantt-bar-i1");
 
     fireEvent.keyDown(document, { key: "k", ctrlKey: true });
-    fireEvent.click(await screen.findByText("New issue in FSC timeline…"));
+    fireEvent.click(await screen.findByText("New work item in FSC timeline…"));
 
     const dialog = await screen.findByTestId("create-issue-dialog");
     expect(dialog.getAttribute("data-start")).toBe("null");
@@ -190,7 +190,7 @@ describe("⌘K → New issue, from the Gantt (COSMOS-166)", () => {
     // The palette still opens with its ordinary actions…
     await screen.findByText(/Create work item/);
     // …but nothing claims a create scope, so no board-specific row and no dialog.
-    await waitFor(() => expect(screen.queryByText(/^New issue in /)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/^New work item in /)).toBeNull());
     expect(screen.queryByTestId("create-issue-dialog")).toBeNull();
   });
 });

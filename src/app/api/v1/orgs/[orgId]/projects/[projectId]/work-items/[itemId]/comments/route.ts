@@ -152,10 +152,10 @@ export async function createComment(
           // COSMOS-191. There is no /projects/[projectKey]/work-items/[id]
           // route — not under [orgSlug], not anywhere, and no catch-all. Every
           // form of that path 404s, which is what the reporter hit. The app's
-          // real work-item deep link is /[orgSlug]/issues?item=<id> (see
-          // issue-copy-link and 6 other call sites); issues-view.tsx reads it
+          // real work-item deep link is /[orgSlug]/work-items?item=<id> (see
+          // work-item-copy-link and 6 other call sites); work-items-view.tsx reads it
           // with searchParams.get("item").
-          url: `/${org.slug}/issues?item=${workItem.id}`,
+          url: `/${org.slug}/work-items?item=${workItem.id}`,
         }).catch(() => {
           /* swallow */
         });
@@ -177,7 +177,7 @@ export async function createComment(
         message: mentionsToPlainText(comment.content ?? "").slice(0, 200),
         relatedId: workItem.id,
         relatedType: "work_item",
-        url: `/${org.slug}/issues?item=${workItem.id}`,
+        url: `/${org.slug}/work-items?item=${workItem.id}`,
       }).catch(() => {
         /* swallow */
       });

@@ -1,7 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 
 /**
- * Create a work item from a board using the shared "New issue" dialog.
+ * Create a work item from a board using the shared "New work item" dialog.
  *
  * Replaces the per-column "Add card" quick-create, which every board lost when
  * they were unified onto the same full dialog the Issues page uses. The column a
@@ -18,7 +18,7 @@ export async function createIssueFromBoard(
   title: string,
   statusName?: string,
 ) {
-  await page.getByRole("button", { name: "New issue" }).first().click();
+  await page.getByRole("button", { name: "New work item" }).first().click();
 
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible({ timeout: 10_000 });
@@ -56,7 +56,7 @@ export async function createIssueFromBoard(
   await dialog.getByLabel(/planned start/i).fill("2026-07-01");
   await dialog.getByLabel(/planned end/i).fill("2026-07-15");
 
-  const submit = dialog.getByRole("button", { name: "Create issue" });
+  const submit = dialog.getByRole("button", { name: "Create work item" });
   await expect(submit).toBeEnabled({ timeout: 10_000 });
   await submit.click();
   await expect(dialog).toBeHidden({ timeout: 20_000 });

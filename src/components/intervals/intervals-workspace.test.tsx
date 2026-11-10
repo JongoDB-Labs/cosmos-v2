@@ -55,7 +55,7 @@ vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 // The child dialogs pull in their own data fetching; stub them out — this test
 // is only about the PLANNED interval's edit/delete affordances on the card.
 vi.mock("./capacity-dialog", () => ({ CapacityDialog: () => null }));
-vi.mock("./add-issues-dialog", () => ({ AddIssuesDialog: () => null }));
+vi.mock("./add-work-items-dialog", () => ({ AddWorkItemsDialog: () => null }));
 
 import { IntervalsWorkspace } from "./intervals-workspace";
 

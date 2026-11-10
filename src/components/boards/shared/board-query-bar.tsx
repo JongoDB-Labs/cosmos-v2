@@ -33,7 +33,7 @@ export function BoardQueryBar({
    *
    * These must NOT be gated on `q.schema`. This band returns null until the
    * schema arrives (fetched, `retry: false`), and an earlier draft let the
-   * actions go with it -- so on a CQL-enabled org "New issue", "Group by" and
+   * actions go with it -- so on a CQL-enabled org "New work item", "Group by" and
    * the density toggles vanished until a request that may simply have FAILED
    * came back. `table-view.grouping.test.tsx` caught it. None of these controls
    * needs a schema; creating an issue is not a query.

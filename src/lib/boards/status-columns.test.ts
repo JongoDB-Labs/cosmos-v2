@@ -1,5 +1,5 @@
-// Reported from the Timeline / Gantt: the "New issue" dialog opened with Status
-// empty and disabled, and "Create issue" permanently greyed out — the button was
+// Reported from the Timeline / Gantt: the "New work item" dialog opened with Status
+// empty and disabled, and "Create work item" permanently greyed out — the button was
 // there but could never be pressed. Submitting requires a columnKey, and the
 // dialog only ever offered THIS board's columns. Timeline, Calendar, RAID and
 // Roadmap boards are all seeded with `columns: []`, so on any of them the dialog

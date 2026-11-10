@@ -47,7 +47,7 @@ export function ProjectFilters({
       {data.map((f) => (
         <li key={f.id} className="flex items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
-            <Link href={`/${orgSlug}/issues?filter=${f.id}`} className="font-medium text-[var(--primary)] hover:underline">
+            <Link href={`/${orgSlug}/work-items?filter=${f.id}`} className="font-medium text-[var(--primary)] hover:underline">
               {f.name}
             </Link>
             {f.description && <p className="truncate text-xs text-[var(--text-muted)]">{f.description}</p>}
@@ -64,7 +64,7 @@ export function ProjectFilters({
                 copy of that flow is how the two drift apart. */}
             {canCreateBoard && (
               <Link
-                href={`/${orgSlug}/issues?filter=${f.id}&saveBoard=1`}
+                href={`/${orgSlug}/work-items?filter=${f.id}&saveBoard=1`}
                 // WCAG 2.5.3 Label in Name: the accessible name must CONTAIN
                 // the visible text, so "Save as board" leads and the filter's
                 // name follows. "Save <name> as board" reads better but breaks

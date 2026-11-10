@@ -14,9 +14,9 @@ import { teamsByUser, type TeamLike } from "@/lib/teams/item-teams";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import {
-  NewIssueButton,
-  type NewIssueHandle,
-} from "@/components/boards/shared/new-issue-button";
+  NewWorkItemButton,
+  type NewWorkItemHandle,
+} from "@/components/boards/shared/new-work-item-button";
 import { BoardToolbar, BoardToolbarActions } from "@/components/boards/shared/board-toolbar";
 import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { Badge } from "@/components/ui/badge";
@@ -80,7 +80,7 @@ function isSameDay(a: Date, b: Date) {
 }
 
 export function CalendarView({ orgId, projectId, projectKey, boardId }: CalendarViewProps) {
-  const newIssueRef = useRef<NewIssueHandle>(null);
+  const newIssueRef = useRef<NewWorkItemHandle>(null);
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
 
@@ -261,7 +261,7 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
       Today
     </Button>
     {/* Rightmost, like every other board's create control. */}
-    <NewIssueButton
+    <NewWorkItemButton
       ref={newIssueRef}
       orgId={orgId}
       projectId={projectId}

@@ -23,8 +23,8 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
 }));
-vi.mock("@/components/boards/shared/new-issue-button", () => ({
-  NewIssueButton: () => <button type="button">New issue</button>,
+vi.mock("@/components/boards/shared/new-work-item-button", () => ({
+  NewWorkItemButton: () => <button type="button">New work item</button>,
 }));
 // The detail sheet loads its own data; what matters here is that Open asks for it.
 const { sheetProps } = vi.hoisted(() => ({ sheetProps: vi.fn() }));

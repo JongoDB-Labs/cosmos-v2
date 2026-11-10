@@ -51,7 +51,7 @@ describe("DashboardShell — mobile nav drawer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
     expect(await screen.findByRole("navigation", { name: "Drawer nav" })).toBeTruthy();
 
-    nav.pathname = "/acme/issues";
+    nav.pathname = "/acme/work-items";
     rerender(<DashboardShell user={user} orgs={orgs}><p>issues</p></DashboardShell>);
 
     await waitFor(() => expect(screen.queryByRole("navigation", { name: "Drawer nav" })).toBeNull());

@@ -69,7 +69,7 @@ import {
   toWorkItemFilter,
   type Facets,
   type FilterState,
-} from "@/components/work-items/issues-filter-bar";
+} from "@/components/work-items/work-items-filter-bar";
 import { QueryBuilder, withClause } from "@/components/work-items/cql/query-builder";
 import { useCqlSchema, useCqlUrlState, useCqlValidate, viewerTimeZone } from "@/components/work-items/cql/use-cql";
 import { FiltersMenu } from "@/components/work-items/cql/filters-menu";
@@ -142,7 +142,7 @@ const STATUS_VARIANT: Record<string, BadgeVariant> = {
 
 const PAGE_SIZE = 25;
 
-export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
+export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
   const { can } = usePermissions();
   // Org-wide board-create. A project MANAGER whose org role lacks it can still
   // save a board for their own project — folded in below once facets resolve.
@@ -163,8 +163,8 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   /** The board name to open the dialog with — a saved filter's name, or "". */
   const [saveBoardSeed, setSaveBoardSeed] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
-  // When set, the create dialog opens as a pre-filled "Duplicate issue" draft
-  // seeded from this row (COSMOS-13); null = a blank "New issue".
+  // When set, the create dialog opens as a pre-filled "Duplicate work item" draft
+  // seeded from this row (COSMOS-13); null = a blank "New work item".
   const [duplicateSource, setDuplicateSource] = useState<{
     itemId: string;
     projectId: string;
@@ -184,7 +184,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   // ── CQL, where the org has it on ─────────────────────────────────────────
   // One query in the URL (`?cql=`) drives the results, "select all matching",
   // the export, saved views and "Save as board". Orgs without it keep the
-  // legacy filter bar (issues-filter-bar.tsx); the two never mix.
+  // legacy filter bar (work-items-filter-bar.tsx); the two never mix.
   const cqlSchema = useCqlSchema(orgId);
   const cqlOn = cqlSchema.enabled;
   const cqlUrl = useCqlUrlState();
@@ -272,7 +272,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
           : "Fix the query first."
       : undefined;
 
-  // Deep-link: `/issues?watching=1` pre-applies the Watching filter (the "My
+  // Deep-link: `/work-items?watching=1` pre-applies the Watching filter (the "My
   // watched items" widget's "View all"). One-time init, then strip the param.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
@@ -293,7 +293,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   }, [cqlSchema.isLoading]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // Deep-link: `/issues?item=<id>` opens that work item's detail sheet even when
+  // Deep-link: `/work-items?item=<id>` opens that work item's detail sheet even when
   // it isn't on the current page (mention chips / "Mentioned in" backlinks link
   // here). Fetch the single row (RBAC-scoped), open the sheet, then strip the
   // param so closing it doesn't re-open and the URL stays clean.
@@ -480,7 +480,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const canCreateBoard = hasOrgBoardCreate || managedProjectIds.length > 0;
 
   /**
-   * Deep-link: `/issues?filter=<id>&saveBoard=1` opens Save-as-board on that
+   * Deep-link: `/work-items?filter=<id>&saveBoard=1` opens Save-as-board on that
    * saved filter.
    *
    * The project's "Filters" tab links here instead of growing its own copy of
@@ -889,7 +889,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
               {
                 // Open a pre-filled draft the user can edit before saving —
                 // rather than immediately committing a copy (COSMOS-13). Saving
-                // creates a distinct new issue; comments/activity/status aren't
+                // creates a distinct new work item; comments/activity/status aren't
                 // carried over.
                 label: "Duplicate",
                 icon: Copy,
@@ -1096,7 +1096,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const filtering = cqlOn ? cqlText.trim() !== "" || runById : activeCount > 0;
   // A query the server refused (400) is the query's fault, not the network's.
   const queryRejected = cqlOn && resultsError instanceof FetchError && resultsError.status === 400;
-  // The project the view is pinned to, if exactly one: new issues and boards default to it.
+  // The project the view is pinned to, if exactly one: new work items and boards default to it.
   const pinnedProject = cqlOn
     ? cqlFilter?.projectIds?.length === 1
       ? cqlFilter.projectIds[0]
@@ -1334,7 +1334,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         </p>
       )}
 
-      {/* The query's own actions, and the only "New issue" on the page.
+      {/* The query's own actions, and the only "New work item" on the page.
 
           Deliberately outside every branch below it. Hanging these off the
           results state is how they kept disappearing: they used to live inside
@@ -1366,7 +1366,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
               }}
             >
               <Plus className="h-3.5 w-3.5" aria-hidden />
-              New issue
+              New work item
             </Button>
           )}
         </div>
@@ -1437,7 +1437,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
                       setPageSize(Number(e.target.value));
                       setPage(1);
                     }}
-                    aria-label="Issues per page"
+                    aria-label="Work items per page"
                     className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-xs text-[var(--text)] outline-none focus-visible:border-[var(--primary)]"
                   >
                     {[25, 50, 100, 200].map((n) => (
@@ -1692,7 +1692,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
           open={createOpen}
           onOpenChange={(next) => {
             setCreateOpen(next);
-            // Drop the duplicate seed on close so the next plain "New issue"
+            // Drop the duplicate seed on close so the next plain "New work item"
             // opens blank (COSMOS-13).
             if (!next) setDuplicateSource(null);
           }}

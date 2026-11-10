@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // COSMOS-204, from a release train engineer: a story is handed to a TEAM
-// before anyone on it picks it up, so "New issue" offers a Team picker that is
+// before anyone on it picks it up, so "New work item" offers a Team picker that is
 // separate from Assignees, and sends the choice with the create.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
@@ -99,7 +99,7 @@ describe("CreateWorkItemDialog — Team (COSMOS-204)", () => {
     const team = await screen.findByRole("combobox", { name: "Team" });
     await fillRequired(user);
     await user.selectOptions(team, "Customer Success");
-    await user.click(screen.getByRole("button", { name: "Create issue" }));
+    await user.click(screen.getByRole("button", { name: "Create work item" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
     expect(postBody().teamId).toBe("team-cs");
@@ -113,7 +113,7 @@ describe("CreateWorkItemDialog — Team (COSMOS-204)", () => {
 
     await screen.findByRole("combobox", { name: "Team" });
     await fillRequired(user);
-    await user.click(screen.getByRole("button", { name: "Create issue" }));
+    await user.click(screen.getByRole("button", { name: "Create work item" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
     expect(postBody()).not.toHaveProperty("teamId");

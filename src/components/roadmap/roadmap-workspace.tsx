@@ -333,7 +333,7 @@ function NodeDetail({
         <button
           onClick={onCopyLink}
           className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-          title="Copy a deep link to paste into an issue description"
+          title="Copy a deep link to paste into a work item description"
         >
           <Link2 className="h-3.5 w-3.5" />
           Copy link

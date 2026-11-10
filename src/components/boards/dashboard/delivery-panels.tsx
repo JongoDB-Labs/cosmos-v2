@@ -722,7 +722,7 @@ export function ImpedimentsPanel({
       }
     >
       {blocked.length === 0 ? (
-        <NotEnoughData what="Nothing here is blocked. Dependencies are recorded as BLOCKS / BLOCKED BY links on an issue." />
+        <NotEnoughData what="Nothing here is blocked. Dependencies are recorded as BLOCKS / BLOCKED BY links on a work item." />
       ) : (
         <ul className="space-y-2">
           {blocked.map((b) => (

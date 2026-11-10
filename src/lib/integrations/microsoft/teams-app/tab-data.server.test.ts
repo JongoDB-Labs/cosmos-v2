@@ -67,7 +67,7 @@ describe("Teams tab data (e2e DB)", () => {
       ["In progress", ["Ship it"]],
       ["Todo", ["Write the plan"]],
     ]);
-    expect(v.groups[0].items[0]).toMatchObject({ ref: `${s.key}-2`, url: `${ORIGIN}/${s.org.slug}/issues?item=${s.key}-2`, project: "Tabs project", assignee: "Alice" });
+    expect(v.groups[0].items[0]).toMatchObject({ ref: `${s.key}-2`, url: `${ORIGIN}/${s.org.slug}/work-items?item=${s.key}-2`, project: "Tabs project", assignee: "Alice" });
   });
 
   it("channel tab: a project's open items, and nothing for a project the person can't open", async () => {
@@ -86,7 +86,7 @@ describe("Teams tab data (e2e DB)", () => {
     await prisma.workItem.updateMany({ where: { projectId: s.project.id, ticketNumber: 1 }, data: { title: "CUI//SP-PRVCY payroll" } });
     const v = (await myWork(await s.as(s.alice), ORIGIN))!;
     const restricted = v.groups.find((g) => g.status === "Restricted")!;
-    expect(restricted.items).toEqual([{ ref: `${s.key}-1`, url: `${ORIGIN}/${s.org.slug}/issues?item=${s.key}-1`, restricted: true }]);
+    expect(restricted.items).toEqual([{ ref: `${s.key}-1`, url: `${ORIGIN}/${s.org.slug}/work-items?item=${s.key}-1`, restricted: true }]);
     expect(JSON.stringify(v)).not.toContain("payroll");
   });
 

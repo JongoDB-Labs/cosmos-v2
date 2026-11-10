@@ -31,7 +31,7 @@ export function QueryLanguageOrgSwitch({ orgId }: { orgId: string }) {
     <SectionCard
       icon={TextSearch}
       title="Query language (beta)"
-      description="Filter Issues with chips or a query language, e.g. assignee = me AND priority IN (HIGH, CRITICAL)."
+      description="Filter work items with chips or a query language, e.g. assignee = me AND priority IN (HIGH, CRITICAL)."
     >
       <label className="flex items-start justify-between gap-4 text-sm">
         <span>

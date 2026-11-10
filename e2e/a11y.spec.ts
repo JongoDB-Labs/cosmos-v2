@@ -1,7 +1,7 @@
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixtures/auth";
 import { runAxe, blocking } from "./fixtures/axe";
-import { openIssues, resetQueryLanguage, setQueryLanguage } from "./fixtures/issues-query";
+import { openIssues, resetQueryLanguage, setQueryLanguage } from "./fixtures/work-items-query";
 
 /**
  * Accessibility regression harness (ported from cosmos-prod). Signs in and runs
@@ -41,7 +41,7 @@ const PAGES: Array<{ name: string; path: string; redirects?: true }> = [
   { name: "projects", path: "/projects" },
   { name: "project board (kanban)", path: `/projects/${KEY}` },
   { name: "board templates", path: `/projects/${KEY}/boards/new` },
-  { name: "issues", path: "/issues" },
+  { name: "issues", path: "/work-items" },
   { name: "time-tracking", path: "/time-tracking" },
   // CRM group.
   { name: "crm", path: "/crm" },

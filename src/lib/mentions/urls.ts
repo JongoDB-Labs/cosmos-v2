@@ -30,7 +30,7 @@ export function entityUrl(type: EntityType, parts: UrlParts): string | null {
     case "project":
       return k ? `/${o}/projects/${k}` : null;
     case "workItem":
-      return `/${o}/issues?item=${id}`;
+      return `/${o}/work-items?item=${id}`;
     case "note":
       return `/${o}/notes?note=${id}`;
     case "meeting":

@@ -3,7 +3,7 @@ import { createIssueFromBoard } from "./fixtures/create-issue";
 
 /**
  * E2E journey — create a work item (kanban card). On the seeded project's
- * default board, open the shared "New issue" dialog, fill in a title, and
+ * default board, open the shared "New work item" dialog, fill in a title, and
  * title, submit with Enter, and verify the card appears. Exercises auth + the
  * kanban board + the work-item create mutation + the optimistic board update.
  *
@@ -41,7 +41,7 @@ test.describe("journey — create work item", () => {
       page.getByRole("heading", { name: "Backlog" }).first(),
     ).toBeVisible({ timeout: 20_000 });
 
-    // The board's "New issue" dialog — the same one the Issues page uses. It
+    // The board's "New work item" dialog — the same one the Issues page uses. It
     // replaced the per-column "Add card" quick-create when every board was
     // unified onto one create form.
     await createIssueFromBoard(page, title, "Backlog");

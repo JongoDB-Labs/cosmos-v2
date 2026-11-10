@@ -51,9 +51,9 @@ test.describe("@-tag any entity — chat", () => {
 
     const chip = page.getByRole("link", { name: /Falcon telemetry/ }).last();
     await expect(chip).toBeVisible();
-    await expect(chip).toHaveAttribute("href", /\/issues\?item=/);
+    await expect(chip).toHaveAttribute("href", /\/work-items\?item=/);
 
-    // Deep-link: clicking the chip lands on /issues and auto-opens the item's
+    // Deep-link: clicking the chip lands on /work-items and auto-opens the item's
     // detail sheet (fetched by id even though it's not on the current page).
     //
     // The title is asserted on the editable Title field rather than a heading:
@@ -62,7 +62,7 @@ test.describe("@-tag any entity — chat", () => {
     // Reading the field's value is also the stronger check — it proves the right
     // item was fetched AND that it landed in the editor ready to change.
     await chip.click();
-    await expect(page).toHaveURL(/\/issues/);
+    await expect(page).toHaveURL(/\/work-items/);
     await expect(
       page.getByRole("dialog").getByRole("textbox", { name: "Title" }),
     ).toHaveValue(/Falcon telemetry pipeline/, { timeout: 15_000 });

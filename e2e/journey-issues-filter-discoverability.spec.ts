@@ -1,7 +1,7 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { test, expect } from "./fixtures/auth";
-import { setQueryLanguage, openIssues } from "./fixtures/issues-query";
+import { setQueryLanguage, openIssues } from "./fixtures/work-items-query";
 
 /**
  * E2E journey — the Issues filter bar is DISCOVERABLE, not merely capable.
@@ -111,7 +111,7 @@ test.describe("journey — Issues filters are findable", () => {
     }
   });
 
-  test("the query's actions sit below the query bar, and New issue outlives an empty result", async ({ page }) => {
+  test("the query's actions sit below the query bar, and New work item outlives an empty result", async ({ page }) => {
     test.setTimeout(90_000);
     await setQueryLanguage(page.request, true);
     try {
@@ -142,10 +142,10 @@ test.describe("journey — Issues filters are findable", () => {
       expect(Math.abs(csv.y - save.y)).toBeLessThan(4);
 
       // The first-run dead end: zero results used to take the page's only
-      // "New issue" button with them.
-      await expect(page.getByRole("button", { name: /New issue/i })).toBeVisible();
+      // "New work item" button with them.
+      await expect(page.getByRole("button", { name: /New work item/i })).toBeVisible();
 
-      await page.screenshot({ path: "test-results/issues-query-actions.png" });
+      await page.screenshot({ path: "test-results/work-items-query-actions.png" });
     } finally {
       await setQueryLanguage(page.request, false);
     }

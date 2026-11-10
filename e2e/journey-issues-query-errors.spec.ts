@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/auth";
-import { editor, openIssues, resetQueryLanguage, setQueryLanguage } from "./fixtures/issues-query";
+import { editor, openIssues, resetQueryLanguage, setQueryLanguage } from "./fixtures/work-items-query";
 
 /**
  * Mistakes in a query are shown where they are, with a fix when there is an

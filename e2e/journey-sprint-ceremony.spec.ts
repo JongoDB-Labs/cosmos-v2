@@ -262,7 +262,7 @@ test.describe("journey — sprint ceremony boards", () => {
     // BUG GUARD: it pointed at /projects/<key>/items/<id>, which is not a route
     // in this app — the link 404'd. Assert the shape AND that it resolves.
     const href = await tracked.getAttribute("href");
-    expect(href).toMatch(/\/issues\?item=[0-9a-f-]{36}$/i);
+    expect(href).toMatch(/\/work-items\?item=[0-9a-f-]{36}$/i);
     const resolved = await page.request.get(href!);
     expect(resolved.status()).toBe(200);
 

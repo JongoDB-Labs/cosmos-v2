@@ -18,10 +18,10 @@ import { notifyError } from "@/lib/errors/notify";
 import { Search } from "lucide-react";
 
 /**
- * "Add issues to a sprint" picker (FR 0e31d1ef). Interval planning previously
- * meant editing each issue one at a time; this lets a planner multi-select
- * project issues from the Intervals workspace and move them into an interval in one
- * action (via the bulk work-items endpoint). Moving an issue only changes its
+ * "Add work items to a sprint" picker (FR 0e31d1ef). Interval planning previously
+ * meant editing each work item one at a time; this lets a planner multi-select
+ * project work items from the Intervals workspace and move them into an interval in one
+ * action (via the bulk work-items endpoint). Moving a work item only changes its
  * interval — status/column are untouched.
  */
 
@@ -32,20 +32,20 @@ interface WorkItemLite {
   intervalId: string | null;
 }
 
-interface AddIssuesDialogProps {
+interface AddWorkItemsDialogProps {
   orgId: string;
   projectId: string;
   projectKey: string;
   interval: { id: string; name: string } | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Called after issues are successfully added (parent refetches intervals). */
+  /** Called after work items are successfully added (parent refetches intervals). */
   onAdded: () => void;
   /** intervalId → interval name, for the "currently in X" badge on candidates. */
   intervalNames: Record<string, string>;
 }
 
-export function AddIssuesDialog({
+export function AddWorkItemsDialog({
   orgId,
   projectId,
   projectKey,
@@ -54,7 +54,7 @@ export function AddIssuesDialog({
   onOpenChange,
   onAdded,
   intervalNames,
-}: AddIssuesDialogProps) {
+}: AddWorkItemsDialogProps) {
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
   const [items, setItems] = useState<WorkItemLite[]>([]);
   const [loading, setLoading] = useState(false);
@@ -62,7 +62,7 @@ export function AddIssuesDialog({
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Load candidate issues each time the dialog opens.
+  // Load candidate work items each time the dialog opens.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!open || !interval) return;
@@ -73,11 +73,11 @@ export function AddIssuesDialog({
     (async () => {
       try {
         const res = await fetch(`${basePath}/work-items`);
-        if (!res.ok) throw new Error("Failed to load issues");
+        if (!res.ok) throw new Error("Failed to load work items");
         const all: WorkItemLite[] = await res.json();
         if (!cancelled) setItems(all);
       } catch (err) {
-        if (!cancelled) notifyError(err, "Couldn't load issues.");
+        if (!cancelled) notifyError(err, "Couldn't load work items.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -134,11 +134,11 @@ export function AddIssuesDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: [...selected], update: { intervalId: interval.id } }),
       });
-      if (!res.ok) throw new Error("Failed to add issues");
+      if (!res.ok) throw new Error("Failed to add work items");
       onAdded();
       onOpenChange(false);
     } catch (err) {
-      notifyError(err, "Couldn't add the selected issues to the interval.");
+      notifyError(err, "Couldn't add the selected work items to the interval.");
     } finally {
       setSaving(false);
     }
@@ -148,9 +148,9 @@ export function AddIssuesDialog({
     <Dialog open={open} onOpenChange={(o) => !saving && onOpenChange(o)}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add issues to {interval?.name}</DialogTitle>
+          <DialogTitle>Add work items to {interval?.name}</DialogTitle>
           <DialogDescription>
-            Pick issues to move into this interval. Their status doesn&apos;t change — only the interval.
+            Pick work items to move into this interval. Their status doesn&apos;t change — only the interval.
           </DialogDescription>
         </DialogHeader>
 
@@ -185,7 +185,7 @@ export function AddIssuesDialog({
             </div>
           ) : candidates.length === 0 ? (
             <p className="p-6 text-center text-sm text-muted-foreground">
-              {items.length === 0 ? "No issues in this project yet." : "Every issue is already in this interval."}
+              {items.length === 0 ? "No work items in this project yet." : "Every work item is already in this interval."}
             </p>
           ) : (
             candidates.map((i) => (

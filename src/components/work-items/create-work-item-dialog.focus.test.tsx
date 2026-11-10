@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Every opener drives "New issue" through `open`, not a Dialog.Trigger, so
+// Every opener drives "New work item" through `open`, not a Dialog.Trigger, so
 // base-ui had no trigger to hand focus back to: closing dropped focus on
 // <body> and a keyboard user started over from the top of the page.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -49,7 +49,7 @@ function Opener() {
   return (
     <>
       <button type="button" onClick={() => setOpen(true)}>
-        New issue
+        New work item
       </button>
       <CreateWorkItemDialog
         orgId="o1"
@@ -62,14 +62,14 @@ function Opener() {
   );
 }
 
-describe("New issue dialog focus", () => {
+describe("New work item dialog focus", () => {
   it("returns focus to the button that opened it when it closes", async () => {
     const user = userEvent.setup();
     render(<Opener />);
-    const opener = screen.getByRole("button", { name: "New issue" });
+    const opener = screen.getByRole("button", { name: "New work item" });
     opener.focus();
     await user.keyboard("{Enter}");
-    await screen.findByRole("dialog", { name: "New issue" });
+    await screen.findByRole("dialog", { name: "New work item" });
 
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());

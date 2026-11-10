@@ -99,7 +99,7 @@ export async function allocateTicketNumber(
 
 /**
  * First number of a contiguous block of `count` ticket numbers, for the callers
- * that create several items at once (converting a table to issues, duplicating
+ * that create several items at once (converting a table to work items, duplicating
  * an item with its children).
  *
  * Those callers can equally take a single `allocateTicketNumber` and increment

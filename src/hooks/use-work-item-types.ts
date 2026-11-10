@@ -50,7 +50,7 @@ const FALLBACK_BARE_KEYS = ["EPIC", "STORY", "TASK", "BUG", "SUBTASK"] as const;
  * Each of these names an entity that already exists in its own right — Goal,
  * KeyResult, Kpi, Milestone, Objective and Risk are all Prisma models with
  * their own boards and APIs. Having them as work-item types too meant one word
- * described two unrelated rows: a "Milestone" created from a New issue dialog
+ * described two unrelated rows: a "Milestone" created from a New work item dialog
  * is a WorkItem and never appears on the Milestones board, which is exactly
  * what got reported.
  *

@@ -14,7 +14,7 @@ import {
   Circle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { FEATURE_OPTIONS } from "@/lib/project-features";
+import { PICKABLE_FEATURE_OPTIONS } from "@/lib/project-features";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -73,8 +73,13 @@ interface TemplateEditorProps {
 // are real feature keys, so the project PUT filtered them out and every project
 // created from such a template got flags that did nothing. It also omitted
 // roadmap, files and the whole PM Dashboard suite, which a template had no way
-// to express. FEATURE_OPTIONS is the same list the project Settings picker uses.
-const FEATURE_FLAGS = FEATURE_OPTIONS;
+// to express. This is the same list the project Settings picker offers.
+//
+// PICKABLE, not the full list: a template is a blueprint for projects that do
+// not exist yet, so a retired module has no business being stamped into new
+// ones. (The project picker differs -- it still shows a retired module that
+// project already has, so it can be turned off.)
+const FEATURE_FLAGS = PICKABLE_FEATURE_OPTIONS;
 
 // ---- Board type badge ----
 

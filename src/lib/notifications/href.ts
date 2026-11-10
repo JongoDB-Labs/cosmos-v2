@@ -3,7 +3,7 @@
  *
  * Notification writers are not consistent about `url`: some store an
  * org-relative path ("/notes/x"), others an already-prefixed one
- * ("/{slug}/issues?item=…"). Every reader must prefix the slug exactly once.
+ * ("/{slug}/work-items?item=…"). Every reader must prefix the slug exactly once.
  * The Inbox page didn't, and on 2.465.0 every one of its links pointed at
  * "/{slug}/{slug}/…" and landed on a 404. The bell had its own copy of the
  * rule; both now use this.

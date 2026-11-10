@@ -231,7 +231,7 @@ export function FilterBar({
             onBlur={onCommitText}
             placeholder="Search title or description…"
             className="pl-8"
-            aria-label="Search issues"
+            aria-label="Search work items"
           />
         </div>
 

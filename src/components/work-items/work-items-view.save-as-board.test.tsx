@@ -34,7 +34,7 @@ let params = new URLSearchParams();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
   useSearchParams: () => params,
-  usePathname: () => "/acme/issues",
+  usePathname: () => "/acme/work-items",
 }));
 vi.spyOn(window.history, "replaceState").mockImplementation(() => {});
 vi.mock("next/dynamic", () => ({ default: () => () => <textarea aria-label="Query" /> }));
@@ -64,7 +64,7 @@ vi.mock("@/lib/query/json-fetcher", async (importActual) => {
   return { ...actual, jsonFetch: vi.fn() };
 });
 
-import { IssuesView } from "./issues-view";
+import { WorkItemsView } from "./work-items-view";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { FIELDS } from "@/lib/query/fields";
 import { FUNCTIONS } from "@/lib/query/functions";
@@ -94,7 +94,7 @@ function renderView() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <IssuesView orgId="o1" orgSlug="acme" />
+      <WorkItemsView orgId="o1" orgSlug="acme" />
     </QueryClientProvider>,
   );
 }
@@ -302,28 +302,28 @@ describe("Issues — query actions sit with the query", () => {
     expect(row.className).toContain("flex-wrap");
   });
 
-  it("offers 'New issue' on an org with no issues at all", async () => {
-    // The first-run dead end: the results header held the ONLY "New issue"
+  it("offers 'New work item' on an org with no issues at all", async () => {
+    // The first-run dead end: the results header held the ONLY "New work item"
     // button on the page and rendered only when `rows.length > 0`, while the
     // empty state offers "Clear filters" and nothing else — and not even that
     // unless a filter is active. A brand-new org therefore saw "No issues yet"
     // with no way to create the first one from this page.
     renderView();
     await screen.findByText("No issues yet");
-    await waitFor(() => expect(screen.queryByRole("button", { name: /New issue/i })).not.toBeNull());
+    await waitFor(() => expect(screen.queryByRole("button", { name: /New work item/i })).not.toBeNull());
   });
 
-  it("control: no create permission → still no New issue button", async () => {
+  it("control: no create permission → still no New work item button", async () => {
     can.mockImplementation(((p: unknown) => p !== Permission.ITEM_CREATE) as never);
     renderView();
     await screen.findByText("No issues yet");
     await screen.findByRole("button", { name: "Save filter" });
-    expect(screen.queryByRole("button", { name: /New issue/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /New work item/i })).toBeNull();
   });
 });
 
 /**
- * The third door: `/issues?filter=<id>&saveBoard=1`.
+ * The third door: `/work-items?filter=<id>&saveBoard=1`.
  *
  * "How do I save a filter as a board?" has now been asked three times about a
  * shipped feature, because both existing doors are on this page — a toolbar

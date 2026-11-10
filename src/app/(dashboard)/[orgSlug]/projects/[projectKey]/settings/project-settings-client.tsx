@@ -31,7 +31,7 @@ import {
 // The optional project features that surface as board tabs (board-tabs.tsx).
 // Defined once alongside the TOGGLEABLE_FEATURES the project PUT validates
 // against, so this picker cannot offer a key the API silently drops.
-import { FEATURE_OPTIONS } from "@/lib/project-features";
+import { FEATURE_OPTIONS, isRetiredFeature } from "@/lib/project-features";
 import { useWorkItemTypes } from "@/hooks/use-work-item-types";
 import { resolveLinkTypeId } from "@/lib/okr/link-type-default";
 
@@ -404,7 +404,14 @@ export function ProjectSettingsClient({
           ) : null}
         </div>
         <div className="divide-y">
-          {FEATURE_OPTIONS.map((f) => {
+          {/* Offered: everything still on the menu, PLUS any retired module
+              this project already has on. A plain filter would hide a live
+              module from the only screen that can turn it off -- the project
+              would be stuck with it. Retired ones therefore appear only where
+              they are already in use, and only to be switched off. */}
+          {FEATURE_OPTIONS.filter(
+            (f) => !isRetiredFeature(f.key) || features.includes(f.key),
+          ).map((f) => {
             const on = features.includes(f.key);
             return (
               <div

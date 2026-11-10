@@ -49,6 +49,20 @@ export type FeatureOption = {
   key: ToggleableFeature;
   label: string;
   description: string;
+  /**
+   * RETIRED: still honoured on projects that already have it, never offered
+   * to anyone new.
+   *
+   * This is deliberately not a deletion. Removing a key from
+   * TOGGLEABLE_FEATURES makes the project PUT filter it out, so the next save
+   * of a project's settings -- for any unrelated reason -- would silently
+   * strip the flag and take the tab away from a project mid-flight. Keeping
+   * the key and hiding the checkbox retires the feature without touching
+   * anyone's data.
+   *
+   * See PICKABLE_FEATURE_OPTIONS below, which is what every picker renders.
+   */
+  retired?: boolean;
 };
 
 /** Labelled features for any UI that lets someone pick them. */
@@ -60,18 +74,48 @@ export const FEATURE_OPTIONS = [
   { key: "interval", label: "Intervals / Sprints", description: "Time-boxed iterations of work." },
   { key: "roadmap", label: "Roadmap", description: "Navigable program roadmap (phases, LOEs, risks, decisions) that issues link to as source-of-truth." },
   { key: "files", label: "Files", description: "Upload & navigate project documents (docx/pdf/pptx/xlsx); convert them to items." },
-  { key: "pm-dashboard", label: "PM Dashboard", description: "GovCon program-management suite: risk/change/blocked/schedule/deliverables/vendors/staffing/CLIN registers with drill-down, derived metrics & Excel export." },
-  // PM Dashboard register sub-tabs (require PM Dashboard; each adds a sub-tab).
-  { key: "risk-register", label: "PM · Risk Register", description: "Risk register sub-tab (likelihood × impact, mitigation, owner)." },
-  { key: "change-log", label: "PM · Change Log", description: "Change-request register sub-tab (cost/schedule impact, approvals)." },
-  { key: "blocked-items", label: "PM · Blocked Items", description: "Blocker register sub-tab (what unblocks, owner, escalation)." },
-  { key: "schedule-variance", label: "PM · Schedule", description: "Schedule/milestone variance sub-tab (baseline vs projected vs actual)." },
-  { key: "deliverables-tracker", label: "PM · Deliverables", description: "CDRL/deliverable tracker sub-tab (due dates, gov review, revisions)." },
-  { key: "vendors", label: "PM · Vendors", description: "Vendor/subcontract register sub-tab (agreements, value, performance)." },
-  { key: "staffing", label: "PM · Staffing", description: "Staffing & compliance sub-tab (allocation, CAC/NDA/training status)." },
-  { key: "clin-burn", label: "PM · CLIN Burn", description: "CLIN funding/burn sub-tab (ceiling, funded, period of performance)." },
-  { key: "program-calendar", label: "PM · Program Calendar", description: "Program events, engagements and milestones on a month/week/day calendar, with category and owner overlays." },
+  // ── RETIRED: the PM Dashboard suite ───────────────────────────────────
+  // Superseded by the org-level Program Management page (/program-management),
+  // which answers the same questions across the portfolio with a project
+  // picker instead of one tab per project. These stay honoured for projects
+  // that already have them -- see `retired` above for why they are not simply
+  // deleted -- and are offered to nobody new.
+  { key: "pm-dashboard", label: "PM Dashboard", retired: true, description: "Retired — superseded by the Program Management page. Projects that already use it keep it." },
+  { key: "risk-register", label: "PM · Risk Register", retired: true, description: "Risk register sub-tab (likelihood × impact, mitigation, owner)." },
+  { key: "change-log", label: "PM · Change Log", retired: true, description: "Change-request register sub-tab (cost/schedule impact, approvals)." },
+  { key: "blocked-items", label: "PM · Blocked Items", retired: true, description: "Blocker register sub-tab (what unblocks, owner, escalation)." },
+  { key: "schedule-variance", label: "PM · Schedule", retired: true, description: "Schedule/milestone variance sub-tab (baseline vs projected vs actual)." },
+  { key: "deliverables-tracker", label: "PM · Deliverables", retired: true, description: "CDRL/deliverable tracker sub-tab (due dates, gov review, revisions)." },
+  { key: "vendors", label: "PM · Vendors", retired: true, description: "Vendor/subcontract register sub-tab (agreements, value, performance)." },
+  { key: "staffing", label: "PM · Staffing", retired: true, description: "Staffing & compliance sub-tab (allocation, CAC/NDA/training status)." },
+  { key: "clin-burn", label: "PM · CLIN Burn", retired: true, description: "CLIN funding/burn sub-tab (ceiling, funded, period of performance)." },
+  { key: "program-calendar", label: "PM · Program Calendar", retired: true, description: "Program events, engagements and milestones on a month/week/day calendar, with category and owner overlays." },
 ] as const satisfies readonly FeatureOption[];
+
+/**
+ * What a picker should actually render: everything except the retired keys.
+ *
+ * Every UI that offers features to a human reads THIS. FEATURE_OPTIONS stays
+ * complete so the exhaustiveness check below still covers every toggleable
+ * key, and so a project holding a retired flag can still be shown a label for
+ * it rather than a raw key.
+ */
+const RETIRED_FEATURES: ReadonlySet<string> = new Set(
+  FEATURE_OPTIONS.filter((f) => "retired" in f && f.retired).map((f) => f.key),
+);
+
+/** Is this key retired — honoured where already set, offered to nobody new? */
+export function isRetiredFeature(key: string): boolean {
+  return RETIRED_FEATURES.has(key);
+}
+
+export const PICKABLE_FEATURE_OPTIONS: readonly FeatureOption[] =
+  FEATURE_OPTIONS.filter((f) => !RETIRED_FEATURES.has(f.key));
+
+/** The label for any key, retired or not — for rendering what a project HAS. */
+export function featureLabel(key: string): string {
+  return FEATURE_OPTIONS.find((f) => f.key === key)?.label ?? key;
+}
 
 /**
  * Compile-time guarantee that every toggleable key has a label. Adding a key to

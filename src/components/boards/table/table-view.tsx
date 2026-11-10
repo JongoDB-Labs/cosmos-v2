@@ -31,9 +31,9 @@ import {
 import { DataTable } from "@/components/ui/data-table";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
 import {
-  NewIssueButton,
-  type NewIssueHandle,
-} from "@/components/boards/shared/new-issue-button";
+  NewWorkItemButton,
+  type NewWorkItemHandle,
+} from "@/components/boards/shared/new-work-item-button";
 import { BoardCreateMenu } from "@/components/boards/shared/board-create-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -119,7 +119,7 @@ type EditingCell = {
 } | null;
 
 export function TableView({ orgId, projectId, projectKey, boardId }: TableViewProps) {
-  const newIssueRef = useRef<NewIssueHandle>(null);
+  const newIssueRef = useRef<NewWorkItemHandle>(null);
   const qc = useQueryClient();
   // A bulk move the workflow wants details for, asked once per transition.
   const { ask: askTransition, dialog: transitionDialog } = useTransitionPrompt();
@@ -544,7 +544,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
                 }),
             },
             {
-              label: "Copy issue key",
+              label: "Copy work item key",
               icon: Copy,
               onClick: () => {
                 void navigator.clipboard.writeText(
@@ -570,7 +570,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
                   toast.success("Issue duplicated");
                   void qc.invalidateQueries({ queryKey: itemsKey });
                 } catch (err) {
-                  notifyError(err, "Couldn't duplicate the issue.");
+                  notifyError(err, "Couldn't duplicate the work item.");
                 }
               },
             },
@@ -1059,7 +1059,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
     </span>
   )}
 
-  {/* View toggles first, then the primary action, so "New issue" is the
+  {/* View toggles first, then the primary action, so "New work item" is the
       band's right edge here as on every other board. */}
   <BoardToolbarActions>
     <DensityButton
@@ -1074,7 +1074,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       onClick={() => setDensity("compact")}
       icon={<Rows4 className="h-3.5 w-3.5" />}
     />
-    <NewIssueButton
+    <NewWorkItemButton
       ref={newIssueRef}
       orgId={orgId}
       projectId={projectId}

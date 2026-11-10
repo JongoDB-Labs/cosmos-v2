@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 // Where the create control sits, on the board Jon spends his time on.
 //
-// "New issue" led the Kanban toolbar (left edge, before the mode controls).
+// "New work item" led the Kanban toolbar (left edge, before the mode controls).
 // Every other board that has one puts it on the right: Backlog, Table and RAID
 // in an `ml-auto` group, Calendar on its month bar, Timeline after the lens and
 // zoom groups. The Issues page does the same and ALREADY enforces it by test
-// (issues-view.save-as-board.test.tsx asserts actions follow the query bar).
+// (work-items-view.save-as-board.test.tsx asserts actions follow the query bar).
 // Kanban -- and therefore SCRUM, which wraps it -- was the one outlier, so the
 // primary action moved depending on which board you were standing on.
 //
@@ -14,7 +14,7 @@
 // scannable.
 //
 // The accessible name does not change, which matters: `e2e/fixtures/create-issue.ts`
-// locates this button by the exact name "New issue" and that fixture backs
+// locates this button by the exact name "New work item" and that fixture backs
 // journey-create-work-item and journey-work-item-drag.
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
@@ -135,15 +135,15 @@ describe("Kanban toolbar — the create control is on the right", () => {
     installFetch();
     renderKanban();
     expect(
-      await screen.findByRole("button", { name: "New issue" }),
+      await screen.findByRole("button", { name: "New work item" }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: /^select$/i })).toBeTruthy();
   });
 
-  it("puts New issue after the mode controls in document order", async () => {
+  it("puts New work item after the mode controls in document order", async () => {
     installFetch();
     renderKanban();
-    const newIssue = await screen.findByRole("button", { name: "New issue" });
+    const newIssue = await screen.findByRole("button", { name: "New work item" });
     const select = screen.getByRole("button", { name: /^select$/i });
     expect(
       select.compareDocumentPosition(newIssue) &
@@ -157,7 +157,7 @@ describe("Kanban toolbar — the create control is on the right", () => {
     // Backlog, Table and RAID use.
     installFetch();
     renderKanban();
-    const newIssue = await screen.findByRole("button", { name: "New issue" });
+    const newIssue = await screen.findByRole("button", { name: "New work item" });
     expect(newIssue.closest('[class*="ml-auto"]')).not.toBeNull();
   });
 
@@ -165,7 +165,7 @@ describe("Kanban toolbar — the create control is on the right", () => {
     installFetch();
     renderKanban();
     expect(
-      await screen.findByRole("button", { name: "New issue" }),
+      await screen.findByRole("button", { name: "New work item" }),
     ).toBeTruthy();
   });
 });

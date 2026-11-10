@@ -27,7 +27,7 @@ vi.mock("next/navigation", () => ({
   // The query is written with history.replaceState (below), never router.replace.
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => params,
-  usePathname: () => "/acme/issues",
+  usePathname: () => "/acme/work-items",
 }));
 vi.spyOn(window.history, "replaceState").mockImplementation((_state, _title, url) => replaceSpy(String(url)));
 vi.mock("next/dynamic", () => ({ default: () => () => <textarea aria-label="Query" /> }));
@@ -47,7 +47,7 @@ vi.mock("@/lib/query/json-fetcher", async (importActual) => {
   return { ...actual, jsonFetch: vi.fn() };
 });
 
-import { IssuesView } from "./issues-view";
+import { WorkItemsView } from "./work-items-view";
 import { jsonFetch, FetchError } from "@/lib/query/json-fetcher";
 import { FIELDS } from "@/lib/query/fields";
 import { FUNCTIONS } from "@/lib/query/functions";
@@ -89,7 +89,7 @@ function renderView() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const tree = () => (
     <QueryClientProvider client={qc}>
-      <IssuesView orgId="o1" orgSlug="acme" />
+      <WorkItemsView orgId="o1" orgSlug="acme" />
     </QueryClientProvider>
   );
   const r = render(tree());
@@ -104,7 +104,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("IssuesView with CQL on", () => {
+describe("WorkItemsView with CQL on", () => {
   it("searches with the URL's query, and only it", async () => {
     params = new URLSearchParams({ cql: "priority = HIGH" });
     serve(true);
@@ -165,7 +165,7 @@ describe("IssuesView with CQL on", () => {
   });
 });
 
-describe("IssuesView with CQL off", () => {
+describe("WorkItemsView with CQL off", () => {
   it("keeps the legacy filter bar and never sends cql=", async () => {
     serve(false);
     renderView();

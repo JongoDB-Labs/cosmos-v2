@@ -1043,7 +1043,7 @@ export function CardDetailSheet({
       const fresh = await fetch(`${basePath}/${item.id}`);
       if (fresh.ok) onUpdate((await fresh.json()) as WorkItem);
       toast.success(
-        `Split into ${result.copies.length + 1} issues`,
+        `Split into ${result.copies.length + 1} work items`,
         { description: `New: ${result.copies.map((c) => `#${c.ticketNumber}`).join(", ")}` },
       );
     } catch (err) {

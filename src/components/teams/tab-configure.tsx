@@ -26,7 +26,7 @@ export function TabConfigure({ origin, org, projects }: { origin: string; org: s
         .setConfig({
           entityId: `cosmos-project-${org}-${p.key}`,
           contentUrl: `${origin}/teams/tab/view?org=${encodeURIComponent(org)}&project=${encodeURIComponent(p.key)}`,
-          websiteUrl: `${origin}/${encodeURIComponent(org)}/issues`,
+          websiteUrl: `${origin}/${encodeURIComponent(org)}/work-items`,
           suggestedDisplayName: p.label,
         })
         .then(() => evt.notifySuccess(), () => evt.notifyFailure("Teams didn't save the tab."));

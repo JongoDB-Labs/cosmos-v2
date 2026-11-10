@@ -71,7 +71,7 @@ interface ConvertResult {
 
 // The convert kinds a block can become — drives the per-block type picker and toasts.
 const CONVERT_TYPES: { value: ConvertItemType; label: string; noun: string; icon: LucideIcon }[] = [
-  { value: "ISSUE", label: "Issue", noun: "issue", icon: Plus },
+  { value: "ISSUE", label: "Work item", noun: "work item", icon: Plus },
   { value: "MILESTONE", label: "Milestone", noun: "milestone", icon: Flag },
   { value: "OBJECTIVE", label: "Objective (OKR)", noun: "objective", icon: Target },
   { value: "GOAL", label: "Goal", noun: "goal", icon: Goal },
@@ -207,7 +207,7 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
       }),
     invalidate: [["document-links", projectId, selectedId ?? "none"], ["work-items", projectId]],
     onSuccess: (res) => {
-      toast.success(`Created ${res.count} issue${res.count === 1 ? "" : "s"}`);
+      toast.success(`Created ${res.count} work item${res.count === 1 ? "" : "s"}`);
       setTableModal(null);
     },
     onError: (e) => notifyError(e, "Couldn't map the table."),
@@ -483,7 +483,7 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
                             onClick={() => acceptProposal(p)}
                             disabled={!p.sourceAnchor || convertMutation.isPending}
                             className="inline-flex shrink-0 items-center gap-1 rounded border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--text)] hover:bg-[var(--surface)] disabled:opacity-50"
-                            title={p.sourceAnchor ? "Create a linked issue" : "No source block to link"}
+                            title={p.sourceAnchor ? "Create a linked work item" : "No source block to link"}
                           >
                             <Check className="h-3 w-3" /> Accept
                           </button>
@@ -530,7 +530,7 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
                                   type="button"
                                   onClick={() => openTableModal(b)}
                                   className="inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-xs text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text)] group-hover:opacity-100"
-                                  title="Create one issue per row (map a column to the title)"
+                                  title="Create one work item per row (map a column to the title)"
                                 >
                                   <Rows3 className="h-3 w-3" /> Map rows
                                 </button>
@@ -586,7 +586,7 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
       <Dialog open={tableModal !== null} onOpenChange={(o) => { if (!o) setTableModal(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Map table rows to issues</DialogTitle>
+            <DialogTitle>Map table rows to work items</DialogTitle>
             <DialogDescription>
               Create one issue per row. Pick the column to use as the issue title; the
               remaining columns become each issue&apos;s description.
