@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.542.0",
+    date: "2026-11-10",
+    title: "The program calendar\u2019s Owners, Categories and Filters menus open",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The three menus that pick what the program calendar shows did not open at all. The buttons looked and behaved like buttons and nothing happened, so there was no way to narrow the calendar to a category or an owner.",
+      },
+      {
+        kind: "fix",
+        text: "The Day, Week and Month buttons are now announced with their proper names. They were lowercase text styled to look capitalised, so a screen reader read \u201cday\u201d while the screen said \u201cDay\u201d.",
+      },
+    ],
+  },
+  {
     version: "2.541.0",
     date: "2026-11-10",
     title: "A program calendar for events, engagements and milestones",

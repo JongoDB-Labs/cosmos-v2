@@ -6,13 +6,14 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuLabel,
+  DropdownMenuGroup,
   DropdownMenuCheckboxItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ChipCategory } from "./event-chip";
 
@@ -87,6 +88,17 @@ export function CalendarToolbar({
   onNew: () => void;
   canCreate: boolean;
 }) {
+  // `DropdownMenuTrigger` renders its own button via className, as filter-bar
+  // and the other board menus do. It must NOT be given `render={<Button/>}`:
+  // that form compiles and renders a perfectly good-looking button which never
+  // opens the menu, because the trigger's behaviour is not forwarded onto a
+  // composite component. All three overlay menus were dead that way, and
+  // nothing but opening the page would have shown it.
+  const triggerClass = cn(
+    "inline-flex h-8 items-center gap-1 rounded-md border border-input px-2.5 text-xs font-medium transition-colors",
+    "hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+  );
+
   // No selection means "everything", which is what an empty filter should mean
   // and is also the state a fresh visitor arrives in.
   const allCats = selectedCategories.length === 0;
@@ -110,15 +122,16 @@ export function CalendarToolbar({
 
       <div className="ml-auto flex flex-wrap items-center gap-2">
         <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button variant="outline" size="sm">
-                Owners
-                {selectedOwners.length ? ` (${selectedOwners.length})` : ""}
-              </Button>
-            }
-          />
+          <DropdownMenuTrigger className={triggerClass}>
+            Owners
+            {selectedOwners.length ? ` (${selectedOwners.length})` : ""}
+            <ChevronDown className="h-3 w-3" />
+          </DropdownMenuTrigger>
           <DropdownMenuContent className="w-64">
+            {/* A label is a Base UI group PART: outside <Menu.Group> it throws
+                "MenuGroupContext is missing" and the whole menu fails to
+                render — the trigger then looks fine and simply never opens. */}
+            <DropdownMenuGroup>
             <DropdownMenuLabel>Owners</DropdownMenuLabel>
             {owners.map((o) => (
               <DropdownMenuCheckboxItem
@@ -130,9 +143,10 @@ export function CalendarToolbar({
                 <span className="ml-2 tabular-nums text-xs text-muted-foreground">{o.count}</span>
               </DropdownMenuCheckboxItem>
             ))}
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel>Sort events by</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={sort} onValueChange={(v) => onSort(v as SortKey)}>
+              <DropdownMenuLabel>Sort events by</DropdownMenuLabel>
               <DropdownMenuRadioItem value="owner">Owner</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="category">Category</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="start">Start time</DropdownMenuRadioItem>
@@ -141,17 +155,15 @@ export function CalendarToolbar({
         </DropdownMenu>
 
         <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button variant="outline" size="sm">
-                Categories
-                <span className="ml-1 text-muted-foreground">
-                  {allCats ? "All" : selectedCategories.length}
-                </span>
-              </Button>
-            }
-          />
+          <DropdownMenuTrigger className={triggerClass}>
+            Categories
+            <span className="text-muted-foreground">
+              {allCats ? "All" : selectedCategories.length}
+            </span>
+            <ChevronDown className="h-3 w-3" />
+          </DropdownMenuTrigger>
           <DropdownMenuContent className="w-72">
+            <DropdownMenuGroup>
             <DropdownMenuLabel>Show categories</DropdownMenuLabel>
             {categories.map((c) => (
               <DropdownMenuCheckboxItem
@@ -170,6 +182,7 @@ export function CalendarToolbar({
                 </span>
               </DropdownMenuCheckboxItem>
             ))}
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => onAllCategories(true)}>Select all</DropdownMenuItem>
             <DropdownMenuItem onClick={() => onAllCategories(false)}>Clear</DropdownMenuItem>
@@ -177,14 +190,12 @@ export function CalendarToolbar({
         </DropdownMenu>
 
         <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button variant="outline" size="sm">
-                Filters{activeFilters ? ` (${activeFilters})` : ""}
-              </Button>
-            }
-          />
+          <DropdownMenuTrigger className={triggerClass}>
+            Filters{activeFilters ? ` (${activeFilters})` : ""}
+            <ChevronDown className="h-3 w-3" />
+          </DropdownMenuTrigger>
           <DropdownMenuContent className="w-64">
+            <DropdownMenuGroup>
             <DropdownMenuLabel>Custom filter</DropdownMenuLabel>
             <DropdownMenuCheckboxItem
               checked={filters.showOnDashboardOnly}
@@ -204,6 +215,7 @@ export function CalendarToolbar({
             >
               Has a deliverable
             </DropdownMenuCheckboxItem>
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() =>
@@ -220,19 +232,24 @@ export function CalendarToolbar({
         </DropdownMenu>
 
         <div className="flex items-center rounded-md border p-0.5" role="group" aria-label="Calendar view">
-          {(["day", "week", "month"] as const).map((v) => (
+          {/* The LABEL is capitalised, not the CSS. `capitalize` on a lowercase
+              literal leaves the accessible name lowercase, so a screen reader
+              announces "day" and label-in-name no longer matches what is on
+              screen — the same defect the a11y spec records against OKR's old
+              view switcher. */}
+          {([["day", "Day"], ["week", "Week"], ["month", "Month"]] as const).map(([v, label]) => (
             <button
               key={v}
               type="button"
               onClick={() => onView(v)}
               aria-pressed={view === v}
               className={cn(
-                "rounded px-2.5 py-1 text-xs font-medium capitalize transition-colors",
+                "rounded px-2.5 py-1 text-xs font-medium transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
                 view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
               )}
             >
-              {v}
+              {label}
             </button>
           ))}
         </div>
