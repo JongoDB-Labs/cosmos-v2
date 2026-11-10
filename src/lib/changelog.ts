@@ -67,6 +67,10 @@ const RELEASES: Release[] = [
       },
       {
         kind: "improvement",
+        text: "Importing a program calendar now asks for the same permissions as editing one by hand: permission to change the calendar in order to import events at all, and permission to manage organization settings in order to add a category the sheet names but the organization does not have yet. Without the second, a row naming an unknown category is reported instead of quietly creating one.",
+      },
+      {
+        kind: "improvement",
         text: "Dates and times are read as the sheet writes them, in the event\u2019s own time zone \u2014 including a zone written as \u201cEastern (ET)\u201d \u2014 so an imported event falls on the day it says, whatever machine the import was run on. An end date is inclusive, as it reads.",
       },
     ],

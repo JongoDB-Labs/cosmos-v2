@@ -46,11 +46,15 @@ const post = (entity: string) =>
     { params },
   );
 
+/** The acting context, held by identity: the engine's own gates read `auth`,
+ *  so what matters is that THIS object arrives, not one shaped like it. */
+const actingCtx = { orgId: "org-1", userId: "user-1", permissions: 0n };
+
 beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findFirst.mockResolvedValue({ id: "org-1", slug: "alpha" });
   prisma.project.findFirst.mockResolvedValue({ id: "proj-1" });
-  getAuthContext.mockResolvedValue({ orgId: "org-1", userId: "user-1", permissions: 0n });
+  getAuthContext.mockResolvedValue(actingCtx);
   canManageProject.mockResolvedValue(true);
   runEntityImport.mockResolvedValue({ total: 1, willCreate: 1, willUpdate: 0, skipped: 0, errors: [] });
 });
@@ -67,7 +71,13 @@ describe("POST project import — entity scope", () => {
       orgId: "org-1",
       projectId: "proj-1",
       userId: "user-1",
+      // The caller themself. The engine narrows name lookups by what this
+      // context can see and refuses the writes it may not make, so a context
+      // rebuilt here — rather than forwarded — would silently re-grant
+      // whatever the route assumed.
+      auth: actingCtx,
     });
+    expect(runEntityImport.mock.calls[0][0].auth).toBe(actingCtx);
   });
 
   it("refuses an org-scoped entity with a 409, and writes nothing", async () => {

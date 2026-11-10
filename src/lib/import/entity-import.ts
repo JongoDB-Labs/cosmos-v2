@@ -44,6 +44,7 @@ import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { computeRiskScore, riskLevelFromScore } from "@/lib/pm/risk";
 import {
+  assertMayImportProgramEvents,
   createProgramEventRow,
   eventDayKey,
   dayKey,
@@ -879,6 +880,16 @@ export async function runEntityImport(
   if (!def) {
     return { total: req.rows.length, willCreate: 0, willUpdate: 0, skipped: req.rows.length, errors: [{ row: 0, message: `Unknown entity "${req.entity}"` }] };
   }
+
+  // A second door is still a door. Each entity's own routes gate their writes
+  // on a permission of their own, and `ORG_IMPORT` — all either import route
+  // asks for — is not a superset of any of them; see
+  // `assertMayImportProgramEvents` for why that is invisible to an admin.
+  //
+  // Before any row is read, so a VALIDATE is refused too: a preview of an
+  // import the caller could never commit is not a preview, and running it would
+  // answer questions about the org's teams and deliverables on the way.
+  if (def.key === "programEvent") assertMayImportProgramEvents(ctx.auth);
 
   const mapped = mapRows(def, req);
   const errors: EntityImportRowError[] = [];

@@ -23,6 +23,7 @@ import { prisma } from "@/lib/db/client";
 import { runEntityImport } from "./entity-import";
 import { getEntityDef, guessFieldForHeader, type EntityDef } from "./entity-fields";
 import { parseWorkbook, matrixToObjects, guessHeaderRow } from "./parse-file";
+import { Permission } from "@/lib/rbac/permissions";
 
 /** The caller, as the engine now requires: name resolution narrows teams and
  *  deliverables to what this context can see. An org ADMIN sees every project,
@@ -679,5 +680,138 @@ describe("an import resolves and claims only what its caller may see", () => {
       select: { projectId: true },
     });
     expect(created).toBeNull();
+  });
+});
+
+describe("an import may not do what the calendar's own doors refuse", () => {
+  // The importer is a SECOND door onto `program_events` and `event_categories`.
+  // The dedicated routes gate those writes on BOARD_UPDATE (POST
+  // /program-events) and ORG_MANAGE_SETTINGS (POST /event-categories).
+  // `ORG_IMPORT` is neither, and it is not a superset of either: the stock
+  // roles hand all three to OWNER and ADMIN together, which is exactly why
+  // every spec above — all of them admins with `permissions: -1n` — is blind to
+  // this. A work role can grant ORG_IMPORT on its own.
+  let importerUserId = "";
+  /** A live category this block OWNS. The specs below must not lean on one an
+   *  earlier spec happened to create: a caller holding BOARD_UPDATE alone
+   *  cannot create categories, so borrowing one would make the positive
+   *  control pass or fail on test ORDER rather than on the rule. */
+  let liveCategory = "";
+
+  /** An actor holding precisely these bits and nothing else. */
+  const maskAuth = (...bits: bigint[]) =>
+    ({
+      userId: importerUserId,
+      orgId,
+      orgRole: "MEMBER",
+      abacRules: [],
+      permissions: bits.reduce((a, b) => a | b, 0n),
+      basePermissions: bits.reduce((a, b) => a | b, 0n),
+    }) as unknown as import("@/lib/rbac/check").AuthContext;
+
+  const READ_ONLY = [Permission.ORG_READ, Permission.BOARD_READ, Permission.ORG_IMPORT];
+
+  beforeAll(async () => {
+    const s = Math.random().toString(36).slice(2, 7);
+    importerUserId = (await prisma.user.create({
+      data: { email: `importer-${s}@test.local`, displayName: "Import Only" },
+    })).id;
+    await prisma.orgMember.create({ data: { orgId, userId: importerUserId } });
+    liveCategory = `Already Here ${s}`;
+    await prisma.eventCategory.create({
+      data: { orgId, name: liveCategory, tintRgb: "59 130 246", tintAlpha: 0.2, textColor: "#1D4ED8" },
+    });
+  });
+
+  const importOne = (
+    auth: ReturnType<typeof maskAuth>,
+    title: string,
+    category: string,
+    mode: "validate" | "commit" = "commit",
+  ) =>
+    runEntityImport(
+      { orgId, projectId: null, userId: importerUserId, auth },
+      {
+        entity: "programEvent",
+        mode,
+        mapping: { Title: "title", Category: "category", "Start date": "startDate", "All day": "allDay" },
+        rows: [{ Title: title, Category: category, "Start date": "2026-12-01", "All day": "Yes" }],
+      },
+    );
+
+  it("refuses the import outright when the caller cannot write the calendar", async () => {
+    const title = `No board update ${Math.random().toString(36).slice(2, 7)}`;
+    await expect(importOne(maskAuth(...READ_ONLY), title, liveCategory)).rejects.toThrow(/permission/i);
+    // The store is the fact, not the thrown error.
+    expect(await prisma.programEvent.findFirst({ where: { orgId, title }, select: { id: true } })).toBeNull();
+  });
+
+  it("refuses a VALIDATE too — a preview you could never commit is not a preview", async () => {
+    await expect(
+      importOne(maskAuth(...READ_ONLY), "Preview attempt", liveCategory, "validate"),
+    ).rejects.toThrow(/permission/i);
+  });
+
+  it("lets the same import through once BOARD_UPDATE is granted", async () => {
+    // The positive control. Without it, a gate that refused EVERY import would
+    // satisfy the two assertions above.
+    const title = `With board update ${Math.random().toString(36).slice(2, 7)}`;
+    // Names a category the org ALREADY has, so what is being measured is the
+    // write gate and not the category gate beside it.
+    const report = await importOne(maskAuth(...READ_ONLY, Permission.BOARD_UPDATE), title, liveCategory);
+    expect(report.errors).toEqual([]);
+    expect(report.created).toBe(1);
+    expect(await prisma.programEvent.findFirst({ where: { orgId, title }, select: { id: true } })).not.toBeNull();
+  });
+
+  it("will not CREATE a category for a caller who may not manage settings", async () => {
+    const name = `Unheard Of ${Math.random().toString(36).slice(2, 7)}`;
+    const title = `Names a new category ${Math.random().toString(36).slice(2, 7)}`;
+    const report = await importOne(maskAuth(...READ_ONLY, Permission.BOARD_UPDATE), title, name);
+
+    // A row error, not a thrown import: a sheet naming only categories the org
+    // already has is perfectly importable by this caller.
+    expect(report.created).toBe(0);
+    expect(report.errors.map((e) => e.message).join(" ")).toMatch(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    expect(await prisma.eventCategory.findFirst({ where: { orgId, name }, select: { id: true } })).toBeNull();
+    expect(await prisma.programEvent.findFirst({ where: { orgId, title }, select: { id: true } })).toBeNull();
+  });
+
+  it("creates it for a caller who MAY manage settings", async () => {
+    // Positive control for the clause above.
+    const name = `Heard Of ${Math.random().toString(36).slice(2, 7)}`;
+    const title = `Creates the category ${Math.random().toString(36).slice(2, 7)}`;
+    const report = await importOne(
+      maskAuth(...READ_ONLY, Permission.BOARD_UPDATE, Permission.ORG_MANAGE_SETTINGS),
+      title,
+      name,
+    );
+    expect(report.errors).toEqual([]);
+    expect(report.created).toBe(1);
+    expect(await prisma.eventCategory.findFirst({ where: { orgId, name }, select: { id: true } })).not.toBeNull();
+  });
+
+  it("refuses an ARCHIVED category the calendar's own write would refuse", async () => {
+    // `assertReferencesInOrg` requires `archivedAt: null`, so an event created
+    // through the dialog cannot sit on an archived category. Matching one here
+    // would let the importer file events under a category the filter chips no
+    // longer offer — and re-creating it is impossible anyway, since
+    // `@@unique([orgId, name])` is not scoped to the live ones.
+    const name = `Retired ${Math.random().toString(36).slice(2, 7)}`;
+    await prisma.eventCategory.create({
+      data: { orgId, name, tintRgb: "59 130 246", tintAlpha: 0.2, textColor: "#1D4ED8", archivedAt: new Date() },
+    });
+    const title = `Names an archived category ${Math.random().toString(36).slice(2, 7)}`;
+    const report = await importOne(
+      maskAuth(...READ_ONLY, Permission.BOARD_UPDATE, Permission.ORG_MANAGE_SETTINGS),
+      title,
+      name,
+    );
+
+    expect(report.created).toBe(0);
+    expect(report.errors.map((e) => e.message).join(" ")).toMatch(/archived/i);
+    expect(await prisma.programEvent.findFirst({ where: { orgId, title }, select: { id: true } })).toBeNull();
+    // And it did not quietly make a second category with the same name.
+    expect(await prisma.eventCategory.count({ where: { orgId, name } })).toBe(1);
   });
 });

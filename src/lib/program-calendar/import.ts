@@ -23,7 +23,8 @@
  */
 import type { EventRecurrence } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
-import type { AuthContext } from "@/lib/rbac/check";
+import { requirePermission, type AuthContext } from "@/lib/rbac/check";
+import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { hiddenProjectIds } from "@/lib/rbac/project-access";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { normalizeRange } from "./time";
@@ -37,6 +38,50 @@ export interface ImportableRow {
   fields: Record<string, unknown>;
   warnings: string[];
   error: string | null;
+}
+
+// ── What an import may do to this calendar ───────────────────────────────────
+
+/**
+ * The importer is a SECOND door onto the two tables the calendar's own routes
+ * write, so it has to ask the same questions they do:
+ *
+ *   - `POST /orgs/[orgId]/program-events`  → `BOARD_UPDATE`
+ *   - `POST /orgs/[orgId]/event-categories` → `ORG_MANAGE_SETTINGS`
+ *
+ * `ORG_IMPORT` is neither, and it is not a superset of either. The stock roles
+ * hand all three to OWNER and ADMIN together — which is exactly why this was
+ * invisible to every spec, all of which run as an admin — but a work role can
+ * grant `ORG_IMPORT` on its own, and then this door would write what the
+ * dedicated one refuses. Cf. the agent executors, which are a second API over
+ * these same tables for the same reason.
+ *
+ * Asserted ONCE per import rather than per row: the answer cannot change
+ * mid-file, and `hasPermission` is bit-math over a mask already on the context.
+ */
+export function assertMayImportProgramEvents(auth: AuthContext): void {
+  requirePermission(auth, Permission.BOARD_UPDATE);
+}
+
+/**
+ * May this caller ADD a category? Separate from the write above, and checked
+ * per row rather than up front, because the two outcomes differ: a sheet naming
+ * only categories the org already has is a perfectly good import for someone
+ * who holds `BOARD_UPDATE` alone, and refusing the whole file would deny work
+ * they are entitled to do. A row naming a NEW one is refused on its own.
+ */
+function mayCreateEventCategory(auth: AuthContext): boolean {
+  return hasPermission(auth.permissions, Permission.ORG_MANAGE_SETTINGS);
+}
+
+/** The row error a sheet gets when its category cannot be used. One wording,
+ *  two call sites (the preview's resolve pass and the write), so a validate
+ *  cannot promise a row the commit will refuse. */
+function categoryRefusal(name: string, reason: "archived" | "forbidden"): string {
+  return reason === "archived"
+    ? `Category: "${name}" is archived — restore it, or name a live category`
+    : `Category: "${name}" does not exist in this organization, and adding one needs the `
+      + "organization-settings permission";
 }
 
 // ── Time zones ───────────────────────────────────────────────────────────────
@@ -332,9 +377,16 @@ function firstByName<T extends { id: string }>(rows: T[], nameOf: (r: T) => stri
  * as the deliverable importer's sprint lookup: the field is left blank, the row
  * still imports, and the warning names the cell.
  *
- * A category that does not exist is NOT a warning: it is created at commit
- * time, like a vendor import's partner. Resolving it here only avoids a lookup
- * per row later.
+ * A category that does not exist is created at commit time, like a vendor
+ * import's partner — but only for a caller who may add one, so this pass
+ * refuses the row when they may not. Doing it here rather than only at the
+ * write is what makes the PREVIEW honest: a validate that promised a row the
+ * commit would refuse is worse than no preview at all.
+ *
+ * An ARCHIVED category is refused too, matching `assertReferencesInOrg`, which
+ * requires `archivedAt: null`. Attaching to one would file events under a
+ * category the filter chips no longer offer, and re-creating it is impossible
+ * anyway: `@@unique([orgId, name])` is not scoped to the live ones.
  *
  * Also the one place a row can be REJECTED: an unreadable start date is
  * blocking, because every other column describes an event that has no date.
@@ -373,17 +425,28 @@ export async function resolveProgramEventLookups(
 
   const categoryNames = new Set(live.map((r) => lower(text(r.fields, "category"))).filter(Boolean));
   if (categoryNames.size) {
-    // Archived categories count: `@@unique([orgId, name])` means re-creating
-    // one would fail outright, and an event keeps its category either way.
+    // Archived rows are read as well as live ones, but they resolve to a
+    // REFUSAL rather than to an id — they still have to be seen, because the
+    // unique index would otherwise turn "create it" into a raw constraint name.
     const existing = await prisma.eventCategory.findMany({
       where: { orgId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, archivedAt: true },
       orderBy: { name: "asc" },
     });
-    const byName = firstByName(existing, (c) => c.name);
+    const byName = firstByName(existing.filter((c) => !c.archivedAt), (c) => c.name);
+    const archived = new Set(existing.filter((c) => c.archivedAt).map((c) => lower(c.name)));
+    const mayCreate = mayCreateEventCategory(auth);
     for (const row of live) {
-      const id = byName.get(lower(text(row.fields, "category")));
-      if (id) row.fields.categoryId = id;
+      const name = text(row.fields, "category");
+      if (!name) continue; // a blank one is already a required-field error
+      const key = lower(name);
+      const id = byName.get(key);
+      if (id) {
+        row.fields.categoryId = id;
+        continue;
+      }
+      if (archived.has(key)) row.error = categoryRefusal(name, "archived");
+      else if (!mayCreate) row.error = categoryRefusal(name, "forbidden");
     }
   }
 
@@ -404,6 +467,7 @@ export async function resolveProgramEventLookups(
     const memberByName = firstByName(members, (m) => m.user.displayName);
     const memberByEmail = firstByName(members, (m) => m.user.email);
     for (const row of live) {
+      if (row.error) continue; // refused by the category pass above
       const name = text(row.fields, "owner");
       if (!name) continue;
       const teamId = teamByName.get(lower(name));
@@ -429,6 +493,7 @@ export async function resolveProgramEventLookups(
     });
     const byTitle = firstByName(deliverables, (d) => d.title);
     for (const row of live) {
+      if (row.error) continue; // refused by the category pass above
       const title = text(row.fields, "deliverable");
       if (!title) continue;
       const id = byTitle.get(lower(title));
@@ -442,14 +507,21 @@ export async function resolveProgramEventLookups(
 
 /**
  * The category id for a row, creating the category when the org has none by
- * that name.
+ * that name AND this caller may add one.
  *
  * `listCategories` seeds an org's defaults only when it has ZERO categories, so
  * creating one here first would strand an org without them forever. The tint
  * comes from those same defaults rather than a new colour, chosen by a stable
  * hash of the name so a re-import does not repaint it.
+ *
+ * The permission and archived checks are repeated here rather than left to the
+ * resolve pass. That pass makes the PREVIEW honest; this is the write, and a
+ * rule enforced only at the place that predicts the write is a rule with one
+ * call site. Throwing is what the engine's per-row catch turns into an error
+ * against that row, so the rest of the file still imports.
  */
 async function categoryIdFor(
+  auth: AuthContext,
   orgId: string,
   fields: Record<string, unknown>,
   cache: Map<string, string>,
@@ -464,12 +536,14 @@ async function categoryIdFor(
 
   const found = await prisma.eventCategory.findFirst({
     where: { orgId, name: { equals: name, mode: "insensitive" } },
-    select: { id: true },
+    select: { id: true, archivedAt: true },
   });
-  if (found) {
+  if (found && !found.archivedAt) {
     cache.set(key, found.id);
     return found.id;
   }
+  if (found) throw new Error(categoryRefusal(name, "archived"));
+  if (!mayCreateEventCategory(auth)) throw new Error(categoryRefusal(name, "forbidden"));
 
   let hash = 0;
   for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) % 100_000;
@@ -503,7 +577,7 @@ const bool = (fields: Record<string, unknown>, key: string): boolean | null =>
  * calendar imported across the organisation is.
  */
 export async function createProgramEventRow(
-  ctx: { orgId: string; userId: string },
+  ctx: { orgId: string; userId: string; auth: AuthContext },
   fields: Record<string, unknown>,
   cache: Map<string, string>,
 ): Promise<void> {
@@ -536,7 +610,7 @@ export async function createProgramEventRow(
       orgId: ctx.orgId,
       createdById: ctx.userId,
       projectId: null,
-      categoryId: await categoryIdFor(ctx.orgId, fields, cache),
+      categoryId: await categoryIdFor(ctx.auth, ctx.orgId, fields, cache),
       title: str(fields, "title")!,
       startsAt: range.startsAt,
       endsAt: range.endsAt,
@@ -568,7 +642,7 @@ export async function createProgramEventRow(
  * dates cannot silently retime an all-day event.
  */
 export async function updateProgramEventRow(
-  ctx: { orgId: string; userId: string },
+  ctx: { orgId: string; userId: string; auth: AuthContext },
   id: string,
   fields: Record<string, unknown>,
   cache: Map<string, string>,
@@ -587,7 +661,7 @@ export async function updateProgramEventRow(
   put("customerAttending", bool(fields, "customerAttending"));
   put("showOnDashboard", bool(fields, "showOnDashboard"));
   put("deliverableId", str(fields, "deliverableId"));
-  if (text(fields, "category")) put("categoryId", await categoryIdFor(ctx.orgId, fields, cache));
+  if (text(fields, "category")) put("categoryId", await categoryIdFor(ctx.auth, ctx.orgId, fields, cache));
   if (text(fields, "owner")) {
     const teamId = str(fields, "ownerTeamId");
     const memberId = str(fields, "ownerMemberId");
