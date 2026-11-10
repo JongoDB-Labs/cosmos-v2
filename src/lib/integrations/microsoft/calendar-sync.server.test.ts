@@ -370,6 +370,133 @@ describe("Outlook meeting sync (e2e DB)", () => {
     expect(await prisma.externalEventLink.count({ where: { orgId: org.id, userId: alice.id } })).toBe(0);
   });
 
+  // ── A write Outlook refuses is reported, never swallowed ──────────────────
+  //
+  // Each copy is written in a pool where one failure never stops the rest.
+  // That pool used to catch a Graph error (any status), log nothing for it,
+  // count nothing, and let Sync now answer with the same result as a sync
+  // that wrote everything: the meeting was missing from Outlook, the person
+  // was told "synced", and the server log was empty.
+
+  /**
+   * The fake Graph, except that it refuses the calls `refuse` picks the way
+   * Microsoft refuses an event: an error status and code, nothing written.
+   * `refused` counts them, so a test can prove its refusal actually fired.
+   */
+  function refusing(
+    g: ReturnType<typeof fakeGraph>,
+    refuse: (c: { method: string; path: string; body?: Record<string, unknown> }) => boolean,
+    status: number,
+    code: string,
+  ) {
+    const state = { refused: 0 };
+    const fetchFn = (async (input: unknown, init?: RequestInit) => {
+      const url = new URL(String(input));
+      let body: Record<string, unknown> | undefined;
+      try {
+        body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined;
+      } catch {
+        body = undefined; // a form post (the token endpoint): never one we refuse
+      }
+      if (refuse({ method: init?.method ?? "GET", path: url.pathname.replace(/^\/v1\.0/, ""), body })) {
+        state.refused++;
+        return new Response(JSON.stringify({ error: { code } }), { status, headers: { "Content-Type": "application/json" } });
+      }
+      return g.fetch(input as string, init);
+    }) as unknown as typeof fetch;
+    return Object.assign(state, { fetch: fetchFn });
+  }
+
+  it("Sync now reports a copy Outlook refused, with the reason and a log line, and still writes the rest", async () => {
+    const { org, alice, g, deps, meeting, stamp } = await setup();
+    const title = `Refused by Outlook ${stamp}`;
+    const refused = await prisma.syncMeeting.create({
+      data: {
+        orgId: org.id, title, meetingDate: START, durationMinutes: 30, createdById: alice.id, notes: "",
+        attendees: { create: [{ userId: alice.id }] },
+      },
+    });
+    const graph = refusing(g, (c) => c.method === "POST" && /\/events$/.test(c.path) && c.body?.subject === title, 400, "ErrorInvalidRequest");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    let r: Awaited<ReturnType<typeof syncUserNow>>;
+    let logged: string;
+    try {
+      r = await syncUserNow(org.id, alice.id, { ...deps, fetch: graph.fetch });
+      // Read before mockRestore(), which also clears the recorded calls.
+      logged = warn.mock.calls.map((c) => c.join(" ")).join("\n");
+    } finally {
+      warn.mockRestore();
+    }
+    // Positive controls: the refusal fired, and the same run DID write the
+    // other meeting, so this is one copy lost, not a sync that never ran.
+    expect(graph.refused).toBe(1);
+    expect(await linkOf(alice.id, meeting.id)).toBeTruthy();
+    // The loss is real: no copy, no link.
+    expect(await linkOf(alice.id, refused.id)).toBeNull();
+    const cal = ((await credOf(org.id, alice.id)).meta as { calendarId: string }).calendarId;
+    expect(g.eventsIn(cal).map((e) => e.subject)).toEqual(["Sprint review"]);
+    // ...and it is reported to the caller, by reason, not answered as success.
+    expect(r).toMatchObject({ unsynced: 1, unsyncedReasons: { "graph 400 ErrorInvalidRequest": 1 } });
+    // ...and logged, with whose sync it was.
+    expect(logged).toMatch(/1 Outlook write failed/);
+    expect(logged).toContain("graph 400 ErrorInvalidRequest");
+    expect(logged).toContain(alice.id);
+    // Not given up on: once Outlook takes it, the next Sync now writes it and reports nothing.
+    const again = await syncUserNow(org.id, alice.id, deps);
+    expect(again).toMatchObject({ unsynced: 0, unsyncedReasons: {} });
+    expect(await linkOf(alice.id, refused.id)).toBeTruthy();
+  });
+
+  it("Sync now reports an Outlook edit it brought back that couldn't reach another attendee's copy", async () => {
+    const { org, alice, bob, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const aLink = (await linkOf(alice.id, meeting.id))!;
+    const bEvent = (await linkOf(bob.id, meeting.id))!.externalEventId;
+    await new Promise((r) => setTimeout(r, 5));
+    g.outlookEdit(aLink.externalEventId, { subject: "Renamed in Outlook" });
+    const graph = refusing(g, (c) => c.method === "PATCH" && c.path === `/me/events/${bEvent}`, 500, "ErrorInternalServerError");
+    const r = await syncUserNow(org.id, alice.id, { ...deps, fetch: graph.fetch });
+    expect(graph.refused).toBe(1);
+    // Her edit came back into Cosmos (the positive control)...
+    expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).title).toBe("Renamed in Outlook");
+    // ...but bob's copy still says the old title, and the caller is told.
+    expect(g.events.get(bEvent)!.subject).toBe("Sprint review");
+    expect(r).toMatchObject({ applied: 1, unsynced: 1, unsyncedReasons: { "graph 500 ErrorInternalServerError": 1 } });
+  });
+
+  it("Sync now reports an invitation update Outlook refused, from a meeting this person organizes", async () => {
+    // The reconcile pass brings an organizer's invitations up to date through
+    // syncMeeting, a pool inside the reconcile pool: its failures must come out too.
+    const { org, alice, g, deps, meeting } = await setup();
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+    const invite = (await linkOf(alice.id, meeting.id))!.externalEventId;
+    await prisma.syncMeeting.update({ where: { id: meeting.id }, data: { title: "Sprint review (moved)" } });
+    const graph = refusing(g, (c) => c.method === "PATCH" && c.path === `/me/events/${invite}`, 500, "ErrorInternalServerError");
+    const r = await syncUserNow(org.id, alice.id, { ...deps, fetch: graph.fetch });
+    expect(graph.refused).toBe(1);
+    expect(g.events.get(invite)!.subject).toBe("Sprint review"); // the invitees still see the old title
+    expect(r).toMatchObject({ unsynced: 1, unsyncedReasons: { "graph 500 ErrorInternalServerError": 1 } });
+  });
+
+  it("the scheduled pull counts refused writes too, instead of counting that person as a clean sync", async () => {
+    const { org, alice, g, deps, meeting, stamp } = await setup();
+    await syncMeeting(org.id, meeting.id, deps); // both people now have their Cosmos calendar
+    const title = `Refused in the scheduled run ${stamp}`;
+    await prisma.syncMeeting.create({
+      data: {
+        orgId: org.id, title, meetingDate: START, durationMinutes: 30, createdById: alice.id, notes: "",
+        attendees: { create: [{ userId: alice.id }] },
+      },
+    });
+    const graph = refusing(g, (c) => c.method === "POST" && /\/events$/.test(c.path) && c.body?.subject === title, 403, "ErrorAccessDenied");
+    // Every connected person in the database is pulled; other tests' people
+    // fail at their token and land in `failed`, never under this reason.
+    const r = await runCalendarPulls({ ...deps, fetch: graph.fetch, jitterMs: 0 });
+    expect(graph.refused).toBe(1);
+    expect(r).toMatchObject({ unsyncedReasons: { "graph 403 ErrorAccessDenied": 1 } });
+    expect(r.unsynced).toBeGreaterThanOrEqual(1);
+  });
+
   // ── Review fixes: who gets a copy ──────────────────────────────────────────
 
   const credOf = (orgId: string, userId: string) =>
@@ -600,7 +727,9 @@ describe("Outlook meeting sync (e2e DB)", () => {
     g.outlookEdit((await linkOf(alice.id, meeting.id))!.externalEventId, { subject: "Edited while we stopped" });
     const ac = new AbortController();
     ac.abort();
-    expect(await pullChanges(org.id, alice.id, { ...deps, signal: ac.signal })).toEqual({ applied: 0, ignored: 0, echoes: 0, detached: 0 });
+    expect(await pullChanges(org.id, alice.id, { ...deps, signal: ac.signal })).toEqual({
+      applied: 0, ignored: 0, echoes: 0, detached: 0, unsynced: 0, unsyncedReasons: {},
+    });
     expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).title).toBe("Sprint review");
     expect(((await credOf(org.id, alice.id)).meta as { deltaLink: string }).deltaLink).toBe(before);
     // The next, unhurried pull picks the edit up.

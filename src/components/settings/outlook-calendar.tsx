@@ -30,6 +30,12 @@ interface CalendarStatus {
   } | null;
 }
 
+/** The part of Sync now's answer (the server's PullResult) this section shows. */
+interface SyncNowResult {
+  /** Writes to Outlook that failed this run; the next sync retries them. */
+  unsynced?: number;
+}
+
 /** What the callback came back with (?outlook=…), in words. */
 const OUTCOMES: Record<string, { ok: boolean; text: string }> = {
   connected: { ok: true, text: "Outlook Calendar connected." },
@@ -100,9 +106,17 @@ export function OutlookCalendarSection({ orgId }: { orgId: string }) {
     setFocusTo(null);
   }, [focusTo, data, liveInvites]);
   const syncNow = useOrgMutation({
-    mutationFn: () => jsonFetch(`/api/v1/orgs/${orgId}/microsoft/calendar/sync`, { method: "POST" }),
+    mutationFn: () => jsonFetch<SyncNowResult>(`/api/v1/orgs/${orgId}/microsoft/calendar/sync`, { method: "POST" }),
     invalidate: [["outlook-calendar"]],
-    onSuccess: () => toast.success("Outlook Calendar synced"),
+    onSuccess: (r) => {
+      // A write Outlook refused is never "synced": say so (the next sync retries it).
+      const n = r?.unsynced ?? 0;
+      if (n > 0) {
+        toast.warning(`Synced, but ${n === 1 ? "1 calendar update" : `${n} calendar updates`} didn't reach Outlook. Cosmos will try again at the next sync.`);
+      } else {
+        toast.success("Outlook Calendar synced");
+      }
+    },
     onError: (e) => notifyError(e, "Couldn't sync."),
   });
   const connectHref = `/api/v1/orgs/${orgId}/microsoft/calendar/connect`;

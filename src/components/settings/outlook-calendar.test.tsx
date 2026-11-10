@@ -7,12 +7,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/alpha/settings/preferences", useParams: () => ({ orgSlug: "alpha" }) }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 vi.mock("@/lib/query/json-fetcher", async (orig) => ({
   ...(await orig<typeof import("@/lib/query/json-fetcher")>()),
   jsonFetch: vi.fn(),
 }));
 
+import { toast } from "sonner";
 import { OutlookCalendarAdminSetup, OutlookCalendarSection } from "./outlook-calendar";
 import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
 
@@ -139,6 +140,29 @@ describe("OutlookCalendarSection", () => {
     await waitFor(() =>
       expect(jsonFetch).toHaveBeenCalledWith("/api/v1/orgs/o1/microsoft/calendar/sync", expect.objectContaining({ method: "POST" })),
     );
+  });
+
+  it("never says 'synced' over updates that didn't reach Outlook", async () => {
+    const conn = status({ connection: { account: "a@contoso.example", status: "connected", connectedAt: "2026-10-23T00:00:00Z", lastSyncAt: null } });
+    // Sync now's real answer shape (PullResult); the first sync is clean, the second has two refused writes.
+    const pull = (unsynced: number) => ({
+      applied: 0, ignored: 0, echoes: 0, detached: 0, unsynced,
+      unsyncedReasons: unsynced ? { "graph 400 ErrorInvalidRequest": unsynced } : {},
+    });
+    let syncs = 0;
+    vi.mocked(jsonFetch).mockImplementation(async (_url, init) => (init?.method === "POST" ? pull(syncs++ === 0 ? 0 : 2) : conn) as never);
+    wrap(<OutlookCalendarSection orgId="o1" />);
+    // Positive control: a clean sync does say "synced".
+    fireEvent.click(await screen.findByRole("button", { name: "Sync now" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Outlook Calendar synced"));
+    expect(toast.warning).not.toHaveBeenCalled();
+    vi.mocked(toast.success).mockClear();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Sync now" }).hasAttribute("disabled")).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+    await waitFor(() =>
+      expect(toast.warning).toHaveBeenCalledWith("Synced, but 2 calendar updates didn't reach Outlook. Cosmos will try again at the next sync."),
+    );
+    expect(toast.success).not.toHaveBeenCalled();
   });
 
   it("says when it hasn't synced yet, and offers no Sync now while a reconnect is needed", async () => {
