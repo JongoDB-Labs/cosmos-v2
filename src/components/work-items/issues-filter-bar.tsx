@@ -386,7 +386,7 @@ function DateRangeFilter({
         max={to || undefined}
         onChange={(e) => onFrom(e.target.value)}
         aria-label={`${label} from`}
-        className="bg-transparent text-xs outline-none [color-scheme:light] dark:[color-scheme:dark]"
+        className="rounded-sm bg-transparent text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [color-scheme:light] dark:[color-scheme:dark]"
       />
       <span className="text-[var(--text-muted)]">→</span>
       <input
@@ -395,7 +395,7 @@ function DateRangeFilter({
         min={from || undefined}
         onChange={(e) => onTo(e.target.value)}
         aria-label={`${label} to`}
-        className="bg-transparent text-xs outline-none [color-scheme:light] dark:[color-scheme:dark]"
+        className="rounded-sm bg-transparent text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [color-scheme:light] dark:[color-scheme:dark]"
       />
     </div>
   );

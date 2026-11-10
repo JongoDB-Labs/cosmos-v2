@@ -1,5 +1,6 @@
 "use client";
 
+import type { ComponentProps } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -29,6 +30,8 @@ interface BoardItemDetailSheetProps {
    * because most board types are created owning no columns at all.
    */
   boardId?: string;
+  /** Passed to the sheet: where focus returns when it closes. */
+  finalFocus?: ComponentProps<typeof CardDetailSheet>["finalFocus"];
 }
 
 /**
@@ -52,6 +55,7 @@ export function BoardItemDetailSheet({
   orgId,
   projectId,
   boardId,
+  finalFocus,
 }: BoardItemDetailSheetProps) {
   const qc = useQueryClient();
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
@@ -149,6 +153,7 @@ export function BoardItemDetailSheet({
       item={item}
       open={!!itemId && !!item}
       onOpenChange={onOpenChange}
+      finalFocus={finalFocus}
       orgId={orgId}
       projectId={projectId}
       members={(membersQ.data as OrgMember[] | undefined) ?? []}

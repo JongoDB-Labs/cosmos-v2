@@ -142,6 +142,15 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   // (checkbox, row menu) stop propagation, so selecting for a bulk edit does
   // not also open a ticket.
   const [detailId, setDetailId] = useState<string | null>(null);
+  // The row whose sheet is (or was last) open. The title button it was opened
+  // from re-renders away while the sheet is up (the cells' renderers are new
+  // each time the column defs rebuild), so base-ui's own "focus what had focus"
+  // finds nothing and drops to <body>. Closing looks the row's button up again.
+  const openedRowRef = useRef<string | null>(null);
+  const openRow = useCallback((id: string) => {
+    openedRowRef.current = id;
+    setDetailId(id);
+  }, []);
 
   const boardKey = useOrgQueryKey("board", boardId);
   const itemsKey = useOrgQueryKey("work-items", projectId);
@@ -651,13 +660,16 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
             <button
               type="button"
               className="text-left w-full truncate hover:text-primary transition-colors"
-              onClick={() =>
-                setEditingCell({
-                  rowId: info.row.original.id,
-                  columnId: "title",
-                  value: info.getValue(),
-                })
-              }
+              // Opens the item, and only that. It used to start the inline
+              // title edit while the click also bubbled to the row and opened
+              // the sheet, so closing the sheet left the row mid-edit and
+              // focus with nowhere to return. "Edit title" in the row's
+              // actions menu still edits in place.
+              onClick={(e) => {
+                e.stopPropagation();
+                openRow(info.row.original.id);
+              }}
+              data-row-open={info.row.original.id}
             >
               <span className="text-muted-foreground mr-1.5 text-xs">
                 {projectKey}-{info.row.original.ticketNumber}
@@ -684,7 +696,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
                 }}
                 onBlur={() => setEditingCell(null)}
                 autoFocus
-                className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
+                className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
               >
                 {["CRITICAL", "HIGH", "MEDIUM", "LOW"].map((p) => (
                   <option key={p} value={p}>
@@ -729,7 +741,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
                 }}
                 onBlur={() => setEditingCell(null)}
                 autoFocus
-                className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
+                className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
               >
                 {columns.map((c) => (
                   <option key={c.key} value={c.key}>
@@ -773,7 +785,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
                 }}
                 onBlur={() => setEditingCell(null)}
                 autoFocus
-                className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
+                className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
               >
                 <option value="">Unassigned</option>
                 {members.map((m) => (
@@ -951,7 +963,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         enableSorting: false,
       }),
     ] as ColumnDef<WorkItem>[],
-    [columnHelper, editingCell, memberMap, memberById, columnMap, intervalMap, columns, members, projectKey, saveEdit]
+    [columnHelper, editingCell, memberMap, memberById, columnMap, intervalMap, columns, members, projectKey, saveEdit, openRow]
   );
 
   const selectedCount = selectedIds.length;
@@ -989,7 +1001,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       onChange={(e) =>
         setGrouping(e.target.value ? [e.target.value] : [])
       }
-      className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
+      className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
     >
       {GROUPING_OPTIONS.map((opt) => (
         <option key={opt.value} value={opt.value}>
@@ -1119,7 +1131,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           getGroupLabel={getGroupLabel}
           rowActions={rowActions}
           rowStyle={(row) => highlightRowStyle(row.highlight)}
-          onRowClick={(row) => setDetailId(row.id)}
+          onRowClick={(row) => openRow(row.id)}
           pagination={{ pageSize: 50 }}
           stickyHeader
         />
@@ -1129,6 +1141,11 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       <BoardItemDetailSheet
         itemId={detailId}
         onOpenChange={(open) => !open && setDetailId(null)}
+        finalFocus={() =>
+          document.querySelector<HTMLElement>(
+            `[data-row-open="${openedRowRef.current}"]`,
+          ) ?? true
+        }
         orgId={orgId}
         projectId={projectId}
         boardId={boardId}
