@@ -209,6 +209,31 @@ describe("an event cannot reference something outside the org, or hidden", () =>
     ).rejects.toThrow();
   });
 
+  it("refuses a team in THIS org whose project the caller cannot see", async () => {
+    // The fixture's main team sits on a VISIBLE project, so it could never
+    // have caught this: a team belongs to a project, and the team's name is
+    // the lane label, so a team on a team-scoped project would have leaked
+    // its name to an outsider.
+    const hiddenTeam = await prisma.team.create({
+      data: { orgId, projectId: restricted, name: `Restricted Team ${stamp}` },
+    });
+    await expect(
+      createProgramEvent(ctxFor(outsider), outsider, {
+        title: "Attempt", categoryId: catA,
+        startsAt: utc(2026, 11, 22), endsAt: utc(2026, 11, 22), allDay: true,
+        ownerTeamId: hiddenTeam.id,
+      }),
+    ).rejects.toThrow();
+
+    // And the team's own member may still use it — visibility, not a blanket ban.
+    const ok = await createProgramEvent(ctxFor(insider), insider, {
+      title: "Allowed", categoryId: catA,
+      startsAt: utc(2027, 4, 22), endsAt: utc(2027, 4, 22), allDay: true,
+      ownerTeamId: hiddenTeam.id,
+    });
+    expect(ok.id).toBeTruthy();
+  });
+
   it("still allows the ids that ARE in the org and visible", async () => {
     // The positive control: without it, a check that rejected everything would
     // pass all four assertions above.

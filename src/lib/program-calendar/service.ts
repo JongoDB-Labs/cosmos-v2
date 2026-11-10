@@ -216,7 +216,9 @@ async function assertReferencesInOrg(ctx: AuthContext, input: EventInput): Promi
   });
   if (!category) throw bad("category");
 
-  const hidden = input.projectId || input.deliverableId ? await hiddenProjectIds(ctx) : [];
+  const needsHidden = input.projectId || input.deliverableId || input.ownerTeamId;
+  const hidden = needsHidden ? await hiddenProjectIds(ctx) : [];
+  const teamHidden = hidden;
 
   if (input.projectId) {
     const project = await prisma.project.findFirst({
@@ -232,8 +234,17 @@ async function assertReferencesInOrg(ctx: AuthContext, input: EventInput): Promi
   }
 
   if (input.ownerTeamId) {
+    // A team belongs to a project (`Team.projectId` is not nullable), so a
+    // team on a hidden project is itself hidden. Its NAME is rendered as the
+    // lane label, so accepting one here would leak it to someone who cannot
+    // open the project it belongs to — the same leak the deliverable check
+    // below prevents, which is exactly why it has to be made in both places.
     const team = await prisma.team.findFirst({
-      where: { id: input.ownerTeamId, orgId: ctx.orgId },
+      where: {
+        id: input.ownerTeamId,
+        orgId: ctx.orgId,
+        ...(teamHidden.length ? { projectId: { notIn: teamHidden } } : {}),
+      },
       select: { id: true },
     });
     if (!team) throw bad("owner");
