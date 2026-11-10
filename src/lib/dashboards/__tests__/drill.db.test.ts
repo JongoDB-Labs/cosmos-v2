@@ -69,11 +69,13 @@ describe("drill-down", () => {
     const [panel] = await computePanels(ctx, [spec], opts);
     const points = data(panel).data.points as { bucket: string; resolved: number }[];
     const day = points.find((p) => p.resolved > 0);
-    // Assert the precondition rather than asserting it away with `!`: if the
-    // fixture ever stops producing a resolved item, this says so instead of
-    // failing later with a TypeError on `undefined.bucket`.
-    expect(day, "the fixture produced no resolved items in the window").toBeDefined();
-    const drilled = data(await drillPanel(ctx, spec, { keys: [day!.bucket], series: "resolved" }, opts));
+    // Throw rather than assert-and-continue: this states the precondition AND
+    // narrows the type, where `expect(...).toBeDefined()` does neither as far
+    // as the compiler is concerned. If the fixture ever stops producing a
+    // resolved item, the message says so instead of a TypeError on
+    // `undefined.bucket` surfacing thirty lines from the cause.
+    if (!day) throw new Error("the fixture produced no resolved items in the window");
+    const drilled = data(await drillPanel(ctx, spec, { keys: [day.bucket], series: "resolved" }, opts));
     expect(drilled.meta.total).toBe(day.resolved);
   });
 
