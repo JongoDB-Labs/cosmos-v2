@@ -114,6 +114,12 @@ const BLOCKER_STATUS = ["OPEN", "RESOLVED", "IN_PROGRESS", "ESCALATED"];
 const CHANGE_REQUEST_STATUS = [
   "SUBMITTED", "APPROVED", "REJECTED", "IMPLEMENTED", "UNDER_REVIEW", "WITHDRAWN",
 ];
+// Mirrors Prisma's `EventRecurrence`; like CYCLE_KIND above it must stay COMPLETE,
+// since a value missing here cannot be imported at all. Held to the schema by
+// `dead-fields.arch.test.ts` rather than by tsc, for the same bundle reason.
+const EVENT_RECURRENCE = [
+  "NONE", "DAILY", "WEEKLY", "BIWEEKLY", "MONTHLY", "QUARTERLY", "ANNUALLY",
+];
 
 // Reusable field fragments.
 const code = (label = "Code"): ImportField => ({
@@ -337,6 +343,122 @@ export const ENTITY_DEFS: EntityDef[] = [
       { key: "status", label: "Status", kind: "text", synonyms: ["status", "state"] },
       { key: "startDate", label: "Start date", kind: "date", synonyms: ["start date", "start", "pop start", "begin"] },
       { key: "endDate", label: "End date", kind: "date", synonyms: ["end date", "end", "pop end", "finish"] },
+    ],
+  },
+  {
+    key: "programEvent",
+    label: "Program Calendar",
+    icon: "CalendarDays",
+    blurb: "Program calendar events — dates, category, owner, recurrence.",
+    // ORG-wide: the calendar store is org-wide and an event's project is
+    // optional, so there is no single project an import is "in".
+    scope: "org",
+    // `externalId` when the sheet carries one, else title + start date. The two
+    // forms are prefixed apart in `naturalKeyToken` so they can never collide;
+    // the list here is what the wizard and the engine read as "the key".
+    naturalKey: ["externalId", "title", "startDate"],
+    fields: [
+      {
+        key: "externalId", label: "External ID", kind: "text",
+        synonyms: ["external id", "externalid", "id", "uid", "event id", "source id", "ical uid"],
+      },
+      {
+        key: "title", label: "Title", required: true, kind: "text",
+        // "Event" is what a calendar export calls this column; "Subject" is
+        // Outlook's and "Summary" is iCal's.
+        synonyms: ["title", "event", "event name", "event title", "name", "summary", "subject"],
+      },
+      {
+        key: "category", label: "Category", required: true, kind: "text",
+        // A NAME, resolved (and created when absent) against the org's
+        // EventCategory by the engine. Required because `category_id` is NOT
+        // NULL: a blank one is a per-row error with the row's own text in it,
+        // rather than a Prisma failure at the last step.
+        synonyms: ["category", "event category", "category name", "calendar", "band", "track", "type", "event type"],
+      },
+      // ── Dates and times are `text` ON PURPOSE ───────────────────────────────
+      // A calendar date is a DATE, not an instant, and the shared `date` coercer
+      // is `new Date(raw)`: "2026-10-01" parses as UTC midnight while
+      // "10/27/2026" parses as midnight in whatever zone the SERVER runs in. The
+      // two real files use one format each, so a `date` kind would make the
+      // stored day depend on the importing machine's zone — the exact bug
+      // `program-calendar/time.ts` exists to prevent. Keeping the cell as text
+      // lets `program-calendar/import.ts` read y/m/d literally and combine it
+      // with the time in the EVENT's zone.
+      {
+        key: "startDate", label: "Start date", required: true, kind: "text",
+        synonyms: ["start date", "start", "starts", "start day", "date", "begins", "from"],
+      },
+      {
+        key: "endDate", label: "End date", kind: "text",
+        // Inclusive as the user writes it; `normalizeRange` makes it exclusive.
+        synonyms: ["end date", "end", "ends", "end day", "finish", "through", "until", "to"],
+      },
+      {
+        key: "startTime", label: "Start time", kind: "text",
+        synonyms: ["start time", "time", "starts at", "begin time", "from time"],
+      },
+      {
+        key: "endTime", label: "End time", kind: "text",
+        synonyms: ["end time", "ends at", "finish time", "to time"],
+      },
+      {
+        key: "allDay", label: "All day", kind: "bool",
+        synonyms: ["all day", "allday", "all-day", "all day event", "full day"],
+      },
+      {
+        key: "timeZone", label: "Time zone", kind: "text",
+        // Free text in the sheet ("Eastern (ET)"), normalised to an IANA zone by
+        // the engine — an invalid one reaches `Intl.DateTimeFormat` at render.
+        synonyms: ["time zone", "timezone", "tz", "zone"],
+      },
+      { key: "location", label: "Location", kind: "text", synonyms: ["location", "where", "place", "room", "venue"] },
+      {
+        key: "owner", label: "Owner", kind: "text",
+        // A NAME, resolved to a Team or an OrgMember; unresolvable warns.
+        synonyms: ["owner", "lead", "organizer", "organiser", "host", "responsible", "team", "poc", "assignee"],
+      },
+      {
+        key: "attendees", label: "Attendees", kind: "text",
+        synonyms: ["attendees", "participants", "invitees", "guests", "required attendees"],
+      },
+      {
+        key: "recurrence", label: "Recurrence", kind: "enum", enum: EVENT_RECURRENCE,
+        synonyms: ["recurrence", "repeats", "repeat", "recurring", "frequency", "cadence"],
+        // Words the enum does not contain at all. "Does not repeat" is the
+        // dialog's own label for NONE, so an export of this calendar round-trips.
+        enumSynonyms: {
+          "does not repeat": "NONE",
+          "no": "NONE",
+          "once": "NONE",
+          "every day": "DAILY",
+          "every week": "WEEKLY",
+          "every two weeks": "BIWEEKLY",
+          "every 2 weeks": "BIWEEKLY",
+          "fortnightly": "BIWEEKLY",
+          "every month": "MONTHLY",
+          "yearly": "ANNUALLY",
+          "annual": "ANNUALLY",
+          "every year": "ANNUALLY",
+        },
+      },
+      {
+        key: "description", label: "Description", kind: "text",
+        synonyms: ["description", "desc", "details", "notes", "body", "agenda"],
+      },
+      {
+        key: "showOnDashboard", label: "Show on PM Dashboard", kind: "bool",
+        synonyms: ["show on pm dashboard", "show on dashboard", "pm dashboard", "dashboard", "on dashboard"],
+      },
+      {
+        key: "customerAttending", label: "Customer attending", kind: "bool",
+        synonyms: ["customer attending", "customer present", "client attending", "customer"],
+      },
+      {
+        key: "deliverable", label: "Deliverable", kind: "text",
+        // A deliverable TITLE, resolved within the org; unresolvable warns.
+        synonyms: ["deliverable", "cdrl", "deliverable title", "linked deliverable", "related deliverable"],
+      },
     ],
   },
 ];
