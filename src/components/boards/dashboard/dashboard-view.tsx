@@ -517,7 +517,10 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
           <MetricCard
             label="Completed"
             value={metrics.completed}
-            color="text-green-500"
+            // `text-green-500` is 2.28:1 on white, which fails even the
+            // relaxed 3:1 that large bold text is allowed. The red and blue
+            // values beside it clear 3:1 at this size and are left alone.
+            color="text-[var(--status-done-text)]"
             onClick={() => openDrill("Completed", (i) => catOf(i) === "DONE")}
           />
           <MetricCard

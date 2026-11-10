@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.539.0",
+    date: "2026-11-10",
+    title: "An overdue due date is readable again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On a table board, a due date that has passed was drawn in a red too pale to read against the row \u2014 2.77:1, where the accessibility standard asks for 4.5:1. It now uses the same red the rest of the app uses for critical text, which is readable on both the light and the dark theme.",
+      },
+    ],
+  },
+  {
       version: "2.538.0",
       date: "2026-11-06",
       title: "Approved accounts respect the approved domains",

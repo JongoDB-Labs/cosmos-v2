@@ -45,8 +45,14 @@ export function MetricCard({ label, value, trend, trendValue, color, onClick }: 
           <span
             className={cn(
               "flex items-center gap-0.5 text-xs font-medium mb-1",
-              trend === "up" && "text-green-500",
-              trend === "down" && "text-red-500",
+              // The `-text` tier, not the fill tier. At 12px this is normal
+              // text and needs 4.5:1; `text-green-500` is 2.28:1 on white and
+              // `text-red-500` is 3.76:1, so both fail — axe only ever
+              // reported the red one because the fixture never renders an
+              // "up" trend. globals.css carries a parallel `--status-*-text`
+              // set for exactly this, and these flip per theme.
+              trend === "up" && "text-[var(--status-done-text)]",
+              trend === "down" && "text-[var(--status-critical-text)]",
               trend === "flat" && "text-muted-foreground"
             )}
           >

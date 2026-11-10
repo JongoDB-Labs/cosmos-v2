@@ -900,7 +900,14 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
               type="button"
               className={cn(
                 "text-sm text-left hover:text-primary transition-colors",
-                isOverdue && "text-red-400",
+                // `text-red-400` (#F87171) is ~3.3:1 on the row ground and
+                // fails WCAG AA, which is why the a11y gate has been red on
+                // main. The other `text-red-400` uses in this file sit on a
+                // `bg-red-500/20` chip and are a different case; this one is
+                // bare text. `--status-critical-text` is the house token for
+                // exactly this and flips per theme — #B91C1C on light,
+                // #F87171 on dark, where that value IS readable.
+                isOverdue && "text-[var(--status-critical-text)]",
               )}
               onClick={() =>
                 setEditingCell({

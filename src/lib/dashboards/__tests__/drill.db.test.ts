@@ -59,10 +59,23 @@ describe("drill-down", () => {
   it("a time bucket lists the items completed in it", async () => {
     const ctx = w.ctx({ denyP3: true });
     const spec = { type: "created-vs-resolved", query: P1(), config: { window: "-30d", bucket: "day" } };
-    const [panel] = await computePanels(ctx, [spec], { tz: "UTC", now: new Date() });
+    // `opts` (the pinned NOW), not `new Date()`. The window is RELATIVE
+    // (-30d) and the fixture's only completed item is at an ABSOLUTE date,
+    // 2026-10-10. Measured from the real clock the two drift apart until the
+    // item falls out of the window, `points.find(...)` returns undefined and
+    // the non-null assertion throws — which is what happened on 2026-11-10,
+    // breaking main for every PR. Every other spec in this file already uses
+    // the pinned NOW; this one simply missed it.
+    const [panel] = await computePanels(ctx, [spec], opts);
     const points = data(panel).data.points as { bucket: string; resolved: number }[];
-    const day = points.find((p) => p.resolved > 0)!;
-    const drilled = data(await drillPanel(ctx, spec, { keys: [day.bucket], series: "resolved" }, { tz: "UTC", now: new Date() }));
+    const day = points.find((p) => p.resolved > 0);
+    // Throw rather than assert-and-continue: this states the precondition AND
+    // narrows the type, where `expect(...).toBeDefined()` does neither as far
+    // as the compiler is concerned. If the fixture ever stops producing a
+    // resolved item, the message says so instead of a TypeError on
+    // `undefined.bucket` surfacing thirty lines from the cause.
+    if (!day) throw new Error("the fixture produced no resolved items in the window");
+    const drilled = data(await drillPanel(ctx, spec, { keys: [day.bucket], series: "resolved" }, opts));
     expect(drilled.meta.total).toBe(day.resolved);
   });
 
