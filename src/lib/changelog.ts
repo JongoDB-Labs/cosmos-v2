@@ -49,6 +49,33 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.540.0",
+    date: "2026-11-10",
+    title: "Keyboard and contrast fixes across boards and notifications",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Selects on the Table board now show a visible focus ring. The three that edit a cell in place — priority, status and assignee — take focus the moment they open, so until now the keyboard was typing into a control with nothing on screen to show it.",
+      },
+      {
+        kind: "fix",
+        text: "The notifications bell now opens a labelled popover rather than a menu, so a screen reader announces what opened and the arrow keys behave as the contents expect.",
+      },
+      {
+        kind: "fix",
+        text: "Closing “New issue”, or a table row’s detail sheet, returns focus to whatever opened it instead of dropping it back to the top of the page.",
+      },
+      {
+        kind: "fix",
+        text: "The date filters on Issues show a visible focus ring, and integration status badges now meet contrast.",
+      },
+      {
+        kind: "fix",
+        text: "The Clinical and Field skins’ primary colour now meets AA contrast.",
+      },
+    ],
+  },
+  {
     version: "2.539.0",
     date: "2026-11-10",
     title: "An overdue due date is readable again",
