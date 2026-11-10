@@ -11,7 +11,7 @@
 // logged an error, and every unit test of the field definitions still passed.
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import type { EntityDef } from "@/lib/import/entity-fields";
+import { ENTITY_DEFS, type EntityDef } from "@/lib/import/entity-fields";
 import { ImportWizard } from "@/components/import/import-wizard";
 
 vi.mock("next/navigation", () => ({
@@ -61,5 +61,45 @@ describe("ImportWizard — plugin-contributed entities", () => {
     render(<ImportWizard orgId="org-1" orgSlug="alpha" entities={[PLUGIN_ENTITY]} />);
 
     expect(screen.queryByRole("button", { name: /Work Items/i })).toBeNull();
+  });
+});
+
+/**
+ * The PROJECT import screen passes no entity list, so the wizard falls back to
+ * core's registry — which now contains an org-scoped entity. Offering it here
+ * draws a card whose import the server refuses, and the card is the only thing
+ * telling the user it is possible.
+ */
+describe("ImportWizard — the project door's default list", () => {
+  const orgScoped = ENTITY_DEFS.filter((e) => e.scope === "org");
+
+  it("has an org-scoped entity to withhold", () => {
+    // Guards the guard: with none in core's registry the rule below is vacuous.
+    expect(orgScoped.length).toBeGreaterThan(0);
+  });
+
+  it("offers project-scoped entities and withholds org-scoped ones", () => {
+    render(
+      <ImportWizard
+        orgId="org-1"
+        projectId="proj-1"
+        orgSlug="alpha"
+        projectKey="ALPHA"
+        columns={[]}
+        types={[]}
+        members={[]}
+        defaults={{ columnKey: "todo", workItemTypeId: "" }}
+      />,
+    );
+
+    // Positive control: a project-scoped card IS drawn, so an empty picker
+    // cannot pass this.
+    expect(screen.getByRole("button", { name: /Deliverables/i })).toBeTruthy();
+    for (const def of orgScoped) {
+      expect(
+        screen.queryByRole("button", { name: new RegExp(def.label, "i") }),
+        `${def.label} is org-scoped and has no project to import into`,
+      ).toBeNull();
+    }
   });
 });

@@ -6,7 +6,7 @@ import { requirePermission, NotFoundError, ConflictError } from "@/lib/rbac/chec
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { availableEntityDefs, type EntityImportRequest } from "@/lib/import/entity-fields";
-import { mapRows, codeKeyError } from "@/lib/import/entity-import";
+import { mapRows, codeKeyError, runEntityImport } from "@/lib/import/entity-import";
 import { PluginRegistry, PluginServerRegistry } from "@/lib/plugins/registry";
 import { getEnabledPluginSlugs } from "@/lib/plugins/enablement";
 
@@ -65,6 +65,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    // Core's own org-scoped entities run core's engine — the same one the
+    // project-scoped door uses, with no project. Only a PLUGIN's entity needs
+    // the writer indirection below, because only a plugin can own a table core
+    // has never heard of.
+    if (!def.pluginSlug) {
+      return success(
+        await runEntityImport({ orgId: org.id, projectId: null, userId: ctx.userId }, req),
+      );
+    }
+
     // Shared coercion: the same mapping the project-scoped import runs, so a
     // date or a number means the same thing whichever door it came through.
     const mapped = mapRows(def, req);
@@ -82,11 +92,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       ready.push(m.fields);
     }
 
-    // Core declares no org-scoped entities yet; every one of them today comes
-    // from a plugin, which is also where the writer lives.
-    const writer = def.pluginSlug
-      ? PluginServerRegistry.get(def.pluginSlug)?.importWriters?.[def.key]
-      : undefined;
+    // Only a plugin's entity reaches here (core's returned above), and its
+    // writer lives on that plugin's server hooks.
+    const writer = PluginServerRegistry.get(def.pluginSlug)?.importWriters?.[def.key];
     if (!writer) {
       throw new ConflictError(`No importer is registered for "${def.label}".`);
     }
