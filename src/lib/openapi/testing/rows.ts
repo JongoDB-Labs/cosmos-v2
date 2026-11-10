@@ -6,7 +6,7 @@
 export function projectRow<T extends { id: string; orgId: string }>(over: T) {
   const base: Record<string, unknown> = {
     name: "Project", key: "PRJ", description: null, settings: {}, status: "ACTIVE", archived: false,
-    projectTemplateId: null, enabledFeatures: [], teamScopedAccess: false, clientId: null,
+    projectTemplateId: null, enabledFeatures: [], teamScopedAccess: false, eventVisibility: "PROJECT" as const, clientId: null,
     externalRef: null, number: null, krLinkTypeId: null, objectiveLinkTypeId: null,
     createdAt: new Date("2026-10-01T00:00:00Z"), updatedAt: new Date("2026-10-01T00:00:00Z"),
     _count: { boards: 1, intervals: 0, members: 1 },

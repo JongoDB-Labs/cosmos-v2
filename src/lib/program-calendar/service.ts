@@ -1,7 +1,8 @@
 import { Prisma, type EventRecurrence } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
-import { visibleProjectRecordsWhere, hiddenProjectIds } from "@/lib/rbac/project-access";
+import { hiddenProjectIds } from "@/lib/rbac/project-access";
+import { eventScopeWhere, canAttachToProject } from "./visibility";
 import { ProblemError } from "@/lib/openapi/problem";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { normalizeRange } from "./time";
@@ -9,14 +10,15 @@ import { normalizeRange } from "./time";
 /**
  * Reading and writing the program calendar.
  *
- * PROJECT VISIBILITY runs through every read here. A program event may carry a
- * project, and that project may be team-scoped — so the same rule that governs
- * invoices, expenses and bills governs events: `visibleProjectRecordsWhere`
- * returns `{ projectId: null } OR { projectId: notIn hidden }`, which keeps
- * org-level events (the majority, with no project at all) visible to everyone
- * while hiding the ones that hang off a project the reader cannot see. Putting
- * it in the service rather than in each route is deliberate: the equivalent
- * rule on bills was correct in one place and missing in three.
+ * PROJECT VISIBILITY runs through every read here, via `eventScopeWhere`. The
+ * store is org-wide, so the rule is the restrictive one: a member sees an
+ * event only if it belongs to a project they are on, or to one whose manager
+ * has opened its calendar to the org. Org-level events — those with no project
+ * at all — are visible to everyone, because they were created without a
+ * project deliberately and have no narrower audience.
+ *
+ * Putting it in the service rather than in each route is deliberate: the
+ * equivalent rule on bills was correct in one place and missing in three.
  */
 
 export interface EventFilters {
@@ -80,7 +82,7 @@ async function scopeWhere(
   ctx: AuthContext,
   f: EventFilters,
 ): Promise<Prisma.ProgramEventWhereInput> {
-  const visible = await visibleProjectRecordsWhere(ctx);
+  const visible = await eventScopeWhere(ctx);
   const owner = ownerWhere(f.ownerKeys ?? []);
   // ONE `AND` array, built once. Spreading two conditional `AND` keys into the
   // same object literal lets the later one silently replace the earlier — it
@@ -221,16 +223,14 @@ async function assertReferencesInOrg(ctx: AuthContext, input: EventInput): Promi
   const teamHidden = hidden;
 
   if (input.projectId) {
-    const project = await prisma.project.findFirst({
-      where: { id: input.projectId, orgId: ctx.orgId },
-      select: { id: true },
-    });
-    // Same answer whether the project belongs to another org or is simply one
-    // this caller cannot see — the response must not distinguish them.
-    // Checked separately rather than as a second `id` key in the same object:
-    // two `id` keys in one literal silently collapse to the later one, which
-    // would have dropped the id match entirely and accepted ANY project.
-    if (!project || hidden.includes(input.projectId)) throw bad("project");
+    // The same test as READING the project's calendar. Not widened to "any
+    // project in the org": attaching an event to a project you cannot see
+    // would either hide your own event from you, or surface it to that
+    // project's members as though it were theirs.
+    //
+    // One answer whether the project belongs to another org, is team-scoped,
+    // or simply is not yours — the response must not distinguish them.
+    if (!(await canAttachToProject(ctx, input.projectId))) throw bad("project");
   }
 
   if (input.ownerTeamId) {
@@ -304,7 +304,7 @@ export async function createProgramEvent(ctx: AuthContext, createdById: string, 
  *  guard that narrows a list but lets any id through by direct fetch is the
  *  shape that leaked bills by id while the list was correct. */
 export async function visibleEvent(ctx: AuthContext, eventId: string) {
-  const visible = await visibleProjectRecordsWhere(ctx);
+  const visible = await eventScopeWhere(ctx);
   return prisma.programEvent.findFirst({
     where: { id: eventId, orgId: ctx.orgId, ...(visible.OR ? { AND: [visible] } : {}) },
     select: eventSelect,

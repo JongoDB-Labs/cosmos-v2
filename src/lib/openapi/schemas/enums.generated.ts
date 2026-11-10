@@ -98,3 +98,4 @@ export const TimeOffStatus = ["PENDING","APPROVED","DENIED","WITHDRAWN"] as cons
 export const BillStatus = ["DRAFT","OPEN","PAID","VOID"] as const;
 export const BillTerms = ["DUE_DATE","PAY_WHEN_PAID"] as const;
 export const EventRecurrence = ["NONE","DAILY","WEEKLY","BIWEEKLY","MONTHLY","QUARTERLY","ANNUALLY"] as const;
+export const ProjectEventVisibility = ["PROJECT","ORG"] as const;

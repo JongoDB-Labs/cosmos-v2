@@ -441,6 +441,14 @@
             "type": "boolean",
             "description": "Only project members (and org admins) can see it."
           },
+          "eventVisibility": {
+            "type": "string",
+            "enum": [
+              "PROJECT",
+              "ORG"
+            ],
+            "description": "Who may see this project's program-calendar events. PROJECT (the default) means project members and org admins only; ORG opens the calendar to every member of the organization."
+          },
           "clientId": {
             "type": [
               "string",
@@ -514,6 +522,7 @@
           "enabledFeatures",
           "sector",
           "teamScopedAccess",
+          "eventVisibility",
           "clientId",
           "externalRef",
           "number",
@@ -580,6 +589,14 @@
           "teamScopedAccess": {
             "type": "boolean",
             "description": "Only project members (and org admins) can see it."
+          },
+          "eventVisibility": {
+            "type": "string",
+            "enum": [
+              "PROJECT",
+              "ORG"
+            ],
+            "description": "Who may see this project's program-calendar events. PROJECT (the default) means project members and org admins only; ORG opens the calendar to every member of the organization."
           },
           "clientId": {
             "type": [
@@ -659,6 +676,7 @@
           "projectTemplateId",
           "enabledFeatures",
           "teamScopedAccess",
+          "eventVisibility",
           "clientId",
           "externalRef",
           "number",
@@ -863,6 +881,14 @@
             "type": "boolean",
             "description": "Only project members (and org admins) can see it."
           },
+          "eventVisibility": {
+            "type": "string",
+            "enum": [
+              "PROJECT",
+              "ORG"
+            ],
+            "description": "Who may see this project's program-calendar events. PROJECT (the default) means project members and org admins only; ORG opens the calendar to every member of the organization."
+          },
           "clientId": {
             "type": [
               "string",
@@ -953,6 +979,7 @@
           "projectTemplateId",
           "enabledFeatures",
           "teamScopedAccess",
+          "eventVisibility",
           "clientId",
           "externalRef",
           "number",
@@ -1247,6 +1274,14 @@
             "type": "boolean",
             "description": "Only project members (and org admins) can see it."
           },
+          "eventVisibility": {
+            "type": "string",
+            "enum": [
+              "PROJECT",
+              "ORG"
+            ],
+            "description": "Who may see this project's program-calendar events. PROJECT (the default) means project members and org admins only; ORG opens the calendar to every member of the organization."
+          },
           "clientId": {
             "type": [
               "string",
@@ -1319,6 +1354,7 @@
           "projectTemplateId",
           "enabledFeatures",
           "teamScopedAccess",
+          "eventVisibility",
           "clientId",
           "externalRef",
           "number",
@@ -9382,7 +9418,7 @@
       "put": {
         "operationId": "updateProject",
         "summary": "Update a project",
-        "description": "Partial update: send only the fields to change. `settings` is merged into the existing settings, not replaced. Changing `teamScopedAccess` (who can see the project) needs a project manager or org admin.",
+        "description": "Partial update: send only the fields to change. `settings` is merged into the existing settings, not replaced. Changing `teamScopedAccess` or `eventVisibility` (who can see the project, or its calendar) needs a project manager or org admin.",
         "tags": [
           "Projects"
         ],
@@ -9507,6 +9543,13 @@
                   },
                   "teamScopedAccess": {
                     "type": "boolean"
+                  },
+                  "eventVisibility": {
+                    "type": "string",
+                    "enum": [
+                      "PROJECT",
+                      "ORG"
+                    ]
                   },
                   "number": {
                     "type": [

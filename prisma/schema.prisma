@@ -957,6 +957,7 @@ model Project {
   @@index([orgId, status])
   @@map("projects")
   programEvents     ProgramEvent[]
+  eventVisibility     ProjectEventVisibility @default(PROJECT) @map("event_visibility")
 }
 
 /// A team WITHIN a project. org -> projects -> teams -> members is the source of
@@ -6545,4 +6546,22 @@ model ProgramEvent {
   @@index([orgId, projectId, startsAt])
   @@index([categoryId])
   @@map("program_events")
+}
+
+/// Who may see a project's program-calendar events.
+///
+/// PROJECT is the default, and deliberately the RESTRICTIVE one: the event
+/// store is org-wide, so without an explicit default every member of the
+/// organization would see every project's calendar the moment the feature was
+/// switched on. A project manager opts their project into ORG when the
+/// programme wants it visible org-wide.
+///
+/// This is separate from `Project.teamScopedAccess`, which governs the
+/// project's records generally and defaults to OPEN. The two are not
+/// redundant: this one answers "may a non-member see our calendar", and
+/// flipping the other's default instead would have silently changed
+/// visibility for work items, invoices, expenses and bills across the product.
+enum ProjectEventVisibility {
+  PROJECT
+  ORG
 }
