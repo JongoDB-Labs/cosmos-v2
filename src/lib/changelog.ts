@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+      version: "2.544.4",
+      date: "2026-11-10",
+      title: "Foreman keeps its update status readable after a deploy",
+      highlights: [
+        {
+          kind: "fix",
+          text: "When a deploy restarted Foreman, the file that reports its update status was rewritten by the system account, and the next routine refresh could no longer replace it, so the update status shown to admins went stale until someone fixed the file by hand. The restart now hands the file back to the account that owns Foreman\u2019s checkout, and logs a warning if it cannot.",
+        },
+      ],
+    },
+  {
       version: "2.544.3",
       date: "2026-11-10",
       title: "Work items of deleted projects are cleaned up",
