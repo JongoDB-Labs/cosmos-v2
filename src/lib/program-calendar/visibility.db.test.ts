@@ -13,7 +13,13 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
-import { listProgramEvents, visibleEvent, createProgramEvent, listCategories } from "./service";
+import {
+  listProgramEvents,
+  visibleEvent,
+  createProgramEvent,
+  updateProgramEvent,
+  listCategories,
+} from "./service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 let orgId = "";
@@ -168,5 +174,62 @@ describe("writing obeys the same rule as reading", () => {
     // assertion above while making the feature unusable.
     await expect(attempt(alice, projA)).resolves.toBeTruthy();
     await expect(attempt(bob, projOpen)).resolves.toBeTruthy();
+  });
+});
+
+
+describe("an event cannot be declassified by whoever can merely see it", () => {
+  // Found by review. Being able to READ a project's event is not authority to
+  // publish it: clearing `projectId` moves the event to org-level, where every
+  // member of the organization sees it. Without this, any member of a project
+  // could expose that project's calendar one event at a time and the manager's
+  // control over `eventVisibility` would mean nothing.
+  const edit = (userId: string, over: Record<string, unknown>) =>
+    updateProgramEvent(member(userId), evA, {
+      title: "A event", categoryId: catId,
+      startsAt: utc(2026, 11, 10), endsAt: utc(2026, 11, 10), allDay: true,
+      ...over,
+    } as Parameters<typeof updateProgramEvent>[2]);
+
+  it("refuses a plain member moving an event out of its project", async () => {
+    await expect(edit(alice, { projectId: null })).rejects.toThrow();
+    const still = await prisma.programEvent.findUniqueOrThrow({ where: { id: evA }, select: { projectId: true } });
+    expect(still.projectId).toBe(projA);
+  });
+
+  it("leaves the project alone when the field is simply omitted", async () => {
+    // The second half of the same defect: `?? null` could not tell "not
+    // provided" from "clear it", so any partial update silently dropped the
+    // project AND widened the audience.
+    const updated = await edit(alice, {});
+    expect(updated).not.toBeNull();
+    const after = await prisma.programEvent.findUniqueOrThrow({ where: { id: evA }, select: { projectId: true } });
+    expect(after.projectId).toBe(projA);
+  });
+
+  it("allows an org admin to move it", async () => {
+    const moved = await updateProgramEvent(orgAdmin(admin), evA, {
+      title: "A event", categoryId: catId,
+      startsAt: utc(2026, 11, 10), endsAt: utc(2026, 11, 10), allDay: true,
+      projectId: null,
+    });
+    expect(moved).not.toBeNull();
+    await prisma.programEvent.update({ where: { id: evA }, data: { projectId: projA } });
+  });
+
+  it("allows a MANAGER of that project, not just an org admin", async () => {
+    // The project-tier path, which the org-admin case above would otherwise
+    // hide: authority over one project comes from managing it.
+    const am = await prisma.orgMember.findFirstOrThrow({ where: { orgId, userId: alice }, select: { id: true } });
+    await prisma.projectMember.updateMany({
+      where: { projectId: projA, orgMemberId: am.id },
+      data: { role: "MANAGER" },
+    });
+    await expect(edit(alice, { projectId: null })).resolves.not.toBeNull();
+    await prisma.programEvent.update({ where: { id: evA }, data: { projectId: projA } });
+    await prisma.projectMember.updateMany({
+      where: { projectId: projA, orgMemberId: am.id },
+      data: { role: "MEMBER" },
+    });
   });
 });
