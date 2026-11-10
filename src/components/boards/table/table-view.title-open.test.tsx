@@ -34,7 +34,22 @@ vi.mock("@/components/work-items/board-item-detail-sheet", () => ({
 vi.mock("@/components/boards/shared/filter-bar", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/components/boards/shared/filter-bar")>();
-  return { ...actual, FilterBar: () => null };
+  // Render the `actions` slot through rather than returning null. A converted
+  // board puts "New issue", "Group by" and the density toggles INTO this
+  // surface, so a stub that drops them removes controls the board still owns
+  // and the next reader reports them as missing. `never` rather than
+  // ReactNode: the automatic JSX runtime does not put `React` in scope here,
+  // and `never` is assignable to ReactNode. Pinned by
+  // shared/actions-slot-stubs.arch.test.ts.
+  return {
+    ...actual,
+    FilterBar: ({ actions, notice }: { actions?: unknown; notice?: unknown }) => (
+      <>
+        {notice as never}
+        {actions as never}
+      </>
+    ),
+  };
 });
 
 const item = (
