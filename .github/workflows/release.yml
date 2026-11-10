@@ -84,7 +84,7 @@ jobs:
       - name: Trigger the GitLab assembly to rebuild composed images
         env:
           GITLAB_TRIGGER_TOKEN: ${{ secrets.GITLAB_TRIGGER_TOKEN }}
-          GITLAB_TRIGGER_URL: ${{ vars.GITLAB_ASSEMBLY_TRIGGER_URL }}
+          GITLAB_TRIGGER_URL: ${{ secrets.GITLAB_ASSEMBLY_TRIGGER_URL || vars.GITLAB_ASSEMBLY_TRIGGER_URL }}
           CORE_REF: ${{ github.ref_name }}
         run: |
           # A WARNING, not a notice. This skip is deliberately non-fatal — a red
@@ -100,7 +100,7 @@ jobs:
           # case; these two now behave the same way.
           missing=""
           [ -z "${GITLAB_TRIGGER_TOKEN:-}" ] && missing="$missing secrets.GITLAB_TRIGGER_TOKEN"
-          [ -z "${GITLAB_TRIGGER_URL:-}" ]   && missing="$missing vars.GITLAB_ASSEMBLY_TRIGGER_URL"
+          [ -z "${GITLAB_TRIGGER_URL:-}" ]   && missing="$missing GITLAB_ASSEMBLY_TRIGGER_URL"
           if [ -n "$missing" ]; then
             echo "::warning::GitLab assembly NOT triggered — missing:${missing}. No composed image will be built for ${CORE_REF}, so every instance stays on its previous version. Configure the above, then re-run this job."
             exit 0

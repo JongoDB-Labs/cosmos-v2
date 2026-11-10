@@ -3,8 +3,15 @@ name: teams-digest
 # Daily Teams digest (FR 8a162fe7). Posts a one-message 24h summary to the
 # org's Teams channel — only when the org has the Teams integration active AND
 # the dailyDigest toggle on (the endpoint short-circuits otherwise, so this
-# workflow is safe to leave scheduled). Inert until the same variables/secret
-# as feedback-remediation are configured.
+# workflow is safe to leave scheduled). Inert until COSMOS_BASE_URL and
+# COSMOS_ORG_ID are configured -- as SECRETS, so the run log (public, like this
+# repository) masks them; a variable of the same name is read as a fallback.
+#
+# It needs its OWN key, COSMOS_DIGEST_API_KEY, with the `read` and `rules:run`
+# scopes: posting the digest is a gated write that counts what the key can read.
+# It used to borrow feedback-remediation's COSMOS_API_KEY, which is deliberately
+# `items:write` only -- widening that key to make the digest work would hand the
+# remediation bot read access to every work item it never needed.
 
 on:
   schedule:
@@ -24,21 +31,31 @@ jobs:
     steps:
       - name: Post the digest
         env:
-          BASE_URL: ${{ vars.COSMOS_BASE_URL }}
-          ORG_ID: ${{ vars.COSMOS_ORG_ID }}
-          API_KEY: ${{ secrets.COSMOS_API_KEY }}
+          BASE_URL: ${{ secrets.COSMOS_BASE_URL || vars.COSMOS_BASE_URL }}
+          ORG_ID: ${{ secrets.COSMOS_ORG_ID || vars.COSMOS_ORG_ID }}
+          API_KEY: ${{ secrets.COSMOS_DIGEST_API_KEY }}
         run: |
-          if [ -z "$BASE_URL" ] || [ -z "$ORG_ID" ] || [ -z "$API_KEY" ]; then
-            echo "::notice::teams-digest not configured (COSMOS_BASE_URL / COSMOS_ORG_ID / COSMOS_API_KEY unset) — skipping."
+          if [ -z "$BASE_URL" ] || [ -z "$ORG_ID" ]; then
+            echo "::notice::teams-digest not configured (COSMOS_BASE_URL / COSMOS_ORG_ID unset) — skipping."
             exit 0
+          fi
+          # Configured, but without the digest's own key: a real misconfiguration,
+          # so fail with the fix rather than skip green and post nothing.
+          if [ -z "$API_KEY" ]; then
+            echo "::error::teams-digest needs its own API key: create one in Settings -> API keys with the read and rules:run scopes, and save it as the COSMOS_DIGEST_API_KEY repository secret"; exit 1
           fi
           code=$(curl -sS -o /tmp/resp.json -w '%{http_code}' \
             -X POST "$BASE_URL/api/v1/orgs/$ORG_ID/integrations/teams/digest" \
             -H "Authorization: Bearer $API_KEY" \
             -H "Content-Type: application/json" -d '{}')
-          echo "HTTP $code"; cat /tmp/resp.json; echo
+          # The outcome only, never the body: this repo is public, so its
+          # Actions logs are too, and the body carries the org's daily counts.
+          # `|| true`: a body with none of these (a 403's error object) must not
+          # abort the step under -eo pipefail before it explains itself.
+          outcome=$(grep -o -E '"(posted|skipped|error)":("[a-z_-]*"|true|false)' /tmp/resp.json | tr '\n' ' ' || true)
+          echo "HTTP $code ${outcome}"
           if [ "$code" = "403" ]; then
-            echo "::error::COSMOS_API_KEY needs the rules:run and read scopes; re-mint it in Settings -> API keys (HTTP 403)"; exit 1
+            echo "::error::COSMOS_DIGEST_API_KEY needs the read and rules:run scopes; re-mint it in Settings -> API keys (HTTP 403)"; exit 1
           fi
           if [ "$code" = "429" ]; then
             echo "::notice::teams digest already posted this hour (HTTP 429): skipping"; exit 0
