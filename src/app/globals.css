@@ -431,3 +431,31 @@
   ::view-transition-old(page),
   ::view-transition-new(page) { animation: none; }
 }
+
+/* Program-calendar event chips.
+ *
+ * The ink arrives as `--chip-ink` (the category's stored light-mode colour)
+ * rather than an inline `color`, precisely so this rule can override it. An
+ * inline colour would win over any stylesheet and leave dark mode unfixable
+ * without editing every chip.
+ *
+ * In dark mode the chip's ground is a dark tint, and the stored ink is a deep
+ * shade chosen against white — near-black on near-black. Rather than storing a
+ * second colour that can drift out of step with the first, the ink is lifted
+ * toward white from the SAME tint. 72% white keeps enough of the category's
+ * hue to stay identifiable while clearing contrast against the tinted ground.
+ *
+ * Gated like the `dark` variant above — explicit `.dark`/`.light` first, OS
+ * preference only as the fallback — so OS-dark plus app-light does not paint
+ * dark-mode ink onto a light surface. */
+.pc-chip {
+  color: var(--chip-ink);
+}
+:where(.dark) .pc-chip {
+  color: color-mix(in srgb, rgb(var(--chip-tint)) 28%, white);
+}
+@media (prefers-color-scheme: dark) {
+  :where(:root:not(.light)) .pc-chip {
+    color: color-mix(in srgb, rgb(var(--chip-tint)) 28%, white);
+  }
+}

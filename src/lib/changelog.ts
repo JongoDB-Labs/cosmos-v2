@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.540.0",
+    date: "2026-11-10",
+    title: "A program calendar for events, engagements and milestones",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A new Program Calendar under the PM Dashboard shows program events \u2014 reviews, boards, decision points and milestones \u2014 in month, week and day views. Turn it on per project under the project\u2019s features.",
+      },
+      {
+        kind: "feature",
+        text: "Events carry a category, an owner, a location, attendees, a recurrence, an optional deliverable, whether the customer attends, and notes. A multi-day event draws as a single continuous bar across the days it covers.",
+      },
+      {
+        kind: "feature",
+        text: "Categories and owners are overlays rather than a single choice: tick any combination to see them together, each showing how many events it holds. A category you have switched off still reports its count, so a quiet calendar is never mistaken for an empty one.",
+      },
+      {
+        kind: "improvement",
+        text: "An all-day event falls on its dates in every time zone, and an event on a team-scoped project is visible only to that team \u2014 in the list, in the counts and when opened directly.",
+      },
+    ],
+  },
+  {
       version: "2.538.0",
       date: "2026-11-06",
       title: "Approved accounts respect the approved domains",
