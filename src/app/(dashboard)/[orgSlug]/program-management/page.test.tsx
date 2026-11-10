@@ -22,6 +22,7 @@ const { prisma, getAuthContext, getVisibleProjectIds, loaders } = vi.hoisted(() 
       project: {
         findMany: vi.fn(async () => [
           { id: "p-open", key: "OPEN", name: "Open project" },
+          { id: "p-other", key: "OTHER", name: "Other project" },
           { id: "p-restricted", key: "SECRET", name: "Restricted project" },
         ]),
       },
@@ -32,7 +33,9 @@ const { prisma, getAuthContext, getVisibleProjectIds, loaders } = vi.hoisted(() 
       changeRequest: rows(),
     },
     getAuthContext: vi.fn(),
-    getVisibleProjectIds: vi.fn(async () => new Set(["p-open"])),
+    // TWO visible: with one, a page that ignored ?project= entirely would
+    // produce the same ids as one that narrowed correctly.
+    getVisibleProjectIds: vi.fn(async () => new Set(["p-open", "p-other"])),
     loaders: {
       milestones: vi.fn(async () => []),
       kpis: vi.fn(async () => []),
@@ -92,18 +95,19 @@ describe("Program Management — scope", () => {
 
     expect(getVisibleProjectIds).toHaveBeenCalledWith(expect.anything(), [
       "p-open",
+      "p-other",
       "p-restricted",
     ]);
     for (const load of Object.values(loaders)) {
       // clins is gated separately; the other two take the visible set.
       if (load === loaders.clins) continue;
-      expect(load).toHaveBeenCalledWith("o1", ["p-open"]);
+      expect(load).toHaveBeenCalledWith("o1", ["p-open", "p-other"]);
     }
     for (const model of ["goal", "risk", "deliverable", "blocker", "changeRequest"] as const) {
       const where = (
         prisma[model].findMany.mock.calls[0] as unknown as [{ where: Record<string, unknown> }]
       )[0].where;
-      expect(where).toMatchObject({ orgId: "o1", projectId: { in: ["p-open"] } });
+      expect(where).toMatchObject({ orgId: "o1", projectId: { in: ["p-open", "p-other"] } });
     }
   });
 
@@ -126,7 +130,7 @@ describe("Program Management — scope", () => {
       params,
       searchParams: Promise.resolve({ project: "SECRET" }),
     });
-    expect(scopedIds()).toEqual(["p-open"]);
+    expect(scopedIds()).toEqual(["p-open", "p-other"]);
     expect(scopedIds()).not.toContain("p-restricted");
   });
 
@@ -136,7 +140,7 @@ describe("Program Management — scope", () => {
       params,
       searchParams: Promise.resolve({ project: "GONE" }),
     });
-    expect(scopedIds()).toEqual(["p-open"]);
+    expect(scopedIds()).toEqual(["p-open", "p-other"]);
   });
 });
 
@@ -192,14 +196,14 @@ describe("Program Management — contract money is gated separately from the pag
       searchParams: noQuery,
     })) as ReactElement;
 
-    expect(loaders.clins).toHaveBeenCalledWith("o1", ["p-open"]);
+    expect(loaders.clins).toHaveBeenCalledWith("o1", ["p-open", "p-other"]);
     expect(dashboardData(el).changes[0].costImpact).toBe(125000);
   });
 
   it("ACCOUNTING_READ opens it too, as it does on the Accounting pages", async () => {
     signedInWith(PROGRAM_ONLY | Permission.ACCOUNTING_READ);
     await ProgramManagementContent({ params, searchParams: noQuery });
-    expect(loaders.clins).toHaveBeenCalledWith("o1", ["p-open"]);
+    expect(loaders.clins).toHaveBeenCalledWith("o1", ["p-open", "p-other"]);
   });
 });
 

@@ -179,6 +179,7 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
         // The PageShell above already carries the title and says what is in
         // scope, so this component does not repeat either.
         hideScopeHeading
+        moneyWithheld={!canSeeMoney}
         scope={{ kind: "org", orgId: ctx.orgId, orgName: selected ? selected.name : org.name }}
         data={{
           milestones: milestones.map((m) => ({

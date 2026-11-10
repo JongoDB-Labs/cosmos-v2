@@ -31,7 +31,7 @@ import {
 // The optional project features that surface as board tabs (board-tabs.tsx).
 // Defined once alongside the TOGGLEABLE_FEATURES the project PUT validates
 // against, so this picker cannot offer a key the API silently drops.
-import { FEATURE_OPTIONS, isRetiredFeature } from "@/lib/project-features";
+import { FEATURE_OPTIONS, isOfferedTo } from "@/lib/project-features";
 import { useWorkItemTypes } from "@/hooks/use-work-item-types";
 import { resolveLinkTypeId } from "@/lib/okr/link-type-default";
 
@@ -396,7 +396,7 @@ export function ProjectSettingsClient({
             <h3 className="text-sm font-semibold">Modules</h3>
             <p className="mt-0.5 text-xs text-muted-foreground">
               Optional capabilities that show up as project tabs — OKRs, Goals,
-              KPIs, the PM suites, Files. (Not board views — see Board Types below.)
+              KPIs, Milestones, Files. (Not board views — see Board Types below.)
             </p>
           </div>
           {savingFeatures ? (
@@ -404,14 +404,13 @@ export function ProjectSettingsClient({
           ) : null}
         </div>
         <div className="divide-y">
-          {/* Offered: everything still on the menu, PLUS any retired module
-              this project already has on. A plain filter would hide a live
-              module from the only screen that can turn it off -- the project
-              would be stuck with it. Retired ones therefore appear only where
-              they are already in use, and only to be switched off. */}
-          {FEATURE_OPTIONS.filter(
-            (f) => !isRetiredFeature(f.key) || features.includes(f.key),
-          ).map((f) => {
+          {/* Offered: everything still on the menu, PLUS the retired modules
+              this project was using when the page loaded (see isOfferedTo). A
+              plain filter would hide a live module from the only screen that
+              can turn it off. Judged on the LOADED features, not live state:
+              each toggle saves at once, so a live filter made switching a
+              retired module off permanent. */}
+          {FEATURE_OPTIONS.filter((f) => isOfferedTo(f.key, enabledFeatures)).map((f) => {
             const on = features.includes(f.key);
             return (
               <div

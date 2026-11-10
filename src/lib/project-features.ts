@@ -112,9 +112,15 @@ export function isRetiredFeature(key: string): boolean {
 export const PICKABLE_FEATURE_OPTIONS: readonly FeatureOption[] =
   FEATURE_OPTIONS.filter((f) => !RETIRED_FEATURES.has(f.key));
 
-/** The label for any key, retired or not — for rendering what a project HAS. */
-export function featureLabel(key: string): string {
-  return FEATURE_OPTIONS.find((f) => f.key === key)?.label ?? key;
+/**
+ * Whether a project's settings list this module. A live one always. A retired
+ * one only to a project that held it when the screen loaded, so it can be
+ * switched off and back on after a misclick, or that runs the PM Dashboard:
+ * every retired key is part of that suite, and a project still on it keeps the
+ * whole suite until the Program Management page replaces it.
+ */
+export function isOfferedTo(key: string, heldAtLoad: readonly string[]): boolean {
+  return !isRetiredFeature(key) || heldAtLoad.includes(key) || heldAtLoad.includes("pm-dashboard");
 }
 
 /**

@@ -55,7 +55,7 @@ const RELEASES: Release[] = [
     highlights: [
       {
         kind: "improvement",
-        text: "The Issues page is now called Work Items, and lives at /work-items. Everything underneath it already used that name \u2014 the records, the API and the import \u2014 so the page was the last thing still calling them issues. \u201CNew issue\u201D is now \u201CNew work item\u201D wherever it appears, on every board and in the command palette, and the same goes for the messages, dialogs and import fields that still said \u201Cissue\u201D. A CSV export now downloads as work-items-\u2026.csv rather than issues-\u2026.csv. Every link you have already shared, bookmarked or been notified about keeps working.",
+        text: "The Issues page is now called Work Items, and lives at /work-items. Everything underneath it already used that name \u2014 the records, the API and the import \u2014 so the page was the last thing still calling them issues. \u201CNew issue\u201D is now \u201CNew work item\u201D wherever it appears, on every board and in the command palette, and the same goes for the messages, dialogs and import fields that still said \u201Cissue\u201D. A CSV export now downloads as work-items-\u2026.csv rather than issues-\u2026.csv, and a spreadsheet whose headers use the new names (\u201CWork Item Type\u201D, \u201CExternal Key\u201D) still maps itself on import. Every link you have already shared, bookmarked or been notified about keeps working.",
       },
       {
         kind: "feature",
@@ -63,11 +63,11 @@ const RELEASES: Release[] = [
       },
       {
         kind: "improvement",
-        text: "Contract money on the Program Management page \u2014 CLIN burn and a change request\u2019s cost impact \u2014 now needs a finance permission of its own. Everyone who can read the page still sees how a programme is tracking, including how many days a change adds; what it costs is a separate question and is now a separate permission.",
+        text: "Contract money on the Program Management page \u2014 CLIN burn and a change request\u2019s cost impact \u2014 now needs a finance permission of its own. Everyone who can read the page still sees how a programme is tracking, including how many days a change adds; what it costs is a separate question and is now a separate permission. Without it, the CLIN burn panel says so, rather than reading as though the contract had no CLINs.",
       },
       {
         kind: "improvement",
-        text: "The PM Dashboard module is no longer offered when setting up a project or a template, because the Program Management page replaces it. Projects already using it keep it, and can still turn it off \u2014 nothing was removed.",
+        text: "The PM Dashboard is no longer offered as a new board, as a project module, or by a project template, because the Program Management page replaces it; a project created from a template that listed it starts without it. Projects already using it keep it, along with all of its registers, and can still turn it off \u2014 nothing was removed.",
       },
     ],
   },

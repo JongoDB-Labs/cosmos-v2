@@ -169,6 +169,11 @@ interface PmDashboardProps {
    * renders both. The audience subtitle stays either way.
    */
   hideScopeHeading?: boolean;
+  /**
+   * The host withheld contract money from this viewer (no finance permission),
+   * so an empty CLIN list means "not yours to see", not "none on file".
+   */
+  moneyWithheld?: boolean;
 }
 
 const AUDIENCES: {
@@ -236,6 +241,7 @@ export function PmDashboard({
   data,
   audience: initialAudience,
   hideScopeHeading,
+  moneyWithheld,
 }: PmDashboardProps) {
   const { can } = usePermissions();
 
@@ -330,8 +336,10 @@ export function PmDashboard({
         </div>
       </div>
 
-      {audience === "pm" && <PmView data={data} stats={stats} />}
-      {audience === "government" && <GovernmentView data={data} stats={stats} />}
+      {audience === "pm" && <PmView data={data} stats={stats} moneyWithheld={moneyWithheld} />}
+      {audience === "government" && (
+        <GovernmentView data={data} stats={stats} moneyWithheld={moneyWithheld} />
+      )}
       {audience === "executive" && <ExecutiveView data={data} stats={stats} />}
     </div>
   );
@@ -341,7 +349,7 @@ export function PmDashboard({
 // Audience views
 // ---------------------------------------------------------------------------
 
-function PmView({ data, stats }: ViewProps) {
+function PmView({ data, stats, moneyWithheld }: ViewProps) {
   const decisions = computeDecisions(data);
   return (
     <>
@@ -354,14 +362,14 @@ function PmView({ data, stats }: ViewProps) {
         <BlockersPanel blockers={data.blockers} />
         <DeliverablesPanel deliverables={data.deliverables} />
         <ChangesPanel changes={data.changes} />
-        <ClinBurnPanel clins={data.clins} className="lg:col-span-2" />
+        <ClinBurnPanel clins={data.clins} withheld={moneyWithheld} className="lg:col-span-2" />
         <GoalsPanel goals={data.goals} />
       </div>
     </>
   );
 }
 
-function GovernmentView({ data, stats }: ViewProps) {
+function GovernmentView({ data, stats, moneyWithheld }: ViewProps) {
   const decisions = computeDecisions(data);
   return (
     <>
@@ -382,7 +390,7 @@ function GovernmentView({ data, stats }: ViewProps) {
         <MilestonesPanel milestones={data.milestones} title="Schedule" />
         <DeliverablesPanel deliverables={data.deliverables} title="Contract Deliverables (CDRLs)" />
         <ChangesPanel changes={data.changes} title="Change Requests & MODs" />
-        <ClinBurnPanel clins={data.clins} className="lg:col-span-2" />
+        <ClinBurnPanel clins={data.clins} withheld={moneyWithheld} className="lg:col-span-2" />
         <KpisPanel kpis={data.kpis} title="Performance vs. Target" />
         <RisksPanel
           risks={data.risks.filter((r) => r.escalate)}
@@ -416,6 +424,7 @@ function ExecutiveView({ data, stats }: ViewProps) {
 interface ViewProps {
   data: PmDashboardData;
   stats: ReturnType<typeof computeStats>;
+  moneyWithheld?: boolean;
 }
 
 const AUDIENCE_HEADER: Record<AudienceView, { title: string; subtitle: string }> = {
@@ -701,13 +710,23 @@ function BurnBar({ percent }: { percent: number | null }) {
   );
 }
 
-function ClinBurnPanel({ clins, className }: { clins: ClinBurnLite[]; className?: string }) {
+function ClinBurnPanel({
+  clins,
+  withheld,
+  className,
+}: {
+  clins: ClinBurnLite[];
+  withheld?: boolean;
+  className?: string;
+}) {
   const totalValue = clins.reduce((s, c) => s + c.value, 0);
   const totalBurned = clins.reduce((s, c) => s + c.burned, 0);
   const totalPct = totalValue > 0 ? Math.round((totalBurned / totalValue) * 100) : null;
   return (
     <Panel title="CLIN Burn" className={className}>
-      {clins.length === 0 ? (
+      {withheld ? (
+        <EmptyRow label="CLIN burn needs Finance or Accounting access." />
+      ) : clins.length === 0 ? (
         <EmptyRow label="No CLINs yet." />
       ) : (
         <div className="flex flex-col gap-3">

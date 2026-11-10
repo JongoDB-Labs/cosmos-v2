@@ -5,6 +5,7 @@ import {
   boardTypeTemplates,
 } from "./built-in-templates";
 import { BOARD_TYPE_REGISTRY } from "./board-types";
+import { isRetiredFeature } from "@/lib/project-features";
 
 /**
  * The board-type registry made a type impossible to add without a label and a
@@ -33,11 +34,12 @@ describe("built-in board templates", () => {
     }
   });
 
-  it("still carries the feature templates, which create no board at all", () => {
-    // pm-dashboard enables a project feature instead. Coverage must not be
-    // satisfied — or broken — by these.
+  it("offers no feature card while the only one, PM Dashboard, is retired", () => {
+    // A feature card enables a project module instead of creating a board, and
+    // boardTypeTemplates() keeps such cards out of coverage. The only one was
+    // retired for the Program Management page; a new one should revisit this.
     const features = BUILT_IN_BOARD_TEMPLATES.filter((t) => "feature" in t);
-    expect(features.length).toBeGreaterThan(0);
+    expect(features).toEqual([]);
   });
 
   it("gives every template a unique slug", () => {
@@ -65,5 +67,17 @@ describe("default columns", () => {
     // Seeding opinionated columns onto a Kanban board would fight whatever the
     // project template already set up.
     expect(BOARD_TYPE_REGISTRY.KANBAN.defaultColumns).toBeUndefined();
+  });
+});
+
+describe("retired project features", () => {
+  it("offers no gallery card that would switch a retired module back on", () => {
+    // Control: the PM Dashboard IS retired, so an empty result below means the
+    // card was withheld, not that nothing was ever retired.
+    expect(isRetiredFeature("pm-dashboard")).toBe(true);
+    const offered = BUILT_IN_BOARD_TEMPLATES.filter(
+      (t) => t.feature !== undefined && isRetiredFeature(t.feature),
+    ).map((t) => t.slug);
+    expect(offered).toEqual([]);
   });
 });

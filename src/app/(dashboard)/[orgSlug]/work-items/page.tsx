@@ -14,20 +14,20 @@ import { buttonVariants } from "@/components/ui/button";
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
 /**
- * Org-wide Issues view — a JQL-lite cross-project work-item search. Per Cache
+ * Org-wide Work Items view — a JQL-lite cross-project work-item search. Per Cache
  * Components: `await params` + `getAuthContext` (cookie read) live INSIDE the
  * <Suspense> boundary; the synchronous default export ships a header skeleton.
  * The actual data load happens client-side (WorkItemsView's React Query).
  */
-export default function IssuesPage({ params }: PageParams) {
+export default function WorkItemsPage({ params }: PageParams) {
   return (
-    <Suspense fallback={<IssuesSkeleton />}>
-      <IssuesPageContent params={params} />
+    <Suspense fallback={<WorkItemsSkeleton />}>
+      <WorkItemsPageContent params={params} />
     </Suspense>
   );
 }
 
-async function IssuesPageContent({ params }: PageParams) {
+async function WorkItemsPageContent({ params }: PageParams) {
   const { orgSlug } = await params;
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
@@ -72,7 +72,7 @@ async function IssuesPageContent({ params }: PageParams) {
   );
 }
 
-function IssuesSkeleton() {
+function WorkItemsSkeleton() {
   return (
     <div className="mx-auto max-w-7xl p-8">
       <div className="mb-6">

@@ -29,4 +29,22 @@ describe("work-item import targets", () => {
     expect(guessTarget("Epic Link")).toBe("parentKey");
     expect(guessTarget("Parent")).toBe("parentKey");
   });
+
+  // The mapper's own labels were renamed from "Issue Type / Issue Key / Issue
+  // ID". A sheet whose headers were copied from those labels must still map
+  // itself, and so must the "work item" spelling of the old Jira names.
+  it("maps a header written as the mapper's own label", () => {
+    for (const id of ["type", "externalKey", "externalId"] as const) {
+      const label = TARGET_FIELDS.find((t) => t.id === id)!.label;
+      expect(guessTarget(label), label).toBe(id);
+    }
+    expect(guessTarget("Work item key")).toBe("externalKey");
+    expect(guessTarget("Work item ID")).toBe("externalId");
+  });
+
+  it("still maps the Jira 'issue' headers", () => {
+    expect(guessTarget("Issue Type")).toBe("type");
+    expect(guessTarget("Issue key")).toBe("externalKey");
+    expect(guessTarget("Issue id")).toBe("externalId");
+  });
 });

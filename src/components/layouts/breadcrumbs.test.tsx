@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildCrumbs } from "./breadcrumbs";
 import { slugify } from "@/lib/templates/slugify";
-import { BUILT_IN_BOARD_TEMPLATES } from "@/lib/boards/built-in-templates";
+import { ALL_BOARD_TEMPLATES } from "@/lib/boards/built-in-templates";
 
 describe("buildCrumbs", () => {
   it("returns empty for root", () => {
@@ -73,13 +73,17 @@ describe("buildCrumbs", () => {
  * differently.
  */
 describe("every built-in board name survives the breadcrumb round-trip", () => {
-  const names = BUILT_IN_BOARD_TEMPLATES.map((t) => t.name);
+  // The FULL list, retired cards included: a project that made a board from one
+  // before it was retired still has that board, and its crumb still renders.
+  const names = ALL_BOARD_TEMPLATES.map((t) => t.name);
 
   it("found the built-in board list", () => {
     // Guards the guard: an empty or truncated list must fail loudly rather than
     // iterate nothing and report success.
     expect(names.length).toBeGreaterThan(10);
     expect(names).toContain("OKR View");
+    // ...and the retired card, which the offered list no longer carries.
+    expect(names).toContain("PM Dashboard");
   });
 
   it("labels each one exactly as the board is named", () => {
