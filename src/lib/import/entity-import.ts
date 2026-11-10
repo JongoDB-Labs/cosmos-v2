@@ -41,6 +41,7 @@ import type {
   ChangeRequestStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
+import type { AuthContext } from "@/lib/rbac/check";
 import { computeRiskScore, riskLevelFromScore } from "@/lib/pm/risk";
 import {
   createProgramEventRow,
@@ -62,6 +63,17 @@ import {
 
 export interface EntityEngineCtx {
   orgId: string;
+  /**
+   * The CALLER, not just their id.
+   *
+   * Name resolution reads teams and deliverables and writes their ids onto
+   * rows; the lane then renders the team's NAME. Resolving against the whole
+   * org would therefore show someone a team on a project they cannot open.
+   * `ORG_IMPORT` is an owner/admin permission by default — and both of those
+   * see every project anyway — but a work role can delegate it to an ordinary
+   * member, and that is the case this exists for.
+   */
+  auth: AuthContext;
   /**
    * The project being imported INTO, or null for an org-scoped entity — which
    * has no project to be "in" (see `EntityDef.scope`). `requireProject` is the
@@ -261,7 +273,7 @@ async function resolveLookups(
   if (def.key === "programEvent") {
     // Category / owner / deliverable names, plus the one blocking check this
     // entity needs (an unreadable start date). Org-scoped: there is no project.
-    await resolveProgramEventLookups(ctx.orgId, mapped);
+    await resolveProgramEventLookups(ctx.orgId, mapped, ctx.auth);
     return;
   }
   if (def.key !== "deliverable") return;
@@ -345,7 +357,12 @@ async function loadExistingIds(
     // is also what the sheet side resolves to — one definition of "the day this
     // event is on", so the two sides cannot drift apart and start duplicating.
     const rows = await prisma.programEvent.findMany({
-      where: { orgId },
+      // `projectId: null` — the importer only ever CREATES org-level events,
+      // so org-level is the only scope its create-or-update may claim. Without
+      // it an imported row whose external id (or title+day) collided with a
+      // project-scoped event would UPDATE that event, editing a project's
+      // calendar from outside it.
+      where: { orgId, projectId: null },
       select: { id: true, externalId: true, title: true, startsAt: true, allDay: true, timeZone: true },
       orderBy: { createdAt: "asc" },
     });

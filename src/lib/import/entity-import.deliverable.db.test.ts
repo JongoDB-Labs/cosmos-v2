@@ -22,6 +22,13 @@ import { prisma } from "@/lib/db/client";
 import { runEntityImport } from "./entity-import";
 import { getEntityDef, guessFieldForHeader } from "./entity-fields";
 
+/** The caller, as the engine now requires: name resolution narrows teams and
+ *  deliverables to what this context can see. An org ADMIN sees every project,
+ *  which is what these fixtures assume. */
+const authFor = (userId: string, orgId: string) =>
+  ({ userId, orgId, orgRole: "ADMIN", abacRules: [], permissions: -1n, basePermissions: -1n }) as unknown as import("@/lib/rbac/check").AuthContext;
+
+
 let orgId = "";
 let projectId = "";
 /** The acting user: `EntityEngineCtx.userId` is required, even where the
@@ -65,7 +72,7 @@ afterAll(async () => {
 describe("entity import — deliverables", () => {
   it("creates a deliverable from a mapped row", async () => {
     const report = await runEntityImport(
-      { orgId, projectId, userId },
+      { orgId, projectId, userId, auth: authFor(userId, orgId) },
       {
         entity: "deliverable",
         mode: "commit",
@@ -92,7 +99,7 @@ describe("entity import — deliverables", () => {
     // which carried the same dead key — conditionally, since patch() only
     // applies a pair when the caller actually mapped that column.
     await runEntityImport(
-      { orgId, projectId, userId },
+      { orgId, projectId, userId, auth: authFor(userId, orgId) },
       {
         entity: "deliverable",
         mode: "commit",
@@ -101,7 +108,7 @@ describe("entity import — deliverables", () => {
       },
     );
     const report = await runEntityImport(
-      { orgId, projectId, userId },
+      { orgId, projectId, userId, auth: authFor(userId, orgId) },
       {
         entity: "deliverable",
         mode: "commit",
@@ -127,7 +134,7 @@ describe("entity import — deliverables", () => {
 describe("entity import — deliverables: CDRL columns", () => {
   it("imports the PI objective and the due gate as free text", async () => {
     const report = await runEntityImport(
-      { orgId, projectId, userId },
+      { orgId, projectId, userId, auth: authFor(userId, orgId) },
       {
         entity: "deliverable",
         mode: "commit",
@@ -160,7 +167,7 @@ describe("entity import — deliverables: CDRL columns", () => {
 
   it("resolves the Sprint column to an interval id by NAME, within the project", async () => {
     const report = await runEntityImport(
-      { orgId, projectId, userId },
+      { orgId, projectId, userId, auth: authFor(userId, orgId) },
       {
         entity: "deliverable",
         mode: "commit",
@@ -183,7 +190,7 @@ describe("entity import — deliverables: CDRL columns", () => {
     // "Elsewhere" is a real interval, in another project of the same org. It
     // must not resolve — a CDRL cannot be planned into another project's sprint.
     const report = await runEntityImport(
-      { orgId, projectId, userId },
+      { orgId, projectId, userId, auth: authFor(userId, orgId) },
       {
         entity: "deliverable",
         mode: "commit",
@@ -229,7 +236,7 @@ describe("entity import — deliverables: CDRL columns", () => {
     });
 
     const report = await runEntityImport(
-      { orgId, projectId, userId },
+      { orgId, projectId, userId, auth: authFor(userId, orgId) },
       {
         entity: "deliverable",
         mode: "commit",
@@ -278,7 +285,7 @@ describe("entity import — deliverables: CDRL columns", () => {
     });
 
     const report = await runEntityImport(
-      { orgId, projectId, userId },
+      { orgId, projectId, userId, auth: authFor(userId, orgId) },
       {
         entity: "deliverable",
         mode: "commit",

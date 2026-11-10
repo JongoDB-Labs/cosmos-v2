@@ -24,6 +24,13 @@ import { runEntityImport } from "./entity-import";
 import { getEntityDef, guessFieldForHeader, type EntityDef } from "./entity-fields";
 import { parseWorkbook, matrixToObjects, guessHeaderRow } from "./parse-file";
 
+/** The caller, as the engine now requires: name resolution narrows teams and
+ *  deliverables to what this context can see. An org ADMIN sees every project,
+ *  which is what these fixtures assume. */
+const authFor = (userId: string, orgId: string) =>
+  ({ userId, orgId, orgRole: "ADMIN", abacRules: [], permissions: -1n, basePermissions: -1n }) as unknown as import("@/lib/rbac/check").AuthContext;
+
+
 let orgId = "";
 let userId = "";
 let projectId = "";
@@ -33,8 +40,8 @@ let deliverableId = "";
 
 const def = getEntityDef("programEvent") as EntityDef;
 
-/** `{ orgId, projectId: null, userId }` — an org-scoped import has no project. */
-const ctx = () => ({ orgId, projectId: null, userId });
+/** `{ orgId, projectId: null, userId, auth: authFor(userId, orgId) }` — an org-scoped import has no project. */
+const ctx = () => ({ orgId, projectId: null, userId, auth: authFor(userId, orgId) });
 
 /** Map every header the way the wizard's first pass does. */
 function autoMap(headers: string[]): Record<string, string> {
@@ -436,7 +443,7 @@ describe("entity import — program calendar", () => {
     // route refuses this entity outright. If it ever got through, the engine
     // must fail loudly rather than write half-scoped rows.
     const report = await runEntityImport(
-      { orgId, projectId, userId },
+      { orgId, projectId, userId, auth: authFor(userId, orgId) },
       {
         entity: "deliverable",
         mode: "commit",
@@ -448,7 +455,7 @@ describe("entity import — program calendar", () => {
 
     await expect(
       runEntityImport(
-        { orgId, projectId: null, userId },
+        { orgId, projectId: null, userId, auth: authFor(userId, orgId) },
         {
           entity: "deliverable",
           mode: "validate",
@@ -482,7 +489,7 @@ describe.skipIf(!existsSync(CSV) && !existsSync(XLSX))("the real export files", 
   // so sharing one would make "created === rows" read as a failure when the
   // importer had correctly UPDATED a row an earlier test created.
   let fileOrgId = "";
-  const fileCtx = () => ({ orgId: fileOrgId, projectId: null, userId });
+  const fileCtx = () => ({ orgId: fileOrgId, projectId: null, userId, auth: authFor(userId, fileOrgId) });
   const fileEvents = () =>
     prisma.programEvent.findMany({ where: { orgId: fileOrgId }, select: { id: true, timeZone: true } });
 
@@ -564,5 +571,113 @@ describe.skipIf(!existsSync(CSV) && !existsSync(XLSX))("the real export files", 
     for (const ev of await fileEvents()) {
       expect(() => new Intl.DateTimeFormat("en-US", { timeZone: ev.timeZone })).not.toThrow();
     }
+  });
+});
+
+describe("an import resolves and claims only what its caller may see", () => {
+  // Both of these were flagged by review AFTER the importer was written, and
+  // neither was reachable by the specs above: they all run as an org ADMIN,
+  // who can see every project, so the narrowing is invisible from there.
+  // `ORG_IMPORT` is an owner/admin permission by stock roles — but a work role
+  // can hand it to an ordinary member, and that is the case these cover.
+  let hiddenTeamId = "", hiddenProjectId = "", plainUserId = "", extId = "";
+
+  const memberAuth = () =>
+    ({ userId: plainUserId, orgId, orgRole: "MEMBER", abacRules: [], permissions: -1n, basePermissions: -1n }) as unknown as import("@/lib/rbac/check").AuthContext;
+
+  beforeAll(async () => {
+    const s = Math.random().toString(36).slice(2, 7);
+    extId = `collide-${s}`;
+    plainUserId = (await prisma.user.create({
+      data: { email: `plain-${s}@test.local`, displayName: "Plain Member" },
+    })).id;
+    await prisma.orgMember.create({ data: { orgId, userId: plainUserId } });
+    hiddenProjectId = (await prisma.project.create({
+      data: { orgId, name: "Hidden", key: `HID${s.slice(0, 3).toUpperCase()}`, teamScopedAccess: true },
+    })).id;
+    hiddenTeamId = (await prisma.team.create({
+      data: { orgId, projectId: hiddenProjectId, name: `Hidden Team ${s}` },
+    })).id;
+  });
+
+  const importOwner = (auth: ReturnType<typeof memberAuth>, owner: string, title: string) =>
+    runEntityImport(
+      { orgId, projectId: null, userId, auth },
+      {
+        entity: "programEvent",
+        mode: "commit",
+        mapping: { Title: "title", Category: "category", "Start date": "startDate", "All day": "allDay", Owner: "owner" },
+        rows: [{ Title: title, Category: "Engagements", "Start date": "2026-11-05", "All day": "Yes", Owner: owner }],
+      },
+    );
+
+  it("does not resolve a team on a project the importer cannot open", async () => {
+    const team = await prisma.team.findUniqueOrThrow({ where: { id: hiddenTeamId }, select: { name: true } });
+    const report = await importOwner(memberAuth(), team.name, "Hidden owner attempt");
+    const row = await prisma.programEvent.findFirstOrThrow({
+      where: { orgId, title: "Hidden owner attempt" },
+      select: { ownerTeamId: true },
+    });
+    // Unresolved, and warned rather than failed — the same answer an absent
+    // name gets, so the warning cannot be used to probe for the team.
+    expect(row.ownerTeamId).toBeNull();
+    // A non-blocking warning: the row still imports, the owner is just not set.
+    expect(report.created).toBe(1);
+    expect(report.errors.map((e) => e.message).join(" ")).toMatch(/Hidden Team/i);
+  });
+
+  it("still resolves it for someone who CAN open that project", async () => {
+    // The positive control: without this, a lookup that resolved nothing at
+    // all would satisfy the assertion above.
+    const team = await prisma.team.findUniqueOrThrow({ where: { id: hiddenTeamId }, select: { name: true } });
+    await importOwner(authFor(userId, orgId), team.name, "Admin owner attempt");
+    const row = await prisma.programEvent.findFirstOrThrow({
+      where: { orgId, title: "Admin owner attempt" },
+      select: { ownerTeamId: true },
+    });
+    expect(row.ownerTeamId).toBe(hiddenTeamId);
+  });
+
+  it("never UPDATES a project-scoped event, even on an exact external-id match", async () => {
+    // The importer only ever creates ORG-LEVEL events, so org-level is the
+    // only scope its create-or-update may claim. Without that, a row whose
+    // external id collided with a project's event would edit that project's
+    // calendar from outside it.
+    const victim = await prisma.programEvent.create({
+      data: {
+        orgId, projectId: hiddenProjectId, title: "Belongs to the hidden project",
+        categoryId: (await prisma.eventCategory.findFirstOrThrow({ where: { orgId }, select: { id: true } })).id,
+        startsAt: new Date(Date.UTC(2026, 10, 5)), endsAt: new Date(Date.UTC(2026, 10, 6)),
+        allDay: true, externalId: extId, createdById: userId,
+      },
+      select: { id: true },
+    });
+
+    const report = await runEntityImport(
+      { orgId, projectId: null, userId, auth: authFor(userId, orgId) },
+      {
+        entity: "programEvent",
+        mode: "commit",
+        mapping: { "External ID": "externalId", Title: "title", Category: "category", "Start date": "startDate", "All day": "allDay" },
+        rows: [{ "External ID": extId, Title: "Imported, not the victim", Category: "Engagements", "Start date": "2026-11-05", "All day": "Yes" }],
+      },
+    );
+
+    const after = await prisma.programEvent.findUniqueOrThrow({
+      where: { id: victim.id },
+      select: { title: true, projectId: true },
+    });
+    expect(after.title).toBe("Belongs to the hidden project");
+    expect(after.projectId).toBe(hiddenProjectId);
+    // And the row is REFUSED rather than silently creating a second event
+    // under the same external id — the unique index is org-wide, so there is
+    // no org-level row it could legally take. The message says why.
+    expect(report.created).toBe(0);
+    expect(report.errors.map((e) => e.message).join(" ")).toMatch(/already belongs to an event filed under a project/);
+    const created = await prisma.programEvent.findFirst({
+      where: { orgId, title: "Imported, not the victim" },
+      select: { projectId: true },
+    });
+    expect(created).toBeNull();
   });
 });
