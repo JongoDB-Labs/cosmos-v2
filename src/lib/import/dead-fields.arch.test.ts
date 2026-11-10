@@ -32,16 +32,34 @@ describe("import field contracts carry nothing dead", () => {
     expect(withHint).toEqual([]);
   });
 
-  it("EntityEngineCtx carries no userId, and the import route passes none", () => {
+  /**
+   * INVERTED on 2026-11-10, when `programEvent` arrived: `created_by_id` is NOT
+   * NULL on `program_events`, so the engine needs the acting user and the old
+   * rule ("carries no userId, and the route passes none") was pinning the
+   * absence of something now required. A context field nothing SUPPLIES is as
+   * dead as one nothing reads, so the rule is kept and points the other way —
+   * and at both doors, not just the one that prompted it.
+   */
+  it("EntityEngineCtx carries a userId, and both import routes pass one", () => {
     const engine = read("src/lib/import/entity-import.ts");
     const ctxBlock = engine.slice(
       engine.indexOf("export interface EntityEngineCtx"),
       engine.indexOf("}", engine.indexOf("export interface EntityEngineCtx")),
     );
-    expect(ctxBlock).not.toMatch(/userId/);
-    expect(
-      read("src/app/api/v1/orgs/[orgId]/projects/[projectId]/import/route.ts"),
-    ).not.toMatch(/userId:\s*ctx\.userId/);
+    expect(ctxBlock).toMatch(/userId:\s*string/);
+    for (const route of [
+      "src/app/api/v1/orgs/[orgId]/projects/[projectId]/import/route.ts",
+      "src/app/api/v1/orgs/[orgId]/import/entities/route.ts",
+    ]) {
+      const src = read(route);
+      expect(src, `${route} calls the engine`).toMatch(/runEntityImport\(/);
+      // Scoped to the engine CALL, not the file: the org route also hands a
+      // userId to a plugin's writer, which would satisfy a file-wide match
+      // while the engine itself got none.
+      expect(src, `${route} passes the acting user to the engine`).toMatch(
+        /runEntityImport\(\s*\{[^}]*userId:\s*ctx\.userId/,
+      );
+    }
   });
 
   it("the parent-link cycle guard is described as a cycle, not an interval", () => {
@@ -84,6 +102,19 @@ describe("import fields name real columns", () => {
   // Keys that are deliberately NOT columns: they are resolved to a relation.
   const LOOKUP_ONLY: Record<string, readonly string[]> = {
     vendor: ["partnerName"], // looked up to Partner, stored as partnerId
+    programEvent: [
+      "category", // name → EventCategory, stored as categoryId (created if new)
+      "owner", // name → Team or OrgMember, stored as ownerTeamId / ownerMemberId
+      "deliverable", // title → Deliverable, stored as deliverableId
+    ],
+  };
+  // Keys that are COMPOSED into a column rather than being one. Listed per key,
+  // not per entity, so the rest of the entity's fields stay checked: these four
+  // columns plus `allDay` and `timeZone` become `starts_at` / `ends_at` in
+  // `program-calendar/import.ts`, which is also why they are `text` and not
+  // `date` (a calendar date must not acquire the server's zone).
+  const DERIVED: Record<string, readonly string[]> = {
+    programEvent: ["startDate", "endDate", "startTime", "endTime"],
   };
 
   function columnsOf(model: string): string[] {
@@ -105,16 +136,49 @@ describe("import fields name real columns", () => {
     (key, def) => {
       const model = MODEL_FOR[key] ?? key.charAt(0).toUpperCase() + key.slice(1);
       const columns = columnsOf(model);
-      const exempt = new Set(LOOKUP_ONLY[key] ?? []);
+      const exempt = new Set([...(LOOKUP_ONLY[key] ?? []), ...(DERIVED[key] ?? [])]);
 
       const dead = def.fields.map((f) => f.key).filter((k) => !exempt.has(k) && !columns.includes(k));
 
       expect(
         dead,
-        `${key} import offers field(s) that are not columns on ${model}. Either the column was dropped by a migration and the import field must go too, or it belongs in LOOKUP_ONLY with a note saying what it resolves to.`,
+        `${key} import offers field(s) that are not columns on ${model}. Either the column was dropped by a migration and the import field must go too, or it belongs in LOOKUP_ONLY / DERIVED with a note saying what it resolves to.`,
       ).toEqual([]);
     },
   );
+
+  /**
+   * The exemptions are a HOLE in the rule above, so they are pinned too.
+   *
+   * An exemption that names a field nobody reads re-opens exactly the defect
+   * this file exists to stop — a column offered in the wizard and written
+   * nowhere — and it would never fail, because the rule skips it by design.
+   * Every exempt key must therefore (a) still be a field on that entity and
+   * (b) be read by name in the server code that resolves or composes it.
+   */
+  it("every LOOKUP_ONLY / DERIVED exemption is a field something actually reads", () => {
+    // Comments stripped first: a scan that reads prose certifies the very
+    // sentence explaining a field, which is how a source-scanning guard passes
+    // over its own removal.
+    const stripComments = (s: string) =>
+      s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const readers = [
+      "src/lib/import/entity-import.ts",
+      "src/lib/program-calendar/import.ts",
+    ].map((f) => stripComments(read(f))).join("\n");
+
+    const stale: string[] = [];
+    for (const [entityKey, keys] of Object.entries({ ...LOOKUP_ONLY, ...DERIVED })) {
+      const def = ENTITY_DEFS.find((d) => d.key === entityKey);
+      for (const k of keys) {
+        if (!def?.fields.some((f) => f.key === k)) stale.push(`${entityKey}.${k}: not a field`);
+        // Quoted, because that is how the engine reads a mapped cell:
+        // s(fields, "partnerName"), text(fields, "startDate"), fields.category…
+        else if (!readers.includes(`"${k}"`)) stale.push(`${entityKey}.${k}: read by nothing`);
+      }
+    }
+    expect(stale, `exemptions that no longer describe anything:\n${stale.join("\n")}`).toEqual([]);
+  });
 });
 
 /**

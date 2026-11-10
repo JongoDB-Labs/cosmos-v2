@@ -96,8 +96,13 @@ export function ImportWizard(props: WizardProps) {
    * appears and is clickable, but the lookup deciding what to render next has
    * never heard of the key and returns nothing — which lands back on the picker.
    * Clicking the card then looks like the click did not register.
+   *
+   * The fallback is core's PROJECT-scoped registry: only the project import
+   * screen omits the prop, and an org-scoped entity has no project to import
+   * into — its own route refuses one. Offering it here would draw a card whose
+   * import the server rejects.
    */
-  const offered = props.entities ?? ENTITY_DEFS;
+  const offered = props.entities ?? ENTITY_DEFS.filter((e) => e.scope !== "org");
 
   // ── Step 1: entity picker ──
   if (selected === null) {

@@ -205,6 +205,13 @@ const NOT_A_PROJECT_WRITE: Record<string, string> = {
   "POST /v1/orgs/[orgId]/contracts/route.ts": "an org-level contract: the body can't name a project",
   "POST /v1/orgs/[orgId]/documents/route.ts": "files the document under no project",
   "POST /v1/orgs/[orgId]/chat/dms/route.ts": "a direct message belongs to no project",
+  // Flagged only because it hands the engine `projectId: null` — which is the
+  // reason it is safe. It refuses any entity whose scope is not "org" (and the
+  // engine's `requireProject` throws if one ever got past that), and core's one
+  // org-scoped entity writes `projectId: null`; the sheet has no project column
+  // to name one. Pinned by entity-import.programEvent.db.test.ts, which asserts
+  // an imported event carries no project.
+  "POST /v1/orgs/[orgId]/import/entities/route.ts": "org-scoped import: writes no project, and refuses a project-scoped entity",
   "POST /v1/orgs/[orgId]/feedback/report-bug/route.ts": "the system routes the report to a project, not the caller",
   "DELETE /v1/orgs/[orgId]/members/[memberId]/route.ts": "removing a member clears their own Teams conversation",
   "PUT /v1/orgs/[orgId]/microsoft/teams-app/notifications/route.ts": "the caller's own Teams notification settings",
