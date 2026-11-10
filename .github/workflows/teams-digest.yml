@@ -47,7 +47,12 @@ jobs:
             -X POST "$BASE_URL/api/v1/orgs/$ORG_ID/integrations/teams/digest" \
             -H "Authorization: Bearer $API_KEY" \
             -H "Content-Type: application/json" -d '{}')
-          echo "HTTP $code"; cat /tmp/resp.json; echo
+          # The outcome only, never the body: this repo is public, so its
+          # Actions logs are too, and the body carries the org's daily counts.
+          # `|| true`: a body with none of these (a 403's error object) must not
+          # abort the step under -eo pipefail before it explains itself.
+          outcome=$(grep -o -E '"(posted|skipped|error)":("[a-z_-]*"|true|false)' /tmp/resp.json | tr '\n' ' ' || true)
+          echo "HTTP $code ${outcome}"
           if [ "$code" = "403" ]; then
             echo "::error::COSMOS_DIGEST_API_KEY needs the read and rules:run scopes; re-mint it in Settings -> API keys (HTTP 403)"; exit 1
           fi
