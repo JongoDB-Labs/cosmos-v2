@@ -366,6 +366,8 @@ model Organization {
   teamsOutbox         TeamsOutbox[]
 
   @@map("organizations")
+  eventCategories   EventCategory[]
+  programEvents     ProgramEvent[]
 }
 
 model User {
@@ -456,6 +458,7 @@ model User {
   teamsConversations          TeamsConversation[]
 
   @@map("users")
+  createdProgramEvents ProgramEvent[]
 }
 
 model Session {
@@ -572,6 +575,7 @@ model OrgMember {
   @@unique([orgId, userId])
   @@index([orgId, removedAt])
   @@map("org_members")
+  ownedProgramEvents ProgramEvent[] @relation("ProgramEventOwnerMember")
 }
 
 /// How (and whether) people outside an org may ask for an account. OFF is the
@@ -952,6 +956,8 @@ model Project {
   @@unique([orgId, number])
   @@index([orgId, status])
   @@map("projects")
+  programEvents     ProgramEvent[]
+  eventVisibility     ProjectEventVisibility @default(PROJECT) @map("event_visibility")
 }
 
 /// A team WITHIN a project. org -> projects -> teams -> members is the source of
@@ -980,6 +986,7 @@ model Team {
   @@unique([projectId, name])
   @@index([orgId])
   @@map("teams")
+  ownedProgramEvents ProgramEvent[] @relation("ProgramEventOwnerTeam")
 }
 
 /// Team membership. Points at ProjectMember rather than OrgMember or User: you
@@ -5287,6 +5294,7 @@ model Deliverable {
   @@index([contractId])
   @@index([intervalId])
   @@map("deliverables")
+  programEvents     ProgramEvent[]
 }
 
 model Blocker {
@@ -6429,4 +6437,131 @@ model ProjectFeeTerms {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("project_fee_terms")
+}
+
+/// How often a program event repeats. Stored as a plain rule rather than an
+/// RRULE string: the reference calendar offers a fixed list, and a free-form
+/// RRULE would promise an expansion engine we do not have.
+enum EventRecurrence {
+  NONE
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  ANNUALLY
+}
+
+/// A colour band on the program calendar — "Engagements", "Deliverables",
+/// "LPI Governance & Decisions". Org-defined rather than an enum: every
+/// program names its own, and the reference calendar lets an admin add one
+/// and recolour it without a deploy.
+///
+/// The colour is stored as an rgb TRIPLE plus an alpha, not as a finished
+/// CSS string, because a chip is painted as that tint composited over the
+/// surface while the TEXT takes `textColor` at full strength. Keeping the two
+/// apart is what lets the same category read correctly on a light card and a
+/// dark one; a baked `rgba(...)` string could only ever suit one ground.
+model EventCategory {
+  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String       @map("org_id") @db.Uuid
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name      String
+  /// Space-separated rgb channels, e.g. "59 130 246" — mixed with `tintAlpha`
+  /// for the chip ground.
+  tintRgb   String       @map("tint_rgb")
+  tintAlpha Float        @default(0.2) @map("tint_alpha")
+  /// Full-strength text colour, e.g. "#1D4ED8".
+  textColor String       @map("text_color")
+  sortOrder Int          @default(0) @map("sort_order")
+  /// Archived rather than deleted: an event keeps its category, so removing one
+  /// outright would either orphan events or cascade them away.
+  archivedAt DateTime?   @map("archived_at")
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  events    ProgramEvent[]
+
+  @@unique([orgId, name])
+  @@index([orgId, sortOrder])
+  @@map("event_categories")
+}
+
+/// An event on the program calendar: an IPR, a board, an exercise, a milestone,
+/// a deliverable due date.
+///
+/// Scoped to the ORG with an optional project, deliberately. A program event
+/// routinely spans several projects (a fleet engagement, a sundown milestone),
+/// so hanging it off one project would force a false choice; `projectId` is
+/// there for the many that do belong to exactly one, and lets a project board
+/// filter to its own.
+///
+/// TIME. A timed event stores real instants in `startsAt`/`endsAt` and carries
+/// the `timeZone` it was entered in, so it can be shown back in that zone
+/// rather than the reader's. An ALL-DAY event is a date, not an instant: it is
+/// stored as UTC midnight to UTC midnight and must be read as a plain date in
+/// every zone. Rendering an all-day event through a zone conversion is what
+/// slides it a day backwards for anyone west of UTC.
+model ProgramEvent {
+  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId             String          @map("org_id") @db.Uuid
+  org               Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId         String?         @map("project_id") @db.Uuid
+  project           Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  categoryId        String          @map("category_id") @db.Uuid
+  category          EventCategory   @relation(fields: [categoryId], references: [id])
+  title             String
+  startsAt          DateTime        @map("starts_at")
+  endsAt            DateTime        @map("ends_at")
+  allDay            Boolean         @default(false) @map("all_day")
+  timeZone          String          @default("America/New_York") @map("time_zone")
+  location          String?
+  /// Who leads it. A team OR a person, because real programs assign both
+  /// ("Contracts", "PM Team", and a named individual). The calendar lanes group
+  /// by team first, then member, then Unassigned.
+  ownerTeamId       String?         @map("owner_team_id") @db.Uuid
+  ownerTeam         Team?           @relation("ProgramEventOwnerTeam", fields: [ownerTeamId], references: [id], onDelete: SetNull)
+  ownerMemberId     String?         @map("owner_member_id") @db.Uuid
+  ownerMember       OrgMember?      @relation("ProgramEventOwnerMember", fields: [ownerMemberId], references: [id], onDelete: SetNull)
+  /// Free text, names or emails. Not a join table in this slice: attendees are
+  /// descriptive here, and inventing membership rows for outside attendees
+  /// (government, vendors) would be wrong.
+  attendees         String          @default("")
+  recurrence        EventRecurrence @default(NONE)
+  deliverableId     String?         @map("deliverable_id") @db.Uuid
+  deliverable       Deliverable?    @relation(fields: [deliverableId], references: [id], onDelete: SetNull)
+  customerAttending Boolean         @default(false) @map("customer_attending")
+  description       String          @default("")
+  showOnDashboard   Boolean         @default(false) @map("show_on_dashboard")
+  /// Set by an import or a connected source. Re-importing updates the event
+  /// carrying the same id instead of adding a second one; an event created in
+  /// the app has none and is never overwritten by a sync.
+  externalId        String?         @map("external_id")
+  createdById       String          @map("created_by_id") @db.Uuid
+  createdBy         User            @relation(fields: [createdById], references: [id])
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  @@unique([orgId, externalId])
+  @@index([orgId, startsAt])
+  @@index([orgId, projectId, startsAt])
+  @@index([categoryId])
+  @@map("program_events")
+}
+
+/// Who may see a project's program-calendar events.
+///
+/// PROJECT is the default, and deliberately the RESTRICTIVE one: the event
+/// store is org-wide, so without an explicit default every member of the
+/// organization would see every project's calendar the moment the feature was
+/// switched on. A project manager opts their project into ORG when the
+/// programme wants it visible org-wide.
+///
+/// This is separate from `Project.teamScopedAccess`, which governs the
+/// project's records generally and defaults to OPEN. The two are not
+/// redundant: this one answers "may a non-member see our calendar", and
+/// flipping the other's default instead would have silently changed
+/// visibility for work items, invoices, expenses and bills across the product.
+enum ProjectEventVisibility {
+  PROJECT
+  ORG
 }
