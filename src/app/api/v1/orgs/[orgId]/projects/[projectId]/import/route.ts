@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { canManageProject } from "@/lib/rbac/scope";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
-import { ForbiddenError } from "@/lib/rbac/check";
+import { ForbiddenError, ConflictError } from "@/lib/rbac/check";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { runEntityImport } from "@/lib/import/entity-import";
 import { ENTITY_DEFS, type EntityImportRequest } from "@/lib/import/entity-fields";
@@ -83,8 +83,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const req = importSchema.parse(body) as EntityImportRequest;
 
+    // The mirror of the org route's refusal. An org-scoped entity spans the
+    // whole organisation — the program calendar's store is org-wide and an
+    // event's project is optional — so importing one "into" a project would
+    // claim a scope it does not have. The wizard does not offer them here.
+    const def = ENTITY_DEFS.find((e) => e.key === req.entity);
+    if (def?.scope === "org") {
+      throw new ConflictError(
+        `"${def.label}" imports across the whole organisation — use Settings → Import instead.`,
+      );
+    }
+
     const report = await runEntityImport(
-      { orgId: org.id, projectId: project.id },
+      { orgId: org.id, projectId: project.id, userId: ctx.userId, auth: ctx },
       req,
     );
     return success(report);
