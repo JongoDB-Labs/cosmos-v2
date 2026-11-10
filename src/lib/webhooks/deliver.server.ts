@@ -13,7 +13,7 @@
  * send time, no redirects.
  */
 import { createHmac } from "crypto";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { openFieldWithHeal } from "@/lib/crypto/field-seal";
 import { OutboundRefused, postToPublicUrl, type OutboundResult } from "@/lib/security/outbound-post.server";
 
@@ -53,7 +53,14 @@ export function signedRequest(opts: { event: string; deliveryId: string; attempt
 
 export async function sendDueDeliveries(
   db: PrismaClient,
-  opts: { limit?: number; now?: () => Date; signal?: AbortSignal; post?: Post } = {},
+  opts: {
+    limit?: number;
+    now?: () => Date;
+    signal?: AbortSignal;
+    post?: Post;
+    /** Tests only: one org's deliveries, so parallel spec files don't send each other's. The job sends every org's. */
+    orgId?: string;
+  } = {},
 ): Promise<DeliveryRun> {
   const now = opts.now ?? (() => new Date());
   const post = opts.post ?? postToPublicUrl;
@@ -62,6 +69,7 @@ export async function sendDueDeliveries(
     const due = await tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM webhook_deliveries
       WHERE status = 'PENDING' AND next_attempt_at <= ${leaseAt}
+        ${opts.orgId ? Prisma.sql`AND webhook_id IN (SELECT id FROM webhooks WHERE org_id = ${opts.orgId}::uuid)` : Prisma.empty}
       ORDER BY next_attempt_at
       LIMIT ${opts.limit ?? 25}
       FOR UPDATE SKIP LOCKED
