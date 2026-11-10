@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.543.0",
+    date: "2026-11-10",
+    title: "Import a program calendar from a spreadsheet",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Program calendar events can be imported from a CSV, TSV or Excel file under Settings \u2192 Import, alongside the other record types. Columns are matched to fields automatically \u2014 a sheet that calls the column \u201cEvent\u201d and one that calls it \u201cTitle\u201d both land \u2014 and anything that cannot be matched is shown as ignored rather than quietly dropped.",
+      },
+      {
+        kind: "feature",
+        text: "Re-importing the same file updates the events it already created instead of duplicating them: an event is matched on its external id when the export carries one, otherwise on its title and start date.",
+      },
+      {
+        kind: "improvement",
+        text: "A category named in the sheet is matched to one of yours whatever its capitalisation, and created \u2014 in the calendar\u2019s own palette \u2014 when there is no such category yet. An owner that is not a team or a member, and a deliverable with no such title, are reported as warnings on the row rather than failing it.",
+      },
+      {
+        kind: "improvement",
+        text: "Dates and times are read as the sheet writes them, in the event\u2019s own time zone \u2014 including a zone written as \u201cEastern (ET)\u201d \u2014 so an imported event falls on the day it says, whatever machine the import was run on. An end date is inclusive, as it reads.",
+      },
+    ],
+  },
+  {
     version: "2.542.0",
     date: "2026-11-10",
     title: "The program calendar\u2019s Owners, Categories and Filters menus open",

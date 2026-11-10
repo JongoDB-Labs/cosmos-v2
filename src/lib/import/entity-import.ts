@@ -41,7 +41,16 @@ import type {
   ChangeRequestStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
+import type { AuthContext } from "@/lib/rbac/check";
 import { computeRiskScore, riskLevelFromScore } from "@/lib/pm/risk";
+import {
+  createProgramEventRow,
+  eventDayKey,
+  dayKey,
+  parseSheetDate,
+  resolveProgramEventLookups,
+  updateProgramEventRow,
+} from "@/lib/program-calendar/import";
 import {
   getEntityDef,
   IGNORE,
@@ -54,7 +63,29 @@ import {
 
 export interface EntityEngineCtx {
   orgId: string;
-  projectId: string;
+  /**
+   * The CALLER, not just their id.
+   *
+   * Name resolution reads teams and deliverables and writes their ids onto
+   * rows; the lane then renders the team's NAME. Resolving against the whole
+   * org would therefore show someone a team on a project they cannot open.
+   * `ORG_IMPORT` is an owner/admin permission by default — and both of those
+   * see every project anyway — but a work role can delegate it to an ordinary
+   * member, and that is the case this exists for.
+   */
+  auth: AuthContext;
+  /**
+   * The project being imported INTO, or null for an org-scoped entity — which
+   * has no project to be "in" (see `EntityDef.scope`). `requireProject` is the
+   * single place that turns a missing one into an error, so a project-scoped
+   * create can never quietly write a half-scoped row.
+   */
+  projectId: string | null;
+  /**
+   * The acting user. `ProgramEvent.created_by_id` is NOT NULL, so an import
+   * that creates one has to say who ran it; nothing else reads this yet.
+   */
+  userId: string;
 }
 
 // ── Tolerant scalar coercion ────────────────────────────────────────────────
@@ -222,8 +253,8 @@ export function mapRows(def: EntityDef, req: EntityImportRequest): MappedRow[] {
 
 /**
  * Resolve fields whose sheet value is a human name but whose column is a
- * foreign key. Today that is `deliverable.intervalId`: a CDRL register's
- * "Sprint" column holds the sprint's NAME.
+ * foreign key: a CDRL register's "Sprint" column holds the sprint's NAME, and a
+ * program calendar's "Category" / "Owner" / "Deliverable" columns likewise.
  *
  * Runs BEFORE the report is built, so an unresolvable name is a non-blocking
  * warning in `validate` exactly as it is in `commit` — the preview has to be
@@ -239,6 +270,12 @@ async function resolveLookups(
   ctx: EntityEngineCtx,
   mapped: MappedRow[],
 ): Promise<void> {
+  if (def.key === "programEvent") {
+    // Category / owner / deliverable names, plus the one blocking check this
+    // entity needs (an unreadable start date). Org-scoped: there is no project.
+    await resolveProgramEventLookups(ctx.orgId, mapped, ctx.auth);
+    return;
+  }
   if (def.key !== "deliverable") return;
   const pending = mapped.filter((m) => typeof m.fields.intervalId === "string" && m.fields.intervalId !== "");
   if (!pending.length) return;
@@ -247,7 +284,7 @@ async function resolveLookups(
   // Scoped to this project: an interval belongs to one project, and resolving
   // a name org-wide could attach a CDRL to another project's sprint.
   const intervals = await prisma.interval.findMany({
-    where: { orgId: ctx.orgId, projectId: ctx.projectId },
+    where: { orgId: ctx.orgId, projectId: requireProject(def, ctx) },
     orderBy: { number: "asc" },
     select: { id: true, name: true },
   });
@@ -282,6 +319,19 @@ function naturalKeyToken(def: EntityDef, fields: Record<string, unknown>): strin
     const title = (fields.title as string | null) || "";
     return (agmt || title).toLowerCase();
   }
+  // `programEvent` coalesces the same way — an external id when the export
+  // carries one, else the title and the day it falls on. The two forms are
+  // PREFIXED apart: without that, an event whose title happened to equal
+  // another's external id would collide and an import would overwrite a
+  // different event. `startDate` is normalised through the same parser both
+  // sides use, so "11/09/2026" and "2026-11-09" are one key.
+  if (def.key === "programEvent") {
+    const ext = ((fields.externalId as string | null) ?? "").trim();
+    if (ext) return `ext:${ext.toLowerCase()}`;
+    const title = ((fields.title as string | null) ?? "").trim().toLowerCase();
+    const parts = parseSheetDate(((fields.startDate as string | null) ?? "").trim());
+    return `ts:${title}|${parts ? dayKey(parts) : ""}`;
+  }
   return def.naturalKey
     .map((k) => String(fields[k] ?? "").toLowerCase())
     .join(" ");
@@ -297,11 +347,41 @@ async function loadExistingIds(
   def: EntityDef,
   ctx: EntityEngineCtx,
 ): Promise<Map<string, string>> {
-  const { orgId, projectId } = ctx;
+  const { orgId } = ctx;
   const tokenize = (fields: Record<string, unknown>) => naturalKeyToken(def, fields);
   const toMap = (rows: Array<{ id: string } & Record<string, unknown>>, keyFields: (r: Record<string, unknown>) => Record<string, unknown>) =>
     new Map(rows.map((r) => [tokenize(keyFields(r)), r.id] as const));
 
+  if (def.key === "programEvent") {
+    // Org-wide, because the store is. The day comes from `eventDayKey`, which
+    // is also what the sheet side resolves to — one definition of "the day this
+    // event is on", so the two sides cannot drift apart and start duplicating.
+    const rows = await prisma.programEvent.findMany({
+      // `projectId: null` — the importer only ever CREATES org-level events,
+      // so org-level is the only scope its create-or-update may claim. Without
+      // it an imported row whose external id (or title+day) collided with a
+      // project-scoped event would UPDATE that event, editing a project's
+      // calendar from outside it.
+      where: { orgId, projectId: null },
+      select: { id: true, externalId: true, title: true, startsAt: true, allDay: true, timeZone: true },
+      orderBy: { createdAt: "asc" },
+    });
+    const map = new Map<string, string>();
+    for (const r of rows) {
+      const token = tokenize({
+        externalId: r.externalId,
+        title: r.title,
+        startDate: eventDayKey(r.startsAt, r.allDay, r.timeZone),
+      });
+      // Oldest wins: two events really can share a title and a day, and a
+      // re-import must pick the same one every time rather than whichever the
+      // query happened to return last.
+      if (!map.has(token)) map.set(token, r.id);
+    }
+    return map;
+  }
+
+  const projectId = requireProject(def, ctx);
   switch (def.key) {
     case "deliverable": {
       // `contractId: null` because this import never assigns a contract, so its
@@ -384,6 +464,21 @@ interface CommitState {
   nextIntervalNumber: number | null;
   /** Partner name (lowercased) → Partner id cache for vendor imports. */
   partnerCache: Map<string, string>;
+  /** Category name (lowercased) → EventCategory id for program-calendar imports. */
+  categoryCache: Map<string, string>;
+}
+
+/**
+ * The project a project-scoped entity imports into.
+ *
+ * An org-scoped entity never has one (its route refuses to supply a project),
+ * and a project-scoped entity cannot be written without one. Throwing beats
+ * carrying an empty string: the per-row catch turns it into an error naming the
+ * entity, instead of a query scoped to a project that does not exist.
+ */
+function requireProject(def: EntityDef, ctx: EntityEngineCtx): string {
+  if (ctx.projectId) return ctx.projectId;
+  throw new Error(`"${def.label}" imports into a project, and this import has none`);
 }
 
 const s = (fields: Record<string, unknown>, key: string): string | null =>
@@ -401,7 +496,14 @@ async function createEntityRow(
   fields: Record<string, unknown>,
   state: CommitState,
 ): Promise<void> {
-  const { orgId, projectId } = ctx;
+  if (def.key === "programEvent") {
+    // Org-scoped, and its shapes live next to the calendar's other date rules.
+    await createProgramEventRow(ctx, fields, state.categoryCache);
+    return;
+  }
+
+  const { orgId } = ctx;
+  const projectId = requireProject(def, ctx);
 
   switch (def.key) {
     case "deliverable": {
@@ -639,6 +741,11 @@ async function updateEntityRow(
   fields: Record<string, unknown>,
   state: CommitState,
 ): Promise<void> {
+  if (def.key === "programEvent") {
+    await updateProgramEventRow(ctx, id, fields, state.categoryCache);
+    return;
+  }
+
   const { orgId } = ctx;
   switch (def.key) {
     case "deliverable": {
@@ -834,7 +941,11 @@ export async function runEntityImport(
   if (req.mode === "validate") return report;
 
   // ── commit ──
-  const state: CommitState = { nextIntervalNumber: null, partnerCache: new Map() };
+  const state: CommitState = {
+    nextIntervalNumber: null,
+    partnerCache: new Map(),
+    categoryCache: new Map(),
+  };
   let created = 0;
   let updated = 0;
   const commitErrors: EntityImportRowError[] = [];
