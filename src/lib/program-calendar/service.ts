@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { hiddenProjectIds } from "@/lib/rbac/project-access";
 import { eventScopeWhere, canAttachToProject } from "./visibility";
+import { canManageProject } from "@/lib/rbac/scope";
+import { Permission } from "@/lib/rbac/permissions";
 import { ProblemError } from "@/lib/openapi/problem";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { normalizeRange } from "./time";
@@ -181,6 +183,15 @@ export interface EventInput {
   customerAttending?: boolean;
   description?: string;
   showOnDashboard?: boolean;
+  /**
+   * On CREATE, `undefined` and `null` both mean "no project" (org-level).
+   *
+   * On UPDATE they differ, and the difference matters: `undefined` leaves the
+   * event where it is, `null` moves it to org-level. Collapsing the two with
+   * `?? null` meant a client that simply omitted the field cleared it — which
+   * both lost data on any partial update AND silently widened the event's
+   * audience to the whole org.
+   */
   projectId?: string | null;
   externalId?: string | null;
 }
@@ -314,7 +325,31 @@ export async function visibleEvent(ctx: AuthContext, eventId: string) {
 export async function updateProgramEvent(ctx: AuthContext, eventId: string, input: EventInput) {
   const current = await visibleEvent(ctx, eventId);
   if (!current) return null;
-  await assertReferencesInOrg(ctx, input);
+
+  // `undefined` means "leave the project alone"; `null` means "move it to
+  // org-level". See EventInput.projectId.
+  const nextProjectId = input.projectId === undefined ? current.projectId : input.projectId;
+
+  if (nextProjectId !== current.projectId && current.projectId) {
+    // The event is LEAVING a project — either to another project or to
+    // org-level, where every member of the org can see it. Being able to READ
+    // an event is not enough to do that: otherwise any member of a project
+    // could publish that project's calendar one event at a time, and the
+    // project manager's control over `eventVisibility` would mean nothing.
+    //
+    // Gated on the project it is leaving, with PROJECT_MANAGE — the same
+    // permission that decides who may open the project's calendar in the
+    // first place.
+    if (!(await canManageProject(ctx, current.projectId, Permission.PROJECT_MANAGE))) {
+      throw new ProblemError(
+        403,
+        "forbidden",
+        "Only a project manager or org admin can move an event out of its project.",
+      );
+    }
+  }
+
+  await assertReferencesInOrg(ctx, { ...input, projectId: nextProjectId });
   const range = normalizeRange(input);
   return prisma.programEvent.update({
     where: { id: eventId },
@@ -332,7 +367,7 @@ export async function updateProgramEvent(ctx: AuthContext, eventId: string, inpu
       customerAttending: input.customerAttending ?? false,
       description: input.description ?? "",
       showOnDashboard: input.showOnDashboard ?? false,
-      projectId: input.projectId ?? null,
+      projectId: nextProjectId,
     },
     select: eventSelect,
   });
