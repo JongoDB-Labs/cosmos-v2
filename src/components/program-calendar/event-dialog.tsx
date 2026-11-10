@@ -161,7 +161,7 @@ function EventForm({
               id="pc-title"
               value={form.title}
               onChange={(e) => set("title", e.target.value)}
-              placeholder="O-6 IPR, system demo, exercise…"
+              placeholder="Review, milestone, engagement…"
             />
           </div>
 

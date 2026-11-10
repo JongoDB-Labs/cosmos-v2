@@ -20,7 +20,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
  *
  * The hour grid positions a timed event by its offset from midnight in the
  * event's OWN zone, not the reader's: a program runs on one clock, and showing
- * an 09:00 IPR at 06:00 because the reader is on the west coast would be
+ * an 09:00 review at 06:00 because the reader is in another zone would be
  * actively misleading about when to join.
  */
 export function TimeGrid({
