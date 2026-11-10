@@ -96,26 +96,30 @@ export function ProgramCalendar({
 
   const eventsQuery = useQuery({
     queryKey: eventsKey,
-    queryFn: () => jsonFetch<{ data: ApiEvent[] }>(`/api/v1/orgs/${orgId}/program-events?${params}`),
+    // `jsonFetch<T>` returns the parsed body AS-IS and `success()` sends a
+    // BARE payload — there is no `{ data }` envelope. The generic is an
+    // assertion, not a check, so declaring one here type-checked cleanly and
+    // rendered an empty calendar against a correct 200 response.
+    queryFn: () => jsonFetch<ApiEvent[]>(`/api/v1/orgs/${orgId}/program-events?${params}`),
   });
 
   const categoriesQuery = useQuery({
     queryKey: categoriesKey,
     queryFn: () =>
-      jsonFetch<{ data: (ChipCategory & { count: number })[] }>(
+      jsonFetch<(ChipCategory & { count: number })[]>(
         `/api/v1/orgs/${orgId}/event-categories?from=${window.from.toISOString()}&to=${window.to.toISOString()}`,
       ),
   });
 
-  const categories: ChipCategory[] = categoriesQuery.data?.data ?? [];
+  const categories: ChipCategory[] = categoriesQuery.data ?? [];
   const categoryCounts = useMemo(
-    () => Object.fromEntries((categoriesQuery.data?.data ?? []).map((c) => [c.id, c.count])),
+    () => Object.fromEntries((categoriesQuery.data ?? []).map((c) => [c.id, c.count])),
     [categoriesQuery.data],
   );
 
   const events: CalendarEvent[] = useMemo(
     () =>
-      (eventsQuery.data?.data ?? []).map((e) => ({
+      (eventsQuery.data ?? []).map((e) => ({
         id: e.id,
         title: e.title,
         startsAt: new Date(e.startsAt),
@@ -129,7 +133,7 @@ export function ProgramCalendar({
 
   const ownerLanes = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const e of eventsQuery.data?.data ?? []) {
+    for (const e of eventsQuery.data ?? []) {
       const key = e.ownerTeam ? `team:${e.ownerTeam.id}` : e.ownerMember ? `member:${e.ownerMember.id}` : "unassigned";
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
@@ -199,7 +203,7 @@ export function ProgramCalendar({
   });
 
   const openExisting = (id: string) => {
-    const e = (eventsQuery.data?.data ?? []).find((x) => x.id === id);
+    const e = (eventsQuery.data ?? []).find((x) => x.id === id);
     if (!e) return;
     const start = new Date(e.startsAt);
     const end = new Date(e.endsAt);
