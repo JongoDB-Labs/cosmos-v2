@@ -7,6 +7,7 @@
  * If you tighten `script-src` further, switch to a per-request nonce
  * threaded through the layout via the `x-csp-nonce` response header.
  */
+import { programManagementEmbedOrigin } from "@/lib/pm/embed";
 
 /**
  * Realtime sidecar origins, added to `connect-src` ONLY when configured.
@@ -66,7 +67,11 @@ const CSP_DIRECTIVES = [
     ...realtimeOrigins(),
     "https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://docusign.net https://*.docusign.net https://cloudflareinsights.com",
   ].join(" "),
-  "frame-src 'self' https://accounts.google.com",
+  // Plus the outside dashboard Program Management frames, when one is set,
+  // and only its origin -- see src/lib/pm/embed.ts.
+  ["frame-src 'self' https://accounts.google.com", programManagementEmbedOrigin()]
+    .filter(Boolean)
+    .join(" "),
   "frame-ancestors 'none'",
   "object-src 'none'",
   "base-uri 'self'",
