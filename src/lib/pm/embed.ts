@@ -56,6 +56,28 @@ export function programManagementEmbedUrl(
   return null;
 }
 
+/**
+ * Where the sign-in window opens: `PROGRAM_MANAGEMENT_SIGN_IN_URL` when it is
+ * on the dashboard's own origin, otherwise the dashboard URL itself.
+ *
+ * Optional. Opening the dashboard's own sign-in start (e.g. its `/auth/start`)
+ * skips its sign-in PAGE, so the window goes straight to the identity provider
+ * and, for someone already signed in there, finishes without a click. Left
+ * unset, the window opens the dashboard and the person clicks its own button.
+ *
+ * Same-origin only: the window is opened by Cosmos, and a value pointing
+ * anywhere else would make this page a launcher for an arbitrary site.
+ */
+export function programManagementSignInUrl(
+  rawSignIn: string | undefined = process.env.PROGRAM_MANAGEMENT_SIGN_IN_URL,
+  rawEmbed: string | undefined = process.env.PROGRAM_MANAGEMENT_EMBED_URL,
+): URL | null {
+  const embed = programManagementEmbedUrl(rawEmbed);
+  if (!embed) return null;
+  const signIn = programManagementEmbedUrl(rawSignIn);
+  return signIn && signIn.origin === embed.origin ? signIn : embed;
+}
+
 /** The dashboard's ORIGIN, for `frame-src`. A CSP source is host-scoped. */
 export function programManagementEmbedOrigin(
   raw: string | undefined = process.env.PROGRAM_MANAGEMENT_EMBED_URL,

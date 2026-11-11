@@ -88,10 +88,12 @@ function scopedIds(): unknown {
 beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.PROGRAM_MANAGEMENT_EMBED_URL;
+  delete process.env.PROGRAM_MANAGEMENT_SIGN_IN_URL;
 });
 
 afterEach(() => {
   delete process.env.PROGRAM_MANAGEMENT_EMBED_URL;
+  delete process.env.PROGRAM_MANAGEMENT_SIGN_IN_URL;
 });
 
 describe("Program Management — scope", () => {
@@ -236,12 +238,31 @@ describe("Program Management — an outside dashboard, when the instance sets on
     const el = (await ProgramManagementContent({ params, searchParams: noQuery })) as ReactElement;
 
     const frame = findByDisplayName(el, "EmbeddedDashboard");
-    expect(frame?.props).toEqual({ src: URL_SET });
+    expect(frame?.props).toEqual({ src: URL_SET, signInSrc: URL_SET });
     expect(findByDisplayName(el, "PmDashboard")).toBeNull();
     // Nothing the built-in page needs is read for a page that will not show it.
     expect(prisma.project.findMany).not.toHaveBeenCalled();
     expect(loaders.milestones).not.toHaveBeenCalled();
     expect(prisma.risk.findMany).not.toHaveBeenCalled();
+  });
+
+  it("opens sign-in at the dashboard's sign-in start when the instance names one", async () => {
+    process.env.PROGRAM_MANAGEMENT_EMBED_URL = URL_SET;
+    process.env.PROGRAM_MANAGEMENT_SIGN_IN_URL = "https://pm.example.com/auth/start?next=/home";
+    signedInWith(PROGRAM_ONLY);
+    const el = (await ProgramManagementContent({ params, searchParams: noQuery })) as ReactElement;
+    expect(findByDisplayName(el, "EmbeddedDashboard")?.props).toEqual({
+      src: URL_SET,
+      signInSrc: "https://pm.example.com/auth/start?next=/home",
+    });
+  });
+
+  it("ignores a sign-in URL on another site, opening the dashboard instead", async () => {
+    process.env.PROGRAM_MANAGEMENT_EMBED_URL = URL_SET;
+    process.env.PROGRAM_MANAGEMENT_SIGN_IN_URL = "https://elsewhere.example.net/auth/start";
+    signedInWith(PROGRAM_ONLY);
+    const el = (await ProgramManagementContent({ params, searchParams: noQuery })) as ReactElement;
+    expect(findByDisplayName(el, "EmbeddedDashboard")?.props).toEqual({ src: URL_SET, signInSrc: URL_SET });
   });
 
   it("still enforces the page's permission: no access means no frame", async () => {

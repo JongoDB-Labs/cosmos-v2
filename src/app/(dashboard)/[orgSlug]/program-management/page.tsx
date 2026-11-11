@@ -13,7 +13,7 @@ import { NoPageAccess } from "@/components/ui/no-page-access";
 import { PageShell } from "@/components/ui/page-shell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HardHat } from "lucide-react";
-import { programManagementEmbedUrl } from "@/lib/pm/embed";
+import { programManagementEmbedUrl, programManagementSignInUrl } from "@/lib/pm/embed";
 import { ProjectPicker } from "./project-picker";
 import { EmbeddedDashboard } from "./embedded-dashboard";
 
@@ -79,7 +79,7 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
   if (embed) {
     return (
       <PageShell tourAnchor="program-management" title="Program Management" maxWidth="full">
-        <EmbeddedDashboard src={embed.href} />
+        <EmbeddedDashboard src={embed.href} signInSrc={programManagementSignInUrl()?.href ?? embed.href} />
       </PageShell>
     );
   }

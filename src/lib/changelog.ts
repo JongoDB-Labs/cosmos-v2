@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.546.0",
+    date: "2026-11-11",
+    title: "Signing in to the PM dashboard takes one click",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "When the dashboard in Program Management asks you to sign in, its own Sign in button now opens Microsoft’s sign-in window for you. Come back to Cosmos when you’re done, or close that window, and the dashboard reloads signed in.",
+      },
+      {
+        kind: "fix",
+        text: "Program Management no longer shows a Sign in button beside a dashboard you’re already signed in to. Sign in appears only when the dashboard can’t be shown.",
+      },
+      {
+        kind: "feature",
+        text: "An administrator can send that sign-in window straight to the dashboard’s sign-in start, so people already signed in to Microsoft don’t see the dashboard’s own sign-in page at all.",
+      },
+    ],
+  },
+  {
     version: "2.545.0",
     date: "2026-11-11",
     title: "Program Management can show your existing PM dashboard",
