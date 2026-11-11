@@ -14,8 +14,9 @@ const InviteState = z.object({
   pendingCancel: z.boolean().describe("The invitation's cancellation is waiting for the organizer to reconnect Outlook."),
   sent: z
     .boolean()
+    .nullable()
     .describe(
-      "Outlook accepted the organizer's event with the attendees on it. False while `on` means nobody has been invited yet: Outlook refused it or the organizer must reconnect; every sync retries.",
+      "Outlook accepted the organizer's event with the attendees on it. False while `on` means nobody has been invited yet: Outlook refused it or the organizer must reconnect; every sync retries. Null once the meeting has been over a day.",
     ),
   isOrganizer: z.boolean().describe("The signed-in person is the organizer, whose Outlook sends the invitations."),
   ended: z.object({ how: z.enum(["released", "cancelled"]), reason: z.string().nullable(), at: IsoDateTime }).nullable(),

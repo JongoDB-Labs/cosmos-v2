@@ -876,6 +876,76 @@ describe("Outlook meeting sync (e2e DB)", () => {
     expect(await linkOf(bob.id, meeting.id)).toBeNull();
   });
 
+  const refusingInvites = (g: ReturnType<typeof fakeGraph>) =>
+    refusing(
+      g,
+      (c) => (c.method === "PATCH" || c.method === "POST") && Array.isArray(c.body?.attendees) && (c.body!.attendees as unknown[]).length > 0,
+      403,
+      "ErrorAccessDenied",
+    );
+
+  it("an Outlook edit to the organizer's copy of a refused invitation doesn't mark it sent, and the next sync still invites", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const mirror = (await linkOf(alice.id, meeting.id))!;
+    const graph = refusingInvites(g);
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, { ...deps, fetch: graph.fetch });
+    expect(await invitePreview(org.id, meeting.id, alice.id)).toMatchObject({ on: true, sent: false });
+    // She renames it in Outlook: Cosmos takes the edit, but her event still has nobody on it.
+    await new Promise((r) => setTimeout(r, 5));
+    g.outlookEdit(mirror.externalEventId, { subject: "Review" });
+    expect(await pullChanges(org.id, alice.id, { ...deps, fetch: graph.fetch })).toMatchObject({ applied: 1 });
+    expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).title).toBe("Review");
+    expect(attendeesOf(g.events.get(mirror.externalEventId))).toEqual([]);
+    expect(await invitePreview(org.id, meeting.id, alice.id)).toMatchObject({ on: true, sent: false });
+    // Outlook accepting again: the next sync puts the attendees on.
+    await syncMeeting(org.id, meeting.id, deps);
+    expect(attendeesOf(await aliceEvent(org.id, alice.id, meeting.id, g))).toEqual(["bob@test.local"]);
+    expect(await invitePreview(org.id, meeting.id, alice.id)).toMatchObject({ on: true, sent: true });
+  });
+
+  it("an Outlook edit to an invitation whose cancellation is pending never undoes the cancellation", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+    const invite = (await linkOf(alice.id, meeting.id))!.externalEventId;
+    const cred = await credOf(org.id, alice.id);
+    await patchCalendarMeta(cred.id, { status: "reconnect" });
+    await setMeetingInvite(org.id, meeting.id, alice.id, false, deps);
+    expect((await invitePreview(org.id, meeting.id, alice.id))!).toMatchObject({ pendingCancel: true });
+    // While disconnected she moved it in Outlook; then she reconnects, and the pull runs first.
+    await patchCalendarMeta(cred.id, { status: "connected" });
+    await new Promise((r) => setTimeout(r, 5));
+    g.outlookEdit(invite, { subject: "Review" });
+    await pullChanges(org.id, alice.id, deps);
+    expect((await invitePreview(org.id, meeting.id, alice.id))!.sent).not.toBe(true);
+    await syncMeeting(org.id, meeting.id, deps);
+    expect(g.cancellations.map((c) => c.eventId)).toEqual([invite]);
+    expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).inviteOrganizerId).toBeNull();
+  });
+
+  it("the periodic pass retries a refused invitation whose organizer isn't an attendee", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await prisma.meetingAttendee.deleteMany({ where: { meetingId: meeting.id, userId: alice.id } });
+    const graph = refusingInvites(g);
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, { ...deps, fetch: graph.fetch });
+    expect(graph.refused).toBe(1);
+    expect(await linkOf(alice.id, meeting.id)).toBeNull(); // her first write was the invitation, and it was refused
+    expect(await invitePreview(org.id, meeting.id, alice.id)).toMatchObject({ on: true, sent: false });
+    await pullChanges(org.id, alice.id, deps); // the job's pass for her, with Outlook accepting
+    expect(await linkOf(alice.id, meeting.id), "the pass never retried her invitation").not.toBeNull();
+    expect(attendeesOf(await aliceEvent(org.id, alice.id, meeting.id, g))).toEqual(["bob@test.local"]);
+    expect(await invitePreview(org.id, meeting.id, alice.id)).toMatchObject({ on: true, sent: true });
+  });
+
+  it("a meeting over for more than a day says nothing about whether its invitations went out", async () => {
+    // Disconnecting releases only upcoming invitations, and takes every link with it.
+    const { org, alice, deps, meeting } = await setup();
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+    await prisma.syncMeeting.update({ where: { id: meeting.id }, data: { meetingDate: new Date(Date.now() - 3 * 86_400_000) } });
+    await disconnectCalendar(org.id, alice.id);
+    expect(await invitePreview(org.id, meeting.id, alice.id)).toMatchObject({ on: true, sent: null });
+  });
+
   it("an invitation Outlook refuses is reported as not sent, until a later sync sends it", async () => {
     // Turning invitations on claims the meeting, then writes the organizer's
     // event with the attendees on it: that write is what invites them. When

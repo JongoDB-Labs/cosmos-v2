@@ -59,7 +59,11 @@ const RELEASES: Release[] = [
         },
         {
           kind: "fix",
-          text: "Someone who can edit a meeting but didn\u2019t organize it was told to reconnect their own Outlook when the invitations were waiting on the organizer\u2019s. It now says they are waiting on the organizer, and they can still stop the invitations.",
+          text: "An invitation Outlook refused is now tried again on every sync even when its organizer isn\u2019t one of the attendees, and editing the event in Outlook no longer makes Cosmos treat it as sent. Stopping invitations while the organizer had to reconnect Outlook is no longer undone if they edit the event in Outlook first: the cancellation goes out once they reconnect.",
+        },
+        {
+          kind: "fix",
+          text: "Someone who can edit a meeting but didn\u2019t organize it was told to reconnect their own Outlook when the invitations were waiting on the organizer\u2019s, both on the meeting and after stopping them. It now says they are waiting on the organizer, and they can still stop the invitations.",
         },
         {
           kind: "fix",

@@ -527,9 +527,9 @@ export interface InvitePreview {
   /**
    * Outlook accepted the organizer's event with the attendees on it. False
    * while on: nobody has been invited yet (refused, or the organizer must
-   * reconnect); every sync retries.
+   * reconnect); every sync retries. Null once the meeting has been over a day.
    */
-  sent: boolean;
+  sent: boolean | null;
   /** This person is the organizer: theirs is the Outlook that sends, or must be reconnected. */
   isOrganizer: boolean;
   domains: string[];
@@ -581,7 +581,9 @@ export async function invitePreview(orgId: string, meetingId: string, actorId: s
     // Addresses are for whoever may send or stop the invitation, not every reader.
     recipients: canEdit ? invitees.map((i) => ({ name: i.name, email: i.email, outside: away.has(i.userId) })) : [],
     pendingCancel: !!own?.contentHash?.startsWith(PENDING_CANCEL),
-    sent: isSentInvite(own?.contentHash),
+    // Past the live window nothing sends or retries it, and a disconnect has
+    // taken its link: whether it went out is no longer known.
+    sent: m.meetingDate < liveSince(Date.now()) ? null : isSentInvite(own?.contentHash),
     isOrganizer: m.inviteOrganizerId === actorId,
     domains,
     ended: how && last ? { how, reason: last.newValue, at: last.createdAt.toISOString() } : null,
@@ -630,10 +632,13 @@ export async function setMeetingInvite(orgId: string, meetingId: string, actorId
   await syncMeeting(orgId, meetingId, deps);
 }
 
+/** A meeting's invitations are Cosmos's to send until it has been over a day. */
+const liveSince = (now: number) => new Date(now - DAY);
+
 /** Upcoming meetings whose invitations this person sends. */
 export async function liveInvites(orgId: string, userId: string, now = Date.now()) {
   return prisma.syncMeeting.findMany({
-    where: { orgId, inviteOrganizerId: userId, status: { not: "CANCELLED" }, meetingDate: { gte: new Date(now - DAY) } },
+    where: { orgId, inviteOrganizerId: userId, status: { not: "CANCELLED" }, meetingDate: { gte: liveSince(now) } },
     include: { attendees: { select: { userId: true } } },
   }) as Promise<MeetingWithAttendees[]>;
 }
@@ -1038,6 +1043,13 @@ async function applyOne(
     await removeFor(orgId, userId, link.entityId, deps); // meeting gone, or no longer theirs to see
     return;
   }
+  if (link.contentHash?.startsWith(PENDING_CANCEL)) {
+    // The organizer stopped this invitation and its cancellation is waiting to
+    // go out: an edit to it changes nothing, and must not overwrite the mark
+    // the retry reads (that would re-send what they stopped).
+    await prisma.externalEventLink.update({ where: { id: link.id }, data: { changeKey: ev.changeKey ?? null, lastSyncedAt: new Date() } });
+    return;
+  }
   const restricted = cls.restricted(m.projectId, m.title, m.meetingUrl);
   const changes: Prisma.SyncMeetingUpdateInput = {};
   const trail: [string, string | null, string | null][] = [];
@@ -1100,12 +1112,15 @@ async function applyOne(
   const updated = await prisma.syncMeeting.update({ where: { id: m.id }, data: changes });
   for (const [field, o, n] of trail) await meetingActivity(orgId, userId, m.id, "outlook_updated", field, o, n);
   // Their copy now matches the meeting: record that, so nothing re-sends it.
+  // As an invitation only if it already was one: a copy whose invitation
+  // Outlook refused still has nobody on it, and the next sync must add them.
   const conn = await calendarConnection(orgId, userId);
   const restrictedNow = cls.restricted(updated.projectId, updated.title, updated.meetingUrl);
   const view = conn ? meetingEvent(updated, restrictedNow, await meetingLink(orgId, conn.meta, m.id)) : null;
   const hash = !view ? null
-    : updated.inviteOrganizerId === userId && !restrictedNow ? inviteHash(inviteBody(view, await inviteesFor(await withAttendees(updated))))
-    : bodyHash(view);
+    : updated.inviteOrganizerId === userId && !restrictedNow && isSentInvite(link.contentHash)
+      ? inviteHash(inviteBody(view, await inviteesFor(await withAttendees(updated))))
+      : bodyHash(view);
   await prisma.externalEventLink.update({ where: { id: link.id }, data: { changeKey: ev.changeKey ?? null, contentHash: hash, lastSyncedAt: new Date() } });
   out.applied++;
   // Everyone else's copy follows; this person's is already the source.
@@ -1127,7 +1142,7 @@ async function reconcileUser(
   orgId: string, userId: string, deps: SyncDeps, cls: ClassificationResolver, viewer: Viewer,
 ): Promise<string[]> {
   const now = (deps.now ?? Date.now)();
-  const [links, attended, detached] = await Promise.all([
+  const [links, attended, detached, sending] = await Promise.all([
     prisma.externalEventLink.findMany({
       where: { orgId, provider: MS_CALENDAR, userId, entityType: ENTITY },
       select: { entityId: true },
@@ -1144,6 +1159,9 @@ async function reconcileUser(
       where: { orgId, userId, subjectType: ENTITY, action: "outlook_detached" },
       select: { subjectId: true, createdAt: true },
     }),
+    // An organizer need not attend, and a refused first write leaves no link:
+    // without this, nothing would ever retry their invitation.
+    liveInvites(orgId, userId, now),
   ]);
   const linked = new Set(links.map((l) => l.entityId));
   // Linked meetings outside the window still need checking: load them too.
@@ -1157,7 +1175,7 @@ async function reconcileUser(
   // to date through syncMeeting (never removed here: removing would cancel it);
   // everyone else has no copy of it.
   const organizing: string[] = [];
-  for (const m of [...attended, ...extra]) {
+  for (const m of [...attended, ...extra, ...sending]) {
     if (m.inviteOrganizerId === userId && m.status !== "CANCELLED") {
       keepIds.add(m.id);
       organizing.push(m.id);

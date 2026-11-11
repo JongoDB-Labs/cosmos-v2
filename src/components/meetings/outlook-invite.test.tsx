@@ -191,8 +191,28 @@ describe("OutlookInvitePanel", () => {
     expect((await screen.findByRole("alert")).textContent).toMatch(/haven't gone out yet: the organizer's Outlook hasn't accepted them/);
   });
 
+  it("an editor who stops invitations the organizer must cancel is told it waits on the organizer", async () => {
+    let off = false;
+    vi.mocked(jsonFetch).mockImplementation(async (_url, init) => {
+      if (init?.method === "PUT") off = true;
+      return state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true, sent: !off, pendingCancel: off }) as never;
+    });
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Stop sending invitations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel the invitations" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/once the organizer reconnects/)));
+    expect(toast.error).not.toHaveBeenCalledWith(expect.stringMatching(/^Reconnect/));
+  });
+
+  it("a meeting over for more than a day raises no alarm about its invitations", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true, sent: null, isOrganizer: true }) as never);
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    expect(await screen.findByRole("button", { name: "Stop sending invitations" })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("turning it on says the invitations went out only when Outlook accepted them", async () => {
-    let sent = true;
+    let sent: boolean | null = true;
     let on = false;
     vi.mocked(jsonFetch).mockImplementation(async (_url, init) => {
       if (init?.method === "PUT") on = true;
@@ -214,6 +234,18 @@ describe("OutlookInvitePanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send invitations" }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/Outlook hasn't accepted the invitations/)));
     expect(toast.success).not.toHaveBeenCalled();
+
+    // A meeting over for more than a day: on, but whether they went out isn't
+    // tracked. Neither "sent" nor an alarm.
+    cleanup();
+    vi.clearAllMocks();
+    sent = null;
+    on = false;
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Send Outlook invitations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send invitations" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Outlook invitations turned on"));
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
 });

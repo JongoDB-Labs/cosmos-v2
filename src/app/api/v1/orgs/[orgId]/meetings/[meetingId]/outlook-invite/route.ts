@@ -5,7 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
-import { InviteRefused, invitePreview, setMeetingInvite } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { InviteRefused, invitePreview, setMeetingInvite, type InvitePreview } from "@/lib/integrations/microsoft/calendar-sync.server";
 
 type RouteParams = { params: Promise<{ orgId: string; meetingId: string }> };
 
@@ -32,13 +32,18 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (r.ctx.isApiKey) return new Response("Forbidden", { status: 403 });
     const preview = await invitePreview(orgId, meetingId, r.ctx.userId);
     if (!preview) return new Response("Not found", { status: 404 });
-    const organizer = preview.organizerId
-      ? await prisma.user.findUnique({ where: { id: preview.organizerId }, select: { displayName: true, email: true } })
-      : null;
-    return success({ ...preview, organizerName: organizer ? organizer.displayName || organizer.email : null });
+    return success(await withOrganizerName(preview));
   } catch (error) {
     return handleApiError(error);
   }
+}
+
+/** The preview as both handlers answer it: with the organizer's name to show. */
+async function withOrganizerName(preview: InvitePreview) {
+  const organizer = preview.organizerId
+    ? await prisma.user.findUnique({ where: { id: preview.organizerId }, select: { displayName: true, email: true } })
+    : null;
+  return { ...preview, organizerName: organizer ? organizer.displayName || organizer.email : null };
 }
 
 const body = z.object({ enabled: z.boolean() });
@@ -73,7 +78,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
       throw e;
     }
-    return success(await invitePreview(orgId, meetingId, r.ctx.userId));
+    const preview = await invitePreview(orgId, meetingId, r.ctx.userId);
+    if (!preview) return new Response("Not found", { status: 404 });
+    return success(await withOrganizerName(preview));
   } catch (error) {
     return handleApiError(error);
   }
