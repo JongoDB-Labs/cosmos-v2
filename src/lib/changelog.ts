@@ -55,7 +55,7 @@ const RELEASES: Release[] = [
       highlights: [
         {
           kind: "fix",
-          text: "If an organizer deleted a meeting\u2019s invitation in Outlook, Outlook told the attendees it was cancelled, and then Cosmos invited them all again. Deleting it in Outlook now stops the invitations, as Stop does. The meeting says the organizer deleted it in Outlook, the attendees get their own copies back, and the organizer\u2019s stays deleted.",
+          text: "If an organizer deleted a meeting\u2019s invitation in Outlook, Outlook told the attendees it was cancelled, and then Cosmos invited them all again. Deleting it in Outlook now stops the invitations, as Stop does, even when the meeting changes in Cosmos before Outlook reports the delete, and deleting the whole Cosmos calendar in Outlook does the same for the invitations in it. The meeting says the organizer deleted it in Outlook, and the attendees get their own copies back.",
         },
         {
           kind: "fix",
