@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+      version: "2.544.8",
+      date: "2026-11-11",
+      title: "Deleting an invitation in Outlook stops it, and all-day edits are put back",
+      highlights: [
+        {
+          kind: "fix",
+          text: "If an organizer deleted a meeting\u2019s invitation in Outlook, Outlook told the attendees it was cancelled, and then Cosmos invited them all again. Deleting it in Outlook now stops the invitations, as Stop does. The meeting says the organizer deleted it in Outlook, the attendees get their own copies back, and the organizer\u2019s stays deleted.",
+        },
+        {
+          kind: "fix",
+          text: "Making a meeting all-day in Outlook left Outlook and Cosmos showing different times, with nothing to say so. Cosmos meetings have a time, so the edit is now refused like any other Outlook edit Cosmos doesn\u2019t take: the meeting\u2019s time goes back into Outlook, and the audit log records the refused edit.",
+        },
+        {
+          kind: "fix",
+          text: "A meeting someone deleted from their Outlook calendar a second time, after it had come back with a change, was put back again. A deleted copy now stays deleted until the meeting next changes, every time.",
+        },
+      ],
+    },
+  {
       version: "2.544.7",
       date: "2026-11-10",
       title: "Outlook invitations say when nobody has been invited yet",

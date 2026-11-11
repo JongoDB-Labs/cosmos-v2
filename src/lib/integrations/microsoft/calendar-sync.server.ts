@@ -452,7 +452,7 @@ async function cancelInviteEvent(orgId: string, userId: string, link: { external
 
 export type InviteStopReason =
   | "turned_off" | "classified" | "organizer_cannot_edit" | "too_many_attendees" | "organizer_not_connected"
-  | "organizer_disconnected" | OffboardReason;
+  | "organizer_disconnected" | "deleted_in_outlook" | OffboardReason;
 
 /**
  * Why a meeting's invitations can't go on, or null. "paused": the organizer
@@ -1027,14 +1027,22 @@ async function applyOne(
       if (!(e instanceof GraphError && e.status === 404)) throw e;
     }
     if (!current) {
-      if (link.contentHash?.startsWith(PENDING_CANCEL)) {
-        // The invitation they stopped, deleted in Outlook: that sent the
-        // cancellation, so finish the stop. Only detaching would drop the mark,
-        // and the next sync would invite everyone again.
+      if (link.contentHash?.startsWith(INVITE_PREFIX)) {
+        // The organizer deleted their invitation in Outlook: that sent the
+        // attendees its cancellation, so it is a Stop (one already waiting to
+        // go out finishes with its own reason). Only detaching would leave
+        // invite mode on, and the next sync would invite everyone again.
         const m = await prisma.syncMeeting.findFirst({ where: { id: link.entityId, orgId, inviteOrganizerId: userId } });
         if (m) {
-          const reason = link.contentHash.slice(PENDING_CANCEL.length) as InviteStopReason;
-          if ((await stopInvite(orgId, await withAttendees(m), reason, deps, userId)) === "stopped") noteUnsynced(out, await syncMeeting(orgId, m.id, deps));
+          const reason = link.contentHash.startsWith(PENDING_CANCEL)
+            ? (link.contentHash.slice(PENDING_CANCEL.length) as InviteStopReason)
+            : "deleted_in_outlook";
+          if ((await stopInvite(orgId, await withAttendees(m), reason, deps, userId)) === "stopped") {
+            // Their own copy stays deleted, as any copy deleted in Outlook does,
+            // until the meeting next changes. After the stop, which changed it.
+            await meetingActivity(orgId, userId, m.id, "outlook_detached", null, null, null);
+            noteUnsynced(out, await syncMeeting(orgId, m.id, deps, userId));
+          }
           return;
         }
       }
@@ -1064,9 +1072,11 @@ async function applyOne(
   const restricted = cls.restricted(m.projectId, m.title, m.meetingUrl);
   const changes: Prisma.SyncMeetingUpdateInput = {};
   const trail: [string, string | null, string | null][] = [];
-  // An all-day Outlook event has no time Cosmos can take; leave the time alone.
+  // An all-day Outlook event has no time Cosmos can take: the edit is refused
+  // like any other Cosmos doesn't take, and the meeting's time put back.
   const start = ev.isAllDay ? null : fromGraph(ev.start);
   const end = ev.isAllDay ? null : fromGraph(ev.end);
+  if (ev.isAllDay) trail.push(["allDay", "false", "true"]);
   if (start && start.getTime() !== m.meetingDate.getTime()) {
     changes.meetingDate = start;
     trail.push(["meetingDate", m.meetingDate.toISOString(), start.toISOString()]);
@@ -1096,13 +1106,16 @@ async function applyOne(
     return;
   }
   const outlookTime = ev.lastModifiedDateTime ? Date.parse(ev.lastModifiedDateTime) : Infinity;
-  const cosmosNewer = m.updatedAt.getTime() > outlookTime;
-  if (cosmosNewer || !(await viewer.canEdit(m))) {
+  const refused = ev.isAllDay ? "all_day"
+    : m.updatedAt.getTime() > outlookTime ? "cosmos_newer"
+    : !(await viewer.canEdit(m)) ? "no_edit_rights"
+    : null;
+  if (refused) {
     await logAudit({
       orgId, userId, action: "microsoft_calendar.writeback_ignored", entity: "sync_meeting", entityId: m.id,
-      metadata: { reason: cosmosNewer ? "cosmos_newer" : "no_edit_rights", fields: trail.map((t) => t[0]).join(", ") },
+      metadata: { reason: refused, fields: trail.map((t) => t[0]).join(", ") },
     });
-    await meetingActivity(orgId, userId, m.id, "outlook_change_ignored", trail.map((t) => t[0]).join(", "), null, cosmosNewer ? "cosmos_newer" : "no_edit_rights");
+    await meetingActivity(orgId, userId, m.id, "outlook_change_ignored", trail.map((t) => t[0]).join(", "), null, refused);
     out.ignored++;
     if (m.inviteOrganizerId !== userId) {
       await pushFor(orgId, userId, m, deps, cls, true); // put the Cosmos version back
@@ -1170,6 +1183,8 @@ async function reconcileUser(
     }),
     prisma.activity.findMany({
       where: { orgId, userId, subjectType: ENTITY, action: "outlook_detached" },
+      // Newest first: `find` below must see their latest delete, not their first.
+      orderBy: { createdAt: "desc" },
       select: { subjectId: true, createdAt: true },
     }),
     // An organizer need not attend, and a refused first write leaves no link:

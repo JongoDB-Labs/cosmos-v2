@@ -72,6 +72,7 @@ const WHY_ENDED: Record<string, string> = {
   too_many_attendees: "the meeting has more than 100 attendees",
   organizer_not_connected: "their organizer's Outlook Calendar isn't connected",
   organizer_disconnected: "their organizer disconnected Outlook Calendar",
+  deleted_in_outlook: "their organizer deleted the invitation in Outlook",
   organizer_left: "their organizer left the organization",
   organizer_deactivated: "their organizer's account was deactivated",
   integration_disabled: "Outlook Calendar was turned off for the organization",

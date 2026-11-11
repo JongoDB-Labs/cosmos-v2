@@ -115,6 +115,13 @@ describe("OutlookInvitePanel", () => {
     wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
     expect((await screen.findByRole("note")).textContent).toContain("cancelled because their organizer left the organization");
   });
+  it("says when the organizer cancelled invitations by deleting the event in Outlook", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue(
+      state({ ended: { how: "cancelled", reason: "deleted_in_outlook", at: "2026-10-23T00:00:00Z" } }) as never,
+    );
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    expect((await screen.findByRole("note")).textContent).toContain("cancelled because their organizer deleted the invitation in Outlook");
+  });
   it("a cancellation waiting on a reconnect says so, and offers no second stop", async () => {
     vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true, pendingCancel: true, isOrganizer: true }) as never);
     wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
