@@ -21,14 +21,27 @@ afterAll(() => {
 
 describe("Teams tab session (e2e DB)", () => {
   const orgIds: string[] = [];
+  const userIds: string[] = [];
   afterAll(async () => {
     await prisma.organization.deleteMany({ where: { id: { in: orgIds } } }).catch(() => undefined);
+    await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   });
 
-  async function setup() {
+  /**
+   * Someone of the test's own, to deactivate. The seeded users are shared with
+   * every DB spec running alongside, and a deactivated one is offboarded from
+   * Outlook by whichever of them syncs next.
+   */
+  async function ownUser(name: string) {
+    const u = await prisma.user.create({ data: { email: `${name}-${crypto.randomUUID()}@test.local`, displayName: name } });
+    userIds.push(u.id);
+    return u;
+  }
+
+  async function setup(user?: { id: string }) {
     const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const tid = crypto.randomUUID();
-    const alice = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" } });
+    const alice = user ?? (await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" } }));
     const org = await prisma.organization.create({ data: { name: `tab ${stamp}`, slug: `tab-${stamp}` } });
     orgIds.push(org.id);
     await prisma.orgMember.create({ data: { orgId: org.id, userId: alice.id, role: "MEMBER" } });
@@ -76,13 +89,10 @@ describe("Teams tab session (e2e DB)", () => {
     s = await setup();
     await prisma.integration.update({ where: { id: s.app.id }, data: { status: "INACTIVE" } });
     expect(await s.read()).toBeNull();
-    s = await setup();
+    s = await setup(await ownUser("deactivated"));
+    expect(await s.read(), "the session worked before the deactivation").not.toBeNull();
     await prisma.user.update({ where: { id: s.alice.id }, data: { deactivatedAt: new Date() } });
-    try {
-      expect(await s.read()).toBeNull();
-    } finally {
-      await prisma.user.update({ where: { id: s.alice.id }, data: { deactivatedAt: null } });
-    }
+    expect(await s.read()).toBeNull();
   });
 
   it("the cookie is HttpOnly, Secure, SameSite=None, Partitioned, scoped to /teams/tab, for an hour", () => {
