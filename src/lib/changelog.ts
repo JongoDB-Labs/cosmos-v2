@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+      version: "2.544.6",
+      date: "2026-11-10",
+      title: "Work items stuck under an old status spelling are back on their board",
+      highlights: [
+        {
+          kind: "fix",
+          text: "A few work items written before October\u2019s workflow update held the status \u201cin_progress\u201d, kept as a separate, archived status beside their project\u2019s own In Progress. A board shows an item only in the column for its status, and no column showed that one, so those items appeared on no board. They are now in their project\u2019s In Progress status, and the archived duplicate is gone. A project that still uses \u201cin_progress\u201d as a live status keeps it, unchanged, along with every board column, workflow, rule and saved view that names it. Each organisation\u2019s audit log records which items moved.",
+        },
+      ],
+    },
+  {
       version: "2.544.5",
       date: "2026-11-10",
       title: "Easier-to-read warnings on the Scrum board and the program calendar",
