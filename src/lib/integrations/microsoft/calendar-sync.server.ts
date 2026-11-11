@@ -330,6 +330,12 @@ const INVITE_PREFIX = "invite:";
  * retries the cancellation. The reason follows the prefix.
  */
 const PENDING_CANCEL = `${INVITE_PREFIX}cancel:`;
+/**
+ * An invitation whose Outlook event differs from the meeting and must be sent
+ * again: still sent (its attendees have it), and never equal to a real hash,
+ * so the next sync re-sends it.
+ */
+const STALE_INVITE = `${INVITE_PREFIX}stale`;
 /** Whether a link's event is a live invitation: written in invite mode, not awaiting its cancellation. */
 const isSentInvite = (hash: string | null | undefined) =>
   !!hash?.startsWith(INVITE_PREFIX) && !hash.startsWith(PENDING_CANCEL);
@@ -409,6 +415,8 @@ function changedInviteParts(before: string, after: string): string[] {
 
 /** Thrown when an organizer is over their invitation budget: retried by the reconcile pass. */
 export class InviteDeferred extends Error {}
+/** Thrown when the organizer's invitation is gone from Outlook: they deleted it there. */
+class InviteDeletedInOutlook extends Error {}
 /** Each organizer: at most 60 writes an hour that notify people (sends, updates, cancels). */
 function chargeInviteOp(organizerId: string) {
   if (!rateLimit(`ms.invite.ops:${organizerId}`, { capacity: 60, refillPerSecond: 60 / 3600 }).allowed) {
@@ -452,7 +460,7 @@ async function cancelInviteEvent(orgId: string, userId: string, link: { external
 
 export type InviteStopReason =
   | "turned_off" | "classified" | "organizer_cannot_edit" | "too_many_attendees" | "organizer_not_connected"
-  | "organizer_disconnected" | OffboardReason;
+  | "organizer_disconnected" | "deleted_in_outlook" | OffboardReason;
 
 /**
  * Why a meeting's invitations can't go on, or null. "paused": the organizer
@@ -509,6 +517,25 @@ async function stopInvite(
   const conn = await calendarConnection(orgId, organizer);
   await inviteAudit(orgId, actorId, m.id, "microsoft_calendar.invite_cancelled", invitees, conn?.meta, { organizerId: organizer, reason });
   return "stopped";
+}
+
+/** Why an invitation deleted in Outlook stopped: a stop already waiting keeps its own reason. */
+const deletedReason = (hash: string): InviteStopReason =>
+  hash.startsWith(PENDING_CANCEL) ? (hash.slice(PENDING_CANCEL.length) as InviteStopReason) : "deleted_in_outlook";
+
+/**
+ * The organizer deleted their invitation in Outlook, which sent the attendees
+ * its cancellation: that is a Stop. Their own copy stays deleted, as any copy
+ * deleted in Outlook does, until the meeting next changes (the mark goes after
+ * the stop, which changed it). Returns why any write of the re-sync failed.
+ */
+async function inviteDeletedInOutlook(
+  orgId: string, m: MeetingWithAttendees, reason: InviteStopReason, deps: GraphDeps,
+): Promise<string[]> {
+  const organizer = m.inviteOrganizerId!;
+  if ((await stopInvite(orgId, m, reason, deps, organizer)) === "pending") return [];
+  await meetingActivity(orgId, organizer, m.id, "outlook_detached", null, null, null);
+  return syncMeeting(orgId, m.id, deps, organizer);
 }
 
 export interface InvitePreview {
@@ -758,7 +785,10 @@ async function pushFor(
     try {
       ev = (await graphRequest<GraphEvent>(orgId, userId, "PATCH", `/me/events/${encodeURIComponent(existing.externalEventId)}`, body, deps)).data;
     } catch (e) {
-      if (!(e instanceof GraphError && e.status === 404)) throw e; // deleted in Outlook: make a new one
+      if (!(e instanceof GraphError && e.status === 404)) throw e;
+      // Deleted in Outlook. A copy is made again; an invitation deleted there
+      // was cancelled there, which is a Stop, never a new one to everyone.
+      if (wasInvite && inviting) throw new InviteDeletedInOutlook();
     }
   }
   if (!ev) {
@@ -871,10 +901,22 @@ export async function syncMeeting(orgId: string, meetingId: string, deps: GraphD
       return syncMeeting(orgId, meetingId, deps, skipUserId);
     }
     const invitees = await inviteesFor(m);
+    let deleted = false;
     const work: (() => Promise<void>)[] = [];
-    if (organizer !== skipUserId) work.push(() => pushFor(orgId, organizer, m, deps, cls, false, invitees));
+    if (organizer !== skipUserId) {
+      work.push(async () => {
+        try {
+          await pushFor(orgId, organizer, m, deps, cls, false, invitees);
+        } catch (e) {
+          if (!(e instanceof InviteDeletedInOutlook)) throw e;
+          deleted = true; // stopped once the other writes are done
+        }
+      });
+    }
     for (const l of links) if (l.userId !== organizer) work.push(() => removeFor(orgId, l.userId, meetingId, deps));
-    return pool(work, CONCURRENCY, (w) => w(), `org ${orgId} meeting ${meetingId}`);
+    const failed = await pool(work, CONCURRENCY, (w) => w(), `org ${orgId} meeting ${meetingId}`);
+    if (!deleted) return failed;
+    return [...failed, ...(await inviteDeletedInOutlook(orgId, m, "deleted_in_outlook", deps))];
   }
   const keep = new Set<string>();
   for (const userId of connected) if (await (await viewerFor(orgId, userId)).canSee(m!)) keep.add(userId);
@@ -985,11 +1027,23 @@ export async function pullChanges(orgId: string, userId: string, deps: SyncDeps 
         continue;
       }
       // Our calendar is gone: forget it; the reconcile pass below makes a new
-      // one and re-sends everything into it.
+      // one and re-sends everything into it. Invitations sent from it went with
+      // it, which cancelled them for their attendees: those are stopped first,
+      // never sent again, and their meetings go back to mirroring.
       if (e instanceof GraphError && e.status === 404) {
+        const sent = await prisma.externalEventLink.findMany({
+          where: { orgId, provider: MS_CALENDAR, userId, entityType: ENTITY, contentHash: { startsWith: INVITE_PREFIX } },
+          select: { entityId: true, contentHash: true },
+        });
+        const stopped: string[] = [];
+        for (const l of sent) {
+          const m = await prisma.syncMeeting.findFirst({ where: { id: l.entityId, orgId, inviteOrganizerId: userId } });
+          if (m && (await stopInvite(orgId, await withAttendees(m), deletedReason(l.contentHash!), deps, userId)) === "stopped") stopped.push(m.id);
+        }
         await forgetCalendar(orgId, userId);
         await prisma.externalEventLink.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId } });
         noteUnsynced(out, await reconcileUser(orgId, userId, deps, cls, viewer));
+        for (const id of stopped) noteUnsynced(out, await syncMeeting(orgId, id, deps));
         return out;
       }
       throw e;
@@ -1027,14 +1081,14 @@ async function applyOne(
       if (!(e instanceof GraphError && e.status === 404)) throw e;
     }
     if (!current) {
-      if (link.contentHash?.startsWith(PENDING_CANCEL)) {
-        // The invitation they stopped, deleted in Outlook: that sent the
-        // cancellation, so finish the stop. Only detaching would drop the mark,
-        // and the next sync would invite everyone again.
+      if (link.contentHash?.startsWith(INVITE_PREFIX)) {
+        // The organizer deleted their invitation in Outlook: that sent the
+        // attendees its cancellation, so it is a Stop (one already waiting to
+        // go out finishes with its own reason). Only detaching would leave
+        // invite mode on, and the next sync would invite everyone again.
         const m = await prisma.syncMeeting.findFirst({ where: { id: link.entityId, orgId, inviteOrganizerId: userId } });
         if (m) {
-          const reason = link.contentHash.slice(PENDING_CANCEL.length) as InviteStopReason;
-          if ((await stopInvite(orgId, await withAttendees(m), reason, deps, userId)) === "stopped") noteUnsynced(out, await syncMeeting(orgId, m.id, deps));
+          noteUnsynced(out, await inviteDeletedInOutlook(orgId, await withAttendees(m), deletedReason(link.contentHash), deps));
           return;
         }
       }
@@ -1064,9 +1118,11 @@ async function applyOne(
   const restricted = cls.restricted(m.projectId, m.title, m.meetingUrl);
   const changes: Prisma.SyncMeetingUpdateInput = {};
   const trail: [string, string | null, string | null][] = [];
-  // An all-day Outlook event has no time Cosmos can take; leave the time alone.
+  // An all-day Outlook event has no time Cosmos can take: the edit is refused
+  // like any other Cosmos doesn't take, and the meeting's time put back.
   const start = ev.isAllDay ? null : fromGraph(ev.start);
   const end = ev.isAllDay ? null : fromGraph(ev.end);
+  if (ev.isAllDay) trail.push(["allDay", "false", "true"]);
   if (start && start.getTime() !== m.meetingDate.getTime()) {
     changes.meetingDate = start;
     trail.push(["meetingDate", m.meetingDate.toISOString(), start.toISOString()]);
@@ -1096,13 +1152,16 @@ async function applyOne(
     return;
   }
   const outlookTime = ev.lastModifiedDateTime ? Date.parse(ev.lastModifiedDateTime) : Infinity;
-  const cosmosNewer = m.updatedAt.getTime() > outlookTime;
-  if (cosmosNewer || !(await viewer.canEdit(m))) {
+  const refused = ev.isAllDay ? "all_day"
+    : m.updatedAt.getTime() > outlookTime ? "cosmos_newer"
+    : !(await viewer.canEdit(m)) ? "no_edit_rights"
+    : null;
+  if (refused) {
     await logAudit({
       orgId, userId, action: "microsoft_calendar.writeback_ignored", entity: "sync_meeting", entityId: m.id,
-      metadata: { reason: cosmosNewer ? "cosmos_newer" : "no_edit_rights", fields: trail.map((t) => t[0]).join(", ") },
+      metadata: { reason: refused, fields: trail.map((t) => t[0]).join(", ") },
     });
-    await meetingActivity(orgId, userId, m.id, "outlook_change_ignored", trail.map((t) => t[0]).join(", "), null, cosmosNewer ? "cosmos_newer" : "no_edit_rights");
+    await meetingActivity(orgId, userId, m.id, "outlook_change_ignored", trail.map((t) => t[0]).join(", "), null, refused);
     out.ignored++;
     if (m.inviteOrganizerId !== userId) {
       await pushFor(orgId, userId, m, deps, cls, true); // put the Cosmos version back
@@ -1117,7 +1176,20 @@ async function applyOne(
       if ((await stopInvite(orgId, mw, blocked, deps, userId)) === "stopped") noteUnsynced(out, await syncMeeting(orgId, m.id, deps));
       return;
     }
-    await pushFor(orgId, userId, m, deps, cls, true, await inviteesFor(mw));
+    try {
+      await pushFor(orgId, userId, m, deps, cls, true, await inviteesFor(mw));
+    } catch (e) {
+      if (e instanceof InviteDeletedInOutlook) {
+        noteUnsynced(out, await inviteDeletedInOutlook(orgId, mw, "deleted_in_outlook", deps));
+        return;
+      }
+      if (!(e instanceof InviteDeferred)) throw e;
+      // Over the organizer's invitation budget: a later sync puts it back once
+      // the budget allows. Failing the pull would retry this whole edit, and
+      // record the refusal again, every time.
+      await prisma.externalEventLink.update({ where: { id: link.id }, data: { contentHash: STALE_INVITE } });
+      noteUnsynced(out, [failureReason(e)]);
+    }
     return;
   }
   const updated = await prisma.syncMeeting.update({ where: { id: m.id }, data: changes });
@@ -1170,6 +1242,8 @@ async function reconcileUser(
     }),
     prisma.activity.findMany({
       where: { orgId, userId, subjectType: ENTITY, action: "outlook_detached" },
+      // Newest first: `find` below must see their latest delete, not their first.
+      orderBy: { createdAt: "desc" },
       select: { subjectId: true, createdAt: true },
     }),
     // An organizer need not attend, and a refused first write leaves no link:

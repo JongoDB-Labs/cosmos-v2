@@ -21,7 +21,7 @@ vi.mock("@/lib/rate-limit/bucket", async (orig) => {
       : rl.real ? actual.rateLimit(k, o) : { allowed: true as const, remaining: 99 },
   };
 });
-import { fakeGraph } from "@/lib/testing/fake-graph";
+import { fakeGraph, type FakeEvent } from "@/lib/testing/fake-graph";
 import { MS_CALENDAR } from "./calendar-connect";
 import { _resetCalendarTokenCache, completeCalendarConnect, disconnectCalendar } from "./calendar-token.server";
 import {
@@ -699,14 +699,27 @@ describe("Outlook meeting sync (e2e DB)", () => {
     expect(JSON.stringify(g.calls)).not.toMatch(/meet\.example|Sprint review/);
   });
 
-  it("leaves the time alone for an all-day Outlook event, and bounds what an edit can set", async () => {
+  it("refuses an all-day Outlook edit: the meeting keeps its time, and Outlook gets it back", async () => {
     const { org, alice, g, deps, meeting } = await setup();
     await syncMeeting(org.id, meeting.id, deps);
     const link = (await linkOf(alice.id, meeting.id))!;
     await new Promise((r) => setTimeout(r, 5));
     g.outlookEdit(link.externalEventId, { isAllDay: true, start: at(new Date("2026-11-09T00:00:00.000Z")), end: at(new Date("2026-11-10T00:00:00.000Z")) } as never);
-    await pullChanges(org.id, alice.id, deps);
+    expect(await pullChanges(org.id, alice.id, deps)).toMatchObject({ applied: 0, ignored: 1 });
     expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).meetingDate).toEqual(START);
+    const ev = g.events.get(link.externalEventId)! as FakeEvent & { isAllDay?: boolean };
+    expect(ev.isAllDay, "Outlook kept the all-day event").toBe(false);
+    expect(ev.start.dateTime.slice(0, 19)).toBe(START.toISOString().slice(0, 19));
+    const ignored = await prisma.auditLog.findFirst({ where: { orgId: org.id, action: "microsoft_calendar.writeback_ignored" } });
+    expect(ignored?.metadata).toMatchObject({ reason: "all_day" });
+    // Putting it back is our own write: the next pull reads it as an echo, not an edit.
+    expect(await pullChanges(org.id, alice.id, deps)).toMatchObject({ applied: 0, ignored: 0 });
+  });
+
+  it("bounds what an Outlook edit can set", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const link = (await linkOf(alice.id, meeting.id))!;
     await new Promise((r) => setTimeout(r, 5));
     g.outlookEdit(link.externalEventId, {
       isAllDay: false, subject: "x".repeat(400),
@@ -942,6 +955,103 @@ describe("Outlook meeting sync (e2e DB)", () => {
     const stopped = await prisma.activity.findFirst({ where: { orgId: org.id, subjectId: meeting.id, action: "outlook_invite_cancelled" } });
     expect(stopped?.newValue).toBe("turned_off");
     expect(await linkOf(bob.id, meeting.id), "the meeting went back to mirroring").not.toBeNull();
+  });
+
+  it("an organizer who deletes a live invitation in Outlook has stopped it, and nobody is invited again", async () => {
+    const { org, alice, bob, g, deps, meeting } = await setup();
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+    const invite = (await linkOf(alice.id, meeting.id))!.externalEventId;
+    expect(attendeesOf(g.events.get(invite)), "the invitation never went out").toEqual(["bob@test.local"]);
+    // She deletes it in Outlook, which sends the attendees its cancellation.
+    g.outlookDelete(invite);
+    await pullChanges(org.id, alice.id, deps);
+    await syncUserNow(org.id, alice.id, deps);
+    const inviting = [...g.events.values()].filter((e) => !e.removed && attendeesOf(e).length > 0);
+    expect(inviting, "everyone was invited again").toEqual([]);
+    expect(await invitePreview(org.id, meeting.id, alice.id)).toMatchObject({ on: false, ended: { how: "cancelled", reason: "deleted_in_outlook" } });
+    const cancelled = await prisma.auditLog.findFirst({ where: { orgId: org.id, action: "microsoft_calendar.invite_cancelled" } });
+    expect(cancelled?.metadata).toMatchObject({ reason: "deleted_in_outlook" });
+    expect(await linkOf(bob.id, meeting.id), "the meeting went back to mirroring").not.toBeNull();
+    expect(await linkOf(alice.id, meeting.id), "the copy she deleted came back").toBeNull();
+  });
+
+  it("a copy deleted in Outlook again, after the meeting changed, stays gone", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    g.outlookDelete((await linkOf(alice.id, meeting.id))!.externalEventId);
+    await pullChanges(org.id, alice.id, deps);
+    expect(await linkOf(alice.id, meeting.id)).toBeNull();
+    await new Promise((r) => setTimeout(r, 5));
+    await prisma.syncMeeting.update({ where: { id: meeting.id }, data: { title: "Renamed" } });
+    await syncUserNow(org.id, alice.id, deps);
+    const again = await linkOf(alice.id, meeting.id);
+    expect(again, "a change to the meeting brings a deleted copy back").not.toBeNull();
+    g.outlookDelete(again!.externalEventId);
+    await pullChanges(org.id, alice.id, deps);
+    await syncUserNow(org.id, alice.id, deps);
+    expect(await linkOf(alice.id, meeting.id), "her second delete was undone").toBeNull();
+  });
+
+  it("a Cosmos edit that reaches Outlook before her pull doesn't re-send the invitation she deleted there", async () => {
+    const { org, alice, bob, g, deps, meeting } = await setup();
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+    const invite = (await linkOf(alice.id, meeting.id))!.externalEventId;
+    expect(attendeesOf(g.events.get(invite)), "the invitation never went out").toEqual(["bob@test.local"]);
+    g.outlookDelete(invite);
+    // Before her next pull, someone renames the meeting in Cosmos.
+    await new Promise((r) => setTimeout(r, 5));
+    await prisma.syncMeeting.update({ where: { id: meeting.id }, data: { title: "Review" } });
+    await syncMeeting(org.id, meeting.id, deps);
+    // Stopped by that sync itself: after a fresh delta Graph doesn't list a
+    // deletion, so her pull may never say so.
+    expect(await invitePreview(org.id, meeting.id, alice.id), "the edit's sync left invitations on").toMatchObject({ on: false });
+    await pullChanges(org.id, alice.id, deps);
+    const inviting = [...g.events.values()].filter((e) => !e.removed && attendeesOf(e).length > 0);
+    expect(inviting, "the invitation she deleted went out again").toEqual([]);
+    expect(await invitePreview(org.id, meeting.id, alice.id)).toMatchObject({ on: false, ended: { how: "cancelled", reason: "deleted_in_outlook" } });
+    expect(await linkOf(bob.id, meeting.id), "the meeting went back to mirroring").not.toBeNull();
+    expect(await linkOf(alice.id, meeting.id), "the copy she deleted came back").toBeNull();
+  });
+
+  it("an organizer who deletes the Cosmos calendar in Outlook has stopped the invitations in it", async () => {
+    const { org, alice, bob, g, deps, meeting } = await setup();
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+    const invite = (await linkOf(alice.id, meeting.id))!.externalEventId;
+    expect(attendeesOf(g.events.get(invite)), "the invitation never went out").toEqual(["bob@test.local"]);
+    const old = ((await credOf(org.id, alice.id)).meta as { calendarId: string }).calendarId;
+    g.calendars.delete(old); // the invitation goes with it
+    await pullChanges(org.id, alice.id, deps);
+    await syncUserNow(org.id, alice.id, deps);
+    const fresh = ((await credOf(org.id, alice.id)).meta as { calendarId: string }).calendarId;
+    expect(fresh, "her calendar was never made again").not.toBe(old);
+    const inviting = [...g.events.values()].filter((e) => !e.removed && e.calendarId !== old && attendeesOf(e).length > 0);
+    expect(inviting, "everyone was invited again").toEqual([]);
+    expect(await invitePreview(org.id, meeting.id, alice.id)).toMatchObject({ on: false, ended: { how: "cancelled", reason: "deleted_in_outlook" } });
+    expect(await linkOf(bob.id, meeting.id), "the meeting went back to mirroring").not.toBeNull();
+    expect(g.eventsIn(fresh).map((e) => e.subject), "her own meetings came back with the calendar").toContain("Sprint review");
+  });
+
+  it("an all-day edit to an invitation, with its organizer over budget, is put back later without failing her pull", async () => {
+    const { org, alice, g, deps, meeting } = await setup();
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+    const invite = (await linkOf(alice.id, meeting.id))!.externalEventId;
+    await new Promise((r) => setTimeout(r, 5));
+    g.outlookEdit(invite, { isAllDay: true, start: at(new Date("2026-11-09T00:00:00.000Z")), end: at(new Date("2026-11-10T00:00:00.000Z")) } as never);
+    const ev = () => g.events.get(invite)! as FakeEvent & { isAllDay?: boolean };
+    rl.denyOps = true;
+    try {
+      const out = await pullChanges(org.id, alice.id, deps);
+      expect(out.unsyncedReasons).toHaveProperty("invite_deferred");
+      expect(ev().isAllDay, "put back over budget").toBe(true);
+      expect(await invitePreview(org.id, meeting.id, alice.id)).toMatchObject({ on: true, sent: true });
+    } finally {
+      rl.denyOps = false;
+    }
+    await pullChanges(org.id, alice.id, deps);
+    expect(ev().isAllDay, "never put back once the budget allowed").toBe(false);
+    expect(ev().start.dateTime.slice(0, 19)).toBe(START.toISOString().slice(0, 19));
+    expect(attendeesOf(ev())).toEqual(["bob@test.local"]);
+    expect(await prisma.auditLog.count({ where: { orgId: org.id, action: "microsoft_calendar.writeback_ignored" } })).toBe(1);
   });
 
   it("an invitation renamed in Outlook to a classified title is cancelled, scrubbed", async () => {
