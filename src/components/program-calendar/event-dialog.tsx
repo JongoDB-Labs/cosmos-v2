@@ -334,13 +334,17 @@ function EventForm({
             Show on the dashboard when it falls in the next 14 days
           </label>
 
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {/* Red TEXT takes the text-safe token. `text-destructive` is the
+              fill red (#EF4444): 3.67:1 on this dialog in light mode and 4.48:1
+              in dark, under the 4.5:1 that both of these need. The Button's own
+              `destructive` variant already uses this token for the same reason. */}
+          {error ? <p className="text-sm text-[var(--status-critical-text)]">{error}</p> : null}
         </div>
 
         <DialogFooter className="justify-between sm:justify-between">
           <div>
             {form.id && onDelete ? (
-              <Button variant="ghost" className="text-destructive" onClick={() => onDelete(form.id!)}>
+              <Button variant="ghost" className="text-[var(--status-critical-text)]" onClick={() => onDelete(form.id!)}>
                 Delete
               </Button>
             ) : null}

@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { EventChip, type ChipCategory } from "./event-chip";
 import { packWeek, weekDays, weeksIn } from "@/lib/program-calendar/layout";
 import { DAY_MS, utcMidnight } from "@/lib/program-calendar/time";
+import { useUtcToday } from "./use-utc-today";
 
 export interface CalendarEvent {
   id: string;
@@ -55,7 +56,7 @@ export function MonthGrid({
   onShowDay?: (day: Date) => void;
 }) {
   const weeks = useMemo(() => weeksIn(from, to), [from, to]);
-  const today = utcMidnight(new Date()).getTime();
+  const today = useUtcToday();
 
   return (
     <div className="min-w-[640px]">
@@ -100,6 +101,9 @@ export function MonthGrid({
                 className="flex items-center justify-between px-2"
               >
                 <span
+                  // Names today for assistive tech (and gives the a11y gate a
+                  // way to find the tinted column without matching on a class).
+                  aria-current={d.getTime() === today ? "date" : undefined}
                   className={cn(
                     "text-xs font-semibold tabular-nums",
                     d.getUTCMonth() !== month && "text-muted-foreground",
@@ -139,6 +143,10 @@ export function MonthGrid({
               />
             ))}
 
+            {/* Full-strength text, not muted: at 11px this needs 4.5:1, and
+                muted text only just clears it on a plain day (4.52:1) — on
+                today's tinted column it measured 4.09:1. It is a control, so
+                the hover background is what marks it as one. */}
             {overflow.map((n, i) =>
               n > 0 ? (
                 <button
@@ -146,7 +154,7 @@ export function MonthGrid({
                   type="button"
                   onClick={() => onShowDay?.(days[i])}
                   style={{ gridColumn: i + 1, gridRow: lanes + 2 }}
-                  className="mx-1 truncate rounded px-1 text-left text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  className="mx-1 truncate rounded px-1 text-left text-[11px] text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                 >
                   +{n} more
                 </button>

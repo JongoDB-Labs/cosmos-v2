@@ -14,6 +14,7 @@ import { makePrismaClient } from "./shared/prisma-client";
 import { ensureSeedStatuses } from "./shared/statuses";
 import { BOARD_TYPE_REGISTRY } from "../../src/lib/boards/board-types";
 import { DEFAULT_COLUMNS } from "../../src/lib/boards/default-columns";
+import { DEFAULT_CATEGORIES } from "../../src/lib/program-calendar/categories";
 
 const prisma = makePrismaClient();
 
@@ -370,6 +371,142 @@ async function ensureBoardGallery(
 }
 
 /**
+ * The program calendar, switched on for the gallery and given events to draw.
+ *
+ * The calendar (`/projects/{key}/pm-dashboard/calendar`) is not a board, so the
+ * gallery above never reached it, and nothing in this seed created a program
+ * event, so a scan of it in CI would have been a scan of an empty grid. That
+ * is how serious axe violations on it reached a merged PR unseen.
+ *
+ * What the events are for, since each one is there to put a piece of markup on
+ * screen that the a11y scan would otherwise never see:
+ *   - one per default category, because the chip's ink and tint come from the
+ *     category, so each category is its own contrast pair;
+ *   - a multi-day event across a week boundary, for the continuation arrows;
+ *   - a timed event, for the time prefix the chip renders in a lighter weight;
+ *   - four events on the 10th, one more than the month view shows in a cell,
+ *     for the "+N more" overflow button.
+ * Days 7–16 of the current UTC month, like the gallery's work items, so they
+ * are on the month the calendar opens to.
+ *
+ * Linked to the gallery project rather than org-level, and the gallery is the
+ * project whose PM Dashboard gets the Program Calendar sub-tab: TEST is the
+ * target of mutating journeys that read its tab strip. Events are ORG-scoped
+ * on the calendar itself, so they show on every project's calendar in this
+ * org; nothing else renders program events.
+ *
+ * Separate from `ensureBoardGallery`, which returns early once the gallery
+ * exists, so re-running the seed adds this to an existing database too.
+ * Idempotent: events upsert on `externalId`, which also moves them onto the
+ * current month on a re-run.
+ */
+async function ensureProgramCalendarFixture(orgId: string, aliceUserId: string): Promise<void> {
+  const gallery = await prisma.project.findFirst({
+    where: { orgId, key: GALLERY_KEY },
+    select: { id: true, enabledFeatures: true },
+  });
+  if (!gallery) return;
+
+  // The calendar is a sub-tab of the PM Dashboard; both flags, or the tab that
+  // leads to it is not in the nav (pm-dashboard/pm-nav.tsx).
+  const features = new Set([...gallery.enabledFeatures, "pm-dashboard", "program-calendar"]);
+  if (features.size !== gallery.enabledFeatures.length) {
+    await prisma.project.update({
+      where: { id: gallery.id },
+      data: { enabledFeatures: [...features] },
+    });
+  }
+
+  // What `listCategories` does on an org's first visit, so the seeded rows are
+  // the ones the product would have made.
+  await prisma.eventCategory.createMany({
+    data: DEFAULT_CATEGORIES.map((c, i) => ({ ...c, orgId, sortOrder: i })),
+    skipDuplicates: true,
+  });
+  const categories = await prisma.eventCategory.findMany({
+    where: { orgId, name: { in: DEFAULT_CATEGORIES.map((c) => c.name) } },
+    select: { id: true, name: true },
+  });
+  const categoryId = (name: string) => {
+    const hit = categories.find((c) => c.name === name);
+    if (!hit) throw new Error(`event category "${name}" missing after createMany`);
+    return hit.id;
+  };
+
+  const now = new Date();
+  const day = (d: number, hour = 0) =>
+    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), d, hour));
+
+  // The layout is built for the a11y gate (e2e/a11y.spec.ts), which pins the
+  // browser clock to each "pin day" in turn so that day is TODAY: its column
+  // gets the `bg-primary/5` tint, a different ground from every other day, and
+  // the one a chip is most likely to fail on. Every category must reach that
+  // ground on some pin day, and WHICH chips render there must not depend on
+  // anything the seed cannot fix.
+  //
+  // That rules out four events of different categories on one day. The month
+  // grid shows three lanes; the fourth event becomes "+1 more", and for
+  // same-length events on the same day `packWeek` breaks the tie by event id —
+  // a random uuid. CI and a local DB then scanned different chips, and the gate
+  // passed or failed by which one happened to be hidden. So:
+  //   - pin days 3 and 6 hold exactly three single-day events each, all of
+  //     different categories, so all three always fit;
+  //   - pin day 10 holds the overflow, and all four of its events share ONE
+  //     category, so the hidden one changes nothing that is scanned;
+  //   - pin day 17 starts the multi-day bar (its title sits over the day it
+  //     starts on) beside one single-day event. The bar runs eight days, so it
+  //     always crosses a week and draws its continuation arrows, and nothing
+  //     else is seeded on the days it covers.
+  // Days 3-24 exist in every month, whatever weekday the month starts on.
+  //
+  // All-day events are stored UTC midnight to UTC midnight, end EXCLUSIVE.
+  const events: { key: string; title: string; category: string; startsAt: Date; endsAt: Date; allDay: boolean }[] = [
+    // Pin day 3.
+    { key: "contracts", title: "Gallery contract award", category: "Contracts", startsAt: day(3), endsAt: day(4), allDay: true },
+    { key: "deliverables", title: "Gallery deliverable due", category: "Deliverables", startsAt: day(3), endsAt: day(4), allDay: true },
+    { key: "governance", title: "Gallery decision board", category: "Governance & Decisions", startsAt: day(3), endsAt: day(4), allDay: true },
+    // Pin day 6. The timed chip leads with its start time, a second text node.
+    { key: "milestones", title: "Gallery milestone", category: "Milestones", startsAt: day(6), endsAt: day(7), allDay: true },
+    { key: "rhythm", title: "Gallery business rhythm", category: "Business Rhythm", startsAt: day(6, 9), endsAt: day(6, 10), allDay: false },
+    { key: "reviews", title: "Gallery sprint demo", category: "Reviews & Demos", startsAt: day(6), endsAt: day(7), allDay: true },
+    // Pin day 10: four events, three lanes, "+1 more" on today's column.
+    ...[1, 2, 3, 4].map((n) => ({
+      key: n === 1 ? "staffing" : `staffing-${n}`,
+      title: `Gallery staffing review ${n}`,
+      category: "Staffing",
+      startsAt: day(10),
+      endsAt: day(11),
+      allDay: true,
+    })),
+    // Pin day 17. The bar's title must end inside its first column: text over
+    // two column grounds is one axe can't measure, and CI's fonts set it wider.
+    { key: "engagements", title: "Gallery site visit", category: "Engagements", startsAt: day(17), endsAt: day(25), allDay: true },
+    { key: "cadence", title: "Gallery delivery cadence", category: "Delivery Cadence", startsAt: day(17), endsAt: day(18), allDay: true },
+  ];
+
+  for (const e of events) {
+    const externalId = `e2e-gallery-${e.key}`;
+    const data = {
+      title: e.title,
+      categoryId: categoryId(e.category),
+      startsAt: e.startsAt,
+      endsAt: e.endsAt,
+      allDay: e.allDay,
+      // UTC so the timed chip reads "09:00" on every machine.
+      timeZone: "UTC",
+      projectId: gallery.id,
+    };
+    await prisma.programEvent.upsert({
+      where: { orgId_externalId: { orgId, externalId } },
+      update: data,
+      create: { ...data, orgId, externalId, createdById: aliceUserId },
+    });
+  }
+
+  console.log("Seeded program calendar:", { projectKey: GALLERY_KEY, events: events.length });
+}
+
+/**
  * The built-in "Task" work-item type (orgId null, isBuiltIn). The work-items
  * POST route resolves type "TASK" → WorkItemType key "software.task". The main
  * sector seed creates this, but CI runs ONLY this fixture seed, so the
@@ -602,6 +739,7 @@ async function main() {
   await ensureSecondBoard(org.id, projectId);
   await ensureBuiltInTaskType();
   await ensureBoardGallery(org.id, aliceMember.id, alice.id);
+  await ensureProgramCalendarFixture(org.id, alice.id);
   await ensureMentionFixtures(org.id, alice.id);
   await ensureOrgChart(org.id, alice.id, bob.id, carol.id);
 

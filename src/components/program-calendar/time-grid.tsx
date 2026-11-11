@@ -6,6 +6,7 @@ import { EventChip } from "./event-chip";
 import type { CalendarEvent } from "./month-grid";
 import { packWeek } from "@/lib/program-calendar/layout";
 import { DAY_MS, utcMidnight } from "@/lib/program-calendar/time";
+import { useUtcToday } from "./use-utc-today";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
@@ -37,7 +38,7 @@ export function TimeGrid({
   const allDay = useMemo(() => events.filter((e) => e.allDay || spansDays(e)), [events]);
   const timed = useMemo(() => events.filter((e) => !e.allDay && !spansDays(e)), [events]);
   const band = useMemo(() => packWeek(allDay, from, 3), [allDay, from]);
-  const today = utcMidnight(new Date()).getTime();
+  const today = useUtcToday();
 
   // Open on the working day, not on midnight.
   //
@@ -95,7 +96,12 @@ export function TimeGrid({
             >
               {new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(d).toUpperCase()}
             </div>
-            <div className="text-sm font-semibold tabular-nums">{d.getUTCDate()}</div>
+            <div
+              aria-current={d.getTime() === today ? "date" : undefined}
+              className="text-sm font-semibold tabular-nums"
+            >
+              {d.getUTCDate()}
+            </div>
           </div>
         ))}
       </div>
