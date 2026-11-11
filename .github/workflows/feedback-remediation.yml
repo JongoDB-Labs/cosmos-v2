@@ -9,7 +9,6 @@ name: feedback-remediation
 #   - Secret    COSMOS_ORG_ID     the target org's UUID
 #     SECRETS, not variables: a step's env is printed in the run log, this
 #     repository's logs are public, and only a secret's value is masked there.
-#     (A variable of the same name is still read, as a fallback.)
 #   - Secret    COSMOS_API_KEY    an org API key (cosmos_… , scope items:write)
 # Until these exist the job no-ops (guards below), so the workflow is inert by
 # default. It NEVER merges or deploys — it only asks the app to file work items.
@@ -35,10 +34,20 @@ jobs:
   remediate:
     runs-on: ubuntu-latest
     steps:
+      # The server URL is a secret, but GitHub masks a secret only where its whole
+      # value appears, and curl's connection errors print just the host. Masked
+      # here, in a step of its own, it is hidden before anything below can print it.
+      - name: Mask the server's hostname
+        env:
+          URL: ${{ secrets.COSMOS_BASE_URL }}
+        run: |
+          host=${URL#*://}; host=${host%%[/?#]*}; host=${host##*@}; host=${host%%:*}
+          if [ -n "$host" ]; then echo "::add-mask::$host"; fi
+
       - name: Trigger remediation pass
         env:
-          BASE_URL: ${{ secrets.COSMOS_BASE_URL || vars.COSMOS_BASE_URL }}
-          ORG_ID: ${{ secrets.COSMOS_ORG_ID || vars.COSMOS_ORG_ID }}
+          BASE_URL: ${{ secrets.COSMOS_BASE_URL }}
+          ORG_ID: ${{ secrets.COSMOS_ORG_ID }}
           API_KEY: ${{ secrets.COSMOS_API_KEY }}
           LIMIT: ${{ github.event.inputs.limit || '10' }}
         run: |

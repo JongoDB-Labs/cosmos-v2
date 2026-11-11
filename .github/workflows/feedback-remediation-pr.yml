@@ -57,10 +57,20 @@ jobs:
     outputs:
       tickets: ${{ steps.pick.outputs.tickets }}
     steps:
+      # The server URL is a secret, but GitHub masks a secret only where its whole
+      # value appears, and curl's connection errors print just the host. Masked
+      # here, in a step of its own, it is hidden before anything below can print it.
+      - name: Mask the server's hostname
+        env:
+          URL: ${{ secrets.COSMOS_BASE_URL }}
+        run: |
+          host=${URL#*://}; host=${host%%[/?#]*}; host=${host##*@}; host=${host%%:*}
+          if [ -n "$host" ]; then echo "::add-mask::$host"; fi
+
       - id: pick
         env:
-          BASE_URL: ${{ secrets.COSMOS_BASE_URL || vars.COSMOS_BASE_URL }}
-          ORG_ID: ${{ secrets.COSMOS_ORG_ID || vars.COSMOS_ORG_ID }}
+          BASE_URL: ${{ secrets.COSMOS_BASE_URL }}
+          ORG_ID: ${{ secrets.COSMOS_ORG_ID }}
           API_KEY: ${{ secrets.COSMOS_API_KEY }}
           ENABLED: ${{ vars.FEEDBACK_PR_ENABLED }}
           DISPATCH_TICKET: ${{ github.event.inputs.ticket }}
@@ -83,7 +93,12 @@ jobs:
           code=$(curl -sS -o queue.json -w '%{http_code}' \
             "$BASE_URL/api/v1/orgs/$ORG_ID/feedback/remediation-queue?limit=${MAX_TICKETS_PER_RUN}" \
             -H "Authorization: Bearer $API_KEY")
-          if [ "$code" -ge 300 ]; then echo "::error::queue fetch failed (HTTP $code)"; cat queue.json; exit 1; fi
+          # The error code only, never the body: this log is public, and the
+          # body of an error page can carry the server's address or org data.
+          if [ "$code" -ge 300 ]; then
+            err=$(grep -o -E '"code":"[A-Za-z_-]*"' queue.json | tr '\n' ' ' || true)
+            echo "::error::queue fetch failed (HTTP $code) ${err}"; exit 1
+          fi
           jq -c '[.data.items[] | {ticketKey, brief: ((.classification+" · "+.severity+"\n") + ((.acceptanceCriteria // []) | join("\n")))}]' queue.json > tickets.json
           echo "tickets=$(cat tickets.json)" >> "$GITHUB_OUTPUT"
 
