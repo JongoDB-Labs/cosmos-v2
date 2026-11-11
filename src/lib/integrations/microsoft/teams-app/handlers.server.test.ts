@@ -21,8 +21,10 @@ const taskCard = (r: { body?: unknown }) => (r.body as { task: { value: { card: 
 describe("Cosmos for Teams invokes (e2e DB)", () => {
   const orgIds: string[] = [];
   const createdTypes: string[] = [];
+  const userIds: string[] = [];
   afterAll(async () => {
     await prisma.organization.deleteMany({ where: { id: { in: orgIds } } }).catch(() => undefined);
+    await prisma.user.deleteMany({ where: { id: { in: userIds } } });
     await prisma.workItemType.deleteMany({ where: { id: { in: createdTypes } } }).catch(() => undefined);
   });
 
@@ -34,14 +36,26 @@ describe("Cosmos for Teams invokes (e2e DB)", () => {
     return made;
   }
 
+  /**
+   * Someone of the test's own, to deactivate. The seeded users are shared with
+   * every DB spec running alongside, and a deactivated one is offboarded from
+   * Outlook by whichever of them syncs next.
+   */
+  async function ownUser(name: string) {
+    const u = await prisma.user.create({ data: { email: `${name}-${crypto.randomUUID()}@test.local`, displayName: name } });
+    userIds.push(u.id);
+    return u;
+  }
+
   /** alice (ADMIN) and bob (VIEWER) connected Outlook as oid-alice / oid-bob; carol never did. */
-  async function setup() {
+  async function setup(over: { bob?: { id: string; email: string } } = {}) {
     const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     // Each org its own tenant, so the orgs other tests leave behind don't answer too.
     const TENANT = crypto.randomUUID();
-    const [alice, bob, carol] = await Promise.all(
+    const [alice, seededBob, carol] = await Promise.all(
       ["alice", "bob", "carol"].map((n) => prisma.user.findFirstOrThrow({ where: { email: `${n}@test.local` } })),
     );
+    const bob = over.bob ?? seededBob;
     const org = await prisma.organization.create({ data: { name: `teams ${stamp}`, slug: `teams-${stamp}` } });
     orgIds.push(org.id);
     await prisma.orgMember.createMany({
@@ -161,14 +175,13 @@ describe("Cosmos for Teams invokes (e2e DB)", () => {
     const url = `${ORIGIN}/${s.org.slug}/work-items?item=${s.ref}`;
     await prisma.orgMember.deleteMany({ where: { orgId: s.org.id, userId: s.alice.id } });
     expect(text((await handleActivity(s.invoke(s.oid("alice"), "composeExtension/queryLink", { url }), ORIGIN)).body)).toContain("Connect your Cosmos account");
-    const t = await setup();
+    const t = await setup({ bob: await ownUser("deactivated") });
+    const link = { url: `${ORIGIN}/${t.org.slug}/work-items?item=${t.ref}` };
+    const before = await handleActivity(t.invoke(t.oid("bob"), "composeExtension/queryLink", link), ORIGIN);
+    expect(text(before.body), "matched before the deactivation").not.toContain("Connect your Cosmos account");
     await prisma.user.update({ where: { id: t.bob.id }, data: { deactivatedAt: new Date() } });
-    try {
-      const r = await handleActivity(t.invoke(t.oid("bob"), "composeExtension/queryLink", { url: `${ORIGIN}/${t.org.slug}/work-items?item=${t.ref}` }), ORIGIN);
-      expect(text(r.body)).toContain("Connect your Cosmos account");
-    } finally {
-      await prisma.user.update({ where: { id: t.bob.id }, data: { deactivatedAt: null } });
-    }
+    const r = await handleActivity(t.invoke(t.oid("bob"), "composeExtension/queryLink", link), ORIGIN);
+    expect(text(r.body)).toContain("Connect your Cosmos account");
   });
 
   it("answers only for the org's own tenant, and only while the Teams app is installed", async () => {
