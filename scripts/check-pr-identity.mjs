@@ -15,14 +15,43 @@
  *
  * Same pattern as the arch test and the hook, imported rather than copied.
  *
- * Input arrives via the environment, never via workflow interpolation: a PR body
- * is attacker-controlled text, and `${{ github.event.pull_request.body }}`
- * substituted into a shell line would execute whatever `$(…)` it contains.
+ * In CI the title and body come from the event payload file, never from workflow
+ * interpolation (a PR body is attacker-controlled text, and
+ * `${{ github.event.pull_request.body }}` substituted into a shell line would
+ * execute whatever `$(…)` it contains) and never from `env:` either: a step
+ * prints its env at the top of its log, and this repository's logs are public,
+ * so every run published the body whole, including the runs that caught a name.
+ * For the same reason CI output says where a match is, never what it is. Run
+ * locally (PR_TITLE / PR_BODY in the environment), it shows the term.
  */
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { FORBIDDEN } from "./client-identity.mjs";
 
-const { PR_TITLE = "", PR_BODY = "", BASE_SHA = "", HEAD_SHA = "" } = process.env;
+const { BASE_SHA = "", HEAD_SHA = "", GITHUB_EVENT_PATH = "" } = process.env;
+const IN_CI = process.env.GITHUB_ACTIONS === "true";
+
+/** The pull request to scan. In CI it must come from the event payload, and
+ *  the gate fails closed without one: scanning an empty title and body would
+ *  pass anything. Locally, PR_TITLE and PR_BODY stand in for it. */
+function pullRequest() {
+  if (!IN_CI && !GITHUB_EVENT_PATH) {
+    return { title: process.env.PR_TITLE ?? "", body: process.env.PR_BODY ?? "" };
+  }
+  let pr;
+  try {
+    pr = JSON.parse(readFileSync(GITHUB_EVENT_PATH, "utf8")).pull_request;
+  } catch {
+    // Swallowed on purpose: a parse error quotes the payload line it failed on.
+  }
+  // GitHub requires a title, so a real pull request always has one.
+  if (typeof pr?.title !== "string") {
+    console.error("::error::the event payload has no pull request to scan");
+    process.exit(1);
+  }
+  return pr;
+}
+const pr = pullRequest();
 
 /** Commit subjects+bodies in the PR range. Empty if the range is unavailable —
  *  a shallow checkout should degrade to scanning title/body, not hard-fail. */
@@ -45,23 +74,41 @@ function commitMessages() {
   }
 }
 
+const commits = commitMessages();
 const targets = [
-  { what: "PR title", text: PR_TITLE },
-  { what: "PR body", text: PR_BODY },
-  ...commitMessages().map(({ sha, message }) => ({ what: `commit ${sha}`, message, text: message })),
+  { what: "PR title", text: pr.title },
+  { what: "PR body", text: pr.body ?? "" },
+  { what: "branch name", text: pr.head?.ref ?? "" },
+  ...commits.map(({ sha, message }) => ({ what: `commit ${sha}`, sha, text: message })),
 ];
 
 const offenders = [];
 for (const target of targets) {
   const match = target.text.match(FORBIDDEN);
-  if (match) offenders.push({ ...target, matched: match[0] });
+  if (match) {
+    const line = target.text.slice(0, match.index).split("\n").length;
+    offenders.push({ ...target, where: `${target.what}, line ${line}`, matched: match[0] });
+  }
 }
 
 if (offenders.length > 0) {
   console.error("\n✖ This pull request names a client or private vertical.\n");
   for (const o of offenders) {
-    console.error(`    ${o.what} — matched "${o.matched}"`);
-    console.error(`::error::${o.what} names a client or private vertical ("${o.matched}")`);
+    console.error(`    ${o.where}${IN_CI ? "" : ` — matched "${o.matched}"`}`);
+    console.error(`::error::${o.where} names a client or private vertical`);
+  }
+  if (IN_CI) {
+    const n = pr.number ?? "<n>";
+    const local = offenders.map((o) =>
+      o.sha
+        ? `    git show -s --format=%B ${o.sha}`
+        : `    gh pr view ${n} --json title,body,headRefName`,
+    );
+    console.error(
+      "\n  The term is not printed: this log is public. To see it, look locally:\n" +
+        [...new Set(local)].join("\n") +
+        "\n",
+    );
   }
   console.error(
     "\n  cosmos-v2 is PUBLIC. A title or body can be edited in place; a commit\n" +
@@ -73,4 +120,4 @@ if (offenders.length > 0) {
   process.exit(1);
 }
 
-console.log(`::notice::no client identity in the title, body, or ${targets.length - 2} commit message(s)`);
+console.log(`::notice::no client identity in the title, body, branch name, or ${commits.length} commit message(s)`);
