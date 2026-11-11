@@ -31,8 +31,13 @@ import { FORBIDDEN } from "./client-identity.mjs";
 const { BASE_SHA = "", HEAD_SHA = "", GITHUB_EVENT_PATH = "" } = process.env;
 const IN_CI = process.env.GITHUB_ACTIONS === "true";
 const pr = GITHUB_EVENT_PATH
-  ? (JSON.parse(readFileSync(GITHUB_EVENT_PATH, "utf8")).pull_request ?? {})
+  ? JSON.parse(readFileSync(GITHUB_EVENT_PATH, "utf8")).pull_request
   : { title: process.env.PR_TITLE, body: process.env.PR_BODY };
+if (!pr) {
+  // Fail closed: an empty title and body would pass anything.
+  console.error("::error::the event payload has no pull request to scan");
+  process.exit(1);
+}
 const PR_TITLE = pr.title ?? "";
 const PR_BODY = pr.body ?? "";
 

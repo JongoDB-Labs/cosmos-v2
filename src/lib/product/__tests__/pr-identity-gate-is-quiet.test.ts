@@ -52,6 +52,15 @@ describe("the PR identity gate", () => {
     expect(FORBIDDEN.test(r.out)).toBe(false);
   });
 
+  it("fails closed when the event carries no pull request", () => {
+    // Scanning an empty title and body would pass anything.
+    const path = join(mkdtempSync(join(tmpdir(), "pr-identity-")), "event.json");
+    writeFileSync(path, JSON.stringify({ push: {} }));
+    const r = gate({ GITHUB_ACTIONS: "true", GITHUB_EVENT_PATH: path });
+    expect(r.status).toBe(1);
+    expect(r.out).toContain("no pull request");
+  });
+
   it("passes a clean pull request", () => {
     expect(inCi({ title: "fix: a thing", body: "Nothing to see." }).status).toBe(0);
   });
