@@ -702,6 +702,37 @@ test.describe("a11y — Issues query language", () => {
   });
 });
 
+// A single meeting's page. It needs a meeting id, so it is created here rather
+// than listed in PAGES, and deleted after.
+test.describe("a11y — a meeting", () => {
+  test("a meeting's page has no serious/critical axe violations", async ({ page, signInAs, baseURL }) => {
+    test.setTimeout(90_000);
+    await signInAs(EMAIL);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const base = baseURL ?? "http://localhost:3000";
+    const orgs = await (await page.request.get("/api/v1/orgs")).json();
+    const org = ((orgs.data ?? orgs) as { id: string; slug: string }[]).find((o) => o.slug === ORG)!;
+    const title = `A11y meeting ${Date.now().toString().slice(-6)}`;
+    const res = await page.request.post(`/api/v1/orgs/${org.id}/meetings`, {
+      data: { title, meetingDate: new Date().toISOString() },
+      headers: { Origin: base },
+    });
+    expect(res.status(), await res.text()).toBe(201);
+    const meeting = (await res.json()) as { id: string };
+    try {
+      await page.goto(`/${ORG}/meetings/${meeting.id}`, { waitUntil: "domcontentloaded" });
+      // The positive control: this meeting's content, not a loading state or a 404.
+      await expect(page.getByRole("heading", { name: title })).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0, { timeout: 30_000 });
+      await page.waitForTimeout(500);
+      const serious = blocking(await runAxe(page));
+      expect(serious, serious.map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets[0]}`).join("\n")).toHaveLength(0);
+    } finally {
+      await page.request.delete(`/api/v1/orgs/${org.id}/meetings/${meeting.id}`, { headers: { Origin: base } });
+    }
+  });
+});
+
 test.describe("a11y — the assistant drawer", () => {
   test("assistant drawer has no serious/critical axe violations", async ({
     page,

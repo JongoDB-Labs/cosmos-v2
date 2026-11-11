@@ -37,6 +37,15 @@ interface InviteState {
   recipients: { name: string; email: string; outside: boolean }[];
   /** Its cancellation is waiting for the organizer to reconnect Outlook. */
   pendingCancel: boolean;
+  /**
+   * Outlook accepted the organizer's event with the attendees on it. False
+   * while invitations are on means nobody has been invited yet: Outlook refused
+   * it, or the organizer must reconnect. Every sync tries again. Null once the
+   * meeting has been over a day: nobody tracks it any more.
+   */
+  sent: boolean | null;
+  /** The viewer is the organizer: only their reconnecting Outlook can fix it. */
+  isOrganizer: boolean;
   domains: string[];
   ended: {
     how: "released" | "cancelled";
@@ -122,11 +131,27 @@ export function OutlookInvitePanel({
       setConfirming(null);
       setFocusTo("heading");
       if (!enabled && d?.pendingCancel) {
-        toast.error("Reconnect Outlook Calendar to cancel the invitations.");
+        toast.error(
+          d.isOrganizer
+            ? "Reconnect Outlook Calendar to cancel the invitations."
+            : "The invitations will be cancelled once the organizer reconnects Outlook Calendar.",
+        );
+        return;
+      }
+      if (enabled && (!d?.on || d.sent === false)) {
+        toast.error(
+          d?.on
+            ? "Invitations are on, but Outlook hasn't accepted the invitations yet, so nobody has been invited. Cosmos keeps trying."
+            : "Outlook invitations couldn't be turned on.",
+        );
         return;
       }
       toast.success(
-        enabled ? "Outlook invitations sent" : "Outlook invitations cancelled",
+        !enabled
+          ? "Outlook invitations cancelled"
+          : d.sent
+            ? "Outlook invitations sent"
+            : "Outlook invitations turned on",
       );
     },
     onError: (e) => notifyError(e, "Couldn't change the Outlook invitations."),
@@ -142,7 +167,9 @@ export function OutlookInvitePanel({
 
   if (!data || (!data.available && !data.on && !data.ended)) return null;
   const outside = data.recipients.filter((r) => r.outside);
-  const mine = data.on && data.organizerId !== null && data.canChange;
+  // Any editor can stop the invitations; only the organizer's Outlook sends them.
+  const canStop = data.on && data.organizerId !== null && data.canChange;
+  const yours = data.on && data.isOrganizer;
 
   return (
     <>
@@ -182,12 +209,19 @@ export function OutlookInvitePanel({
             </p>
             {data.pendingCancel && (
               <p role="alert" className="text-sm text-[var(--status-critical-text)]">
-                {mine
+                {yours
                   ? "These invitations couldn't be cancelled: reconnect your Outlook Calendar (Settings, Preferences) and they will be."
                   : "These invitations are waiting to be cancelled until the organizer reconnects Outlook."}
               </p>
             )}
-            {mine && !data.pendingCancel && confirming !== "off" && (
+            {data.sent === false && !data.pendingCancel && (
+              <p role="alert" className="text-sm text-[var(--status-critical-text)]">
+                {yours
+                  ? "Nobody has been invited yet: Outlook hasn't accepted the invitation. Cosmos tries again each time it syncs with Outlook; if this doesn't clear, reconnect your Outlook Calendar (Settings, Preferences)."
+                  : "These invitations haven't gone out yet: the organizer's Outlook hasn't accepted them."}
+              </p>
+            )}
+            {canStop && !data.pendingCancel && confirming !== "off" && (
               <div>
                 <Button
                   ref={stopRef}

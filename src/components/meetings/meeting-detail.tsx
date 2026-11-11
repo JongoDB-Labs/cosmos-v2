@@ -474,7 +474,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => router.back()}>
+        <Button variant="ghost" size="icon" aria-label="Back" onClick={() => router.back()}>
           <ArrowLeft className="size-4" />
         </Button>
         <div className="flex flex-1 flex-col gap-1">
@@ -601,7 +601,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
         <Button
           variant="ghost"
           size="sm"
-          className="text-destructive hover:text-destructive"
+          className="text-[var(--status-critical-text)] hover:text-[var(--status-critical-text)]"
           onClick={() => setDeleteOpen(true)}
         >
           <Trash2 className="size-4" />

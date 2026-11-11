@@ -6,10 +6,19 @@ const InviteState = z.object({
   available: z.boolean().describe("Whether the org has Outlook Calendar on."),
   on: z.boolean(),
   organizerId: NullableUuid,
+  organizerName: z.string().nullable().describe("The organizer's display name, or email when they have none."),
   canChange: z.boolean(),
   reason: z.enum(["classified", "not_connected", "reconnect", "cannot_edit", "too_many_attendees", "cancelled"]).nullable(),
   recipients: z.array(z.object({ name: z.string(), email: z.string(), outside: z.boolean() })),
   domains: z.array(z.string()),
+  pendingCancel: z.boolean().describe("The invitation's cancellation is waiting for the organizer to reconnect Outlook."),
+  sent: z
+    .boolean()
+    .nullable()
+    .describe(
+      "Outlook accepted the organizer's event with the attendees on it. False while `on` means nobody has been invited yet: Outlook refused it or the organizer must reconnect; every sync retries. Null once the meeting has been over a day.",
+    ),
+  isOrganizer: z.boolean().describe("The signed-in person is the organizer, whose Outlook sends the invitations."),
   ended: z.object({ how: z.enum(["released", "cancelled"]), reason: z.string().nullable(), at: IsoDateTime }).nullable(),
 });
 

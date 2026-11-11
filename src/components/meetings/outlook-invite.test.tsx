@@ -14,11 +14,12 @@ vi.mock("@/lib/query/json-fetcher", () => ({ jsonFetch: vi.fn() }));
 
 import { OutlookInvitePanel } from "./outlook-invite";
 import { jsonFetch } from "@/lib/query/json-fetcher";
+import { toast } from "sonner";
 
 const URL = "/api/v1/orgs/o1/meetings/m1/outlook-invite";
 const state = (over: object) => ({
   available: true, on: false, organizerId: null, organizerName: null, canChange: true, reason: null,
-  recipients: [{ name: "Bob", email: "bob@contoso.example", outside: false }], domains: ["contoso.example"], ended: null, pendingCancel: false,
+  recipients: [{ name: "Bob", email: "bob@contoso.example", outside: false }], domains: ["contoso.example"], ended: null, pendingCancel: false, sent: false, isOrganizer: false,
   ...over,
 });
 function wrap(ui: React.ReactNode) {
@@ -78,7 +79,7 @@ describe("OutlookInvitePanel", () => {
   });
 
   it("while on, says who sends them; the organizer can stop them after a warning", async () => {
-    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice" }) as never);
+    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", sent: true }) as never);
     wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
     expect((await screen.findByText("Alice")).tagName).toBe("STRONG");
     fireEvent.click(screen.getByRole("button", { name: "Stop sending invitations" }));
@@ -90,7 +91,7 @@ describe("OutlookInvitePanel", () => {
   });
 
   it("someone who can't edit sees who sends them, with no way to stop them", async () => {
-    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: false }) as never);
+    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: false, sent: true }) as never);
     wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
     await screen.findByText("Alice");
     expect(screen.queryByRole("button", { name: "Stop sending invitations" })).toBeNull();
@@ -115,14 +116,21 @@ describe("OutlookInvitePanel", () => {
     expect((await screen.findByRole("note")).textContent).toContain("cancelled because their organizer left the organization");
   });
   it("a cancellation waiting on a reconnect says so, and offers no second stop", async () => {
-    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true, pendingCancel: true }) as never);
+    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true, pendingCancel: true, isOrganizer: true }) as never);
     wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
     expect((await screen.findByRole("alert")).textContent).toMatch(/couldn't be cancelled: reconnect your Outlook Calendar/);
     expect(screen.queryByRole("button", { name: "Stop sending invitations" })).toBeNull();
   });
+  it("an editor who isn't the organizer is told the cancellation waits on the organizer, not on them", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true, pendingCancel: true }) as never);
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    const alert = (await screen.findByRole("alert")).textContent;
+    expect(alert).toMatch(/waiting to be cancelled until the organizer reconnects Outlook/);
+    expect(alert).not.toMatch(/reconnect your/);
+  });
 
   it("a live invitation can be stopped by its organizer", async () => {
-    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true }) as never);
+    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true, sent: true }) as never);
     wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
     expect(await screen.findByRole("button", { name: "Stop sending invitations" })).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
@@ -139,7 +147,7 @@ describe("OutlookInvitePanel", () => {
   });
 
   it("the stop confirmation takes focus, and gives it back to Stop", async () => {
-    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true }) as never);
+    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true, sent: true }) as never);
     wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
     fireEvent.click(await screen.findByRole("button", { name: "Stop sending invitations" }));
     const confirm = screen.getByRole("group", { name: "Stop Outlook invitations" });
@@ -152,12 +160,92 @@ describe("OutlookInvitePanel", () => {
     let on = false;
     vi.mocked(jsonFetch).mockImplementation(async (_url, init) => {
       if (init?.method === "PUT") on = true;
-      return state(on ? { on: true, organizerId: "u1", organizerName: "Alice" } : {}) as never;
+      return state(on ? { on: true, organizerId: "u1", organizerName: "Alice", sent: true } : {}) as never;
     });
     wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
     fireEvent.click(await screen.findByRole("button", { name: "Send Outlook invitations" }));
     fireEvent.click(screen.getByRole("button", { name: "Send invitations" }));
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Outlook invitations" })));
+  });
+
+  it("an invitation Outlook hasn't accepted says nobody has been invited yet, and can still be stopped", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true, sent: false, isOrganizer: true }) as never);
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Nobody has been invited yet: Outlook hasn't accepted the invitation/);
+    expect(screen.getByRole("alert").textContent).toMatch(/reconnect your Outlook Calendar/);
+    expect(screen.getByRole("button", { name: "Stop sending invitations" })).toBeTruthy();
+  });
+
+  it("an editor who isn't the organizer is told it's the organizer's Outlook, and can still stop them", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true, sent: false }) as never);
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    const alert = (await screen.findByRole("alert")).textContent;
+    expect(alert).toMatch(/haven't gone out yet: the organizer's Outlook hasn't accepted them/);
+    expect(alert).not.toMatch(/reconnect your/);
+    expect(screen.getByRole("button", { name: "Stop sending invitations" })).toBeTruthy();
+  });
+
+  it("someone else sees that the organizer's invitations haven't gone out", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: false, sent: false }) as never);
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    expect((await screen.findByRole("alert")).textContent).toMatch(/haven't gone out yet: the organizer's Outlook hasn't accepted them/);
+  });
+
+  it("an editor who stops invitations the organizer must cancel is told it waits on the organizer", async () => {
+    let off = false;
+    vi.mocked(jsonFetch).mockImplementation(async (_url, init) => {
+      if (init?.method === "PUT") off = true;
+      return state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true, sent: !off, pendingCancel: off }) as never;
+    });
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Stop sending invitations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel the invitations" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/once the organizer reconnects/)));
+    expect(toast.error).not.toHaveBeenCalledWith(expect.stringMatching(/^Reconnect/));
+  });
+
+  it("a meeting over for more than a day raises no alarm about its invitations", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue(state({ on: true, organizerId: "u1", organizerName: "Alice", canChange: true, sent: null, isOrganizer: true }) as never);
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    expect(await screen.findByRole("button", { name: "Stop sending invitations" })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("turning it on says the invitations went out only when Outlook accepted them", async () => {
+    let sent: boolean | null = true;
+    let on = false;
+    vi.mocked(jsonFetch).mockImplementation(async (_url, init) => {
+      if (init?.method === "PUT") on = true;
+      return state(on ? { on: true, organizerId: "u1", organizerName: "Alice", sent } : {}) as never;
+    });
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Send Outlook invitations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send invitations" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Outlook invitations sent"));
+    expect(toast.error).not.toHaveBeenCalled();
+
+    // Refused: on, but nobody invited. Never "sent".
+    cleanup();
+    vi.clearAllMocks();
+    sent = false;
+    on = false;
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Send Outlook invitations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send invitations" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/Outlook hasn't accepted the invitations/)));
+    expect(toast.success).not.toHaveBeenCalled();
+
+    // A meeting over for more than a day: on, but whether they went out isn't
+    // tracked. Neither "sent" nor an alarm.
+    cleanup();
+    vi.clearAllMocks();
+    sent = null;
+    on = false;
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Send Outlook invitations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send invitations" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Outlook invitations turned on"));
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
 });

@@ -49,6 +49,33 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+      version: "2.544.7",
+      date: "2026-11-10",
+      title: "Outlook invitations say when nobody has been invited yet",
+      highlights: [
+        {
+          kind: "fix",
+          text: "When Outlook refused a meeting\u2019s invitation, Cosmos still showed the invitations as on and confirmed they were sent, though no attendee had received one. The meeting now says plainly that nobody has been invited yet. The organizer is told Cosmos keeps trying and to reconnect Outlook if it doesn\u2019t clear; everyone else is told it is waiting on the organizer\u2019s Outlook. Turning invitations on now confirms they were sent only once Outlook accepts them.",
+        },
+        {
+          kind: "fix",
+          text: "An invitation Outlook refused is now tried again on every sync even when its organizer isn\u2019t one of the attendees, and editing the event in Outlook no longer makes Cosmos treat it as sent. Stopping invitations while the organizer had to reconnect Outlook is no longer undone if they edit the event in Outlook first: the cancellation goes out once they reconnect.",
+        },
+        {
+          kind: "fix",
+          text: "If an organizer stopped invitations while Outlook needed reconnecting, then deleted the event in Outlook themselves, Cosmos sent the invitation again once they reconnected. Deleting it now counts as the cancellation, and the invitations stay off. An invitation whose title was changed in Outlook to one with a classification marking is now cancelled at once, with its details removed first. Before, Cosmos turned the invitations off without cancelling, so the attendees kept the event, and the meeting said they had been sent a cancellation.",
+        },
+        {
+          kind: "fix",
+          text: "Someone who can edit a meeting but didn\u2019t organize it was told to reconnect their own Outlook when the invitations were waiting on the organizer\u2019s, both on the meeting and after stopping them. It now says they are waiting on the organizer, and they can still stop the invitations.",
+        },
+        {
+          kind: "fix",
+          text: "On a meeting\u2019s page, the back button now has a name screen readers announce, and the Delete button\u2019s text has enough contrast to read.",
+        },
+      ],
+    },
+  {
       version: "2.544.6",
       date: "2026-11-10",
       title: "Work items stuck under an old status spelling are back on their board",
