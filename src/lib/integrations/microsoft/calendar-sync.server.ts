@@ -581,8 +581,8 @@ export async function invitePreview(orgId: string, meetingId: string, actorId: s
     // Addresses are for whoever may send or stop the invitation, not every reader.
     recipients: canEdit ? invitees.map((i) => ({ name: i.name, email: i.email, outside: away.has(i.userId) })) : [],
     pendingCancel: !!own?.contentHash?.startsWith(PENDING_CANCEL),
-    // Past the live window nothing sends or retries it, and a disconnect has
-    // taken its link: whether it went out is no longer known.
+    // A disconnect releases only live invitations and takes every link, so
+    // past the live window whether it went out is no longer known.
     sent: m.meetingDate < liveSince(Date.now()) ? null : isSentInvite(own?.contentHash),
     isOrganizer: m.inviteOrganizerId === actorId,
     domains,
@@ -1027,6 +1027,17 @@ async function applyOne(
       if (!(e instanceof GraphError && e.status === 404)) throw e;
     }
     if (!current) {
+      if (link.contentHash?.startsWith(PENDING_CANCEL)) {
+        // The invitation they stopped, deleted in Outlook: that sent the
+        // cancellation, so finish the stop. Only detaching would drop the mark,
+        // and the next sync would invite everyone again.
+        const m = await prisma.syncMeeting.findFirst({ where: { id: link.entityId, orgId, inviteOrganizerId: userId } });
+        if (m) {
+          const reason = link.contentHash.slice(PENDING_CANCEL.length) as InviteStopReason;
+          if ((await stopInvite(orgId, await withAttendees(m), reason, deps, userId)) === "stopped") noteUnsynced(out, await syncMeeting(orgId, m.id, deps));
+          return;
+        }
+      }
       await prisma.externalEventLink.delete({ where: { id: link.id } });
       await meetingActivity(orgId, userId, link.entityId, "outlook_detached", null, null, null);
       out.detached++;
@@ -1114,11 +1125,13 @@ async function applyOne(
   // Their copy now matches the meeting: record that, so nothing re-sends it.
   // As an invitation only if it already was one: a copy whose invitation
   // Outlook refused still has nobody on it, and the next sync must add them.
+  // Still one if the edit made it classified: its attendees are on it until
+  // the cancellation, and only an invitation's link is cancelled.
   const conn = await calendarConnection(orgId, userId);
   const restrictedNow = cls.restricted(updated.projectId, updated.title, updated.meetingUrl);
   const view = conn ? meetingEvent(updated, restrictedNow, await meetingLink(orgId, conn.meta, m.id)) : null;
   const hash = !view ? null
-    : updated.inviteOrganizerId === userId && !restrictedNow && isSentInvite(link.contentHash)
+    : updated.inviteOrganizerId === userId && isSentInvite(link.contentHash)
       ? inviteHash(inviteBody(view, await inviteesFor(await withAttendees(updated))))
       : bodyHash(view);
   await prisma.externalEventLink.update({ where: { id: link.id }, data: { changeKey: ev.changeKey ?? null, contentHash: hash, lastSyncedAt: new Date() } });

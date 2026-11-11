@@ -923,6 +923,41 @@ describe("Outlook meeting sync (e2e DB)", () => {
     expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).inviteOrganizerId).toBeNull();
   });
 
+  it("an organizer who deletes, in Outlook, an invitation whose cancellation is pending has stopped it", async () => {
+    const { org, alice, bob, g, deps, meeting } = await setup();
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+    const invite = (await linkOf(alice.id, meeting.id))!.externalEventId;
+    const cred = await credOf(org.id, alice.id);
+    await patchCalendarMeta(cred.id, { status: "reconnect" });
+    await setMeetingInvite(org.id, meeting.id, alice.id, false, deps);
+    expect((await invitePreview(org.id, meeting.id, alice.id))!).toMatchObject({ pendingCancel: true });
+    // She deletes it in Outlook herself (Outlook tells the attendees), then reconnects.
+    g.outlookDelete(invite);
+    await patchCalendarMeta(cred.id, { status: "connected" });
+    await pullChanges(org.id, alice.id, deps);
+    await syncMeeting(org.id, meeting.id, deps);
+    const inviting = [...g.events.values()].filter((e) => !e.removed && attendeesOf(e).length > 0);
+    expect(inviting, "the invitation she stopped went out again").toEqual([]);
+    expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).inviteOrganizerId).toBeNull();
+    const stopped = await prisma.activity.findFirst({ where: { orgId: org.id, subjectId: meeting.id, action: "outlook_invite_cancelled" } });
+    expect(stopped?.newValue).toBe("turned_off");
+    expect(await linkOf(bob.id, meeting.id), "the meeting went back to mirroring").not.toBeNull();
+  });
+
+  it("an invitation renamed in Outlook to a classified title is cancelled, scrubbed", async () => {
+    const { org, alice, bob, g, deps, meeting } = await setup();
+    await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);
+    const invite = (await linkOf(alice.id, meeting.id))!.externalEventId;
+    await new Promise((r) => setTimeout(r, 5));
+    g.outlookEdit(invite, { subject: "CUI//SP-PRVCY review" });
+    await pullChanges(org.id, alice.id, deps);
+    expect(g.cancellations.map((c) => c.eventId), "the invitation was never cancelled").toEqual([invite]);
+    expect(g.cancellations[0].subject).not.toContain("CUI");
+    expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).inviteOrganizerId).toBeNull();
+    const bobCopy = (await linkOf(bob.id, meeting.id))!;
+    expect(g.events.get(bobCopy.externalEventId)!.subject).not.toContain("CUI");
+  });
+
   it("the periodic pass retries a refused invitation whose organizer isn't an attendee", async () => {
     const { org, alice, g, deps, meeting } = await setup();
     await prisma.meetingAttendee.deleteMany({ where: { meetingId: meeting.id, userId: alice.id } });

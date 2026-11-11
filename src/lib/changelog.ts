@@ -63,6 +63,10 @@ const RELEASES: Release[] = [
         },
         {
           kind: "fix",
+          text: "If an organizer stopped invitations while Outlook needed reconnecting, then deleted the event in Outlook themselves, Cosmos sent the invitation again once they reconnected. Deleting it now counts as the cancellation, and the invitations stay off. An invitation whose title was changed in Outlook to one with a classification marking is now cancelled at once, with its details removed first. Before, Cosmos turned the invitations off without cancelling, so the attendees kept the event, and the meeting said they had been sent a cancellation.",
+        },
+        {
+          kind: "fix",
           text: "Someone who can edit a meeting but didn\u2019t organize it was told to reconnect their own Outlook when the invitations were waiting on the organizer\u2019s, both on the meeting and after stopping them. It now says they are waiting on the organizer, and they can still stop the invitations.",
         },
         {
