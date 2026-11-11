@@ -478,8 +478,9 @@ async function ensureProgramCalendarFixture(orgId: string, aliceUserId: string):
       endsAt: day(11),
       allDay: true,
     })),
-    // Pin day 17.
-    { key: "engagements", title: "Gallery site engagement", category: "Engagements", startsAt: day(17), endsAt: day(25), allDay: true },
+    // Pin day 17. The bar's title must end inside its first column: text over
+    // two column grounds is one axe can't measure, and CI's fonts set it wider.
+    { key: "engagements", title: "Gallery site visit", category: "Engagements", startsAt: day(17), endsAt: day(25), allDay: true },
     { key: "cadence", title: "Gallery delivery cadence", category: "Delivery Cadence", startsAt: day(17), endsAt: day(18), allDay: true },
   ];
 

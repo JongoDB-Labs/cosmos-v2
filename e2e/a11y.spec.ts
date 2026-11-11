@@ -500,18 +500,20 @@ const CALENDAR_PINS: Array<{ day: number; onToday: string[]; overflow?: string }
     overflow: "+1 more",
   },
   // The eight-day bar starts here, so its title is over this column.
-  { day: 17, onToday: ["Gallery delivery cadence", "Gallery site engagement"] },
+  { day: 17, onToday: ["Gallery delivery cadence", "Gallery site visit"] },
 ];
 
 /** The chip titles, and the overflow button, that sit over TODAY's column. The
  *  column is found from the day number marked `aria-current="date"`. A title's
- *  centre is what axe samples its background at. */
-async function onTodayColumn(page: Page): Promise<{ today: string; titles: string[]; overflow: string[] }> {
+ *  centre is what axe samples its background at. `spills` names any of those
+ *  titles whose text runs past the column: a chip is translucent, so that text
+ *  sits over two grounds and axe can't measure it. */
+async function onTodayColumn(page: Page): Promise<{ today: string; titles: string[]; overflow: string[]; spills: string[] }> {
   return page.evaluate(() => {
     const disc = document.querySelector('[aria-current="date"]');
     const cell = disc?.parentElement;
     const week = disc?.closest(".grid");
-    if (!disc || !cell || !week) return { today: "", titles: [], overflow: [] };
+    if (!disc || !cell || !week) return { today: "", titles: [], overflow: [], spills: [] };
     const col = cell.getBoundingClientRect();
     const row = week.getBoundingClientRect();
     const over = (el: Element) => {
@@ -532,6 +534,12 @@ async function onTodayColumn(page: Page): Promise<{ today: string; titles: strin
       overflow: [...document.querySelectorAll("button")]
         .filter((b) => /^\+\d+ more$/.test(b.textContent?.trim() ?? "") && over(b))
         .map((b) => b.textContent?.trim() ?? ""),
+      spills: [...document.querySelectorAll(".pc-chip .truncate")]
+        .filter((t) => over(t) && t.getBoundingClientRect().right > col.right)
+        .map((t) => {
+          const r = t.getBoundingClientRect();
+          return `${t.closest(".pc-chip")?.getAttribute("title")}: text ends at ${Math.round(r.right)}, column at ${Math.round(col.right)}`;
+        }),
     };
   });
 }
@@ -626,6 +634,10 @@ test.describe("a11y — program calendar", () => {
         expect(today.overflow, `${state}: the "+N more" button over today's column`).toEqual(
           pin.overflow ? [pin.overflow] : [],
         );
+        expect(
+          today.spills,
+          `${state}: these titles run past today's column, so axe can't measure them; shorten them in the seed`,
+        ).toEqual([]);
 
         const found = blocking(await runAxe(page));
         expect(found, report(state, found)).toHaveLength(0);
