@@ -27,6 +27,10 @@ async function cspFor(env: Record<string, string | undefined>): Promise<string> 
   return h.get("Content-Security-Policy") ?? "";
 }
 
+function frameSrc(csp: string): string {
+  return csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("frame-src")) ?? "";
+}
+
 function connectSrc(csp: string): string {
   return csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("connect-src")) ?? "";
 }
@@ -34,6 +38,7 @@ function connectSrc(csp: string): string {
 beforeEach(() => {
   delete process.env.WHITEBOARD_REALTIME_URL;
   delete process.env.PI_PLANNING_REALTIME_URL;
+  delete process.env.PROGRAM_MANAGEMENT_EMBED_URL;
 });
 afterEach(() => {
   process.env = { ...ORIGINAL };
@@ -83,5 +88,36 @@ describe("CSP connect-src", () => {
     const c = connectSrc(await cspFor({}));
     expect(c).toContain("https://accounts.google.com");
     expect(c).toContain("https://www.googleapis.com");
+  });
+});
+
+// frame-src and the outside dashboard Program Management can frame
+// (src/lib/pm/embed.ts). The page and the CSP read the same setting; if they
+// disagreed, the page would render a frame the browser refuses -- an empty box.
+describe("CSP frame-src", () => {
+  it("names the configured dashboard, by ORIGIN not path", async () => {
+    const f = frameSrc(await cspFor({ PROGRAM_MANAGEMENT_EMBED_URL: "https://pm.example.com/board?x=1" }));
+    expect(f).toContain("https://pm.example.com");
+    expect(f).not.toContain("/board");
+    // What it already allowed is still there.
+    expect(f).toContain("'self'");
+    expect(f).toContain("https://accounts.google.com");
+  });
+
+  it("adds nothing when unset", async () => {
+    const f = frameSrc(await cspFor({}));
+    expect(f).toBe("frame-src 'self' https://accounts.google.com");
+  });
+
+  it("adds nothing for a URL the page itself would refuse", async () => {
+    // Plain http to a real host: the page falls back to the built-in view,
+    // so the CSP must not widen for it either.
+    const f = frameSrc(await cspFor({ PROGRAM_MANAGEMENT_EMBED_URL: "http://pm.example.com/" }));
+    expect(f).toBe("frame-src 'self' https://accounts.google.com");
+  });
+
+  it("never lets Cosmos itself be framed because of it", async () => {
+    const csp = await cspFor({ PROGRAM_MANAGEMENT_EMBED_URL: "https://pm.example.com/" });
+    expect(csp).toContain("frame-ancestors 'none'");
   });
 });

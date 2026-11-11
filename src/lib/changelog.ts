@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.545.0",
+    date: "2026-11-11",
+    title: "Program Management can show your existing PM dashboard",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An administrator can set Program Management to show an existing program-management dashboard inside Cosmos, in place of the built-in page, while that page is still being built. The same people can open it as before. If the dashboard asks you to sign in, Sign in opens Microsoft’s sign-in in its own window, because Microsoft won’t show its sign-in inside another site, and the dashboard loads when you close that window. Open in new tab is always there too.",
+      },
+    ],
+  },
+  {
       version: "2.544.8",
       date: "2026-11-11",
       title: "Deleting an invitation in Outlook stops it, and all-day edits are put back",

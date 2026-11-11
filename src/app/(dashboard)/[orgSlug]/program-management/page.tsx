@@ -13,7 +13,9 @@ import { NoPageAccess } from "@/components/ui/no-page-access";
 import { PageShell } from "@/components/ui/page-shell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HardHat } from "lucide-react";
+import { programManagementEmbedUrl } from "@/lib/pm/embed";
 import { ProjectPicker } from "./project-picker";
+import { EmbeddedDashboard } from "./embedded-dashboard";
 
 type PageParams = {
   params: Promise<{ orgSlug: string }>;
@@ -64,6 +66,20 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
     return (
       <PageShell title="Program Management">
         <NoPageAccess what="program management" />
+      </PageShell>
+    );
+  }
+
+  // An instance can show an outside dashboard here instead, while the
+  // built-in page catches up (src/lib/pm/embed.ts). After the access check on
+  // purpose: the frame is still this page, and who may open it does not
+  // change because its content comes from elsewhere. Nothing below is loaded
+  // for it -- the registers would be queried only to be thrown away.
+  const embed = programManagementEmbedUrl();
+  if (embed) {
+    return (
+      <PageShell tourAnchor="program-management" title="Program Management" maxWidth="full">
+        <EmbeddedDashboard src={embed.href} />
       </PageShell>
     );
   }

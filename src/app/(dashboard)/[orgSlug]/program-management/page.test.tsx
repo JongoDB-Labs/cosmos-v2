@@ -10,7 +10,7 @@
 // one. Scoping by a key from the URL is a read of someone else's data if the
 // key is honoured without checking it first, and the check is one `.find` on a
 // list that is easy to build from the wrong array.
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { isValidElement, type ReactElement } from "react";
 import { Permission } from "@/lib/rbac/permissions";
 
@@ -62,6 +62,7 @@ vi.mock("@/components/pm-dashboard/pm-dashboard", () => ({ PmDashboard: () => nu
 vi.mock("@/components/ui/page-shell", () => ({ PageShell: () => null }));
 vi.mock("@/components/ui/no-page-access", () => ({ NoPageAccess: () => null }));
 vi.mock("./project-picker", () => ({ ProjectPicker: () => null }));
+vi.mock("./embedded-dashboard", () => ({ EmbeddedDashboard: () => null }));
 
 import { ProgramManagementContent } from "./page";
 import { PageShell } from "@/components/ui/page-shell";
@@ -86,6 +87,11 @@ function scopedIds(): unknown {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete process.env.PROGRAM_MANAGEMENT_EMBED_URL;
+});
+
+afterEach(() => {
+  delete process.env.PROGRAM_MANAGEMENT_EMBED_URL;
 });
 
 describe("Program Management — scope", () => {
@@ -218,6 +224,49 @@ describe("Program Management — page permission", () => {
     expect(prisma.project.findMany).not.toHaveBeenCalled();
     expect(loaders.milestones).not.toHaveBeenCalled();
     expect(loaders.clins).not.toHaveBeenCalled();
+  });
+});
+
+describe("Program Management — an outside dashboard, when the instance sets one", () => {
+  const URL_SET = "https://pm.example.com/";
+
+  it("frames the configured dashboard instead of the built-in page", async () => {
+    process.env.PROGRAM_MANAGEMENT_EMBED_URL = URL_SET;
+    signedInWith(PROGRAM_ONLY);
+    const el = (await ProgramManagementContent({ params, searchParams: noQuery })) as ReactElement;
+
+    const frame = findByDisplayName(el, "EmbeddedDashboard");
+    expect(frame?.props).toEqual({ src: URL_SET });
+    expect(findByDisplayName(el, "PmDashboard")).toBeNull();
+    // Nothing the built-in page needs is read for a page that will not show it.
+    expect(prisma.project.findMany).not.toHaveBeenCalled();
+    expect(loaders.milestones).not.toHaveBeenCalled();
+    expect(prisma.risk.findMany).not.toHaveBeenCalled();
+  });
+
+  it("still enforces the page's permission: no access means no frame", async () => {
+    process.env.PROGRAM_MANAGEMENT_EMBED_URL = URL_SET;
+    signedInWith(Permission.PROJECT_READ);
+    const el = (await ProgramManagementContent({ params, searchParams: noQuery })) as ReactElement;
+    expect(findByDisplayName(el, "EmbeddedDashboard")).toBeNull();
+    expect(findByDisplayName(el, "NoPageAccess")).not.toBeNull();
+  });
+
+  it("falls back to the built-in page when the URL is unusable", async () => {
+    // Plain http to a real host is refused (src/lib/pm/embed.ts), and the
+    // page must then be the built-in one, not an empty frame.
+    process.env.PROGRAM_MANAGEMENT_EMBED_URL = "http://pm.example.com/";
+    signedInWith(PROGRAM_ONLY);
+    const el = (await ProgramManagementContent({ params, searchParams: noQuery })) as ReactElement;
+    expect(findByDisplayName(el, "EmbeddedDashboard")).toBeNull();
+    expect(findByDisplayName(el, "PmDashboard")).not.toBeNull();
+  });
+
+  it("control: unset, the built-in page renders as before", async () => {
+    signedInWith(PROGRAM_ONLY);
+    const el = (await ProgramManagementContent({ params, searchParams: noQuery })) as ReactElement;
+    expect(findByDisplayName(el, "PmDashboard")).not.toBeNull();
+    expect(findByDisplayName(el, "EmbeddedDashboard")).toBeNull();
   });
 });
 
