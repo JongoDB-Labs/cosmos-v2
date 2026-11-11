@@ -15,14 +15,26 @@
  *
  * Same pattern as the arch test and the hook, imported rather than copied.
  *
- * Input arrives via the environment, never via workflow interpolation: a PR body
- * is attacker-controlled text, and `${{ github.event.pull_request.body }}`
- * substituted into a shell line would execute whatever `$(…)` it contains.
+ * In CI the title and body come from the event payload file, never from workflow
+ * interpolation (a PR body is attacker-controlled text, and
+ * `${{ github.event.pull_request.body }}` substituted into a shell line would
+ * execute whatever `$(…)` it contains) and never from `env:` either: a step
+ * prints its env at the top of its log, and this repository's logs are public,
+ * so the body was published whole on exactly the runs that caught a name.
+ * For the same reason CI output says where a match is, never what it is. Run
+ * locally (PR_TITLE / PR_BODY in the environment), it shows the term.
  */
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { FORBIDDEN } from "./client-identity.mjs";
 
-const { PR_TITLE = "", PR_BODY = "", BASE_SHA = "", HEAD_SHA = "" } = process.env;
+const { BASE_SHA = "", HEAD_SHA = "", GITHUB_EVENT_PATH = "" } = process.env;
+const IN_CI = process.env.GITHUB_ACTIONS === "true";
+const pr = GITHUB_EVENT_PATH
+  ? (JSON.parse(readFileSync(GITHUB_EVENT_PATH, "utf8")).pull_request ?? {})
+  : { title: process.env.PR_TITLE, body: process.env.PR_BODY };
+const PR_TITLE = pr.title ?? "";
+const PR_BODY = pr.body ?? "";
 
 /** Commit subjects+bodies in the PR range. Empty if the range is unavailable —
  *  a shallow checkout should degrade to scanning title/body, not hard-fail. */
@@ -54,14 +66,24 @@ const targets = [
 const offenders = [];
 for (const target of targets) {
   const match = target.text.match(FORBIDDEN);
-  if (match) offenders.push({ ...target, matched: match[0] });
+  if (match) {
+    const line = target.text.slice(0, match.index).split("\n").length;
+    offenders.push({ ...target, where: `${target.what}, line ${line}`, matched: match[0] });
+  }
 }
 
 if (offenders.length > 0) {
   console.error("\n✖ This pull request names a client or private vertical.\n");
   for (const o of offenders) {
-    console.error(`    ${o.what} — matched "${o.matched}"`);
-    console.error(`::error::${o.what} names a client or private vertical ("${o.matched}")`);
+    console.error(`    ${o.where}${IN_CI ? "" : ` — matched "${o.matched}"`}`);
+    console.error(`::error::${o.where} names a client or private vertical`);
+  }
+  if (IN_CI) {
+    console.error(
+      "\n  The term is not printed: this log is public. To see it, run locally:\n" +
+        '    PR_TITLE="$(gh pr view <n> --json title -q .title)" \\\n' +
+        '    PR_BODY="$(gh pr view <n> --json body -q .body)" node scripts/check-pr-identity.mjs\n',
+    );
   }
   console.error(
     "\n  cosmos-v2 is PUBLIC. A title or body can be edited in place; a commit\n" +

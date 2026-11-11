@@ -45,11 +45,10 @@ jobs:
       # at the page.
       - name: Scan title, body and commit messages
         env:
-          # Passed as environment, never interpolated into the shell line: a PR
-          # body is attacker-controlled, and `${{ … }}` substituted into `run:`
-          # would execute whatever `$(…)` or backticks it contains.
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
+          # No title or body here: the script reads them from the event payload.
+          # Interpolated into `run:` they could execute (a PR body is
+          # attacker-controlled), and as env they would be printed at the top of
+          # this public log, including whatever name the scan then catches.
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node scripts/check-pr-identity.mjs
