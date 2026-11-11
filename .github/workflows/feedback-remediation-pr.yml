@@ -64,7 +64,7 @@ jobs:
         env:
           URL: ${{ secrets.COSMOS_BASE_URL }}
         run: |
-          host=${URL#*://}; host=${host%%/*}; host=${host##*@}; host=${host%%:*}
+          host=${URL#*://}; host=${host%%[/?#]*}; host=${host##*@}; host=${host%%:*}
           if [ -n "$host" ]; then echo "::add-mask::$host"; fi
 
       - id: pick
@@ -96,7 +96,7 @@ jobs:
           # The error code only, never the body: this log is public, and the
           # body of an error page can carry the server's address or org data.
           if [ "$code" -ge 300 ]; then
-            err=$(grep -o -E '"code":"[A-Za-z_-]*"' queue.json || true)
+            err=$(grep -o -E '"code":"[A-Za-z_-]*"' queue.json | tr '\n' ' ' || true)
             echo "::error::queue fetch failed (HTTP $code) ${err}"; exit 1
           fi
           jq -c '[.data.items[] | {ticketKey, brief: ((.classification+" · "+.severity+"\n") + ((.acceptanceCriteria // []) | join("\n")))}]' queue.json > tickets.json

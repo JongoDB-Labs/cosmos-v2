@@ -22,34 +22,50 @@ const URL_SECRETS = ["COSMOS_BASE_URL", "GITLAB_ASSEMBLY_TRIGGER_URL"];
 const SECRET_ONLY = [...URL_SECRETS, "COSMOS_ORG_ID"];
 const MASK_STEP = "Mask the server's hostname";
 
-type Step = { name?: string; env?: Record<string, string>; run?: string };
+type Step = { name?: string; if?: unknown; env?: Record<string, string>; run?: string };
+type Job = { steps?: Step[]; secrets?: unknown };
 const jobs = readdirSync(DIR)
   .filter((f) => /\.ya?ml$/.test(f))
   .flatMap((file) => {
     const wf = parse(readFileSync(`${DIR}/${file}`, "utf8")) as {
-      jobs?: Record<string, { steps?: Step[] }>;
+      env?: unknown;
+      jobs?: Record<string, Job>;
     };
     return Object.entries(wf.jobs ?? {}).map(([id, job]) => ({
       where: `${file} ${id}`,
       steps: job.steps ?? [],
+      // Everything the job can see: its own env, `with:`, steps and secrets
+      // mapping, and the workflow-level env every job inherits.
+      text: JSON.stringify({ env: wf.env ?? null, job }),
+      inherits: job.secrets === "inherit",
     }));
   });
 
+// Secret and variable names are case-insensitive, and an expression can read
+// one as `secrets.NAME`, `secrets['NAME']`, or all at once through toJSON.
+const reads = (ctx: "secrets" | "vars", name: string) =>
+  new RegExp(
+    `\\b${ctx}\\s*(?:\\.\\s*${name}\\b|\\[\\s*\\\\?['"]${name}\\\\?['"]\\s*\\])|toJSON\\(\\s*${ctx}\\s*\\)`,
+    "i",
+  );
+
 const isMask = (s: Step) => s.name === MASK_STEP;
+// The masks a job registers before anything else runs.
+const leadingMasks = (steps: Step[]) => {
+  const n = steps.findIndex((s) => !isMask(s));
+  return n === -1 ? steps : steps.slice(0, n);
+};
 const callers = jobs.flatMap((job) =>
-  job.steps.flatMap((step, i) =>
-    isMask(step)
-      ? []
-      : URL_SECRETS.filter((secret) => JSON.stringify(step).includes(`secrets.${secret}`)).map(
-          (secret) => ({ ...job, i, secret }),
-        ),
+  URL_SECRETS.filter((secret) => job.inherits || reads("secrets", secret).test(job.text)).map(
+    (secret) => ({ ...job, secret }),
   ),
 );
 const masks = jobs.flatMap((job) => job.steps.filter(isMask).map((step) => ({ ...job, step })));
 
 const mask = (script: string, url: string) =>
-  // How GitHub runs a `run:` step on Linux.
-  spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", script], {
+  // How GitHub runs a `run:` step that names no `shell:` (its log says
+  // `/usr/bin/bash -e {0}`): no pipefail.
+  spawnSync("bash", ["-e", "-c", script], {
     env: { ...process.env, URL: url },
     encoding: "utf8",
   });
@@ -67,21 +83,25 @@ describe("public run logs cannot print the server's hostname", () => {
     );
   });
 
-  it("masks the host in an earlier step of every job that calls the server", () => {
-    for (const { where, steps, i, secret } of callers) {
-      const earlier = steps.slice(0, i).filter(isMask);
+  it("masks the host first in every job that can read a server URL", () => {
+    for (const { where, steps, secret } of callers) {
+      const first = leadingMasks(steps);
       expect(
-        earlier.map((s) => s.env?.URL),
-        `${where} reads ${secret} without first masking its host`,
+        first.map((s) => s.env?.URL),
+        `${where} can read ${secret} but does not start by masking its host`,
       ).toContain(`\${{ secrets.${secret} }}`);
     }
+  });
+
+  it("never skips a mask step", () => {
+    for (const { where, step } of masks) expect(step.if, where).toBeUndefined();
   });
 
   it("reads deployment identity from secrets only, never a variable", () => {
     for (const file of readdirSync(DIR)) {
       const text = readFileSync(`${DIR}/${file}`, "utf8");
       for (const name of SECRET_ONLY) {
-        expect(text.includes(`vars.${name}`), `${file} reads vars.${name}`).toBe(false);
+        expect(reads("vars", name).test(text), `${file} reads vars.${name}`).toBe(false);
       }
     }
   });
@@ -93,6 +113,8 @@ describe("public run logs cannot print the server's hostname", () => {
     ["https://gitlab.example.dev:8443/api", "gitlab.example.dev"],
     ["https://bot@cosmos.example.net/x", "cosmos.example.net"],
     ["cosmos.example.net", "cosmos.example.net"],
+    ["https://cosmos.example.net?tenant=1", "cosmos.example.net"],
+    ["https://cosmos.example.net#top", "cosmos.example.net"],
   ];
 
   it("masks exactly the host, and prints nothing else", () => {

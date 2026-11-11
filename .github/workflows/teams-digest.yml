@@ -36,7 +36,7 @@ jobs:
         env:
           URL: ${{ secrets.COSMOS_BASE_URL }}
         run: |
-          host=${URL#*://}; host=${host%%/*}; host=${host##*@}; host=${host%%:*}
+          host=${URL#*://}; host=${host%%[/?#]*}; host=${host##*@}; host=${host%%:*}
           if [ -n "$host" ]; then echo "::add-mask::$host"; fi
 
       - name: Post the digest
