@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import { programManagementEmbedOrigin, programManagementEmbedUrl } from "./embed";
+import { programManagementEmbedOrigin, programManagementEmbedUrl, programManagementSignInUrl } from "./embed";
 
 describe("programManagementEmbedUrl", () => {
   it("accepts an https URL", () => {
@@ -39,5 +39,29 @@ describe("programManagementEmbedUrl", () => {
 describe("programManagementEmbedOrigin", () => {
   it("is the origin only", () => {
     expect(programManagementEmbedOrigin("https://pm.example.com/a/b?c=1")).toBe("https://pm.example.com");
+  });
+});
+
+describe("programManagementSignInUrl", () => {
+  const EMBED = "https://pm.example.com/";
+  const at = (signIn: string | undefined, embed: string | undefined = EMBED) =>
+    programManagementSignInUrl(signIn, embed)?.href ?? null;
+
+  it("is the configured sign-in start when it is on the dashboard's origin", () => {
+    expect(at("https://pm.example.com/auth/start?next=/home")).toBe("https://pm.example.com/auth/start?next=/home");
+  });
+
+  it("falls back to the dashboard when unset, unusable, or on another origin", () => {
+    expect(at(undefined)).toBe(EMBED);
+    expect(at("not a url")).toBe(EMBED);
+    // Same site, different origin: still refused. Cosmos opens this window.
+    expect(at("https://auth.example.com/start")).toBe(EMBED);
+    expect(at("https://evil.example.net/auth/start")).toBe(EMBED);
+    // http to a real host is refused by the same rule as the embed itself.
+    expect(at("http://pm.example.com/auth/start")).toBe(EMBED);
+  });
+
+  it("is null without a dashboard, whatever the sign-in setting says", () => {
+    expect(programManagementSignInUrl("https://pm.example.com/auth/start", "")).toBeNull();
   });
 });
