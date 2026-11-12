@@ -120,6 +120,9 @@ function ExternalLink({
 }
 
 // Exported so other renderers can reuse the exact same inline tokenizer.
+// Keys are unique only WITHIN one call: a caller that renders several lines
+// under one parent must wrap each line's nodes in its own keyed element or
+// fragment, never spread them into one shared list.
 export function renderInline(line: string, refMap: RefMap): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   let i = 0;
@@ -210,12 +213,20 @@ export function MarkdownContent({
         </blockquote>,
       );
     } else {
+      // Each line gets its own keyed fragment. `renderInline` keys a token by
+      // where it starts in ITS line, so two lines that both start with a link
+      // both say `0-a`; spread into one shared list those were duplicate
+      // sibling keys, and every re-render (each keystroke in a composer beside
+      // the comment) left one more orphaned copy in the DOM. A fragment adds no
+      // DOM, so the <p> and its <br>s are unchanged.
       blocks.push(
         <p key={blocks.length} className="whitespace-pre-wrap">
-          {text.flatMap((l, idx) => [
-            idx > 0 ? <br key={`br-${idx}`} /> : null,
-            ...renderInline(l, refMap),
-          ])}
+          {text.map((l, idx) => (
+            <React.Fragment key={idx}>
+              {idx > 0 && <br />}
+              {renderInline(l, refMap)}
+            </React.Fragment>
+          ))}
         </p>,
       );
     }

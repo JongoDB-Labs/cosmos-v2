@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.547.2",
+    date: "2026-11-12",
+    title: "Comment links no longer multiply while you type",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Typing a new comment no longer makes an earlier comment's links or @mentions repeat. When two lines of a comment started the same way, such as both with a link, each keystroke in the comment box added another copy of that link to the comment above. Comments now show each link and mention once, however much you type.",
+      },
+    ],
+  },
+  {
     version: "2.547.1",
     date: "2026-11-12",
     title: "The MCP setup example runs the server that comes with Cosmos",
