@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
+import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { success, handleApiError, getIpAddress, noContent } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -32,8 +33,18 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
-    // NOTE: OrgMember.permissions is BigInt and breaks JSON.stringify in the
-    // response helper, so we project members through a select that excludes it.
+    const found = await prisma.organization.findUnique({ where: { id: orgId }, select: { slug: true } });
+    if (!found) return new Response("Not found", { status: 404 });
+
+    // This handler used to answer without authenticating anyone: the proxy lets
+    // any `Bearer cosmos_…` header through so the route can judge the key, and
+    // nothing here judged it, so a made-up token read every member's email.
+    const ctx = await getAuthContext(found.slug);
+    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    requirePermission(ctx, Permission.ORG_READ);
+
+    // NOTE: OrgMember.permissions is a mask, so members are projected through a
+    // select that excludes it.
     const org = await prisma.organization.findUnique({
       where: { id: orgId },
       include: {
@@ -56,10 +67,23 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         },
       },
     });
-
     if (!org) return new Response("Not found", { status: 404 });
 
-    return success(org);
+    // The same cuts the dedicated endpoints make: projects the caller can see
+    // (team scoping and a key's project ceiling), emails only to a session or a
+    // key holding members:read, and settings only to whoever may change them.
+    const visible = await getVisibleProjectIds(ctx, org.projects.map((p) => p.id));
+    const showEmail = !ctx.isApiKey || (ctx.scopes ?? []).includes("members:read");
+    const { settings, dbConnectionId, members, projects, ...rest } = org;
+    return success({
+      ...rest,
+      ...(hasPermission(ctx.permissions, Permission.ORG_UPDATE) && { settings, dbConnectionId }),
+      members: members.map((m) => ({
+        ...m,
+        user: showEmail ? m.user : { id: m.user.id, displayName: m.user.displayName, avatarUrl: m.user.avatarUrl },
+      })),
+      projects: projects.filter((p) => visible.has(p.id)),
+    });
   } catch (error) {
     return handleApiError(error);
   }

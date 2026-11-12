@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.547.5",
+    date: "2026-11-12",
+    title: "The organization details endpoint now checks who is asking",
+    highlights: [
+      {
+        kind: "fix",
+        text: "For API clients: GET /api/v1/orgs/{orgId} now requires a signed-in session or a valid API key from that organization, like every other organization endpoint. It returns only the projects you can see, includes member email addresses only for browser sessions and API keys with members:read, and includes the organization's settings only for people who can change them.",
+      },
+    ],
+  },
+  {
     version: "2.547.4",
     date: "2026-11-12",
     title: "Choosing a Program Increment on a sprint board shows all of its work",
