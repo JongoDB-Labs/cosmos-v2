@@ -1,3 +1,5 @@
+import { servedAddresses } from "@/lib/deploy/served-addresses";
+
 /**
  * An outside program-management dashboard shown inside the Program Management
  * page, in place of the built-in roll-up, for as long as
@@ -109,28 +111,10 @@ export function programManagementSameSiteOrigin(
     return null;
   }
   if (sameSite(here, embed)) return null;
-  return siteAddresses(rawAddresses).find((address) => sameSite(address, embed))?.origin ?? null;
-}
-
-/**
- * Caddy's site-address list: separated by commas or spaces (quotes from an env
- * file tolerated), scheme optional and https when absent. A port-only entry
- * (":80") or a wildcard names no host to send anyone to, so it is skipped.
- * No scheme filter here: a target must be same-site with the dashboard,
- * scheme included, and the dashboard is https or loopback http, so plain http
- * to a real host can never qualify.
- */
-function siteAddresses(raw: string | undefined): URL[] {
-  const out: URL[] = [];
-  for (const token of (raw ?? "").split(/[\s,"']+/)) {
-    if (!token || token.startsWith(":") || token.includes("*")) continue;
-    try {
-      out.push(new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(token) ? token : `https://${token}`));
-    } catch {
-      // Not an address.
-    }
-  }
-  return out;
+  // No scheme filter on the list: a target must be same-site with the
+  // dashboard, scheme included, and the dashboard is https or loopback http,
+  // so plain http to a real host can never qualify.
+  return servedAddresses(rawAddresses).find((address) => sameSite(address, embed))?.origin ?? null;
 }
 
 /**
