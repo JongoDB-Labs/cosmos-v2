@@ -6,8 +6,8 @@
  * A board is a view over a query. Its BASELINE is what the board is about:
  * the query it was saved with (`Board.config.query`; a board saved before
  * CQL keeps `config.savedFilter`, read through the lossless adapter) and, on
- * a sprint board, its sprint. The user's query from the bar (`?cql=`) is
- * ANDed onto it, and "Clear" returns to the baseline.
+ * a sprint board, its sprint or Program Increment. The user's query from the
+ * bar (`?cql=`) is ANDed onto it, and "Clear" returns to the baseline.
  *
  * The board already holds its project's rows, so the query is decided in the
  * browser: the server compiles it once (`POST cql/predicate`) and
@@ -26,11 +26,12 @@ import { hashQuery, validateAst } from "@/lib/query/normalize";
 import { fromWorkItemFilter } from "@/lib/query/adapters";
 import { UNDECIDED, matches } from "@/lib/query/evaluate";
 import { CQL_VERSION, type CqlNode, type CqlQuery } from "@/lib/query/ast";
+import { isProgramIncrement } from "@/lib/intervals/pi-lifecycle";
 import type { CqlDiagnostic } from "@/lib/query/errors";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 import { useCqlSchema, useCqlUrlState, useCqlValidate, viewerTimeZone, type CqlClientSchema, type QueryMode } from "@/components/work-items/cql/use-cql";
 
-const ref = (field: "project" | "sprint", entity: "project" | "interval", id: string, label?: string): CqlNode => ({
+const ref = (field: "project" | "sprint" | "pi", entity: "project" | "interval", id: string, label?: string): CqlNode => ({
   op: "cmp",
   field: { kind: "sys", id: field },
   cmp: "eq",
@@ -42,13 +43,35 @@ const and = (...nodes: (CqlNode | null | undefined)[]): CqlNode | null => {
   return args.length === 0 ? null : args.length === 1 ? args[0] : { op: "and", args };
 };
 
+/** The interval a sprint board is scoped to. `kind` is its `intervalKind`. */
+export interface BoardInterval {
+  id: string;
+  /** For the scope line only. */
+  name?: string;
+  kind?: string;
+}
+
+/**
+ * The clause for a board scoped to an interval.
+ *
+ * A Program Increment is `pi = …`: the PI and every sprint inside it. `sprint`
+ * matches only the interval it names, so `sprint = <PI>` showed the work
+ * planned into the PI itself and none of its sprints' work, while the button
+ * that picked it said "Show all work in" the PI. Anything else, including an
+ * interval whose kind the caller doesn't know, is `sprint = …`, an exact match.
+ */
+function intervalClause(iv: BoardInterval): CqlNode {
+  return ref(iv.kind && isProgramIncrement(iv.kind) ? "pi" : "sprint", "interval", iv.id, iv.name);
+}
+
 /**
  * What the board is about, from its config: the stored query, else a pre-CQL
- * saved filter, and the sprint a sprint board is scoped to. Null = everything.
+ * saved filter, and the sprint or PI a sprint board is scoped to. Null =
+ * everything.
  */
 export function boardBaseline(
   config: unknown,
-  sprint?: { id: string; name?: string } | null,
+  sprint?: BoardInterval | null,
 ): { query: CqlQuery | null; problem?: string } {
   const c = config && typeof config === "object" ? (config as Record<string, unknown>) : {};
   let stored: CqlNode | null = null;
@@ -64,7 +87,7 @@ export function boardBaseline(
     delete filter.projectIds;
     stored = fromWorkItemFilter(filter).where;
   }
-  const where = and(stored, sprint ? ref("sprint", "interval", sprint.id, sprint.name) : null);
+  const where = and(stored, sprint ? intervalClause(sprint) : null);
   return { query: where ? { v: CQL_VERSION, where } : null, ...(problem ? { problem } : {}) };
 }
 
@@ -92,11 +115,18 @@ export function useBoardQuery(opts: {
   orgId: string;
   projectId: string;
   config?: unknown;
-  /** A sprint board's sprint (its name is for the scope line only). */
-  sprint?: { id: string; name?: string } | null;
+  /** A sprint board's sprint or Program Increment (see `intervalClause`). */
+  sprint?: BoardInterval | null;
+  /**
+   * The scope isn't known yet: a sprint is selected but the intervals that say
+   * whether it is a PI haven't loaded. The board shows nothing and asks
+   * nothing until then, rather than send `sprint = <PI>` and show the PI's
+   * own items for a moment.
+   */
+  scopePending?: boolean;
   rows: Record<string, unknown>[];
 }): BoardQuery {
-  const { orgId, projectId, config, sprint, rows } = opts;
+  const { orgId, projectId, config, sprint, scopePending = false, rows } = opts;
   const cqlSchema = useCqlSchema(orgId);
   const enabled = cqlSchema.enabled;
   const url = useCqlUrlState();
@@ -104,9 +134,10 @@ export function useBoardQuery(opts: {
 
   const sprintId = sprint?.id ?? null;
   const sprintName = sprint?.name;
+  const sprintKind = sprint?.kind;
   const baseline = useMemo(
-    () => boardBaseline(config, sprintId ? { id: sprintId, name: sprintName } : null),
-    [config, sprintId, sprintName],
+    () => boardBaseline(config, sprintId ? { id: sprintId, name: sprintName, kind: sprintKind } : null),
+    [config, sprintId, sprintName, sprintKind],
   );
   const user = useMemo(() => parseCql(url.cql), [url.cql]);
   const userOk = !user.diagnostics.some((d) => d.severity === "error");
@@ -125,7 +156,7 @@ export function useBoardQuery(opts: {
         method: "POST",
         body: JSON.stringify({ query: effective, tz: viewerTimeZone(), contextProjectId: projectId }),
       }),
-    enabled: enabled && !!effective && !baseline.problem,
+    enabled: enabled && !!effective && !baseline.problem && !scopePending,
     staleTime: 60_000,
     retry: false,
   });
@@ -152,7 +183,7 @@ export function useBoardQuery(opts: {
 
   // The rows on the board, decided once per change of rows, predicate or ids.
   const kept = useMemo((): Set<string> | "all" | "none" => {
-    if (baseline.problem) return "none";
+    if (baseline.problem || scopePending) return "none";
     if (!effective) return "all";
     // Until the predicate arrives, nothing: showing everything would flash the
     // unfiltered board, which is the widening this hook exists to prevent.
@@ -160,7 +191,7 @@ export function useBoardQuery(opts: {
     const out = new Set<string>();
     for (const [id, v] of verdicts) if (v === true || (v === UNDECIDED && idSet?.has(id))) out.add(id);
     return out;
-  }, [baseline.problem, effective, verdicts, idSet]);
+  }, [baseline.problem, scopePending, effective, verdicts, idSet]);
   const keep = (row: { id: string }): boolean => {
     if (kept === "all") return true;
     if (kept === "none") return false;
@@ -176,8 +207,8 @@ export function useBoardQuery(opts: {
   return {
     enabled,
     keep,
-    pending: enabled && !!effective && (predicate.isLoading || (undecided && ids.isLoading)),
-    baselineCql: baseline.query ? printCql(baseline.query) : null,
+    pending: enabled && (scopePending || (!!effective && (predicate.isLoading || (undecided && ids.isLoading)))),
+    baselineCql: baseline.query && !scopePending ? printCql(baseline.query) : null,
     problem: baseline.problem ?? null,
     schema: cqlSchema.schema,
     cql: url.cql,

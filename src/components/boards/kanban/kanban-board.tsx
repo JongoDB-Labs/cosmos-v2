@@ -177,6 +177,10 @@ function KanbanBoardInner({
   const [links, setLinks] = useState<{ sourceItemId: string; targetItemId: string; type: string }[]>([]);
   const [milestones, setMilestones] = useState<{ id: string; title: string; links?: { workItemId: string }[] | null }[]>([]);
   const [intervals, setIntervals] = useState<Interval[]>([]);
+  // Whether the interval list has been asked for and answered (or failed).
+  // Until then a selected interval's kind is unknown, and a PI is scoped
+  // differently from a sprint (see the board query below).
+  const [intervalsSettled, setIntervalsSettled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Initialize filter state FROM the URL so a shared/reloaded link restores the
@@ -436,6 +440,7 @@ function KanbanBoardInner({
           if (milestonesData) setMilestones(milestonesData);
           if (teamsData) setTeams(teamsData);
           if (intervalsData) setIntervals(intervalsData);
+          setIntervalsSettled(true);
         });
 
         const [boardData, itemsData] = await criticalP;
@@ -544,16 +549,24 @@ function KanbanBoardInner({
   const scope = useMemo(() => boardScope(board?.config), [board]);
   // With the query language on, the board's scope and the bar are one CQL
   // query, decided in the browser (see boards/shared/use-board-query).
-  const sprintName = intervals.find((i) => i.id === filters.intervalId)?.name;
+  //
+  // A Program Increment selected here (the PI's name in the sprint row) is
+  // `pi = …`, its own work and its sprints', so the interval's KIND goes with
+  // it, and the board waits for the interval list rather than guess.
+  const selectedInterval = intervals.find((i) => i.id === filters.intervalId);
   const boardQuery = useBoardQuery({
     orgId,
     projectId,
     config: board?.config,
-    sprint: filters.intervalId ? { id: filters.intervalId, name: sprintName } : null,
+    sprint: filters.intervalId
+      ? { id: filters.intervalId, name: selectedInterval?.name, kind: selectedInterval?.intervalKind }
+      : null,
+    scopePending: !!filters.intervalId && !intervalsSettled,
     rows: items as unknown as Record<string, unknown>[],
   });
-  // A PI selection in the Interval filter means "any sprint under this PI"
-  // (3d90c48e). Items carry a sprint id, never a PI id.
+  // The same PI selection with the query language off: the PI's own work and
+  // any sprint under it (3d90c48e). Work can be planned into a PI directly as
+  // well as into its sprints, so both count.
   const intervalChildren = useMemo(() => intervalChildrenById(intervals), [intervals]);
   const filteredItems = items.filter((item) =>
     boardQuery.enabled

@@ -94,10 +94,9 @@ describe("buildIntervalTree — grouping", () => {
 });
 
 /**
- * The lookup a board's filter needs to make "show me this PI" mean anything
- * (3d90c48e). Work items carry a SPRINT id and never a PI id, so a filter
- * holding a PI id has to be widened to that PI's sprints or it matches nothing
- * and the board goes blank.
+ * The lookup a board's filter needs to make "show me this PI" mean the whole
+ * PI (3d90c48e). A filter holding a PI id matches only the work planned into
+ * the PI itself unless it is widened to that PI's sprints.
  */
 describe("intervalChildrenById", () => {
   it("maps a PI to the ids of its sprints", () => {

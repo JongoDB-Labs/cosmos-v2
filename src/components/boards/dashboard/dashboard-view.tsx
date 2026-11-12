@@ -252,8 +252,8 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   // items differently because the clock ticked between them.
   // With the query language on, the bar and the board's scope are one CQL query (boards/shared/use-board-query).
   const boardQuery = useBoardQuery({ orgId, projectId, config: board?.config, rows: items as unknown as Record<string, unknown>[] });
-  // A PI selection in the Interval filter means "any sprint under this PI"
-  // (3d90c48e). Items carry a sprint id, never a PI id.
+  // A PI selection in the Interval filter means the PI's own work and any
+  // sprint under it (3d90c48e).
   const intervalChildren = useMemo(() => intervalChildrenById(intervals), [intervals]);
   // The team rule needs this map, not just the list: a team's work is the items
   // naming it PLUS its members' items that name no team. Without it the filter
