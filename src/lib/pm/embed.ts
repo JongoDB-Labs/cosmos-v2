@@ -78,6 +78,84 @@ export function programManagementSignInUrl(
   return signIn && signIn.origin === embed.origin ? signIn : embed;
 }
 
+/**
+ * Where to send someone who opened Program Management at an address where the
+ * dashboard can never be signed in, or null to stay where they are.
+ *
+ * Measured on prod 2026-11-11: an instance served at two addresses (an old and
+ * a new domain, mid-move) showed the signed-in dashboard at the address on the
+ * dashboard's site, and the dashboard's sign-in page at the other: same
+ * browser, a minute apart. A SameSite=Lax session cookie only reaches a frame
+ * on the same site as the page around it. At the other address every sign-in
+ * succeeds in its window and the frame asks again: a loop with no way out from
+ * inside it.
+ *
+ * `COSMOS_SITE_ADDRESS` lists the addresses Caddy serves this instance at
+ * (compose/Caddyfile), and the app reads the same env file. Only an address
+ * from that list is ever a target, so this is not an open redirect. The target
+ * is on the dashboard's site, so it never redirects again.
+ */
+export function programManagementSameSiteOrigin(
+  currentOrigin: string,
+  rawEmbed: string | undefined = process.env.PROGRAM_MANAGEMENT_EMBED_URL,
+  rawAddresses: string | undefined = process.env.COSMOS_SITE_ADDRESS,
+): string | null {
+  const embed = programManagementEmbedUrl(rawEmbed);
+  if (!embed) return null;
+  let here: URL;
+  try {
+    here = new URL(currentOrigin);
+  } catch {
+    return null;
+  }
+  if (sameSite(here, embed)) return null;
+  return siteAddresses(rawAddresses).find((address) => sameSite(address, embed))?.origin ?? null;
+}
+
+/**
+ * Caddy's site-address list: separated by commas or spaces (quotes from an env
+ * file tolerated), scheme optional and https when absent. A port-only entry
+ * (":80") or a wildcard names no host to send anyone to, so it is skipped.
+ * No scheme filter here: a target must be same-site with the dashboard,
+ * scheme included, and the dashboard is https or loopback http, so plain http
+ * to a real host can never qualify.
+ */
+function siteAddresses(raw: string | undefined): URL[] {
+  const out: URL[] = [];
+  for (const token of (raw ?? "").split(/[\s,"']+/)) {
+    if (!token || token.startsWith(":") || token.includes("*")) continue;
+    try {
+      out.push(new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(token) ? token : `https://${token}`));
+    } catch {
+      // Not an address.
+    }
+  }
+  return out;
+}
+
+/**
+ * Schemeful same-site, the test a browser applies before sending a Lax cookie
+ * to a frame.
+ *
+ * The registrable domain is approximated by the last two labels, with no
+ * public-suffix list. That can only err one way: two hosts under a multi-label
+ * suffix (a.example.co.uk, b.other.co.uk) look same-site when they are not.
+ * Hosts that really share a registrable domain always share its last two
+ * labels, so a same-site pair is never mistaken for a cross-site one. The
+ * error therefore means "no redirect", today's behaviour, and never a loop.
+ */
+function sameSite(a: URL, b: URL): boolean {
+  return a.protocol === b.protocol && siteOf(a.hostname) === siteOf(b.hostname);
+}
+
+function siteOf(hostname: string): string {
+  // An IP address or a single-label host (localhost) is a site of its own.
+  if (hostname.startsWith("[") || /^\d+(\.\d+){3}$/.test(hostname) || !hostname.includes(".")) {
+    return hostname;
+  }
+  return hostname.split(".").slice(-2).join(".");
+}
+
 /** The dashboard's ORIGIN, for `frame-src`. A CSP source is host-scoped. */
 export function programManagementEmbedOrigin(
   raw: string | undefined = process.env.PROGRAM_MANAGEMENT_EMBED_URL,

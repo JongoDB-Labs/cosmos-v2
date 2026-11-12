@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.546.1",
+    date: "2026-11-11",
+    title: "Program Management no longer loops on sign-in at an older address",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Cosmos is reachable at more than one address, Program Management now opens at the one where the dashboard stays signed in. At the other address the dashboard asked you to sign in again after every sign-in, however often you did.",
+      },
+    ],
+  },
+  {
     version: "2.546.0",
     date: "2026-11-11",
     title: "Signing in to the PM dashboard takes one click",
