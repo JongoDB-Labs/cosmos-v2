@@ -3,7 +3,7 @@
 // that whatever a user writes stays inside the scope envelope.
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
-import { compileQuery, historySpecs } from "../compile";
+import { FALSE, compileQuery, historySpecs } from "../compile";
 import { historyKey } from "../history";
 import { parseCql } from "../parser";
 import { typecheck } from "../typecheck";
@@ -11,10 +11,25 @@ import type { CompileEnv } from "../env";
 import { buildScopedWhere } from "@/lib/work-items/query/build-where";
 import { queryArb } from "./arbitraries";
 import type { CqlQuery } from "../ast";
+import { matches } from "../evaluate";
+import { itemMatchesTeam, itemTeamIds, teamsByUser, type TeamLike } from "@/lib/teams/item-teams";
 
 const NOW = new Date("2026-10-15T15:00:00Z");
 const ORG = "org-1";
 const READABLE = ["p1", "p2"];
+
+/** t1 and t3 in p1, t2 in p2; u2 is on t1 and t2; t3 has nobody. */
+const ROSTERS: NonNullable<CompileEnv["teamRosters"]> = new Map([
+  ["t1", { projectId: "p1", userIds: ["u1", "u2"] }],
+  ["t2", { projectId: "p2", userIds: ["u2"] }],
+  ["t3", { projectId: "p1", userIds: [] }],
+]);
+/** A stand-in for readableCommentsWhere. */
+const COMMENTS_YOU_CAN_READ = { visibility: "PUBLIC" as const, deletedAt: null, hiddenAt: null };
+/** What a comment-text predicate compiles to under the default env's comment scope. */
+const inReadableComment = (content: Record<string, unknown>) => ({
+  AND: [{ projectId: { in: ["p1"] } }, { comments: { some: { AND: [COMMENTS_YOU_CAN_READ, content] } } }],
+});
 
 function env(over: Partial<CompileEnv> = {}): CompileEnv {
   return {
@@ -35,6 +50,8 @@ function env(over: Partial<CompileEnv> = {}): CompileEnv {
     milestoneItems: new Map([["m1", ["c1", "x9"]]]),
     milestoneLinked: ["c1", "x9", "y7"],
     history: new Map(),
+    teamRosters: ROSTERS,
+    readableComments: { projectIds: ["p1"], where: COMMENTS_YOU_CAN_READ },
     ...over,
   };
 }
@@ -138,14 +155,32 @@ describe("compile — field by field", () => {
       OR: [
         { title: { contains: "x", mode: "insensitive" } },
         { description: { contains: "x", mode: "insensitive" } },
-        { comments: { some: { content: { contains: "x", mode: "insensitive" } } } },
+        inReadableComment({ content: { contains: "x", mode: "insensitive" } }),
       ],
     });
   });
 
+  it("comment text: only comments the actor may read, in projects where they hold COMMENT_READ", () => {
+    expect(where("comment ~ x")).toEqual(inReadableComment({ content: { contains: "x", mode: "insensitive" } }));
+    expect(where("comment !~ x")).toEqual({ NOT: inReadableComment({ content: { contains: "x", mode: "insensitive" } }) });
+    // No project where the actor may read comments: `comment ~` matches nothing,
+    // and `text ~` is the title and the description.
+    const none = env({ readableComments: { projectIds: [], where: COMMENTS_YOU_CAN_READ } });
+    expect(where("comment ~ x", none)).toEqual(FALSE);
+    expect(where("text ~ x", none)).toEqual({
+      OR: [{ title: { contains: "x", mode: "insensitive" } }, { description: { contains: "x", mode: "insensitive" } }],
+    });
+  });
+
+  it("comment text fails closed without the readable comment scope", () => {
+    for (const q of ["comment ~ x", "text ~ x", "comment !~ x", "x"]) {
+      expect(() => where(q, env({ readableComments: undefined })), q).toThrow(/readableComments/);
+    }
+  });
+
   it("LIKE wildcards in a search are literal (Prisma does not escape them)", () => {
     expect(where('summary ~ "50%_off\\\\"')).toEqual({ title: { contains: "50\\%\\_off\\\\", mode: "insensitive" } });
-    expect(where('comment ~ "%"')).toEqual({ comments: { some: { content: { contains: "\\%", mode: "insensitive" } } } });
+    expect(where('comment ~ "%"')).toEqual(inReadableComment({ content: { contains: "\\%", mode: "insensitive" } }));
   });
 
   it("relations: labels, IN ALL, watcher, blocked, links, parent", () => {
@@ -379,6 +414,116 @@ describe("compile — merged-into, sub-items and attachments", () => {
     // …and the whole query is refused, not just the clause: a predicate that
     // dropped the clause would widen the result set instead of narrowing it.
     expect(() => where("priority = HIGH AND hasAttachments = true")).toThrow(/documentVisibility/);
+  });
+});
+
+describe("compile — team is the team's work, as the board reads it", () => {
+  // The team rule (lib/teams/item-teams.ts): an item's own team wins; an item
+  // with none is the work of every team in its project its primary assignee is
+  // on. The column alone was the defect: untagged work never matched.
+  const own = (...ids: string[]) => ({ teamId: { in: ids, not: null } });
+  const theirs = (projectId: string, ...users: string[]) => ({
+    AND: [{ teamId: null }, { projectId }, { assigneeId: { in: users, not: null } }],
+  });
+
+  it("`team = X`: tagged with X, or untagged and assigned to someone on X in X's project", () => {
+    expect(where('team = "ref:team:t1"')).toEqual({ OR: [own("t1"), theirs("p1", "u1", "u2")] });
+  });
+
+  it("a list takes each named team's people in its own project", () => {
+    expect(where('team IN ("ref:team:t1", "ref:team:t2")')).toEqual({
+      OR: [own("t1", "t2"), theirs("p1", "u1", "u2"), theirs("p2", "u2")],
+    });
+  });
+
+  it("a team with nobody on it is its tagged work only", () => {
+    expect(where('team = "ref:team:t3"')).toEqual(own("t3"));
+  });
+
+  it("IS EMPTY is what no team claims; != stays two-valued and leaves out the unclaimed", () => {
+    const claimed = { OR: [theirs("p1", "u1", "u2"), theirs("p2", "u2")] };
+    expect(where("team IS EMPTY")).toEqual({ AND: [{ teamId: null }, { NOT: claimed }] });
+    expect(where('team != "ref:team:t1"')).toEqual({
+      AND: [{ NOT: { OR: [own("t1"), theirs("p1", "u1", "u2")] } }, { NOT: { AND: [{ teamId: null }, { NOT: claimed }] } }],
+    });
+  });
+
+  it("FAILS CLOSED: no rosters means it throws, never the column-only answer", () => {
+    expect(() => where('team = "ref:team:t1"', env({ teamRosters: undefined }))).toThrow(/teamRosters/);
+    expect(() => where("team IS EMPTY", env({ teamRosters: undefined }))).toThrow(/teamRosters/);
+  });
+
+  it("agrees with the board's rule (itemMatchesTeam) and the dashboards' groups (itemTeamIds) on every item", () => {
+    // The board sees one project's rows with that project's teams; so does
+    // this, item by item.
+    const teamsIn = (projectId: string): TeamLike[] =>
+      [...ROSTERS].filter(([, r]) => r.projectId === projectId).map(([id, r]) => ({ id, name: id, members: r.userIds.map((userId) => ({ userId })) }));
+    const itemArb = fc.constantFrom("p1", "p2").chain((projectId) =>
+      fc.record({
+        id: fc.constant("i"),
+        projectId: fc.constant(projectId),
+        teamId: fc.constantFrom(null, ...teamsIn(projectId).map((t) => t.id)),
+        assigneeId: fc.constantFrom(null, "u1", "u2", "u3"),
+      }),
+    );
+    fc.assert(
+      fc.property(itemArb, fc.constantFrom("t1", "t2", "t3"), (item, teamId) => {
+        const board = itemMatchesTeam(item, teamId, teamsByUser(teamsIn(item.projectId)));
+        expect(matches(where(`team = "ref:team:${teamId}"`), item)).toBe(board);
+        expect(itemTeamIds(item, ROSTERS).includes(teamId)).toBe(board);
+        expect(matches(where("team IS EMPTY"), item)).toBe(itemTeamIds(item, ROSTERS).length === 0);
+      }),
+      { numRuns: 500 },
+    );
+  });
+});
+
+describe("compile — mentions", () => {
+  const tokenIn = (column: "description" | "content", ...tokens: string[]) =>
+    tokens.map((t) => ({ [column]: { contains: t, mode: "insensitive" } }));
+
+  it("a token in the description, or in a comment the actor may read", () => {
+    expect(where('mentions = "ref:user:u1"')).toEqual({
+      OR: [
+        { OR: tokenIn("description", "<@u1>", "<@user:u1>") },
+        {
+          AND: [
+            { projectId: { in: ["p1"] } },
+            { comments: { some: { AND: [COMMENTS_YOU_CAN_READ, { OR: tokenIn("content", "<@u1>", "<@user:u1>") }] } } },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("`me` is the actor", () => {
+    expect(JSON.stringify(where("mentions = me"))).toContain("<@me-id>");
+  });
+
+  it("with no project whose comments are readable, only the description counts", () => {
+    expect(where('mentions = "ref:user:u1"', env({ readableComments: { projectIds: [], where: COMMENTS_YOU_CAN_READ } }))).toEqual({
+      OR: tokenIn("description", "<@u1>", "<@user:u1>"),
+    });
+  });
+
+  it("FAILS CLOSED: no comment scope means it throws, never a bare comments filter", () => {
+    expect(() => where("mentions = me", env({ readableComments: undefined }))).toThrow(/readableComments/);
+  });
+});
+
+describe("compile — pi", () => {
+  it("takes the PI's own work and its sprints', never a PI found inside it", () => {
+    expect(where('pi = "ref:interval:pi1"')).toEqual({
+      AND: [
+        { intervalId: { not: null } },
+        {
+          OR: [
+            { intervalId: { in: ["pi1"] } },
+            { interval: { is: { parentId: { in: ["pi1"] }, intervalKind: { not: "PROGRAM_INCREMENT" } } } },
+          ],
+        },
+      ],
+    });
   });
 });
 

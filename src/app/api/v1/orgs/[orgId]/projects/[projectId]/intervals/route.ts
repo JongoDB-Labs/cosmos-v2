@@ -5,15 +5,18 @@ import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-pr
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { IntervalKind } from "@prisma/client";
+import type { IntervalKind } from "@prisma/client";
+import { nestingRefusal } from "@/lib/intervals/pi-lifecycle";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createInterval, listIntervals } from "./route.contract";
 
-/** Validate a parentId points at a PROGRAM_INCREMENT interval in the same project.
- *  Returns an error message, or null when it's a valid PI (or no parent). */
-async function validateParentPI(
+/** Why a new interval of `kind` can't sit inside `parentId`, or null when it
+ *  can (or has no parent). The parent must be a Program Increment in this
+ *  project, and a Program Increment itself is always top-level. */
+async function validateParent(
+  kind: IntervalKind,
   parentId: string | null | undefined,
   projectId: string,
 ): Promise<string | null> {
@@ -22,11 +25,7 @@ async function validateParentPI(
     where: { id: parentId, projectId },
     select: { intervalKind: true },
   });
-  if (!parent) return "Program Increment not found in this project";
-  if (parent.intervalKind !== IntervalKind.PROGRAM_INCREMENT) {
-    return "A sprint can only be nested under a Program Increment";
-  }
-  return null;
+  return nestingRefusal(kind, parent);
 }
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -68,10 +67,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return problem(404, "not_found", undefined, { request });
 
-    // A PI is top-level; a sprint may nest under a PI (validated same-project).
-    const parentId =
-      data.intervalKind === IntervalKind.PROGRAM_INCREMENT ? null : (data.parentId ?? null);
-    const parentErr = await validateParentPI(parentId, projectId);
+    // A sprint may nest under a PI in this project. A PI is top-level: one sent
+    // with a parent is refused rather than quietly created at the top, so the
+    // caller learns the rule instead of finding the PI somewhere it didn't ask.
+    const parentId = data.parentId ?? null;
+    const parentErr = await validateParent(data.intervalKind, parentId, projectId);
     if (parentErr) {
       return problem(400, "invalid_request", parentErr, { request });
     }

@@ -43,6 +43,7 @@ import type {
 import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { computeRiskScore, riskLevelFromScore } from "@/lib/pm/risk";
+import { kindChangeRefusal } from "@/lib/intervals/pi-lifecycle";
 import {
   assertMayImportProgramEvents,
   createProgramEventRow,
@@ -857,6 +858,16 @@ async function updateEntityRow(
         ["name", "name"], ["goal", "goal"], ["startDate", "startDate"],
         ["endDate", "endDate"], ["intervalKind", "intervalKind"], ["status", "status"],
       ]);
+      // A new kind can break the one-level nesting rule (a sprint inside a PI
+      // becoming a PI). The thrown message becomes this row's error.
+      if (typeof data.intervalKind === "string") {
+        const current = await prisma.interval.findUniqueOrThrow({
+          where: { id },
+          select: { intervalKind: true, parentId: true, _count: { select: { children: true } } },
+        });
+        const refusal = kindChangeRefusal(current, data.intervalKind, current._count.children);
+        if (refusal) throw new Error(refusal);
+      }
       if (Object.keys(data).length) await prisma.interval.update({ where: { id }, data });
       return;
     }

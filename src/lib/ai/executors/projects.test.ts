@@ -77,9 +77,40 @@ describe("projects + intervals executors (e2e DB)", () => {
     expect((await prisma.interval.findUnique({ where: { id: sprint.id } }))?.parentId).toBe(pi.id);
 
     // A non-PI parent is rejected.
-    expect(await updateInterval({ projectId: project.id, intervalId: pi.id, parentId: sprint.id }, ctx)).toEqual({
+    const other = await prisma.interval.create({
+      data: {
+        orgId: org.id, projectId: project.id, number: 3, name: "S-2", intervalKind: "SPRINT",
+        startDate: new Date("2026-07-15"), endDate: new Date("2026-07-28"),
+      },
+    });
+    expect(await updateInterval({ projectId: project.id, intervalId: other.id, parentId: sprint.id }, ctx)).toEqual({
       error: "A sprint can only be nested under a Program Increment",
     });
+    // A PI is always top-level, under a sprint or under another PI.
+    expect(await updateInterval({ projectId: project.id, intervalId: pi.id, parentId: sprint.id }, ctx)).toEqual({
+      error: "A Program Increment can't go inside another interval. It is always top-level.",
+    });
+  });
+
+  it("update_interval refuses a Program Increment inside another Program Increment", async () => {
+    const { ctx, org } = await makeOrg();
+    const project = await prisma.project.create({ data: { orgId: org.id, name: "P", key: "PIPIKEY" } });
+    await ensureFixtureStatuses(project.id);
+    const mkPi = (number: number, name: string) =>
+      prisma.interval.create({
+        data: {
+          orgId: org.id, projectId: project.id, number, name, intervalKind: "PROGRAM_INCREMENT",
+          startDate: new Date("2026-07-01"), endDate: new Date("2026-09-30"),
+        },
+      });
+    const outer = await mkPi(1, "PI-1");
+    const inner = await mkPi(2, "PI-2");
+    expect(await updateInterval({ projectId: project.id, intervalId: inner.id, parentId: outer.id }, ctx)).toEqual({
+      error: "A Program Increment can't go inside another Program Increment. Only sprints and other iterations can be nested in one.",
+    });
+    expect((await prisma.interval.findUnique({ where: { id: inner.id } }))?.parentId).toBeNull();
+    // Detaching (null) is still fine: there is nothing to refuse.
+    expect(await updateInterval({ projectId: project.id, intervalId: inner.id, parentId: null }, ctx)).toMatchObject({ updated: true });
   });
 
   it("complete_interval reports velocity and clears incomplete items", async () => {

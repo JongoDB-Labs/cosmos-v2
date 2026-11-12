@@ -49,6 +49,7 @@ describe("a board scoped to a Program Increment (e2e DB)", () => {
   let pi: Interval;
   let sprintA: Interval;
   let sprintB: Interval;
+  let nested: Interval;
   const item: Record<string, string> = {};
   /** The project's items as the board's own fetch delivers them. */
   let rows: Record<string, unknown>[];
@@ -81,6 +82,13 @@ describe("a board scoped to a Program Increment (e2e DB)", () => {
     await mkItem("planned into the PI itself", 801, piRow.id);
     await mkItem("in sprint A", 802, aRow.id);
     await mkItem("in sprint B", 803, bRow.id);
+    // Older data can hold a PI inside a PI; every writer refuses one now. The
+    // interval tree lists it as a PI of its own, so the PI above it must not
+    // take its work on either path.
+    const nestedRow = await mkInterval(904, "PI 9 nested PI", { intervalKind: "PROGRAM_INCREMENT", parentId: piRow.id });
+    const nestedSprintRow = await mkInterval(905, "nested PI sprint", { parentId: nestedRow.id, status: "PLANNED" });
+    await mkItem("planned into a PI nested inside it", 804, nestedRow.id);
+    await mkItem("in a sprint of the nested PI", 805, nestedSprintRow.id);
 
     rows = JSON.parse(
       JSON.stringify(
@@ -100,6 +108,7 @@ describe("a board scoped to a Program Increment (e2e DB)", () => {
     pi = intervals.find((i) => i.id === piRow.id)!;
     sprintA = intervals.find((i) => i.id === aRow.id)!;
     sprintB = intervals.find((i) => i.id === bRow.id)!;
+    nested = intervals.find((i) => i.id === nestedRow.id)!;
 
     // The board's requests, answered by what the routes run.
     vi.mocked(jsonFetch).mockImplementation((async (url: string, init?: RequestInit) => {
@@ -184,6 +193,18 @@ describe("a board scoped to a Program Increment (e2e DB)", () => {
   it("the PI view contains every sprint view under it", async () => {
     const whole = new Set(await boardShows(pi));
     for (const s of [sprintA, sprintB]) for (const t of await boardShows(s)) expect(whole.has(t)).toBe(true);
+  }, 30_000);
+
+  it("a PI inside the PI (older data) is a PI of its own: both paths leave its work out of the outer one", async () => {
+    expect(nested.parentId).toBe(pi.id);
+    expect(nested.intervalKind).toBe("PROGRAM_INCREMENT");
+    const outer = await boardShows(pi);
+    expect(outer).toEqual(IN_PI);
+    expect(outer).toEqual(filterBarShows(pi));
+    // The positive control: the nested PI's own view has its work, on both paths.
+    const NESTED = ["in a sprint of the nested PI", "planned into a PI nested inside it"];
+    expect(filterBarShows(nested)).toEqual(NESTED);
+    expect(await boardShows(nested)).toEqual(NESTED);
   }, 30_000);
 
   it("with the query language off the filter bar means the same thing", async () => {

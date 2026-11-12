@@ -24,6 +24,7 @@ export const SYSTEM_FIELD_IDS = [
   "primaryAssignee",
   "reporter",
   "watcher",
+  "mentions",
   "label",
   "sprint",
   "intervalKind",
@@ -146,11 +147,12 @@ export const FIELDS: readonly FieldDef[] = [
   { id: "primaryAssignee", label: "Primary assignee", aliases: [], value: { kind: "ref", entity: "user" }, ops: ["eq", "in", "empty"], groupable: true, description: "Only the primary assignee, ignoring co-assignees." },
   { id: "reporter", label: "Reporter", aliases: ["creator", "createdby"], value: { kind: "ref", entity: "user" }, ops: ["eq", "in"], groupable: true, description: "Who created the item." },
   { id: "watcher", label: "Watcher", aliases: ["watchers"], value: { kind: "ref", entity: "user" }, ops: ["eq", "in", "empty"], description: "Someone watching the item." },
+  { id: "mentions", label: "Mentions", aliases: ["mention", "mentioned"], value: { kind: "ref", entity: "user" }, ops: ["eq", "in"], description: "Someone @mentioned in the item's description or in a comment you can read." },
   { id: "label", label: "Label", aliases: ["labels", "tag", "tags"], value: { kind: "ref", entity: "label", multi: true }, ops: ["eq", "in", "inAll", "empty"], groupable: true, description: "`label = x` means it has x; `labels IN ALL (a, b)` needs both." },
   { id: "sprint", label: "Sprint", aliases: ["interval", "iteration"], value: { kind: "ref", entity: "interval" }, ops: ["eq", "in", "empty", "history"], groupable: true, description: "Sprint (interval) name or id; try openSprints()." },
   { id: "intervalKind", label: "Interval kind", aliases: [], value: { kind: "enum", values: INTERVAL_KINDS }, ops: ["eq", "in"], description: "The kind of interval the item is planned into." },
   { id: "pi", label: "Program increment", aliases: ["programincrement"], value: { kind: "ref", entity: "interval" }, ops: ["eq", "in"], description: "Items in the PI or in any sprint inside it." },
-  { id: "team", label: "Team", aliases: [], value: { kind: "ref", entity: "team" }, ops: ["eq", "in", "empty", "history"], groupable: true, description: "The team the item belongs to. Use `assignee IN membersOf(\"Team\")` for its members' work." },
+  { id: "team", label: "Team", aliases: [], value: { kind: "ref", entity: "team" }, ops: ["eq", "in", "empty", "history"], groupable: true, description: "The team's work: items tagged with the team, plus untagged items whose primary assignee is on it, in the team's project. `WAS` and `CHANGED` look at the team recorded on the item." },
   { id: "parent", label: "Parent", aliases: [], value: { kind: "ref", entity: "item" }, ops: ["eq", "in", "empty"], description: "The parent item's key." },
   { id: "ancestor", label: "Ancestor", aliases: [], value: { kind: "ref", entity: "item" }, ops: ["eq", "in"], description: "Any item above this one, at any depth: `ancestor = ACME-1` is everything under ACME-1." },
   // The other half of `parent IS EMPTY`: that asks for a root, this asks whether
@@ -179,8 +181,8 @@ export const FIELDS: readonly FieldDef[] = [
   { id: "highlight", label: "Highlight", aliases: [], value: { kind: "enum", values: HIGHLIGHTS }, ops: ["eq", "in", "empty"], groupable: true, description: "Meeting callout: GREEN on track, AMBER at risk, RED blocked, …" },
   { id: "summary", label: "Summary", aliases: ["title"], value: { kind: "text" }, ops: ["text"], description: "Title contains, case-insensitive; `~ \"log*\"` is a prefix." },
   { id: "description", label: "Description", aliases: [], value: { kind: "text" }, ops: ["text", "empty"], description: "Description contains." },
-  { id: "comment", label: "Comment", aliases: ["comments"], value: { kind: "text" }, ops: ["text"], description: "Any comment contains." },
-  { id: "text", label: "Text", aliases: [], value: { kind: "text" }, ops: ["text"], description: "Title, description or comments contain." },
+  { id: "comment", label: "Comment", aliases: ["comments"], value: { kind: "text" }, ops: ["text"], description: "Any comment you can read contains." },
+  { id: "text", label: "Text", aliases: [], value: { kind: "text" }, ops: ["text"], description: "Title, description, or a comment you can read, contains." },
   // A bool rather than an `IS EMPTY` over a `documents` ref, deliberately: it
   // needs no new RefEntity and no suggestions endpoint, and nobody filters for
   // "the item carrying THAT file" — they ask whether anything is attached. What

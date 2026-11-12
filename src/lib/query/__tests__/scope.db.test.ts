@@ -16,6 +16,9 @@ import { executeCql } from "../execute.server";
 import { CqlError } from "../errors";
 import { CQL_VERSION, type CqlNode, type CqlQuery } from "../ast";
 import { seedWorld, type World } from "./cql-fixture";
+import { prisma } from "@/lib/db/client";
+import { Permission } from "@/lib/rbac/permissions";
+import type { AuthContext } from "@/lib/rbac/check";
 
 const NOW = new Date("2026-10-15T15:00:00Z");
 
@@ -56,6 +59,8 @@ describe("CQL scope escape (e2e DB, property)", () => {
       fc.constantFrom("todo", "done", "in progress").map((v) => `statusCategory = ${q(v)}`),
       fc.constant("sprint IN openSprints()"),
       fc.constant("team IN myTeams()"),
+      fc.constant("team IS EMPTY"),
+      fc.constantFrom("me", "Bob Builder", `Ghost Secretperson ${s}`, w.bob.id).map((v) => `mentions = ${v === "me" ? v : q(v)}`),
       fc.constant("watchedItems()"),
       fc.constant("assignee IS EMPTY"),
       fc.constant("blocked = true"),
@@ -162,5 +167,91 @@ describe("CQL scope escape (e2e DB, property)", () => {
         expect(e).toBeInstanceOf(CqlError);
       }
     }
+  });
+
+  // Comment text (`comment ~`, `text ~`, plain words) is a nested filter the
+  // envelope doesn't reach: it decides which items the actor may see, not which
+  // of an item's comments. So a second, metamorphic property: a word written
+  // ONLY in comments no actor may read (internal, deleted, hidden, marked over
+  // the org's ceiling) must behave exactly like a word written nowhere, under
+  // any AND / OR / NOT around it, for every actor, with and without
+  // COMMENT_READ.
+  describe("comment text", () => {
+    let hid: string;
+    let absent: string;
+    let seen: string;
+
+    beforeAll(async () => {
+      const token = () => Math.random().toString(36).slice(2, 10);
+      hid = `hid${token()}`;
+      absent = `absent${token()}`;
+      seen = `seen${token()}`;
+      const earlier = new Date("2026-10-01T00:00:00Z");
+      const comment = (key: string, content: string, extra: Record<string, unknown> = {}) =>
+        prisma.comment.create({ data: { orgId: w.orgA, workItemId: w.items[key].id, authorId: w.bob.id, content, ...extra } });
+      await comment("p1-login-bug", `${hid} staff only`, { visibility: "INTERNAL" });
+      await comment("p1-unassigned", `${hid} gone`, { deletedAt: earlier });
+      await comment("p1-coowned", `${hid} hidden`, { hiddenAt: earlier });
+      await comment("p1-done", `${hid} marked`, { classification: "CUI" });
+      await comment(`p2-secret-${w.stamp}`, `${hid} hidden, restricted project`, { hiddenAt: earlier });
+      // The positive control: a comment everyone with COMMENT_READ on P1 may read.
+      await comment("p1-done", `${seen} for everyone`);
+    });
+
+    const withComments = (ctx: AuthContext): AuthContext => {
+      const permissions = ctx.permissions | Permission.COMMENT_READ;
+      return { ...ctx, permissions, basePermissions: permissions };
+    };
+    const commentActors = () => [
+      ...actors().map((a) => ({ name: `${a.name}+COMMENT_READ`, ctx: withComments(a.ctx) })),
+      { name: "member", ctx: w.ctx() },
+    ];
+    const ids = async (ctx: AuthContext, cql: string) =>
+      (await executeCql(ctx, { cql }, { now: NOW, pageSize: 100 })).data.map((r) => String(r.id)).sort();
+
+    const clause = () =>
+      fc.oneof(
+        { weight: 4, arbitrary: fc.constantFrom("comment ~", "text ~", "comment !~", "text !~").map((op) => `${op} "${hid}"`) },
+        { weight: 2, arbitrary: fc.constantFrom("comment ~", "text ~").map((op) => `${op} "${seen}"`) },
+        {
+          weight: 3,
+          arbitrary: fc.constantFrom(
+            "priority >= HIGH", `project = ${w.P1.key}`, "statusCategory = done", "assignee = me", 'text ~ "login"', "assignee IS EMPTY",
+          ),
+        },
+      );
+    const queryArb = () =>
+      fc.letrec<{ e: string }>((tie) => ({
+        e: fc.oneof(
+          { depthSize: "small" },
+          { weight: 4, arbitrary: clause() },
+          { weight: 1, arbitrary: fc.tuple(tie("e"), tie("e")).map(([a, b]) => `(${a} OR ${b})`) },
+          { weight: 1, arbitrary: fc.tuple(tie("e"), tie("e")).map(([a, b]) => `${a} AND ${b}`) },
+          { weight: 1, arbitrary: tie("e").map((a) => `NOT (${a})`) },
+        ),
+      })).e;
+
+    it("the controls: a readable comment matches, and swapping its word changes the answer", async () => {
+      const reader = withComments(w.ctx());
+      const seenIds = await ids(reader, `comment ~ "${seen}"`);
+      expect(seenIds).toEqual([w.items["p1-done"].id]);
+      // So the property below can fail: a swap that removes a READABLE match shows.
+      expect(await ids(reader, `comment ~ "${absent}"`)).toEqual([]);
+      expect(await ids(reader, seen)).toEqual(seenIds);
+    });
+
+    it("a word only in unreadable comments matches like a word written nowhere", async () => {
+      for (const actor of commentActors()) {
+        // Plain words are a whole query of their own, so they get no AND / OR.
+        expect(await ids(actor.ctx, hid), `${actor.name}: plain words`).toEqual(await ids(actor.ctx, absent));
+        await fc.assert(
+          fc.asyncProperty(queryArb(), async (cql) => {
+            const swapped = cql.split(hid).join(absent);
+            expect(await ids(actor.ctx, cql), `${actor.name}: ${cql}`).toEqual(await ids(actor.ctx, swapped));
+          }),
+          { numRuns: 50 },
+        );
+      }
+    }, 300_000);
   });
 });

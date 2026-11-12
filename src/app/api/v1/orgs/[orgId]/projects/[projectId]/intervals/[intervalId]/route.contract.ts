@@ -27,7 +27,8 @@ export const updateInterval = defineRoute({
   description:
     "Partial update. Setting `status` to `ACTIVE` starts it (409 while another sprint in the " +
     "project is active, and it also starts its Program Increment). A Program Increment can't be " +
-    "started by hand, and completes only once every interval inside it has.",
+    "started by hand, and completes only once every interval inside it has. A Program Increment " +
+    "is always top-level, so giving one a `parentId` is refused (400).",
   tags: ["Intervals"],
   stability: "stable",
   scopes: ["planning:write"],
@@ -40,7 +41,8 @@ export const updateInterval = defineRoute({
       endDate: z.string().datetime().nullish(),
       status: z.enum(E.SprintStatus).optional(),
       // Program Increment to nest this sprint under (a PI interval id), or null to
-      // detach it back to top level. Validated same-project + must be a PI.
+      // detach it back to top level. Validated same-project + must be a PI, and
+      // refused when the interval being moved is itself a PI (PIs are top-level).
       parentId: z.string().uuid().nullable().optional(),
     }),
   },

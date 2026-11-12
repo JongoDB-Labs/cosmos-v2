@@ -29,7 +29,7 @@ export const createInterval = defineRoute({
   summary: "Create an interval",
   description:
     "A sprint (the default kind) may sit inside a Program Increment via `parentId`; a Program " +
-    "Increment is always top-level.",
+    "Increment is always top-level, so one sent with a `parentId` is refused (400).",
   tags: ["Intervals"],
   stability: "stable",
   scopes: ["planning:write"],
@@ -41,8 +41,8 @@ export const createInterval = defineRoute({
       startDate: z.string().datetime(),
       endDate: z.string().datetime(),
       intervalKind: z.enum(E.IntervalKind).default("SPRINT"),
-      // Program Increment this interval belongs to (a PI interval id). Only meaningful for
-      // sprints; a PI is top-level so it never carries a parent.
+      // Program Increment this interval belongs to (a PI interval id). Only for sprints and
+      // the other iteration kinds; a PI is top-level, and a PI sent with one is refused.
       parentId: z.string().uuid().nullish(),
     }),
   },

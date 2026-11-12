@@ -86,7 +86,10 @@ describe("executeCql (e2e DB)", () => {
     expect((await run(`childrenOf(${w.P1.key}-1)`)).titles).toEqual(["p1-child"]);
     expect((await run("watcher = me")).titles).toEqual(["p1-login-bug"]);
     expect((await run("watchedItems()")).titles).toEqual(["p1-login-bug"]);
-    expect((await run("team = Platform")).titles).toEqual(["p1-login-bug"]);
+    // Tagged with the team, or untagged with a primary assignee on it (Bob's
+    // p1-done). Bob is only a co-assignee of p1-coowned, which the team rule
+    // does not count; `membersOf()` below is the any-assignee question.
+    expect((await run("team = Platform")).titles).toEqual(["p1-done", "p1-login-bug"]);
     expect((await run("assignee IN membersOf(Platform)")).titles).toEqual(["p1-coowned", "p1-done"]);
   });
 

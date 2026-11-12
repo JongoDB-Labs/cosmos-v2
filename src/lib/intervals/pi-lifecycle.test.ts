@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
+  PARENT_NOT_A_PI,
+  PARENT_NOT_FOUND,
+  PI_INSIDE_PI,
+  PI_IS_TOP_LEVEL,
   activationBlocker,
+  kindChangeRefusal,
+  nestingRefusal,
   programIncrementBlockers,
   userMaySetStatus,
 } from "./pi-lifecycle";
@@ -99,5 +105,50 @@ describe("userMaySetStatus", () => {
   it("leaves ordinary intervals fully under user control", () => {
     expect(userMaySetStatus("SPRINT", "ACTIVE")).toBe(true);
     expect(userMaySetStatus("PHASE", "ACTIVE")).toBe(true);
+  });
+});
+
+describe("nestingRefusal", () => {
+  // One level: PIs hold sprints, and a PI is always top-level. The board's
+  // interval tree and the `pi` query field both assume it.
+  const PI = { intervalKind: "PROGRAM_INCREMENT" };
+  const SPRINT = { intervalKind: "SPRINT" };
+
+  it("lets a sprint, or any other iteration, go inside a PI", () => {
+    expect(nestingRefusal("SPRINT", PI)).toBeNull();
+    expect(nestingRefusal("PHASE", PI)).toBeNull();
+  });
+
+  it("refuses a PI inside a PI, and says so", () => {
+    expect(nestingRefusal("PROGRAM_INCREMENT", PI)).toBe(PI_INSIDE_PI);
+    expect(PI_INSIDE_PI).toMatch(/Program Increment can't go inside another Program Increment/);
+  });
+
+  it("refuses a PI inside anything else, before it asks what the parent is", () => {
+    expect(nestingRefusal("PROGRAM_INCREMENT", SPRINT)).toBe(PI_IS_TOP_LEVEL);
+    expect(nestingRefusal("PROGRAM_INCREMENT", null)).toBe(PI_IS_TOP_LEVEL);
+  });
+
+  it("keeps the sprint refusals it replaced", () => {
+    expect(nestingRefusal("SPRINT", SPRINT)).toBe(PARENT_NOT_A_PI);
+    expect(nestingRefusal("SPRINT", null)).toBe(PARENT_NOT_FOUND);
+  });
+});
+
+describe("kindChangeRefusal", () => {
+  it("refuses to turn a sprint inside a PI into a PI", () => {
+    expect(kindChangeRefusal({ intervalKind: "SPRINT", parentId: "pi-1" }, "PROGRAM_INCREMENT", 0)).toMatch(/inside a Program Increment/);
+  });
+
+  it("refuses to turn a PI that still holds intervals into something else", () => {
+    expect(kindChangeRefusal({ intervalKind: "PROGRAM_INCREMENT", parentId: null }, "SPRINT", 2)).toMatch(/still has intervals inside it/);
+  });
+
+  it("allows every change that keeps nesting one level deep", () => {
+    expect(kindChangeRefusal({ intervalKind: "SPRINT", parentId: null }, "PROGRAM_INCREMENT", 0)).toBeNull();
+    expect(kindChangeRefusal({ intervalKind: "PROGRAM_INCREMENT", parentId: null }, "SPRINT", 0)).toBeNull();
+    expect(kindChangeRefusal({ intervalKind: "SPRINT", parentId: "pi-1" }, "PHASE", 0)).toBeNull();
+    // Same kind is no change, whatever the shape.
+    expect(kindChangeRefusal({ intervalKind: "PROGRAM_INCREMENT", parentId: "pi-0" }, "PROGRAM_INCREMENT", 3)).toBeNull();
   });
 });

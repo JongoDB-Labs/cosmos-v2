@@ -262,6 +262,30 @@ export function likeText(q: string): string {
   return q.replace(/\*$/, "").replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
+/**
+ * The actor's readable comment scope, for a field that reads comment text
+ * (COMMENT_TEXT_FIELDS). FAILS CLOSED: `comments.some` is a nested filter the
+ * scope envelope does not reach (it decides which items the actor may see, not
+ * which of their comments), so a bare one would match an item through an
+ * internal, deleted, hidden or over-ceiling comment. Without the scope the
+ * field is refused rather than searched unscoped.
+ */
+function commentScope(env: CompileEnv, field: string): NonNullable<CompileEnv["readableComments"]> {
+  const scope = env.readableComments;
+  if (!scope) {
+    throw new Error(
+      `${field} needs env.readableComments — resolve.server.ts must set the actor's readable comment scope whenever the query names a field in COMMENT_TEXT_FIELDS.`,
+    );
+  }
+  return scope;
+}
+
+/** Items with a comment matching `content` that the actor may read: COMMENT_READ in its project, and the comment thread's own filter. */
+function inReadableComments(scope: NonNullable<CompileEnv["readableComments"]>, content: Prisma.CommentWhereInput): Where {
+  if (scope.projectIds.length === 0) return FALSE;
+  return and({ projectId: { in: scope.projectIds } }, { comments: { some: { AND: [scope.where, content] } } });
+}
+
 /** Same caveat as `stringCompiler`: this union is hand-written and the body
  *  casts through `as Where`, so these names are verified against
  *  `model WorkItem` by hand, not by the compiler. */
@@ -421,6 +445,29 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
       return { match: (b) => ({ createdById: { in: ids(b) } }), isEmpty: null };
     case "watcher":
       return { match: (b) => ({ watchers: { some: { userId: { in: ids(b) } } } }), isEmpty: { watchers: { none: {} } } };
+    case "mentions": {
+      // An @mention is a token in the text (lib/mentions/refs.ts): `<@id>` as
+      // the composers write it, or the typed `<@user:id>` the parser also
+      // reads. Matched in the description and in readable comments,
+      // case-insensitively like `parseMentions`. Not the Reference table: only
+      // some writers record into it (comments, notes, chat), never the
+      // description.
+      const scope = commentScope(env, "mentions");
+      const tokens = (users: string[]) => users.flatMap((u) => [`<@${u}>`, `<@user:${u}>`].map(likeText));
+      return {
+        match: (b) => {
+          const users = ids(b);
+          if (users.length === 0) return FALSE;
+          const inDescription = or(...tokens(users).map((t): Where => ({ description: { contains: t, mode: "insensitive" } })));
+          if (scope.projectIds.length === 0) return inDescription;
+          const inComment = inReadableComments(scope, {
+            OR: tokens(users).map((t) => ({ content: { contains: t, mode: "insensitive" as const } })),
+          });
+          return or(inDescription, inComment);
+        },
+        isEmpty: null,
+      };
+    }
     case "label":
       return {
         match: (b) => ({ labels: { some: { labelId: { in: ids(b) } } } }),
@@ -437,13 +484,64 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
           }),
         isEmpty: null,
       };
+    // The PI's own work plus the work of the intervals directly inside it,
+    // except an interval that is itself a PI. Writers refuse a PI inside a PI,
+    // but older data can hold one, and the board's interval tree lists it as a
+    // PI of its own (intervalChildrenById). Without the kind test `pi = <outer>`
+    // took the inner PI's own work while the filter bar left it out.
     case "pi":
       return {
-        match: (b) => and(nn("intervalId", {}), or({ intervalId: { in: ids(b) } }, { interval: { is: { parentId: { in: ids(b) } } } })),
+        match: (b) =>
+          and(
+            nn("intervalId", {}),
+            or(
+              { intervalId: { in: ids(b) } },
+              { interval: { is: { parentId: { in: ids(b) }, intervalKind: { not: "PROGRAM_INCREMENT" } } } },
+            ),
+          ),
         isEmpty: null,
       };
-    case "team":
-      return { match: (b) => nn("teamId", { in: ids(b) }), isEmpty: { teamId: null } };
+    case "team": {
+      // The team rule (lib/teams/item-teams.ts), which the board's filter bar,
+      // its swimlanes and Cosmo's team filter already apply: an item that names
+      // a team is that team's work and no other's; one that names none is the
+      // work of every team, in its own project, that its primary assignee is
+      // on. Comparing the column alone left every untagged item out of
+      // `team = X`, so picking a team with the query language on hid work the
+      // filter bar showed.
+      //
+      // FAIL CLOSED, like `hasChildren` above: the only fallback without the
+      // roster is the column-only answer, which is the defect itself.
+      const rosters = env.teamRosters;
+      if (!rosters) {
+        throw new Error(
+          "team needs env.teamRosters — resolve.server.ts must load the readable teams' rosters whenever the query names this field.",
+        );
+      }
+      // Untagged items whose primary assignee is on one of `teamIds`, one
+      // clause per project. Every part is two-valued (nn), so NOT is a true
+      // complement for `!=`.
+      const derived = (teamIds: Iterable<string>): Where[] => {
+        const byProject = new Map<string, Set<string>>();
+        for (const id of teamIds) {
+          const r = rosters.get(id);
+          if (!r || r.userIds.length === 0) continue;
+          const users = byProject.get(r.projectId) ?? new Set<string>();
+          for (const u of r.userIds) users.add(u);
+          byProject.set(r.projectId, users);
+        }
+        return [...byProject.keys()].sort().map((projectId) =>
+          and({ teamId: null }, { projectId }, nn("assigneeId", { in: [...byProject.get(projectId)!].sort() })),
+        );
+      };
+      const anyTeam = derived(rosters.keys());
+      return {
+        match: (b) => or(nn("teamId", { in: ids(b) }), ...derived(ids(b))),
+        // No team of its own, and nobody on a team in its project is its
+        // primary assignee: what the board's swimlanes call "No team".
+        isEmpty: anyTeam.length ? and({ teamId: null }, not(or(...anyTeam))) : { teamId: null },
+      };
+    }
     case "parent":
       return { match: (b) => nn("parentId", { in: ids(b) }), isEmpty: { parentId: null } };
     // A plain scalar column (`merged_into_id`), so this compiles byte for byte
@@ -573,25 +671,32 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
       return { match: () => FALSE, isEmpty: null, text: (q) => contains("title", q) };
     case "description":
       return { match: () => FALSE, isEmpty: { description: "" }, text: (q) => contains("description", q) };
-    case "comment":
+    case "comment": {
+      // Only comments the actor may read: see commentScope.
+      const scope = commentScope(env, "comment");
       return {
         match: () => FALSE,
         isEmpty: null,
-        text: (q) => ({ comments: { some: { content: { contains: likeText(q), mode: "insensitive" } } } }),
+        text: (q) => inReadableComments(scope, { content: { contains: likeText(q), mode: "insensitive" } }),
       };
-    case "text":
+    }
+    case "text": {
+      const scope = commentScope(env, "text");
       return {
         match: () => FALSE,
         isEmpty: null,
         text: (q) => {
           const value = likeText(q);
+          const inComments = inReadableComments(scope, { content: { contains: value, mode: "insensitive" } });
           return or(
             { title: { contains: value, mode: "insensitive" } },
             { description: { contains: value, mode: "insensitive" } },
-            { comments: { some: { content: { contains: value, mode: "insensitive" } } } },
+            // A text search the actor may not run on comments is title and description only.
+            ...(scope.projectIds.length ? [inComments] : []),
           );
         },
       };
+    }
     case "ancestor":
       return {
         match: (b) => ({ id: { in: [...new Set(ids(b).flatMap((root) => env.descendants.get(root) ?? []))] } }),
