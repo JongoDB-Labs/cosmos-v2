@@ -1,12 +1,8 @@
-<!-- BEGIN:nextjs-agent-rules -->
-
 # This is NOT the Next.js you know
 
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
 
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
-
-<!-- END:nextjs-agent-rules -->
+This section came from Next's agent-rules generator and is now ordinary text. `agentRules: false` in `next.config.ts` keeps `next dev` from rewriting this file, and with that setting `next dev` deletes anything between the generator's BEGIN/END markers, so this file must not carry them. `src/lib/__tests__/agents-md-survives-next-dev.arch.test.ts` checks both.
 
 # Versioning
 

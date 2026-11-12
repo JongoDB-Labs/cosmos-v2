@@ -26,6 +26,12 @@ const nextConfig: NextConfig = {
   // imports, and the only copy of these rules that reaches a git worktree. Left
   // on, a local dev run silently edits it and the next `git add -A` commits the
   // machine's version over ours.
+  //
+  // Since Next 16.4, `false` also makes every `next dev` DELETE whatever sits
+  // between `<!-- BEGIN:nextjs-agent-rules -->` and `<!-- END:nextjs-agent-rules -->`
+  // in AGENTS.md. So AGENTS.md must not carry those markers. Its first section
+  // came from Next's generator and is kept as ordinary text.
+  // src/lib/__tests__/agents-md-survives-next-dev.arch.test.ts checks this.
   agentRules: false,
   // `experimental.viewTransition` was REMOVED in Next 16.3.0 — not renamed, and
   // not promoted to a top-level option. It is absent from ExperimentalConfig, its

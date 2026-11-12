@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.547.6",
+    date: "2026-11-12",
+    title: "Program Management no longer jumps wider as it loads",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Program Management shows your existing PM dashboard, the page now loads at the full width the dashboard uses. It used to load in a narrower column and jump wider when the dashboard arrived. While it loads, the page now shows the shape of the dashboard rather than a project picker and panels that never appear.",
+      },
+      {
+        kind: "fix",
+        text: "On a phone, Program Management no longer shifts sideways when it finishes loading.",
+      },
+    ],
+  },
+  {
     version: "2.547.5",
     date: "2026-11-12",
     title: "The organization details endpoint now checks who is asking",
