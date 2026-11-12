@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.547.0",
+    date: "2026-11-11",
+    title: "An old Cosmos address now takes you to the current one",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When your Cosmos is reachable at an old address and a new one, an administrator can name the new one, and opening a page at the old address takes you to the same page at the new one. You sign in there once. Links, bookmarks and integrations that use the old address keep working.",
+      },
+    ],
+  },
+  {
     version: "2.546.1",
     date: "2026-11-11",
     title: "Program Management no longer loops on sign-in at an older address",

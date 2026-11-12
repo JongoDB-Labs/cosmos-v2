@@ -29,7 +29,9 @@ export function configuredPublicOrigin(): string | null {
   if (!raw) return null;
   try {
     const u = new URL(raw);
-    const local = u.hostname === "localhost" || u.hostname === "127.0.0.1";
+    // *.localhost is loopback by definition (RFC 6761), as browsers treat it.
+    const local =
+      u.hostname === "localhost" || u.hostname.endsWith(".localhost") || u.hostname === "127.0.0.1";
     if (u.protocol !== "https:" && !(local && u.protocol === "http:")) return null;
     return u.origin;
   } catch {

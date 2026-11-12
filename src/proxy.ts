@@ -7,6 +7,7 @@ import { classifyBearer } from "@/lib/auth/bearer";
 import { REQUEST_ID_HEADER, requestIdFor } from "@/lib/openapi/request-id";
 import { problem } from "@/lib/openapi/problem";
 import { isMutatingMethod, isPathOrgFrozen } from "@/lib/cutover/freeze";
+import { otherAddressRedirect } from "@/lib/deploy/other-address-redirect";
 
 function withSecurityHeaders(res: NextResponse): NextResponse {
   applySecurityHeaders(res.headers);
@@ -148,6 +149,23 @@ export async function proxy(request: NextRequest) {
 
 async function gate(request: NextRequest, next: () => NextResponse): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
+
+  // A page visit at one of the instance's other addresses goes to the one
+  // people should use (COSMOS_PUBLIC_URL), when that is set. First, so a
+  // signed-out visitor signs in at the new address rather than the old.
+  const elsewhere = otherAddressRedirect({
+    method: request.method,
+    host: request.headers.get("x-forwarded-host") ?? request.headers.get("host"),
+    pathname,
+    search: request.nextUrl.search,
+  });
+  // Not when the target shares Next's internal host: Next rewrites such a
+  // redirect to a relative one (next/dist/server/web/adapter.js), which sends
+  // the visitor back to the address they came from, forever. Found by driving
+  // it locally; prod's internal host is never its public one.
+  if (elsewhere && new URL(elsewhere).host !== request.nextUrl.host) {
+    return withSecurityHeaders(NextResponse.redirect(elsewhere, 307));
+  }
 
   // Teams tabs (COSMOS-202 T1 d) are read-only pages, and their session is
   // honoured only for a GET: anything else never reaches them.

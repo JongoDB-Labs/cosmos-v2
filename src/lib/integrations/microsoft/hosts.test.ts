@@ -16,7 +16,14 @@ describe("configuredPublicOrigin", () => {
   it("allows http only for localhost", () => {
     process.env.COSMOS_PUBLIC_URL = "http://localhost:3000";
     expect(configuredPublicOrigin()).toBe("http://localhost:3000");
+    process.env.COSMOS_PUBLIC_URL = "http://new.localhost:3000";
+    expect(configuredPublicOrigin()).toBe("http://new.localhost:3000");
     process.env.COSMOS_PUBLIC_URL = "http://cosmos.example.com";
+    expect(configuredPublicOrigin()).toBeNull();
+    // A name that only ends in "localhost" is a real host.
+    process.env.COSMOS_PUBLIC_URL = "http://evil-localhost.example.com";
+    expect(configuredPublicOrigin()).toBeNull();
+    process.env.COSMOS_PUBLIC_URL = "http://notlocalhost";
     expect(configuredPublicOrigin()).toBeNull();
   });
 
