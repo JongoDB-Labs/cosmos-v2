@@ -57,7 +57,6 @@
   "POST v1/orgs/[orgId]/feedback/[feedbackId]/comments",
   "POST v1/orgs/[orgId]/microsoft/calendar/sync",
   "POST v1/orgs/[orgId]/projects/[projectId]/boards",
-  "POST v1/orgs/[orgId]/projects/[projectId]/import",
   "POST v1/orgs/[orgId]/projects/[projectId]/teams",
   "POST v1/orgs/[orgId]/projects/[projectId]/teams/[teamId]",
   "POST v1/unsubscribe/filter/[token]",

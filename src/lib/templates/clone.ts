@@ -1,6 +1,7 @@
 import { Prisma, type BoardTemplateWidget } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { uniqueSlug, uniqueKey } from "./slugify";
+import { boardTemplatesFor } from "@/lib/templates/board-template-scope";
 
 type Tx = Prisma.TransactionClient;
 
@@ -16,7 +17,7 @@ export async function cloneProjectTemplate(
   const source = await prisma.projectTemplate.findUniqueOrThrow({
     where: { id: sourceId },
     include: {
-      boardTemplates: { include: { widgets: true } },
+      boardTemplates: { where: boardTemplatesFor(orgId), include: { widgets: true } },
       workItemTypes: true,
     },
   });

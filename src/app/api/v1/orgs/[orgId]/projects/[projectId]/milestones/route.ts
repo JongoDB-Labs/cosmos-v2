@@ -9,6 +9,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createMilestone, listMilestones } from "./route.contract";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -34,6 +35,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { params: { orgId, projectId }, body: data } = await parseRequest(createMilestone, request, params);
     await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
+    // The owner is a current member of this org (the column takes any user).
+    await assertRefsInScope({ orgId }, { member: data.ownerId });
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return problem(404, "not_found", undefined, { request });

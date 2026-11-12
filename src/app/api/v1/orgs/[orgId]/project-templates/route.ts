@@ -9,6 +9,7 @@ import { uniqueSlug } from "@/lib/templates/slugify";
 import { getEntitlements, filterBySector } from "@/lib/entitlements";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
+import { boardTemplatesFor } from "@/lib/templates/board-template-scope";
 
 const createTemplateSchema = z.object({
   name: z.string().min(1).max(100),
@@ -42,6 +43,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where,
       include: {
         boardTemplates: {
+          where: boardTemplatesFor(orgId),
           select: { id: true, name: true, boardType: true, sortOrder: true },
         },
         _count: { select: { workItemTypes: true } },
@@ -83,6 +85,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       },
       include: {
         boardTemplates: {
+          where: boardTemplatesFor(orgId),
           select: { id: true, name: true, boardType: true, sortOrder: true },
         },
         _count: { select: { workItemTypes: true } },

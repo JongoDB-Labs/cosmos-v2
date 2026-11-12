@@ -32,6 +32,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: { id: intervalId, projectId, orgId },
       include: {
         workItems: {
+          // The org's own items only: an older, unchecked write may have left
+          // another org's item pointing at this sprint.
+          where: { orgId },
           // Full-text index internals: never part of the WorkItem contract, so
           // not fetched (respond() would otherwise reject the row outside prod).
           omit: { searchVector: true },
@@ -40,7 +43,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           },
           orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
         },
-        _count: { select: { workItems: true } },
+        _count: { select: { workItems: { where: { orgId } } } },
       },
     });
 

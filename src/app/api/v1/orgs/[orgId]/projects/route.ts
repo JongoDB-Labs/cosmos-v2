@@ -19,6 +19,7 @@ import { seedBoardColumns } from "@/lib/workflow/provision.server";
 import { applyNamePattern, projectNumbering } from "@/lib/projects/numbering";
 import { allocateProjectNumber, isProjectNumberConflict } from "@/lib/projects/numbering.server";
 import { boardForReader } from "@/lib/boards/board-dto";
+import { boardTemplatesFor } from "@/lib/templates/board-template-scope";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -125,7 +126,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (data.templateId) {
       const tpl = await prisma.projectTemplate.findUnique({
         where: { id: data.templateId },
-        include: { boardTemplates: true },
+        include: { boardTemplates: { where: boardTemplatesFor(orgId) } },
       });
       if (!tpl) {
         return problem(404, "not_found", "Template not found", { request });

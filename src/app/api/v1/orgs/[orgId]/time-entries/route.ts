@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { requirePermission, ForbiddenError } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { requireProjectRead, requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 import { redactRates } from "@/lib/time/visibility";
 import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
 import { timesheetIdForEntry } from "@/lib/time/timesheet";
@@ -86,6 +87,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Logging time against a project is writing to that project.
     await requireProjectVisibleIf(ctx, data.projectId);
     requirePermission(ctx, Permission.TIME_CREATE);
+    // Neither column has a foreign key: the item and the CLIN must be the
+    // entry's project's, or with no project, in one the caller can see.
+    await assertRefsInScope({ orgId, projectId: data.projectId, viewer: ctx }, { workItem: data.workItemId, clin: data.clinId });
 
     // Internal time is checked against the org's own list, and never sits on a
     // project — see checkInternalCategory.

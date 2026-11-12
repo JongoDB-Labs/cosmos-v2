@@ -41,6 +41,7 @@ import { cascadeSchedule, type CascadedItem } from "@/lib/work-items/schedule-ca
 import { changeEvents, snapshotItems, updateWorkItemsUnchecked } from "@/lib/work-items/write.server";
 import { RECORDED_BY_CALLER, recordEvents, type WriteMeta } from "@/lib/work-items/events.server";
 import type { AfterCommitEffects, ChangedItem } from "@/lib/work-items/after-commit";
+import { assertRefsInScope, foreignRef, refMessage, type RefKind, type Refs } from "@/lib/rbac/foreign-refs";
 
 /**
  * The body of `PUT …/work-items/[itemId]`: every field a person may change. It
@@ -335,10 +336,28 @@ export async function assertAssigneesInOrg(
 }
 
 /**
+ * The rows a patch points at, by kind: its parent item, interval and team must
+ * be this project's, and its type this org's or a built-in one. Checked here,
+ * in the one writer every edit goes through (the PUT route, bulk edit, the
+ * assistant, automations), because the foreign keys are single-column and
+ * accept another tenant's ids.
+ */
+function patchRefs(p: WorkItemPatch): Refs {
+  return { workItem: p.parentId, interval: p.intervalId, team: p.teamId, workItemType: p.workItemTypeId };
+}
+
+const REF_FIELD: Partial<Record<RefKind, keyof WorkItemPatch>> = {
+  workItem: "parentId",
+  interval: "intervalId",
+  team: "teamId",
+  workItemType: "workItemTypeId",
+};
+
+/**
  * Hold the fields a transition added to a change to the rules the request
- * body met: the patch schema, a team of this project, assignees in this org,
- * an interval of this project. A value the caller sent unchanged was checked
- * by the route, so only what differs from `base` is looked up.
+ * body met: the patch schema, the rows it names (see `patchRefs`), assignees
+ * in this org. The request body itself was checked before the workflow ran,
+ * so only what differs from `base` is looked up.
  */
 async function checkTransitionPatch(
   tx: Prisma.TransactionClient,
@@ -361,14 +380,12 @@ async function checkTransitionPatch(
     throw new TransitionError({ error: message, code: "transition_invalid", reasons: [{ validator: "input", message, ...(key && { fields: [{ system: key } as FieldRef] }) }] });
   }
 
-  if (changed("teamId") && p.teamId) {
-    const team = await tx.team.count({ where: { id: p.teamId, projectId: args.projectId } });
-    if (team === 0) refuse("That team isn't part of this project.", { system: "teamId" });
-  }
-  if (changed("intervalId") && p.intervalId) {
-    const interval = await tx.interval.count({ where: { id: p.intervalId, projectId: args.projectId } });
-    if (interval === 0) refuse("That interval isn't part of this project.", { system: "intervalId" });
-  }
+  const scope = { orgId: args.orgId, projectId: args.projectId };
+  const refs = Object.fromEntries(
+    Object.entries(patchRefs(p)).filter(([kind]) => changed(REF_FIELD[kind as RefKind]!)),
+  ) as Refs;
+  const kind = await foreignRef(tx, scope, refs);
+  if (kind) refuse(refMessage(kind, scope), { system: REF_FIELD[kind]! } as FieldRef);
   const assignees = [
     ...(changed("assigneeId") && p.assigneeId ? [p.assigneeId] : []),
     ...(changed("assigneeIds") ? (p.assigneeIds ?? []) : []),
@@ -430,8 +447,11 @@ export async function applyWorkItemChange(
   if (patch.cancelReason) {
     patch.columnKey = await ensureCancelledStatus(tx, projectId, patch.columnKey);
   }
-  // Before anything else is decided: the people named must be in this org.
+  // Before anything else is decided: the people named must be in this org,
+  // and the rows named must be this project's. (The type is held to the org
+  // by the workflow gate below, which answers 404 for another org's type.)
   await assertAssigneesInOrg(tx, orgId, [patch.assigneeId, ...(patch.assigneeIds ?? [])]);
+  await assertRefsInScope({ orgId, projectId }, { ...patchRefs(patch), workItemType: undefined }, tx);
 
   const now = new Date();
   // The workflow first: nothing is written for an item it refuses. Each item
@@ -449,8 +469,9 @@ export async function applyWorkItemChange(
     now,
   });
   if (source !== "BULK") throwIfDenied(gate);
-  // What a transition folded in (its input, its actions) skipped the route's
-  // checks on the request body: hold it to them here, before anything is written.
+  // What a transition folded in (its input, its actions) was not part of the
+  // request body checked above: hold it to the same rules, before anything is
+  // written.
   const checked = new Set<WorkItemPatch>([patch]);
   for (const g of gate.gates) {
     if (checked.has(g.patch)) continue;

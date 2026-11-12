@@ -57,7 +57,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             height: true,
           },
         },
-        _count: { select: { replies: true } },
+        _count: { select: { replies: { where: { channelId } } } },
       },
     });
 

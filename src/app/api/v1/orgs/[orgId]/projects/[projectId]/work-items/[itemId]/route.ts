@@ -9,6 +9,7 @@ import { teamProjectError } from "@/lib/teams/item-team.server";
 import { applyWorkItemChange } from "@/lib/work-items/apply-change.server";
 import { runAfterCommit } from "@/lib/work-items/after-commit";
 import { loadWorkItemDetail } from "@/lib/work-items/read.server";
+import { scopeItemLinks } from "@/lib/work-items/linked-scope.server";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem, ProblemError } from "@/lib/openapi/problem";
 import type { AuthContext } from "@/lib/rbac/check";
@@ -118,7 +119,8 @@ export async function updateItem(request: NextRequest, ctx: AuthContext, ids: It
   });
 
   await runAfterCommit(effects, { ipAddress: getIpAddress(request) });
-  return item;
+  const [scoped] = await scopeItemLinks(ctx, orgId, projectId, [item]);
+  return scoped;
 }
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {

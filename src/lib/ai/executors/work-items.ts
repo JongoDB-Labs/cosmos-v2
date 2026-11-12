@@ -18,6 +18,7 @@ import { teamFilter } from "./teams";
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 import { allocateTicketNumber, allocateSortOrder } from "@/lib/work-items/allocate";
 import { intervalRequirementError } from "@/lib/work-items/interval-required.server";
+import { refsError } from "@/lib/rbac/foreign-refs";
 
 // ─── Schemas ─────────────────────────────────────────────────────────────
 
@@ -253,6 +254,14 @@ export async function createWorkItem(
   const strangerAssignee = await assertAssigneeInOrg(ctx.orgId, data.assigneeId);
   if (strangerAssignee) return strangerAssignee;
 
+  // The same rule as the create API: the parent and interval must be this
+  // project's, the type this org's or a built-in one.
+  const foreignRow = await refsError(
+    { orgId: ctx.orgId, projectId: data.projectId },
+    { workItem: data.parentId, interval: data.intervalId, workItemType: data.workItemTypeId },
+  );
+  if (foreignRow) return { error: foreignRow };
+
   let resolvedTypeId = data.workItemTypeId ?? null;
   if (!resolvedTypeId) {
     resolvedTypeId = await resolveWorkItemTypeId(
@@ -372,6 +381,13 @@ export async function updateWorkItem(
 
   const strangerAssignee = await assertAssigneeInOrg(ctx.orgId, data.assigneeId);
   if (strangerAssignee) return strangerAssignee;
+
+  // As the PUT route: a parent and an interval must be this item's project's.
+  const foreignRow = await refsError(
+    { orgId: ctx.orgId, projectId: existing.projectId },
+    { workItem: data.parentId, interval: data.intervalId },
+  );
+  if (foreignRow) return { error: foreignRow };
 
   // Dates are calendar days for the assistant: stored at noon UTC, as the
   // create path stores them, then written like any other edit.

@@ -14,6 +14,7 @@ import { financeSettings, resolveMarkup, type MarkupSource } from "@/lib/finance
 
 const SELECT = {
   id: true,
+  orgId: true,
   reference: true,
   vendorName: true,
   partnerId: true,
@@ -31,7 +32,9 @@ const SELECT = {
   notes: true,
   createdAt: true,
   project: { select: { key: true, name: true, feeTerms: { select: { markupPct: true } } } },
-  partner: { select: { name: true } },
+  // orgId, so a partner linked before the write-side check (single-column FK)
+  // can be told apart from the org's own and left out of the answer.
+  partner: { select: { name: true, orgId: true } },
   invoice: { select: { number: true, status: true } },
 } as const;
 
@@ -89,7 +92,7 @@ function shape(r: Row, orgPct: number): BillDto {
     notes: r.notes,
     createdAt: r.createdAt.toISOString(),
     project: r.project ? { key: r.project.key, name: r.project.name } : null,
-    partner: r.partner,
+    partner: r.partner && r.partner.orgId === r.orgId ? { name: r.partner.name } : null,
     invoice: r.invoice,
     markupPct: r.markupPct === null ? null : Number(r.markupPct),
     markup: r.projectId

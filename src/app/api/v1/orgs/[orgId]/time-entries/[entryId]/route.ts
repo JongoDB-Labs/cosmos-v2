@@ -17,6 +17,7 @@ import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { getTimeEntry, updateTimeEntry } from "./route.contract";
 import { inVisibleProject, requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
 type RouteParams = { params: Promise<{ orgId: string; entryId: string }> };
 
@@ -60,6 +61,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return problem(404, "not_found", undefined, { request });
     // Moving it to another project is writing to that one too.
     await requireProjectVisibleIf(ctx, data.projectId);
+    await assertRefsInScope(
+      { orgId, projectId: data.projectId !== undefined ? data.projectId : existing.projectId, viewer: ctx },
+      { workItem: data.workItemId, clin: data.clinId },
+    );
 
     // Resource-aware authz: TIME_UPDATE bitfield check + any narrowing deny
     // policy. TimeEntry ownership is userId. Identical to requirePermission

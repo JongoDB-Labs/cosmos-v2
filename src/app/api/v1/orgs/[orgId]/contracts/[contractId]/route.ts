@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { mayReadContract } from "@/lib/crm/contract-scope";
 import { clashingCodesOnContractDetach } from "@/lib/pm/deliverable-scope";
+import { assertRefsInScope, withoutForeign } from "@/lib/rbac/foreign-refs";
 
 const updateContractSchema = z.object({
   title: z.string().min(1).max(500).optional(),
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return new Response("Not found", { status: 404 });
     }
 
-    return success(contract);
+    return success(withoutForeign(contract, orgId, ["partner", "product"]));
   } catch (error) {
     return handleApiError(error);
   }
@@ -75,6 +76,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = updateContractSchema.parse(body);
+    await assertRefsInScope({ orgId }, { partner: data.partnerId, product: data.productId });
 
     const updated = await prisma.contract.update({
       where: { id: contractId },
@@ -110,7 +112,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
-    return success(updated);
+    return success(withoutForeign(updated, orgId, ["partner", "product"]));
   } catch (error) {
     return handleApiError(error);
   }

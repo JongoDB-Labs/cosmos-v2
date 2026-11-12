@@ -2,9 +2,10 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { canManageProject } from "@/lib/rbac/scope";
-import { hasPermission, Permission } from "@/lib/rbac/permissions";
-import { ForbiddenError, ConflictError } from "@/lib/rbac/check";
+import { Permission } from "@/lib/rbac/permissions";
+import { ConflictError } from "@/lib/rbac/check";
+import { requireProjectVisible } from "@/lib/rbac/require-project-read";
+import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { runEntityImport } from "@/lib/import/entity-import";
 import { ENTITY_DEFS, type EntityImportRequest } from "@/lib/import/entity-fields";
@@ -73,12 +74,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     if (!project) return new Response("Project not found", { status: 404 });
 
-    // Bulk import is a project-management action: allow a project MANAGER of
-    // this project OR an org-wide PROJECT_UPDATE holder (mirrors schedule/route).
-    const allowed =
-      hasPermission(ctx.permissions, Permission.PROJECT_UPDATE) ||
-      (await canManageProject(ctx, project.id, Permission.PROJECT_UPDATE));
-    if (!allowed) throw new ForbiddenError("Cannot manage this project");
+    // Bulk import is a project-management action: a project MANAGER of this
+    // project OR an org-wide PROJECT_UPDATE holder (mirrors schedule/route).
+    // Visibility and the key's project ceiling come first, so neither the bit
+    // nor admin standing reaches a project the caller can't see.
+    await requireProjectVisible(ctx, project.id);
+    await requireProjectManage(ctx, project.id, Permission.PROJECT_UPDATE);
 
     const body = await request.json();
     const req = importSchema.parse(body) as EntityImportRequest;

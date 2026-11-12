@@ -90,7 +90,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             // Everything downstream — metrics, what shipped, what carries —
             // derives from this list, so scoping it here scopes the whole
             // review at once rather than in four places that could disagree.
-            where: teamItemFilter,
+            // The org's own items (an older, unchecked write may have left
+            // another org's item pointing at this sprint), then the team.
+            where: { orgId, ...teamItemFilter },
             select: {
               id: true,
               ticketNumber: true,

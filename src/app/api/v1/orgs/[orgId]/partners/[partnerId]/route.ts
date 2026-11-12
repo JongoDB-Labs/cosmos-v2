@@ -7,6 +7,7 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { readableContractsWhere } from "@/lib/crm/contract-scope";
 import { z } from "zod";
+import { withoutForeign } from "@/lib/rbac/foreign-refs";
 
 const updatePartnerSchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -34,8 +35,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const partner = await prisma.partner.findFirst({
       where: { id: partnerId, orgId },
       include: {
-        // Only the contracts this caller may see: one on a project they cannot
-        // open is not theirs to read here either, value and terms included.
+        // Only the contracts this caller may see: this org's own (the foreign
+        // key is single-column, so another org's contract could point here),
+        // and none on a project they cannot open, value and terms included.
         contracts: {
           where: await readableContractsWhere(ctx),
           include: { product: true },
@@ -46,7 +48,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     if (!partner) return new Response("Not found", { status: 404 });
 
-    return success(partner);
+    return success({ ...partner, contracts: partner.contracts.map((c) => withoutForeign(c, orgId, ["product"])) });
   } catch (error) {
     return handleApiError(error);
   }

@@ -8,6 +8,7 @@ import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { deleteGoal, updateGoal } from "./route.contract";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; goalId: string }>;
@@ -24,6 +25,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       where: { id: goalId, orgId, projectId },
     });
     if (!existing) return problem(404, "not_found", undefined, { request });
+    // The owner is a current member of this org (the column takes any user).
+    await assertRefsInScope({ orgId }, { member: data.ownerId });
 
     const updated = await prisma.goal.update({
       where: { id: goalId },

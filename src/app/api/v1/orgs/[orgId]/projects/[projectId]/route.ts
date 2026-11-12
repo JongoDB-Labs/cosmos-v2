@@ -4,8 +4,10 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { inKeyProjectScope, requirePermission } from "@/lib/rbac/check";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
-import { Permission, hasPermission } from "@/lib/rbac/permissions";
+import { Permission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
+import { requireProjectManage } from "@/lib/rbac/require-project-manage";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 import { noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { revalidateOrgProjects } from "@/lib/cache/queries";
@@ -85,15 +87,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, updateProject);
     const { params: { orgId, projectId }, body } = await parseRequest(updateProject, request, params);
-    // Inheriting authority: an org-wide PROJECT_UPDATE holder OR a MANAGER of
-    // THIS project may edit it — so a project-admin can run their own project
-    // without org-wide grants.
-    if (
-      !hasPermission(ctx.permissions, Permission.PROJECT_UPDATE) &&
-      !(await canManageProject(ctx, projectId, Permission.PROJECT_UPDATE))
-    ) {
-      return problem(403, "forbidden", undefined, { request });
-    }
+    // Visibility first: a team-scoped project is closed to non-members, and a
+    // project-scoped key reaches only its projects, whatever bit or standing
+    // the caller has. Then the inheriting authority: an org-wide
+    // PROJECT_UPDATE holder OR a MANAGER of THIS project may edit it, so a
+    // project-admin can run their own project without org-wide grants.
+    // `requireProjectManage` applies the key ceiling again before either.
+    await requireProjectVisible(ctx, projectId);
+    await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
     const existing = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!existing) return problem(404, "not_found", undefined, { request });
@@ -103,6 +104,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       // Keep only the known toggleable features; see the contract.
       ...(body.enabledFeatures && { enabledFeatures: body.enabledFeatures.filter(isToggleableFeature) }),
     };
+
+    // The client and the link types must be this org's (a type may be built in).
+    await assertRefsInScope(
+      { orgId },
+      { client: data.clientId, workItemType: [data.krLinkTypeId, data.objectiveLinkTypeId] },
+    );
 
     // teamScopedAccess needs MORE than the gate above. That gate admits an
     // org-wide PROJECT_UPDATE holder, but this flag decides who can SEE the

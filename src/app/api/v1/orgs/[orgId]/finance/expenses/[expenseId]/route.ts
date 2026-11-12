@@ -8,6 +8,7 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { inVisibleProject, requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 import { reimbursableNeedsProject } from "@/lib/finance/reimbursable";
 
 const updateExpenseSchema = z.object({
@@ -89,6 +90,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // Moving it to a project is writing to that project.
     await requireProjectVisibleIf(ctx, data.projectId);
     const nextProject = data.projectId !== undefined ? data.projectId : existing.projectId;
+    await assertRefsInScope({ orgId, projectId: nextProject, viewer: ctx }, { clin: data.clinId });
     const nextReimbursable = data.reimbursable ?? existing.reimbursable;
     if (nextReimbursable && !nextProject) return reimbursableNeedsProject();
 

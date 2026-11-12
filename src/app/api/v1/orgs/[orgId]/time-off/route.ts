@@ -5,7 +5,9 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { logAudit } from "@/lib/audit";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 import { totalHours } from "@/lib/time/time-off";
 import type { Prisma } from "@prisma/client";
 
@@ -166,9 +168,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const mayDecide = hasPermission(ctx.permissions, Permission.TIME_APPROVE);
 
     const subject = body.userId ?? ctx.userId;
-    if (subject !== ctx.userId && !mayDecide) {
+    const onBehalf = subject !== ctx.userId;
+    if (onBehalf && !mayDecide) {
       return new Response("Forbidden", { status: 403 });
     }
+    // Somebody else is a current member of this org: the column takes any
+    // user, including another org's or one this org removed.
+    if (onBehalf) await assertRefsInScope({ orgId }, { member: subject });
 
     const preApproved = body.kind === "HOLIDAY" && mayDecide;
 
@@ -188,6 +194,18 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       },
       select: SELECT,
     });
+    // Booking another person's time, possibly pre-approved, is on the record.
+    if (onBehalf) {
+      await logAudit({
+        orgId,
+        userId: ctx.userId,
+        action: "time_off.filed_for",
+        entity: "time_off_request",
+        entityId: created.id,
+        metadata: { userId: subject, kind: body.kind, status: created.status } as Record<string, string>,
+        ipAddress: getIpAddress(req),
+      });
+    }
     return success(shape(created), 201);
   } catch (e) {
     return handleApiError(e);

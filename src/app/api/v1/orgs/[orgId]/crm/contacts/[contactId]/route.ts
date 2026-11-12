@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { crmStageSchema } from "@/lib/crm/stages";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
 const updateContactSchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -72,6 +73,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = updateContactSchema.parse(body);
+    // The owner is a current member of this org (the column takes any user).
+    await assertRefsInScope({ orgId }, { member: data.ownerId });
 
     const updated = await prisma.crmContact.update({
       where: { id: contactId },

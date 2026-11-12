@@ -31,11 +31,13 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     // caller cannot open is not found, and its PDF is the contract in full.
     if (!contract || !(await mayReadContract(ctx, contract.projectId)))
       return new Response("Contract not found", { status: 404 });
+    // Never print another org's partner onto this org's contract.
+    const partner = contract.partner?.orgId === contract.orgId ? contract.partner : null;
 
     const pdfBuffer = await generateContractPdf({
       title: contract.title ?? "Contract",
-      partyName: contract.partner?.name ?? "Unknown party",
-      partyEmail: contract.partner?.contactEmail ?? null,
+      partyName: partner?.name ?? "Unknown party",
+      partyEmail: partner?.contactEmail ?? null,
       value: typeof contract.value === "number" ? contract.value : null,
       startDate: contract.startDate ?? null,
       endDate: contract.endDate ?? null,

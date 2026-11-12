@@ -45,7 +45,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       return new Response("Not found", { status: 404 });
 
     const links = await prisma.objectiveLink.findMany({
-      where: { objectiveId },
+      // Links to the org's own items only.
+      where: { objectiveId, workItem: { orgId } },
       select: {
         id: true,
         workItem: {

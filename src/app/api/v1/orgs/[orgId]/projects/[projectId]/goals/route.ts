@@ -11,6 +11,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createGoal, listGoals } from "./route.contract";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -92,6 +93,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { params: { orgId, projectId }, body: data } = await parseRequest(createGoal, request, params);
     await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.OKR_CREATE);
+    // The owner is a current member of this org (the column takes any user).
+    await assertRefsInScope({ orgId }, { member: data.ownerId });
 
     const project = await prisma.project.findFirst({
       where: { id: projectId, orgId },

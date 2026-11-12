@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
@@ -91,15 +92,24 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const inUseCount = await prisma.workItem.count({ where: { workItemTypeId: typeId } });
-    if (inUseCount > 0) {
-      return new Response(
-        JSON.stringify({ error: "Work item type is in use by existing work items", count: inUseCount }),
+    // The org's own items. Counting every item would report how many of
+    // another org's rows an older, unchecked write pointed at this type.
+    const inUse = (count: number) =>
+      new Response(
+        JSON.stringify({ error: "Work item type is in use by existing work items", count }),
         { status: 409, headers: { "Content-Type": "application/json" } }
       );
-    }
+    const inUseCount = await prisma.workItem.count({ where: { workItemTypeId: typeId, orgId } });
+    if (inUseCount > 0) return inUse(inUseCount);
 
-    await prisma.workItemType.delete({ where: { id: typeId } });
+    try {
+      await prisma.workItemType.delete({ where: { id: typeId } });
+    } catch (e) {
+      // Such a foreign row still holds the foreign key. Refuse as "in use",
+      // without its count, rather than fail with a 500.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") return inUse(0);
+      throw e;
+    }
 
     await logAudit({
       orgId,

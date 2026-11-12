@@ -9,6 +9,7 @@ import { uniqueSlug } from "@/lib/templates/slugify";
 import { getEntitlements, filterBySector } from "@/lib/entitlements";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
 const createBoardTemplateSchema = z.object({
   name: z.string().min(1).max(100),
@@ -72,6 +73,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = createBoardTemplateSchema.parse(body);
+    // Only the org's own project template: a built-in one is shared by every
+    // org, and attaching a board to it would add that board to their projects.
+    await assertRefsInScope({ orgId }, { projectTemplate: data.projectTemplateId });
 
     const slug = await uniqueSlug("boardTemplate", data.name, orgId);
 

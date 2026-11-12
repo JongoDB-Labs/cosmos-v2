@@ -172,19 +172,30 @@ describe("PUT teamScopedAccess — stricter than an ordinary settings edit", () 
 });
 
 describe("PUT number — numbering an existing project", () => {
+  /**
+   * Answer `project.findFirst` by what it asks, not by call order: the gate's
+   * visibility lookup, the project itself and the uniqueness check are all
+   * `findFirst`, and a queue of answers would hand each to the wrong one.
+   */
+  function projectsWhere(holder: { id: string } | null, number: string | null = null) {
+    prisma.project.findFirst.mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
+      "number" in where ? holder : { id: PROJECT_ID, orgId: ORG_ID, settings: {}, number, teamScopedAccess: false },
+    );
+  }
+  const uniquenessCalls = () =>
+    prisma.project.findFirst.mock.calls.filter((call) => "number" in (call[0] as { where: Record<string, unknown> }).where);
+
   it("sets the number when no other project holds it", async () => {
     getAuthContext.mockResolvedValue(ctxWith(Permission.PROJECT_UPDATE));
-    // First lookup: the project itself. Second: who else holds the number.
-    prisma.project.findFirst
-      .mockResolvedValueOnce({ id: PROJECT_ID, orgId: ORG_ID, settings: {}, number: null })
-      .mockResolvedValueOnce(null);
+    projectsWhere(null);
 
     const res = await PUT(putRequest({ number: "26-014" }), { params });
 
     expect(res.status).toBe(200);
     expect(prisma.project.update.mock.calls[0][0].data.number).toBe("26-014");
     // The uniqueness check excludes the project being edited.
-    expect(prisma.project.findFirst.mock.calls[1][0].where).toMatchObject({
+    expect(uniquenessCalls()).toHaveLength(1);
+    expect(uniquenessCalls()[0][0].where).toMatchObject({
       orgId: ORG_ID,
       number: "26-014",
       id: { not: PROJECT_ID },
@@ -193,19 +204,18 @@ describe("PUT number — numbering an existing project", () => {
 
   it("409s when another project in the org holds it, and never writes", async () => {
     getAuthContext.mockResolvedValue(ctxWith(Permission.PROJECT_UPDATE));
-    prisma.project.findFirst
-      .mockResolvedValueOnce({ id: PROJECT_ID, orgId: ORG_ID, settings: {}, number: null })
-      .mockResolvedValueOnce({ id: "someone-else" });
+    projectsWhere({ id: "someone-else" });
 
     const res = await PUT(putRequest({ number: "26-001" }), { params });
 
     expect(res.status).toBe(409);
+    expect(uniquenessCalls()).toHaveLength(1);
     expect(prisma.project.update).not.toHaveBeenCalled();
   });
 
   it("null clears it", async () => {
     getAuthContext.mockResolvedValue(ctxWith(Permission.PROJECT_UPDATE));
-    prisma.project.findFirst.mockResolvedValueOnce({ id: PROJECT_ID, orgId: ORG_ID, settings: {}, number: "26-001" });
+    projectsWhere(null, "26-001");
 
     const res = await PUT(putRequest({ number: null }), { params });
 

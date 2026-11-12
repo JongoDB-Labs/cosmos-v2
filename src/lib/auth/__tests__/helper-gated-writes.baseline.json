@@ -119,9 +119,6 @@
   "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]": [
     "canManageProject"
   ],
-  "DELETE v1/orgs/[orgId]/projects/[projectId]/work-items/bulk": [
-    "requireProjectManage"
-  ],
   "DELETE v1/orgs/[orgId]/projects/[projectId]/workflows/[workflowId]": [
     "requireProjectManage"
   ],
@@ -196,6 +193,7 @@
     "requireProjectManage"
   ],
   "PATCH v1/orgs/[orgId]/projects/[projectId]/staffing/[memberId]": [
+    "canManageProject",
     "requireProjectManage"
   ],
   "PATCH v1/orgs/[orgId]/projects/[projectId]/statuses/[key]": [
@@ -302,7 +300,7 @@
     "requireProjectManage"
   ],
   "POST v1/orgs/[orgId]/projects/[projectId]/import": [
-    "canManageProject"
+    "requireProjectManage"
   ],
   "POST v1/orgs/[orgId]/projects/[projectId]/intervals": [
     "requireProjectManage"
@@ -408,7 +406,8 @@
     "role literal"
   ],
   "PUT v1/orgs/[orgId]/projects/[projectId]": [
-    "canManageProject"
+    "canManageProject",
+    "requireProjectManage"
   ],
   "PUT v1/orgs/[orgId]/projects/[projectId]/boards/[boardId]": [
     "canManageProject"

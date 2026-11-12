@@ -9,6 +9,7 @@ import { sweepMarkedComments } from "@/lib/feedback/comments.server";
 import { z } from "zod";
 import { ClassificationLevel } from "@prisma/client";
 import { syncInvitesAfterClassification } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
 const createClassificationSchema = z.object({
   projectId: z.string().uuid().nullish(),
@@ -76,6 +77,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = createClassificationSchema.parse(body);
+    // A project's marking is set on one of this org's projects the caller can see.
+    await assertRefsInScope({ orgId, viewer: ctx }, { project: data.projectId });
 
     let classification;
 
