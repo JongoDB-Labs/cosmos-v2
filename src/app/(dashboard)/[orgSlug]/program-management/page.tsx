@@ -10,10 +10,11 @@ import { canViewPage } from "@/lib/nav/page-access";
 import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { hasAnyPermission, Permission } from "@/lib/rbac/permissions";
 import { NoPageAccess } from "@/components/ui/no-page-access";
-import { PageShell } from "@/components/ui/page-shell";
+import { PageShell, pageShellBoxClassName, type PageShellProps } from "@/components/ui/page-shell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HardHat } from "lucide-react";
 import { headers } from "next/headers";
+import { connection } from "next/server";
 import { publicOriginFromHeaders } from "@/lib/auth/public-url";
 import {
   programManagementEmbedUrl,
@@ -49,10 +50,38 @@ type PageParams = {
  */
 export default function ProgramManagementPage({ params, searchParams }: PageParams) {
   return (
-    <Suspense fallback={<ProgramManagementSkeleton />}>
+    <Suspense fallback={null}>
+      <ProgramManagementLoading params={params} searchParams={searchParams} />
+    </Suspense>
+  );
+}
+
+/**
+ * The skeleton must sit in the box the page arrives in, and that box depends on
+ * the instance's PROGRAM_MANAGEMENT_EMBED_URL. A framed dashboard spans the
+ * window, and the built-in page uses the default column. With one fixed
+ * skeleton, an instance with a framed dashboard loaded narrow and then jumped
+ * wide.
+ *
+ * `connection()` comes first because, under Cache Components, a plain
+ * `process.env` read can be fixed at build time (see root-brand-provider.tsx),
+ * and images are built without this variable. The dashboard layout already
+ * reads the session above this page, so the page renders per request anyway.
+ * This only makes the setting a request-time read.
+ */
+async function ProgramManagementLoading({ params, searchParams }: PageParams) {
+  await connection();
+  const embedded = programManagementEmbedUrl() !== null;
+  return (
+    <Suspense fallback={<ProgramManagementSkeleton embedded={embedded} />}>
       <ProgramManagementContent params={params} searchParams={searchParams} />
     </Suspense>
   );
+}
+
+/** The page's width, read by the page and its skeleton alike so they cannot disagree. */
+function pageWidth(embedded: boolean): NonNullable<PageShellProps["maxWidth"]> {
+  return embedded ? "full" : "7xl";
 }
 
 /**
@@ -70,7 +99,8 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
   // two copies of one rule is how a page and its nav entry drift apart.
   if (!canViewPage(ctx.permissions, "/program-management")) {
     return (
-      <PageShell title="Program Management">
+      // The skeleton's width, so the notice does not arrive in a narrower box.
+      <PageShell title="Program Management" maxWidth={pageWidth(programManagementEmbedUrl() !== null)}>
         <NoPageAccess what="program management" />
       </PageShell>
     );
@@ -91,7 +121,7 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
     const there = here ? programManagementSameSiteOrigin(here) : null;
     if (there) redirect(`${there}/${encodeURIComponent(orgSlug)}/program-management`);
     return (
-      <PageShell tourAnchor="program-management" title="Program Management" maxWidth="full">
+      <PageShell tourAnchor="program-management" title="Program Management" maxWidth={pageWidth(true)}>
         <EmbeddedDashboard src={embed.href} signInSrc={programManagementSignInUrl()?.href ?? embed.href} />
       </PageShell>
     );
@@ -194,6 +224,7 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
     <PageShell
       tourAnchor="program-management"
       title="Program Management"
+      maxWidth={pageWidth(false)}
       description={
         selected
           ? `${selected.name} — schedule, risk and delivery`
@@ -294,10 +325,30 @@ function UnderConstruction() {
   );
 }
 
-function ProgramManagementSkeleton() {
+/**
+ * Laid out in the PageShell box the page arrives in (see pageWidth), and shaped
+ * like the content for each mode: the framed dashboard has only a title, a
+ * toolbar and the frame, so its skeleton promises no picker and no panels.
+ */
+function ProgramManagementSkeleton({ embedded }: { embedded: boolean }) {
+  if (embedded) {
+    return (
+      <div className={pageShellBoxClassName(pageWidth(true))}>
+        <Skeleton className="mb-5 h-8 w-64 md:mb-8" />
+        <div className="flex flex-col gap-3">
+          <div className="flex justify-end gap-2">
+            <Skeleton className="h-7 w-7" />
+            <Skeleton className="h-7 w-32" />
+          </div>
+          {/* The frame's size, from embedded-dashboard.tsx. */}
+          <Skeleton className="h-[calc(100dvh-13rem)] min-h-[32rem] w-full rounded-[var(--radius)]" />
+        </div>
+      </div>
+    );
+  }
   return (
-    <div className="mx-auto max-w-7xl p-8">
-      <div className="mb-6 flex items-start justify-between gap-4">
+    <div className={pageShellBoxClassName(pageWidth(false))}>
+      <div className="mb-5 flex items-start justify-between gap-4 md:mb-8">
         <div className="min-w-0">
           <Skeleton className="h-8 w-64" />
           <Skeleton className="mt-2 h-4 w-96" />

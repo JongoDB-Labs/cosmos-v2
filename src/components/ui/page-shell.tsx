@@ -31,6 +31,17 @@ const MAX_W = {
   full: "max-w-full",
 } as const;
 
+/**
+ * The box PageShell lays a page out in. Exported for loading skeletons: one
+ * that sits in a different box makes the page jump when it arrives.
+ */
+export function pageShellBoxClassName(
+  maxWidth: NonNullable<PageShellProps["maxWidth"]> = "7xl",
+  className?: string,
+): string {
+  return cn("mx-auto px-4 py-5 md:p-8", MAX_W[maxWidth], className);
+}
+
 export function PageShell({
   title,
   description,
@@ -41,7 +52,7 @@ export function PageShell({
   tourAnchor,
 }: PageShellProps) {
   return (
-    <div className={cn("mx-auto px-4 py-5 md:p-8", MAX_W[maxWidth], className)}>
+    <div className={pageShellBoxClassName(maxWidth, className)}>
       <div className="mb-5 flex items-start justify-between gap-4 md:mb-8">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight text-[var(--text)]">
