@@ -198,6 +198,18 @@ describe("QueryBuilder — CQL", () => {
     expect((screen.getByRole("textbox", { name: "Query" }) as HTMLTextAreaElement).value).toBe(examples[0].querySelector("code")!.textContent);
   });
 
+  it("the syntax help's prose keeps a readable line length however wide the page is", () => {
+    // Work Items and boards run full width. Uncapped, each paragraph here was
+    // one line of ~280 characters on a 2560px window.
+    renderBar("", "advanced");
+    fireEvent.click(screen.getByRole("button", { name: "Syntax help" }));
+    const paragraphs = within(screen.getByRole("region", { name: "Query syntax" })).getAllByText(
+      (_, el) => el?.tagName === "P",
+    );
+    expect(paragraphs.length).toBeGreaterThan(0);
+    for (const p of paragraphs) expect(p.classList.contains("max-w-prose"), p.textContent ?? "").toBe(true);
+  });
+
   it("Format tidies the draft without running it", () => {
     renderBar("", "advanced");
     const editor = screen.getByRole("textbox", { name: "Query" });

@@ -44,6 +44,9 @@ async function WorkItemsPageContent({ params }: PageParams) {
       tourAnchor="issues"
       title="Work Items"
       description={`Search work items across every project in ${org.name}`}
+      // The table is the page, and it is wide. In the default 7xl column it
+      // scrolled sideways while a wide window sat empty beside it.
+      maxWidth="full"
       // Labels are managed from here because this is where they are used and
       // filtered — a top-level nav entry for them would be a lot of chrome for
       // something you reach for while looking at issues.
@@ -72,9 +75,11 @@ async function WorkItemsPageContent({ params }: PageParams) {
   );
 }
 
+/** Same box as the full-width PageShell above, so the page does not jump wider
+ *  when it arrives. */
 function WorkItemsSkeleton() {
   return (
-    <div className="mx-auto max-w-7xl p-8">
+    <div className="mx-auto max-w-full px-4 py-5 md:p-8">
       <div className="mb-6">
         <Skeleton className="h-8 w-28" />
         <Skeleton className="mt-2 h-4 w-72" />
