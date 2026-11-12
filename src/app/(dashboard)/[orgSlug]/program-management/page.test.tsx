@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { isValidElement, type ReactElement } from "react";
 import { Permission } from "@/lib/rbac/permissions";
 
-const { prisma, getAuthContext, getVisibleProjectIds, loaders } = vi.hoisted(() => {
+const { prisma, getAuthContext, requestHeaders, getVisibleProjectIds, loaders } = vi.hoisted(() => {
   const rows = () => ({ findMany: vi.fn(async () => []) });
   return {
     prisma: {
@@ -33,6 +33,9 @@ const { prisma, getAuthContext, getVisibleProjectIds, loaders } = vi.hoisted(() 
       changeRequest: rows(),
     },
     getAuthContext: vi.fn(),
+    // The request's host, as the reverse proxy forwards it. Same site as the
+    // tests' dashboard (pm.example.com) unless a test says otherwise.
+    requestHeaders: { value: new Headers({ "x-forwarded-host": "cosmos.example.com", "x-forwarded-proto": "https" }) },
     // TWO visible: with one, a page that ignored ?project= entirely would
     // produce the same ids as one that narrowed correctly.
     getVisibleProjectIds: vi.fn(async () => new Set(["p-open", "p-other"])),
@@ -50,6 +53,7 @@ vi.mock("@/lib/rbac/project-access", () => ({ getVisibleProjectIds }));
 vi.mock("@/lib/pm/schedule", () => ({ loadMilestonesWithDerived: loaders.milestones }));
 vi.mock("@/lib/pm/kpi-derive", () => ({ loadKpisWithDerived: loaders.kpis }));
 vi.mock("@/lib/pm/burn", () => ({ loadClinsWithBurn: loaders.clins }));
+vi.mock("next/headers", () => ({ headers: async () => requestHeaders.value }));
 vi.mock("next/navigation", () => ({
   redirect: vi.fn(() => {
     throw new Error("redirect");
@@ -66,6 +70,7 @@ vi.mock("./embedded-dashboard", () => ({ EmbeddedDashboard: () => null }));
 
 import { ProgramManagementContent } from "./page";
 import { PageShell } from "@/components/ui/page-shell";
+import { redirect } from "next/navigation";
 
 const params = Promise.resolve({ orgSlug: "acme" });
 const noQuery = Promise.resolve({});
@@ -89,11 +94,14 @@ beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.PROGRAM_MANAGEMENT_EMBED_URL;
   delete process.env.PROGRAM_MANAGEMENT_SIGN_IN_URL;
+  delete process.env.COSMOS_SITE_ADDRESS;
+  requestHeaders.value = new Headers({ "x-forwarded-host": "cosmos.example.com", "x-forwarded-proto": "https" });
 });
 
 afterEach(() => {
   delete process.env.PROGRAM_MANAGEMENT_EMBED_URL;
   delete process.env.PROGRAM_MANAGEMENT_SIGN_IN_URL;
+  delete process.env.COSMOS_SITE_ADDRESS;
 });
 
 describe("Program Management — scope", () => {
@@ -271,6 +279,35 @@ describe("Program Management — an outside dashboard, when the instance sets on
     const el = (await ProgramManagementContent({ params, searchParams: noQuery })) as ReactElement;
     expect(findByDisplayName(el, "EmbeddedDashboard")).toBeNull();
     expect(findByDisplayName(el, "NoPageAccess")).not.toBeNull();
+  });
+
+  it("at an address on another site, goes to the instance's address on the dashboard's site", async () => {
+    // Found live: at the old domain the frame never stays signed in, and every
+    // sign-in loops back to the dashboard's sign-in page.
+    process.env.PROGRAM_MANAGEMENT_EMBED_URL = URL_SET;
+    process.env.COSMOS_SITE_ADDRESS = "cosmos.example.net, cosmos.example.com";
+    requestHeaders.value = new Headers({ "x-forwarded-host": "cosmos.example.net", "x-forwarded-proto": "https" });
+    signedInWith(PROGRAM_ONLY);
+    await expect(ProgramManagementContent({ params, searchParams: noQuery })).rejects.toThrow("redirect");
+    expect(redirect).toHaveBeenCalledWith("https://cosmos.example.com/acme/program-management");
+  });
+
+  it("control: at the address on the dashboard's site, it frames the dashboard without redirecting", async () => {
+    process.env.PROGRAM_MANAGEMENT_EMBED_URL = URL_SET;
+    process.env.COSMOS_SITE_ADDRESS = "cosmos.example.net, cosmos.example.com";
+    signedInWith(PROGRAM_ONLY);
+    const el = (await ProgramManagementContent({ params, searchParams: noQuery })) as ReactElement;
+    expect(redirect).not.toHaveBeenCalled();
+    expect(findByDisplayName(el, "EmbeddedDashboard")).not.toBeNull();
+  });
+
+  it("does not redirect for the built-in page, whatever the address", async () => {
+    process.env.COSMOS_SITE_ADDRESS = "cosmos.example.net, cosmos.example.com";
+    requestHeaders.value = new Headers({ "x-forwarded-host": "cosmos.example.net", "x-forwarded-proto": "https" });
+    signedInWith(PROGRAM_ONLY);
+    const el = (await ProgramManagementContent({ params, searchParams: noQuery })) as ReactElement;
+    expect(redirect).not.toHaveBeenCalled();
+    expect(findByDisplayName(el, "PmDashboard")).not.toBeNull();
   });
 
   it("falls back to the built-in page when the URL is unusable", async () => {

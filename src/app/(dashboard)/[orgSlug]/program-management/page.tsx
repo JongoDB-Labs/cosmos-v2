@@ -13,7 +13,13 @@ import { NoPageAccess } from "@/components/ui/no-page-access";
 import { PageShell } from "@/components/ui/page-shell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HardHat } from "lucide-react";
-import { programManagementEmbedUrl, programManagementSignInUrl } from "@/lib/pm/embed";
+import { headers } from "next/headers";
+import { publicOriginFromHeaders } from "@/lib/auth/public-url";
+import {
+  programManagementEmbedUrl,
+  programManagementSameSiteOrigin,
+  programManagementSignInUrl,
+} from "@/lib/pm/embed";
 import { ProjectPicker } from "./project-picker";
 import { EmbeddedDashboard } from "./embedded-dashboard";
 
@@ -77,6 +83,13 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
   // for it -- the registers would be queried only to be thrown away.
   const embed = programManagementEmbedUrl();
   if (embed) {
+    // Opened at an address on another site than the dashboard, the frame can
+    // never be signed in, and every sign-in loops back to its sign-in page.
+    // Go to this instance's address that shares the dashboard's site, when it
+    // has one (src/lib/pm/embed.ts).
+    const here = publicOriginFromHeaders(await headers());
+    const there = here ? programManagementSameSiteOrigin(here) : null;
+    if (there) redirect(`${there}/${encodeURIComponent(orgSlug)}/program-management`);
     return (
       <PageShell tourAnchor="program-management" title="Program Management" maxWidth="full">
         <EmbeddedDashboard src={embed.href} signInSrc={programManagementSignInUrl()?.href ?? embed.href} />

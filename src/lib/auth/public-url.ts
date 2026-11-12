@@ -10,18 +10,19 @@
  * 3. Fall back to request.url's origin
  */
 export function getPublicOrigin(request: Request): string {
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const forwardedProto = request.headers.get("x-forwarded-proto");
-  const hostHeader = request.headers.get("host");
-
-  const host = forwardedHost ?? hostHeader;
-  if (host) {
-    const proto =
-      forwardedProto ??
-      (host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https");
-    return `${proto}://${host}`;
-  }
-
   // Last-resort fallback — should be unreachable in practice
-  return new URL(request.url).origin;
+  return publicOriginFromHeaders(request.headers) ?? new URL(request.url).origin;
+}
+
+/**
+ * Steps 1 and 2 of `getPublicOrigin`, for a server component, which has
+ * `headers()` rather than a Request. Null when neither host header is present.
+ */
+export function publicOriginFromHeaders(headers: Pick<Headers, "get">): string | null {
+  const host = headers.get("x-forwarded-host") ?? headers.get("host");
+  if (!host) return null;
+  const proto =
+    headers.get("x-forwarded-proto") ??
+    (host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https");
+  return `${proto}://${host}`;
 }
