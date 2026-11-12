@@ -4,7 +4,7 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
-import { krProgressPercent, objectiveProgressPercent } from "@/lib/okr/progress";
+import { measureKeyResult, rollUpObjective } from "@/lib/okr/progress";
 import { objectiveHealth } from "@/lib/okr/health";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
@@ -60,51 +60,43 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
 
     // FR a94ff583: a Key Result with linked tickets AUTO-tracks — its current
-    // value becomes the count of its linked tickets that are done. The objective
-    // progress rolls up from the (possibly auto-derived) KR values, and health
-    // is derived from that progress vs. the objective's target date.
+    // value becomes the count of its linked tickets that are done, and its
+    // target the count of linked tickets unless someone set one. The objective
+    // rolls up from the measured KRs (or, with none, from its own links), and
+    // health is derived from that progress vs. the objective's target date.
+    // Cosmo, dashboards and goals read the same rule (lib/okr).
     const shaped = objectives.map((o) => {
-      const keyResults = o.keyResults.map((kr) => {
+      const measured = o.keyResults.map((kr) => {
         const linkedItems = kr.links.map((l) => l.workItem);
-        const linkedTotal = linkedItems.length;
-        const linkedDone = linkedItems.filter((w) => w.completedAt != null).length;
-        const currentValue = linkedTotal > 0 ? linkedDone : kr.currentValue;
-        return {
-          ...kr,
-          links: undefined,
-          currentValue,
-          autoTracked: linkedTotal > 0,
-          linkedTotal,
-          linkedDone,
-          linkedItems,
-        };
+        return { kr, linkedItems, m: measureKeyResult(kr, linkedItems) };
       });
       // #52 — the work items this objective is delivered by. Key results still
       // win the roll-up; these only speak for an objective that has none, which
       // previously reported a permanent 0.
       const linkedItems = o.links.map((l) => l.workItem);
-      const linkedTotal = linkedItems.length;
-      const linkedDone = linkedItems.filter((w) => w.completedAt != null).length;
-
-      const progress = objectiveProgressPercent(
-        keyResults.map((kr) =>
-          krProgressPercent(kr.startValue, kr.currentValue, kr.targetValue, kr.lowerIsBetter),
-        ),
-        linkedTotal,
-        linkedDone,
-      );
+      const roll = rollUpObjective(measured.map(({ m }) => m), linkedItems);
       return {
         ...o,
         links: undefined,
-        keyResults,
-        progress,
+        keyResults: measured.map(({ kr, linkedItems: krItems, m }) => ({
+          ...kr,
+          links: undefined,
+          currentValue: m.currentValue,
+          targetValue: m.targetValue,
+          autoTracked: m.autoTracked,
+          targetFromLinks: m.targetFromLinks,
+          linkedTotal: m.linkedTotal,
+          linkedDone: m.linkedDone,
+          linkedItems: krItems,
+        })),
+        progress: roll.progress,
         // `autoTracked` mirrors the KR vocabulary: the number is derived from
         // delivery rather than typed in.
-        autoTracked: keyResults.length === 0 && linkedTotal > 0,
-        linkedTotal,
-        linkedDone,
+        autoTracked: roll.autoTracked,
+        linkedTotal: roll.linkedTotal,
+        linkedDone: roll.linkedDone,
         linkedItems,
-        health: objectiveHealth(progress, o.targetDate, o.status, o.createdAt),
+        health: objectiveHealth(roll.progress, o.targetDate, o.status, o.createdAt),
       };
     });
 

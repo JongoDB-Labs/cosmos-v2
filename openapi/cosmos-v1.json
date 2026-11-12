@@ -3,7 +3,7 @@
   "info": {
     "title": "Cosmos API",
     "version": "2026-11-01",
-    "description": "The Cosmos REST API. Guides, authentication and the changelog are at /developers."
+    "description": "The Cosmos REST API. Authentication, API keys and error codes: /developers."
   },
   "servers": [
     {
@@ -2897,6 +2897,10 @@
                 "linkedDone": {
                   "type": "integer"
                 },
+                "targetFromLinks": {
+                  "type": "boolean",
+                  "description": "`targetValue` is the number of linked work items, because no target was set. A key result with linked items and the default target of 100 counts as not set."
+                },
                 "linkedItems": {
                   "type": "array",
                   "items": {
@@ -2952,6 +2956,7 @@
                 "autoTracked",
                 "linkedTotal",
                 "linkedDone",
+                "targetFromLinks",
                 "linkedItems"
               ]
             }
@@ -3040,7 +3045,7 @@
           "linkedItems",
           "health"
         ],
-        "description": "A key result with linked work items counts done items as its current value; the objective rolls up from its key results (or, with none, from its own linked items)."
+        "description": "A key result with linked work items counts done items as its current value, and the linked items as its target unless one was set; the objective rolls up from its key results (or, with none, from its own linked items)."
       },
       "ReorderResult": {
         "type": "object",

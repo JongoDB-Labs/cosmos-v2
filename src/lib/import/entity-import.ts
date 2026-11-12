@@ -60,6 +60,7 @@ import {
   type EntityImportRequest,
   type EntityImportRowError,
   type ImportField,
+  splitIncrementSuffix,
 } from "./entity-fields";
 
 export interface EntityEngineCtx {
@@ -207,6 +208,13 @@ export interface MappedRow {
   warnings: string[];
   /** Blocking error (missing required field, etc.) — routes the row to skipped. */
   error: string | null;
+  /**
+   * fieldKey → the label of the field its value was split from, for a value
+   * that is a Program Increment cut off another cell ("Proposed · PI-3" puts
+   * "PI-3" in `intervalId`, from Status). `resolveLookups` resolves those
+   * against increments and names the cell they came from.
+   */
+  incrementFrom?: Record<string, string>;
 }
 
 /** First source header chosen for each fieldKey (first mapping wins). */
@@ -226,14 +234,31 @@ export function mapRows(def: EntityDef, req: EntityImportRequest): MappedRow[] {
     const rowNum = i + 1;
     const fields: Record<string, unknown> = {};
     const warnings: string[] = [];
+    const increments: Array<[ImportField, string]> = [];
 
     for (const f of def.fields) {
       const header = headerOf[f.key];
       if (header === undefined) continue; // column not mapped
-      const raw = cell(row[header]);
+      let raw = cell(row[header]);
+      if (f.incrementSuffixTo) {
+        const split = splitIncrementSuffix(raw);
+        raw = split.value;
+        if (split.increment) increments.push([f, split.increment]);
+      }
       const { value, warning } = coerceField(f, raw);
       fields[f.key] = value;
       if (warning) warnings.push(warning);
+    }
+
+    // After every column, so a blank Sprint cell (coerced to null) cannot wipe
+    // the PI, and a named sprint, which is more specific, keeps its place.
+    let incrementFrom: Record<string, string> | undefined;
+    for (const [f, increment] of increments) {
+      const target = f.incrementSuffixTo!;
+      const current = fields[target];
+      if (current !== undefined && current !== null && current !== "") continue;
+      fields[target] = increment;
+      incrementFrom = { ...incrementFrom, [target]: f.label };
     }
 
     // Required-field validation (a coerced-to-null required field is missing).
@@ -246,7 +271,7 @@ export function mapRows(def: EntityDef, req: EntityImportRequest): MappedRow[] {
       .map((f) => f.label);
 
     const error = missing.length ? `Missing required: ${missing.join(", ")}` : null;
-    return { rowNum, fields, warnings, error };
+    return { rowNum, fields, warnings, error, ...(incrementFrom && { incrementFrom }) };
   });
 }
 
@@ -287,25 +312,39 @@ async function resolveLookups(
   const intervals = await prisma.interval.findMany({
     where: { orgId: ctx.orgId, projectId: requireProject(def, ctx) },
     orderBy: { number: "asc" },
-    select: { id: true, name: true },
+    select: { id: true, name: true, intervalKind: true },
   });
   const byName = new Map<string, string>();
+  // A PI cut off a status ("Proposed · PI-3") names a Program Increment, and
+  // is matched against those alone, ignoring spaces and hyphens: "PI 3" and
+  // "PI-3" are the same increment.
+  const incrementKey = (name: string) => name.toLowerCase().replace(/[\s_-]+/g, "");
+  const incrementByName = new Map<string, string>();
   // First wins: interval names are not unique (`@@unique([projectId, number])`
   // is the only constraint), and ascending `number` makes the choice stable
   // rather than whatever order the query happened to return.
   for (const iv of intervals) {
     const key = iv.name.trim().toLowerCase();
     if (key && !byName.has(key)) byName.set(key, iv.id);
+    const pi = incrementKey(iv.name);
+    if (iv.intervalKind === "PROGRAM_INCREMENT" && pi && !incrementByName.has(pi)) {
+      incrementByName.set(pi, iv.id);
+    }
   }
 
   for (const m of pending) {
     const raw = (m.fields.intervalId as string).trim();
-    const id = byName.get(raw.toLowerCase());
+    const from = m.incrementFrom?.intervalId;
+    const id = from ? incrementByName.get(incrementKey(raw)) : byName.get(raw.toLowerCase());
     if (id) {
       m.fields.intervalId = id;
     } else {
       m.fields.intervalId = null;
-      m.warnings.push(`${label}: "${raw}" is not a sprint in this project — left blank`);
+      m.warnings.push(
+        from
+          ? `${from}: "${raw}" is not a Program Increment in this project — the deliverable is left without one`
+          : `${label}: "${raw}" is not a sprint in this project — left blank`,
+      );
     }
   }
 }

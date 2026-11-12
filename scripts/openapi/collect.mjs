@@ -1,8 +1,8 @@
 // scripts/openapi/collect.mjs
 //
 // Writes src/lib/openapi/contracts.generated.ts: a static import of every
-// src/app/api/v1/**/route.contract.ts. The spec build, the /api/v1/openapi.json
-// route and the coverage test all read contracts through it, because a route
+// src/app/api/v1/**/route.contract.ts. The spec build and the coverage test
+// read contracts through it, as would a route serving the spec, because a route
 // handler can't glob the filesystem at runtime. Sorted, so the output is
 // deterministic and `check:openapi` can diff it.
 //

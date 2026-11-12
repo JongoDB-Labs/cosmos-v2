@@ -56,14 +56,19 @@ const Tracking = {
 };
 
 export const ObjectiveWithProgress = Objective.extend({
-  keyResults: z.array(KeyResult.extend({ ...Tracking, linkedItems: z.array(LinkedItem) })),
+  keyResults: z.array(KeyResult.extend({
+    ...Tracking,
+    targetFromLinks: z.boolean()
+      .describe("`targetValue` is the number of linked work items, because no target was set. A key result with linked items and the default target of 100 counts as not set."),
+    linkedItems: z.array(LinkedItem),
+  })),
   ...Tracking,
   linkedItems: z.array(LinkedItem.extend({ workItemTypeId: Uuid })),
   health: z.enum(["done", "on_track", "at_risk", "behind", "no_date"])
     .describe("Progress against the time elapsed toward `targetDate`."),
 }).meta({
   id: "ObjectiveWithProgress",
-  description: "A key result with linked work items counts done items as its current value; the objective rolls up from its key results (or, with none, from its own linked items).",
+  description: "A key result with linked work items counts done items as its current value, and the linked items as its target unless one was set; the objective rolls up from its key results (or, with none, from its own linked items).",
 });
 
 export const KeyResultCheckin = z.object({

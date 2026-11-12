@@ -11,7 +11,7 @@ export const okrTools: ToolDefinition[] = [
   {
     name: "list_objectives",
     description:
-      "List objectives with their key results, rolled-up progress (0-100), and health (on-track / at-risk / behind). Optionally scope to one project.",
+      "List objectives with their key results, rolled-up progress (0-100), and health (on-track / at-risk / behind). A key result with linked work items counts the done ones as its current value and all of them as its target, unless a target was set. Optionally scope to one project.",
     input_schema: {
       type: "object",
       properties: {
@@ -69,7 +69,7 @@ export const okrTools: ToolDefinition[] = [
       properties: {
         objectiveId: { type: "string", description: "Objective ID the KR belongs to" },
         title: { type: "string", description: "Key result title (max 200 chars)" },
-        targetValue: { type: "number", description: "Target value (default 100)" },
+        targetValue: { type: "number", description: "Target value (default 100). Omit it for a key result measured by linked work items: their number becomes the target." },
         startValue: { type: "number", description: "Baseline value (default 0)" },
         currentValue: { type: "number", description: "Current value (default 0)" },
         unit: { type: "string", description: "Optional unit label (max 40 chars)" },

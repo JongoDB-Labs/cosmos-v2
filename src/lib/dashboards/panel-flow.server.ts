@@ -13,6 +13,7 @@ import { aggregateCql } from "@/lib/query/aggregate.server";
 import { burndown } from "@/lib/intervals/burndown";
 import { carryover, predictability, scopeChange, type IntervalChange } from "@/lib/dashboard/scope-change";
 import { objectiveRollup } from "@/lib/dashboard/impediments";
+import { LIVE_PROGRESS_SELECT, liveProgressOf } from "@/lib/okr/rollup.server";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { cycleTime, throughput, workTypeMix, type DeliveryItemLike } from "@/lib/dashboard/delivery-metrics";
@@ -224,11 +225,13 @@ export const FLOW_COMPUTES = {
     } catch {
       return { data: { pi: null }, meta: { total: 0, truncated: false, classification: projectsClassification(cls, []) } };
     }
-    const objectives = await prisma.objective.findMany({
+    // Live progress, by the rule the OKR board shows — not the stored copy,
+    // which a linked ticket finishing never updates (lib/okr/rollup.server).
+    const objectives = (await prisma.objective.findMany({
       where: { orgId: ctx.auth.orgId, projectId: pi.projectId, intervalId: pi.id },
-      select: { id: true, title: true, status: true, progress: true, intervalId: true, committed: true },
+      select: { id: true, title: true, status: true, intervalId: true, committed: true, ...LIVE_PROGRESS_SELECT },
       orderBy: { sortOrder: "asc" },
-    });
+    })).map(({ keyResults, links, ...o }) => ({ ...o, progress: liveProgressOf({ keyResults, links }) }));
     const roll = objectiveRollup(objectives.map((o) => ({ ...o, status: String(o.status) })), pi.id);
     const mark = (o: { id: string; title: string }) => (cls.applies ? { classification: { level: cls.resolver.rowLevel(pi!.projectId, o.title), marked: cls.resolver.restricted(pi!.projectId, o.title) } } : {});
     return {

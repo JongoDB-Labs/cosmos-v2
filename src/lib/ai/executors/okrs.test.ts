@@ -122,6 +122,45 @@ describe("okr executors (e2e DB)", () => {
     expect(typeof list.objectives[0].health).toBe("string");
   });
 
+  it("list_objectives reads a KR counting 3 done linked tickets as 3 / 3 and 100%, like the board", async () => {
+    // A key result made with only a title, as the OKR board's quick-add makes
+    // it, keeps the default target of 100. Linked to three tickets that are all
+    // done it read "3 / 100" — 3% — on the board, here and in the dashboards.
+    const { ctx, project, ownerId, org } = await makeOrg();
+    const obj = (await createObjective({ projectId: project.id, title: "Deliver" }, ctx)) as { id: string };
+    const kr = (await createKeyResult({ objectiveId: obj.id, title: "Ship the three" }, ctx)) as { id: string };
+    // A sibling KR with a target someone set (5), linked to the same tickets:
+    // the set target must survive, so 3 of 5 is 60%.
+    const setKr = (await createKeyResult({ objectiveId: obj.id, title: "Ship five", targetValue: 5 }, ctx)) as { id: string };
+    const items = [
+      await makeWorkItem(org.id, project.id, ownerId),
+      await makeWorkItem(org.id, project.id, ownerId),
+      await makeWorkItem(org.id, project.id, ownerId),
+    ];
+    for (const wi of items) {
+      await linkKeyResultItem({ keyResultId: kr.id, workItemId: wi.id }, ctx);
+      await linkKeyResultItem({ keyResultId: setKr.id, workItemId: wi.id }, ctx);
+    }
+
+    type Listed = { objectives: { progress: number; keyResults: { id: string; currentValue: number; targetValue: number; targetFromLinks: boolean }[] }[] };
+    const read = async () => {
+      const o = ((await listObjectives({ projectId: project.id }, ctx)) as Listed).objectives[0];
+      const byId = new Map(o.keyResults.map((k) => [k.id, k]));
+      return { progress: o.progress, kr: byId.get(kr.id)!, setKr: byId.get(setKr.id)! };
+    };
+
+    // POSITIVE CONTROL: nothing done yet, so the probe can see a non-complete KR.
+    const before = await read();
+    expect([before.kr.currentValue, before.kr.targetValue]).toEqual([0, 3]);
+
+    await prisma.workItem.updateMany({ where: { id: { in: items.map((w) => w.id) } }, data: { completedAt: new Date() } });
+    const after = await read();
+    expect([after.kr.currentValue, after.kr.targetValue, after.kr.targetFromLinks]).toEqual([3, 3, true]);
+    expect([after.setKr.currentValue, after.setKr.targetValue, after.setKr.targetFromLinks]).toEqual([3, 5, false]);
+    // (100 + 60) / 2
+    expect(after.progress).toBe(80);
+  });
+
   it("update_objective + delete_objective mutate the row", async () => {
     const { ctx, project } = await makeOrg();
     const obj = (await createObjective({ projectId: project.id, title: "Temp" }, ctx)) as { id: string };

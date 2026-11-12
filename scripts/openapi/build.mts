@@ -1,7 +1,7 @@
 // scripts/openapi/build.mts
 //
 // Builds the OpenAPI documents from the route contracts:
-//   openapi/cosmos-v1.json           public (stable + beta), COMMITTED, served at /api/v1/openapi.json
+//   openapi/cosmos-v1.json           public (stable + beta), COMMITTED. Not served by the app yet.
 //   openapi/cosmos-v1.internal.json  everything, gitignored, staff only
 // Run `npm run openapi` after changing a contract; CI's `check:openapi` fails
 // when the committed file is stale.

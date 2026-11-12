@@ -18,6 +18,7 @@ import { RecentWindowPicker } from "@/components/projects/recent-window-picker";
 import { recentProjectTouchesForUser } from "@/lib/projects/recent";
 import {
   hoursForWindow,
+  pickRecentProjects,
   windowFromParam,
   type RecentWindowKey,
 } from "@/lib/projects/recent-windows";
@@ -244,15 +245,9 @@ async function ProjectGrid({
     userId,
     hoursForWindow(windowKey),
   );
-  const recent = visible
-    .filter((p) => touched.has(p.id))
-    .sort((a, b) => touched.get(b.id)!.getTime() - touched.get(a.id)!.getTime());
-
-  // Nothing touched in the window — a new member, or a quiet week. Fall back to
-  // the active list rather than showing an empty teaser, and say so, so the
-  // projects on screen are never unexplained.
-  const fellBack = recent.length === 0 && visible.length > 0;
-  const projects = (fellBack ? visible : recent).slice(0, 6);
+  // Newest first; with nothing touched in the window, the org's active list
+  // and a note saying so (lib/projects/recent-windows).
+  const { projects, note } = pickRecentProjects(visible, touched);
 
   if (projects.length === 0) {
     return (
@@ -273,12 +268,7 @@ async function ProjectGrid({
 
   return (
     <>
-      {fellBack && (
-        <p className="mb-3 text-xs text-[var(--text-muted)]">
-          Nothing touched in this window — showing the project&rsquo;s active
-          list instead.
-        </p>
-      )}
+      {note && <p className="mb-3 text-xs text-[var(--text-muted)]">{note}</p>}
     <StaggeredGrid className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
       {projects.map((p) => (
         <Link

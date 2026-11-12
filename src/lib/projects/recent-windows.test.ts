@@ -6,8 +6,10 @@
 import { describe, it, expect } from "vitest";
 import {
   DEFAULT_RECENT_WINDOW,
+  RECENT_FALLBACK_NOTE,
   RECENT_WINDOWS,
   hoursForWindow,
+  pickRecentProjects,
   windowFromParam,
 } from "./recent-windows";
 
@@ -53,5 +55,36 @@ describe("hoursForWindow", () => {
     const def = hoursForWindow(DEFAULT_RECENT_WINDOW);
     expect(def).toBeGreaterThan(Math.min(...hours));
     expect(def).toBeLessThan(Math.max(...hours));
+  });
+});
+
+describe("pickRecentProjects — the Overview's Recent projects card", () => {
+  const p = (id: string) => ({ id, name: id.toUpperCase() });
+  const active = [p("a"), p("b"), p("c")];
+
+  it("shows what you touched, newest first, with no note", () => {
+    const touched = new Map([
+      ["a", new Date("2026-11-01")],
+      ["c", new Date("2026-11-10")],
+    ]);
+    expect(pickRecentProjects(active, touched)).toEqual({ projects: [p("c"), p("a")], note: null });
+  });
+
+  it("falls back to the organization's active projects, and says it is the organization's", () => {
+    const { projects, note } = pickRecentProjects(active, new Map());
+    expect(projects).toEqual(active);
+    expect(note).toBe(RECENT_FALLBACK_NOTE);
+    // The list is the organization's. It said "the project's active list".
+    expect(note).toMatch(/\borganization\u2019s active projects\b/);
+    expect(note).not.toMatch(/project\u2019s|project's/);
+  });
+
+  it("caps the card at six", () => {
+    const many = Array.from({ length: 9 }, (_, i) => p(`p${i}`));
+    expect(pickRecentProjects(many, new Map()).projects).toHaveLength(6);
+  });
+
+  it("says nothing when there are no projects at all (the empty state speaks)", () => {
+    expect(pickRecentProjects([], new Map())).toEqual({ projects: [], note: null });
   });
 });

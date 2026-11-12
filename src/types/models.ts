@@ -247,6 +247,8 @@ export interface KeyResult {
   /** OKR→tickets (FR a94ff583): when the KR has linked tickets it AUTO-tracks —
    *  currentValue = linkedDone. These are populated by the objectives GET. */
   autoTracked?: boolean;
+  /** targetValue is linkedTotal because no target was set (lib/okr/progress). */
+  targetFromLinks?: boolean;
   linkedTotal?: number;
   linkedDone?: number;
   linkedItems?: KeyResultLinkedItem[];

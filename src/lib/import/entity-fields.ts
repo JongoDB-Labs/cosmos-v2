@@ -16,6 +16,18 @@
  * route). This registry is for everything else.
  */
 
+/**
+ * Split a trailing Program Increment off a cell: "Proposed · PI-3" →
+ * { value: "Proposed", increment: "PI-3" }. The separator may be a middle dot,
+ * a bullet, a bar or a dash, or the PI may sit in brackets: "Planned (PI 2)".
+ * A cell without one comes back whole, with `increment: null`; so does a cell
+ * that is ONLY an increment, since there is no value left to match.
+ */
+export function splitIncrementSuffix(raw: string): { value: string; increment: string | null } {
+  const m = /^(.*?\S)\s*(?:[\u00b7\u2022|\u2013\u2014-]\s*|\(\s*)(PI[\s-]?\d+)\s*\)?\s*$/i.exec(raw.trim());
+  return m ? { value: m[1].trim(), increment: m[2] } : { value: raw, increment: null };
+}
+
 /** Sentinel mapping value meaning "don't import this column". */
 export const IGNORE = "__ignore__";
 
@@ -48,6 +60,14 @@ export interface ImportField {
    * warning — not in a mapping that would assert something false.
    */
   enumSynonyms?: Record<string, string>;
+  /**
+   * A planning workbook writes the increment after a status: "Proposed · PI-3".
+   * When set, a trailing Program Increment (see `splitIncrementSuffix`) is cut
+   * off before the value is matched, and is written to THIS field as a name,
+   * for `resolveLookups` to turn into an id. Only when the row leaves that
+   * field blank: a sprint the row names is more specific than its PI.
+   */
+  incrementSuffixTo?: string;
   /** Header synonyms (lowercased) for auto-mapping on upload. */
   synonyms?: string[];
 }
@@ -166,17 +186,19 @@ export const ENTITY_DEFS: EntityDef[] = [
       {
         key: "status", label: "Status", kind: "enum", enum: DELIVERABLE_STATUS,
         synonyms: ["status", "state"],
-        // "Planned" is how a planning workbook spells NOT_STARTED.
+        // A planning workbook's status is a word and, for work in a later
+        // increment, the increment: "Planned", or "Proposed · PI-3". The
+        // increment is split off and kept as the deliverable's interval (the
+        // PI, resolved by name in this project), and the word maps to a state.
         //
-        // A backlog marker such as "Proposed · PI-3" is deliberately NOT here,
-        // and must not be added. It means "not in this PI" — a planning
-        // decision about WHEN the work is scheduled, not a lifecycle state of
-        // the deliverable. Mapping it to NOT_STARTED would record a definite
-        // claim ("this CDRL exists and has not been started") where the sheet
-        // only expressed a proposal, and the difference is invisible once
-        // stored. It falls through to the existing non-blocking warning, which
-        // puts the row in front of a human with its original text intact.
-        enumSynonyms: { planned: "NOT_STARTED" },
+        // "Planned" and "Proposed" both mean the work has not started; they
+        // differ in WHEN it is scheduled, which is what the PI records.
+        // "Proposed" was held back while the PI was thrown away, because
+        // NOT_STARTED alone stored a proposal as an ordinary unstarted
+        // deliverable with no trace of its increment. Now the PI goes into the
+        // interval, and a PI the project doesn't have is named in a warning.
+        enumSynonyms: { planned: "NOT_STARTED", proposed: "NOT_STARTED" },
+        incrementSuffixTo: "intervalId",
       },
       { key: "piObjective", label: "PI Objective", kind: "text", synonyms: ["pi objective", "pi objectives", "objective", "program increment objective"] },
       // The sheet names a SPRINT; the column holds an interval id. Resolved by
