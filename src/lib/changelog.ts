@@ -48,12 +48,6 @@ export interface Release {
 /** Release entries as authored, in whatever order the file happens to hold them.
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
-  // CLEANUP-31 was built on a stated assumption, recorded here so the reviewer
-  // confirms a decision they can see: the ticket's "change only these files"
-  // list was read as the primary-finding list, not a hard limit, so the
-  // collateral files each finding's own instruction names (workflow/engine.server.ts,
-  // query/index.ts and the work-item PUT route) were edited too — the deletions
-  // do not compile otherwise. Two of the eight findings were skipped; see the PR.
   {
     version: "2.547.1",
     date: "2026-11-12",
