@@ -535,13 +535,13 @@ function AskAi({ orgId, onQuery }: { orgId: string; onQuery: (cql: string) => vo
 function SyntaxHelp({ onPick }: { onPick: (q: string) => void }) {
   return (
     <div role="region" aria-label="Query syntax" className="rounded-md border border-[var(--border)] bg-[var(--bg)] p-3 text-xs">
-      <p className="mb-2 text-[var(--text-muted)]">
+      <p className="mb-2 max-w-prose text-[var(--text-muted)]">
         <code>field operator value</code>, joined with <code>AND</code> / <code>OR</code> and grouped with parentheses.
         Operators: <code>= != &lt; &lt;= &gt; &gt;= IN NOT IN ~ !~ IS EMPTY</code>. Dates: <code>2026-01-31</code>,{" "}
         <code>-7d</code>, <code>-3wd</code> (working days), <code>startOfWeek()</code>. <code>me</code> is you. Ctrl+Space
         suggests what fits.
       </p>
-      <p className="mb-2 text-[var(--text-muted)]">
+      <p className="mb-2 max-w-prose text-[var(--text-muted)]">
         History: <code>WAS</code>, <code>WAS NOT</code>, <code>WAS IN</code> and <code>CHANGED</code>, with{" "}
         <code>FROM</code> / <code>TO</code> / <code>BY</code> / <code>AFTER</code> / <code>BEFORE</code> / <code>ON</code> /{" "}
         <code>DURING (a, b)</code>, for status, priority, assignee, sprint, team, type, due, start and completed. It

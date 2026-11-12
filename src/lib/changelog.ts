@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.547.3",
+    date: "2026-11-12",
+    title: "Work Items uses the whole window",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Work Items table now spreads across a wide window instead of sitting in a narrow column, so it no longer scrolls sideways while space beside it goes unused.",
+      },
+      {
+        kind: "improvement",
+        text: "The query syntax help wraps at a comfortable reading width, however wide the page is.",
+      },
+    ],
+  },
+  {
     version: "2.547.2",
     date: "2026-11-12",
     title: "Comment links no longer multiply while you type",
