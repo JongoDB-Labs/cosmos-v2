@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.547.1",
+    date: "2026-11-12",
+    title: "The MCP setup example runs the server that comes with Cosmos",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The MCP example under Settings → API keys now runs the small ingest server in the Cosmos repository, with Node. It used to tell your MCP client to install a package from npm. That package is not ours, and the example gave it your API key. If you set up the old example, revoke that key and mint a new one. The example also now sets the project id the server needs.",
+      },
+    ],
+  },
+  {
     version: "2.547.0",
     date: "2026-11-11",
     title: "An old Cosmos address now takes you to the current one",
