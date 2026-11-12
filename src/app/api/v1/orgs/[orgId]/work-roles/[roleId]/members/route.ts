@@ -3,7 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { Permission, isPermissionSubset, maskFromDb } from "@/lib/rbac/permissions";
+import { Permission, maskFromDb } from "@/lib/rbac/permissions";
+import { workRoleCeilingRefusal } from "@/lib/rbac/grant-ceiling";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 
@@ -53,7 +54,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // ORG_MANAGE_BILLING / ORG_DELETE) to themselves or anyone and escalate.
     // Ceiling is basePermissions (excludes the actor's own work-role grants) so
     // a self-assigned grant can't be re-laundered. OWNER's base holds all bits.
-    if (!isPermissionSubset(maskFromDb(r.role.grants), r.ctx.basePermissions)) {
+    // It covers taking the role away too (the roster is replaced whole), which
+    // is the ceiling on current role.
+    if (workRoleCeilingRefusal(r.ctx, maskFromDb(r.role.grants))) {
       return new Response(
         JSON.stringify({
           error: "You can't assign a role that grants permissions you don't have",

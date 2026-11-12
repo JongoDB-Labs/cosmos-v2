@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { getStorage } from "@/lib/storage";
+import { storageSafeName } from "@/lib/storage/keys";
 import { parserFor, formatFromName } from "./parsers";
 import { anchorAssigner } from "./parsers/slug";
 import type { Prisma, ClassificationLevel } from "@prisma/client";
@@ -38,14 +39,13 @@ export async function ingestDocument(input: IngestInput) {
   const format = formatFromName(input.filename);
   if (input.buffer.byteLength > MAX_BYTES) throw new Error("File exceeds 25 MB limit");
 
-  // Sanitize the filename for the storage KEY (strip path separators / traversal)
-  // — matches the guard in chat/feedback attachment routes. The human-readable
-  // name is preserved separately in the DB `filename` column + storage meta.
-  const safeName = input.filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "file";
+  // The storage KEY uses a sanitised name (storageSafeName, shared with the
+  // chat and feedback uploads). The name people see is kept separately, in the
+  // DB `filename` column and the storage meta.
   // An org-wide document has no project to key under, so it is keyed by org
   // instead. A project id is a bare uuid and can never collide with `org/<uuid>`.
   const scope = input.projectId ?? `org/${input.orgId}`;
-  const storageKey = `documents/${scope}/${crypto.randomUUID()}/${safeName}`;
+  const storageKey = `documents/${scope}/${crypto.randomUUID()}/${storageSafeName(input.filename)}`;
   await getStorage().put(storageKey, input.buffer, {
     contentType: input.contentType,
     filename: input.filename,

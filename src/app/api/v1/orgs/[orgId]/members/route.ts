@@ -10,6 +10,7 @@ import { avatarSrc } from "@/lib/users/avatar-url.server";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
+import { HELD_WORK_ROLES, assertCanGrantOrgRole, heldBeyondRole } from "@/lib/rbac/grant-ceiling";
 import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { autoJoinGeneral } from "@/lib/chat/seed-general";
@@ -92,11 +93,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // constraint violation, so membership lifecycle reads the real state.
     const existing = await prismaUnfiltered.orgMember.findUnique({
       where: { orgId_userId: { orgId, userId: data.userId } },
-      select: { id: true, removedAt: true },
+      select: {
+        id: true,
+        removedAt: true,
+        permissions: true,
+        workRoles: HELD_WORK_ROLES,
+      },
     });
     if (existing && existing.removedAt === null) {
       return problem(409, "conflict", "User is already a member", { request });
     }
+
+    // The caller may only hand out what they hold themselves (and OWNER only if
+    // they are one). Reinstating brings the member's stored override and work
+    // roles back with them, so those count as granted too.
+    assertCanGrantOrgRole(ctx, data.role, existing ? heldBeyondRole(existing) : 0n);
 
     const memberSelect = {
       id: true,

@@ -1,4 +1,5 @@
 import { getStorage } from "@/lib/storage";
+import { storedOrgLogo } from "@/lib/org/stored-logo";
 import { resolvePdfLogo } from "./brand";
 
 /**
@@ -21,13 +22,16 @@ import { resolvePdfLogo } from "./brand";
  * org-admin text field and fetching it server-side would turn an export path
  * into a request primitive aimed at anything the instance can reach. A storage
  * key is not that: it is inside the deployment boundary, and the app itself
- * wrote it during an authenticated upload. Nothing here is attacker-chosen.
+ * wrote it during an authenticated upload. It is read through
+ * `storedOrgLogo`, which only accepts a key in the org's own `branding/`
+ * folder, so a key that names anything else is skipped.
  */
 
 /**
- * What pdfkit can actually embed. The upload route also accepts `image/webp`
- * and `image/svg+xml`, which render correctly in the browser and cannot go into
- * a document at all — pdfkit reads PNG and JPEG only. Such a logo is skipped,
+ * What pdfkit can actually embed. The upload route also accepts `image/webp`,
+ * and SVG logos uploaded before SVG was refused may still be stored; both render
+ * in the browser and cannot go into a document at all — pdfkit reads PNG and
+ * JPEG only. Such a logo is skipped,
  * so the export succeeds without a mark rather than failing.
  */
 const PDF_EMBEDDABLE = new Set(["image/png", "image/jpeg"]);
@@ -43,19 +47,11 @@ const MAX_STORED_LOGO_BYTES = 2 * 1024 * 1024;
 
 /** The fields of an org row this needs — a subset any caller already has. */
 export type OrgLogoSource = {
+  /** The org's id: an uploaded logo is only read from this org's own folder. */
+  id: string;
   logoUrl?: string | null;
   settings?: unknown;
 };
-
-function storageKeyOf(settings: unknown): string | null {
-  const s = (settings ?? {}) as Record<string, unknown>;
-  return typeof s.logoStorageKey === "string" ? s.logoStorageKey : null;
-}
-
-function contentTypeOf(settings: unknown): string | null {
-  const s = (settings ?? {}) as Record<string, unknown>;
-  return typeof s.logoContentType === "string" ? s.logoContentType : null;
-}
 
 /** Drain a web stream into one Buffer, abandoning it past `limit` bytes. */
 async function collect(stream: ReadableStream, limit: number): Promise<Buffer | null> {
@@ -95,14 +91,11 @@ export async function loadPdfLogo(org?: OrgLogoSource | null): Promise<Buffer | 
   const inline = resolvePdfLogo(org.logoUrl);
   if (inline) return inline;
 
-  const key = storageKeyOf(org.settings);
-  if (!key) return null;
-
-  const contentType = contentTypeOf(org.settings);
-  if (!contentType || !PDF_EMBEDDABLE.has(contentType)) return null;
+  const stored = storedOrgLogo(org.id, org.settings);
+  if (!stored || !PDF_EMBEDDABLE.has(stored.contentType)) return null;
 
   try {
-    const stream = await getStorage().stream(key);
+    const stream = await getStorage().stream(stored.key);
     if (!stream) return null;
     return await collect(stream, MAX_STORED_LOGO_BYTES);
   } catch {

@@ -12,6 +12,7 @@
 import { describe, it, expect, vi, beforeAll } from "vitest";
 import { OrgRole } from "@prisma/client";
 import { ForbiddenError } from "@/lib/rbac/check";
+import { Permission, RolePermissions } from "@/lib/rbac/permissions";
 
 vi.mock("@/lib/integrations/invitation-email", () => ({
   sendInvitationEmail: vi.fn().mockResolvedValue(undefined),
@@ -26,7 +27,7 @@ const slug = `zzci-${stamp}`;
 let orgId = "";
 let actorId = "";
 
-function invite(role: OrgRole, actorOrgRole: OrgRole, who: string) {
+function invite(role: OrgRole, actorOrgRole: OrgRole, who: string, actorBasePermissions = RolePermissions[actorOrgRole]) {
   return createOrgInvitation({
     orgId,
     orgName: `CI ${stamp}`,
@@ -37,6 +38,7 @@ function invite(role: OrgRole, actorOrgRole: OrgRole, who: string) {
     mfaRequired: false,
     actorUserId: actorId,
     actorOrgRole,
+    actorBasePermissions,
     actorDisplayName: "Actor",
     origin: "http://localhost",
   });
@@ -85,6 +87,7 @@ describe("the org's allowed-domain restriction binds every way an account is min
       mfaRequired: false,
       actorUserId: actorId,
       actorOrgRole: OrgRole.ADMIN,
+      actorBasePermissions: RolePermissions.ADMIN,
       actorDisplayName: "Actor",
       origin: "http://localhost",
     });
@@ -128,5 +131,33 @@ describe("only an owner can hand out the owner role", () => {
       const r = await invite(role, OrgRole.ADMIN, `ok-${role}`);
       expect(r.invitation.role).toBe(role);
     }
+  });
+});
+
+describe("nobody hands out more than their own base permissions", () => {
+  // A MEMBER whose work role adds ORG_MANAGE_MEMBERS reaches this function, but
+  // work-role grants are not part of the ceiling: base is the MEMBER mask.
+  it("refuses a MEMBER-based inviter inviting an ADMIN, and writes nothing", async () => {
+    await expect(
+      invite(OrgRole.ADMIN, OrgRole.MEMBER, "ceil-admin", RolePermissions.MEMBER),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect(
+      await prisma.invitation.count({ where: { orgId, email: `zz-ci-ceil-admin-${stamp}@example.com` } }),
+    ).toBe(0);
+  });
+
+  it("lets the same inviter invite at their own level", async () => {
+    const r = await invite(OrgRole.MEMBER, OrgRole.MEMBER, "ceil-member", RolePermissions.MEMBER);
+    expect(r.invitation.role).toBe(OrgRole.MEMBER);
+  });
+
+  it("counts a per-member override as part of the base", async () => {
+    const r = await invite(
+      OrgRole.ADMIN,
+      OrgRole.MEMBER,
+      "ceil-override",
+      RolePermissions.MEMBER | RolePermissions.ADMIN | Permission.ORG_READ,
+    );
+    expect(r.invitation.role).toBe(OrgRole.ADMIN);
   });
 });

@@ -13,7 +13,7 @@
 //   - a non-OWNER cannot change their OWN role (lines 56-61)
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
+import { Permission, RolePermissions, type PermissionKey } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
 
@@ -62,7 +62,10 @@ function ctxWith(opts: {
     orgId: ORG_ID,
     orgRole: opts.orgRole ?? OrgRole.MEMBER,
     permissions: opts.permissions,
-    basePermissions: opts.permissions,
+    // What getAuthContext really computes: the role's own mask plus any
+    // override. The grant ceiling reads it, so a bare two-bit base would
+    // make an OWNER unable to grant anything.
+    basePermissions: RolePermissions[opts.orgRole ?? OrgRole.MEMBER] | opts.permissions,
     abacRules: [],
   };
 }
@@ -90,6 +93,9 @@ function mockTargetMember(opts: { role: OrgRole; userId?: string }) {
     orgId: ORG_ID,
     userId: opts.userId ?? TARGET_USER_ID,
     role: opts.role,
+    // What the route selects: the stored override and the work roles it holds.
+    permissions: "0",
+    workRoles: [],
   });
 }
 
@@ -192,7 +198,9 @@ describe("DELETE /members/[memberId]: Teams chat forgotten", () => {
     vi.clearAllMocks();
     prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
     getAuthContext.mockResolvedValue(ctxWith({ permissions: manageMembers(), orgRole: OrgRole.ADMIN }));
-    prisma.orgMember.findUnique.mockResolvedValue({ id: MEMBER_ID, orgId: ORG_ID, userId: TARGET_USER_ID, role: "MEMBER" });
+    prisma.orgMember.findUnique.mockResolvedValue({
+      id: MEMBER_ID, orgId: ORG_ID, userId: TARGET_USER_ID, role: "MEMBER", permissions: "0", workRoles: [],
+    });
     prisma.orgMember.update.mockResolvedValue({});
     prisma.teamsConversation.deleteMany.mockResolvedValue({ count: 1 });
     const res = await DELETE(new NextRequest("http://localhost/api/v1/orgs/o/members/m", { method: "DELETE" }), {

@@ -3,6 +3,12 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
 import { hashPassword, verifyPassword, passwordPolicyError } from "@/lib/auth/password";
+import { getIpAddress } from "@/lib/api-helpers";
+import {
+  auditCredentialChange,
+  endOtherSessions,
+  FIRST_PASSWORD_SIGN_IN_WINDOW_MS,
+} from "@/lib/auth/credential-change";
 
 const schema = z.object({
   currentPassword: z.string().max(200).optional(),
@@ -10,8 +16,10 @@ const schema = z.object({
 });
 
 /** Set or change the signed-in user's password. Changing an existing password
- *  requires the current one; first-time set just needs an authenticated session
- *  (they're already signed in via Google/SSO). */
+ *  requires the current one. Setting a first one (the account signs in through
+ *  Google/SSO) requires a recent sign-in, not just a session: otherwise whoever
+ *  holds the cookie could add a password the identity provider can't revoke.
+ *  Either way the user's other sessions end, and the change is audited. */
 export async function POST(request: NextRequest) {
   const me = await getCurrentUser();
   if (!me) return new Response("Unauthorized", { status: 401 });
@@ -29,10 +37,26 @@ export async function POST(request: NextRequest) {
     where: { id: me.id },
     select: { passwordHash: true },
   });
+  const first = !user?.passwordHash;
   if (user?.passwordHash) {
     if (!currentPassword || !verifyPassword(currentPassword, user.passwordHash)) {
       return NextResponse.json(
         { error: "Your current password is incorrect." },
+        { status: 403 },
+      );
+    }
+  } else {
+    const session = await prisma.session.findUnique({
+      where: { id: me.sessionId },
+      select: { createdAt: true },
+    });
+    const age = session ? Date.now() - session.createdAt.getTime() : Infinity;
+    if (age > FIRST_PASSWORD_SIGN_IN_WINDOW_MS) {
+      return NextResponse.json(
+        {
+          error:
+            "For your security, sign out and sign in again, then set your password within 10 minutes.",
+        },
         { status: 403 },
       );
     }
@@ -42,5 +66,7 @@ export async function POST(request: NextRequest) {
     where: { id: me.id },
     data: { passwordHash: hashPassword(newPassword), passwordSetAt: new Date() },
   });
+  await endOtherSessions(me.id, me.sessionId);
+  await auditCredentialChange(me.id, first ? "auth.password.set" : "auth.password.changed", getIpAddress(request));
   return NextResponse.json({ ok: true });
 }

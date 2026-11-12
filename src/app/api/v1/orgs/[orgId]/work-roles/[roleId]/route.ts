@@ -7,13 +7,21 @@ import {
   permissionMaskFromKeys,
   isPermissionSubset,
   maskToDb,
+  maskFromDb,
 } from "@/lib/rbac/permissions";
+import { workRoleCeilingRefusal } from "@/lib/rbac/grant-ceiling";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { toWorkRoleDto, workRoleUpdateSchema } from "@/lib/rbac/work-role";
 import { Prisma } from "@prisma/client";
 
 type RouteParams = { params: Promise<{ orgId: string; roleId: string }> };
+
+const OVER_CEILING = () =>
+  new Response(
+    JSON.stringify({ error: "You can't change a work role with permissions you don't have" }),
+    { status: 403, headers: { "Content-Type": "application/json" } },
+  );
 
 async function load(orgId: string, roleId: string) {
   return prisma.workRole.findFirst({
@@ -60,6 +68,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         { status: 403, headers: { "Content-Type": "application/json" } },
       );
     }
+    // The ceiling on current role: editing a role changes the access of everyone
+    // who holds it, so the caller may edit only a role whose CURRENT grants they
+    // could have given. Otherwise a member who manages members through a work
+    // role could lower a role an owner made. New grants are checked below.
+    if (workRoleCeilingRefusal(ctx, maskFromDb(existing.grants))) return OVER_CEILING();
 
     const data = workRoleUpdateSchema.parse(await request.json());
 
@@ -145,6 +158,9 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
         { status: 403, headers: { "Content-Type": "application/json" } },
       );
     }
+    // The ceiling on current role, as in PUT: deleting a role takes it from
+    // everyone who holds it.
+    if (workRoleCeilingRefusal(ctx, maskFromDb(existing.grants))) return OVER_CEILING();
 
     // Assignments cascade-delete via the FK.
     await prisma.workRole.delete({ where: { id: roleId } });

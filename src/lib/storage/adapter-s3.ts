@@ -8,6 +8,7 @@ import {
 import { Readable } from "node:stream";
 import type { ReadableStream as NodeWebReadableStream } from "node:stream/web";
 import type { StorageAdapter } from "./index";
+import { assertSafeStorageKey } from "./keys";
 import { contentDisposition } from "@/lib/http/content-disposition";
 
 /**
@@ -59,6 +60,9 @@ export function createS3Adapter(): StorageAdapter {
 
   return {
     async put(key, body, meta) {
+      // One bucket holds every org's objects, so a key is checked before it
+      // names one (see keys.ts).
+      assertSafeStorageKey(key);
       // The S3 SDK accepts a Buffer or a Node Readable as Body; convert a Web
       // ReadableStream to a Node Readable so streamed uploads don't buffer.
       const payload: Buffer | Readable = Buffer.isBuffer(body)
@@ -86,12 +90,14 @@ export function createS3Adapter(): StorageAdapter {
     },
 
     async delete(key) {
+      assertSafeStorageKey(key);
       // S3 DeleteObject is idempotent (no error on a missing key), matching the
       // local adapter's swallow-on-missing semantics.
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
     },
 
     async stream(key) {
+      assertSafeStorageKey(key);
       try {
         const res = await client.send(
           new GetObjectCommand({ Bucket: bucket, Key: key }),

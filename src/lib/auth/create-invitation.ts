@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { ConflictError, ForbiddenError } from "@/lib/rbac/check";
+import { assertCanGrantOrgRole } from "@/lib/rbac/grant-ceiling";
 import { emailDomainAllowed } from "@/lib/auth/allowed-domains";
 import { logAudit } from "@/lib/audit";
 import {
@@ -25,6 +26,9 @@ export interface CreateOrgInvitationParams {
   actorUserId: string;
   /** The admin's OWN org role, which bounds the role they may hand out. */
   actorOrgRole: OrgRole;
+  /** The admin's base permissions (role plus override, never work-role grants):
+   *  the invited role's permissions must fit inside them. */
+  actorBasePermissions: bigint;
   actorDisplayName: string | null;
   /** Public origin, for the accept/login link. */
   origin: string;
@@ -71,18 +75,20 @@ export async function createOrgInvitation(
   const email = p.email.trim().toLowerCase();
   const workRoleIds = p.workRoleIds ?? [];
 
-  // Only an OWNER may hand out the OWNER role. Without this an ADMIN holding
-  // ORG_MANAGE_MEMBERS could invite an address they control as OWNER, accept
-  // it, and gain the OWNER-only bits (ORG_DELETE, ORG_MANAGE_BILLING) — which
-  // also breaks the assumption that bounds the work-role escalation model.
+  // Only an OWNER may hand out the OWNER role, and nobody may hand out a role
+  // whose permissions go beyond their own base permissions. Without the first,
+  // an ADMIN holding ORG_MANAGE_MEMBERS could invite an address they control as
+  // OWNER, accept it, and gain the OWNER-only bits (ORG_DELETE,
+  // ORG_MANAGE_BILLING). Without the second, a member given ORG_MANAGE_MEMBERS
+  // by a work role could invite an ADMIN.
   //
-  // The members route has enforced exactly this on a role CHANGE for a while;
-  // the invitation path did not, so the same escalation was reachable by
-  // inviting instead of promoting. It lives here, not in a route, so both the
-  // invitations endpoint and account-request approval are covered by one copy.
-  if (p.role === "OWNER" && p.actorOrgRole !== "OWNER") {
-    throw new ForbiddenError("Only an owner can grant the owner role");
-  }
+  // The same rule (grant-ceiling.ts) guards the members routes. It lives here,
+  // not in a route, so both the invitations endpoint and account-request
+  // approval are covered by one copy.
+  assertCanGrantOrgRole(
+    { orgRole: p.actorOrgRole, basePermissions: p.actorBasePermissions },
+    p.role,
+  );
 
   // The org's email-domain restriction, enforced for EVERY way an account is
   // minted. An empty list is unrestricted, as everywhere else.

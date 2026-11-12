@@ -17,8 +17,9 @@
 //   - an ADDITION whose role grants exceed the caller's basePermissions is
 //     rejected 403 (naming the role) with NO write, even though the caller
 //     holds ORG_MANAGE_MEMBERS;
-//   - a REMOVAL-only request from that same limited caller succeeds — de­
-//     escalation is never ceiling-checked;
+//   - a REMOVAL of that role by the same limited caller is refused too: they
+//     may take away only access they could have granted (the ceiling on
+//     current role), while removing a role within their own succeeds;
 //   - a roleId from another org 400s as "unknown work role";
 //   - a memberId from another org 404s;
 //   - a caller lacking ORG_MANAGE_MEMBERS entirely is refused before any of
@@ -240,7 +241,7 @@ describe("PUT /members/[memberId]/work-roles — delta-guarded set", () => {
     }
   });
 
-  it("removal-only by the same limited ctx → 200 (de-escalation is never ceiling-checked)", async () => {
+  it("removal exceeding the limited ctx's basePermissions → 403 naming the role, the assignment stays", async () => {
     // Pre-seed the over-privileged assignment directly, simulating an OWNER
     // having granted it earlier.
     await prisma.orgMemberWorkRole.create({
@@ -252,10 +253,29 @@ describe("PUT /members/[memberId]/work-roles — delta-guarded set", () => {
 
       const res = await PUT(putRequest(targetMemberId, []), { params: paramsFor(targetMemberId) });
 
-      expect(res.status).toBe(200);
-      const json = await res.json();
-      expect(json.workRoleIds).toEqual([]);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({
+        error: `You can't take away '${complianceOfficerName}' — it exceeds your own permissions`,
+      });
+      const rows = await prisma.orgMemberWorkRole.findMany({ where: { orgMemberId: targetMemberId } });
+      expect(rows.map((r) => r.workRoleId)).toEqual([complianceOfficerRoleId]);
+    } finally {
+      await prisma.orgMemberWorkRole.deleteMany({ where: { orgMemberId: targetMemberId } });
+    }
+  });
 
+  it("removal within the limited ctx's basePermissions → 200", async () => {
+    await prisma.orgMemberWorkRole.create({
+      data: { orgMemberId: targetMemberId, workRoleId: contributorRoleId },
+    });
+
+    try {
+      getAuthContext.mockResolvedValue(limitedCtx());
+
+      const res = await PUT(putRequest(targetMemberId, []), { params: paramsFor(targetMemberId) });
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).workRoleIds).toEqual([]);
       const rows = await prisma.orgMemberWorkRole.findMany({ where: { orgMemberId: targetMemberId } });
       expect(rows).toHaveLength(0);
     } finally {

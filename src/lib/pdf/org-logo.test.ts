@@ -29,6 +29,7 @@ function streamOf(bytes: Uint8Array, chunkSize = bytes.byteLength): ReadableStre
 }
 
 const uploaded = (contentType: string) => ({
+  id: "org_1",
   // What the upload route actually writes: a relative app path, NOT a data URL.
   logoUrl: "/api/v1/orgs/org_1/logo?v=3",
   settings: { logoStorageKey: "org_1/branding/logo-3.png", logoContentType: contentType },
@@ -49,7 +50,7 @@ describe("loadPdfLogo", () => {
   });
 
   it("decodes an inline data URL without touching storage", async () => {
-    const buf = await loadPdfLogo({ logoUrl: `data:image/png;base64,${PNG_1X1}` });
+    const buf = await loadPdfLogo({ id: "org_1", logoUrl: `data:image/png;base64,${PNG_1X1}` });
     expect(buf).toBeInstanceOf(Buffer);
     expect(buf!.subarray(1, 4).toString()).toBe("PNG");
     expect(stream).not.toHaveBeenCalled();
@@ -76,7 +77,8 @@ describe("loadPdfLogo", () => {
     await expect(loadPdfLogo(uploaded("image/jpeg"))).resolves.toBeInstanceOf(Buffer);
   });
 
-  // The upload route accepts these; pdfkit cannot embed either. They must be
+  // WebP is accepted at upload and older SVG logos may be stored; pdfkit can
+  // embed neither. They must be
   // skipped before the read, not after — there is nothing to be gained by
   // pulling bytes we can never draw.
   it.each(["image/svg+xml", "image/webp"])("skips %s, which pdfkit cannot embed", async (ct) => {
@@ -85,14 +87,28 @@ describe("loadPdfLogo", () => {
   });
 
   it("returns null when the org has no stored logo", async () => {
-    await expect(loadPdfLogo({ logoUrl: null, settings: {} })).resolves.toBeNull();
-    await expect(loadPdfLogo({ settings: null })).resolves.toBeNull();
+    await expect(loadPdfLogo({ id: "org_1", logoUrl: null, settings: {} })).resolves.toBeNull();
+    await expect(loadPdfLogo({ id: "org_1", settings: null })).resolves.toBeNull();
     expect(stream).not.toHaveBeenCalled();
   });
 
   it("returns null when the content type was never recorded", async () => {
     await expect(
-      loadPdfLogo({ settings: { logoStorageKey: "org_1/branding/logo-3.png" } }),
+      loadPdfLogo({ id: "org_1", settings: { logoStorageKey: "org_1/branding/logo-3.png" } }),
+    ).resolves.toBeNull();
+    expect(stream).not.toHaveBeenCalled();
+  });
+
+  // The key is read back from settings, so it is only trusted inside this org's
+  // own logo folder. The positive control is "reads an uploaded logo" above.
+  it.each([
+    ["another org's logo", "org_2/branding/logo-3.png"],
+    ["a path out of storage", "org_1/branding/../../../package.json"],
+    ["this org, outside branding", "org_1/feedback/report.png"],
+  ])("never reads %s", async (_label, key) => {
+    stream.mockResolvedValue(streamOf(PNG_BYTES));
+    await expect(
+      loadPdfLogo({ id: "org_1", settings: { logoStorageKey: key, logoContentType: "image/png" } }),
     ).resolves.toBeNull();
     expect(stream).not.toHaveBeenCalled();
   });

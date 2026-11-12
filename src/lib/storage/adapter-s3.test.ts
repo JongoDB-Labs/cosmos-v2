@@ -198,3 +198,21 @@ describe("createS3Adapter", () => {
     await expect(adapter.stream("k")).rejects.toThrow(/boom/);
   });
 });
+
+describe("createS3Adapter refuses unsafe keys", () => {
+  // One bucket holds every org's objects, so a key that climbs out of its
+  // folder names another org's object. The positive controls are the tests
+  // above, where ordinary keys reach the client.
+  it.each(["../other/logo.png", "org/../../x", "/org/abc", "org//abc", "org\\abc", "org/./abc"])(
+    "never sends %s to storage",
+    async (key) => {
+      const adapter = createS3Adapter();
+      await expect(adapter.put(key, Buffer.from("x"), { contentType: "text/plain", filename: "x" })).rejects.toThrow(
+        /unsafe storage key/,
+      );
+      await expect(adapter.stream(key)).rejects.toThrow(/unsafe storage key/);
+      await expect(adapter.delete(key)).rejects.toThrow(/unsafe storage key/);
+      expect(sendMock).not.toHaveBeenCalled();
+    },
+  );
+});

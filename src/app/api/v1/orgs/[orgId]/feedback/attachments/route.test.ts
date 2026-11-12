@@ -38,6 +38,7 @@ vi.mock("@/lib/storage", () => ({
 }));
 
 import { prisma } from "@/lib/db/client";
+import { assertSafeStorageKey } from "@/lib/storage/keys";
 import { POST } from "./route";
 
 // Minimal valid 1x1 PNG (real magic bytes, so file-type sniffs image/png).
@@ -124,6 +125,27 @@ describe("POST /feedback/attachments (e2e)", () => {
     });
     expect(persisted.filename).toBe(filename);
     expect(storagePut).toHaveBeenCalled();
+  });
+
+  it("uploads a file named '.' or '..', which can't be a storage-key segment, under a safe name", async () => {
+    // The real adapters refuse such a key; the mock enforces the same rule.
+    storagePut.mockImplementation(async (key: string) => {
+      assertSafeStorageKey(key);
+      return { url: "", storageKey: key };
+    });
+    try {
+      for (const filename of [".", ".."]) {
+        const res = await POST(upload(new File([PNG_BYTES], filename, { type: "image/png" })), { params: params() });
+        expect(res.status, filename).toBe(201);
+        const row = await res.json();
+        createdIds.push(row.id);
+        expect(row.filename).toBe(filename);
+        expect(row.storageKey).toMatch(/^[0-9a-f-]+\/feedback\/[0-9a-f-]+\/file$/);
+      }
+    } finally {
+      storagePut.mockReset();
+      storagePut.mockResolvedValue({ url: "", storageKey: "" });
+    }
   });
 
   it("rejects an oversized file with 413 too_large", async () => {

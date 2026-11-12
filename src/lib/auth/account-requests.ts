@@ -185,6 +185,8 @@ export async function approveAccountRequest(params: {
   actorUserId: string;
   /** The approver's own org role, which bounds what approval can grant. */
   actorOrgRole: OrgRole;
+  /** The approver's base permissions, the ceiling for the role approval grants. */
+  actorBasePermissions: bigint;
   actorDisplayName: string | null;
   origin: string;
   ipAddress?: string | null;
@@ -238,6 +240,7 @@ export async function approveAccountRequest(params: {
       mfaRequired: params.mfaRequired,
       actorUserId: params.actorUserId,
       actorOrgRole: params.actorOrgRole,
+      actorBasePermissions: params.actorBasePermissions,
       actorDisplayName: params.actorDisplayName,
       origin: params.origin,
       ipAddress: params.ipAddress,

@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, maskFromDb } from "@/lib/rbac/permissions";
+import { assertCanChangeCurrentAccess, assertCanGrantOrgRole } from "@/lib/rbac/grant-ceiling";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { getPublicOrigin } from "@/lib/auth/public-url";
@@ -16,6 +17,16 @@ import { revokeProvisionedAccount } from "@/lib/auth/revoke-invitation";
  */
 
 type RouteParams = { params: Promise<{ orgId: string; invitationId: string }> };
+
+/** What an invitation hands out on top of its role: its work roles' grants. */
+async function invitedWorkRoleGrants(orgId: string, workRoleIds: string[]): Promise<bigint> {
+  if (!workRoleIds.length) return 0n;
+  const roles = await prisma.workRole.findMany({
+    where: { id: { in: workRoleIds }, orgId },
+    select: { grants: true },
+  });
+  return roles.reduce((acc, r) => acc | maskFromDb(r.grants), 0n);
+}
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
@@ -31,6 +42,14 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       where: { id: invitationId, orgId },
     });
     if (!existing) return new Response("Not found", { status: 404 });
+
+    // The ceiling on current role: revoking an invitation takes away the access
+    // it would give, so the caller may revoke only one they could have sent.
+    assertCanChangeCurrentAccess(
+      ctx,
+      existing.role,
+      await invitedWorkRoleGrants(orgId, existing.workRoleIds),
+    );
 
     // Delete the invitation AND, when it provisioned an account nobody has used,
     // that account too — in one transaction, so a revoke can never leave the
@@ -85,6 +104,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       where: { id: invitationId, orgId },
     });
     if (!existing) return new Response("Not found", { status: 404 });
+
+    // Resending extends the invitation's life, including one that had expired,
+    // so it is a grant like creating one: the same ceiling applies to the role
+    // and work roles it carries. Otherwise an admin could revive an owner's
+    // lapsed OWNER invitation.
+    assertCanGrantOrgRole(
+      ctx,
+      existing.role,
+      await invitedWorkRoleGrants(orgId, existing.workRoleIds),
+    );
 
     // Resend = refresh the 7-day window + re-send the email (same token).
     const expiresAt = new Date();

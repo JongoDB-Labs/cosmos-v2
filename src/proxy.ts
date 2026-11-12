@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { SESSION_COOKIE } from "@/lib/auth/client";
-import { applySecurityHeaders, applyTeamsTabFraming } from "@/lib/security/headers";
+import { applySecurityHeaders, applyTeamsTabFraming, routeSetsOwnCsp } from "@/lib/security/headers";
 import { isTabPath } from "@/lib/integrations/microsoft/teams-app/tab-paths";
 import { classifyBearer } from "@/lib/auth/bearer";
 import { REQUEST_ID_HEADER, requestIdFor } from "@/lib/openapi/request-id";
@@ -145,6 +145,9 @@ export async function proxy(request: NextRequest) {
   // Teams tabs (COSMOS-202 T1 d) are the only pages another site may frame,
   // and only Microsoft Teams' hosts. Everything else keeps 'none'.
   if (isTabPath(request.nextUrl.pathname)) applyTeamsTabFraming(res.headers);
+  // Stored files carry the CSP their route chose; the page CSP set above would
+  // replace it (see routeSetsOwnCsp).
+  if (routeSetsOwnCsp(request.nextUrl.pathname)) res.headers.delete("Content-Security-Policy");
   return res;
 }
 

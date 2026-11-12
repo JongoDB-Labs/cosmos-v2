@@ -126,6 +126,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       mfaRequired: data.mfaRequired,
       actorUserId: ctx.userId,
       actorOrgRole: ctx.orgRole,
+      actorBasePermissions: ctx.basePermissions,
       // null means "no signed-in inviter", which is what suppresses the mail.
       actorDisplayName: inviter ? inviter.displayName : null,
       origin: getPublicOrigin(request),

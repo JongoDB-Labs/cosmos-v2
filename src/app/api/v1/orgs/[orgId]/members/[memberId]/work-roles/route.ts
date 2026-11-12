@@ -3,7 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { Permission, isPermissionSubset, maskFromDb } from "@/lib/rbac/permissions";
+import { Permission, maskFromDb } from "@/lib/rbac/permissions";
+import { workRoleCeilingRefusal } from "@/lib/rbac/grant-ceiling";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -17,12 +18,13 @@ const setSchema = z.object({
 /**
  * Per-member mirror of PUT .../work-roles/[roleId]/members (which sets the
  * member list for ONE role). This sets the ROLE list for one member: SET
- * semantics with delta guarding — only newly ADDED roles are ceiling-checked
- * against the caller's own `basePermissions` (mirrors the escalation guard at
- * work-roles/[roleId]/members/route.ts:49-63), so a caller can't grant a role
- * that exceeds what they themselves hold. Removals (de-escalation) are always
- * allowed, unchecked. All ceiling/existence checks run BEFORE the single
- * `$transaction`, so a violation never leaves a partial write.
+ * semantics with delta guarding. Every role that is ADDED or TAKEN AWAY is
+ * ceiling-checked against the caller's own `basePermissions` (the same guard as
+ * work-roles/[roleId]/members/route.ts). A caller can't grant a role beyond
+ * what they hold, and can't take one away either: they may change only access
+ * they could have granted (the ceiling on current role, grant-ceiling.ts).
+ * Roles left as they are aren't checked. All ceiling/existence checks run
+ * BEFORE the single `$transaction`, so a violation never leaves a partial write.
  */
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
@@ -71,10 +73,29 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (!isPermissionSubset(maskFromDb(role.grants), ctx.basePermissions)) {
+        if (workRoleCeilingRefusal(ctx, maskFromDb(role.grants))) {
           return new Response(
             JSON.stringify({
               error: `You can't grant '${role.name}' — it exceeds your own permissions`,
+            }),
+            { status: 403, headers: { "Content-Type": "application/json" } },
+          );
+        }
+      }
+    }
+
+    // Taking a role away is checked the same way: only one the caller could
+    // have given.
+    if (removals.length > 0) {
+      const roles = await prisma.workRole.findMany({
+        where: { id: { in: removals } },
+        select: { name: true, grants: true },
+      });
+      for (const role of roles) {
+        if (workRoleCeilingRefusal(ctx, maskFromDb(role.grants))) {
+          return new Response(
+            JSON.stringify({
+              error: `You can't take away '${role.name}' — it exceeds your own permissions`,
             }),
             { status: 403, headers: { "Content-Type": "application/json" } },
           );

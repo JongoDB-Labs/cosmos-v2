@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { created, handleApiError } from "@/lib/api-helpers";
 import { getStorage } from "@/lib/storage";
+import { storageSafeName } from "@/lib/storage/keys";
 import { fileTypeFromBuffer } from "file-type";
 import { decideUpload } from "@/lib/storage/upload-policy";
 
@@ -72,9 +73,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const contentType = decision.contentType!;
     const kind = decision.kind!;
     const attachmentId = crypto.randomUUID();
-    const safeName =
-      file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "file";
-    const storageKey = `${orgId}/feedback/${attachmentId}/${safeName}`;
+    const storageKey = `${orgId}/feedback/${attachmentId}/${storageSafeName(file.name)}`;
 
     await getStorage().put(storageKey, buffer, { contentType, filename: file.name });
 
