@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.547.4",
+    date: "2026-11-12",
+    title: "Choosing a Program Increment on a sprint board shows all of its work",
+    highlights: [
+      {
+        kind: "fix",
+        text: "With the query language on, clicking a Program Increment's name in a sprint board's sprint row now shows the work in each of its sprints as well as the work planned straight into the Program Increment. It used to show only the work planned straight into it, so the Program Increment and its own sprints had no cards in common. The line under the query bar now reads pi = \"…\" for a Program Increment. Choosing a sprint works as before.",
+      },
+    ],
+  },
+  {
     version: "2.547.3",
     date: "2026-11-12",
     title: "Work Items uses the whole window",
