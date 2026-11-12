@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { orgThemeCss } from "@/lib/theme/server-styles";
 import { WhatsNew } from "@/components/whats-new/whats-new-modal";
 import { TourMount } from "@/components/tour/tour-mount";
+import { ChatLinkMount } from "@/components/drawers/chat-link-mount";
 
 type LayoutParams = { params: Promise<{ orgSlug: string }> };
 
@@ -46,6 +47,12 @@ export default function OrgScopedLayout({
           this island, which renders nothing anyway until a tour is running. */}
       <Suspense fallback={null}>
         <TourMount />
+      </Suspense>
+      {/* Opens the Chat drawer from a `?chat=` link on any org page. Its own
+          boundary for the same reason as TourMount's: it reads
+          useSearchParams(). */}
+      <Suspense fallback={null}>
+        <ChatLinkMount />
       </Suspense>
     </>
   );

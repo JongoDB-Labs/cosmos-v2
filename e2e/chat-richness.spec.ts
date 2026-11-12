@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/auth";
+import { openGeneralInDrawer } from "./fixtures/chat";
 import { getTestUserId } from "./fixtures/users";
 
 const ORG_SLUG = "test-org";
@@ -33,17 +34,9 @@ test.describe("chat richness — Phase 2", () => {
       // Resolve Bob's UUID so Alice can construct the mention token
       const bobId = await getTestUserId(alice.request, BASE, "bob@test.local");
 
-      // Navigate both to the chat landing page
-      await Promise.all([
-        alice.goto(`${BASE}/${ORG_SLUG}/chat`),
-        bob.goto(`${BASE}/${ORG_SLUG}/chat`),
-      ]);
-
       // Both open #general
-      await alice.getByText("general").first().click();
-      await alice.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
-      await bob.getByText("general").first().click();
-      await bob.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
+      await openGeneralInDrawer(alice, { base: BASE, org: ORG_SLUG });
+      await openGeneralInDrawer(bob, { base: BASE, org: ORG_SLUG });
       // Let Bob's SSE subscription connect before Alice sends — otherwise a
       // message sent before his stream is live is never delivered to him (the
       // real cause of the cross-context flake, not slow propagation). Mirrors
@@ -111,17 +104,9 @@ test.describe("chat richness — Phase 2", () => {
         signIn(bob, "bob@test.local"),
       ]);
 
-      // Navigate both to the chat landing page
-      await Promise.all([
-        alice.goto(`${BASE}/${ORG_SLUG}/chat`),
-        bob.goto(`${BASE}/${ORG_SLUG}/chat`),
-      ]);
-
       // Both open #general
-      await alice.getByText("general").first().click();
-      await alice.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
-      await bob.getByText("general").first().click();
-      await bob.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
+      await openGeneralInDrawer(alice, { base: BASE, org: ORG_SLUG });
+      await openGeneralInDrawer(bob, { base: BASE, org: ORG_SLUG });
       // Let Bob's SSE subscription connect before Alice sends — otherwise a
       // message sent before his stream is live is never delivered to him (the
       // real cause of the cross-context flake, not slow propagation). Mirrors

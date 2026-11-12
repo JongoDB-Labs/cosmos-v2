@@ -1,22 +1,19 @@
 "use client";
-import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { ChatChannelSummary } from "@/hooks/use-chat-channels";
 import { PresenceDot } from "./presence-dot";
 
 export function DmList({
   channels,
-  orgSlug,
   activeChannelId,
   online,
   onSelectChannel,
 }: {
   channels: ChatChannelSummary[];
-  orgSlug: string;
   activeChannelId?: string;
   online: Set<string>;
-  /** See ChannelList — select-in-place for the docked Chat drawer. */
-  onSelectChannel?: (channelId: string) => void;
+  /** See ChannelList — opens the DM in place in the docked Chat drawer. */
+  onSelectChannel: (channelId: string) => void;
 }) {
   if (channels.length === 0) return null;
   return (
@@ -39,7 +36,7 @@ export function DmList({
             <span className="truncate">{label}</span>
           </>
         );
-        return onSelectChannel ? (
+        return (
           <button
             key={c.id}
             type="button"
@@ -48,10 +45,6 @@ export function DmList({
           >
             {inner}
           </button>
-        ) : (
-          <Link key={c.id} href={`/${orgSlug}/chat/${c.id}`} className={className}>
-            {inner}
-          </Link>
         );
       })}
     </div>

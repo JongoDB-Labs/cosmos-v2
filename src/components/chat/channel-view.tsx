@@ -1,6 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { X } from "lucide-react";
@@ -28,15 +27,20 @@ export function ChannelView({
   orgId,
   channelId,
   userId,
+  focusMessageId,
+  onOpenChannel,
+  onLeft,
 }: {
   orgId: string;
   channelId: string;
   userId: string;
+  /** A message to bring into view once it has loaded (a link to it). */
+  focusMessageId?: string;
+  /** Show another conversation in place, e.g. the DM `/dm @name` opened. */
+  onOpenChannel: (channelId: string) => void;
+  /** This conversation is no longer yours to view: left, or archived. */
+  onLeft: () => void;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const orgSlug = pathname.split("/")[1] ?? "";
-
   const qc = useQueryClient();
   const msgsKey = useOrgQueryKey("chat-messages", channelId);
   const channelsKey = useOrgQueryKey("chat-channels");
@@ -234,6 +238,17 @@ export function ChannelView({
     });
   }, [orgId, channelId, lastMessageId]);
 
+  // Bring a linked message into view once, when it first appears. This runs
+  // after MessageList's own scroll-to-end (a child's effects run first), so it
+  // wins on the load; later messages still pull the list to the end as usual.
+  const focusedRef = useRef<string | null>(null);
+  const focusLoaded = Boolean(focusMessageId && messages?.some((m) => m.id === focusMessageId));
+  useEffect(() => {
+    if (!focusMessageId || !focusLoaded || focusedRef.current === focusMessageId) return;
+    focusedRef.current = focusMessageId;
+    document.getElementById(`msg-${focusMessageId}`)?.scrollIntoView({ block: "center" });
+  }, [focusMessageId, focusLoaded]);
+
   async function send(content: string, attachmentIds: string[], kind?: "USER" | "ACTION") {
     const optimistic: ChatMessageDto = {
       id: crypto.randomUUID(),
@@ -392,7 +407,7 @@ export function ChannelView({
     }
     const j = await r.json().catch(() => ({})) as { toast?: string; left?: boolean };
     if (j.toast) toast.success(j.toast);
-    if (j.left) router.push(`/${orgSlug}/chat`);
+    if (j.left) onLeft();
   }
 
   async function runDm(mentionText: string) {
@@ -418,7 +433,12 @@ export function ChannelView({
     }
     const j = await r.json() as { channelId?: string; data?: { channelId?: string } };
     const cid = j.channelId ?? j.data?.channelId;
-    if (cid) router.push(`/${orgSlug}/chat/${cid}`);
+    if (cid) {
+      // The list must hold the DM before it can be shown, and a new one isn't
+      // in the cached list yet.
+      await qc.invalidateQueries({ queryKey: channelsKey });
+      onOpenChannel(cid);
+    }
   }
 
   if (!channel) {
@@ -442,6 +462,7 @@ export function ChannelView({
           orgId={orgId}
           pinCount={pins.length}
           onTogglePins={() => setPinsOpen((v) => !v)}
+          onArchived={onLeft}
         />
         {pinsOpen && (
           <PinnedPanel

@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useChatChannels } from "@/hooks/use-chat-channels";
@@ -21,11 +20,11 @@ interface ChatSidebarProps {
   orgId: string;
   activeChannelId?: string;
   /**
-   * When provided, channel/DM rows select IN PLACE (call this) instead of
-   * navigating to /chat/[id] — used by the docked Chat drawer so the page
-   * behind it stays put. Absent (the /chat page) → normal link navigation.
+   * Show a conversation, in place: a channel or DM row, a search hit (with the
+   * message it matched), or a DM just started. Chat lives in the docked drawer,
+   * so nothing here navigates the page behind it.
    */
-  onSelectChannel?: (channelId: string) => void;
+  onSelectChannel: (channelId: string, messageId?: string) => void;
 }
 
 type OrgProject = { id: string; name: string };
@@ -74,8 +73,6 @@ export function ChatSidebar({
   activeChannelId,
   onSelectChannel,
 }: ChatSidebarProps) {
-  const pathname = usePathname();
-  const orgSlug = pathname.split("/")[1] ?? "";
   const { data, isLoading, isError, refetch } = useChatChannels(orgId);
   const online = useChatPresence(orgId);
 
@@ -162,7 +159,7 @@ export function ChatSidebar({
   if (isError) {
     return (
       <aside className={PANEL}>
-        <SearchPanel orgId={orgId} />
+        <SearchPanel orgId={orgId} onOpenMessage={onSelectChannel} />
         <LoadError onRetry={() => { refetch(); }} />
       </aside>
     );
@@ -171,7 +168,7 @@ export function ChatSidebar({
   if (isLoading || !data) {
     return (
       <aside className={PANEL}>
-        <SearchPanel orgId={orgId} />
+        <SearchPanel orgId={orgId} onOpenMessage={onSelectChannel} />
         <div className="p-2 text-xs text-muted-foreground">Loading…</div>
       </aside>
     );
@@ -179,7 +176,7 @@ export function ChatSidebar({
 
   return (
     <aside className={PANEL}>
-      <SearchPanel orgId={orgId} />
+      <SearchPanel orgId={orgId} onOpenMessage={onSelectChannel} />
       <div className="px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">
         Channels
       </div>
@@ -214,7 +211,6 @@ export function ChatSidebar({
                 <div className={isGeneral ? undefined : "pl-2"}>
                   <ChannelList
                     channels={g.channels}
-                    orgSlug={orgSlug}
                     activeChannelId={activeChannelId}
                     onSelectChannel={onSelectChannel}
                   />
@@ -235,14 +231,13 @@ export function ChatSidebar({
       <div className="px-2 pb-2">
         <DmList
           channels={dms}
-          orgSlug={orgSlug}
           activeChannelId={activeChannelId}
           online={online}
           onSelectChannel={onSelectChannel}
         />
       </div>
       <div className="px-2 pb-2">
-        <NewDmDialog orgId={orgId} />
+        <NewDmDialog orgId={orgId} onStarted={onSelectChannel} />
       </div>
       <div className="mt-auto px-2 py-2 border-t flex flex-col gap-1">
         <ChannelCreateDialog orgId={orgId} />

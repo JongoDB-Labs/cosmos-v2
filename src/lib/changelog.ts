@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.548.0",
+    date: "2026-11-12",
+    title: "Chat opens beside your page, from every link",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Chat now lives in one place, the chat panel on the right. Clicking a chat notification, or a chat message listed under \"Mentioned in\", opens the panel on that conversation beside the page you are on. It used to leave your page for a separate chat page.",
+      },
+      {
+        kind: "improvement",
+        text: "Starting a direct message, opening a search result, using /dm, and leaving or archiving a channel all happen inside the chat panel too, so the page behind it stays where you were.",
+      },
+      {
+        kind: "improvement",
+        text: "Old chat links and bookmarks still work. They take you back to the page you came from, or to your organization's home, with the chat panel open on the same conversation.",
+      },
+    ],
+  },
+  {
     version: "2.547.7",
     date: "2026-11-12",
     title: "Key results measured by linked work read complete when the work is done",

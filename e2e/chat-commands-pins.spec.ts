@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/auth";
+import { openGeneralInDrawer } from "./fixtures/chat";
 
 const BASE = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 const ORG_SLUG = "test-org";
@@ -28,14 +29,9 @@ test.describe("chat phase 4 — slash commands + pins", () => {
       await signIn(alice, "alice@test.local");
       await signIn(bob, "bob@test.local");
 
-      await alice.goto(`${BASE}/${ORG_SLUG}/chat`);
-      await bob.goto(`${BASE}/${ORG_SLUG}/chat`);
-
       // Both open #general
-      await alice.getByText("general").first().click();
-      await alice.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
-      await bob.getByText("general").first().click();
-      await bob.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
+      await openGeneralInDrawer(alice, { base: BASE, org: ORG_SLUG });
+      await openGeneralInDrawer(bob, { base: BASE, org: ORG_SLUG });
 
       // Allow SSE connections to establish before Alice types.
       await bob.waitForTimeout(2_000);
@@ -71,9 +67,7 @@ test.describe("chat phase 4 — slash commands + pins", () => {
     try {
       await signIn(alice, "alice@test.local");
 
-      await alice.goto(`${BASE}/${ORG_SLUG}/chat`);
-      await alice.getByText("general").first().click();
-      await alice.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
+      await openGeneralInDrawer(alice, { base: BASE, org: ORG_SLUG });
 
       const stamp = Date.now().toString(36);
 
@@ -116,9 +110,7 @@ test.describe("chat phase 4 — slash commands + pins", () => {
       await signIn(bob, "bob@test.local");
 
       // Alice sends a uniquely-stamped message
-      await alice.goto(`${BASE}/${ORG_SLUG}/chat`);
-      await alice.getByText("general").first().click();
-      await alice.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
+      await openGeneralInDrawer(alice, { base: BASE, org: ORG_SLUG });
 
       const stamp = Date.now().toString(36);
       await alice.getByPlaceholder(/message general/i).fill(`Pin me ${stamp}`);
@@ -128,9 +120,7 @@ test.describe("chat phase 4 — slash commands + pins", () => {
       ).toBeVisible({ timeout: 6_000 });
 
       // Bob opens the channel and sees the message via realtime / initial load
-      await bob.goto(`${BASE}/${ORG_SLUG}/chat`);
-      await bob.getByText("general").first().click();
-      await bob.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
+      await openGeneralInDrawer(bob, { base: BASE, org: ORG_SLUG });
       await expect(
         bob.getByText(new RegExp(`Pin me ${stamp}`)).first(),
       ).toBeVisible({ timeout: 6_000 });

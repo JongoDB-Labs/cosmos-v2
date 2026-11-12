@@ -12,7 +12,8 @@ import { openIssues, resetQueryLanguage, setQueryLanguage } from "./fixtures/wor
  * The route list is reconciled to v2's actual IA (see nav-config.ts /
  * topbar-nav.ts): the grouped sidebar (Overview / Projects / Issues /
  * Time-Tracking / CRM group / Accounting group / Analytics / Settings) plus the
- * topbar tabs (Chat / Meetings / Notes / Team). The Accounting group's pages
+ * topbar tabs (Meetings / Notes / Team; Chat is a drawer, scanned on its own).
+ * The Accounting group's pages
  * live under /accounting/* so each URL segment matches its nav label.
  * Project-scoped feature tabs
  * (goals / kpis / milestones) are excluded because they sit behind per-project
@@ -29,7 +30,7 @@ const KEY = process.env.E2E_PROJECT_KEY ?? "test";
 // Routes that render for the seeded CI org (org + ADMIN + the "TEST" project &
 // its default KANBAN board). The kanban board is reached via a STATIC path:
 // /projects/{key} server-redirects to /projects/{key}/boards/{id}, so no
-// dynamic board id is hardcoded. Raw /boards/[id] and /chat/[id] stay excluded.
+// dynamic board id is hardcoded. Raw /boards/[id] stays excluded.
 /**
  * `redirects: true` marks a path that does not render itself — it sends the
  * browser somewhere else. Those need an extra wait before anything inspects the
@@ -60,7 +61,8 @@ const PAGES: Array<{ name: string; path: string; redirects?: true }> = [
   { name: "analytics", path: "/analytics" },
   { name: "analytics/reports", path: "/analytics/reports" },
   // Topbar tabs.
-  { name: "chat", path: "/chat" },
+  // Chat has no page: it lives in the drawer (scanned below), and the old
+  // /chat address redirects there.
   { name: "meetings", path: "/meetings" },
   { name: "notes", path: "/notes" },
   { name: "team", path: "/team" },
@@ -758,6 +760,36 @@ test.describe("a11y — the assistant drawer", () => {
           .map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets[0]}`)
           .join("\n"),
     ).toHaveLength(0);
+  });
+});
+
+test.describe("a11y — the chat drawer", () => {
+  test("chat drawer, list and conversation, has no serious/critical axe violations", async ({
+    page,
+    signInAs,
+  }) => {
+    await signInAs(EMAIL);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const report = (when: string, found: Awaited<ReturnType<typeof runAxe>>) =>
+      `serious/critical a11y violations with the chat drawer open on ${when}:\n` +
+      found.map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets[0]}`).join("\n");
+
+    // The conversation list: `?chat=` opens the drawer on it.
+    await page.goto(`/${ORG}?chat=`);
+    const drawer = page.getByRole("complementary", { name: "chat drawer" });
+    const general = drawer.getByRole("button", { name: "general", exact: true });
+    // The positive control: the real list, not a loading state.
+    await expect(general).toBeVisible({ timeout: 20_000 });
+    await page.waitForTimeout(500);
+    const onList = blocking(await runAxe(page));
+    expect(onList, report("its conversation list", onList)).toHaveLength(0);
+
+    // A conversation: messages, composer and header.
+    await general.click();
+    await expect(drawer.getByPlaceholder(/^Message/i)).toBeVisible({ timeout: 20_000 });
+    await page.waitForTimeout(500);
+    const onConversation = blocking(await runAxe(page));
+    expect(onConversation, report("a conversation", onConversation)).toHaveLength(0);
   });
 });
 

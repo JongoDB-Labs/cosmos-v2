@@ -44,17 +44,7 @@ import { NavGroup } from "./nav-group";
 import { SidebarFilters } from "@/components/work-items/cql/sidebar-filters";
 import { visibleTopbarNav } from "./topbar-nav";
 import { useNavGroups } from "@/lib/hooks/use-nav-groups";
-import { useDrawers, type DrawerTool } from "@/components/drawers/drawer-provider";
-
-// Topbar destinations whose home is a DOCKED DRAWER, not a page — kept in sync
-// with the topbar's own DRAWER_TABS. On the mobile sidebar's Workspace section
-// these must open the drawer in place, NOT link to the standalone page (Chat's
-// /chat page is orphaned on a phone — no channel sidebar, no way back).
-const DRAWER_TABS: Record<string, DrawerTool> = {
-  chat: "chat",
-  meetings: "meetings",
-  notes: "notes",
-};
+import { useDrawers } from "@/components/drawers/drawer-provider";
 
 interface AppSidebarProps {
   open: boolean;
@@ -278,7 +268,10 @@ export function AppSidebar({
             )}
             {visibleTopbarNav(can).map((item) => {
               const Icon = item.icon;
-              const drawerTool = DRAWER_TABS[item.id];
+              // Destinations whose home is a DOCKED DRAWER name it in
+              // TOPBAR_NAV, shared with the topbar. On the mobile sidebar's
+              // Workspace section they open the drawer in place.
+              const drawerTool = item.drawer;
 
               // Drawer-backed destinations (Chat / Meetings / Notes) open the
               // docked drawer in place and close the mobile sidebar — never the

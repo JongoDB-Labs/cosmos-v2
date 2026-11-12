@@ -1,24 +1,20 @@
 "use client";
-import Link from "next/link";
 import { Hash, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ChatChannelSummary } from "@/hooks/use-chat-channels";
 
 export function ChannelList({
   channels,
-  orgSlug,
   activeChannelId,
   onSelectChannel,
 }: {
   channels: ChatChannelSummary[];
-  orgSlug: string;
   activeChannelId?: string;
   /**
-   * When provided, channels render as buttons that call this instead of
-   * navigating — lets the docked Chat drawer select a channel IN PLACE without
-   * routing the page behind it. Absent (the /chat page) → normal <Link>.
+   * Opens the channel in the docked Chat drawer, in place: rows are buttons,
+   * never links, so the page behind the drawer stays put.
    */
-  onSelectChannel?: (channelId: string) => void;
+  onSelectChannel: (channelId: string) => void;
 }) {
   if (channels.length === 0) return null;
   return (
@@ -36,7 +32,7 @@ export function ChannelList({
             <span className="truncate">{c.name ?? c.id.slice(0, 6)}</span>
           </>
         );
-        return onSelectChannel ? (
+        return (
           <button
             key={c.id}
             type="button"
@@ -45,10 +41,6 @@ export function ChannelList({
           >
             {inner}
           </button>
-        ) : (
-          <Link key={c.id} href={`/${orgSlug}/chat/${c.id}`} className={className}>
-            {inner}
-          </Link>
         );
       })}
     </div>

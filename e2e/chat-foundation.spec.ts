@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { openGeneralInDrawer } from "./fixtures/chat";
 import { getTestUserId } from "./fixtures/users";
 
 const ORG_SLUG = "test-org";
@@ -45,19 +46,11 @@ test.describe("chat foundation — Phase 1 golden path", () => {
           "bob@test.local",
         );
 
-        // Navigate both to the chat landing page.
-        await Promise.all([
-          alice.goto(`${BASE}/${ORG_SLUG}/chat`),
-          bob.goto(`${BASE}/${ORG_SLUG}/chat`),
-        ]);
-
-        // Alice clicks #general in the sidebar.
-        await alice.getByText("general").first().click();
-        await alice.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
+        // Alice opens #general in the Chat drawer.
+        await openGeneralInDrawer(alice, { base: BASE, org: ORG_SLUG });
 
         // Bob also opens #general.
-        await bob.getByText("general").first().click();
-        await bob.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
+        await openGeneralInDrawer(bob, { base: BASE, org: ORG_SLUG });
 
         // Alice sends a mention. The composer placeholder is "Message general…".
         const composer = alice.getByPlaceholder(/^Message/i);

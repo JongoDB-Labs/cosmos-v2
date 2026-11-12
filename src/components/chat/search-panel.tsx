@@ -1,6 +1,5 @@
 "use client";
 import { useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
 import { useChatSearch } from "@/hooks/use-chat-search";
 import { LoadError } from "@/components/ui/load-error";
 import { Search, X } from "lucide-react";
@@ -29,12 +28,16 @@ function parseChips(q: string): { key: string; value: string; token: string }[] 
   return chips;
 }
 
-export function SearchPanel({ orgId }: { orgId: string }) {
+export function SearchPanel({
+  orgId,
+  onOpenMessage,
+}: {
+  orgId: string;
+  /** Opens the hit's conversation in place, at the message that matched. */
+  onOpenMessage: (channelId: string, messageId: string) => void;
+}) {
   const [q, setQ] = useState("");
   const { data, isLoading, isError, refetch } = useChatSearch(orgId, q);
-  const router = useRouter();
-  const pathname = usePathname();
-  const orgSlug = pathname.split("/")[1] ?? "";
 
   const chips = parseChips(q);
   const removeToken = (token: string) =>
@@ -101,9 +104,7 @@ export function SearchPanel({ orgId }: { orgId: string }) {
             <button
               key={h.messageId}
               type="button"
-              onClick={() =>
-                router.push(`/${orgSlug}/chat/${h.channelId}#msg-${h.messageId}`)
-              }
+              onClick={() => onOpenMessage(h.channelId, h.messageId)}
               className="w-full text-left px-2 py-1.5 hover:bg-accent border-t first:border-t-0"
             >
               <div className="text-[10px] text-muted-foreground">

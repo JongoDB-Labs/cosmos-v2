@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, Loader2, UserPlus, X } from "lucide-react";
 import {
@@ -49,17 +48,17 @@ export function ChannelSettingsDialog({
   channel,
   open,
   onOpenChange,
+  onArchived,
 }: {
   orgId: string;
   channel: ChatChannelSummary;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The channel is archived: leave its view (it has dropped out of the list). */
+  onArchived: () => void;
 }) {
   const qc = useQueryClient();
   const channelsKey = useOrgQueryKey("chat-channels");
-  const router = useRouter();
-  const pathname = usePathname();
-  const orgSlug = pathname.split("/")[1] ?? "";
 
   const [name, setName] = useState(channel.name ?? "");
   const [description, setDescription] = useState(channel.description ?? "");
@@ -149,7 +148,7 @@ export function ChannelSettingsDialog({
       toast.success(`Archived #${channel.name ?? "channel"}.`);
       onOpenChange(false);
       // The archived channel drops out of the list — leave its (now empty) view.
-      router.push(`/${orgSlug}/chat`);
+      onArchived();
     } catch (err) {
       const msg =
         err instanceof FetchError && err.status === 400

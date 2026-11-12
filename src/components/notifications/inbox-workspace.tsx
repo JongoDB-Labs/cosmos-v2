@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { notificationHref } from "@/lib/notifications/href";
+import { chatDrawerTargetFromUrl } from "@/lib/chat/drawer-link";
+import { ChatDrawerLink } from "@/components/drawers/chat-link";
 import { kindLabel } from "@/lib/notifications/kind";
 import { NotificationPreview } from "./notification-preview";
 import { announceNotificationsChanged, onNotificationsChanged } from "@/lib/notifications/changed";
@@ -248,7 +250,15 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
                 </div>
               </div>
             );
-            const body = n.url ? (
+            // A chat message opens the Chat drawer beside the inbox instead of
+            // leaving it, whether the notification names the drawer or, from
+            // before it, the retired chat page.
+            const chat = chatDrawerTargetFromUrl(n.url);
+            const body = chat ? (
+              <ChatDrawerLink target={chat} className="block min-w-0 flex-1">
+                {inner}
+              </ChatDrawerLink>
+            ) : n.url ? (
               <Link
                 href={notificationHref(orgSlug, n.url)}
                 className="block min-w-0 flex-1"
