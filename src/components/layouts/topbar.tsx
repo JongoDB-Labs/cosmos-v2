@@ -12,18 +12,7 @@ import { usePermissions } from "@/components/providers/permissions-provider";
 import { visibleTopbarNav } from "./topbar-nav";
 import { isHrefActive, resolveHref } from "./nav-active";
 import { useTotalUnread } from "@/hooks/use-total-unread";
-import {
-  useDrawers,
-  type DrawerTool,
-} from "@/components/drawers/drawer-provider";
-
-// Topbar tabs whose destination is now a DOCKED DRAWER (opened in place) rather
-// than a full page. Team has no drawer, so it stays a normal page link.
-const DRAWER_TABS: Record<string, DrawerTool> = {
-  chat: "chat",
-  meetings: "meetings",
-  notes: "notes",
-};
+import { useDrawers } from "@/components/drawers/drawer-provider";
 
 interface TopbarProps {
   orgs: {
@@ -80,7 +69,9 @@ export function Topbar({ orgs, onToggleSidebar, sidebarExpanded }: TopbarProps) 
             {tabItems.map((item) => {
               const Icon = item.icon;
               const showBadge = item.unreadBadge && totalUnread > 0;
-              const drawerTool = DRAWER_TABS[item.id];
+              // Drawer-backed tabs name their drawer in TOPBAR_NAV; Team has
+              // none, so it stays a normal page link.
+              const drawerTool = item.drawer;
               const badge = showBadge && (
                 <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--status-critical-text)] px-1 text-[8px] font-bold text-[var(--bg)]">
                   {totalUnread > 9 ? "9+" : totalUnread}

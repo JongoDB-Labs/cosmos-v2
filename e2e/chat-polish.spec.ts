@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { openGeneralInDrawer } from "./fixtures/chat";
 
 const ORG_SLUG = "test-org";
 const BASE = process.env.E2E_BASE_URL ?? "http://localhost:3000";
@@ -42,14 +43,9 @@ test.describe("chat polish — Phase 3", () => {
       await signIn(alice, "alice@test.local");
       await signIn(bob, "bob@test.local");
 
-      await alice.goto(`${BASE}/${ORG_SLUG}/chat`);
-      await bob.goto(`${BASE}/${ORG_SLUG}/chat`);
-
       // Both open #general
-      await alice.getByText("general").first().click();
-      await alice.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
-      await bob.getByText("general").first().click();
-      await bob.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
+      await openGeneralInDrawer(alice, { base: BASE, org: ORG_SLUG });
+      await openGeneralInDrawer(bob, { base: BASE, org: ORG_SLUG });
 
       // Allow SSE connections to establish before Alice starts typing.
       // The leader-election + EventSource open is async; give it ~2s.
@@ -89,9 +85,7 @@ test.describe("chat polish — Phase 3", () => {
       await signIn(alice, "alice@test.local");
       await signIn(bob, "bob@test.local");
 
-      await alice.goto(`${BASE}/${ORG_SLUG}/chat`);
-      await alice.getByText("general").first().click();
-      await alice.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
+      await openGeneralInDrawer(alice, { base: BASE, org: ORG_SLUG });
 
       // Alice sends a uniquely-stamped message
       const stamp = Date.now().toString(36);
@@ -101,9 +95,7 @@ test.describe("chat polish — Phase 3", () => {
       await expect(alice.getByText(content).first()).toBeVisible({ timeout: 5_000 });
 
       // Bob opens the channel — this triggers a read-state mark
-      await bob.goto(`${BASE}/${ORG_SLUG}/chat`);
-      await bob.getByText("general").first().click();
-      await bob.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
+      await openGeneralInDrawer(bob, { base: BASE, org: ORG_SLUG });
       await expect(bob.getByText(content).first()).toBeVisible({ timeout: 5_000 });
 
       // Alice should now see "Seen by Bob" receipt avatar on her message.
@@ -138,9 +130,7 @@ test.describe("chat polish — Phase 3", () => {
       const orgId = await getOrgId(alice);
 
       // Bob comes online by navigating into the app (SSE /events connects → presence.connect)
-      await bob.goto(`${BASE}/${ORG_SLUG}/chat`);
-      await bob.getByText("general").first().click();
-      await bob.waitForURL(/\/chat\/[0-9a-f-]{36}$/i, { timeout: 10_000 });
+      await openGeneralInDrawer(bob, { base: BASE, org: ORG_SLUG });
 
       // Poll the presence snapshot until Bob appears (SSE connect is async; allow up to 10s)
       await expect

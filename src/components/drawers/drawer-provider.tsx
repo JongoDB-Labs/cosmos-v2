@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { ChatDrawerTarget } from "@/lib/chat/drawer-link";
 
 /**
  * The set of global DOCKED drawers. Unlike a modal sheet, these are NON-MODAL:
@@ -18,10 +19,10 @@ import {
  * someone while viewing a page, etc.). Only one is open at a time.
  */
 /**
- * Context handed to a panel by whoever opened it — today, the product tour
- * naming the step somebody is looking at. Panels that do not understand a seed
- * ignore it, and it is cleared on the next open so it can never outlive the
- * intent that set it.
+ * Context handed to a panel by whoever opened it — the product tour naming the
+ * step somebody is looking at, or a chat link naming a conversation. Panels
+ * that do not understand a seed ignore it, and it is cleared on the next open
+ * so it can never outlive the intent that set it.
  */
 export interface DrawerSeed {
   /** Prefills a title where the panel has one. */
@@ -30,6 +31,8 @@ export interface DrawerSeed {
   body?: string;
   /** Free-form origin, e.g. "tour:2.361.0:runway", for attribution. */
   source?: string;
+  /** The conversation the Chat panel opens on (see `lib/chat/drawer-link`). */
+  chat?: ChatDrawerTarget;
 }
 
 export type DrawerTool =

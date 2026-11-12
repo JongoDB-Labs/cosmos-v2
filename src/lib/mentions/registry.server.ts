@@ -22,6 +22,7 @@ import { parseTicketQuery } from "./ticket-query";
 
 import { FEEDBACK_SUBJECT } from "@/lib/feedback/subject";
 import { feedbackItemUrl } from "@/lib/feedback/urls";
+import { chatDrawerHref } from "@/lib/chat/drawer-link";
 export type SearchScope = { orgId: string; userId: string };
 
 export type EntityHit = {
@@ -454,7 +455,8 @@ export async function resolveBacklinks(opts: {
           sourceType: "chatMessage",
           sourceId: r.sourceId,
           label: `Message · #${ch.name ?? "channel"}`,
-          url: `/${opts.orgSlug}/chat/${msg.channelId}`,
+          // The Chat drawer at that message; MentionedIn opens it in place.
+          url: chatDrawerHref(`/${opts.orgSlug}`, { channelId: msg.channelId, messageId: msg.id }),
           createdAt,
         });
     }

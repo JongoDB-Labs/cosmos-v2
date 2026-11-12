@@ -10,6 +10,8 @@ import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
 import type { Notification } from "@/types/models";
 import { notificationHref } from "@/lib/notifications/href";
+import { chatDrawerTargetFromUrl } from "@/lib/chat/drawer-link";
+import { useOpenChat } from "@/components/drawers/chat-link";
 import { NotificationPreview } from "./notification-preview";
 import { kindLabel } from "@/lib/notifications/kind";
 import {
@@ -74,6 +76,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
   const router = useRouter();
   const pathname = usePathname();
   const orgSlug = pathname.split("/")[1];
+  const openChat = useOpenChat();
   const sseRef = useRef<EventSource | null>(null);
   // State, not refs: the panel mounts inside the menu's own render, so only a
   // state change tells this component the sentinel now exists to observe.
@@ -295,6 +298,14 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
     setOpen(false);
     if (!n.read) void setRead(n.id, true, true);
     if (!orgSlug || !n.url) return;
+    // A chat message opens the Chat drawer beside the page you are on, rather
+    // than leaving it. Old notifications still name the retired chat page;
+    // they open the drawer the same way.
+    const chat = chatDrawerTargetFromUrl(n.url);
+    if (chat) {
+      openChat(chat);
+      return;
+    }
     router.push(notificationHref(orgSlug, n.url));
   }
 

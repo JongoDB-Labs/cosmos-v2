@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import type { EntityType } from "@/lib/mentions/refs";
+import { chatDrawerTargetFromUrl } from "@/lib/chat/drawer-link";
+import { ChatDrawerLink } from "@/components/drawers/chat-link";
 
 type Backlink = {
   sourceType: string;
@@ -72,9 +74,15 @@ export function MentionedIn({
               <span className="truncate">{bl.label}</span>
             </span>
           );
+          // A chat message opens in the Chat drawer, beside this page.
+          const chat = chatDrawerTargetFromUrl(bl.url);
           return (
             <li key={`${bl.sourceType}:${bl.sourceId}`} className="text-sm">
-              {bl.url ? (
+              {chat ? (
+                <ChatDrawerLink target={chat} className="hover:underline text-foreground">
+                  {inner}
+                </ChatDrawerLink>
+              ) : bl.url ? (
                 <Link href={bl.url} className="hover:underline text-foreground">
                   {inner}
                 </Link>

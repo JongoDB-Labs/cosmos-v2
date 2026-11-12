@@ -22,7 +22,7 @@ import { test, expect } from "./fixtures/auth";
 
 test("foo", async ({ page, signInAs }) => {
   await signInAs("alice@test.local");
-  await page.goto("/test-org/chat");
+  await page.goto("/test-org/projects");
   // ...
 });
 ```

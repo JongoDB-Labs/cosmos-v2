@@ -4,6 +4,7 @@ import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { mentionsToPlainText, userMentionLabels } from "@/lib/mentions/plain-text";
+import { chatDrawerHref } from "@/lib/chat/drawer-link";
 
 export interface FanOutInput {
   /** Org id of the channel (used by createNotification + audit). */
@@ -44,7 +45,13 @@ export async function fanOutChatMessage(input: FanOutInput): Promise<void> {
   });
 
   const now = new Date();
-  const url = `/${input.orgSlug}/chat/${input.channelId}#msg-${input.messageId}`;
+  // Opens the Chat drawer at the message. A stored link has no page to stand
+  // on, so it is the org home; the bell and the inbox open the drawer beside
+  // whatever page you are on instead (chatDrawerTargetFromUrl).
+  const url = chatDrawerHref(`/${input.orgSlug}`, {
+    channelId: input.channelId,
+    messageId: input.messageId,
+  });
 
   // Resolve the mentioned people ONCE. The snippet below and the Teams card
   // both need their names, and the Teams block used to run its own identical

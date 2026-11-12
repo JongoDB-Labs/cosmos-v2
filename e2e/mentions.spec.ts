@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/auth";
+import { openGeneralInDrawer } from "./fixtures/chat";
 
 /**
  * @-tag-any-entity — chat surface. Typing `@` opens a type-grouped typeahead
@@ -8,9 +9,9 @@ import { test, expect } from "./fixtures/auth";
  */
 const ORG_SLUG = "test-org";
 
+/** #general, in the Chat drawer: chat has no page of its own. */
 async function openGeneral(page: import("@playwright/test").Page) {
-  await page.goto(`/${ORG_SLUG}/chat`);
-  await page.getByText("general").first().click();
+  await openGeneralInDrawer(page, { org: ORG_SLUG });
   const composer = page.getByPlaceholder(/^Message/i);
   await composer.click();
   return composer;

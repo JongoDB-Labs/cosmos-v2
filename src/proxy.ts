@@ -8,6 +8,7 @@ import { REQUEST_ID_HEADER, requestIdFor } from "@/lib/openapi/request-id";
 import { problem } from "@/lib/openapi/problem";
 import { isMutatingMethod, isPathOrgFrozen } from "@/lib/cutover/freeze";
 import { otherAddressRedirect } from "@/lib/deploy/other-address-redirect";
+import { legacyChatRedirect } from "@/lib/chat/legacy-chat-redirect";
 
 function withSecurityHeaders(res: NextResponse): NextResponse {
   applySecurityHeaders(res.headers);
@@ -215,6 +216,21 @@ async function gate(request: NextRequest, next: () => NextResponse): Promise<Nex
 
   if (isPublic(pathname)) {
     return withSecurityHeaders(next());
+  }
+
+  // The full-page chat is gone; chat opens in the drawer. Its old addresses
+  // (bookmarks, emailed links, notifications already sent) go back to the page
+  // the person came from, or the org home, with the drawer open on the same
+  // conversation. Before the session check, so it costs no database read; a
+  // signed-out visitor is then sent to sign in from the new address.
+  const toDrawer = legacyChatRedirect({
+    method: request.method,
+    pathname,
+    referer: request.headers.get("referer"),
+    host: request.headers.get("x-forwarded-host") ?? request.headers.get("host"),
+  });
+  if (toDrawer) {
+    return withSecurityHeaders(NextResponse.redirect(new URL(toDrawer, request.url), 307));
   }
 
   const sessionId = request.cookies.get(SESSION_COOKIE)?.value;

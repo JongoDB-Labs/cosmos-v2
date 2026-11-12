@@ -1,6 +1,5 @@
 "use client";
 import { useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import {
@@ -13,10 +12,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { useOrgMembers } from "./mention-picker";
 
-export function NewDmDialog({ orgId }: { orgId: string }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const orgSlug = pathname.split("/")[1] ?? "";
+export function NewDmDialog({
+  orgId,
+  onStarted,
+}: {
+  orgId: string;
+  /** Opens the new (or existing) DM in place, in the docked Chat drawer. */
+  onStarted: (channelId: string) => void;
+}) {
   const { data: members } = useOrgMembers(orgId);
   const qc = useQueryClient();
   const channelsKey = useOrgQueryKey("chat-channels");
@@ -56,7 +59,7 @@ export function NewDmDialog({ orgId }: { orgId: string }) {
     setOpen(false);
     setPicked([]);
     setQuery("");
-    router.push(`/${orgSlug}/chat/${channelId}`);
+    onStarted(channelId);
   }
 
   return (

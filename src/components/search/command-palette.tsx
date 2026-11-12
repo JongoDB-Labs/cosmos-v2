@@ -314,12 +314,16 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
   );
 
   // Quick-jump destinations — the bulk of the "operations" expansion. Each is a
-  // real workspace route; they're filtered live by whatever you type after ">".
-  const navItems: { id: string; label: string; suffix: string; drawer?: DrawerTool; icon: React.ReactNode }[] = [
+  // real workspace route, or a docked drawer (Chat has no page, only its
+  // drawer); they're filtered live by whatever you type after ">".
+  const navItems: ({ id: string; label: string; icon: React.ReactNode } & (
+    | { suffix: string; drawer?: undefined }
+    | { suffix?: undefined; drawer: DrawerTool }
+  ))[] = [
     { id: "overview", label: "Overview", suffix: "", icon: <LayoutDashboard className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "projects", label: "Projects", suffix: "/projects", icon: <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "issues", label: "Work Items", suffix: "/work-items", icon: <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "chat", label: "Chat", suffix: "/chat", drawer: "chat", icon: <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "chat", label: "Chat", drawer: "chat", icon: <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "notes", label: "Notes", suffix: "/notes", icon: <FileText className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "meetings", label: "Meetings", suffix: "/meetings", icon: <Video className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "team", label: "Org", suffix: "/team", icon: <Users className="h-4 w-4 shrink-0 text-muted-foreground" /> },
@@ -516,7 +520,7 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
                   key={n.id}
                   value={`nav-${n.id}`}
                   onSelect={() =>
-                    n.drawer ? openToolDrawer(n.drawer) : goTo(n.suffix)
+                    n.drawer !== undefined ? openToolDrawer(n.drawer) : goTo(n.suffix)
                   }
                 >
                   {n.icon}
