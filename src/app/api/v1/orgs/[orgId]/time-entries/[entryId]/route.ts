@@ -6,7 +6,7 @@ import { requireAccess } from "@/lib/abac/require-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { roleCountsFor } from "@/lib/rbac/key-role";
 import { redactRates } from "@/lib/time/visibility";
-import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
+import { readableTimeUserIds, timeProjectCeiling, timeUserIdFilter } from "@/lib/time/scope";
 import { timesheetIdForEntry, isTimesheetOpen } from "@/lib/time/timesheet";
 import { recordRevision } from "@/lib/time/revisions";
 import { checkInternalCategory, internalCategories } from "@/lib/time/internal-categories";
@@ -37,6 +37,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         // are the SAME 404 — a 403 here would confirm an entry exists, which is
         // itself information an actor without access should not obtain.
         userId: timeUserIdFilter(await readableTimeUserIds(ctx)),
+        // A project-scoped key: another project's entry is the same 404.
+        projectId: timeProjectCeiling(ctx),
         // A voided entry reads as gone, same 404 as one that never existed.
         voidedAt: null,
       },

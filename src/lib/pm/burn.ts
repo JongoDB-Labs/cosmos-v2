@@ -48,8 +48,11 @@ export async function loadClinsWithBurn(
       where: { orgId, clinId: { in: clinIds }, status: "APPROVED", ...NOT_VOIDED },
       select: { clinId: true, hours: true, rate: true, userId: true },
     }),
+    // No NOT_VOIDED here: voiding is a TIME ENTRY state. Expense has no
+    // `voidedAt` column, so the filter made Prisma reject the whole query and
+    // every read of CLIN burn failed as soon as a project had one CLIN.
     prisma.expense.findMany({
-      where: { orgId, clinId: { in: clinIds }, status: "APPROVED", ...NOT_VOIDED },
+      where: { orgId, clinId: { in: clinIds }, status: "APPROVED" },
       select: { clinId: true, amount: true },
     }),
     prisma.employee.findMany({ where: { orgId }, select: { userId: true, costRate: true } }),

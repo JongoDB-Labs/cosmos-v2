@@ -10,6 +10,9 @@ import { z } from "zod";
 import { inVisibleProject, requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
 import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 import { reimbursableNeedsProject } from "@/lib/finance/reimbursable";
+import { roleCountsFor } from "@/lib/rbac/key-role";
+import { approvalAuthority } from "@/lib/time/approval";
+import { isManagerOf, hasManager } from "@/lib/time/timesheet-actions";
 
 const updateExpenseSchema = z.object({
   amount: z.number().positive().optional(),
@@ -84,13 +87,39 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         { status: 400, headers: { "Content-Type": "application/json" } },
       );
     }
+    // An approver's licence to amend a locked expense is an APPROVAL power, so
+    // it follows the approval rule: not over their own expense while they have
+    // a supervisor. Otherwise "have it approved at 50, then make it 5,000" is
+    // self-approval by the back door.
+    if (existing.status !== "DRAFT" && existing.status !== "REJECTED") {
+      const authority = approvalAuthority({
+        actorUserId: ctx.userId,
+        subjectUserId: existing.createdById,
+        hasTimeApprove: hasPermission(ctx.permissions, Permission.EXPENSE_APPROVE),
+        isManagerOfSubject:
+          roleCountsFor(ctx, Permission.EXPENSE_APPROVE) && (await isManagerOf(orgId, ctx.userId, existing.createdById)),
+        subjectHasManager: await hasManager(orgId, existing.createdById),
+        noun: "expense",
+      });
+      if (!authority.allowed) {
+        return new Response(
+          JSON.stringify({ error: "Your own submitted or approved expense can only be changed by your supervisor or another approver" }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        );
+      }
+    }
 
     const body = await request.json();
     const data = updateExpenseSchema.parse(body);
     // Moving it to a project is writing to that project.
     await requireProjectVisibleIf(ctx, data.projectId);
     const nextProject = data.projectId !== undefined ? data.projectId : existing.projectId;
-    await assertRefsInScope({ orgId, projectId: nextProject, viewer: ctx }, { clin: data.clinId });
+    // The CLIN it ends up charged to must be this org's, and on the project it
+    // ends up under (lib/rbac/foreign-refs.ts). Moving the expense re-checks the
+    // CLIN it keeps; otherwise the check is of the CLIN the body names.
+    const projectChanged = data.projectId !== undefined && data.projectId !== existing.projectId;
+    const clinToCheck = projectChanged && data.clinId === undefined ? existing.clinId : data.clinId;
+    await assertRefsInScope({ orgId, projectId: nextProject, viewer: ctx }, { clin: clinToCheck });
     const nextReimbursable = data.reimbursable ?? existing.reimbursable;
     if (nextReimbursable && !nextProject) return reimbursableNeedsProject();
 
@@ -147,17 +176,32 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // policy (by ownership). Identical to requirePermission until a policy exists.
     await requireAccess(ctx, "FINANCE_MANAGE", { createdById: existing.createdById });
 
-    // Mirror the PUT lock: submitted/approved expenses can't be deleted out from
-    // under the approval gate unless the actor is an approver/admin.
-    if (
-      existing.status !== "DRAFT" &&
-      existing.status !== "REJECTED" &&
-      !hasPermission(ctx.permissions, Permission.EXPENSE_APPROVE)
-    ) {
-      return new Response(
-        JSON.stringify({ error: "Only draft or rejected expenses can be deleted" }),
-        { status: 400, headers: { "Content-Type": "application/json" } },
-      );
+    // Mirror the PUT lock: a submitted or approved expense can't be deleted out
+    // from under the approval gate. Only an approver may, and then under the
+    // approval rule: not their own while they have a supervisor. Deleting your
+    // own approved expense is as much an approval decision as approving it.
+    if (existing.status !== "DRAFT" && existing.status !== "REJECTED") {
+      if (!hasPermission(ctx.permissions, Permission.EXPENSE_APPROVE)) {
+        return new Response(
+          JSON.stringify({ error: "Only draft or rejected expenses can be deleted" }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      const authority = approvalAuthority({
+        actorUserId: ctx.userId,
+        subjectUserId: existing.createdById,
+        hasTimeApprove: true,
+        isManagerOfSubject:
+          roleCountsFor(ctx, Permission.EXPENSE_APPROVE) && (await isManagerOf(orgId, ctx.userId, existing.createdById)),
+        subjectHasManager: await hasManager(orgId, existing.createdById),
+        noun: "expense",
+      });
+      if (!authority.allowed) {
+        return new Response(
+          JSON.stringify({ error: "Your own submitted or approved expense can only be deleted by your supervisor or another approver" }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        );
+      }
     }
 
     await prisma.expense.delete({ where: { id: expenseId } });
@@ -168,7 +212,14 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       action: "expense.deleted",
       entity: "expense",
       entityId: expenseId,
-      metadata: { amount: String(existing.amount), category: existing.category } as Record<string, string>,
+      // The status says whether this removed a decision (an approved expense)
+      // or just a draft.
+      metadata: {
+        amount: String(existing.amount),
+        category: existing.category,
+        status: existing.status,
+        createdById: existing.createdById,
+      } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });
 

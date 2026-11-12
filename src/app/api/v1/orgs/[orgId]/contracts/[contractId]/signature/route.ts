@@ -7,6 +7,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { createEnvelope } from "@/lib/integrations/docusign";
 import { mayReadContract } from "@/lib/crm/contract-scope";
+import { moneyGate, projectMoney } from "@/lib/rbac/money-fields";
 
 const schema = z.object({
   signerEmail: z.string().email(),
@@ -54,7 +55,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       data: { docusignEnvelopeId: envelopeId, docusignStatus: "sent" },
     });
 
-    return success({ envelopeId, contract: updated });
+    return success({
+      envelopeId,
+      contract: projectMoney("vendor", updated, (await moneyGate(ctx))(updated.projectId)),
+    });
   } catch (e) {
     return handleApiError(e);
   }

@@ -10,6 +10,7 @@ import { partnerSelect, mapVendorContract } from "@/lib/pm/vendor";
 import { logPmFieldChanges } from "@/lib/pm/activity-log";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
+import { canSeeProjectMoney, projectMoney } from "@/lib/rbac/money-fields";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; vendorId: string }>;
@@ -127,7 +128,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       },
     );
 
-    return success(mapVendorContract(updated));
+    return success(projectMoney("vendor", mapVendorContract(updated), await canSeeProjectMoney(ctx, projectId)));
   } catch (e) {
     return handleApiError(e);
   }
@@ -145,6 +146,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
 
     const existing = await prisma.contract.findFirst({
       where: { id: vendorId, orgId, projectId },
+      select: { id: true },
     });
     if (!existing) return new Response("Not found", { status: 404 });
 

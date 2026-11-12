@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requirePermission } from "@/lib/rbac/check";
+import { canSeeProjectMoney } from "@/lib/rbac/money-fields";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { buildProjectWorkbook } from "@/lib/pm/export";
@@ -30,6 +32,11 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // This WRITES a file into the org's SharePoint, with the integration's
+    // credentials, where the app's own access rules stop applying. That is an
+    // export, so it takes the bit every other export takes -- reading the
+    // project is not enough.
+    requirePermission(ctx, Permission.ORG_EXPORT);
     await requireProjectRead(ctx, projectId, "ANALYTICS_READ");
 
     const project = await prisma.project.findFirst({
@@ -61,7 +68,10 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
     // rates out of the app's own permission model.
     const includeCost =
       (ctx.permissions & Permission.FINANCE_READ) === Permission.FINANCE_READ;
-    const buf = await buildProjectWorkbook(orgId, projectId, { includeCost });
+    // The registers' money (cost impact, vendor and CLIN figures) by the same
+    // rule as the screens: finance on THIS project.
+    const includeMoney = await canSeeProjectMoney(ctx, projectId);
+    const buf = await buildProjectWorkbook(orgId, projectId, { includeCost, includeMoney });
     const folder = sp.folder ? `${sp.folder.replace(/^\/+|\/+$/g, "")}/` : "";
     const filename = `${project.key}-pm-dashboard.xlsx`;
     const uploadPath = `/sites/${sp.siteId}/drives/${sp.driveId}/root:/${folder}${filename}:/content`;

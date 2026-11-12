@@ -6,6 +6,7 @@ import { readableContractsWhere } from "@/lib/crm/contract-scope";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { moneyGate, projectMoney, projectMoneyEach } from "@/lib/rbac/money-fields";
 import { z } from "zod";
 import { assertRefsInScope, withoutForeign } from "@/lib/rbac/foreign-refs";
 
@@ -59,8 +60,17 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
 
     // A partner or product from another org, linked before writes were
-    // checked, reads as none.
-    return success(contracts.map((c) => withoutForeign(c, orgId, ["partner", "product"])));
+    // checked, reads as none. A contract's value, funded and invoiced figures
+    // are finance data, as on the vendor register: each one needs finance
+    // access to ITS project (an org-level contract, the org-wide grant).
+    // Without it the contract still arrives, with those fields left out.
+    return success(
+      projectMoneyEach(
+        "vendor",
+        contracts.map((c) => withoutForeign(c, orgId, ["partner", "product"])),
+        await moneyGate(ctx),
+      ),
+    );
   } catch (error) {
     return handleApiError(error);
   }
@@ -112,7 +122,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
-    return created(contract);
+    // The creator typed the value, but the answer follows the read rule: the
+    // list they are about to reload will say "Restricted" too.
+    return created(projectMoney("vendor", contract, (await moneyGate(ctx))(contract.projectId)));
   } catch (error) {
     return handleApiError(error);
   }

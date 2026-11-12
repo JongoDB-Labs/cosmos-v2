@@ -33,6 +33,9 @@ vi.mock("@/lib/time/scope", () => ({
   readableTimeUserIds,
   timeUserIdFilter: (allowed: string[] | null) =>
     allowed ? { in: allowed } : undefined,
+  // A key's project ceiling; these contexts carry none, so no filter.
+  timeProjectCeiling: (c: { projectScope?: readonly string[] }) =>
+    c.projectScope ? { in: [...c.projectScope] } : undefined,
 }));
 
 import { listTimeEntries } from "./time";

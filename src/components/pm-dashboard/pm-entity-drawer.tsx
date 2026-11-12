@@ -137,6 +137,11 @@ export interface PmField {
    * boolean "escalate" select uses `coerce: (v) => v === "true"`.
    */
   coerce?: (value: string) => unknown;
+  /**
+   * Withheld from this viewer (money without finance access): shown as
+   * "Restricted", never editable, so it does not read as an empty field.
+   */
+  restricted?: boolean;
 }
 
 export interface PmEntityDrawerProps {
@@ -896,7 +901,9 @@ function DrawerField({
   return (
     <div className={cn("space-y-1", isFull && "sm:col-span-2")}>
       <label className="text-xs text-muted-foreground">{field.label}</label>
-      {!field.editable ? (
+      {field.restricted ? (
+        <div className="flex min-h-7 items-center text-sm text-muted-foreground">Restricted</div>
+      ) : !field.editable ? (
         <div className="flex min-h-7 items-center text-sm text-[var(--text)]">
           {value === null || value === "" ? "—" : String(value)}
         </div>

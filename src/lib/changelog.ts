@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.552.4",
+    date: "2026-11-13",
+    title: "Contract money needs finance access everywhere, and nobody approves their own expenses",
+    highlights: [
+      {
+        kind: "fix",
+        text: "CLIN ceilings and burn, change request cost impact and contract values are now shown only to people with finance access to the project. A contract with no project needs organization-wide finance access. Everyone else still sees the rest of each record, with \"Restricted\" where the money was. The rule covers the program registers, the Contracts page, a partner's and a product's contracts, the contract PDF, the Excel export, the SharePoint mirror and Cosmo's answers. Editing a contract whose value you can't see keeps the value. CLIN burn also loads again on projects that have expenses.",
+      },
+      {
+        kind: "fix",
+        text: "If you have a supervisor, you can no longer approve your own time entries or expenses, or change or delete your own expense after it has been submitted; someone else has to. Approving expenses in bulk skips your own and tells you which ones it skipped. This is the rule timesheets and leave already followed. You also can't change your own supervisors any more; another employee admin can, and the change is audited.",
+      },
+      {
+        kind: "fix",
+        text: "An API key limited to certain projects now reads time on those projects only, including the yearly timesheet view. An expense's CLIN must belong to this organization and to the expense's project. The organization export no longer includes other people's private notes, carries only the contracts your contract list shows, and leaves out pay rates, revenue, expenses and contract values for anyone without finance access. It lists each member's permissions by name, leaves out sign-in and connection details, stops with a clear error if any part can't be read, and every export is recorded in the audit log. The JSON import now creates every record as you, at the start of its approval workflow, and records each import in the audit log.",
+      },
+    ],
+  },
+  {
     version: "2.552.3",
     date: "2026-11-12",
     title: "Search, chat and live updates show only what you can see",

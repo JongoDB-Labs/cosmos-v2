@@ -9,6 +9,9 @@ import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 import { totalHours } from "@/lib/time/time-off";
+import { approvalAuthority } from "@/lib/time/approval";
+import { isManagerOf, hasManager } from "@/lib/time/timesheet-actions";
+import { roleCountsFor } from "@/lib/rbac/key-role";
 import type { Prisma } from "@prisma/client";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -153,7 +156,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
  * A HOLIDAY filed by an approver lands APPROVED, because nobody asked for it:
  * routing the office Christmas closure to an approval queue would mean asking a
  * person to consent to a decision that has already been made. Every other kind
- * starts PENDING, including a holiday somebody files for themselves.
+ * starts PENDING, and so does an approver's holiday for THEMSELVES while
+ * somebody supervises them: pre-approving is deciding, so it takes the decide
+ * route's rule (`approvalAuthority`), which refuses self-approval when another
+ * person is designated.
  */
 export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
@@ -176,7 +182,19 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // user, including another org's or one this org removed.
     if (onBehalf) await assertRefsInScope({ orgId }, { member: subject });
 
-    const preApproved = body.kind === "HOLIDAY" && mayDecide;
+    const preApproved =
+      body.kind === "HOLIDAY" &&
+      mayDecide &&
+      approvalAuthority({
+        actorUserId: ctx.userId,
+        subjectUserId: subject,
+        hasTimeApprove: mayDecide,
+        // Supervising someone is a role. A key acts by it only when its scopes
+        // grant TIME_APPROVE, which none do, so a key never approves.
+        isManagerOfSubject:
+          roleCountsFor(ctx, Permission.TIME_APPROVE) && (await isManagerOf(orgId, ctx.userId, subject)),
+        subjectHasManager: await hasManager(orgId, subject),
+      }).allowed;
 
     const created = await prisma.timeOffRequest.create({
       data: {

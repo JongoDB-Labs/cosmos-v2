@@ -3,7 +3,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
+import { roleCountsFor } from "@/lib/rbac/key-role";
+import { approvalAuthority } from "@/lib/time/approval";
+import { isManagerOf, hasManager } from "@/lib/time/timesheet-actions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { safeAutoPost, postExpenseToLedger } from "@/lib/ledger/auto-post";
@@ -27,6 +30,25 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       where: { id: expenseId, orgId },
     });
     if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
+
+    // The same authority rule as timesheets and leave: whoever has a
+    // supervisor doesn't approve their own expense. EXPENSE_APPROVE alone let
+    // an approver reimburse themselves.
+    const authority = approvalAuthority({
+      actorUserId: ctx.userId,
+      subjectUserId: existing.createdById,
+      hasTimeApprove: hasPermission(ctx.permissions, Permission.EXPENSE_APPROVE),
+      isManagerOfSubject:
+        roleCountsFor(ctx, Permission.EXPENSE_APPROVE) && (await isManagerOf(orgId, ctx.userId, existing.createdById)),
+      subjectHasManager: await hasManager(orgId, existing.createdById),
+      noun: "expense",
+    });
+    if (!authority.allowed) {
+      return new Response(
+        JSON.stringify({ error: authority.reason ?? "You cannot approve this expense" }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
 
     if (existing.status !== "SUBMITTED") {
       return new Response(

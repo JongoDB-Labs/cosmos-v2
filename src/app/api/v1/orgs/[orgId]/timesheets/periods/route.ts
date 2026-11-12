@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { readableTimeUserIds } from "@/lib/time/scope";
+import { readableTimeUserIds, timeProjectCeiling } from "@/lib/time/scope";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
 import { periodFor, type Period } from "@/lib/time/period";
 import { DEFAULT_PERIOD_LENGTH } from "@/lib/time/timesheet";
@@ -83,11 +83,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       // rate — the same reason burn and the template export sit outside the
       // TIME_READ reader rule. Pulling every entry to add them up here would
       // put pay-adjacent columns within reach for no gain.
+      //
+      // A key limited to some projects totals the hours on those projects only,
+      // as the entries list does (`timeProjectCeiling`).
       prisma.timeEntry.groupBy({
         by: ["date"],
         where: {
           orgId,
           userId: subject,
+          projectId: timeProjectCeiling(ctx),
           date: {
             gte: new Date(`${first}T00:00:00.000Z`),
             lte: new Date(`${last}T00:00:00.000Z`),

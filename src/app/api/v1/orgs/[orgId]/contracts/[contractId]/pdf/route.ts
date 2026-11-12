@@ -8,6 +8,7 @@ import { mayReadContract } from "@/lib/crm/contract-scope";
 import { generateContractPdf } from "@/lib/pdf/contract";
 import { loadPdfLogo } from "@/lib/pdf/org-logo";
 import { pickOrgBrand } from "@/lib/brand/resolve";
+import { moneyGate } from "@/lib/rbac/money-fields";
 
 type RouteParams = { params: Promise<{ orgId: string; contractId: string }> };
 
@@ -33,12 +34,16 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       return new Response("Contract not found", { status: 404 });
     // Never print another org's partner onto this org's contract.
     const partner = contract.partner?.orgId === contract.orgId ? contract.partner : null;
+    // The value is finance data, as everywhere else it leaves the server.
+    const seesMoney = (await moneyGate(ctx))(contract.projectId);
 
     const pdfBuffer = await generateContractPdf({
       title: contract.title ?? "Contract",
       partyName: partner?.name ?? "Unknown party",
       partyEmail: partner?.contactEmail ?? null,
-      value: typeof contract.value === "number" ? contract.value : null,
+      // A Decimal, never a number: the old typeof check printed "—" for everyone.
+      value: seesMoney && contract.value != null ? Number(contract.value) : null,
+      valueWithheld: !seesMoney,
       startDate: contract.startDate ?? null,
       endDate: contract.endDate ?? null,
       body: contract.terms ?? null,

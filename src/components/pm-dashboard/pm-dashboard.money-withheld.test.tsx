@@ -26,7 +26,7 @@ describe("CLIN burn the viewer may not see", () => {
     // access that the contract has no CLINs -- the exact misreading the
     // Program Management page's under-construction notice exists to prevent.
     render(<PmDashboard scope={scope} data={empty} moneyWithheld />);
-    expect(screen.getByText(/needs Finance or Accounting access/i)).toBeTruthy();
+    expect(screen.getByText(/needs Finance access/i)).toBeTruthy();
     expect(screen.queryByText("No CLINs yet.")).toBeNull();
   });
 

@@ -125,7 +125,8 @@ export interface ChangeLite {
   title: string;
   type: string | null;
   status: ChangeStatus;
-  costImpact: number | null;
+  /** Absent (not null) when the viewer may not see money on its project. */
+  costImpact?: number | null;
   scheduleDaysImpact: number | null;
 }
 
@@ -174,6 +175,12 @@ interface PmDashboardProps {
    * so an empty CLIN list means "not yours to see", not "none on file".
    */
   moneyWithheld?: boolean;
+  /**
+   * The viewer may see money on SOME of the projects in scope (finance on
+   * projects they belong to), so CLIN totals cover only those -- said on the
+   * panel, or a partial total would read as the whole portfolio's.
+   */
+  moneyPartial?: boolean;
 }
 
 const AUDIENCES: {
@@ -242,6 +249,7 @@ export function PmDashboard({
   audience: initialAudience,
   hideScopeHeading,
   moneyWithheld,
+  moneyPartial,
 }: PmDashboardProps) {
   const { can } = usePermissions();
 
@@ -295,12 +303,18 @@ export function PmDashboard({
               >
                 <Download className="size-3.5" /> Export Excel
               </button>
-              <MirrorToSharePointButton orgId={scope.orgId} projectId={scope.projectId} />
+              {/* Writing into the org's SharePoint is an export (ORG_EXPORT);
+                  the server refuses it without the bit, so the button would
+                  only ever fail. */}
+              {can(Permission.ORG_EXPORT) && (
+                <MirrorToSharePointButton orgId={scope.orgId} projectId={scope.projectId} />
+              )}
               <ExportDialog
                 orgId={scope.orgId}
                 projectId={scope.projectId}
                 open={exportOpen}
                 onOpenChange={setExportOpen}
+                moneyVisible={!moneyWithheld}
               />
             </>
           )}
@@ -336,9 +350,11 @@ export function PmDashboard({
         </div>
       </div>
 
-      {audience === "pm" && <PmView data={data} stats={stats} moneyWithheld={moneyWithheld} />}
+      {audience === "pm" && (
+        <PmView data={data} stats={stats} moneyWithheld={moneyWithheld} moneyPartial={moneyPartial} />
+      )}
       {audience === "government" && (
-        <GovernmentView data={data} stats={stats} moneyWithheld={moneyWithheld} />
+        <GovernmentView data={data} stats={stats} moneyWithheld={moneyWithheld} moneyPartial={moneyPartial} />
       )}
       {audience === "executive" && <ExecutiveView data={data} stats={stats} />}
     </div>
@@ -349,7 +365,7 @@ export function PmDashboard({
 // Audience views
 // ---------------------------------------------------------------------------
 
-function PmView({ data, stats, moneyWithheld }: ViewProps) {
+function PmView({ data, stats, moneyWithheld, moneyPartial }: ViewProps) {
   const decisions = computeDecisions(data);
   return (
     <>
@@ -362,14 +378,14 @@ function PmView({ data, stats, moneyWithheld }: ViewProps) {
         <BlockersPanel blockers={data.blockers} />
         <DeliverablesPanel deliverables={data.deliverables} />
         <ChangesPanel changes={data.changes} />
-        <ClinBurnPanel clins={data.clins} withheld={moneyWithheld} className="lg:col-span-2" />
+        <ClinBurnPanel clins={data.clins} withheld={moneyWithheld} partial={moneyPartial} className="lg:col-span-2" />
         <GoalsPanel goals={data.goals} />
       </div>
     </>
   );
 }
 
-function GovernmentView({ data, stats, moneyWithheld }: ViewProps) {
+function GovernmentView({ data, stats, moneyWithheld, moneyPartial }: ViewProps) {
   const decisions = computeDecisions(data);
   return (
     <>
@@ -390,7 +406,7 @@ function GovernmentView({ data, stats, moneyWithheld }: ViewProps) {
         <MilestonesPanel milestones={data.milestones} title="Schedule" />
         <DeliverablesPanel deliverables={data.deliverables} title="Contract Deliverables (CDRLs)" />
         <ChangesPanel changes={data.changes} title="Change Requests & MODs" />
-        <ClinBurnPanel clins={data.clins} withheld={moneyWithheld} className="lg:col-span-2" />
+        <ClinBurnPanel clins={data.clins} withheld={moneyWithheld} partial={moneyPartial} className="lg:col-span-2" />
         <KpisPanel kpis={data.kpis} title="Performance vs. Target" />
         <RisksPanel
           risks={data.risks.filter((r) => r.escalate)}
@@ -425,6 +441,7 @@ interface ViewProps {
   data: PmDashboardData;
   stats: ReturnType<typeof computeStats>;
   moneyWithheld?: boolean;
+  moneyPartial?: boolean;
 }
 
 const AUDIENCE_HEADER: Record<AudienceView, { title: string; subtitle: string }> = {
@@ -713,10 +730,12 @@ function BurnBar({ percent }: { percent: number | null }) {
 function ClinBurnPanel({
   clins,
   withheld,
+  partial,
   className,
 }: {
   clins: ClinBurnLite[];
   withheld?: boolean;
+  partial?: boolean;
   className?: string;
 }) {
   const totalValue = clins.reduce((s, c) => s + c.value, 0);
@@ -725,11 +744,16 @@ function ClinBurnPanel({
   return (
     <Panel title="CLIN Burn" className={className}>
       {withheld ? (
-        <EmptyRow label="CLIN burn needs Finance or Accounting access." />
+        <EmptyRow label="CLIN burn needs Finance access." />
       ) : clins.length === 0 ? (
-        <EmptyRow label="No CLINs yet." />
+        <EmptyRow label={partial ? "No CLINs on the projects you have Finance access to." : "No CLINs yet."} />
       ) : (
         <div className="flex flex-col gap-3">
+          {partial && (
+            <p className="text-xs text-[var(--text-muted)]">
+              Only projects you have Finance access to are included.
+            </p>
+          )}
           <div className="flex items-baseline justify-between gap-2 text-sm">
             <span className="text-[var(--text-muted)]">
               {formatMoney(totalBurned)} burned of {formatMoney(totalValue)}

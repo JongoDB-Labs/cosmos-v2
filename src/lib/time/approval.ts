@@ -175,6 +175,11 @@ export function entryStatusFor(
  * designated, so approving your own hours bypasses them. With no manager
  * nobody else is designated and refusing would simply deadlock — the top of an
  * org chart has no one above it.
+ *
+ * It is the ONE rule for every approve path that signs for a person's time or
+ * money: timesheets, leave, a single time entry, and expenses one at a time or
+ * in bulk. For an expense, `hasTimeApprove` carries EXPENSE_APPROVE and the
+ * subject is whoever created it; `noun` only changes the wording.
  */
 export function approvalAuthority(params: {
   actorUserId: string;
@@ -182,18 +187,21 @@ export function approvalAuthority(params: {
   hasTimeApprove: boolean;
   isManagerOfSubject: boolean;
   subjectHasManager: boolean;
+  /** What is being approved, for the reason text. Defaults to "timesheet". */
+  noun?: string;
 }): { allowed: boolean; reason?: string } {
   const isSelf = params.actorUserId === params.subjectUserId;
+  const noun = params.noun ?? "timesheet";
 
   if (isSelf && params.subjectHasManager) {
     return {
       allowed: false,
-      reason: "Your own timesheet has to be approved by your supervisor",
+      reason: `Your own ${noun} has to be approved by your supervisor`,
     };
   }
 
   if (params.isManagerOfSubject) return { allowed: true };
   if (params.hasTimeApprove) return { allowed: true };
 
-  return { allowed: false, reason: "You cannot approve this timesheet" };
+  return { allowed: false, reason: `You cannot approve this ${noun}` };
 }

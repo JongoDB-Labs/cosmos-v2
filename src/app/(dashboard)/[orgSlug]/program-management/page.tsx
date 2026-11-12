@@ -9,7 +9,7 @@ import { loadClinsWithBurn } from "@/lib/pm/burn";
 import { canViewPage } from "@/lib/nav/page-access";
 import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
-import { hasAnyPermission, Permission } from "@/lib/rbac/permissions";
+import { moneyGate } from "@/lib/rbac/money-fields";
 import { NoPageAccess } from "@/components/ui/no-page-access";
 import { PageShell, pageShellBoxClassName, type PageShellProps } from "@/components/ui/page-shell";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -174,13 +174,13 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
 
   // Money is gated separately from the page. Reading that a program has
   // slipped is a different question from reading what it is worth, and the
-  // people who need the first are not always cleared for the second -- which
-  // is the same split Accounting already makes.
-  const canSeeMoney = hasAnyPermission(
-    ctx.permissions,
-    Permission.FINANCE_READ,
-    Permission.ACCOUNTING_READ,
-  );
+  // people who need the first are not always cleared for the second. The rule
+  // is the registers' own (src/lib/rbac/money-fields.ts): FINANCE_READ, or
+  // FINANCE_READ_PROJECT on the projects the viewer belongs to -- so it is
+  // decided per project, and a portfolio can be partly visible.
+  const seesMoneyOn = await moneyGate(ctx);
+  const moneyIds = scopeIds.filter((id) => seesMoneyOn(id));
+  const canSeeMoney = moneyIds.length > 0;
 
   const where = { orgId: ctx.orgId, projectId: { in: scopeIds } };
   const [milestones, kpis, goals, risks, deliverables, blockers, changes, clins] =
@@ -229,12 +229,13 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
           status: true,
           costImpact: true,
           scheduleDaysImpact: true,
+          projectId: true,
         },
       }),
-      // Not even queried without the permission: CLIN burn is contract value
-      // and funding, and the cheapest way to keep it out of a payload is to
-      // never load it.
-      canSeeMoney ? loadClinsWithBurn(ctx.orgId, scopeIds) : Promise.resolve([]),
+      // Not even queried for projects outside the viewer's finance access: CLIN
+      // burn is contract value and funding, and the cheapest way to keep it out
+      // of a payload is to never load it.
+      canSeeMoney ? loadClinsWithBurn(ctx.orgId, moneyIds) : Promise.resolve([]),
     ]);
 
   return (
@@ -257,6 +258,7 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
         // scope, so this component does not repeat either.
         hideScopeHeading
         moneyWithheld={!canSeeMoney}
+        moneyPartial={canSeeMoney && moneyIds.length < scopeIds.length}
         scope={{ kind: "org", orgId: ctx.orgId, orgName: selected ? selected.name : org.name }}
         data={{
           milestones: milestones.map((m) => ({
@@ -294,9 +296,11 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
             type: c.type,
             status: c.status,
             // A change request's SCHEDULE impact is program information; its
-            // COST impact is financial, so it is withheld rather than the
+            // COST impact is financial, so it is left out rather than the
             // whole row being dropped -- the slip is still worth seeing.
-            costImpact: canSeeMoney && c.costImpact != null ? Number(c.costImpact) : null,
+            ...(seesMoneyOn(c.projectId)
+              ? { costImpact: c.costImpact != null ? Number(c.costImpact) : null }
+              : {}),
             scheduleDaysImpact: c.scheduleDaysImpact,
           })),
           clins: clins.map((c) => ({

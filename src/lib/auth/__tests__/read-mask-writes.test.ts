@@ -104,9 +104,12 @@ describe("every scope reaches exactly its frozen writes", () => {
     expect((BASELINE_BY_SCOPE as Record<string, string[]>).read).toEqual([...BASELINE].sort());
   });
 
-  it("would catch ANALYTICS_READ in planning:write: the SharePoint export POST", () => {
+  // The SharePoint export used to be the example here. It now also needs
+  // ORG_EXPORT (it writes the program's registers out of the product), so the
+  // control moved to the Excel export, which is still gated on ANALYTICS_READ.
+  it("would catch ANALYTICS_READ in planning:write: the Excel export POST", () => {
     const widened = writesReachableBy(scopeMask(["planning:write"]) | Permission.ANALYTICS_READ);
-    expect(widened).toContain("POST v1/orgs/[orgId]/projects/[projectId]/export/sharepoint");
+    expect(widened).toContain("POST v1/orgs/[orgId]/projects/[projectId]/export/xlsx");
   });
 });
 

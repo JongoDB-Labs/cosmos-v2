@@ -36,6 +36,9 @@ import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 type ClinStatus = "active" | "on_hold" | "closed";
 
+// The money fields arrive only for a viewer with finance access on the project
+// (src/lib/rbac/money-fields.ts). Rows are typed with them present because the
+// money columns and fields below are only built when `moneyVisible` is true.
 interface ClinBurn {
   id: string;
   code: string;
@@ -55,7 +58,22 @@ interface ClinBurn {
 interface ClinBurnTrackerProps {
   orgId: string;
   projectId: string;
+  /** False without finance access: the money columns read "Restricted". */
+  moneyVisible?: boolean;
 }
+
+/** The columns whose every cell is money. */
+const MONEY_COLUMN_IDS: ReadonlySet<string> = new Set([
+  "fundedValue", "value", "burned", "remaining", "percentConsumed",
+]);
+
+/** Stands in for the money columns, so a viewer sees "Restricted", not nothing. */
+const RESTRICTED_MONEY_COLUMN: ColumnDef<ClinBurn> = {
+  id: "money",
+  header: "Ceiling & burn",
+  enableSorting: false,
+  cell: () => <span className="text-[var(--text-muted)]">Restricted</span>,
+};
 
 const STATUS_OPTIONS: { value: ClinStatus; label: string }[] = [
   { value: "active", label: "Active" },
@@ -204,7 +222,10 @@ function formToBody(f: ClinForm) {
   };
 }
 
-export function ClinBurnTracker({ orgId, projectId }: ClinBurnTrackerProps) {
+export function ClinBurnTracker({ orgId, projectId, moneyVisible = true }: ClinBurnTrackerProps) {
+  const columns = moneyVisible
+    ? CLIN_COLUMNS
+    : [...CLIN_COLUMNS.filter((c) => !MONEY_COLUMN_IDS.has(c.id ?? "")), RESTRICTED_MONEY_COLUMN];
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/clins`;
   const queryKey = useOrgQueryKey("clins", projectId);
   const {
@@ -289,6 +310,13 @@ export function ClinBurnTracker({ orgId, projectId }: ClinBurnTrackerProps) {
   // title, status, value, etc. are editable and PATCH the clins endpoint by
   // key; burned / remaining / % consumed are computed server-side, read-only.
   function clinFields(c: ClinBurn): PmField[] {
+    const fields = allClinFields(c);
+    if (moneyVisible) return fields;
+    return fields.map((f) =>
+      MONEY_COLUMN_IDS.has(f.key) ? { ...f, value: null, editable: false, restricted: true } : f,
+    );
+  }
+  function allClinFields(c: ClinBurn): PmField[] {
     return [
       { key: "code", label: "CLIN code", type: "text", value: c.code, editable: canEdit },
       { key: "title", label: "Title", type: "text", value: c.title, editable: canEdit },
@@ -350,7 +378,7 @@ export function ClinBurnTracker({ orgId, projectId }: ClinBurnTrackerProps) {
         title="CLIN Burn"
         subtitle={`${clins.length} CLIN${clins.length === 1 ? "" : "s"}`}
         rows={clins}
-        columns={CLIN_COLUMNS}
+        columns={columns}
         search={filter}
         onSearchChange={setFilter}
         searchText={(c) => [c.code, c.title].join(" ")}
@@ -412,6 +440,7 @@ export function ClinBurnTracker({ orgId, projectId }: ClinBurnTrackerProps) {
         pending={createMutation.isPending}
         onSubmit={() => createMutation.mutate(form)}
         submitLabel="Create"
+        moneyVisible={moneyVisible}
       />
 
       {/* Detail drawer — issue-style: inline-editable fields + Comments + Activity.
@@ -481,6 +510,7 @@ function ClinDialog({
   onSubmit,
   submitLabel,
   readOnlyBurn,
+  moneyVisible = true,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -491,6 +521,7 @@ function ClinDialog({
   onSubmit: () => void;
   submitLabel: string;
   readOnlyBurn?: ClinBurn;
+  moneyVisible?: boolean;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -547,6 +578,11 @@ function ClinDialog({
             )}
           </FormField>
 
+          {!moneyVisible ? (
+            <p className="text-sm text-[var(--text-muted)]">
+              Ceiling and funded value need Finance access to set or see.
+            </p>
+          ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <FormField label="Ceiling value ($)">
               {(p) => (
@@ -577,6 +613,7 @@ function ClinDialog({
               )}
             </FormField>
           </div>
+          )}
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <FormField label="PoP start">

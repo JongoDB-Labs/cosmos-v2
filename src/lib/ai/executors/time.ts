@@ -9,7 +9,7 @@ import {
   type ToolContext,
 } from "./_ctx";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
-import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
+import { readableTimeUserIds, timeProjectCeiling, timeUserIdFilter } from "@/lib/time/scope";
 import { redactRates } from "@/lib/time/visibility";
 import { refsError } from "@/lib/rbac/foreign-refs";
 
@@ -139,6 +139,10 @@ export async function listTimeEntries(
     const outOfScope = await assertProjectRead(ctx, data.projectId, "TIME_READ");
     if (outOfScope) return outOfScope;
     where.projectId = data.projectId;
+  } else {
+    // No project named: a project-scoped key (or an agent policy's project
+    // allowlist) still reads only its projects. Same rule as GET /time-entries.
+    where.projectId = timeProjectCeiling(auth);
   }
   if (data.billableType) where.billableType = data.billableType;
   if (data.startDate || data.endDate) {

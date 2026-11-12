@@ -64,7 +64,11 @@ interface ContractProduct {
 interface Contract {
   id: string;
   title: string;
-  value: string | null;
+  /**
+   * Absent, not null, when the reader has no finance access to this contract's
+   * project (src/lib/rbac/money-fields.ts): the screen says "Restricted".
+   */
+  value?: string | null;
   currency: string;
   status: string;
   startDate: string | null;
@@ -128,6 +132,11 @@ function formatCurrency(value: number | string | null, currency: string): string
   }
 }
 
+/** The server left this contract's value out: the reader has no finance access to it. */
+function valueWithheld(c: Contract): boolean {
+  return !("value" in c);
+}
+
 function formatDate(value: string | null): string {
   if (!value) return "-";
   return new Date(value).toLocaleDateString();
@@ -136,6 +145,11 @@ function formatDate(value: string | null): string {
 interface ContractFormData {
   title: string;
   value: string;
+  /**
+   * Editing a contract whose value the reader can't see. The save leaves the
+   * value out, so it is kept rather than cleared.
+   */
+  valueWithheld: boolean;
   currency: string;
   status: string;
   startDate: string;
@@ -149,6 +163,7 @@ interface ContractFormData {
 const emptyForm: ContractFormData = {
   title: "",
   value: "",
+  valueWithheld: false,
   currency: "USD",
   status: "draft",
   startDate: "",
@@ -201,7 +216,7 @@ export function ContractsList({ orgId }: ContractsListProps) {
     const parsedValue = f.value.trim() === "" ? null : parseFloat(f.value);
     return {
       title: f.title.trim(),
-      value: Number.isFinite(parsedValue as number) ? parsedValue : null,
+      ...(f.valueWithheld ? {} : { value: Number.isFinite(parsedValue as number) ? parsedValue : null }),
       currency: f.currency.trim() || "USD",
       status: f.status || "draft",
       startDate: f.startDate ? new Date(f.startDate).toISOString() : null,
@@ -270,6 +285,7 @@ export function ContractsList({ orgId }: ContractsListProps) {
     setForm({
       title: c.title,
       value: c.value == null ? "" : String(c.value),
+      valueWithheld: valueWithheld(c),
       currency: c.currency || "USD",
       status: c.status || "draft",
       startDate: c.startDate ? new Date(c.startDate).toISOString().split("T")[0] : "",
@@ -382,9 +398,13 @@ export function ContractsList({ orgId }: ContractsListProps) {
       accessorKey: "value",
       header: "Value",
       cell: ({ row }) => (
-        <span className="whitespace-nowrap font-medium md:text-right md:block">
-          {formatCurrency(row.original.value, row.original.currency)}
-        </span>
+        valueWithheld(row.original) ? (
+          <span className="whitespace-nowrap text-muted-foreground md:text-right md:block">Restricted</span>
+        ) : (
+          <span className="whitespace-nowrap font-medium md:text-right md:block">
+            {formatCurrency(row.original.value ?? null, row.original.currency)}
+          </span>
+        )
       ),
     },
     {
@@ -479,15 +499,20 @@ export function ContractsList({ orgId }: ContractsListProps) {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="ct-value">Value</Label>
-                    <Input
-                      id="ct-value"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="0.00"
-                      value={form.value}
-                      onChange={(e) => setForm({ ...form, value: e.target.value })}
-                    />
+                    {form.valueWithheld ? (
+                      // Not a blank field: saving must not read as "no value".
+                      <Input id="ct-value" value="Restricted" disabled readOnly />
+                    ) : (
+                      <Input
+                        id="ct-value"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        value={form.value}
+                        onChange={(e) => setForm({ ...form, value: e.target.value })}
+                      />
+                    )}
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="ct-currency">Currency</Label>

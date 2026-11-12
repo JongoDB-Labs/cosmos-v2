@@ -7,6 +7,11 @@ export interface ContractPdfInput {
   partyName: string;
   partyEmail?: string | null;
   value?: number | null;
+  /**
+   * The reader may not see this contract's value (no finance access): the
+   * document says "Restricted" rather than a dash, which would read as "none".
+   */
+  valueWithheld?: boolean;
   startDate?: Date | null;
   endDate?: Date | null;
   body?: string | null;
@@ -64,7 +69,7 @@ export function generateContractPdf(input: ContractPdfInput): Promise<Buffer> {
     const meta: [string, string][] = [
       ["Party", input.partyName],
       ["Email", input.partyEmail ?? "—"],
-      ["Value", input.value != null ? `$${input.value.toLocaleString()}` : "—"],
+      ["Value", input.valueWithheld ? "Restricted" : input.value != null ? `$${input.value.toLocaleString()}` : "—"],
       ["Start", input.startDate ? input.startDate.toLocaleDateString() : "—"],
       ["End", input.endDate ? input.endDate.toLocaleDateString() : "—"],
       ["Status", input.signedAt ? `Signed ${input.signedAt.toLocaleDateString()}` : "Unsigned"],

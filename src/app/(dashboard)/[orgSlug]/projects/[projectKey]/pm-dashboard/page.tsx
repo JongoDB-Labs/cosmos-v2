@@ -9,6 +9,7 @@ import { loadMilestonesWithDerived } from "@/lib/pm/schedule";
 import { loadKpisWithDerived } from "@/lib/pm/kpi-derive";
 import { loadClinsWithBurn } from "@/lib/pm/burn";
 import { loadStaffing, summarizeCompliance } from "@/lib/pm/staffing";
+import { canSeeProjectMoney } from "@/lib/rbac/money-fields";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
@@ -40,6 +41,10 @@ export default async function ProjectPmDashboardPage({ params }: PageParams) {
     canReadInProject(ctx, project.id, "PROJECT_READ"),
   ]);
   if (!mayAnalytics) return <NoPageAccess what="this project's PM dashboard" />;
+
+  // Contract money (CLIN figures, a change's cost impact) follows the
+  // registers' rule, src/lib/rbac/money-fields.ts -- not the page.
+  const money = await canSeeProjectMoney(ctx, project.id);
 
   const where = { orgId: ctx.orgId, projectId: project.id };
   const [milestones, kpis, goals, risks, deliverables, blockers, changes, clins, staffing] =
@@ -92,7 +97,8 @@ export default async function ProjectPmDashboardPage({ params }: PageParams) {
         scheduleDaysImpact: true,
       },
     }),
-    loadClinsWithBurn(ctx.orgId, project.id),
+    // Not even queried without it.
+    money ? loadClinsWithBurn(ctx.orgId, project.id) : Promise.resolve([]),
     loadStaffing(ctx.orgId, project.id, { includeCost: false }),
   ]);
 
@@ -100,6 +106,7 @@ export default async function ProjectPmDashboardPage({ params }: PageParams) {
 
   return (
     <PmDashboard
+      moneyWithheld={!money}
       scope={{
         kind: "project",
         orgId: ctx.orgId,
@@ -142,7 +149,7 @@ export default async function ProjectPmDashboardPage({ params }: PageParams) {
           title: c.title,
           type: c.type,
           status: c.status,
-          costImpact: c.costImpact != null ? Number(c.costImpact) : null,
+          ...(money ? { costImpact: c.costImpact != null ? Number(c.costImpact) : null } : {}),
           scheduleDaysImpact: c.scheduleDaysImpact,
         })),
         clins: clins.map((c) => ({

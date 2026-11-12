@@ -5,7 +5,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { requireProjectRead, requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
 import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 import { redactRates } from "@/lib/time/visibility";
-import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
+import { readableTimeUserIds, timeProjectCeiling, timeUserIdFilter } from "@/lib/time/scope";
 import { timesheetIdForEntry } from "@/lib/time/timesheet";
 import { checkInternalCategory, internalCategories } from "@/lib/time/internal-categories";
 import { problem } from "@/lib/openapi/problem";
@@ -56,6 +56,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       // is a side door to precisely the rows that gate closed the front door on.
       await requireProjectRead(ctx, projectId, "TIME_READ");
       where.projectId = projectId;
+    } else {
+      // No project named: a project-scoped key still reads only its projects.
+      // (`requireProjectRead` above already holds a named one to the ceiling.)
+      where.projectId = timeProjectCeiling(ctx);
     }
     if (status) where.status = status;
     if (billableType) where.billableType = billableType;

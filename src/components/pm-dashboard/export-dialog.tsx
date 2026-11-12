@@ -40,22 +40,28 @@ const TRACKER_OPTIONS: { id: string; label: string; note: string }[] = [
   { id: "burn", label: "Financial / Burn", note: "19-tab CLIN burn model with charts" },
 ];
 
-const ALL_IDS = TRACKER_OPTIONS.map((t) => t.id);
 
 export interface ExportDialogProps {
   orgId: string;
   projectId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * False when the viewer has no finance access on this project. The burn
+   * workbook is all money, so it is not offered; the server refuses it anyway.
+   */
+  moneyVisible?: boolean;
 }
 
-export function ExportDialog({ orgId, projectId, open, onOpenChange }: ExportDialogProps) {
-  const [selected, setSelected] = useState<Set<string>>(new Set(ALL_IDS));
+export function ExportDialog({ orgId, projectId, open, onOpenChange, moneyVisible = true }: ExportDialogProps) {
+  const options = moneyVisible ? TRACKER_OPTIONS : TRACKER_OPTIONS.filter((t) => t.id !== "burn");
+  const optionIds = options.map((t) => t.id);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(optionIds));
   const [mode, setMode] = useState<ExportMode>("separate");
   const [downloading, setDownloading] = useState(false);
 
-  const allChecked = selected.size === ALL_IDS.length;
-  const noneChecked = selected.size === 0;
+  const allChecked = optionIds.every((id) => selected.has(id));
+  const noneChecked = !optionIds.some((id) => selected.has(id));
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -66,14 +72,14 @@ export function ExportDialog({ orgId, projectId, open, onOpenChange }: ExportDia
     });
 
   const toggleAll = () =>
-    setSelected(allChecked ? new Set() : new Set(ALL_IDS));
+    setSelected(allChecked ? new Set() : new Set(optionIds));
 
   async function download() {
     if (noneChecked) return;
     setDownloading(true);
     try {
       // Preserve the canonical tracker order regardless of click order.
-      const trackers = ALL_IDS.filter((id) => selected.has(id));
+      const trackers = optionIds.filter((id) => selected.has(id));
       const res = await fetch(
         `/api/v1/orgs/${orgId}/projects/${projectId}/export/xlsx`,
         {
@@ -107,6 +113,7 @@ export function ExportDialog({ orgId, projectId, open, onOpenChange }: ExportDia
           <DialogDescription>
             Choose which registers to export and the format. Live Cosmos data is
             written into your real tracker spreadsheets.
+            {!moneyVisible && " Money columns read “Restricted” because you don't have Finance access to this project."}
           </DialogDescription>
         </DialogHeader>
 
@@ -125,7 +132,7 @@ export function ExportDialog({ orgId, projectId, open, onOpenChange }: ExportDia
             </button>
           </div>
           <div className="grid gap-1.5">
-            {TRACKER_OPTIONS.map((t) => (
+            {options.map((t) => (
               <Label
                 key={t.id}
                 htmlFor={`export-${t.id}`}

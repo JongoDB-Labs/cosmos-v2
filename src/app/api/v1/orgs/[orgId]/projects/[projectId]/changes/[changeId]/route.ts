@@ -3,12 +3,12 @@ import { z } from "zod";
 import { ChangeRequestStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { logPmFieldChanges } from "@/lib/pm/activity-log";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
+import { canSeeProjectMoney, projectMoney } from "@/lib/rbac/money-fields";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; changeId: string }>;
@@ -108,7 +108,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       },
     );
 
-    return success(updated);
+    return success(projectMoney("change", updated, await canSeeProjectMoney(ctx, projectId)));
   } catch (e) {
     return handleApiError(e);
   }
@@ -124,7 +124,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
-    const existing = await prisma.changeRequest.findFirst({ where: { id: changeId, orgId, projectId } });
+    const existing = await prisma.changeRequest.findFirst({ where: { id: changeId, orgId, projectId }, select: { id: true } });
     if (!existing) return new Response("Not found", { status: 404 });
 
     await prisma.changeRequest.delete({ where: { id: changeId } });

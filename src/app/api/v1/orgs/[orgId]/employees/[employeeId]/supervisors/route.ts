@@ -87,6 +87,18 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     });
     if (!employee) return new Response("Not found", { status: 404 });
 
+    // Not on your own record. Supervisors decide who may approve your time and
+    // expenses, and an approver with no supervisor may approve their own: so
+    // clearing your own supervisors and then approving yourself would undo the
+    // approval rule in two calls. Another employee admin can make the change,
+    // and it is audited below like any other.
+    if (employee.userId === ctx.userId) {
+      return bad(
+        "You can't change your own supervisors. Ask another employee admin to change them.",
+        403,
+      );
+    }
+
     const { supervisorIds } = bodySchema.parse(await request.json());
 
     // Only people who hold TIME_APPROVE may be NEWLY named, so the chart cannot

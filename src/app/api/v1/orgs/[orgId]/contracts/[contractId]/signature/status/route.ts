@@ -48,6 +48,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         docusignStatus: liveStatus,
         signedAt: wasCompleted ? new Date() : contract.signedAt,
       },
+      select: { docusignStatus: true, signedAt: true },
     });
 
     return success({ status: updated.docusignStatus, signedAt: updated.signedAt });
