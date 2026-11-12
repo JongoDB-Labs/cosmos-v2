@@ -18,7 +18,6 @@ export {
   workItemFilterSchema,
   workItemQuerySchema,
   type ParsedQuery,
-  type WorkItemQueryInput,
 } from "./parse";
 export {
   runWorkItemQuery,

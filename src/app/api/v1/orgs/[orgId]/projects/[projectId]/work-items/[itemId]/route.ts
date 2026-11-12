@@ -71,6 +71,9 @@ export async function updateItem(request: NextRequest, ctx: AuthContext, ids: It
     projectId,
   });
 
+  // `boardId` is destructured but unused: nothing reads it any more (hard WIP
+  // limits hold from every surface), and naming it here is what keeps a client
+  // still sending it from having it land in the patch as an item field.
   const { transition, boardId, ...data } = body;
 
   const teamError = await teamProjectError({ projectId, teamId: data.teamId });
@@ -86,7 +89,6 @@ export async function updateItem(request: NextRequest, ctx: AuthContext, ids: It
       source: "API",
       actor: ctx,
       transition,
-      boardId,
     });
     const updated = await tx.workItem.findUniqueOrThrow({
       where: { id: itemId },

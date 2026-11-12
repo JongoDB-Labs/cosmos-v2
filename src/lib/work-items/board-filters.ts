@@ -35,23 +35,6 @@ export function boardBaseline(initialIntervalId?: string | null): BoardFilters {
 }
 
 /**
- * Does one work item satisfy a board's filters?
- *
- * This lived inside timeline-view.tsx, so any other board wanting it would have
- * had to import the entire Gantt component — which is why Kanban grew its own
- * 61-line copy instead, and why the five remaining board types had no filtering
- * at all. One predicate in one place is the point: a filter that behaves
- * differently depending on which board you are looking at is worse than no
- * filter.
- *
- * Every parameter past the first two is optional, so a board with no custom
- * fields, teams or relation data still gets search, type, priority, assignee,
- * interval and status by calling `matchesFilters(item, filters)`.
- *
- * `BoardFilters` is imported as a TYPE from the filter-bar component — erased at
- * build time, so this creates no runtime dependency on a component.
- */
-/**
  * Does an item's interval satisfy an interval selection?
  *
  * A sprint selection is an exact match, as it always was. A Program Increment
@@ -76,6 +59,23 @@ function inIntervalSelection(
   return children?.get(selected)?.has(itemIntervalId) ?? false;
 }
 
+/**
+ * Does one work item satisfy a board's filters?
+ *
+ * This lived inside timeline-view.tsx, so any other board wanting it would have
+ * had to import the entire Gantt component — which is why Kanban grew its own
+ * 61-line copy instead, and why the five remaining board types had no filtering
+ * at all. One predicate in one place is the point: a filter that behaves
+ * differently depending on which board you are looking at is worse than no
+ * filter.
+ *
+ * Every parameter past the first two is optional, so a board with no custom
+ * fields, teams or relation data still gets search, type, priority, assignee,
+ * interval and status by calling `matchesFilters(item, filters)`.
+ *
+ * `BoardFilters` is imported as a TYPE from the filter-bar component — erased at
+ * build time, so this creates no runtime dependency on a component.
+ */
 export function matchesFilters(
   item: WorkItem,
   f: BoardFilters,

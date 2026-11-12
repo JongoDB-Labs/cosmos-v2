@@ -549,7 +549,6 @@ export async function gateChange(
     items: readonly WorkItem[];
     patch: WorkItemPatch;
     transition?: TransitionRequest;
-    boardId?: string;
     now: Date;
   },
 ): Promise<GateResult> {

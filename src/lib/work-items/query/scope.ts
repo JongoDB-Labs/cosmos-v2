@@ -18,7 +18,6 @@ import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { isOrgAdministrator } from "@/lib/rbac/project-access";
 import { evaluateAccess } from "@/lib/abac/engine";
-import { Permission, hasPermission } from "@/lib/rbac/permissions";
 
 /**
  * Resolve the set of Project.ids in `orgId` the actor may read work items from.

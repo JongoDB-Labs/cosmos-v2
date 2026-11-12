@@ -90,8 +90,6 @@ export interface ApplyChangeInput {
   actor?: AuthContext | null;
   /** The transition named and the input it asked for, when the client sends them. */
   transition?: TransitionRequest;
-  /** The board the move was made on. Accepted, no longer needed: hard WIP limits hold from every surface. */
-  boardId?: string;
   /**
    * Defaults to "none" for a workflow MIGRATION, "system" for a SYSTEM change
    * or one with no `actor` (a composed plugin's call), and "full" otherwise.
@@ -445,7 +443,6 @@ export async function applyWorkItemChange(
     items,
     patch,
     transition: input.transition,
-    boardId: input.boardId,
     now,
   });
   if (source !== "BULK") throwIfDenied(gate);

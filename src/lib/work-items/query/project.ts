@@ -4,8 +4,8 @@
  * RBAC-scoped) query, resolving the cross-references a flat WorkItem row lacks:
  * project key, work-item type label, assignee displayName, and a parent label.
  *
- * NEVER includes OrgMember.permissions (BigInt) — the only serialised user
- * fields are id + displayName + avatarUrl from the User table.
+ * NEVER includes OrgMember.permissions — the only serialised user fields are
+ * id + displayName + avatarUrl from the User table.
  */
 import { prisma } from "@/lib/db/client";
 import type { Prisma, Priority } from "@prisma/client";
@@ -180,7 +180,7 @@ export async function fetchIssueRows(
     userIds.length
       ? db.user.findMany({
           where: { id: { in: userIds } },
-          // displayName + avatarUrl only — never permissions/BigInt.
+          // displayName + avatarUrl only — never permissions.
           select: { id: true, displayName: true, avatarUrl: true },
         })
       : Promise.resolve([]),

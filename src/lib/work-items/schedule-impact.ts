@@ -74,14 +74,3 @@ export interface ScheduleChange {
   before: ScheduleRange;
   after: ScheduleRange;
 }
-
-/** What the preview endpoint answers. */
-export interface SchedulePreview {
-  /** Every item the change and its cascade would move, the dragged ones first. */
-  changes: ScheduleChange[];
-  cascaded: (ScheduleChange & { reason: "successor-shift" | "parent-envelope" })[];
-  sections: ImpactSection[];
-  /** Worth stopping for: something besides the dragged bars moves, someone's
-   *  load rises, or a plugin had something to say. A plain move saves at once. */
-  needsConfirm: boolean;
-}
