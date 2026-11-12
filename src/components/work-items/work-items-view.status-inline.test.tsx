@@ -172,7 +172,7 @@ describe("WorkItemsView — inline status edit (COSMOS-30)", () => {
     await screen.findByText("ENG-1");
 
     // The Status cell is now an inline editor, not a plain badge.
-    const trigger = screen.getByRole("button", { name: "Change status" });
+    const trigger = screen.getByRole("button", { name: /change status$/i });
     fireEvent.click(trigger);
 
     // Options are scoped to ENG's board: its lanes appear…
@@ -193,7 +193,7 @@ describe("WorkItemsView — inline status edit (COSMOS-30)", () => {
     renderView();
     await screen.findByText("ENG-1");
 
-    fireEvent.click(screen.getByRole("button", { name: "Change status" }));
+    fireEvent.click(screen.getByRole("button", { name: /change status$/i }));
     // Re-pick the lane the item is already in.
     fireEvent.click(await screen.findByRole("menuitem", { name: "To Do" }));
 
@@ -213,7 +213,7 @@ describe("WorkItemsView — inline priority & assignee edit (COSMOS-30)", () => 
     await screen.findByText("ENG-1");
 
     // The Priority cell is an inline editor, not a plain badge.
-    fireEvent.click(screen.getByRole("button", { name: "Change priority" }));
+    fireEvent.click(screen.getByRole("button", { name: /change priority$/i }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "High" }));
 
     await waitFor(() => expect(itemPutBody()).toEqual({ priority: "HIGH" }));
@@ -223,7 +223,7 @@ describe("WorkItemsView — inline priority & assignee edit (COSMOS-30)", () => 
     renderView();
     await screen.findByText("ENG-1");
 
-    fireEvent.click(screen.getByRole("button", { name: "Change priority" }));
+    fireEvent.click(screen.getByRole("button", { name: /change priority$/i }));
     // The row is already MEDIUM — re-picking it must be a no-op.
     fireEvent.click(await screen.findByRole("menuitem", { name: "Medium" }));
 
@@ -236,7 +236,7 @@ describe("WorkItemsView — inline priority & assignee edit (COSMOS-30)", () => 
     await screen.findByText("ENG-1");
 
     // The Assignee cell is editable once the org has members to pick from.
-    fireEvent.click(screen.getByRole("button", { name: "Change assignee" }));
+    fireEvent.click(screen.getByRole("button", { name: /change assignee$/i }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Ada Lovelace" }));
 
     await waitFor(() => expect(itemPutBody()).toEqual({ assigneeId: "u1" }));
@@ -246,11 +246,48 @@ describe("WorkItemsView — inline priority & assignee edit (COSMOS-30)", () => 
     renderView();
     await screen.findByText("ENG-1");
 
-    fireEvent.click(screen.getByRole("button", { name: "Change assignee" }));
+    fireEvent.click(screen.getByRole("button", { name: /change assignee$/i }));
     // The row starts unassigned — re-picking "Unassigned" must be a no-op.
     fireEvent.click(await screen.findByRole("menuitem", { name: "Unassigned" }));
 
     await new Promise((r) => setTimeout(r, 0));
     expect(itemPutBody()).toBeNull();
+  });
+});
+
+// WCAG 2.5.3 Label in Name: the trigger used to be aria-labelled "Change
+// status" over a "To Do" badge, so its name hid the value it shows (axe
+// label-content-name-mismatch, 3 per row on the real page) and a screen reader
+// never heard the current status. The name must CONTAIN what the cell shows.
+describe("WorkItemsView — inline-edit triggers are named by what they show (WCAG 2.5.3)", () => {
+  /** Lowercase letters and digits only, so spacing and punctuation don't matter. */
+  const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  it.each([
+    ["status", "To Do"],
+    ["priority", "MEDIUM"],
+    ["assignee", "Unassigned"],
+  ])("the %s trigger's name holds its visible value %j, then the action", async (field, shown) => {
+    renderView();
+    await screen.findByText("ENG-1");
+
+    let name = "";
+    const trigger = screen.getByRole("button", {
+      name: (computed) => {
+        if (!new RegExp(`change ${field}$`, "i").test(computed)) return false;
+        name = computed;
+        return true;
+      },
+    });
+    // What a sighted user sees: the cell's text without the screen-reader-only part.
+    const visible = Array.from(trigger.childNodes)
+      .filter((n) => !(n instanceof HTMLElement && n.classList.contains("sr-only")))
+      .map((n) => n.textContent ?? "")
+      .join("");
+    // Positive control: the visible text is the value we expect, so the
+    // containment check below is about a real value, not an empty string.
+    expect(squash(visible)).toBe(squash(shown));
+    expect(squash(name)).toContain(squash(visible));
+    expect(squash(name).startsWith(squash(shown))).toBe(true);
   });
 });

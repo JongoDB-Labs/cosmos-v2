@@ -95,8 +95,8 @@ function renderCard(props: Partial<CardProps> = {}) {
   return handlers;
 }
 
-// The card is a role=button; its accessible name always contains the title, so
-// this matches whether it reads "Open …", "Select …", or "Deselect …".
+// The card is a role=button named by its content, so its name always contains
+// the title, in and out of select mode.
 const getCard = () => screen.getByRole("button", { name: /Test card/ });
 
 describe("KanbanCard click routing (COSMOS-52)", () => {
@@ -178,11 +178,79 @@ describe("KanbanCard click routing (COSMOS-52)", () => {
     expect(card.querySelector("svg")).toBeNull();
   });
 
-  it("outside select mode the card advertises Open, not a selection toggle", () => {
+  it("outside select mode the card is a plain button, not a selection toggle", () => {
     renderCard();
-    expect(
-      screen.getByRole("button", { name: /^Open .*Test card/ }),
-    ).toBeInTheDocument();
+    expect(getCard()).not.toHaveAttribute("aria-pressed");
+  });
+});
+
+// WCAG 2.5.3 Label in Name (axe `label-content-name-mismatch`). The card was
+// named by an aria-label, "Open #42: Test card", while it SHOWS the key, the
+// title, the type chip, the points and the assignee's initial. A name that
+// leaves out visible text fails speech input ("click Story" matches nothing)
+// and hid everything but the title from a screen reader.
+//
+// axe itself cannot judge this here: jsdom has no layout, so axe reports the
+// rule "incomplete" for the old card and the new one alike. These tests state
+// the same containment directly, against the name testing-library computes.
+describe("KanbanCard accessible name contains its visible text (WCAG 2.5.3)", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  const ADA = {
+    id: "m1",
+    userId: "u-ada",
+    user: { id: "u-ada", displayName: "Ada Lovelace", avatarUrl: null },
+  } as unknown as OrgMember;
+  const FULL = makeItem({
+    title: "Fix the login",
+    storyPoints: 5,
+    assigneeId: "u-ada",
+    workItemType: { name: "Story" },
+  } as Partial<WorkItem>);
+
+  /** Letters and digits only, lowercased: spacing and punctuation don't count. */
+  const squash = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+
+  /** The card, its computed accessible name, and the text it shows. */
+  function nameAndText() {
+    let name = "";
+    const card = screen.getByRole("button", {
+      name: (computed) => {
+        if (!computed.includes("Fix the login")) return false;
+        name = computed;
+        return true;
+      },
+    });
+    return { card, name, text: card.textContent ?? "" };
+  }
+
+  it("names the card by everything it shows", () => {
+    renderCard({ item: FULL, members: [ADA] });
+    const { name, text } = nameAndText();
+    // Positive control: the card really shows the extra chips, so this is
+    // more than the title being found in itself.
+    for (const shown of ["#42", "Fix the login", "Story", "5", "A"]) {
+      expect(text).toContain(shown);
+    }
+    expect(squash(name)).toContain(squash(text));
+  });
+
+  it("leads with the key and the title, the words a person reads and says", () => {
+    renderCard({ item: FULL, members: [ADA] });
+    expect(squash(nameAndText().name).startsWith(squash("#42 Fix the login"))).toBe(true);
+  });
+
+  it("is named by its content in select mode too, with the state in aria-pressed", () => {
+    for (const selected of [false, true]) {
+      renderCard({ item: FULL, members: [ADA], selectMode: true, selected });
+      const { card, name, text } = nameAndText();
+      expect(card).not.toHaveAttribute("aria-label");
+      expect(card).toHaveAttribute("aria-pressed", String(selected));
+      expect(squash(name)).toContain(squash(text));
+      cleanup();
+    }
   });
 });
 

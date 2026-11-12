@@ -44,7 +44,8 @@ const SOURCE_COLUMN = "Backlog";
 const TARGET_COLUMN = "To Do";
 
 /** Create a card in a named column via the board's shared "New work item" dialog,
- *  and return once its accessible button ("Open …: {title}") is visible.
+ *  and return once its button (named by what the card shows, title included)
+ *  is visible.
  *
  *  The per-column quick-create is gone — the column is now chosen through the
  *  dialog's Status picker, so this takes a column NAME rather than an index. */

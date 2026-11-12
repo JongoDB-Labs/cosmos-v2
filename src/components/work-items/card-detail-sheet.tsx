@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition, useCallback, useMemo, useRef, type ComponentProps } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type ComponentProps } from "react";
 import {
   Sheet,
   SheetContent,
@@ -98,7 +98,7 @@ import {
 } from "@/lib/work-items/activity-label";
 import { formatDateStable } from "@/lib/format/stable-date";
 import { CommentItem } from "@/components/comments/comment-item";
-import { CommentComposer } from "@/components/comments/comment-composer";
+import { DraftCommentComposer } from "@/components/comments/comment-composer";
 import { isWorkItemResolved } from "@/lib/work-items/done-state";
 import { memberPickerOptions } from "@/lib/org/member-picker";
 import { entityUrl } from "@/lib/mentions/urls";
@@ -267,8 +267,20 @@ export function CardDetailSheet({
   const [tab, setTab] = useState<"comments" | "activity">("comments");
   const [comments, setComments] = useState<Comment[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [newComment, setNewComment] = useState("");
-  const [isPending, startTransition] = useTransition();
+  /**
+   * The unsent comment, and the item it was written on. A ref, NOT state: the
+   * composer renders its own copy, so a keystroke re-renders the composer
+   * alone. As state here it re-rendered this whole sheet, and every comment's
+   * markdown above the composer, on every key — slow on a long thread.
+   *
+   * It lives here rather than only in the composer because the composer
+   * unmounts while the sheet keeps the item: closing the sheet drops its
+   * portal, and the Activity tab drops the composer. Reopening the same item
+   * brings the draft back. The item id keeps it from ever showing on, or being
+   * posted to, a different item: a composer mounting for another item reads
+   * an empty draft.
+   */
+  const commentDraft = useRef<{ itemId: string; text: string } | null>(null);
   // Title/description save state (COSMOS-195). These two fields used to wait on
   // a "Save changes" button rendered at the BOTTOM of this scrolling panel —
   // hundreds of pixels below the title it governed — so an edit that was never
@@ -307,8 +319,6 @@ export function CardDetailSheet({
     () => new Map([...commentRefMap].map(([k, v]) => [k, v.label])),
     [commentRefMap],
   );
-  // Bump to remount (reset) the rich comment editor after a successful post.
-  const [commentEditorKey, setCommentEditorKey] = useState(0);
   // Resolve id-valued activity fields (assignee/interval/type/status) to names so
   // the Activity tab never shows a raw GUID (FR 545f81b1). `allTypes`, not the
   // `workItemTypes` picker list — that one hides shadow types, so a retype to or
@@ -426,6 +436,10 @@ export function CardDetailSheet({
   // same reason.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
+    // A different item, or none: the unsent comment goes. (A composer that
+    // mounted for the new item already ignored it; this keeps the old item's
+    // draft from coming back if the sheet returns to it.)
+    commentDraft.current = null;
     if (item) {
       setTitle(item.title);
       setDescription(item.description);
@@ -468,11 +482,11 @@ export function CardDetailSheet({
       setConfirmDelete(false);
       setActionPending(null);
       // Reset per-item interaction state too, so switching items (via duplicate,
-      // a linked-item/sub-item click, or board navigation) never carries a draft
-      // comment or the Activity tab over to the next item (an open comment-edit
-      // lives in its CommentItem, which unmounts with the old item's comments)
-      // — a stale `newComment` could otherwise be posted to the WRONG work item.
-      setNewComment("");
+      // a linked-item/sub-item click, or board navigation) never carries the
+      // Activity tab over to the next item. The draft comment is dropped above,
+      // and the composer is keyed on the item, so a stale draft can never be
+      // posted to the WRONG work item. An open comment-edit lives in its
+      // CommentItem, which unmounts with the old item's comments.
       setTab("comments");
     }
     // Keyed on the ID, not the object. Every inline save PUTs one field and
@@ -970,25 +984,24 @@ export function CardDetailSheet({
     return () => flushText.current();
   }, [item?.id, open]);
 
-  function handleAddComment() {
-    if (!item || !newComment.trim()) return;
-    startTransition(async () => {
-      try {
-        const res = await fetch(`${basePath}/${item.id}/comments`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: newComment.trim() }),
-        });
-        if (!res.ok) throw new Error("Failed to add comment");
-        const comment: Comment = await res.json();
-        setComments((prev) => [...prev, comment]);
-        setNewComment("");
-        setCommentEditorKey((k) => k + 1);
-      } catch (err) {
-        console.error("Failed to add comment:", err);
-        notifyError(err, "Couldn't post your comment.");
-      }
-    });
+  /** Post a comment. True once the server has it, so the composer clears. */
+  async function handleAddComment(content: string): Promise<boolean> {
+    if (!item) return false;
+    try {
+      const res = await fetch(`${basePath}/${item.id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      if (!res.ok) throw new Error("Failed to add comment");
+      const comment: Comment = await res.json();
+      setComments((prev) => [...prev, comment]);
+      return true;
+    } catch (err) {
+      console.error("Failed to add comment:", err);
+      notifyError(err, "Couldn't post your comment.");
+      return false;
+    }
   }
 
   async function handleSaveCommentEdit(id: string, content: string): Promise<boolean> {
@@ -2130,14 +2143,19 @@ export function CardDetailSheet({
                 />
               )}
 
-              <CommentComposer
+              {/* Keyed on the item: another item gets a fresh composer, and
+                  the draft (see `commentDraft`) only comes back to its own. */}
+              <DraftCommentComposer
+                key={item.id}
                 orgId={orgId}
-                value={newComment}
-                resetKey={commentEditorKey}
-                onChange={setNewComment}
+                initialDraft={() =>
+                  commentDraft.current?.itemId === item.id ? commentDraft.current.text : ""
+                }
+                onDraftChange={(text) => {
+                  commentDraft.current = { itemId: item.id, text };
+                }}
                 onSubmit={handleAddComment}
                 mentionLabels={commentMentionLabels}
-                disabled={isPending}
               />
             </div>
           )}
