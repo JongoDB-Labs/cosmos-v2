@@ -80,11 +80,10 @@ export function isPastProgramIncrement(
 /**
  * Program Increment id -> the ids of the sprints under it.
  *
- * Boards filter by a single `intervalId`, and a work item carries a SPRINT id —
- * never a PI id. So a filter naming a PI matched nothing and the board went
- * blank (3d90c48e); the Interval dropdown offers PIs because the API applies no
- * `intervalKind` filter. This lookup is what lets `matchesFilters` read a PI
- * selection as "any sprint under it".
+ * Boards filter by a single `intervalId`. A work item can be planned into a
+ * sprint or straight into a PI, so a filter naming a PI matched only the PI's
+ * own work and none of its sprints' (3d90c48e). This lookup is what lets
+ * `matchesFilters` read a PI selection as "the PI or any sprint under it".
  *
  * Only PIs get an entry. A sprint is matched exactly and must never be rolled
  * up, and an entry for one would make a sprint selection behave like a PI. An

@@ -21,6 +21,7 @@ vi.mock("@/lib/query/json-fetcher", async (importActual) => {
 });
 
 import { boardBaseline, useBoardQuery } from "./use-board-query";
+import { printCql } from "@/lib/query/print";
 import { withoutProjectClauses } from "@/components/work-items/save-as-board-dialog";
 import { jsonFetch, FetchError } from "@/lib/query/json-fetcher";
 import { FIELDS } from "@/lib/query/fields";
@@ -55,7 +56,7 @@ function wrapper({ children }: { children: ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
 }
-const run = (config?: unknown, sprint?: { id: string; name?: string } | null) =>
+const run = (config?: unknown, sprint?: Parameters<typeof useBoardQuery>[0]["sprint"]) =>
   renderHook(() => useBoardQuery({ orgId: "o1", projectId: "p1", config, sprint, rows: ROWS }), { wrapper });
 
 beforeEach(() => {
@@ -79,6 +80,42 @@ describe("boardBaseline", () => {
   it("an unreadable stored query is a problem, never 'everything'", () => {
     const b = boardBaseline({ query: { v: 1, where: { op: "bogus" } } });
     expect(b.problem).toMatch(/can read/);
+  });
+});
+
+/** The leaf that names interval `id`, wherever it sits in the query. */
+function leafFor(q: unknown, id: string): { field: { id: string } } | undefined {
+  const node = q as { op?: string; args?: unknown[]; where?: unknown; value?: { id?: string } };
+  if (node?.where !== undefined) return leafFor(node.where, id);
+  if (node?.args) for (const a of node.args) { const hit = leafFor(a, id); if (hit) return hit; }
+  return node?.value?.id === id ? (node as { field: { id: string } }) : undefined;
+}
+
+describe("boardBaseline: a Program Increment", () => {
+  // A PI holds sprints, and work can also be planned into the PI itself. The
+  // `sprint` field matches only the interval named, so `sprint = <PI>` showed
+  // the PI's own items and none of its sprints'. `pi` is the field that means
+  // "this PI or any sprint inside it".
+  it("a PI is `pi = …`; a sprint stays `sprint = …`", () => {
+    const pi = boardBaseline({}, { id: "pi1", name: "PI 9", kind: "PROGRAM_INCREMENT" }).query;
+    expect(leafFor(pi, "pi1")?.field.id).toBe("pi");
+    expect(printCql(pi!)).toBe('pi = "PI 9"');
+
+    const sprint = boardBaseline({}, { id: "s1", name: "Sprint 4", kind: "SPRINT" }).query;
+    expect(leafFor(sprint, "s1")?.field.id).toBe("sprint");
+    expect(printCql(sprint!)).toBe('sprint = "Sprint 4"');
+  });
+
+  it("an interval of unknown kind is matched exactly, as it always was", () => {
+    expect(leafFor(boardBaseline({}, { id: "x1" }).query, "x1")?.field.id).toBe("sprint");
+  });
+
+  it("the PI clause is ANDed onto a stored query, like a sprint", () => {
+    const q = { v: 1, where: { op: "cmp", field: { kind: "sys", id: "priority" }, cmp: "eq", value: { t: "str", v: "HIGH" } } };
+    const b = boardBaseline({ query: q }, { id: "pi1", name: "PI 9", kind: "PROGRAM_INCREMENT" }).query;
+    expect(b?.where).toMatchObject({ op: "and" });
+    expect(leafFor(b, "pi1")?.field.id).toBe("pi");
+    expect(JSON.stringify(b)).toContain("HIGH");
   });
 });
 
@@ -148,6 +185,32 @@ describe("useBoardQuery", () => {
     expect(result.current.keep(ROWS[0])).toBe(false);
     expect(calls("/work-items/query")).toHaveLength(1);
     expect(JSON.parse(String((calls("/work-items/query")[0][1] as RequestInit).body)).idsOnly).toBe(true);
+  });
+
+  it("a PI scope asks the server for `pi`, and the scope line says so", async () => {
+    serve();
+    const { result } = run(undefined, { id: "pi1", name: "PI 9", kind: "PROGRAM_INCREMENT" });
+    await waitFor(() => expect(calls("/cql/predicate")).toHaveLength(1));
+    const sent = JSON.parse(String((calls("/cql/predicate")[0][1] as RequestInit).body)).query;
+    expect(leafFor(sent, "pi1")?.field.id).toBe("pi");
+    expect(result.current.baselineCql).toBe('pi = "PI 9"');
+  });
+
+  it("while the selection's kind is still unknown, nothing shows and nothing is asked", async () => {
+    serve();
+    const { result } = renderHook(
+      () => useBoardQuery({ orgId: "o1", projectId: "p1", sprint: { id: "pi1" }, scopePending: true, rows: ROWS }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.enabled).toBe(true));
+    // Long enough for an enabled query to have fired; the PI case above, with
+    // the same setup and the scope known, does send one.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls("/cql/predicate")).toHaveLength(0);
+    expect(result.current.pending).toBe(true);
+    expect(ROWS.some((r) => result.current.keep(r))).toBe(false);
+    // No scope line yet: `sprint = <id>` would be a guess about the kind.
+    expect(result.current.baselineCql).toBeNull();
   });
 
   it("a board whose saved query can't be read shows nothing and says why", async () => {

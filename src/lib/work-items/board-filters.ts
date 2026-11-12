@@ -55,12 +55,12 @@ export function boardBaseline(initialIntervalId?: string | null): BoardFilters {
  * Does an item's interval satisfy an interval selection?
  *
  * A sprint selection is an exact match, as it always was. A Program Increment
- * selection means "any sprint under this PI" — work items carry a SPRINT id and
- * never a PI id, so comparing a PI selection directly against `item.intervalId`
- * matched nothing and emptied the board (3d90c48e). An empty board reads as
- * "nothing matched" rather than "this control is broken", which is why this went
- * unnoticed: the Interval dropdown is fed the project's whole interval list, PIs
- * included, with no `intervalKind` filter anywhere between the API and the select.
+ * selection means "this PI or any sprint under it". Work can be planned into a
+ * PI directly as well as into one of its sprints, so both count: the exact
+ * match keeps the first, the rollup adds the second. Comparing a PI selection
+ * only against `item.intervalId` showed the PI's own work and none of its
+ * sprints' (3d90c48e). The query language's `pi` field means the same thing,
+ * and a board with it on scopes a PI with `pi = …` (boards/shared/use-board-query).
  *
  * `children` absent => exact match only. The rollup is opt-in per call site so a
  * board that has not resolved the hierarchy keeps today's behaviour instead of
@@ -96,9 +96,10 @@ export function matchesFilters(
     milestones?: Map<string, Set<string>>;
     /**
      * Program Increment id -> the ids of the sprints under it. Lets an interval
-     * selection name a PI and still match work, which links to a SPRINT and
-     * never to a PI. Optional: without it the interval clause is the exact
-     * match it has always been, so no existing caller is silently widened.
+     * selection that names a PI match its sprints' work too, not only the work
+     * planned into the PI itself. Optional: without it the interval clause is
+     * the exact match it has always been, so no existing caller is silently
+     * widened.
      */
     intervalChildren?: Map<string, Set<string>>;
   } = {},

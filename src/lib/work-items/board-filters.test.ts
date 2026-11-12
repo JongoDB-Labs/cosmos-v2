@@ -327,15 +327,15 @@ describe("clauses combine as AND", () => {
  *
  * The Interval select is fed the project's WHOLE interval list — the API applies
  * no `intervalKind` filter — so Program Increments sit in that dropdown next to
- * the sprints, indistinguishable. Work items link to a SPRINT, never to a PI, so
- * the exact `item.intervalId !== f.intervalId` comparison matched nothing and the
- * board went blank. That is the worst possible failure for a filter: an empty
- * board reads as "nothing matched", not "this control is broken".
+ * the sprints. Work can be planned into a sprint or straight into a PI, and the
+ * exact `item.intervalId !== f.intervalId` comparison found only the second, so
+ * a PI's sprints' work never showed.
  *
- * A PI selection therefore means "any sprint under this PI". The caller resolves
- * the hierarchy (it already holds the interval list) and passes it down; without
- * it the clause stays the exact match it always was, so every existing caller is
- * unaffected rather than silently widened.
+ * A PI selection therefore means "this PI or any sprint under it", the same as
+ * the query language's `pi` field. The caller resolves the hierarchy (it
+ * already holds the interval list) and passes it down; without it the clause
+ * stays the exact match it always was, so every existing caller is unaffected
+ * rather than silently widened.
  */
 describe("filtering on a Program Increment", () => {
   // PI "pi-1" holds sprints s-1 and s-2; PI "pi-2" holds s-9.
@@ -354,6 +354,16 @@ describe("filtering on a Program Increment", () => {
     expect(
       matchesFilters(item({ intervalId: "s-2" }), byPi1, [], new Map(), NOW, withTree),
     ).toBe(true);
+  });
+
+  it("keeps an item planned into the selected PI itself", () => {
+    expect(
+      matchesFilters(item({ intervalId: "pi-1" }), byPi1, [], new Map(), NOW, withTree),
+    ).toBe(true);
+    // ...and not one planned into a different PI.
+    expect(
+      matchesFilters(item({ intervalId: "pi-2" }), byPi1, [], new Map(), NOW, withTree),
+    ).toBe(false);
   });
 
   it("drops an item in a sprint under a DIFFERENT PI", () => {
