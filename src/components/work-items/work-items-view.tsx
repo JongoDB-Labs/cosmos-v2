@@ -1788,13 +1788,17 @@ function InlineEditCell({
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
+          // No aria-label: it replaced the visible value ("Change status"
+          // over a "To Do" badge), which fails WCAG 2.5.3 Label in Name, and a
+          // screen reader never heard the current value. The name is the value
+          // the cell shows, then the action, e.g. "To Do, change status".
           <button
             type="button"
-            aria-label={`Change ${label}`}
             onClick={(e) => e.stopPropagation()}
             className="-mx-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-[var(--primary-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {display}
+            <span className="sr-only">, change {label}</span>
           </button>
         }
       />

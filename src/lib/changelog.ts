@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.548.1",
+    date: "2026-11-12",
+    title: "Typing a comment stays fast on long threads",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Typing a comment on a work item no longer redraws every comment above it on each keystroke, so the box keeps up with you on items with long discussions. A comment you leave unsent is still there when you reopen the same item or come back from the Activity tab.",
+      },
+      {
+        kind: "fix",
+        text: "Screen readers now name a board card by what it shows: its key, title, type, points and assignee. On the Work Items list, the status, priority and assignee buttons now read out the current value as well as the action, for example \"To Do, change status\". Both used to be named by a label that left out what was on screen, which breaks voice control and is a WCAG 2.5.3 failure.",
+      },
+    ],
+  },
+  {
     version: "2.548.0",
     date: "2026-11-12",
     title: "Chat opens beside your page, from every link",

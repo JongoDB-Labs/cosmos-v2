@@ -261,11 +261,13 @@ export function KanbanCard({
         // the drag listeners so a tap selects instead of starting a drag (the
         // board also disables the DndContext sensors in select mode).
         {...(selectMode ? {} : listeners)}
-        aria-label={
-          selectMode
-            ? `${selected ? "Deselect" : "Select"} ${ticketLabel}: ${item.title}`
-            : `Open ${ticketLabel}: ${item.title}`
-        }
+        // No aria-label: the card is named by what it shows, so its name is
+        // the key, the title, the type, the points and the assignee, in that
+        // order. A label of "Open <key>: <title>" left out text the card
+        // displays, which fails WCAG 2.5.3 Label in Name (axe
+        // label-content-name-mismatch): "click Story" reached nothing by voice,
+        // and a screen reader heard none of the chips. In select mode
+        // aria-pressed says whether it is selected.
         // No KeyboardSensor is configured, so suppress dnd-kit's injected
         // "press space to pick up the draggable item" instruction — it is
         // non-functional and contradicts the Enter/Space-to-open behavior.
