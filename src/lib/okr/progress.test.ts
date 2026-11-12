@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { krFraction, krProgressPercent, objectiveProgressPercent } from "./progress";
+import {
+  KR_DEFAULT_TARGET,
+  krFraction,
+  krProgressPercent,
+  measureKeyResult,
+  objectiveProgressPercent,
+  rollUpObjective,
+} from "./progress";
 
 describe("krFraction — higher-is-better (default)", () => {
   it("is 0 at start, 1 at target, 0.5 halfway", () => {
@@ -106,5 +113,57 @@ describe("objectiveProgressPercent", () => {
   it("rounds to a whole percent", () => {
     expect(objectiveProgressPercent([], 3, 1)).toBe(33);
     expect(objectiveProgressPercent([], 6, 5)).toBe(83);
+  });
+});
+
+describe("measureKeyResult — a key result counting linked work items", () => {
+  const done = { completedAt: "2026-11-01T00:00:00Z" };
+  const open = { completedAt: null };
+  // What the OKR board's quick-add creates: a title, and the column defaults.
+  const boardMade = { startValue: 0, currentValue: 0, targetValue: KR_DEFAULT_TARGET, lowerIsBetter: false };
+
+  it("reads 3 / 3 and 100% when all three linked tickets are done (it read 3 / 100)", () => {
+    const m = measureKeyResult(boardMade, [done, done, done]);
+    expect([m.currentValue, m.targetValue, m.progress]).toEqual([3, 3, 100]);
+    expect(m).toMatchObject({ autoTracked: true, targetFromLinks: true, linkedTotal: 3, linkedDone: 3 });
+  });
+
+  it("counts part-way: 1 of 3 done is 33%", () => {
+    const m = measureKeyResult(boardMade, [done, open, open]);
+    expect([m.currentValue, m.targetValue, m.progress]).toEqual([1, 3, 33]);
+  });
+
+  it("keeps a target someone set: 3 done against a target of 5 is 60%", () => {
+    const m = measureKeyResult({ ...boardMade, targetValue: 5 }, [done, done, done]);
+    expect([m.currentValue, m.targetValue, m.progress]).toEqual([3, 5, 60]);
+    expect(m.targetFromLinks).toBe(false);
+  });
+
+  it("leaves a key result with no links on its stored numbers, default target included", () => {
+    // A percentage key result: the default 100 is exactly what it means.
+    const m = measureKeyResult({ ...boardMade, currentValue: 40 }, []);
+    expect([m.currentValue, m.targetValue, m.progress]).toEqual([40, 100, 40]);
+    expect(m).toMatchObject({ autoTracked: false, targetFromLinks: false, linkedTotal: 0 });
+  });
+
+  it("ignores the stored current value once tickets are linked", () => {
+    const m = measureKeyResult({ ...boardMade, currentValue: 99 }, [open, open]);
+    expect([m.currentValue, m.targetValue, m.progress]).toEqual([0, 2, 0]);
+  });
+});
+
+describe("rollUpObjective", () => {
+  it("averages measured key results, so a done linked KR rolls up as 100", () => {
+    const kr = measureKeyResult(
+      { startValue: 0, currentValue: 0, targetValue: KR_DEFAULT_TARGET, lowerIsBetter: false },
+      [{ completedAt: new Date() }],
+    );
+    expect(rollUpObjective([kr, { progress: 50 }], []).progress).toBe(75);
+  });
+
+  it("speaks from the objective's own links only when it has no key results", () => {
+    const linked = [{ completedAt: new Date() }, { completedAt: null }];
+    expect(rollUpObjective([], linked)).toEqual({ progress: 50, autoTracked: true, linkedTotal: 2, linkedDone: 1 });
+    expect(rollUpObjective([{ progress: 10 }], linked)).toMatchObject({ progress: 10, autoTracked: false });
   });
 });

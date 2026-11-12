@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { requireAccess } from "@/lib/abac/require-access";
 import { handleApiError } from "@/lib/api-helpers";
+import { measureKeyResult, rollUpObjective } from "@/lib/okr/progress";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
@@ -26,11 +27,38 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const objective = await prisma.objective.findFirst({
       where: { id: objectiveId, orgId, projectId },
-      include: { keyResults: { orderBy: { sortOrder: "asc" } } },
+      include: {
+        keyResults: {
+          orderBy: { sortOrder: "asc" },
+          include: { links: { select: { workItem: { select: { completedAt: true } } } } },
+        },
+        links: { select: { workItem: { select: { completedAt: true } } } },
+      },
     });
     if (!objective) return problem(404, "not_found", undefined, { request });
 
-    return respond(getObjective, 200, objective);
+    // The same numbers the objectives list shows (lib/okr/progress), not the
+    // stored copies: a key result counting linked work items reads its
+    // current value and target from them, and progress is computed live.
+    const measured = objective.keyResults.map((kr) => ({
+      kr,
+      m: measureKeyResult(kr, kr.links.map((l) => l.workItem)),
+    }));
+    const { progress } = rollUpObjective(
+      measured.map(({ m }) => m),
+      objective.links.map((l) => l.workItem),
+    );
+    return respond(getObjective, 200, {
+      ...objective,
+      links: undefined,
+      progress,
+      keyResults: measured.map(({ kr, m }) => ({
+        ...kr,
+        links: undefined,
+        currentValue: m.currentValue,
+        targetValue: m.targetValue,
+      })),
+    });
   } catch (e) {
     return handleApiError(e, request);
   }

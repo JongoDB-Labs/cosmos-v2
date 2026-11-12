@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { notifyError } from "@/lib/errors/notify";
-import { krProgressPercent } from "@/lib/okr/progress";
+import { KR_DEFAULT_TARGET, krProgressPercent } from "@/lib/okr/progress";
 import type { KeyResult } from "@/types/models";
 
 interface KeyResultEditDialogProps {
@@ -38,6 +38,12 @@ export function KeyResultEditDialog({
   const [startValue, setStartValue] = useState(String(keyResult.startValue));
   const [currentValue, setCurrentValue] = useState(String(keyResult.currentValue));
   const [targetValue, setTargetValue] = useState(String(keyResult.targetValue));
+  // A key result counting linked tickets uses their number as its target until
+  // someone sets one (lib/okr/progress). The field shows that number; saving
+  // must not store it as if it had been typed, or the target would stop
+  // following the links. Typing a number sets a target; the button undoes it.
+  const linkedTotal = keyResult.linkedTotal ?? 0;
+  const [targetFromLinks, setTargetFromLinks] = useState(!!keyResult.targetFromLinks);
   const [unit, setUnit] = useState(keyResult.unit);
   const [lowerIsBetter, setLowerIsBetter] = useState(keyResult.lowerIsBetter);
   const [saving, setSaving] = useState(false);
@@ -65,7 +71,8 @@ export function KeyResultEditDialog({
             title: title.trim(),
             startValue: start,
             currentValue: current,
-            targetValue: target,
+            // The default target is what "not set" is stored as.
+            targetValue: targetFromLinks ? KR_DEFAULT_TARGET : target,
             unit: unit.trim(),
             lowerIsBetter,
           }),
@@ -126,10 +133,31 @@ export function KeyResultEditDialog({
                 id="kr-target"
                 type="number"
                 value={targetValue}
-                onChange={(e) => setTargetValue(e.target.value)}
+                onChange={(e) => {
+                  setTargetValue(e.target.value);
+                  setTargetFromLinks(false);
+                }}
               />
             </div>
           </div>
+          {linkedTotal > 0 &&
+            (targetFromLinks ? (
+              <p className="text-xs text-muted-foreground">
+                The target is the {linkedTotal} linked{" "}
+                {linkedTotal === 1 ? "ticket" : "tickets"}. Type a number to set your own.
+              </p>
+            ) : (
+              <button
+                type="button"
+                className="text-xs text-[var(--primary)] hover:underline"
+                onClick={() => {
+                  setTargetFromLinks(true);
+                  setTargetValue(String(linkedTotal));
+                }}
+              >
+                Use the {linkedTotal} linked {linkedTotal === 1 ? "ticket" : "tickets"} as the target
+              </button>
+            ))}
           <div className="space-y-1.5">
             <Label htmlFor="kr-unit">Unit</Label>
             <Input

@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.547.7",
+    date: "2026-11-12",
+    title: "Key results measured by linked work read complete when the work is done",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A key result measured by linked work items now uses the number of linked items as its target, unless you set a target yourself. Three linked items, all done, read 3 / 3 and 100% instead of 3 / 100. The OKR page, objective and goal progress, the PI objectives dashboard widget and Cosmo now show the same number. The key result's edit dialog says when the target comes from the linked items, and typing a number sets your own.",
+      },
+      {
+        kind: "fix",
+        text: "When nothing was touched recently, the Overview's Recent projects card now says it is showing the organization’s active projects. It used to say “project’s”.",
+      },
+      {
+        kind: "fix",
+        text: "Importing deliverables now reads a status written with a Program Increment after it, such as “Proposed · PI-3”. The status maps to Not started, and the deliverable goes into that Program Increment when the project has one by that name. It used to import with a blank status.",
+      },
+      {
+        kind: "fix",
+        text: "The API's /developers link no longer leads to a missing page. It now explains how to authenticate, links to the API keys page of each organization you belong to, and lists every API error code. Each error the API returns links to its code there.",
+      },
+    ],
+  },
+  {
     version: "2.547.6",
     date: "2026-11-12",
     title: "Program Management no longer jumps wider as it loads",

@@ -6,6 +6,7 @@ import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-pr
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
 import { computeAutoProgress, type GoalWithLinks } from "@/lib/goals/rollup";
+import { liveObjectiveProgress } from "@/lib/okr/rollup.server";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
@@ -66,16 +67,15 @@ async function applyAutoProgress(orgId: string, goals: GoalWithLinks[]) {
           select: { id: true, columnKey: true },
         })
       : Promise.resolve([]),
+    // Live, by the rule the OKR board shows, rather than the stored copy that
+    // a linked ticket finishing never updates (lib/okr/rollup.server).
     objectiveIds.size > 0
-      ? prisma.objective.findMany({
-          where: { orgId, id: { in: [...objectiveIds] } },
-          select: { id: true, progress: true },
-        })
-      : Promise.resolve([]),
+      ? liveObjectiveProgress({ orgId, id: { in: [...objectiveIds] } })
+      : Promise.resolve(new Map<string, number>()),
   ]);
 
   const workItemById = new Map(workItems.map((w) => [w.id, w]));
-  const objectiveById = new Map(objectives.map((o) => [o.id, o]));
+  const objectiveById = new Map([...objectives].map(([id, progress]) => [id, { id, progress }]));
 
   return goals.map((goal) => {
     if (goal.progressMode !== GoalProgressMode.AUTO || goal.links.length === 0) {

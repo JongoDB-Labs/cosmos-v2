@@ -19,7 +19,11 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-const MARKED_PAGES = ["src/app/login/page.tsx", "src/app/reset-password/page.tsx"];
+const MARKED_PAGES = [
+  "src/app/login/page.tsx",
+  "src/app/reset-password/page.tsx",
+  "src/app/(developers)/developers/guides/errors/page.tsx",
+];
 
 function code(rel: string): string {
   return readFileSync(join(process.cwd(), rel), "utf8")

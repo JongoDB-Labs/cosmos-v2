@@ -68,3 +68,93 @@ export function objectiveProgressPercent(
   }
   return 0;
 }
+
+/**
+ * The target a key result gets when nobody sets one. The board's quick-add
+ * sends only a title, the API and Cosmo default to it, and so does the column
+ * (prisma/schema.prisma). It suits a percentage key result.
+ */
+export const KR_DEFAULT_TARGET = 100;
+
+/** The stored numbers of a key result. */
+export interface KeyResultValues {
+  startValue: number;
+  currentValue: number;
+  targetValue: number;
+  lowerIsBetter: boolean;
+}
+
+/** Anything with a completion stamp: a linked work item. */
+export interface LinkedDelivery {
+  completedAt: Date | string | null;
+}
+
+/** A key result's numbers as every surface shows them. */
+export interface KeyResultMeasure {
+  currentValue: number;
+  targetValue: number;
+  /** The current value is the count of linked work items that are done. */
+  autoTracked: boolean;
+  /** The target is the count of linked work items, not a stored number. */
+  targetFromLinks: boolean;
+  linkedTotal: number;
+  linkedDone: number;
+  /** Whole percent, 0-100. */
+  progress: number;
+}
+
+/**
+ * A key result's current value, target and progress. The one rule every
+ * surface uses: the OKR board, objective roll-ups, dashboards and Cosmo.
+ *
+ * A key result with linked work items counts the done ones as its current
+ * value. Its target is the number of linked items, unless someone set one.
+ * The stored target can't say who set it, so "set" means "not the default":
+ * a key result made on the board starts at 100, which was meant for a
+ * percentage and made three done tickets read "3 / 100". The one case this
+ * misreads is a target of exactly 100 typed on purpose for a key result with
+ * linked items; it is counted as unset.
+ */
+export function measureKeyResult(
+  kr: KeyResultValues,
+  linked: readonly LinkedDelivery[],
+): KeyResultMeasure {
+  const linkedTotal = linked.length;
+  const linkedDone = linked.filter((w) => w.completedAt != null).length;
+  const autoTracked = linkedTotal > 0;
+  const currentValue = autoTracked ? linkedDone : kr.currentValue;
+  const targetFromLinks = autoTracked && kr.targetValue === KR_DEFAULT_TARGET;
+  const targetValue = targetFromLinks ? linkedTotal : kr.targetValue;
+  return {
+    currentValue,
+    targetValue,
+    autoTracked,
+    targetFromLinks,
+    linkedTotal,
+    linkedDone,
+    progress: krProgressPercent(kr.startValue, currentValue, targetValue, kr.lowerIsBetter),
+  };
+}
+
+/**
+ * An objective's progress from its measured key results and its own linked
+ * work items, through `objectiveProgressPercent`.
+ */
+export function rollUpObjective(
+  keyResults: readonly Pick<KeyResultMeasure, "progress">[],
+  linked: readonly LinkedDelivery[],
+): { progress: number; autoTracked: boolean; linkedTotal: number; linkedDone: number } {
+  const linkedTotal = linked.length;
+  const linkedDone = linked.filter((w) => w.completedAt != null).length;
+  return {
+    progress: objectiveProgressPercent(
+      keyResults.map((kr) => kr.progress),
+      linkedTotal,
+      linkedDone,
+    ),
+    // Mirrors the key result's word: the number comes from delivery.
+    autoTracked: keyResults.length === 0 && linkedTotal > 0,
+    linkedTotal,
+    linkedDone,
+  };
+}

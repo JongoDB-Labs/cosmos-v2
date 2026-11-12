@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { requireAccess } from "@/lib/abac/require-access";
 import { handleApiError } from "@/lib/api-helpers";
-import { krFraction } from "@/lib/okr/progress";
+import { recomputeObjectiveProgress } from "@/lib/okr/rollup.server";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
@@ -48,26 +48,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    // Recompute the parent objective's progress from all its key results.
-    const siblings = await prisma.keyResult.findMany({
-      where: { objectiveId: kr.objectiveId },
-      select: { startValue: true, currentValue: true, targetValue: true, lowerIsBetter: true },
-    });
-    const progress =
-      siblings.length === 0
-        ? 0
-        : Math.round(
-            (siblings.reduce(
-              (sum, s) => sum + krFraction(s.startValue, s.currentValue, s.targetValue, s.lowerIsBetter),
-              0,
-            ) /
-              siblings.length) *
-              100,
-          );
-    await prisma.objective.update({
-      where: { id: kr.objectiveId },
-      data: { progress },
-    });
+    // Recompute the parent objective's stored progress, by the same rule the
+    // OKR board shows (linked work items included).
+    await recomputeObjectiveProgress(kr.objectiveId);
 
     return respond(updateKeyResult, 200, updated);
   } catch (e) {

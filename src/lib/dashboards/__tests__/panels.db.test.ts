@@ -266,11 +266,26 @@ describe("history and increments", () => {
       data: { orgId: w.orgA, projectId: w.P2.id, number: 901, name: `Secret PI ${w.stamp}`, status: "ACTIVE", intervalKind: "PROGRAM_INCREMENT", startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31") },
     });
     await prisma.interval.update({ where: { id: w.sprintP1Active }, data: { parentId: pi.id } });
-    await prisma.objective.createMany({
+    // The stored `progress` copies are decoys (0): the panel must compute what
+    // the OKR board shows, from key results whose linked tickets are done. A
+    // board-made key result keeps the default target of 100, so it counts its
+    // linked tickets as its target: 1 of 1 done is 100%, 1 of 2 is 50%.
+    const ship = await prisma.objective.create({
+      data: { orgId: w.orgA, projectId: w.P1.id, intervalId: pi.id, title: "Ship login", progress: 0, committed: true },
+    });
+    const docs = await prisma.objective.create({
+      data: { orgId: w.orgA, projectId: w.P1.id, intervalId: pi.id, title: "Polish docs", progress: 0, committed: false },
+    });
+    await prisma.objective.create({
+      data: { orgId: w.orgA, projectId: w.P2.id, intervalId: secretPi.id, title: `Secretobjective ${w.stamp}`, progress: 10, committed: true },
+    });
+    const shipKr = await prisma.keyResult.create({ data: { objectiveId: ship.id, title: "Login ships" } });
+    const docsKr = await prisma.keyResult.create({ data: { objectiveId: docs.id, title: "Docs read well" } });
+    await prisma.keyResultLink.createMany({
       data: [
-        { orgId: w.orgA, projectId: w.P1.id, intervalId: pi.id, title: "Ship login", progress: 100, committed: true },
-        { orgId: w.orgA, projectId: w.P1.id, intervalId: pi.id, title: "Polish docs", progress: 50, committed: false },
-        { orgId: w.orgA, projectId: w.P2.id, intervalId: secretPi.id, title: `Secretobjective ${w.stamp}`, progress: 10, committed: true },
+        { orgId: w.orgA, keyResultId: shipKr.id, workItemId: w.items["p1-done"].id },
+        { orgId: w.orgA, keyResultId: docsKr.id, workItemId: w.items["p1-done"].id },
+        { orgId: w.orgA, keyResultId: docsKr.id, workItemId: w.items["p1-login-bug"].id },
       ],
     });
     try {
@@ -281,10 +296,10 @@ describe("history and increments", () => {
       const [r] = await computePanels(okrCtx, [{ type: "pi-objectives", query: q(`project = ${w.P1.key}`), config: {} }], { tz: "UTC", now: NOW });
       noSecrets(r);
       expect(JSON.stringify(r)).not.toContain("Secretobjective");
-      const d = ok(r).data as { pi: { id: string }; committed: { title: string }[]; stretch: { title: string }[]; committedProgress: number; met: number };
+      const d = ok(r).data as { pi: { id: string }; committed: { title: string; progress: number }[]; stretch: { title: string; progress: number }[]; committedProgress: number; met: number };
       expect(d.pi.id).toBe(pi.id);
-      expect(d.committed.map((o) => o.title)).toEqual(["Ship login"]);
-      expect(d.stretch.map((o) => o.title)).toEqual(["Polish docs"]);
+      expect(d.committed.map((o) => [o.title, o.progress])).toEqual([["Ship login", 100]]);
+      expect(d.stretch.map((o) => [o.title, o.progress])).toEqual([["Polish docs", 50]]);
       expect(d).toMatchObject({ committedProgress: 100, met: 1 });
       expect(ok(r).meta.total).toBe(2);
     } finally {

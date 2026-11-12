@@ -5,7 +5,7 @@ import { requireAccess } from "@/lib/abac/require-access";
 import { isProjectVisible } from "@/lib/rbac/project-access";
 import { ForbiddenError } from "@/lib/rbac/check";
 import { handleApiError } from "@/lib/api-helpers";
-import { krFraction } from "@/lib/okr/progress";
+import { recomputeObjectiveProgress } from "@/lib/okr/rollup.server";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
@@ -103,25 +103,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    const siblings = await prisma.keyResult.findMany({
-      where: { objectiveId: kr.objectiveId },
-      select: { startValue: true, currentValue: true, targetValue: true, lowerIsBetter: true },
-    });
-    const progress =
-      siblings.length === 0
-        ? 0
-        : Math.round(
-            (siblings.reduce(
-              (sum, s) => sum + krFraction(s.startValue, s.currentValue, s.targetValue, s.lowerIsBetter),
-              0,
-            ) /
-              siblings.length) *
-              100,
-          );
-    await prisma.objective.update({
-      where: { id: kr.objectiveId },
-      data: { progress },
-    });
+    await recomputeObjectiveProgress(kr.objectiveId);
 
     return respond(createCheckin, 201, checkin);
   } catch (e) {

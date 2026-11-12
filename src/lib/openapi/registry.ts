@@ -9,7 +9,7 @@ import { satisfyingScopeSets } from "@/lib/auth/api-key-scopes";
 /**
  * Build the OpenAPI 3.1 document from the route contracts.
  *
- * `public` is what /developers shows and what openapi/cosmos-v1.json commits:
+ * `public` is what openapi/cosmos-v1.json commits:
  * stable and beta operations. `internal` adds every `internal` contract, for
  * staff only, and is never committed.
  */
@@ -113,7 +113,7 @@ export function buildDocument(contracts: RouteContract[], audience: SpecAudience
       title: audience === "public" ? "Cosmos API" : "Cosmos API (internal surface)",
       version: API_VERSION,
       description:
-        "The Cosmos REST API. Guides, authentication and the changelog are at /developers.",
+        "The Cosmos REST API. Authentication, API keys and error codes: /developers.",
     },
     servers: [{ url: "/api/v1", description: "This Cosmos instance" }],
   });

@@ -224,15 +224,30 @@ describe("entity import — deliverables: CDRL columns", () => {
     expect(rows.some((r) => r.intervalId === foreignSprintId)).toBe(false);
   });
 
-  it('maps the sheet word "Planned" to NOT_STARTED, but refuses to flatten a backlog marker', async () => {
-    // Both rows start from a status the sheet cannot produce, so "unchanged"
-    // and "set to NOT_STARTED" are distinguishable. Creating them instead would
-    // make the two outcomes identical: the column defaults to NOT_STARTED.
+  it('maps "Planned", and "Proposed · PI-3" to NOT_STARTED in that Program Increment', async () => {
+    // A generic planning-workbook status: a word, and for later work the
+    // increment it is proposed for. It imported with a BLANK status and the
+    // PI was thrown away.
+    const pi3 = (await prisma.interval.create({
+      data: {
+        orgId, projectId, number: 30, name: "PI 3", intervalKind: "PROGRAM_INCREMENT",
+        startDate: new Date("2026-04-06"), endDate: new Date("2026-06-26"),
+      },
+    })).id;
+    // A SPRINT that happens to share the name must never be taken for the PI.
+    await prisma.interval.create({
+      data: {
+        orgId, projectId, number: 31, name: "PI-3", intervalKind: "SPRINT",
+        startDate: new Date("2026-04-06"), endDate: new Date("2026-04-17"),
+      },
+    });
+    // Every row starts from a status and interval the sheet cannot produce, so
+    // "unchanged" and "set" are distinguishable. Creating them instead would
+    // make NOT_STARTED indistinguishable from the column default.
     await prisma.deliverable.createMany({
-      data: [
-        { orgId, projectId, code: "CDRL-B005", title: "Planned row", status: "SUBMITTED" },
-        { orgId, projectId, code: "CDRL-B006", title: "Proposed row", status: "SUBMITTED" },
-      ],
+      data: ["CDRL-B005", "CDRL-B006", "CDRL-B007", "CDRL-B008"].map((code) => ({
+        orgId, projectId, code, title: code, status: "SUBMITTED" as const,
+      })),
     });
 
     const report = await runEntityImport(
@@ -242,34 +257,56 @@ describe("entity import — deliverables: CDRL columns", () => {
         mode: "commit",
         // Title is mapped because the registry marks it required — an import
         // that omits it skips every row before status is ever considered.
-        mapping: { ID: "code", Title: "title", Status: "status" },
+        mapping: { ID: "code", Title: "title", Status: "status", Sprint: "intervalId" },
         rows: [
-          // POSITIVE CONTROL: the synonym path works…
-          { ID: "CDRL-B005", Title: "Planned row", Status: "Planned" },
-          // …and this is the value that must NOT be mapped. "Proposed · PI-3"
-          // says "not in this PI" — a scheduling decision, not a lifecycle
-          // state. Flattening it to NOT_STARTED would assert something false.
-          { ID: "CDRL-B006", Title: "Proposed row", Status: "Proposed · PI-3" },
+          // POSITIVE CONTROL: the plain word still maps, and no PI is invented.
+          { ID: "CDRL-B005", Title: "Planned row", Status: "Planned", Sprint: "" },
+          // The reported case.
+          { ID: "CDRL-B006", Title: "Proposed row", Status: "Proposed · PI-3", Sprint: "" },
+          // A sprint the row names is more specific than the PI: it wins.
+          { ID: "CDRL-B007", Title: "Sprinted row", Status: "Proposed · PI-3", Sprint: "Sprint 3" },
+          // An increment this project doesn't have: the status still lands,
+          // and the report says the PI could not be kept.
+          { ID: "CDRL-B008", Title: "Far-off row", Status: "Proposed · PI-9", Sprint: "" },
         ],
       },
     );
 
-    expect(report.updated).toBe(2);
-    expect(report.errors).toHaveLength(1);
-    expect(report.errors[0].row).toBe(2);
-    expect(report.errors[0].message).toContain('Status: "Proposed · PI-3" is not a recognized value');
+    expect(report.updated).toBe(4);
+    expect(report.errors).toEqual([
+      { row: 4, message: 'Status: "PI-9" is not a Program Increment in this project — the deliverable is left without one' },
+    ]);
 
     const rows = await prisma.deliverable.findMany({
-      where: { orgId, projectId, code: { in: ["CDRL-B005", "CDRL-B006"] } },
-      select: { code: true, status: true },
+      where: { orgId, projectId, code: { in: ["CDRL-B005", "CDRL-B006", "CDRL-B007", "CDRL-B008"] } },
+      select: { code: true, status: true, intervalId: true },
       orderBy: { code: "asc" },
     });
     expect(rows).toEqual([
-      { code: "CDRL-B005", status: "NOT_STARTED" },
-      // Untouched: the warning left the column alone rather than writing a
-      // status the sheet never claimed.
-      { code: "CDRL-B006", status: "SUBMITTED" },
+      { code: "CDRL-B005", status: "NOT_STARTED", intervalId: null },
+      { code: "CDRL-B006", status: "NOT_STARTED", intervalId: pi3 },
+      { code: "CDRL-B007", status: "NOT_STARTED", intervalId: sprintId },
+      { code: "CDRL-B008", status: "NOT_STARTED", intervalId: null },
     ]);
+  });
+
+  it("leaves the status alone when the word before the PI is not a status", async () => {
+    await prisma.deliverable.create({
+      data: { orgId, projectId, code: "CDRL-B009", title: "Odd row", status: "SUBMITTED" },
+    });
+    const report = await runEntityImport(
+      { orgId, projectId, userId, auth: authFor(userId, orgId) },
+      {
+        entity: "deliverable",
+        mode: "commit",
+        mapping: { ID: "code", Title: "title", Status: "status" },
+        rows: [{ ID: "CDRL-B009", Title: "Odd row", Status: "Maybe · PI-3" }],
+      },
+    );
+    expect(report.errors).toHaveLength(1);
+    expect(report.errors[0].message).toContain('Status: "Maybe" is not a recognized value');
+    const row = await prisma.deliverable.findFirst({ where: { orgId, projectId, code: "CDRL-B009" }, select: { status: true } });
+    expect(row!.status).toBe("SUBMITTED");
   });
 
   it("creates its own row rather than updating a CONTRACT's deliverable with the same code", async () => {

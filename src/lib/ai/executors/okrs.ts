@@ -2,7 +2,9 @@ import { prisma } from "@/lib/db/client";
 import { ObjectiveStatus, KeyResultStatus, RagStatus } from "@prisma/client";
 import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
-import { krProgressPercent, krFraction } from "@/lib/okr/progress";
+import { measureKeyResult, rollUpObjective } from "@/lib/okr/progress";
+// Persists an objective's progress by the same rule the routes and the board use.
+import { recomputeObjectiveProgress } from "@/lib/okr/rollup.server";
 import { objectiveHealth } from "@/lib/okr/health";
 import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
@@ -22,26 +24,6 @@ function invalid(error: z.ZodError): { error: string } {
 // true of one the caller may not open — a project with `teamScopedAccess` is
 // restricted to its members. Replaced by `assertProjectRead`, which forwards to
 // the same `requireProjectRead` the HTTP routes use. See _ctx.ts.
-
-/** Recompute + persist an objective's progress from all its key results (mirrors the routes). */
-async function recomputeObjectiveProgress(objectiveId: string): Promise<void> {
-  const siblings = await prisma.keyResult.findMany({
-    where: { objectiveId },
-    select: { startValue: true, currentValue: true, targetValue: true, lowerIsBetter: true },
-  });
-  const progress =
-    siblings.length === 0
-      ? 0
-      : Math.round(
-          (siblings.reduce(
-            (sum, s) => sum + krFraction(s.startValue, s.currentValue, s.targetValue, s.lowerIsBetter),
-            0,
-          ) /
-            siblings.length) *
-            100,
-        );
-  await prisma.objective.update({ where: { id: objectiveId }, data: { progress } });
-}
 
 // ── list_objectives ─────────────────────────────────────────────────────────
 const listObjectivesSchema = z.object({
@@ -98,17 +80,20 @@ export async function listObjectives(input: Record<string, unknown>, ctx: ToolCo
         orderBy: { sortOrder: "asc" },
         include: { links: { select: { workItem: { select: { id: true, completedAt: true } } } } },
       },
+      // The objective's own linked delivery, which speaks for an objective
+      // with no key results — as on the OKR board.
+      links: { select: { workItem: { select: { completedAt: true } } } },
     },
   });
 
-  // Same roll-up the objectives GET route computes: a KR with linked tickets
-  // auto-tracks (current value = # of linked items done); objective progress is
-  // the mean KR progress; health is progress vs. time toward the target date.
+  // The same rule the objectives GET route and the OKR board use
+  // (lib/okr/progress): a KR with linked tickets auto-tracks (current value =
+  // # of linked items done, target = # linked unless one was set); objective
+  // progress rolls up from the KRs, or from its own links when it has none;
+  // health is progress vs. time toward the target date.
   const shaped = objectives.map((o) => {
     const keyResults = o.keyResults.map((kr) => {
-      const linkedTotal = kr.links.length;
-      const linkedDone = kr.links.filter((l) => l.workItem.completedAt != null).length;
-      const currentValue = linkedTotal > 0 ? linkedDone : kr.currentValue;
+      const m = measureKeyResult(kr, kr.links.map((l) => l.workItem));
       return {
         id: kr.id,
         objectiveId: kr.objectiveId,
@@ -120,25 +105,19 @@ export async function listObjectives(input: Record<string, unknown>, ctx: ToolCo
         sortOrder: kr.sortOrder,
         title: kr.title,
         startValue: kr.startValue,
-        currentValue,
-        targetValue: kr.targetValue,
+        currentValue: m.currentValue,
+        targetValue: m.targetValue,
         unit: kr.unit,
-        autoTracked: linkedTotal > 0,
-        linkedTotal,
-        linkedDone,
+        autoTracked: m.autoTracked,
+        targetFromLinks: m.targetFromLinks,
+        linkedTotal: m.linkedTotal,
+        linkedDone: m.linkedDone,
+        progress: m.progress,
         createdAt: kr.createdAt,
         updatedAt: kr.updatedAt,
       };
     });
-    const progress =
-      keyResults.length === 0
-        ? 0
-        : Math.round(
-            keyResults.reduce(
-              (sum, kr) => sum + krProgressPercent(kr.startValue, kr.currentValue, kr.targetValue, kr.lowerIsBetter),
-              0,
-            ) / keyResults.length,
-          );
+    const { progress } = rollUpObjective(keyResults, o.links.map((l) => l.workItem));
     return {
       id: o.id,
       projectId: o.projectId,

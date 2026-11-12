@@ -12,6 +12,7 @@ const RESERVED_SLUGS = new Set([
   "internal",
   "settings",
   "admin",
+  "developers",
   "static",
   "assets",
   "public",

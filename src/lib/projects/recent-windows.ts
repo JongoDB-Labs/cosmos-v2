@@ -26,3 +26,32 @@ export function windowFromParam(value: string | undefined): RecentWindowKey {
 export function hoursForWindow(key: RecentWindowKey): number {
   return RECENT_WINDOWS.find((w) => w.key === key)!.hours;
 }
+
+/**
+ * Said above the Recent projects card when it falls back. The fallback list is
+ * the organization's active projects, so the sentence names the organization;
+ * it used to say "the project's active list", which no project has.
+ */
+export const RECENT_FALLBACK_NOTE =
+  "Nothing touched in this window — showing the organization’s active projects instead.";
+
+/**
+ * What the Recent projects card shows: the visible projects you touched in
+ * the window, newest first. With none (a new member, or a quiet week) it falls
+ * back to the active list rather than going blank, and says so, so the
+ * projects on screen are never unexplained.
+ */
+export function pickRecentProjects<P extends { id: string }>(
+  visible: readonly P[],
+  touched: ReadonlyMap<string, Date>,
+  limit = 6,
+): { projects: P[]; note: string | null } {
+  const recent = visible
+    .filter((p) => touched.has(p.id))
+    .sort((a, b) => touched.get(b.id)!.getTime() - touched.get(a.id)!.getTime());
+  const fellBack = recent.length === 0 && visible.length > 0;
+  return {
+    projects: (fellBack ? [...visible] : recent).slice(0, limit),
+    note: fellBack ? RECENT_FALLBACK_NOTE : null,
+  };
+}
