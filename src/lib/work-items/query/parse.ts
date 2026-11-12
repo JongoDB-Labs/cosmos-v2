@@ -34,8 +34,6 @@ export const workItemFilterSchema: z.ZodType<WorkItemFilter> = WorkItemFilterSch
 /** Full query schema for the POST body: filter + sort + pagination. */
 export const workItemQuerySchema = WorkItemQuery;
 
-export type WorkItemQueryInput = z.infer<typeof workItemQuerySchema>;
-
 export interface ParsedQuery {
   filter: WorkItemFilter;
   sort: WorkItemSort | undefined;

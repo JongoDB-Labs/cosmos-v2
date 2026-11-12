@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.547.1",
+    date: "2026-11-12",
+    title: "Internal: tidy the work-item code",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Internal: removes unused code from the work-item and workflow code and corrects comments that described the wrong thing. No visible change.",
+      },
+    ],
+  },
+  {
     version: "2.547.0",
     date: "2026-11-11",
     title: "An old Cosmos address now takes you to the current one",
