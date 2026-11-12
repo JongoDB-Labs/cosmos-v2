@@ -126,22 +126,28 @@ curl -s -X POST "$API/items/import" -H "$AUTH" \\
             </H>
             <Prose>
               <p>
-                Point an MCP-capable client (Claude Desktop, etc.) at{" "}
-                <code>cosmos-mcp</code> — it exposes the same endpoints as tools,
-                so an LLM can read and create items under your RBAC/ABAC. Set the
-                same three values as env; see{" "}
-                <code>tools/cosmos-mcp/README.md</code> in the repo.
+                The Cosmos repository includes a small local ingest server,{" "}
+                <code>tools/cosmos-mcp/server.mjs</code>. Run it with Node from a
+                checkout of the repository. It is not published to npm.
+              </p>
+              <p>
+                It gives an MCP-capable client (Claude Desktop, etc.) tools to
+                fetch the item template, create items, upload and list documents,
+                read a document, and turn a document block into an item. It acts
+                with your key, so it can do only what the key allows. Setup
+                details are in <code>tools/cosmos-mcp/README.md</code>.
               </p>
             </Prose>
             <Code
               text={`{
   "mcpServers": {
     "cosmos": {
-      "command": "npx",
-      "args": ["-y", "cosmos-mcp"],
+      "command": "node",
+      "args": ["/absolute/path/to/cosmos/tools/cosmos-mcp/server.mjs"],
       "env": {
         "COSMOS_BASE_URL": "${base}",
         "COSMOS_ORG_ID": "${orgId}",
+        "COSMOS_PROJECT_ID": "<project-uuid>",
         "COSMOS_API_KEY": "cosmos_<prefix>_<secret>"
       }
     }
