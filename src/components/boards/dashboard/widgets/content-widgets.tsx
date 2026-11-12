@@ -16,10 +16,13 @@ import { NoData } from "./widget-parts";
 // ── link-list ────────────────────────────────────────────────────────────────
 
 export function LinkListWidget(props: WidgetProps) {
-  // `widgetLinks` keeps only http(s) URLs and in-app paths: the text is typed
-  // by one person onto a board everyone opens, so a `javascript:` link would
-  // run in each viewer's session.
-  const links = widgetLinks(props.config);
+  // `widgetLinks` keeps only http(s) URLs and in-app paths that provably stay
+  // in the app (`widget-links.ts`): the text is typed by one person onto a
+  // board everyone opens. In-app paths are resolved against the viewer's own
+  // origin; the verdict and the href are the same without one (the server
+  // render), so nothing differs at hydration.
+  const origin = typeof window === "undefined" ? undefined : window.location.origin;
+  const links = widgetLinks(props.config, origin);
   if (links.length === 0) return <NoData>No links added yet</NoData>;
   return (
     <ul className="h-full space-y-0.5 overflow-auto text-sm">

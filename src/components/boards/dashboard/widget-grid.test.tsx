@@ -588,6 +588,47 @@ describe("the widgets that used to say 'not available'", () => {
     expect(tile("ll").innerHTML).not.toContain("javascript:");
   });
 
+  it("link-list draws no link that leaves the app except as a new-tab external link (widget link validation)", () => {
+    renderGrid([
+      widget({
+        id: "lh",
+        type: "link-list",
+        config: {
+          links: [
+            "Backslash|/\\evil.example",
+            "Tab|/\t/evil.example",
+            "ProtoRel|//evil.example",
+            "Script|javascript:alert(1)",
+            "Data|data:text/html,<script>alert(1)</script>",
+            "Outside|https://evil.example",
+            "Home|/acme/projects/ACME",
+          ].join("\n"),
+        },
+        layout: big,
+      }),
+    ]);
+    const links = within(tile("lh")).getAllByRole("link");
+    // Positive controls: the in-app path and the external link both render.
+    expect(links.map((a) => a.textContent)).toEqual(["Outside(opens in a new tab)", "Home"]);
+    const [outside, home] = links;
+    expect(outside.getAttribute("href")).toBe("https://evil.example/");
+    expect(outside.getAttribute("target")).toBe("_blank");
+    expect(outside.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(home.getAttribute("href")).toBe("/acme/projects/ACME");
+    expect(home.getAttribute("target")).toBeNull();
+    // Every link that does not announce itself as external resolves to THIS
+    // origin, the way the browser will resolve it.
+    for (const a of links.filter((l) => l.getAttribute("target") !== "_blank")) {
+      expect(new URL(a.getAttribute("href")!, window.location.origin).origin).toBe(
+        window.location.origin,
+      );
+    }
+    const html = tile("lh").innerHTML;
+    // No href that starts `//`, `/\` or `/<whitespace>` (the allowed external
+    // link legitimately contains `//evil`, after its scheme).
+    expect(html).not.toMatch(/javascript:|data:text|href="\/[\/\\\s]/);
+  });
+
   it("quick-action is a real button that opens the New work item form", () => {
     renderGrid([widget({ id: "qa", type: "quick-action", config: { label: "Log a bug" }, layout: big })]);
     expect(within(tile("qa")).getByRole("button", { name: /Log a bug/ })).toBeTruthy();

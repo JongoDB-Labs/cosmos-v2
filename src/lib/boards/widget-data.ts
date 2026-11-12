@@ -17,6 +17,11 @@
  * reused here come from `src/lib/dashboard/*` instead, which the dashboard view
  * already imports.
  */
+import {
+  checkWidgetLinkTarget,
+  MAX_WIDGET_LINKS,
+  widgetLinkLines,
+} from "./widget-links";
 import type { BuilderWidget } from "@/types/models";
 
 /** One categorical bucket — a bar or a slice. */
@@ -258,44 +263,25 @@ export interface WidgetLink {
 }
 
 /**
- * The links a Link List holds, parsed from the builder's `Label|URL` lines.
+ * The links a Link List draws: every line that passes the shared rule in
+ * `widget-links.ts` (http(s), or an in-app path that provably stays in the
+ * app), as its normalised href. A line that fails is dropped rather than drawn
+ * as a dead link — and cannot be saved in the first place, because the save
+ * routes run the same rule (`widgetLinkProblems`).
  *
- * Only `https:`/`http:` URLs and in-app paths (`/…`, never `//…`) survive.
- * The value is free text an author typed onto a board other people open, so a
- * `javascript:` or `data:` URL here would run in every viewer's session the
- * moment they click it. A line with no `|` is taken as a bare URL and labelled
- * with itself. Anything unusable is dropped rather than drawn as a dead link.
+ * `origin` is the viewer's `location.origin` when there is one.
  */
-export function widgetLinks(config: Record<string, unknown>): WidgetLink[] {
+export function widgetLinks(config: Record<string, unknown>, origin?: string): WidgetLink[] {
   const raw = config.links;
   if (typeof raw !== "string") return [];
   const out: WidgetLink[] = [];
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    const bar = trimmed.indexOf("|");
-    const label = (bar === -1 ? trimmed : trimmed.slice(0, bar)).trim();
-    const target = (bar === -1 ? trimmed : trimmed.slice(bar + 1)).trim();
-    const link = safeHref(target);
-    if (!link) continue;
-    out.push({ label: label.length > 0 ? label : target, ...link });
-    if (out.length >= 50) break;
+  for (const l of widgetLinkLines(raw)) {
+    const check = checkWidgetLinkTarget(l.target, origin);
+    if (!check.ok) continue;
+    out.push({ label: l.label, href: check.href, external: check.external });
+    if (out.length >= MAX_WIDGET_LINKS) break;
   }
   return out;
-}
-
-function safeHref(target: string): Omit<WidgetLink, "label"> | null {
-  if (target.startsWith("/") && !target.startsWith("//")) {
-    return { href: target, external: false };
-  }
-  let url: URL;
-  try {
-    url = new URL(target);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-  return { href: url.toString(), external: true };
 }
 
 /**

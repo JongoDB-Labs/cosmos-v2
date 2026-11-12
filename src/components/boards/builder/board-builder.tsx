@@ -24,6 +24,7 @@ import { WidgetPalette, type PaletteWidget } from "./widget-palette";
 import { ConfigPanel } from "./config-panel";
 import { WidgetBody } from "@/components/boards/dashboard/widget-grid";
 import { FitWidth } from "@/components/boards/dashboard/fit-width";
+import { FetchError } from "@/lib/query/json-fetcher";
 import type { BuilderWidget, Board } from "@/types/models";
 
 import "react-grid-layout/css/styles.css";
@@ -172,7 +173,16 @@ export function BoardBuilder({
               },
             }),
           });
-      if (!res.ok) throw new Error(`Failed to save board (HTTP ${res.status})`);
+      if (!res.ok) {
+        // Say what the server said: a refused link names the widget, the line
+        // and the reason, which "HTTP 400" does not.
+        const body: unknown = await res.json().catch(() => null);
+        const said =
+          body && typeof body === "object" && "error" in body
+            ? String((body as { error: unknown }).error)
+            : "";
+        throw new FetchError(res.status, body, said || `Failed to save board (HTTP ${res.status})`);
+      }
       // The board view caches both; without this, "Back to board" shows the
       // layout from before the save until the next refetch.
       void qc.invalidateQueries({ queryKey: personal ? myLayoutKey : boardKey });

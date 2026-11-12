@@ -19,6 +19,7 @@ import {
   widgetMaxItems,
 } from "@/lib/boards/widget-data";
 import { widgetDefinition } from "@/lib/boards/widget-definitions";
+import { checkWidgetLinkTarget, widgetLinkLines } from "@/lib/boards/widget-links";
 import type { BuilderWidget } from "@/types/models";
 
 /** The widgets that break the board's items down by one grouping. */
@@ -48,6 +49,17 @@ interface ConfigPanelProps {
   onDelete: () => void;
 }
 
+/** The Link List lines the save routes would refuse, and why. */
+function linkLineProblems(raw: unknown): Array<{ line: number; reason: string }> {
+  if (typeof raw !== "string") return [];
+  const out: Array<{ line: number; reason: string }> = [];
+  for (const l of widgetLinkLines(raw)) {
+    const check = checkWidgetLinkTarget(l.target);
+    if (!check.ok) out.push({ line: l.line, reason: check.reason });
+  }
+  return out;
+}
+
 export function ConfigPanel({ widget, onUpdateConfig, onDelete }: ConfigPanelProps) {
   if (!widget) {
     return (
@@ -66,6 +78,7 @@ export function ConfigPanel({ widget, onUpdateConfig, onDelete }: ConfigPanelPro
   }
 
   const config = widget.config;
+  const linkProblems = linkLineProblems(config.links);
 
   return (
     <div className="flex flex-col w-72 border-l bg-muted/30 overflow-y-auto">
@@ -118,11 +131,29 @@ export function ConfigPanel({ widget, onUpdateConfig, onDelete }: ConfigPanelPro
             <Label htmlFor="widget-links">Links (one per line, format: Label|URL)</Label>
             <textarea
               id="widget-links"
-              className="flex min-h-[80px] w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+              className="flex min-h-[80px] w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive dark:bg-input/30"
               value={(config.links as string) ?? ""}
               onChange={(e) => onUpdateConfig({ links: e.target.value })}
               placeholder={"Docs|https://...\nAPI|https://..."}
+              aria-invalid={linkProblems.length > 0 || undefined}
+              aria-describedby={linkProblems.length > 0 ? "widget-links-problems" : undefined}
             />
+            {/* The server refuses a layout holding any of these (400), so say
+                which line and why HERE, before Save fails with a toast. Same
+                rule as the server and the renderer: `widget-links.ts`. */}
+            {linkProblems.length > 0 && (
+              <ul
+                id="widget-links-problems"
+                className="space-y-0.5 text-xs text-destructive"
+                data-testid="widget-links-problems"
+              >
+                {linkProblems.map((p) => (
+                  <li key={p.line}>
+                    Line {p.line}: the link {p.reason}, so this layout can&apos;t be saved.
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

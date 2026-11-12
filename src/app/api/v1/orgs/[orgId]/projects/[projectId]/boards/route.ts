@@ -8,6 +8,8 @@ import { narrowBoards } from "@/lib/rbac/board-access";
 import { canManageBoardsInProject } from "@/lib/rbac/project-role";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { widgetLinkProblems } from "@/lib/boards/widget-links";
+import { problem } from "@/lib/openapi/problem";
 import { uniqueBoardSlug } from "@/lib/templates/slugify";
 import { z } from "zod";
 import { BoardType, Prisma } from "@prisma/client";
@@ -83,6 +85,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = createBoardSchema.parse(body);
+
+    // The same link rule the Link List draws with, so a direct API write cannot
+    // store a link the page would refuse to show (`widget-links.ts`).
+    const linkProblems = widgetLinkProblems((data.config as { widgets?: unknown } | undefined)?.widgets);
+    if (linkProblems.length > 0) {
+      return problem(400, "invalid_request", `A link can't be saved. ${linkProblems.join(" ")}`, {
+        request,
+      });
+    }
 
     // Respect the project's board-type allow-list (settings.disabledBoardTypes).
     const disabledTypes =
