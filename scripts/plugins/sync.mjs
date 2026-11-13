@@ -58,6 +58,15 @@ const SCHEMA = join(ROOT, "prisma", "schema.prisma");
 const REG_INDEX = "src/lib/plugins/registry/index.ts";
 const REG_SERVER = "src/lib/plugins/registry/server.ts";
 const MARK = "# --- plugin-sync managed (do not commit) ---";
+/**
+ * `.git/info/exclude` is shared by every worktree, so each worktree owns its own
+ * block, named by its own git dir. A block used to be "everything after the first
+ * MARK", and every compose and `--clean` truncated the file there, which deleted
+ * every OTHER worktree's block: their composed plugin files then showed in
+ * `git status`, one `git add` away from a commit to the public core.
+ */
+const OWN_START = `${MARK} ${gitPath("--git-dir")}`;
+const OWN_END = `# --- end plugin-sync ${gitPath("--git-dir")} ---`;
 /** Escape gitignore metacharacters + anchor to root: exclude entries are matched as
  *  globs, so a literal path like `.../[orgId]/...` needs its []*? escaped. */
 const excludeEntry = (p) => "/" + p.replace(/([[\]*?])/g, "\\$1");
@@ -120,9 +129,20 @@ function walk(dir, out = []) {
  *  drop our .git/info/exclude block + the state file. */
 function removeManagedExclude() {
   if (existsSync(EXCLUDE)) {
+    // Only THIS worktree's block. A bare MARK is an older script's block, and
+    // another worktree's tagged block is theirs: neither is ours to remove.
     const lines = readFileSync(EXCLUDE, "utf8").split("\n");
-    const i = lines.indexOf(MARK);
-    if (i !== -1) writeFileSync(EXCLUDE, lines.slice(0, i).join("\n").replace(/\n+$/, "\n"));
+    const start = lines.indexOf(OWN_START);
+    if (start !== -1) {
+      let end = lines.indexOf(OWN_END, start);
+      if (end === -1) {
+        // No end line (cut short): stop at the next block's marker, or the end.
+        end = lines.findIndex((l, i) => i > start && l.startsWith(MARK));
+        end = end === -1 ? lines.length - 1 : end - 1;
+      }
+      lines.splice(start, end - start + 1);
+      writeFileSync(EXCLUDE, lines.join("\n").replace(/\n+$/, "\n"));
+    }
   }
   if (!existsSync(STATE)) return [];
   const managed = readFileSync(STATE, "utf8").split("\n").filter(Boolean);
@@ -328,8 +348,20 @@ const trackedWritten = [...written].filter((w) => trackedSet.has(w));
 if (trackedWritten.length) git(["update-index", "--skip-worktree", ...trackedWritten]);
 // State file: the REAL paths, for --clean. Exclude: escaped+anchored globs, for git.
 writeFileSync(STATE, [...written].sort().join("\n") + "\n");
-const block = [MARK, ...[...written].sort().map(excludeEntry)].join("\n") + "\n";
-appendFileSync(EXCLUDE, (existsSync(EXCLUDE) && readFileSync(EXCLUDE, "utf8").endsWith("\n") ? "" : "\n") + block);
+const block = [OWN_START, ...[...written].sort().map(excludeEntry), OWN_END].join("\n") + "\n";
+{
+  // AHEAD of any bare MARK: an older sync.mjs (a worktree on an older core)
+  // truncates the file at the first bare MARK, and would take our block with it.
+  const text = existsSync(EXCLUDE) ? readFileSync(EXCLUDE, "utf8") : "";
+  const lines = text.split("\n");
+  const legacy = lines.indexOf(MARK);
+  if (legacy === -1) {
+    appendFileSync(EXCLUDE, (text === "" || text.endsWith("\n") ? "" : "\n") + block);
+  } else {
+    lines.splice(legacy, 0, block.replace(/\n$/, ""));
+    writeFileSync(EXCLUDE, lines.join("\n"));
+  }
+}
 // Record what we wrote — the overwrite guard's baseline for the NEXT run.
 const hashes = {};
 for (const rel of written) hashes[rel] = fileHash(join(ROOT, rel));

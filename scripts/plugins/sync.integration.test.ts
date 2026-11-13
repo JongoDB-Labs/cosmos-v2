@@ -27,7 +27,8 @@ let sandbox: string;
 const SLUG = "synthetic-test-plugin";
 
 /** Everything sync.mjs reads, and nothing else. */
-function buildSandbox(): string {
+function buildSandbox(opts: { npmDeps?: boolean } = {}): string {
+  const npmDeps = opts.npmDeps ?? true;
   const root = mkdtempSync(join(tmpdir(), "plugin-sync-"));
 
   // A git repo: sync.mjs uses .git/info/exclude and `git update-index`.
@@ -96,7 +97,7 @@ function buildSandbox(): string {
       {
         slug: SLUG,
         version: "1.0.0",
-        dependencies: { "left-pad": "^1.3.0" },
+        ...(npmDeps ? { dependencies: { "left-pad": "^1.3.0" } } : {}),
         schemaBackRelations: { Organization: ["syntheticThings SyntheticThing[]"] },
       },
       null,
@@ -179,5 +180,85 @@ describe("sync.mjs composition (end to end)", () => {
     const status = execFileSync("git", ["status", "--porcelain"], { cwd: sandbox, encoding: "utf8" });
     expect(status).not.toContain(`src/plugins/${SLUG}`);
     expect(status).not.toContain("package.json");
+  });
+});
+
+/**
+ * `.git/info/exclude` is ONE file for every worktree of a repository (git reads
+ * it from the common dir). Each compose used to remove "the" managed block by
+ * truncating the file at the first marker, so any compose or `--clean` in one
+ * worktree deleted every other worktree's block. Their composed plugin files
+ * then showed up as untracked in `git status`, one `git add` away from a commit
+ * to the public core.
+ */
+describe("sync.mjs exclude blocks are per worktree", () => {
+  let repo: string;
+  let other: string;
+  const exclude = () => readFileSync(join(repo, ".git", "info", "exclude"), "utf8");
+  const run = (cwd: string, ...args: string[]) =>
+    execFileSync("node", ["scripts/plugins/sync.mjs", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const untrackedComposed = (cwd: string) =>
+    execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd, encoding: "utf8" })
+      .split("\n")
+      .filter((l) => l.startsWith(`?? src/plugins/${SLUG}`));
+
+  beforeAll(() => {
+    repo = buildSandbox({ npmDeps: false });
+    // A person's own exclude lines, before any managed block. They must survive.
+    writeFileSync(join(repo, ".git", "info", "exclude"), "# mine\n/my-notes.txt\n");
+    other = `${repo}-other`;
+    execFileSync("git", ["worktree", "add", "-q", "--detach", other], { cwd: repo });
+    // git does not carry the empty registry directory into a new worktree.
+    mkdirSync(join(other, "src", "lib", "plugins", "registry"), { recursive: true });
+    // A file only the OTHER worktree composes, so its block differs from this
+    // one's. Identical blocks would hide the bug: either one excludes both.
+    writeFileSync(join(other, "plugins", SLUG, "overlay", "src", "plugins", SLUG, "only-other.ts"), "export {};\n");
+  }, 60_000);
+
+  afterAll(() => {
+    for (const d of [repo, other]) if (d) rmSync(d, { recursive: true, force: true });
+  });
+
+  it("a compose in one worktree keeps the other's block", () => {
+    run(other);
+    // Positive control: the other worktree's composed file exists and is hidden.
+    expect(existsSync(join(other, "src", "plugins", SLUG, "only-other.ts"))).toBe(true);
+    expect(untrackedComposed(other)).toEqual([]);
+    expect(exclude()).toContain(`/src/plugins/${SLUG}/only-other.ts`);
+
+    run(repo);
+    expect(untrackedComposed(repo)).toEqual([]);
+    expect(untrackedComposed(other)).toEqual([]);
+  });
+
+  it("--clean in one worktree removes only its own block", () => {
+    run(repo, "--clean");
+    expect(existsSync(join(repo, "src", "plugins", SLUG, "marker.ts"))).toBe(false);
+    // The other worktree still composed, and still hidden from git.
+    expect(existsSync(join(other, "src", "plugins", SLUG, "only-other.ts"))).toBe(true);
+    expect(untrackedComposed(other)).toEqual([]);
+    expect(exclude()).toContain("/my-notes.txt");
+  });
+
+  it("--clean in the last worktree leaves only what was there before", () => {
+    run(other, "--clean");
+    expect(exclude().trim()).toBe("# mine\n/my-notes.txt");
+  });
+
+  it("puts its block ahead of an older script's unmarked block, which truncates from there", () => {
+    // An older sync.mjs (another worktree on an older core) truncates the file
+    // at the first bare marker. A block placed after that marker would be lost
+    // to the next old-style compose.
+    const legacy = "# --- plugin-sync managed (do not commit) ---\n/src/plugins/legacy/x.ts\n";
+    writeFileSync(join(repo, ".git", "info", "exclude"), "# mine\n" + legacy);
+    // The last --clean pruned the (untracked, in this sandbox) registry directory.
+    mkdirSync(join(other, "src", "lib", "plugins", "registry"), { recursive: true });
+    run(other);
+    const text = exclude();
+    expect(text.indexOf(`/src/plugins/${SLUG}/marker.ts`)).toBeGreaterThan(-1);
+    expect(text.indexOf(`/src/plugins/${SLUG}/marker.ts`)).toBeLessThan(text.indexOf(legacy));
+    run(other, "--clean");
+    // Its own block is gone; the older block is not its to remove.
+    expect(exclude()).toBe("# mine\n" + legacy);
   });
 });
