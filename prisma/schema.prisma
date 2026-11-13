@@ -364,6 +364,9 @@ model Organization {
   externalEventLinks  ExternalEventLink[]
   teamsConversations  TeamsConversation[]
   teamsOutbox         TeamsOutbox[]
+  slackInstallation   SlackInstallation?
+  slackUserLinks      SlackUserLink[]
+  slackOutbox         SlackOutbox[]
 
   @@map("organizations")
   eventCategories   EventCategory[]
@@ -456,6 +459,8 @@ model User {
   meetingInvitesOrganized     SyncMeeting[]        @relation("MeetingInviteOrganizer")
   ownedAutomationRules        AutomationRule[]     @relation("AutomationRuleOwner")
   teamsConversations          TeamsConversation[]
+  slackUserLinks              SlackUserLink[]
+  slackOutbox                 SlackOutbox[]
 
   @@map("users")
   createdProgramEvents ProgramEvent[]
@@ -6421,6 +6426,105 @@ model TeamsOutbox {
 
   @@index([nextAttemptAt])
   @@map("teams_outbox")
+}
+
+/// Slack notifications: an org's "Add to Slack" install. The bot token is
+/// sealed in connector_credentials (provider "slack-notifications"), never
+/// here. This row is what an admin sees: the workspace, who connected it, and
+/// delivery health (last message sent, last failure and its Slack error code).
+model SlackInstallation {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId           String    @unique @map("org_id") @db.Uuid
+  /// One Cosmos org per Slack workspace. Two orgs on one workspace would hold
+  /// the same bot token, and disconnecting either would revoke it for both.
+  /// A disconnect deletes the row, which frees the workspace.
+  teamId          String    @unique @map("team_id")
+  teamName        String    @default("") @map("team_name")
+  botUserId       String?   @map("bot_user_id")
+  appId           String?   @map("app_id")
+  scopes          String[]  @default([])
+  installedById   String    @map("installed_by_id") @db.Uuid
+  /// The Cosmos address the install was made from (its redirect URI's
+  /// origin, which Slack checked against the app). Message links use it when
+  /// COSMOS_PUBLIC_URL isn't set.
+  publicOrigin    String    @map("public_origin")
+  /// "ACTIVE", or "ERROR" once Slack refuses the token (revoked, uninstalled).
+  status          String    @default("ACTIVE")
+  lastDeliveredAt DateTime? @map("last_delivered_at")
+  lastErrorAt     DateTime? @map("last_error_at")
+  lastErrorCode   String?   @map("last_error_code")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("slack_installations")
+}
+
+/// How a Cosmos member is linked to a Slack user, per org.
+enum SlackLinkStatus {
+  /// Matched (verified email) or approved by an admin: messages are sent.
+  LINKED
+  /// Matched, but another member of the org already has that Slack user.
+  /// Nothing is sent until an admin approves it.
+  NEEDS_REVIEW
+  /// The member (or an admin) unlinked it. Never re-matched automatically.
+  UNLINKED
+  /// No Slack user with that verified email (yet). Checked again later.
+  NO_MATCH
+}
+
+/// Slack notifications: one row per org member who has been matched (or
+/// tried). Also holds what they chose to get in Slack, so an unlink, an
+/// opt-out or a disconnect-and-reconnect never forgets their choice.
+/// Also, in SQL only (Prisma can't model it): at most one LINKED row per Slack
+/// user per org that no admin approved (slack_user_links_one_unapproved).
+model SlackUserLink {
+  id           String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String          @map("org_id") @db.Uuid
+  userId       String          @map("user_id") @db.Uuid
+  status       SlackLinkStatus
+  slackTeamId  String?         @map("slack_team_id")
+  slackUserId  String?         @map("slack_user_id")
+  /// Which notifications also go to Slack ("assigned", "mentioned"). Empty = none.
+  notifyTypes  String[]        @default(["assigned", "mentioned"]) @map("notify_types")
+  /// The admin who allowed a second member onto the same Slack user.
+  approvedById String?         @map("approved_by_id") @db.Uuid
+  /// When the email was last looked up in Slack.
+  checkedAt    DateTime?       @map("checked_at")
+  linkedAt     DateTime?       @map("linked_at")
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@index([orgId, slackUserId])
+  @@map("slack_user_links")
+}
+
+/// Slack messages waiting to be sent. Ids and the notification's link only,
+/// never text: the message is built when it is sent, as its reader may see it
+/// then.
+model SlackOutbox {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String   @map("org_id") @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  /// "notification"
+  kind          String
+  payload       Json     @default("{}")
+  attempts      Int      @default(0)
+  nextAttemptAt DateTime @default(now()) @map("next_attempt_at")
+  /// The Slack error code (or HTTP status) of the last failed attempt.
+  lastError     String?  @map("last_error")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([nextAttemptAt])
+  @@map("slack_outbox")
 }
 
 /// A project's commercial terms, kept apart from Project so that nothing which

@@ -4,6 +4,7 @@ import { IntegrationsManager } from "@/components/settings/integrations-manager"
 import { PageShell } from "@/components/ui/page-shell";
 import { OutlookCalendarAdminSetup } from "@/components/settings/outlook-calendar";
 import { TeamsAppSetup } from "@/components/settings/teams-app-setup";
+import { SlackSetup } from "@/components/settings/slack-setup";
 import { CalendarFeedsOrgSwitch } from "@/components/settings/calendar-feeds";
 import { canViewSettings } from "@/lib/rbac/settings-access";
 import { NoAccess } from "@/components/settings/no-access";
@@ -32,6 +33,7 @@ export default async function IntegrationsPage({ params }: PageParams) {
         <CalendarFeedsOrgSwitch orgId={ctx.orgId} />
         <OutlookCalendarAdminSetup orgId={ctx.orgId} />
         <TeamsAppSetup orgId={ctx.orgId} />
+        <SlackSetup orgId={ctx.orgId} />
         <IntegrationsManager orgId={ctx.orgId} />
       </div>
     </PageShell>

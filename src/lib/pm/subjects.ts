@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/client";
+import type { PermissionKey } from "@/lib/rbac/permissions";
 
 /**
  * PM register entities that can be "drilled into" like a work item — each gets
@@ -33,6 +34,24 @@ const PM_SUBJECT_TYPES: PmSubjectType[] = [
 export function isPmSubjectType(v: string): v is PmSubjectType {
   return (PM_SUBJECT_TYPES as string[]).includes(v);
 }
+
+/**
+ * The permission reading each kind of subject takes: the one its register's
+ * GET route checks (with requireProjectRead) under projects/[projectId]. A
+ * notification about a subject is sent only to someone who passes the same
+ * check (notifications/create.ts), so keep the two in step.
+ */
+export const PM_SUBJECT_READ: Readonly<Record<PmSubjectType, PermissionKey>> = {
+  project: "PROJECT_READ", // projects/[projectId]
+  risk: "ANALYTICS_READ", // risks
+  change: "ANALYTICS_READ", // changes
+  blocker: "ANALYTICS_READ", // blockers
+  milestone: "PROJECT_READ", // milestones
+  deliverable: "ANALYTICS_READ", // deliverables
+  vendor: "ANALYTICS_READ", // vendors
+  staff: "ANALYTICS_READ", // staffing
+  clin: "ANALYTICS_READ", // clins
+};
 
 export interface PmSubject {
   title: string;
