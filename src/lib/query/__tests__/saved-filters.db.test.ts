@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { OrgRole } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, RolePermissions } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { withCqlEnabled } from "../flag";
 import { RESTRICTED } from "../saved-filters.server";
@@ -242,7 +242,9 @@ describe("saved filters v2 (e2e DB)", () => {
     expect((await post({ name: "s4", visibility: "TEAM", teamId: w.teamP1 })).status).toBe(201);
     // An admin may share with a team they manage the project of.
     as(() => actor(0n));
-    getAuthContext.mockImplementationOnce(async () => ({ ...actor(), orgRole: OrgRole.ADMIN }) as AuthContext);
+    getAuthContext.mockImplementationOnce(
+      async () => ({ ...actor(), orgRole: OrgRole.ADMIN, permissions: RolePermissions.ADMIN | actor().permissions }) as AuthContext,
+    );
     expect((await post({ name: "s5", visibility: "TEAM", teamId: w.teamP1 })).status).toBe(201);
   });
 

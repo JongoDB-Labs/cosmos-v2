@@ -133,7 +133,7 @@ describe("managing boards", () => {
   });
 
   it("their browser sessions still do", async () => {
-    expect(await canManageBoardsInProject(as(OrgRole.OWNER), PROJECT)).toBe(true);
+    expect(await canManageBoardsInProject(ownerSession(), PROJECT)).toBe(true);
     h.projectRole.value = ProjectRole.LEAD;
     expect(await canManageBoardsInProject(as(OrgRole.MEMBER), PROJECT)).toBe(true);
   });

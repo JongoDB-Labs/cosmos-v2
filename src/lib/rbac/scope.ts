@@ -33,7 +33,13 @@ export async function canManageProject(
   // granted them every project. The same mistake was fixed for VISIBILITY in
   // project-access.ts; this is the write-side half of it. Authority over a
   // specific project comes from being its MANAGER, immediately below.
-  if (isOrgAdministrator(ctx.orgRole)) return true;
+  //
+  // Never past the caller's own permissions, though. An org restriction with
+  // no conditions takes its bit from every key and every member except an
+  // owner's own session (lib/rbac/effective-permissions.ts), and the role must
+  // not hand it back. Owners and admins hold every bit passed here by role, so
+  // only such a restriction makes this check fail for them.
+  if (isOrgAdministrator(ctx.orgRole) && hasPermission(ctx.permissions, keyBit)) return true;
 
   // Project-tier: a MANAGER of this exact project. ProjectMember.orgMemberId is
   // an OrgMember.id (not a User.id), so resolve userId → OrgMember first.
@@ -66,9 +72,10 @@ export async function getManagedProjectIds(
   // A key's scopes cap its role, exactly as in canManageProject.
   if (!roleCountsFor(ctx, Permission.PROJECT_UPDATE)) return new Set();
   // Org ROLE, not the delegable PROJECT_MANAGE bit — same reasoning as
-  // canManageProject above. These two must agree or the org-wide Issues view
-  // offers an action the per-project route then refuses.
-  if (isOrgAdministrator(ctx.orgRole)) {
+  // canManageProject above, including its restriction check. These two must
+  // agree or the org-wide Issues view offers an action the per-project route
+  // then refuses.
+  if (isOrgAdministrator(ctx.orgRole) && hasPermission(ctx.permissions, Permission.PROJECT_UPDATE)) {
     return new Set(projectIds);
   }
   const member = await prisma.orgMember.findUnique({

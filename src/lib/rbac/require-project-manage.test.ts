@@ -7,7 +7,7 @@
 // way to make them effective was to widen their ORG role, which then handed them
 // every other project too.
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, RolePermissions } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole, ProjectRole } from "@prisma/client";
 
@@ -83,7 +83,7 @@ describe("requireProjectManage", () => {
   it("allows an org ADMIN who is not on the project at all", async () => {
     asProjectManager(false);
     await expect(
-      requireProjectManage(ctx({ orgRole: OrgRole.ADMIN }), PROJECT_ID),
+      requireProjectManage(ctx({ orgRole: OrgRole.ADMIN, permissions: RolePermissions.ADMIN, basePermissions: RolePermissions.ADMIN }), PROJECT_ID),
     ).resolves.toBeUndefined();
   });
 
@@ -166,6 +166,8 @@ describe("an API key manages only what its scopes would allow", () => {
 
   it("a browser session is unchanged: an OWNER manages through their role", async () => {
     asProjectManager(false);
-    await expect(requireProjectManage(ctx({ orgRole: OrgRole.OWNER }), PROJECT_ID)).resolves.toBeUndefined();
+    await expect(
+      requireProjectManage(ctx({ orgRole: OrgRole.OWNER, permissions: RolePermissions.OWNER, basePermissions: RolePermissions.OWNER }), PROJECT_ID),
+    ).resolves.toBeUndefined();
   });
 });

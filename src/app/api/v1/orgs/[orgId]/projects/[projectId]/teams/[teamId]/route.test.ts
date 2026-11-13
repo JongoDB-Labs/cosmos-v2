@@ -6,7 +6,7 @@
 // edit rights.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, RolePermissions } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
 
@@ -66,8 +66,8 @@ beforeEach(() => {
   prisma.teamMember.deleteMany.mockResolvedValue({ count: 1 });
   prisma.orgMember.findUnique.mockResolvedValue({ id: "om1" });
   // Org-wide administration now comes from the ROLE, not the delegable
-  // PROJECT_MANAGE bit, so the happy path is an ADMIN.
-  getAuthContext.mockResolvedValue(ctx(Permission.PROJECT_READ, OrgRole.ADMIN));
+  // PROJECT_MANAGE bit, so the happy path is an ADMIN, with an admin's bits.
+  getAuthContext.mockResolvedValue(ctx(RolePermissions.ADMIN, OrgRole.ADMIN));
 });
 
 describe("POST — add a member to a team", () => {

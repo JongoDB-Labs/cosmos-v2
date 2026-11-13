@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { inKeyProjectScope, type AuthContext } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { roleCountsFor } from "@/lib/rbac/key-role";
+import { isOrgAdministrator } from "@/lib/rbac/project-access";
 import { ProjectRole } from "@prisma/client";
 
 /**
@@ -76,7 +77,12 @@ export async function canManageBoardsInProject(
   if (!inKeyProjectScope(ctx, projectId)) return false;
   // A key's role counts only when its scopes grant BOARD_CREATE (key-role.ts).
   const byRole = roleCountsFor(ctx, Permission.BOARD_CREATE);
-  if (byRole && inheritsAdmin(ctx)) return true;
+  // An org administrator holds BOARD_CREATE by role, so lacking it means an
+  // unconditional org restriction took it, and their org-wide authority must
+  // not hand it back (see canManageProject in scope.ts). Judged like anyone
+  // else below instead. An owner's own session never loses it.
+  const restrictedAdmin = isOrgAdministrator(ctx.orgRole) && !hasPermission(ctx.permissions, Permission.BOARD_CREATE);
+  if (byRole && inheritsAdmin(ctx) && !restrictedAdmin) return true;
   const role = await roleOn(ctx, projectId);
   if (byRole && (role === ProjectRole.MANAGER || role === ProjectRole.LEAD)) return true;
   if (role === ProjectRole.VIEWER) return false;
