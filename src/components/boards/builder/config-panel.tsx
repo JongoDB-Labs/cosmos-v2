@@ -144,7 +144,9 @@ export function ConfigPanel({ widget, onUpdateConfig, onDelete }: ConfigPanelPro
             {linkProblems.length > 0 && (
               <ul
                 id="widget-links-problems"
-                className="space-y-0.5 text-xs text-destructive"
+                // The text token, not `text-destructive`: the fill colour fails
+                // AA contrast at this size on the light canvas (axe, measured).
+                className="space-y-0.5 text-xs text-[var(--status-critical-text,var(--status-critical))]"
                 data-testid="widget-links-problems"
               >
                 {linkProblems.map((p) => (

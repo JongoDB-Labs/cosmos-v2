@@ -18,6 +18,10 @@
  * already imports.
  */
 import {
+  isWorkItemResolved,
+  type DoneStateColumn,
+} from "@/lib/work-items/done-state";
+import {
   checkWidgetLinkTarget,
   MAX_WIDGET_LINKS,
   widgetLinkLines,
@@ -47,6 +51,8 @@ export interface WidgetItemRow {
   title: string;
   /** The status COLUMN's display name, not its category. */
   status: string;
+  /** The status column's key — what `isWorkItemResolved` reads, with the category. */
+  columnKey: string;
   /**
    * The status's workflow category — TODO, IN_PROGRESS, DONE or CANCELLED —
    * read from the same column map the Completed and In Progress counters use,
@@ -72,9 +78,26 @@ export interface WidgetItemRow {
   customFields: Record<string, unknown>;
 }
 
-/** Done or cancelled: no longer work anyone has to do. */
-export function isClosedRow(row: Pick<WidgetItemRow, "statusCategory">): boolean {
-  return row.statusCategory === "DONE" || row.statusCategory === "CANCELLED";
+/**
+ * The row's own status as the one-column list `isWorkItemResolved` and
+ * `isWorkItemDone` take. The row already carries the category the board's
+ * workflow gave its column, so the shared rules read THAT, not a guess from the
+ * column's name.
+ */
+export function rowStatusColumns(
+  row: Pick<WidgetItemRow, "columnKey" | "statusCategory">,
+): DoneStateColumn[] {
+  return [{ key: row.columnKey, category: row.statusCategory }];
+}
+
+/**
+ * Done or cancelled: no longer work anyone has to do. The shared presentation
+ * rule (`isWorkItemResolved`, bug 635be41c), not a second spelling of it.
+ */
+export function isClosedRow(
+  row: Pick<WidgetItemRow, "columnKey" | "statusCategory" | "completedAt">,
+): boolean {
+  return isWorkItemResolved(row, rowStatusColumns(row));
 }
 
 /** One finished sprint, as its report recorded it at close. */

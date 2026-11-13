@@ -41,6 +41,7 @@ const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString
 
 const row = (over: Partial<WidgetItemRow> & { id: string; key: string; title: string }): WidgetItemRow => ({
   status: "To Do",
+  columnKey: "todo",
   statusCategory: "TODO",
   priority: "Medium",
   assignee: "Unassigned",

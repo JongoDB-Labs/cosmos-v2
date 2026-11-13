@@ -5,7 +5,12 @@
 // positive controls, so an empty result is the rule talking and not a parser
 // that returns nothing.
 import { describe, it, expect } from "vitest";
-import { checkWidgetLinkTarget, widgetLinkLines, widgetLinkProblems } from "./widget-links";
+import {
+  checkWidgetLinkTarget,
+  widgetLinkLines,
+  widgetLinkProblems,
+  widgetLinkRefusal,
+} from "./widget-links";
 import { widgetLinks } from "./widget-data";
 
 const VIEWER = "https://cosmos.example.com";
@@ -88,6 +93,17 @@ describe("widget link validation", () => {
       '"Link List", line 3: the link contains a backslash, a space or a control character.',
       '"More", line 1: the link is not an http or https link.',
     ]);
+  });
+
+  it("keeps the refusal short: the first problem and a count, never the whole list", () => {
+    // The builder shows this in a toast; the list of every bad line grew over
+    // the Save button on localhost. The routes send the full list as `issues`.
+    const one = ['"L", line 1: the link starts with // and would leave the app.'];
+    expect(widgetLinkRefusal(one)).toBe(`A link can't be saved. ${one[0]}`);
+    expect(widgetLinkRefusal([...one, "b"])).toBe(`A link can't be saved. ${one[0]} 1 more link has a problem too.`);
+    expect(widgetLinkRefusal([...one, "b", "c", "d"])).toBe(
+      `A link can't be saved. ${one[0]} 3 more links have a problem too.`,
+    );
   });
 
   it("refuses links that are not text, and ignores what is not a widget", () => {

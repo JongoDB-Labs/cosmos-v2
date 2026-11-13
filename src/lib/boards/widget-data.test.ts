@@ -292,6 +292,7 @@ describe("groupRows", () => {
     key: id,
     title: id,
     status: "To Do",
+    columnKey: "todo",
     statusCategory: "TODO",
     priority: "Medium",
     assignee: "Unassigned",
@@ -325,9 +326,15 @@ describe("groupRows", () => {
   });
 
   it("calls done and cancelled items closed, and nothing else", () => {
-    expect(isClosedRow({ statusCategory: "DONE" })).toBe(true);
-    expect(isClosedRow({ statusCategory: "CANCELLED" })).toBe(true);
-    expect(isClosedRow({ statusCategory: "IN_PROGRESS" })).toBe(false);
-    expect(isClosedRow({ statusCategory: "TODO" })).toBe(false);
+    const at = (statusCategory: string, completedAt: string | null = null) =>
+      isClosedRow({ columnKey: "lane", statusCategory, completedAt });
+    expect(at("DONE")).toBe(true);
+    expect(at("CANCELLED")).toBe(true);
+    expect(at("IN_PROGRESS")).toBe(false);
+    expect(at("TODO")).toBe(false);
+    // The shared rule's own signal: an item stamped complete is settled
+    // whatever lane it sits in — the same answer every other strikethrough
+    // gives (`isWorkItemResolved`).
+    expect(at("IN_PROGRESS", "2026-11-01T00:00:00.000Z")).toBe(true);
   });
 });

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { handleApiError } from "@/lib/api-helpers";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requireBoardRead } from "@/lib/rbac/board-access";
-import { widgetLinkProblems } from "@/lib/boards/widget-links";
+import { widgetLinkProblems, widgetLinkRefusal } from "@/lib/boards/widget-links";
 import { rendersSavedWidgets } from "@/lib/boards/board-types";
 import { PERSONAL_LAYOUT_MAX_BYTES } from "@/lib/boards/personal-layout";
 import { parseRequest, respond } from "@/lib/openapi/respond";
@@ -112,8 +112,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // store a link the page would refuse to show (`widget-links.ts`).
     const linkProblems = widgetLinkProblems(body.widgets);
     if (linkProblems.length > 0) {
-      return problem(400, "invalid_request", `A link can't be saved. ${linkProblems.join(" ")}`, {
+      return problem(400, "invalid_request", widgetLinkRefusal(linkProblems), {
         request,
+        issues: linkProblems.map((message) => ({ message })),
       });
     }
 

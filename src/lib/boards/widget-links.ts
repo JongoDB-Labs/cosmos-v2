@@ -119,6 +119,18 @@ export function widgetLinkLines(raw: string): WidgetLinkLine[] {
   return out;
 }
 
+/**
+ * The `detail` of the 400 that refuses a layout: the first problem, and how
+ * many more. Short on purpose — the builder shows it in a toast, and a toast
+ * listing every bad line grew over the Save button (driven on localhost). The
+ * routes put the full list in the problem's `issues`.
+ */
+export function widgetLinkRefusal(problems: readonly string[]): string {
+  const more = problems.length - 1;
+  const tail = more === 1 ? " 1 more link has a problem too." : more > 1 ? ` ${more} more links have a problem too.` : "";
+  return `A link can't be saved. ${problems[0] ?? ""}${tail}`;
+}
+
 /** The most links one list draws. */
 export const MAX_WIDGET_LINKS = 50;
 
@@ -139,12 +151,9 @@ export function widgetLinkProblems(widgets: unknown): string[] {
     if (!w || typeof w !== "object") continue;
     const config = (w as { config?: unknown }).config;
     if (!config || typeof config !== "object" || !("links" in config)) continue;
-    const links = (config as { links?: unknown }).links;
+    const { links, title: rawTitle } = config as { links?: unknown; title?: unknown };
     const title =
-      typeof (config as { title?: unknown }).title === "string" &&
-      ((config as { title: string }).title.trim().length > 0)
-        ? (config as { title: string }).title.trim()
-        : "Link List";
+      typeof rawTitle === "string" && rawTitle.trim().length > 0 ? rawTitle.trim() : "Link List";
     if (links === undefined || links === null) continue;
     if (typeof links !== "string") {
       problems.push(`"${title}": the links must be text, one Label|URL per line.`);

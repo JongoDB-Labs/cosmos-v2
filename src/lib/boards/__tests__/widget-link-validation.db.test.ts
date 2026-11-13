@@ -127,6 +127,21 @@ describe("widget link validation on save", () => {
     expect(await storedMine()).toEqual(layoutWith(target));
   });
 
+  it("a refusal names the first bad line, counts the rest, and lists every one in `issues`", async () => {
+    const before = await storedConfig();
+    const widgets = [
+      { ...layoutWith(HOSTILE[0])[0], config: { title: "Runbooks", links: HOSTILE.map((t, i) => `L${i}|${t}`).join("\n") } },
+    ];
+    const res = await putBoard(json("PUT", `${base()}/${board}`, { config: { widgets } }), boardParams());
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string; detail: string; issues: { message: string }[] };
+    expect(body.error).toBe(
+      `A link can't be saved. "Runbooks", line 1: the link contains a backslash, a space or a control character. ${HOSTILE.length - 1} more links have a problem too.`,
+    );
+    expect(body.issues.map((i) => i.message)).toEqual(HOSTILE.map((_, i) => expect.stringContaining(`"Runbooks", line ${i + 1}: the link `)));
+    expect(await storedConfig()).toEqual(before);
+  });
+
   it("board POST refuses a new dashboard carrying a bad link, and creates one with a good link", async () => {
     const count = () => prisma.board.count({ where: { projectId: w.P1.id, name: "Planted" } });
     const bad = await createBoard(

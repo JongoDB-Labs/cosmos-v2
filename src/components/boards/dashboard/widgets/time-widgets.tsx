@@ -12,8 +12,10 @@ import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { WidgetProps } from "@/lib/boards/widget-registry";
+import { isWorkItemResolved } from "@/lib/work-items/done-state";
 import {
   isClosedRow,
+  rowStatusColumns,
   widgetMaxItems,
   type WidgetItemRow,
 } from "@/lib/boards/widget-data";
@@ -279,7 +281,8 @@ export function TimelineWidget(props: WidgetProps) {
               key={row.id}
               className={cn(
                 "absolute flex -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded border bg-background px-1 font-mono text-[10px]",
-                isClosedRow(row) && "text-muted-foreground line-through",
+                isWorkItemResolved(row, rowStatusColumns(row)) &&
+                  "text-muted-foreground line-through",
               )}
               style={{ left: `${at}%`, top: `${lane * 20}px` }}
               title={`${row.key} ${row.title} — due ${formatDay(dayKey(row.dueDate!))}`}

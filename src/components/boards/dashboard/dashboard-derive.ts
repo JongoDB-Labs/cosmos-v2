@@ -246,6 +246,7 @@ export function deriveBoardWidgetData(input: WidgetDataInput): BoardWidgetData {
       // project calls it, and the category would collapse three columns into
       // one word.
       status: columnName.get(i.columnKey) ?? i.columnKey,
+      columnKey: i.columnKey,
       statusCategory: categories.get(i.columnKey) ?? "TODO",
       priority: titleCase(i.priority),
       assignee: assigneeLabel(i, names) ?? "Unassigned",

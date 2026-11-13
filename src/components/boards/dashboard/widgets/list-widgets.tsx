@@ -11,10 +11,12 @@
  */
 import { Check, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isWorkItemResolved } from "@/lib/work-items/done-state";
 import type { WidgetProps } from "@/lib/boards/widget-registry";
 import {
   groupRows,
   isClosedRow,
+  rowStatusColumns,
   widgetGroupKey,
   widgetGroupLabel,
   widgetMaxItems,
@@ -23,6 +25,7 @@ import {
 import { timeAgo } from "./activity-feed";
 import {
   Caption,
+  categoryToken,
   dayKey,
   formatDay,
   ItemTable,
@@ -45,7 +48,7 @@ function ItemLine({ row, note }: { row: WidgetItemRow; note: string }) {
       <span
         className={cn(
           "flex-1 truncate",
-          isClosedRow(row) && "text-muted-foreground line-through",
+          isWorkItemResolved(row, rowStatusColumns(row)) && "text-muted-foreground line-through",
         )}
       >
         {row.title}
@@ -138,12 +141,12 @@ export function ChecklistWidget(props: WidgetProps) {
   // done" would make a finished list read as unfinished forever.
   const rows = props.data.rows.filter((r) => r.statusCategory !== "CANCELLED");
   if (rows.length === 0) return <NoData>No matching items</NoData>;
-  const done = rows.filter((r) => r.statusCategory === "DONE").length;
+  // With cancelled rows gone, "resolved" is "done" — asked through the shared
+  // rule so a tick here and a strike anywhere else cannot disagree.
+  const ticked = (r: WidgetItemRow) => isWorkItemResolved(r, rowStatusColumns(r));
+  const done = rows.filter(ticked).length;
   // Open first: the list is for the standup, and what is left is the point.
-  const ordered = [
-    ...rows.filter((r) => r.statusCategory !== "DONE"),
-    ...rows.filter((r) => r.statusCategory === "DONE"),
-  ];
+  const ordered = [...rows.filter((r) => !ticked(r)), ...rows.filter(ticked)];
   const shown = ordered.slice(0, limit);
   const pct = Math.round((done / rows.length) * 100);
   return (
@@ -173,7 +176,7 @@ export function ChecklistWidget(props: WidgetProps) {
             checklist reports status and the board's own controls change it. */}
         <ul className="divide-y">
           {shown.map((r) => {
-            const isDone = r.statusCategory === "DONE";
+            const isDone = ticked(r);
             return (
               <li key={r.id} className="flex items-center gap-2 px-1 py-1">
                 {isDone ? (
@@ -218,10 +221,10 @@ export function ActivityFeedWidget(props: WidgetProps) {
               aria-hidden
               className={cn(
                 "h-1.5 w-1.5 shrink-0 rounded-full",
-                r.statusCategory === "DONE"
-                  ? "bg-[var(--status-done)]"
-                  : "bg-[var(--status-progress)]",
               )}
+              // The timeline's dot colours, so cancelled reads as neither open
+              // work nor finished work.
+              style={{ backgroundColor: categoryToken(r.statusCategory) }}
             />
             <span className="shrink-0 font-mono text-muted-foreground">{r.key}</span>
             <span className="flex-1 truncate">{r.title}</span>

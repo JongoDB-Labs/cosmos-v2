@@ -77,6 +77,10 @@ const RELEASES: Release[] = [
         kind: "improvement",
         text: "Dashboards now fit the width of your screen. Before, every dashboard and the layout builder drew at one fixed width, so on a laptop with the sidebar open the right-hand column ran off the edge. The Table widget also shows due dates as days (\"Nov 13\") instead of a raw timestamp.",
       },
+      {
+        kind: "improvement",
+        text: "The Link List widget only opens links to pages in Cosmos and http or https links to other sites, which open in a new tab. A link the app could be tricked into treating as its own, or a javascript: or data: link, is not shown and cannot be saved. The links field in the builder says which line is wrong and why before you save.",
+      },
     ],
   },
   {

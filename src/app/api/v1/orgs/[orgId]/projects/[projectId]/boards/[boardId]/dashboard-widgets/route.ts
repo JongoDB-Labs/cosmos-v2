@@ -9,7 +9,7 @@ import { success, created, handleApiError, getIpAddress } from "@/lib/api-helper
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
-import { widgetLinkProblems } from "@/lib/boards/widget-links";
+import { widgetLinkProblems, widgetLinkRefusal } from "@/lib/boards/widget-links";
 import { problem } from "@/lib/openapi/problem";
 
 const createWidgetSchema = z.object({
@@ -80,8 +80,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // store a link the page would refuse to show (`widget-links.ts`).
     const linkProblems = widgetLinkProblems([{ config: data.config }]);
     if (linkProblems.length > 0) {
-      return problem(400, "invalid_request", `A link can't be saved. ${linkProblems.join(" ")}`, {
+      return problem(400, "invalid_request", widgetLinkRefusal(linkProblems), {
         request,
+        issues: linkProblems.map((message) => ({ message })),
       });
     }
 

@@ -32,7 +32,13 @@ const ALLOWED_IMPORTS = new Set([
   "@/lib/boards/widget-data",
   "@/lib/boards/widget-definitions",
   "@/components/charts/lazy-recharts",
-  "@/types/models",
+  // Backticks, not quotes: `src/types/exports-are-reachable.arch.test.ts`
+  // counts every QUOTED mention of this module as an import statement, and an
+  // allowlist entry is not one.
+  `@/types/models`,
+  // The shared "is this item settled" rules, for the strikethroughs
+  // (`resolved-strikethrough.arch.test.ts`). Pure, no fetching.
+  "@/lib/work-items/done-state",
   // Query KEYS and the client, for invalidating the board's own items after
   // the Quick Action creates one. Not a fetch (the hooks are refused below).
   "@/lib/query/keys",

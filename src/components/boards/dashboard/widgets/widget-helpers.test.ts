@@ -10,6 +10,7 @@ const row = (over: Partial<WidgetItemRow>): WidgetItemRow => ({
   key: "X-1",
   title: "x",
   status: "To Do",
+  columnKey: "todo",
   statusCategory: "TODO",
   priority: "Medium",
   assignee: "Unassigned",
