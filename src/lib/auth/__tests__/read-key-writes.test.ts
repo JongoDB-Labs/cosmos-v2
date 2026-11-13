@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { OrgRole } from "@prisma/client";
 import { ForbiddenError, type AuthContext } from "@/lib/rbac/check";
-import { Permission, hasPermission } from "@/lib/rbac/permissions";
+import { Permission, RolePermissions, hasPermission } from "@/lib/rbac/permissions";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const P = "22222222-2222-4222-8222-222222222222";
@@ -24,12 +24,21 @@ const h = vi.hoisted(() => ({
   canSee: true,
 }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext: h.getAuthContext }));
-// The real rule, minus project visibility: the action's bit must be held.
-vi.mock("@/lib/rbac/require-project-read", () => ({
-  requireProjectRead: async (ctx: AuthContext, _p: string, action: keyof typeof Permission) => {
-    if (!hasPermission(ctx.permissions, Permission[action])) throw new ForbiddenError("denied");
-  },
-}));
+// The real rule, minus project visibility and policies: the action's bit must
+// be held, or for a key-or-session gate, what keyMay asks.
+vi.mock("@/lib/rbac/require-project-read", async () => {
+  const { keyMay } = await import("@/lib/rbac/key-role");
+  return {
+    requireProjectRead: async (
+      ctx: AuthContext, _p: string, action: keyof typeof Permission | { key: keyof typeof Permission; session: keyof typeof Permission },
+    ) => {
+      const ok = typeof action === "string"
+        ? hasPermission(ctx.permissions, Permission[action])
+        : keyMay(ctx, action.key, action.session);
+      if (!ok) throw new ForbiddenError("denied");
+    },
+  };
+});
 vi.mock("@/lib/db/client", async () => {
   const { commentRow } = await import("@/lib/openapi/testing/rows");
   const w = (n: string) => async () => { h.writes.push(n); return { id: "x", authorId: ME, content: "c", createdAt: new Date(), updatedAt: new Date() }; };
@@ -76,7 +85,8 @@ const READ = Permission.PROJECT_READ | Permission.ITEM_READ | Permission.COMMENT
 const WRITE = READ | Permission.ITEM_UPDATE | Permission.COMMENT_CREATE;
 const as = (permissions: bigint, key?: string[]): AuthContext => ({
   userId: ME, orgId: ORG, orgRole: OrgRole.MEMBER, permissions, basePermissions: permissions, abacRules: [],
-  ...(key ? { isApiKey: true, scopes: key } : {}),
+  // A key made by this member: its creator holds what a member holds.
+  ...(key ? { isApiKey: true, scopes: key, ownerPermissions: RolePermissions.MEMBER } : {}),
 });
 const req = (method: string, body?: unknown) =>
   new NextRequest("http://localhost/x", { method, ...(body ? { body: JSON.stringify(body), headers: { "Content-Type": "application/json" } } : {}) });

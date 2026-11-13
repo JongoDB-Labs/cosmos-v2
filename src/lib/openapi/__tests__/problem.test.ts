@@ -48,6 +48,19 @@ describe("problem()", () => {
  * Everything that read `body.error` before must read the same string now: the
  * UI toasts it, and scripts and the stdio MCP servers match on it.
  */
+// Prisma's own P2028 messages, word for word (its transaction manager prefixes
+// each with "Transaction API error: ").
+const START_TIMEOUT = "Transaction API error: Unable to start a transaction in the given time.";
+const EXPIRED =
+  "Transaction API error: A query cannot be executed on an expired transaction. The timeout for this transaction was 5000 ms, however 5012 ms passed since the start of the transaction. Consider increasing the interactive transaction timeout or doing less work in the transaction.";
+const COMMITTED = "Transaction API error: Transaction already closed: A query cannot be executed on a committed transaction.";
+const ROLLED_BACK = "Transaction API error: Transaction already closed: A query cannot be executed on a transaction that was rolled back.";
+const NOT_FOUND =
+  "Transaction API error: Transaction not found. Transaction ID is invalid, refers to an old closed transaction Prisma doesn't have information about anymore, or was obtained before disconnecting.";
+function p2028(message: string) {
+  return new Prisma.PrismaClientKnownRequestError(message, { code: "P2028", clientVersion: "x" });
+}
+
 describe("handleApiError keeps every legacy body", () => {
   const p2002 = new Prisma.PrismaClientKnownRequestError("dup", { code: "P2002", clientVersion: "x" });
   let zodErr: ZodError;
@@ -61,6 +74,9 @@ describe("handleApiError keeps every legacy body", () => {
     ["P2002", p2002, 409, "conflict", "Conflicting concurrent request — please retry"],
     ["deadlock", new Prisma.PrismaClientKnownRequestError("deadlock", { code: "P2010", clientVersion: "x", meta: { code: "40P01" } }), 409, "conflict", "Conflicting concurrent request — please retry"],
     ["write conflict", new Prisma.PrismaClientKnownRequestError("conflict", { code: "P2034", clientVersion: "x" }), 409, "conflict", "Conflicting concurrent request — please retry"],
+    ["transaction start timeout", p2028(START_TIMEOUT), 503, "server_busy", "The server was too busy to finish this request. Try again in a moment."],
+    ["transaction expired", p2028(EXPIRED), 503, "server_busy", "The server was too busy to finish this request. Try again in a moment."],
+    ["transaction misuse", p2028(COMMITTED), 500, "internal_error", "Internal server error"],
     ["unknown", new Error("db exploded: password=hunter2"), 500, "internal_error", "Internal server error"],
   ] as const)("%s keeps its status, code and legacy text", async (_n, err, status, code, legacy) => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -73,6 +89,31 @@ describe("handleApiError keeps every legacy body", () => {
     expect(body.status).toBe(status);
     // A 500 never echoes the thrown message.
     expect(JSON.stringify(body)).not.toContain("hunter2");
+  });
+
+  it.each([
+    ["could not start", START_TIMEOUT],
+    ["expired", EXPIRED],
+  ])("a transaction that timed out (%s) says when to try again, and isn't reported as a server fault", (_n, message) => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = handleApiError(p2028(message));
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toBe("2");
+  });
+
+  it.each([
+    ["committed", COMMITTED],
+    ["rolled back", ROLLED_BACK],
+    ["unknown id", NOT_FOUND],
+  ])("a transaction used wrongly (%s) is still a reported 500, not a busy server", (_n, message) => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = handleApiError(p2028(message));
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+    expect(res.status).toBe(500);
+    expect(res.headers.get("retry-after")).toBeNull();
   });
 
   it("a workflow refusal is a problem with its code and what to ask for beside it", async () => {

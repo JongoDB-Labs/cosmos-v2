@@ -10,11 +10,12 @@
 //
 // Limits: a gate written as a positive hasPermission (`const ok = hasPermission(…)`)
 // is invisible, and branches gated differently for keys and sessions with
-// plain if/else (not a ternary) are unioned, which over-states what a key
-// needs. Such routes carry their own route tests (the Teams digest), and
+// plain if/else (not keyMay or a ternary) are unioned, which over-states what a
+// key needs. Such routes carry their own route tests (the Teams digest), and
 // writes decided by a role helper are listed in helper-gated-writes.baseline.json.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 import { Permission } from "@/lib/rbac/permissions";
 
 const GATE_WITH_BIT = /\b(?:requirePermission|requireProjectManage|canAdministerProject|assertPermission)\([^;]*?Permission\.([A-Z_]+)/g;
@@ -23,6 +24,51 @@ const NEGATED_HAS = /!\s*hasPermission\([^)]*?Permission\.([A-Z_]+)/g;
 const GATE_WITH_ACTION = /\b(?:requireAccess|requireProjectRead|assertProjectRead|readableItemProjectId)\([^;]*?"([A-Z_]+)"/g;
 /** `cond ? Permission.A : Permission.B` inside a gate: both sides are possible gates. */
 const TERNARY = /\?\s*(?:Permission\.|")([A-Z_]+)"?\s*:\s*(?:Permission\.|")([A-Z_]+)/g;
+/** `code` parsed as TypeScript (TSX when `fileName` says so), with parent links. */
+export function parseSource(code: string, fileName = "handler.ts"): ts.SourceFile {
+  const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  return ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, true, kind);
+}
+
+/** The name a call is made by: `f(…)` and `x.f(…)` both give "f". */
+export function calleeName(call: ts.CallExpression): string | null {
+  const e = call.expression;
+  if (ts.isIdentifier(e)) return e.text;
+  if (ts.isPropertyAccessExpression(e)) return e.name.text;
+  return null;
+}
+
+/**
+ * The key-or-session gates (rbac/key-role.ts): `keyMay(ctx, "A", "B")`,
+ * `requireKeyMay(ctx, "A", "B")` and `requireProjectRead(ctx, id, { key: "A",
+ * session: "B" })`. A is what a key's scopes must carry, B what a session (or
+ * a key's creator) must hold. Both are possible gates, like a ternary's arms.
+ *
+ * Read from the syntax tree, so a call in a comment or a string is not a gate.
+ */
+export function keyOrSessionGates(code: string, fileName?: string): { key: string; session: string }[] {
+  const out: { key: string; session: string }[] = [];
+  const visit = (n: ts.Node) => {
+    if (ts.isCallExpression(n) && /^(?:keyMay|requireKeyMay)$/.test(calleeName(n) ?? "") && n.arguments.length === 3) {
+      const [, key, session] = n.arguments;
+      if (ts.isStringLiteralLike(key) && ts.isStringLiteralLike(session)) out.push({ key: key.text, session: session.text });
+    }
+    if (ts.isObjectLiteralExpression(n) && n.properties.length === 2) {
+      const prop = (name: string) =>
+        n.properties.find(
+          (p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === name,
+        )?.initializer;
+      const key = prop("key");
+      const session = prop("session");
+      if (key && session && ts.isStringLiteralLike(key) && ts.isStringLiteralLike(session)) {
+        out.push({ key: key.text, session: session.text });
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(parseSource(code, fileName));
+  return out;
+}
 
 /** cqlGate (lib/query/route.server) refuses a caller without the raw ITEM_READ bit. */
 const CQL_GATE = /\bcqlGate\(/;
@@ -41,6 +87,7 @@ export function gateKeys(code: string): Set<string> {
   for (const gate of code.matchAll(/\b(?:requirePermission|requireProjectRead|requireAccess)\([^;]*?\?[^;]*?:[^;]*?\)/g)) {
     for (const m of gate[0].matchAll(TERNARY)) { keys.add(m[1]); keys.add(m[2]); }
   }
+  for (const g of keyOrSessionGates(code)) { keys.add(g.key); keys.add(g.session); }
   return keys;
 }
 
@@ -162,6 +209,7 @@ export function gateBits(code: string, { forKey = true } = {}): bigint {
   for (const gate of code.matchAll(/\b(?:requirePermission|requireProjectRead|requireAccess)\([^;]*?\?[^;]*?:[^;]*?\)/g)) {
     for (const m of gate[0].matchAll(TERNARY)) keys.delete(forKey ? m[2] : m[1]);
   }
+  for (const g of keyOrSessionGates(code)) keys.delete(forKey ? g.session : g.key);
   let need = 0n;
   for (const k of keys) need |= (Permission as Record<string, bigint>)[k] ?? 0n;
   return need;

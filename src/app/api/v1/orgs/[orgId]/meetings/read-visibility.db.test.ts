@@ -67,7 +67,7 @@ const at = (meetingId: string) => ({ params: Promise.resolve({ orgId, meetingId 
 const MISSING = "00000000-0000-4000-8000-000000000000";
 /** The widest key there is: every scope, minted by someone on the team, scoped to the open project. */
 async function widestKey(): Promise<AuthContext> {
-  const ctx = await apiKeyAuthContext(orgId, { createdById: insider, scopes: [...API_KEY_SCOPES], projectIds: [open] });
+  const ctx = await apiKeyAuthContext(orgId, { createdById: insider, scopes: [...API_KEY_SCOPES], projectIds: [open], createdAt: new Date() });
   if (!ctx) throw new Error("the key's minter isn't a member");
   // A real key: it reads work items, and no scope carries MEETING_READ.
   expect(ctx.isApiKey && hasPermission(ctx.permissions, Permission.ITEM_READ)).toBe(true);

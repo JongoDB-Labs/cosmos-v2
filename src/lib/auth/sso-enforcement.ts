@@ -1,5 +1,10 @@
 import { prisma } from "@/lib/db/client";
 
+/** The rule itself: a GOV-class org whose IdP connection is both `enabled` and `enforced`. */
+function enforces(tenantClass: string, conn: { enabled: boolean; enforced: boolean } | null): boolean {
+  return tenantClass === "GOV" && Boolean(conn?.enabled && conn.enforced);
+}
+
 /**
  * Does this organization require single sign-on?
  *
@@ -18,5 +23,20 @@ export async function orgRequiresSso(org: { id: string; tenantClass: string }): 
     where: { orgId: org.id },
     select: { enabled: true, enforced: true },
   });
-  return Boolean(conn?.enabled && conn.enforced);
+  return enforces(org.tenantClass, conn);
+}
+
+/**
+ * The IdP connection this org requires sign-in through, by id, or null when it
+ * requires none: the same rule as `orgRequiresSso`. An API key reads it, since
+ * a key has no session of its own: a key made by someone who can't manage keys
+ * works here only if it was made from a session of this connection
+ * (lib/auth/api-key-policy.ts `keyInactiveReason`).
+ */
+export async function requiredIdpConnectionId(orgId: string): Promise<string | null> {
+  const conn = await prisma.idpConnection.findUnique({
+    where: { orgId },
+    select: { id: true, enabled: true, enforced: true, org: { select: { tenantClass: true } } },
+  });
+  return conn && enforces(conn.org.tenantClass, conn) ? conn.id : null;
 }

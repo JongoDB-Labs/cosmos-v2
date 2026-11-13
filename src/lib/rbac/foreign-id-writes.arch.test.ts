@@ -153,6 +153,9 @@ const INLINE: Record<string, Record<string, string>> = {
   [`${API}agent-policy/route.ts`]: {
     allowedProjectIds: "an allowlist that only narrows what the assistant may touch: an id that isn't the org's own project matches nothing",
   },
+  [`${API}api-keys/route.ts`]: {
+    projectIds: "inline: each must be among getVisibleProjectIds, this org's projects the caller can see, or the key is refused",
+  },
   [`${API}chat/channels/[channelId]/messages/route.ts`]: {
     attachmentIds: "createUserMessage (lib/chat/messages.ts) attaches only the author's own uploads not yet on a message",
     parentMessageId: "createUserMessage (lib/chat/messages.ts) requires the parent in the same channel",

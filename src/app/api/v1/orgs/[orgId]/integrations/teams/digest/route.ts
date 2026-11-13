@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { resolveAuth } from "@/lib/auth/api-key";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
+import { keyMay } from "@/lib/rbac/key-role";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { rateLimit, refundRateLimit } from "@/lib/rate-limit/bucket";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
@@ -22,11 +23,12 @@ type RouteParams = { params: Promise<{ orgId: string }> };
  *
  * It POSTS to the org's Teams channel, so it is a write: a session needs
  * INTEGRATION_MANAGE, a key needs RULES_RUN (the `rules:run` scheduler scope)
- * plus ITEM_READ (`read`) to count; a read-only key is refused. At most one post
- * per org per hour, and the counts cover only the projects the caller can read
- * AND the channel may hear about (`channel-policy.server.ts`): everyone in the
- * Teams channel reads the post, so team-scoped, archived and classified
- * projects stay out of it, as they do from every other Teams post.
+ * plus ITEM_READ (`read`) to count, and a creator who holds INTEGRATION_MANAGE;
+ * a read-only key is refused. At most one post per org per hour, and the counts
+ * cover only the projects the caller can read AND the channel may hear about
+ * (`channel-policy.server.ts`): everyone in the Teams channel reads the post, so
+ * team-scoped, archived and classified projects stay out of it, as they do from
+ * every other Teams post.
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
@@ -37,12 +39,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const ctx = await resolveAuth(request, org);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     // A key needs rules:run to post AND read to count: the counts cover only
-    // what the caller can read, so a rules:run-only key would post zeros.
-    if (ctx.isApiKey) {
-      if (!hasPermission(ctx.permissions, Permission.RULES_RUN) || !hasPermission(ctx.permissions, Permission.ITEM_READ)) {
-        return new Response("This API key needs the rules:run and read scopes to post the Teams digest", { status: 403 });
-      }
-    } else if (!hasPermission(ctx.permissions, Permission.INTEGRATION_MANAGE)) {
+    // what the caller can read, so a rules:run-only key would post zeros. Its
+    // creator needs INTEGRATION_MANAGE, as their session would (keyMay).
+    if (ctx.isApiKey && (!hasPermission(ctx.permissions, Permission.RULES_RUN) || !hasPermission(ctx.permissions, Permission.ITEM_READ))) {
+      return new Response("This API key needs the rules:run and read scopes to post the Teams digest", { status: 403 });
+    }
+    if (!keyMay(ctx, "RULES_RUN", "INTEGRATION_MANAGE")) {
       return new Response("Posting the Teams digest needs the integration-manage permission", { status: 403 });
     }
 

@@ -59,6 +59,8 @@ const as = (orgId: string, permissions: bigint, over: Partial<AuthContext> = {})
   userId: "u1", orgId, orgRole: OrgRole.MEMBER, permissions, basePermissions: permissions, abacRules: [], ...over,
 });
 const READ = Permission.PROJECT_READ | Permission.ITEM_READ;
+/** A key's creator who may manage integrations (an admin, as the scheduled workflow's key has). */
+const ADMIN_OWNER = READ | Permission.RULES_RUN | Permission.INTEGRATION_MANAGE;
 
 beforeEach(() => { vi.clearAllMocks(); h.posted.length = 0; h.counts.length = 0; h.outcome = "ok"; });
 
@@ -74,9 +76,22 @@ describe("who may post the digest", () => {
 
   it("a rules:run + read key posts (the scheduled workflow)", async () => {
     const org = freshOrg();
-    h.resolveAuth.mockResolvedValue(as(org, Permission.RULES_RUN | READ, { isApiKey: true, scopes: ["rules:run", "read"] }));
+    h.resolveAuth.mockResolvedValue(as(org, Permission.RULES_RUN | READ, {
+      isApiKey: true, scopes: ["rules:run", "read"], ownerPermissions: ADMIN_OWNER,
+    }));
     expect((await post(org)).status).toBe(200);
     expect(h.posted).toEqual([org]);
+  });
+
+  it("a rules:run + read key is refused when its creator can't manage integrations, as their session is", async () => {
+    const org = freshOrg();
+    h.resolveAuth.mockResolvedValue(as(org, Permission.RULES_RUN | READ, {
+      isApiKey: true, scopes: ["rules:run", "read"], ownerPermissions: Permission.RULES_RUN | READ,
+    }));
+    const res = await post(org);
+    expect(res.status).toBe(403);
+    expect(await res.text()).toMatch(/integration-manage/);
+    expect(h.posted).toEqual([]);
   });
 
   it("a rules:run-only key is refused rather than posting zeros (it can read no project)", async () => {
@@ -148,7 +163,7 @@ describe("one post per org per hour", () => {
 describe("counts cover only readable projects", () => {
   it("a key limited to P1 counts P1's items only", async () => {
     const org = freshOrg();
-    h.resolveAuth.mockResolvedValue(as(org, Permission.RULES_RUN | READ, { isApiKey: true, scopes: ["rules:run", "read"], projectScope: [P1] }));
+    h.resolveAuth.mockResolvedValue(as(org, Permission.RULES_RUN | READ, { isApiKey: true, scopes: ["rules:run", "read"], projectScope: [P1], ownerPermissions: ADMIN_OWNER }));
     await post(org);
     const [completed, created, feedback] = h.counts as { where: Record<string, unknown> }[];
     expect(completed.where.projectId).toEqual({ in: [P1] });

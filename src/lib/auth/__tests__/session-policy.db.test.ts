@@ -238,7 +238,7 @@ describe("actionRestrictions", () => {
 
   it("reach a key the same way", async () => {
     await policy({ actionRestrictions: DENY_CREATE });
-    const key = await apiKeyAuthContext(orgId, { createdById: ownerId, scopes: ["items:write", "items:delete"], projectIds: null });
+    const key = await apiKeyAuthContext(orgId, { createdById: ownerId, scopes: ["items:write", "items:delete"], projectIds: null, createdAt: new Date() });
     expect(key).not.toBeNull();
     await expect(requireAccess(key!, "ITEM_CREATE")).rejects.toThrow();
     await expect(requireAccess(key!, "ITEM_UPDATE")).resolves.toBeUndefined();
@@ -274,7 +274,7 @@ describe("actionRestrictions", () => {
 
   it("an owner's key loses the bit too (keys have no break-glass)", async () => {
     await policy({ actionRestrictions: DENY_CREATE });
-    const key = await apiKeyAuthContext(orgId, { createdById: ownerId, scopes: ["items:write", "items:delete"], projectIds: null });
+    const key = await apiKeyAuthContext(orgId, { createdById: ownerId, scopes: ["items:write", "items:delete"], projectIds: null, createdAt: new Date() });
     expect(hasPermission(key!.permissions, Permission.ITEM_CREATE)).toBe(false);
     expect(hasPermission(key!.permissions, Permission.ITEM_UPDATE)).toBe(true);
   });

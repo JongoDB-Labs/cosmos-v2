@@ -201,7 +201,7 @@ const NOT_TEAM_SCOPED = new Set([
 /** Writes the scan flags that write to no project the caller chooses, and why. */
 const NOT_A_PROJECT_WRITE: Record<string, string> = {
   "POST /v1/orgs/[orgId]/projects/route.ts": "creates the project; its creator is its first member",
-  "POST /v1/orgs/[orgId]/api-keys/route.ts": "naming projects only narrows the key, whose reach never exceeds its minter's",
+  "DELETE /v1/orgs/[orgId]/api-keys/[keyId]/route.ts": "revokes a key; its projects are only written to the audit entry",
   "POST /v1/orgs/[orgId]/contracts/route.ts": "an org-level contract: the body can't name a project",
   "POST /v1/orgs/[orgId]/documents/route.ts": "files the document under no project",
   "POST /v1/orgs/[orgId]/chat/dms/route.ts": "a direct message belongs to no project",

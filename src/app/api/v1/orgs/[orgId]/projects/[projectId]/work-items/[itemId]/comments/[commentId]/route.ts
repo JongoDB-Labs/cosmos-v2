@@ -47,7 +47,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     // Editing or removing a comment is a write: a session needs COMMENT_READ
     // plus authorship, as ever; a key also needs COMMENT_CREATE (items:write),
     // so a read key can't rewrite or erase what its minter published.
-    await requireProjectRead(ctx, ids.projectId, ctx.isApiKey ? "COMMENT_CREATE" : "COMMENT_READ");
+    await requireProjectRead(ctx, ids.projectId, { key: "COMMENT_CREATE", session: "COMMENT_READ" });
 
     const existing = await findComment(ids);
     // Editing is author-only — you can only change your own words.
@@ -69,7 +69,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, deleteWorkItemComment);
     const { params: ids } = await parseRequest(deleteWorkItemComment, request, params);
-    await requireProjectRead(ctx, ids.projectId, ctx.isApiKey ? "COMMENT_CREATE" : "COMMENT_READ");
+    await requireProjectRead(ctx, ids.projectId, { key: "COMMENT_CREATE", session: "COMMENT_READ" });
 
     const existing = await findComment(ids);
     // The author can remove their own comment; a project manager can moderate.

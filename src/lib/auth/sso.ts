@@ -5,6 +5,7 @@ import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { emailDomainListed } from "@/lib/auth/allowed-domains";
 import { isInternalAdmin } from "@/lib/internal/access";
 import { logAudit } from "@/lib/audit";
+import { deleteMemberKeysIn } from "@/lib/auth/api-key-manage.server";
 import { autoJoinGeneral } from "@/lib/chat/seed-general";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/auth/client";
 import { openSecret } from "@/lib/crypto/vault";
@@ -439,7 +440,7 @@ export async function completeSsoLogin(
   // upsert's update branch is the one that runs.
   const existingMember = await prismaUnfiltered.orgMember.findUnique({
     where: { orgId_userId: { orgId: org.id, userId } },
-    select: { role: true },
+    select: { role: true, removedAt: true },
   });
   const updateRole =
     existingMember?.role === OrgRole.OWNER ? OrgRole.OWNER : role;
@@ -447,11 +448,27 @@ export async function completeSsoLogin(
   // behaviour that existed when removal was a hard delete — the upsert simply created
   // the row again — rather than quietly becoming a lockout, where SSO accepts the
   // login and then every membership read filters the person away.
-  await prismaUnfiltered.orgMember.upsert({
+  const membership = {
     where: { orgId_userId: { orgId: org.id, userId } },
     update: { role: updateRole, removedAt: null },
     create: { orgId: org.id, userId, role },
-  });
+  };
+  if (existingMember?.removedAt != null) {
+    // Reinstating brings the membership back, never the API keys made before
+    // the removal: any left on the row go in the same transaction.
+    await prismaUnfiltered.$transaction(async (tx) => {
+      const member = await tx.orgMember.upsert({ ...membership, select: { id: true } });
+      await deleteMemberKeysIn(tx, {
+        orgId: org.id,
+        userId,
+        memberId: member.id,
+        actorUserId: userId,
+        reason: "reinstated",
+      });
+    });
+  } else {
+    await prismaUnfiltered.orgMember.upsert(membership);
+  }
 
   try {
     await autoJoinGeneral(

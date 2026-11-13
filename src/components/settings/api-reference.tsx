@@ -45,6 +45,19 @@ export function ApiReference({ orgId }: { orgId: string }) {
               requests skip CSRF (no <code>Origin</code> needed).
             </p>
             <p>
+              Every member can create their own keys on this page, and each
+              key acts with its maker&apos;s access. A member&apos;s key must
+              expire within 366 days; admins can make keys that never expire.
+              Admins see and can revoke every key. In Security settings, an
+              admin can stop members from creating keys. Keys that members
+              already made then stop working until it is turned back on.
+              Removing someone deletes their keys, and turning on Require MFA
+              revokes the keys of everyone who can&apos;t manage keys. When
+              the organization requires single sign-on, a member&apos;s key
+              works only if they made it while signed in through it;
+              admins&apos; keys keep working.
+            </p>
+            <p>
               A key can also be limited to <b>specific projects</b> when you mint
               it. That ceiling is absolute: it applies before any role-based
               access, so even a key minted by an owner reaches only the projects

@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { OrgRole } from "@prisma/client";
 import { ForbiddenError, type AuthContext } from "@/lib/rbac/check";
-import { Permission, hasPermission } from "@/lib/rbac/permissions";
+import { Permission, RolePermissions, hasPermission } from "@/lib/rbac/permissions";
 import { scopeMask } from "@/lib/auth/api-key";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
@@ -17,12 +17,21 @@ const ORG = "11111111-1111-4111-8111-111111111111";
 const h = vi.hoisted(() => ({ getAuthContext: vi.fn(), writes: [] as string[] }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext: h.getAuthContext }));
 vi.mock("@/lib/realtime/broker", () => ({ publishToOrg: vi.fn() }));
-// The real rule, minus project visibility: the action's bit must be held.
-vi.mock("@/lib/rbac/require-project-read", () => ({
-  requireProjectRead: async (ctx: AuthContext, _p: string, action: keyof typeof Permission) => {
-    if (!hasPermission(ctx.permissions, Permission[action])) throw new ForbiddenError("denied");
-  },
-}));
+// The real rule, minus project visibility and policies: the action's bit must
+// be held, or for a key-or-session gate, what keyMay asks.
+vi.mock("@/lib/rbac/require-project-read", async () => {
+  const { keyMay } = await import("@/lib/rbac/key-role");
+  return {
+    requireProjectRead: async (
+      ctx: AuthContext, _p: string, action: keyof typeof Permission | { key: keyof typeof Permission; session: keyof typeof Permission },
+    ) => {
+      const ok = typeof action === "string"
+        ? hasPermission(ctx.permissions, Permission[action])
+        : keyMay(ctx, action.key, action.session);
+      if (!ok) throw new ForbiddenError("denied");
+    },
+  };
+});
 vi.mock("@/lib/db/client", () => ({
   // Past the gate, anything touched is recorded; nothing is found, so a call
   // that gets through ends in a 404/400, never the gate's 403.
@@ -59,7 +68,8 @@ const call = (handler: Handler, method: string) =>
   );
 const as = (permissions: bigint, scopes?: string[]): AuthContext => ({
   userId: "u1", orgId: ORG, orgRole: OrgRole.OWNER, permissions, basePermissions: permissions, abacRules: [],
-  ...(scopes ? { isApiKey: true, scopes } : {}),
+  // A key made by the owner: its creator holds every bit.
+  ...(scopes ? { isApiKey: true, scopes, ownerPermissions: RolePermissions.OWNER } : {}),
 });
 
 beforeEach(() => { vi.clearAllMocks(); h.writes.length = 0; });

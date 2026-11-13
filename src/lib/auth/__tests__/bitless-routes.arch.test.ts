@@ -35,13 +35,21 @@ const BIT_HELPERS = [
   "readableProjectDocument",
 ];
 
-/** The gates gateBits reads a bit from (gate-bits.ts), by the name called. */
+/**
+ * The gates gateBits reads a bit from (gate-bits.ts), by the name called.
+ * requireKeyMay (rbac/key-role.ts) demands its key bit of a key's scoped
+ * permissions and its session bit of a session or the key's creator.
+ */
 const GATES = new Set([
   "requirePermission", "requireProjectManage", "canAdministerProject", "assertPermission",
   "requireAccess", "requireProjectRead", "assertProjectRead", "readableItemProjectId", "cqlGate",
+  "requireKeyMay",
 ]);
-/** Checks that gate only when the answer is negated: `if (!hasPermission(…)) throw …`. */
-const NEGATED_GATES = new Set(["hasPermission", "hasAnyPermission"]);
+/**
+ * Checks that gate only when the answer is negated: `if (!hasPermission(…)) throw …`.
+ * keyMay is requireKeyMay's boolean form.
+ */
+const NEGATED_GATES = new Set(["hasPermission", "hasAnyPermission", "keyMay"]);
 
 const printer = ts.createPrinter({ removeComments: true });
 const parse = (code: string) => ts.createSourceFile("handler.ts", code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -74,7 +82,7 @@ const isNegated = (c: Call) => ts.isPrefixUnaryExpression(c.node.parent) && c.no
 /** The gate calls among `calls`, printed without comments: what gateBits reads, and nothing else. */
 function gateText(calls: Call[]): string {
   return calls
-    .filter((c) => GATES.has(c.name) || (c.name === "hasPermission" && isNegated(c)))
+    .filter((c) => GATES.has(c.name) || ((c.name === "hasPermission" || c.name === "keyMay") && isNegated(c)))
     .map((c) => printer.printNode(ts.EmitHint.Unspecified, isNegated(c) ? c.node.parent : c.node, c.sf))
     .join(";\n");
 }
@@ -238,6 +246,13 @@ ${extra}
     expect(isBitlessKeyHandler(handler("  requirePermission(ctx, Permission.ORG_READ);"))).toBe(false);
     expect(isBitlessKeyHandler(handler('  await requireAccess(ctx, "ITEM_READ");'))).toBe(false);
     expect(isBitlessKeyHandler(handler("  if (!hasPermission(ctx.permissions, Permission.ORG_READ)) throw new ForbiddenError();"))).toBe(false);
+  });
+
+  it("the key-or-session gates are gates; keyMay only when its answer is negated", () => {
+    expect(isBitlessKeyHandler(handler('  requireKeyMay(ctx, "TIME_CREATE", "TIME_READ");'))).toBe(false);
+    expect(isBitlessKeyHandler(handler('  if (!keyMay(ctx, "ITEM_UPDATE", "ITEM_READ")) throw new ForbiddenError();'))).toBe(false);
+    expect(isBitlessKeyHandler(handler('  // requireKeyMay(ctx, "TIME_CREATE", "TIME_READ");'))).toBe(true);
+    expect(isBitlessKeyHandler(handler('  const mayEdit = keyMay(ctx, "ITEM_UPDATE", "ITEM_READ");'))).toBe(true);
   });
 
   it("a refusal written in a comment is not a refusal", () => {

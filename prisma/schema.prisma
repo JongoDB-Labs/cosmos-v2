@@ -858,6 +858,11 @@ model ApiKey {
   expiresAt   DateTime? @map("expires_at")
   lastUsed    DateTime? @map("last_used")
   createdAt   DateTime  @default(now()) @map("created_at")
+  /// The IdpConnection the minting session signed in through, if single
+  /// sign-on (Session.idpConnId). Where the org requires SSO, a key made by
+  /// someone who can't manage keys works only when this is the org's
+  /// connection; null fails closed (api-key-policy.ts `keyInactiveReason`).
+  idpConnId   String?   @map("idp_conn_id") @db.Uuid
 
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   createdBy User?        @relation("ApiKeyCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -3236,6 +3241,10 @@ model OrgSecuritySettings {
   allowedDomains     String[] @default([]) @map("allowed_domains")
   accountRequestMode AccountRequestMode @default(OFF) @map("account_request_mode")
   auditRetentionDays Int      @default(365) @map("audit_retention_days")
+  /// "Members can create their own API keys". Off: only holders of
+  /// API_KEY_MANAGE may mint, and keys made by anyone else stop authenticating
+  /// (src/lib/auth/api-key-policy.ts `mayHoldApiKeys`), until it is on again.
+  memberApiKeysEnabled Boolean @default(true) @map("member_api_keys_enabled")
 
   // ── Session policy (prod-parity; enforced server-side in the auth path) ──────
   // Absolute max age of a session regardless of activity (minutes). 0 disables

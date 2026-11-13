@@ -191,6 +191,17 @@ export const Permission = {
   // Force a status change past a workflow's restrictions and checks. OWNER
   // only, like ABAC break-glass; every forced change is audited.
   WORKFLOW_OVERRIDE: 1n << 128n,
+
+  // Create, list and revoke your OWN API keys. Each key acts with its creator's
+  // current access, narrowed by its scopes, so holding this hands out nothing
+  // the holder doesn't already have. API_KEY_MANAGE is the administrator's
+  // version: every key in the org, and keys that never expire. A key
+  // authenticates only while its creator holds one of the two (and, for this
+  // one, while the org's "Members can create their own API keys" switch is on),
+  // so demoting someone to GUEST also switches their keys off. See
+  // src/lib/auth/api-key-policy.ts. Bit 129: appended after the highest bit in
+  // use; 123-125 were never assigned and are left alone.
+  API_KEY_CREATE: 1n << 129n,
 } as const;
 
 export type PermissionKey = keyof typeof Permission;
@@ -277,6 +288,7 @@ export const RolePermissions = {
     Permission.TEMPLATE_READ,
     Permission.TEMPLATE_MANAGE,
     Permission.AUDIT_LOG_READ,
+    Permission.API_KEY_CREATE,
     Permission.API_KEY_MANAGE,
     Permission.CUSTOM_FIELD_MANAGE,
     Permission.TIME_CREATE,
@@ -331,6 +343,8 @@ export const RolePermissions = {
     Permission.TIME_READ,
     Permission.TIME_READ_ALL,
     Permission.TIME_BILL,
+    // Their own API keys, acting with exactly the access above.
+    Permission.API_KEY_CREATE,
   ),
 
   MEMBER: combine(
@@ -372,6 +386,7 @@ export const RolePermissions = {
     Permission.CHAT_USE,
     Permission.ANALYTICS_READ,
     Permission.REPORT_CREATE,
+    Permission.API_KEY_CREATE,
   ),
 
   VIEWER: combine(
@@ -392,8 +407,12 @@ export const RolePermissions = {
     Permission.COMPLIANCE_READ,
     Permission.CLASSIFICATION_READ,
     Permission.ANALYTICS_READ,
+    // A viewer's key can only read, because the viewer can only read.
+    Permission.API_KEY_CREATE,
   ),
 
+  // No API_KEY_CREATE: a guest's access is invite-scoped, and a standing
+  // credential would outlive the reason they were let in.
   GUEST: combine(
     Permission.ITEM_READ,
     Permission.COMMENT_READ,

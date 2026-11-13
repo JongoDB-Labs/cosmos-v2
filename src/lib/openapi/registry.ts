@@ -103,7 +103,8 @@ export function buildDocument(contracts: RouteContract[], audience: SpecAudience
     scheme: "bearer",
     description:
       "A Cosmos API key or personal access token: `Authorization: Bearer cosmos_<prefix>_<secret>`. " +
-      "What it can do is its scopes intersected with its user's own permissions.",
+      "What it can do is its scopes intersected with its user's own permissions. " +
+      "Every member can create their own keys under Settings → API keys, unless an admin has turned that off.",
   });
   for (const c of contracts) if (include(c, audience)) register(registry, c);
 

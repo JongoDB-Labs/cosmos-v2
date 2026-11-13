@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { OrgRole } from "@prisma/client";
-import { Permission } from "./permissions";
+import { Permission, RolePermissions } from "./permissions";
 import { SETTINGS_ACCESS, SETTINGS_NAV_GROUPS, canViewSettings } from "./settings-access";
 
 const ctx = (perms: bigint) => ({ userId: "u", orgId: "o", orgRole: OrgRole.MEMBER, permissions: perms, basePermissions: perms, abacRules: [] }) as const;
@@ -28,6 +28,14 @@ describe("settings-access", () => {
     expect(canViewSettings(ctx(Permission.ORG_UPDATE), "/settings/organization")).toBe(true);
     expect(canViewSettings(ctx(Permission.ORG_DELETE), "/settings/organization")).toBe(true);
     expect(canViewSettings(ctx(0n), "/settings/organization")).toBe(false);
+  });
+
+  it("API keys: anyone who may make their own keys, or manage every key", () => {
+    expect(canViewSettings(ctx(Permission.API_KEY_CREATE), "/settings/api-keys")).toBe(true);
+    expect(canViewSettings(ctx(Permission.API_KEY_MANAGE), "/settings/api-keys")).toBe(true);
+    expect(canViewSettings(ctx(0n), "/settings/api-keys")).toBe(false);
+    expect(canViewSettings(ctx(RolePermissions.MEMBER), "/settings/api-keys")).toBe(true);
+    expect(canViewSettings(ctx(RolePermissions.GUEST), "/settings/api-keys")).toBe(false);
   });
 
   it("fails closed for unregistered hrefs", () => {

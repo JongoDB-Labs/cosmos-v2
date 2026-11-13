@@ -1,80 +1,19 @@
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
-import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
-import { API_KEY_SCOPES, type ApiKeyScope } from "./api-key-scopes";
+import { API_KEY_SCOPES, scopeMask, type ApiKeyScope } from "./api-key-scopes";
+import { keyInactiveReason, managesAllApiKeys, type KeyPolicy } from "./api-key-policy";
 import { classifyBearer, parseKeyToken } from "./bearer";
 import { ipAllowlistAdmits } from "./ip-allowlist";
+import { requiredIdpConnectionId } from "./sso-enforcement";
 
 // Re-exported so existing server importers of `@/lib/auth/api-key` keep working.
 // Client components MUST import these from `./api-key-scopes` directly — this
 // module pulls in prisma/session and cannot be in the browser bundle.
-export { API_KEY_SCOPES };
+export { API_KEY_SCOPES, scopeMask };
 export type { ApiKeyScope };
-
-const SCOPE_MASK: Record<ApiKeyScope, bigint> = {
-  // COMMENT_READ belongs in `read` for the same reason the others do: a
-  // conversation is part of reading an item, and without it a key could POST a
-  // comment (with items:write) and then be denied its own reply on the way back
-  // out — "Access denied by policy" on a GET the caller had just written to.
-  //
-  // Deliberately NOT ORG_READ or ANALYTICS_READ. The mask is recomputed from a
-  // key's scopes on every request, so a bit added here reaches every existing
-  // read key on every route, including writes that gate on ORG_READ alone
-  // (scope-compat.test.ts checks that no bit here gates a write). The reads that
-  // need ORG_READ ask a key for PROJECT_READ instead (labels, custom fields).
-  read:
-    Permission.PROJECT_READ | Permission.ITEM_READ | Permission.COMMENT_READ |
-    Permission.OKR_READ | Permission.SPRINT_READ,
-  // Write means write: CREATE alone let a key file an item and then never touch
-  // it again — no status change, no re-assign, no comment — which is most of
-  // what "work the board without a browser" actually is. ITEM_UPDATE and
-  // COMMENT_CREATE are what the item PUT and the comment POST gate on.
-  //
-  // ITEM_DELETE is deliberately NOT here. Destroying work is a different
-  // decision from editing it, and a scope named for writing should not quietly
-  // carry it; a key that needs to delete should say so with a scope of its own.
-  "items:write":
-    Permission.PROJECT_READ | Permission.PROJECT_UPDATE | Permission.ITEM_READ |
-    Permission.ITEM_CREATE | Permission.ITEM_UPDATE |
-    Permission.COMMENT_CREATE | Permission.COMMENT_READ |
-    Permission.OKR_READ | Permission.OKR_CREATE |
-    Permission.SPRINT_READ | Permission.SPRINT_CREATE,
-  // The delete half of items:write, as its own decision: work items and OKRs.
-  // A planning delete (milestone, goal, KPI) needs planning:write as well.
-  "items:delete": Permission.ITEM_DELETE | Permission.OKR_DELETE,
-  // Milestones, goals, KPIs and interval changes, split out of items:write so a
-  // reporting integration can plan without being able to edit work.
-  "planning:write":
-    Permission.PROJECT_READ | Permission.PROJECT_UPDATE | Permission.ITEM_READ |
-    Permission.OKR_READ | Permission.OKR_CREATE | Permission.OKR_UPDATE |
-    Permission.SPRINT_READ | Permission.SPRINT_CREATE | Permission.SPRINT_UPDATE,
-  // Time is its own domain: hours are payroll and billing data, not work items.
-  // Rates stay behind canSeeRate (own rows, or FINANCE_READ) whatever the scope.
-  "time:read": Permission.TIME_READ,
-  "time:write": Permission.TIME_READ | Permission.TIME_CREATE | Permission.TIME_UPDATE,
-  // A disclosure scope, not a permission: it adds no bits. A token sees
-  // members' email addresses (member list, project members) only when it holds
-  // it, because integrations match people by email and the key's owner should
-  // opt into handing a script everyone's address. Contracts name the fields
-  // (`scopedFields`); respond() removes them for tokens without it.
-  "members:read": 0n,
-  "webhooks:manage": Permission.WEBHOOK_MANAGE,
-  "audit:read": Permission.AUDIT_LOG_READ,
-  "documents:write":
-    Permission.PROJECT_READ | Permission.PROJECT_UPDATE | Permission.ITEM_READ | Permission.ITEM_CREATE,
-  // Exactly one permission, and deliberately no read: a scheduler needs to
-  // TRIGGER rules, not to browse the org. Anything wider would hand a key that
-  // sits on a cron box the ability to read projects.
-  "rules:run": Permission.RULES_RUN,
-};
-
-/** OR together the bit-masks for the given scope names; unknown scopes contribute
- *  nothing (0n) so an untrusted scope string can never widen the grant. */
-export function scopeMask(scopes: string[]): bigint {
-  return scopes.reduce((m, s) => m | (SCOPE_MASK[s as ApiKeyScope] ?? 0n), 0n);
-}
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
@@ -84,12 +23,18 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
  * key acts as. Effective permissions at verify time = that user's permissions
  * intersected with the key's scope mask.
  */
-export async function mintApiKey(input: {
-  orgId: string; name: string; scopes: string[]; createdById: string;
-  expiresAt?: Date | null;
-  /** Projects the key may touch. Omit or pass [] for org-wide. */
-  projectIds?: string[];
-}) {
+export async function mintApiKey(
+  input: {
+    orgId: string; name: string; scopes: string[]; createdById: string;
+    expiresAt?: Date | null;
+    /** Projects the key may touch. Omit or pass [] for org-wide. */
+    projectIds?: string[];
+    /** The IdP connection the minting session signed in through, if single sign-on. */
+    idpConnId?: string | null;
+  },
+  /** A transaction to write in (the mint route counts and writes under one lock). */
+  db: Pick<Prisma.TransactionClient, "apiKey"> = prisma,
+) {
   // Prefix is HEX (no `_`/`-`) so the token splits unambiguously at the prefix's
   // `_` delimiter — the secret (base64url) may contain `_`/`-`, and as the final
   // segment that's fine. (A base64url prefix made parsing ambiguous: a greedy
@@ -97,11 +42,11 @@ export async function mintApiKey(input: {
   const prefix = randomBytes(6).toString("hex");
   const secret = randomBytes(32).toString("base64url");
   const token = `cosmos_${prefix}_${secret}`;
-  const record = await prisma.apiKey.create({
+  const record = await db.apiKey.create({
     data: {
       orgId: input.orgId, name: input.name, prefix, keyHash: sha256(secret),
       scopes: input.scopes, createdById: input.createdById, expiresAt: input.expiresAt ?? null,
-      projectIds: input.projectIds ?? [],
+      projectIds: input.projectIds ?? [], idpConnId: input.idpConnId ?? null,
     },
     select: {
       id: true, name: true, prefix: true, scopes: true, projectIds: true,
@@ -124,12 +69,28 @@ export function hasBearer(req: Request): boolean {
  * session path produces (so downstream routes are unchanged). Returns null for:
  * a malformed/absent token, an unknown prefix, a hash mismatch, an expired key,
  * a key whose minting user was removed (createdById null), a user who no
- * longer has a membership in the org, or a request from outside the org's IP
- * allowlist. The acting principal is `createdById`, and
- * the returned permissions are that user's effective permissions ∩ scope mask.
+ * longer has a membership in the org, a key that no longer works for its
+ * creator (`keyInactiveReason`: their role, the org's switch, the 366-day
+ * limit, the org's single sign-on), or a request from outside the org's IP
+ * allowlist. The
+ * acting principal is `createdById`, and the returned permissions are that
+ * user's effective permissions ∩ scope mask.
  */
 export async function verifyApiKey(req: Request, orgId: string): Promise<AuthContext | null> {
   return verifyApiKeyHeader(req.headers.get("authorization"), orgId, req.headers);
+}
+
+/**
+ * The org's key switch, read once. A missing settings row means the default,
+ * on. A caller that already holds the settings row can pass the switch to
+ * `apiKeyAuthContext` instead.
+ */
+export async function loadKeyPolicy(orgId: string): Promise<KeyPolicy> {
+  const sec = await prisma.orgSecuritySettings.findUnique({
+    where: { orgId },
+    select: { memberApiKeysEnabled: true },
+  });
+  return { memberApiKeysEnabled: sec?.memberApiKeysEnabled ?? true };
 }
 
 /**
@@ -144,7 +105,7 @@ async function matchedKey(authorization: string | null, orgId: string) {
     where: { orgId_prefix: { orgId, prefix: parsed.prefix } },
     select: {
       id: true, keyHash: true, scopes: true, projectIds: true,
-      expiresAt: true, createdById: true,
+      expiresAt: true, createdById: true, createdAt: true, idpConnId: true,
     },
   });
   if (!key) return null;
@@ -174,12 +135,15 @@ export async function verifyApiKeyHeader(
   orgId: string,
   /** The request's headers: where the org's IP allowlist reads the client's address. */
   requestHeaders: Headers,
+  /** The org's key switch when the caller already read it; read here otherwise. */
+  policy?: KeyPolicy,
 ): Promise<AuthContext | null> {
   const key = await matchedKey(authorization, orgId);
   if (!key || !key.createdById) return null;
   const ctx = await apiKeyAuthContext(orgId, {
-    createdById: key.createdById, scopes: key.scopes, projectIds: key.projectIds,
-  });
+    createdById: key.createdById, scopes: key.scopes, projectIds: key.projectIds, createdAt: key.createdAt,
+    idpConnId: key.idpConnId,
+  }, policy);
   if (!ctx) return null;
   // Here, not in each caller, so every way a key is verified (getAuthContext,
   // and resolveAuth through verifyApiKey) meets the same allowlist.
@@ -191,25 +155,53 @@ export async function verifyApiKeyHeader(
 /**
  * The AuthContext an AUTHENTICATED key acts with: its minting user's effective
  * permissions ∩ the key's scope mask, its project ceiling, and `isApiKey`.
- * `null` when the minting user is no longer a member of the org.
+ * `null` when the minting user is no longer a member of the org, or the key
+ * no longer works for them (`keyInactiveReason`).
  *
  * Split out of `verifyApiKeyHeader` so the rule lives in exactly one place and
  * can be exercised directly. It does NOT authenticate anything — the caller
  * must already have matched the secret against `keyHash` and checked expiry,
- * which is what `verifyApiKeyHeader` does before it gets here.
+ * which is what `verifyApiKeyHeader` does before it gets here. Every key path
+ * (`getAuthContext`, and `resolveAuth` through `verifyApiKey`) arrives here.
  */
 export async function apiKeyAuthContext(
   orgId: string,
-  key: { createdById: string; scopes: string[]; projectIds: string[] | null },
+  key: {
+    createdById: string; scopes: string[]; projectIds: string[] | null; createdAt: Date;
+    /** The IdP the minting session came through (ApiKey.idpConnId). Omitted: none. */
+    idpConnId?: string | null;
+  },
+  /** The org's key switch when the caller already read it; read here otherwise. */
+  policy?: KeyPolicy,
 ): Promise<AuthContext | null> {
   // forApiKey: a key gets no OWNER break-glass, so the org's restrictions bind
   // an owner's key like anyone else's.
   const eff = await loadEffectivePermissions(orgId, key.createdById, { forApiKey: true });
   if (!eff) return null;
+  // Whether the key still works for its creator, asked of their OWN
+  // permissions (as a key sees them: no break-glass), before the mask below,
+  // which never carries an API_KEY_* bit. Without API_KEY_MANAGE that means
+  // API_KEY_CREATE and the org's switch now (so turning member keys off, or a
+  // demotion to GUEST, switches existing keys off too), at most 366 days since
+  // it was made, and, where the org requires single sign-on, a key made from a
+  // session of that org's IdP: a key has no sign-in of its own, so the one it
+  // was made from is what the requirement is held to. Keys of someone who
+  // manages keys are not held to it, as no key was before: that person sees
+  // and can revoke every key in the org.
+  const refusal = keyInactiveReason({
+    creatorPermissions: eff.permissions,
+    policy: policy ?? (await loadKeyPolicy(orgId)),
+    requiredIdpConnId: managesAllApiKeys(eff.permissions) ? null : await requiredIdpConnectionId(orgId),
+  }, key, new Date());
+  if (refusal) return null;
   const mask = scopeMask(key.scopes);
   return {
     userId: key.createdById, orgId, orgRole: eff.orgRole,
     permissions: eff.permissions & mask, basePermissions: eff.basePermissions & mask,
+    // The creator's own bits, unmasked (as a key sees them: no break-glass):
+    // what their session would be gated on. Only `keyMay` reads it, where a
+    // route asks a key for a stand-in bit.
+    ownerPermissions: eff.permissions,
     // Marks this context as a KEY, which suppresses the OWNER break-glass in
     // evaluateAccess. Without it the mask two lines above is computed and then
     // ignored for any key an owner minted.

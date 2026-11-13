@@ -26,6 +26,14 @@ export function noContent() {
  * request to put its `X-Request-Id` in the body; the header is on every
  * response regardless (the proxy sets it).
  */
+/**
+ * The two P2028 messages that mean "ran out of time" rather than "used the
+ * transaction wrongly", as Prisma's transaction manager words them:
+ * "Unable to start a transaction in the given time." and "A <op> cannot be
+ * executed on an expired transaction. The timeout for this transaction was…".
+ */
+const TRANSACTION_TIMED_OUT = /Unable to start a transaction in the given time|cannot be executed on an expired transaction/;
+
 export function handleApiError(error: unknown, request?: Request) {
   const opts = { request };
   if (error instanceof ProblemError) {
@@ -90,6 +98,23 @@ export function handleApiError(error: unknown, request?: Request) {
       { error: "That status doesn't exist in this project." },
       { status: 400 }
     );
+  }
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2028" &&
+    TRANSACTION_TIMED_OUT.test(error.message)
+  ) {
+    // An interactive transaction that couldn't start in time, or ran past its
+    // limit, because the database was busy: a burst queued on one row lock, or
+    // a full connection pool. Prisma rolls it back. That is a reason to try
+    // again shortly, not a server fault, so say so instead of a bare 500.
+    // Every other P2028 (a query on a transaction already committed or rolled
+    // back, an unknown transaction id) is a bug in the code that ran it, and
+    // falls through to the reported 500 below.
+    return problem(503, "server_busy", "The server was too busy to finish this request. Try again in a moment.", {
+      ...opts,
+      headers: { "Retry-After": "2" },
+    });
   }
   if (error instanceof ZodError) {
     // Input-validation failures are client errors, not server errors —

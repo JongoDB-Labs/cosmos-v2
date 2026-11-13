@@ -2,10 +2,9 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError } from "@/lib/api-helpers";
 import { canSee, viewerScope } from "@/lib/query/saved-filters.server";
+import { requireKeyMay } from "@/lib/rbac/key-role";
 
 type RouteParams = { params: Promise<{ orgId: string; viewId: string }> };
 
@@ -19,7 +18,7 @@ async function visible(orgId: string, viewId: string) {
   if (!ctx) return "unauthorized" as const;
   // Starring is a write (PUT and DELETE both come through here): a key needs
   // ITEM_UPDATE (items:write), as the contract says; a session keeps ITEM_READ.
-  requirePermission(ctx, ctx.isApiKey ? Permission.ITEM_UPDATE : Permission.ITEM_READ);
+  requireKeyMay(ctx, "ITEM_UPDATE", "ITEM_READ");
   const view = await prisma.savedView.findFirst({
     where: { id: viewId, orgId },
     select: { ownerId: true, visibility: true, projectId: true, teamId: true, editors: { select: { userId: true } } },

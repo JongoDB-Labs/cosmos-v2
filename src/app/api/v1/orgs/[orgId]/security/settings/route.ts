@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { deleteApiKeysIn, keyHoldersWithoutManage } from "@/lib/auth/api-key-manage.server";
 import { z } from "zod";
 import { AccountRequestMode, type Prisma } from "@prisma/client";
 import { allowlistState, lockoutRefusal, lockoutResponse, securitySettingsFor } from "@/lib/auth/ip-allowlist";
@@ -41,6 +42,9 @@ const updateSettingsSchema = z.object({
   // Org-wide deny rules. Checked strictly below, not here, so a refusal can
   // name the rule it is about.
   actionRestrictions: z.unknown().optional(),
+  // "Members can create their own API keys". Off also stops the keys members
+  // already made from authenticating (src/lib/auth/api-key-policy.ts).
+  memberApiKeysEnabled: z.boolean().optional(),
 });
 
 /**
@@ -184,6 +188,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.idleTimeoutMins !== undefined && { idleTimeoutMins: data.idleTimeoutMins }),
         ...(data.maxConcurrentSessions !== undefined && { maxConcurrentSessions: data.maxConcurrentSessions }),
         ...(actionRestrictions !== undefined && { actionRestrictions }),
+        ...(data.memberApiKeysEnabled !== undefined && { memberApiKeysEnabled: data.memberApiKeysEnabled }),
       },
     });
 
@@ -221,6 +226,45 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       data.ssoEnforced === true && prior?.ssoEnforced !== true;
     const tightenedMfa =
       data.mfaRequired === true && prior?.mfaRequired !== true;
+
+    // In EVERY org, turning on Require MFA also revokes the API keys of
+    // everyone who can't manage keys. The MFA floor binds sessions in every org
+    // (orgSessionFloors), and a key has no sign-in to check against it, so a
+    // member's key made under the old rules would otherwise outlive the rule
+    // for up to a year. Admins' keys stay: they can see and revoke every key
+    // themselves. The response says how many went, so the admin who saved
+    // knows.
+    //
+    // `ssoEnforced` revokes no keys: no sign-in path reads it. The single
+    // sign-on rule that binds keys is the org's enforced IdP connection
+    // (orgRequiresSso), and it is checked each time a key is used, not here:
+    // see keyInactiveReason.
+    let apiKeysRevoked = 0;
+    if (tightenedMfa) {
+      const holders = await keyHoldersWithoutManage(orgId);
+      if (holders.length > 0) {
+        apiKeysRevoked = await prisma.$transaction(async (tx) => {
+          const prefixes = await deleteApiKeysIn(tx, { orgId, createdById: { in: holders } });
+          if (prefixes.length > 0) {
+            await logAudit({
+              orgId,
+              userId: ctx.userId,
+              action: "security_settings.api_keys_revoked",
+              entity: "org_security_settings",
+              entityId: settings.id,
+              metadata: {
+                reason: "mfa_required",
+                revokedCount: prefixes.length,
+                prefixes,
+              },
+              ipAddress: getIpAddress(request),
+            }, tx);
+          }
+          return prefixes.length;
+        });
+      }
+    }
+
     if (org.tenantClass === "GOV" && (tightenedSso || tightenedMfa)) {
       const revoked = await revokeOrgSessions(orgId);
       await logAudit({
@@ -237,7 +281,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       });
     }
 
-    return success(settings);
+    return success({ ...settings, apiKeysRevoked });
   } catch (error) {
     return handleApiError(error);
   }
