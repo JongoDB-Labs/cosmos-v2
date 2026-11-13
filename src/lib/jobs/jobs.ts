@@ -9,6 +9,7 @@ import { sweepAllMarkedComments } from "@/lib/feedback/comments.server";
 import { runWorkflowMigrations } from "@/lib/workflow/migrate.server";
 import { runDueSubscriptions } from "@/lib/query/subscriptions.server";
 import { drainTeamsOutbox, queueChannelDigests, queueDueDigests } from "@/lib/integrations/microsoft/teams-app/notify.server";
+import { drainSlackOutbox } from "@/lib/integrations/slack/notify.server";
 
 /**
  * Every periodic job the app runs, registered on the shared runner
@@ -155,5 +156,19 @@ registerJob({
   run: async ({ signal }) => {
     const r = await drainTeamsOutbox({ signal });
     return r.sent || r.retried || r.forgotten || r.dropped ? { ...r } : undefined;
+  },
+});
+
+// Slack notifications: assignment and @mention direct messages, sent from
+// their outbox every 15 seconds, each re-read as its recipient when it's sent.
+// Failures retry with backoff; the counts show in the jobs readout.
+registerJob({
+  name: "slack-outbox",
+  everyMs: 15_000,
+  jitterMs: 3_000,
+  timeoutMs: 55_000,
+  run: async ({ signal }) => {
+    const r = await drainSlackOutbox({ signal });
+    return r.sent || r.retried || r.failed || r.skipped ? { ...r } : undefined;
   },
 });

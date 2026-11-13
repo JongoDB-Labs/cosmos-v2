@@ -39,6 +39,22 @@ export async function requireProjectRead(
 }
 
 /**
+ * `requireProjectRead` as a yes or no, for deciding on someone else's behalf
+ * (the person a notification would go to). Only a denial is a no; anything
+ * else that goes wrong is thrown, so a broken check can't read as "allowed"
+ * or pass silently as "denied".
+ */
+export async function canReadInProject(ctx: AuthContext, projectId: string, action: PermissionKey): Promise<boolean> {
+  try {
+    await requireProjectRead(ctx, projectId, action);
+    return true;
+  } catch (e) {
+    if (e instanceof ForbiddenError) return false;
+    throw e;
+  }
+}
+
+/**
  * The visibility half of `requireProjectRead`, for a WRITE under a project.
  *
  * Writes gate on their own action through `requireAccess` with the resource's

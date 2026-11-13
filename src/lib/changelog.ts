@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.550.0",
+    date: "2026-11-12",
+    title: "Assignments and mentions in Slack",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An admin can connect your organization's Slack workspace (Settings, Integrations, Slack notifications). Then, when you're assigned an item or @mentioned in a comment, Cosmos sends you a direct message in Slack with the item's key and a link. You're linked by your confirmed email address, and on Settings, Profile you choose what comes to Slack, or unlink. A Slack workspace connects to one organization.",
+      },
+      {
+        kind: "fix",
+        text: "Work item and program-management notifications reach only people who can read that item, on every channel.",
+      },
+    ],
+  },
+  {
     version: "2.549.0",
     date: "2026-11-12",
     title: "Team filters include your team's untagged work, and you can search for your @mentions",

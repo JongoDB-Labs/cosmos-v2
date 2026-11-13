@@ -134,6 +134,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             message: mentionsToPlainText(comment.content ?? "", mentionLabels).slice(0, 200),
             relatedId: data.subjectId,
             relatedType: `pm_${data.subjectType}`,
+            projectId,
             url,
           }).catch(() => {});
         }

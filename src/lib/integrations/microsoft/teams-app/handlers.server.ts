@@ -4,6 +4,7 @@ import { createClassificationResolver } from "@/lib/classification/resolver";
 import { entityUrl } from "@/lib/mentions/urls";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { runWorkItemQuery, type IssueRow } from "@/lib/work-items/query/project";
+import { findReadableWorkItem } from "@/lib/work-items/query/readable-item.server";
 import { createWorkItem } from "@/lib/ai/executors/work-items";
 import {
   connectCard, createForm, itemCard, messageText, noticeCard, restrictedCard, statusLabel, type Attachment,
@@ -74,31 +75,7 @@ async function cards(u: TeamsUser, rows: IssueRow[], origin: string, opts: { dro
 
 /** An item by key ("ACME-12") or id, if this person may read it. */
 export async function findItem(u: TeamsUser, ref: string): Promise<IssueRow | null> {
-  if (!hasPermission(u.auth.permissions, Permission.ITEM_READ)) return null;
-  const readable = await getReadableProjectIds(u.auth);
-  if (!readable.length) return null;
-  let id = ref;
-  const key = /^([A-Za-z][A-Za-z0-9_]*)-(\d+)$/.exec(ref.trim());
-  if (key) {
-    // Same rule as the item deep link: a key only within readable projects,
-    // and an ambiguous one (two readable projects with that key) not at all.
-    const projects = await prisma.project.findMany({
-      where: { orgId: u.orgId, id: { in: readable }, key: { equals: key[1], mode: "insensitive" } },
-      select: { id: true },
-      take: 2,
-    });
-    if (projects.length !== 1) return null;
-    const hit = await prisma.workItem.findFirst({
-      where: { orgId: u.orgId, projectId: projects[0].id, ticketNumber: Number(key[2]) },
-      select: { id: true },
-    });
-    if (!hit) return null;
-    id = hit.id;
-  } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref)) {
-    return null;
-  }
-  const r = await runWorkItemQuery({ orgId: u.orgId, allowedProjectIds: readable, filter: { ids: [id] }, sort: undefined, page: 1, pageSize: 1 });
-  return r.data[0] ?? null;
+  return findReadableWorkItem(u.auth, u.orgId, ref);
 }
 
 /**

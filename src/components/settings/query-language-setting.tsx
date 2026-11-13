@@ -53,8 +53,9 @@ export function QueryLanguageOrgSwitch({ orgId }: { orgId: string }) {
           <span>
             Include titles in filter emails
             <span className="mt-0.5 block text-xs text-muted-foreground">
-              Subscription emails list ticket keys and links. With this on they also show each item&apos;s title
-              (titles with a classification marking are never sent). Descriptions and comments are never emailed.
+              Subscription emails and Slack notifications list ticket keys and links. With this on they also show
+              each item&apos;s title (titles with a classification marking are never sent). Descriptions and comments
+              are never sent.
             </span>
           </span>
           <ToggleSwitch
