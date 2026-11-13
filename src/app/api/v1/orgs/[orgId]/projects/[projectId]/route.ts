@@ -15,6 +15,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { getProject, updateProject } from "./route.contract";
+import { boardForReader } from "@/lib/boards/board-dto";
 
 // Project features that drive the optional board tabs (see board-tabs.tsx).
 // Toggleable from Project Settings; validated here so only known flags persist.
@@ -71,7 +72,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!project) return problem(404, "not_found", undefined, { request });
 
     // Each status column's category is its status's (column-categories.server.ts).
-    const boards = await withStatusCategories(prisma, projectId, project.boards);
+    const boards = (await withStatusCategories(prisma, projectId, project.boards)).map((b) =>
+      boardForReader(b, ctx.userId),
+    );
     return respond(getProject, 200, { ...project, boards }, { ctx });
   } catch (error) {
     return handleApiError(error, request);

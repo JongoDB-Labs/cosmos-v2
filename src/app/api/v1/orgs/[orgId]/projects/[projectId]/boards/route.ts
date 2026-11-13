@@ -9,6 +9,7 @@ import { canManageBoardsInProject } from "@/lib/rbac/project-role";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { widgetLinkProblems, widgetLinkRefusal } from "@/lib/boards/widget-links";
+import { boardForReader } from "@/lib/boards/board-dto";
 import { problem } from "@/lib/openapi/problem";
 import { uniqueBoardSlug } from "@/lib/templates/slugify";
 import { z } from "zod";
@@ -58,7 +59,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // project"; this answers "which of its boards are theirs to see". Without
     // it this route returned every board while the sidebar hid the ones
     // assigned to another team — the same question, two different answers.
-    return success(await withStatusCategories(prisma, projectId, await narrowBoards(ctx, projectId, boards)));
+    const rows = await withStatusCategories(prisma, projectId, await narrowBoards(ctx, projectId, boards));
+    return success(rows.map((b) => boardForReader(b, ctx.userId)));
   } catch (error) {
     return handleApiError(error);
   }
@@ -158,7 +160,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
-    return created(board);
+    return created(boardForReader(board, ctx.userId));
   } catch (error) {
     return handleApiError(error);
   }

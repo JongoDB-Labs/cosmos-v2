@@ -601,6 +601,11 @@ describe("the widgets that used to say 'not available'", () => {
             "ProtoRel|//evil.example",
             "Script|javascript:alert(1)",
             "Data|data:text/html,<script>alert(1)</script>",
+            // Dot segments the URL parser folds to `//evil.example`.
+            "Dot|/.//evil.example",
+            "DotDot|/a/..//evil.example",
+            "Encoded|/%2e//evil.example",
+            "Query|/..//evil.example/x?q#h",
             "Outside|https://evil.example",
             "Home|/acme/projects/ACME",
           ].join("\n"),

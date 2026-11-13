@@ -67,6 +67,11 @@ const HOSTILE = [
   "//evil.example",
   "javascript:alert(1)",
   "data:text/html,<script>alert(1)</script>",
+  // Dot segments: each folds to `//evil.example…` once resolved.
+  "/.//evil.example",
+  "/a/..//evil.example",
+  "/%2e//evil.example",
+  "/..//evil.example/x?q#h",
 ];
 const ALLOWED = ["/acme/projects/ACME", "https://evil.example"];
 
@@ -156,6 +161,24 @@ describe("widget link validation on save", () => {
     );
     expect(good.status).toBe(201);
     expect(await count()).toBe(1);
+  });
+
+  it("board POST and the widget API refuse a dot-segment link that resolves off-site", async () => {
+    const count = () => prisma.board.count({ where: { projectId: w.P1.id, name: "Dotted" } });
+    const bad = await createBoard(
+      json("POST", base(), { name: "Dotted", type: "DASHBOARD", config: { widgets: layoutWith("/a/..//evil.example") } }),
+      projectParams(),
+    );
+    expect(bad.status).toBe(400);
+    expect(await count()).toBe(0);
+    const href = `${base()}/${board}/dashboard-widgets`;
+    const before = await prisma.dashboardWidget.count({ where: { boardId: board } });
+    const widget = await createWidget(
+      json("POST", href, { type: "link-list", config: { links: "Go|/%2e//evil.example" } }),
+      boardParams(),
+    );
+    expect(widget.status).toBe(400);
+    expect(await prisma.dashboardWidget.count({ where: { boardId: board } })).toBe(before);
   });
 
   it("the widget API refuses a bad link on create and on update, and keeps a good one", async () => {

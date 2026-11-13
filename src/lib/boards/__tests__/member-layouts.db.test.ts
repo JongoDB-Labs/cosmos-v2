@@ -32,6 +32,10 @@ import {
   PUT as putMine,
   DELETE as deleteMine,
 } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/boards/[boardId]/my-layout/route";
+import { GET as listBoards } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/boards/route";
+import { GET as getBoard } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/boards/[boardId]/route";
+import { GET as getProject } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/route";
+import { GET as getCeremony } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/route";
 
 let w: World;
 let as: AuthContext;
@@ -283,5 +287,234 @@ describe("my own layout of a shared dashboard", () => {
     const bad = [{ id: "x", type: "counter", config: {}, layout: { x: 0, y: 0, w: 0, h: 2 } }];
     const res = await putMine(json("PUT", mineUrl(w.P1.id, shared), { widgets: bad }), boardParams(w.P1.id, shared));
     expect(res.status).toBe(400);
+  });
+});
+
+// ── The owner path, probed at its edges ──────────────────────────────────────
+//
+// Each case below is a regression an independent review could make without a
+// test failing (its mutations M2, M5, M6, M8, M10, M11), or a reach the owner
+// path had that its rationale never meant to give (ceremony boards, project-wide
+// config flags). Every refusal has a manager or same-route positive control.
+
+/** Create a board through the route as the actor (so the actor owns it). */
+async function ownBoard(type: string, name: string, config?: Record<string, unknown>): Promise<string> {
+  as = member();
+  const res = await createBoard(
+    json("POST", url(w.P1.id), { name: `${name} ${Math.random().toString(36).slice(2, 7)}`, type, ...(config ? { config } : {}) }),
+    { params: Promise.resolve({ orgId: w.orgA, projectId: w.P1.id }) },
+  );
+  expect(res.status, `create ${type}`).toBe(201);
+  return ((await res.json()) as { id: string }).id;
+}
+const put = (ctx: AuthContext, id: string, body: unknown, projectId = w.P1.id) => {
+  as = ctx;
+  return putBoard(json("PUT", url(projectId, `/${id}`), body), boardParams(projectId, id));
+};
+const del = (ctx: AuthContext, id: string, projectId = w.P1.id) => {
+  as = ctx;
+  return deleteBoard(json("DELETE", url(projectId, `/${id}`)), boardParams(projectId, id));
+};
+const orgViewer = (): AuthContext =>
+  ({ ...member(), orgRole: "VIEWER", permissions: RolePermissions.VIEWER, basePermissions: RolePermissions.VIEWER }) as AuthContext;
+
+describe("the owner path ends where the create gate ends", () => {
+  it("refuses a creator who is now an org VIEWER, on PUT and DELETE (positive control: the same board as a member)", async () => {
+    const id = await ownBoard("DASHBOARD", "Lapsed org");
+    expect((await put(orgViewer(), id, { name: "x" })).status).toBe(403);
+    expect((await del(orgViewer(), id)).status).toBe(403);
+    expect(await prisma.board.findUnique({ where: { id } })).not.toBeNull();
+    expect((await put(member(), id, { name: "still mine" })).status).toBe(200);
+  });
+
+  it("refuses a creator who is now a project VIEWER, on PUT and DELETE", async () => {
+    const id = await ownBoard("DASHBOARD", "Lapsed project");
+    const om = await prisma.orgMember.findFirstOrThrow({ where: { orgId: w.orgA, userId: w.actor.id } });
+    await prisma.projectMember.updateMany({ where: { projectId: w.P1.id, orgMemberId: om.id }, data: { role: "VIEWER" } });
+    try {
+      expect((await put(member(), id, { name: "x" })).status).toBe(403);
+      expect((await del(member(), id)).status).toBe(403);
+    } finally {
+      await prisma.projectMember.updateMany({ where: { projectId: w.P1.id, orgMemberId: om.id }, data: { role: "MEMBER" } });
+    }
+    expect((await prisma.board.findUniqueOrThrow({ where: { id } })).name).not.toBe("x");
+    expect((await put(member(), id, { name: "back" })).status).toBe(200);
+  });
+
+  it("refuses DELETE on a board the creator can no longer see the project of", async () => {
+    const hidden = await prisma.board.create({
+      data: { orgId: w.orgA, projectId: w.P2.id, name: "Old", type: "DASHBOARD", ownerId: w.actor.id },
+    });
+    expect([403, 404]).toContain((await del(member(), hidden.id, w.P2.id)).status);
+    expect(await prisma.board.findUnique({ where: { id: hidden.id } })).not.toBeNull();
+  });
+});
+
+describe("the owner path and the team axis", () => {
+  let myTeam: string;
+  beforeAll(async () => {
+    const pm = await prisma.projectMember.findFirstOrThrow({
+      where: { projectId: w.P1.id, orgMember: { userId: w.actor.id } },
+    });
+    myTeam = (await prisma.team.create({ data: { orgId: w.orgA, projectId: w.P1.id, name: "Mine" } })).id;
+    await prisma.teamMember.create({ data: { teamId: myTeam, projectMemberId: pm.id } });
+  });
+
+  it("lets a creator change and personalise their board on a team they are on (positive control)", async () => {
+    const id = await ownBoard("DASHBOARD", "On my team");
+    await prisma.board.update({ where: { id }, data: { teamId: myTeam } });
+    expect((await put(member(), id, { config: { widgets: WIDGETS } })).status).toBe(200);
+    as = member();
+    const mineRes = await putMine(json("PUT", url(w.P1.id, `/${id}/my-layout`), { widgets: MY_WIDGETS }), boardParams(w.P1.id, id));
+    expect(mineRes.status).toBe(200);
+  });
+
+  it("refuses PUT, DELETE and my-layout on the creator's board once it is on a team they are not on", async () => {
+    const id = await ownBoard("DASHBOARD", "Off my team");
+    await prisma.board.update({ where: { id }, data: { teamId: w.teamP1 } }); // bob's team, not the actor's
+    expect([403, 404]).toContain((await put(member(), id, { name: "x", config: { widgets: [] } })).status);
+    expect([403, 404]).toContain((await del(member(), id)).status);
+    as = member();
+    const mineRes = await putMine(json("PUT", url(w.P1.id, `/${id}/my-layout`), { widgets: MY_WIDGETS }), boardParams(w.P1.id, id));
+    expect([403, 404]).toContain(mineRes.status);
+    const mineGet = await getMine(json("GET", url(w.P1.id, `/${id}/my-layout`)), boardParams(w.P1.id, id));
+    expect([403, 404]).toContain(mineGet.status);
+    const row = await prisma.board.findUniqueOrThrow({ where: { id } });
+    expect(row.name).not.toBe("x");
+    expect(await prisma.personalBoardLayout.count({ where: { boardId: id } })).toBe(0);
+  });
+
+  it("refuses a creator sending teamId: null, which would un-scope their board for everyone", async () => {
+    const id = await ownBoard("DASHBOARD", "Scoped");
+    await prisma.board.update({ where: { id }, data: { teamId: myTeam } });
+    const res = await put(member(), id, { teamId: null });
+    expect(res.status).toBe(403);
+    expect((await prisma.board.findUniqueOrThrow({ where: { id } })).teamId).toBe(myTeam);
+    // Positive control: a manager may share it with the whole project again.
+    expect((await put(admin(), id, { teamId: null })).status).toBe(200);
+    expect((await prisma.board.findUniqueOrThrow({ where: { id } })).teamId).toBeNull();
+  });
+});
+
+describe("my-layout DELETE", () => {
+  it("drops only the caller's own arrangement", async () => {
+    const id = await ownBoard("DASHBOARD", "Two layouts");
+    as = member();
+    expect((await putMine(json("PUT", url(w.P1.id, `/${id}/my-layout`), { widgets: MY_WIDGETS }), boardParams(w.P1.id, id))).status).toBe(200);
+    as = otherMember();
+    expect((await putMine(json("PUT", url(w.P1.id, `/${id}/my-layout`), { widgets: MY_WIDGETS }), boardParams(w.P1.id, id))).status).toBe(200);
+    as = member();
+    expect((await deleteMine(json("DELETE", url(w.P1.id, `/${id}/my-layout`)), boardParams(w.P1.id, id))).status).toBe(204);
+    const left = await prisma.personalBoardLayout.findMany({ where: { boardId: id }, select: { userId: true } });
+    expect(left).toEqual([{ userId: w.bob.id }]);
+  });
+});
+
+describe("owner rights reach the layout of a widget board, and nothing else", () => {
+  const readCeremony = async (boardId: string) => {
+    as = member();
+    const res = await getCeremony(
+      new NextRequest(
+        `http://localhost/api/v1/orgs/${w.orgA}/projects/${w.P1.id}/intervals/${w.sprintP1Done}/ceremony?boardId=${boardId}`,
+      ),
+      { params: Promise.resolve({ orgId: w.orgA, projectId: w.P1.id, intervalId: w.sprintP1Done }) },
+    );
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { ceremony: { notes: Array<{ authorId: string | null }> } }).ceremony.notes;
+  };
+  const withNote = async (boardId: string) => {
+    const c = await prisma.sprintCeremony.create({
+      data: { orgId: w.orgA, boardId, intervalId: w.sprintP1Done, kind: "REVIEW" },
+    });
+    await prisma.retroNote.create({ data: { ceremonyId: c.id, columnKey: "stop", text: "a colleague's note", authorId: w.bob.id } });
+    return c.id;
+  };
+
+  it("does not let the creator of a review board reveal who wrote its notes (positive control: a manager may)", async () => {
+    const id = await ownBoard("SPRINT_REVIEW", "Review");
+    await withNote(id);
+    expect((await readCeremony(id))[0].authorId).toBeNull();
+    const res = await put(member(), id, { config: { showNoteAuthors: true } });
+    expect(res.status).toBe(403);
+    expect((await readCeremony(id))[0].authorId).toBeNull();
+    expect((await put(admin(), id, { config: { showNoteAuthors: true } })).status).toBe(200);
+    expect((await readCeremony(id))[0].authorId).toBe(w.bob.id);
+  });
+
+  it("does not let the creator of a review board delete it with other people's notes (positive control: a manager may)", async () => {
+    const id = await ownBoard("SPRINT_REVIEW", "Review del");
+    const ceremonyId = await withNote(id);
+    expect((await del(member(), id)).status).toBe(403);
+    expect(await prisma.retroNote.count({ where: { ceremonyId } })).toBe(1);
+    expect((await del(admin(), id)).status).toBe(204);
+    expect(await prisma.board.findUnique({ where: { id } })).toBeNull();
+  });
+
+  it("does not let the creator delete their dashboard once a ceremony hangs off it (positive control: a manager may)", async () => {
+    const id = await ownBoard("DASHBOARD", "With ceremony");
+    const ceremonyId = await withNote(id);
+    const res = await del(member(), id);
+    expect(res.status).toBe(403);
+    expect(await prisma.retroNote.count({ where: { ceremonyId } })).toBe(1);
+    expect((await del(admin(), id)).status).toBe(204);
+  });
+
+  it("does not let the creator of a Kanban board set the project-wide WIP flag (positive control: a manager may)", async () => {
+    const id = await ownBoard("KANBAN", "Flow");
+    expect((await put(member(), id, { config: { wipHardEnforce: true } })).status).toBe(403);
+    expect((await configOf(id)).wipHardEnforce).toBeUndefined();
+    expect((await put(admin(), id, { config: { wipHardEnforce: true } })).status).toBe(200);
+    expect((await configOf(id)).wipHardEnforce).toBe(true);
+  });
+
+  it("changes only the widgets on the creator's own dashboard; manager-only keys keep their stored values", async () => {
+    const id = await ownBoard("DASHBOARD", "Keys", { widgets: [], query: "priority = HIGH", classification: "LOW" });
+    const sent = {
+      widgets: WIDGETS,
+      query: "",
+      classification: "HIGH",
+      showNoteAuthors: true,
+      wipHardEnforce: true,
+    };
+    expect((await put(member(), id, { config: sent })).status).toBe(200);
+    expect(await configOf(id)).toEqual({ widgets: WIDGETS, query: "priority = HIGH", classification: "LOW" });
+    // Positive control: a manager's PUT writes the config it sends.
+    expect((await put(admin(), id, { config: sent })).status).toBe(200);
+    expect(await configOf(id)).toEqual(sent);
+  });
+});
+
+describe("who made a board reaches readers only as ownedByMe", () => {
+  it("is never sent as an id, on the board list, the board, the project or the create response", async () => {
+    as = member();
+    const created = await createBoard(json("POST", url(w.P1.id), { name: `Owned ${Math.random()}`, type: "DASHBOARD" }), {
+      params: Promise.resolve({ orgId: w.orgA, projectId: w.P1.id }),
+    });
+    const createdBody = (await created.json()) as Record<string, unknown>;
+    const id = createdBody.id as string;
+    expect(createdBody.ownedByMe).toBe(true);
+    expect(createdBody).not.toHaveProperty("ownerId");
+
+    const read = async (ctx: AuthContext) => {
+      as = ctx;
+      const list = (await (await listBoards(json("GET", url(w.P1.id)), { params: Promise.resolve({ orgId: w.orgA, projectId: w.P1.id }) })).json()) as Array<Record<string, unknown>>;
+      as = ctx;
+      const one = (await (await getBoard(json("GET", url(w.P1.id, `/${id}`)), boardParams(w.P1.id, id))).json()) as Record<string, unknown>;
+      as = ctx;
+      const project = (await (
+        await getProject(json("GET", `http://localhost/api/v1/orgs/${w.orgA}/projects/${w.P1.id}`), {
+          params: Promise.resolve({ orgId: w.orgA, projectId: w.P1.id }),
+        })
+      ).json()) as { boards: Array<Record<string, unknown>> };
+      return [list.find((b) => b.id === id)!, one, project.boards.find((b) => b.id === id)!];
+    };
+    for (const row of await read(otherMember())) {
+      expect(row).not.toHaveProperty("ownerId");
+      expect(row.ownedByMe).toBe(false);
+    }
+    for (const row of await read(member())) {
+      expect(row).not.toHaveProperty("ownerId");
+      expect(row.ownedByMe).toBe(true);
+    }
   });
 });

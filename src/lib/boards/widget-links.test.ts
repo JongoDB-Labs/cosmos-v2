@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import {
   checkWidgetLinkTarget,
+  drawnPathStaysOn,
   widgetLinkLines,
   widgetLinkProblems,
   widgetLinkRefusal,
@@ -45,7 +46,56 @@ const HOSTILE: Array<[string, string]> = [
   ["a bare word", "runbook"],
 ];
 
+/**
+ * Dot segments the URL parser folds away. Each one passes a check on the TYPED
+ * text (it starts with one "/", holds no backslash or space) but resolves to
+ * `//evil.example…`, which a browser reads as another site. So the rule has to
+ * judge the href it DRAWS, not the text it was given.
+ */
+const DOT_SEGMENTS: Array<[string, string]> = [
+  ["/.//evil.example", "//evil.example"],
+  ["/a/..//evil.example", "//evil.example"],
+  ["/%2e//evil.example", "//evil.example"],
+  ["/%2E//evil.example", "//evil.example"],
+  ["/..//evil.example/x?q#h", "//evil.example/x?q#h"],
+  ["/a/b/../..//evil.example", "//evil.example"],
+  ["/a/%2e%2e//evil.example", "//evil.example"],
+  ["/a/.%2E//evil.example", "//evil.example"],
+  ["/././/evil.example", "//evil.example"],
+];
+
 describe("widget link validation", () => {
+  it.each(DOT_SEGMENTS)(
+    "refuses %s, which resolves to %s, on both paths",
+    (target, resolved) => {
+      // The premise: the parser really does fold this to a protocol-relative
+      // path. If it ever stops, this test says so instead of passing vacuously.
+      const folded = new URL(target, VIEWER);
+      expect(`${folded.pathname}${folded.search}${folded.hash}`).toBe(resolved);
+      expect(drawn(target)).toEqual([]);
+      expect(refusedOnSave(target)).toEqual([
+        `"Runbooks", line 1: the link leads out of the app once its "." and ".." parts are resolved.`,
+      ]);
+    },
+  );
+
+  it("says why a protocol-relative link is refused before resolving anything", () => {
+    // Its own reason, from the check on the typed text — the drawn-href check
+    // would refuse it too, in other words.
+    expect(checkWidgetLinkTarget("//evil.example")).toEqual({
+      ok: false,
+      reason: "starts with // and would leave the app",
+    });
+  });
+
+  it("keeps a dot segment that stays inside the app (positive control)", () => {
+    expect(drawn("/acme/b/../projects/./ACME")).toEqual([
+      { label: "L", href: "/acme/projects/ACME", external: false },
+    ]);
+    expect(drawn("/%2e%2e/acme")).toEqual([{ label: "L", href: "/acme", external: false }]);
+    expect(refusedOnSave("/acme/b/../projects")).toEqual([]);
+  });
+
   it.each(HOSTILE)("refuses %s on both paths", (_why, target) => {
     expect(drawn(target)).toEqual([]);
     const problems = refusedOnSave(target);
@@ -122,5 +172,34 @@ describe("widget link validation", () => {
   it("falls back to its own origin when given an unusable one", () => {
     expect(checkWidgetLinkTarget("/a", "not a url")).toEqual({ ok: true, href: "/a", external: false });
     expect(checkWidgetLinkTarget("/a", "data:,x")).toEqual({ ok: true, href: "/a", external: false });
+  });
+});
+
+// `drawnPathStaysOn` holds two tests: the href starts with ONE "/", and it
+// resolves to the app's own origin. Through `checkWidgetLinkTarget` each
+// already catches everything the other does, so neither can be shown to
+// matter from there. These run the helper on what its caller screens out
+// first, which is exactly where a second test has to hold on its own.
+describe("drawnPathStaysOn: each half holds without the other", () => {
+  const BASE = "https://app.invalid";
+
+  it("refuses a path a tab or newline splits into //host, though it starts with one /", () => {
+    // Premise: the URL parser drops the tab, so this resolves to another site.
+    expect(new URL("/\t/evil.example", BASE).origin).toBe("https://evil.example");
+    expect(drawnPathStaysOn("/\t/evil.example", BASE)).toBe(false);
+    expect(drawnPathStaysOn("/\n/evil.example", BASE)).toBe(false);
+  });
+
+  it("refuses //host and /\\host even when the host is the app's own", () => {
+    // Premise: both resolve to the app itself, so only the leading-slash test
+    // can refuse them.
+    expect(new URL("//app.invalid/x", BASE).origin).toBe(BASE);
+    expect(new URL("/\\app.invalid/x", BASE).origin).toBe(BASE);
+    expect(drawnPathStaysOn("//app.invalid/x", BASE)).toBe(false);
+    expect(drawnPathStaysOn("/\\app.invalid/x", BASE)).toBe(false);
+  });
+
+  it("keeps a plain path (positive control)", () => {
+    expect(drawnPathStaysOn("/acme/projects/ACME?x=1#top", BASE)).toBe(true);
   });
 });

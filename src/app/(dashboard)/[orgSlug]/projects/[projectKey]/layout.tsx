@@ -3,6 +3,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
 import { canManageBoardsInProject } from "@/lib/rbac/project-role";
+import { isOwnLayoutBoard } from "@/lib/rbac/board-ownership";
 import { narrowBoards } from "@/lib/rbac/board-access";
 import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
@@ -88,10 +89,11 @@ export default async function ProjectLayout({
     (hasPermission(ctx.permissions, Permission.BOARD_DELETE) && mayManageBoards) || isProjectManager;
   const canCreateBoards = mayManageBoards;
   // The boards this person made and may still change — `canManageOwnBoard`'s
-  // rule, applied here without a per-board query: it is "you made it" AND the
-  // same create gate `mayManageBoards` already answered for this project.
+  // rule, applied here without a per-board query: `isOwnLayoutBoard` (you made
+  // it, and it is a widget board) AND the same create gate `mayManageBoards`
+  // already answered for this project.
   const ownedBoardIds = mayManageBoards
-    ? boards.filter((b) => b.ownerId === ctx.userId).map((b) => b.id)
+    ? boards.filter((b) => isOwnLayoutBoard(b, ctx.userId)).map((b) => b.id)
     : [];
   // Who may set the PROJECT-WIDE default view (the tab everyone without a
   // personal override lands on). Mirrors the PUT …/projects/[projectId] gate

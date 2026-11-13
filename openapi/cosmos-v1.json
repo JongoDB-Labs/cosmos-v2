@@ -707,13 +707,9 @@
             ],
             "format": "uuid"
           },
-          "ownerId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid",
-            "description": "The user who created this board. They may rename it, change its layout and delete it. Null for boards made before boards had owners."
+          "ownedByMe": {
+            "type": "boolean",
+            "description": "True when the caller created this board. The creator of a dashboard may rename it, change its layout and delete it without managing the project's boards."
           },
           "name": {
             "type": "string"
@@ -766,7 +762,7 @@
           "orgId",
           "projectId",
           "teamId",
-          "ownerId",
+          "ownedByMe",
           "name",
           "slug",
           "type",

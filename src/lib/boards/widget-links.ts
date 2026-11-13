@@ -17,8 +17,10 @@
  *   site — and strips a tab or newline out of `/\t/evil.example` to the same
  *   effect. So a target holding a backslash, any whitespace or any control
  *   character is refused outright, and what is left is resolved against the
- *   app's own origin and must still BE that origin. What gets drawn is the
- *   normalised `pathname + search + hash`, never the typed text.
+ *   app's own origin. What gets drawn is the normalised
+ *   `pathname + search + hash`, never the typed text — and it is THAT href
+ *   which is checked, because the parser folds dot segments: `/.//evil.example`
+ *   and `/%2e//evil.example` resolve to `//evil.example`.
  *
  * Pure, and safe on both sides of the wire.
  */
@@ -58,6 +60,25 @@ function originOf(candidate: string | undefined): string {
   return FALLBACK_ORIGIN;
 }
 
+/**
+ * Does the href a Link List would DRAW stay on `base`? It must start with one
+ * "/" — not "//" and not "/\\", which a browser reads as another host — and
+ * resolving it the way the browser will must land on `base` itself. On what
+ * `checkWidgetLinkTarget` hands it the two tests agree, so each is a second
+ * line behind the other: the origin test still refuses `/\t/evil.example` (one
+ * leading "/", but the parser drops the tab), and the leading-slash test still
+ * refuses `//app.example/x` (the app's own host, but not a path). Exported so
+ * a test can show each half holding on its own.
+ */
+export function drawnPathStaysOn(href: string, base: string): boolean {
+  if (!href.startsWith("/") || href.startsWith("//") || href.startsWith("/\\")) return false;
+  try {
+    return new URL(href, base).origin === base;
+  } catch {
+    return false;
+  }
+}
+
 /** Is `target` a link a Link List may hold, and if so what exactly to draw. */
 export function checkWidgetLinkTarget(target: string, origin?: string): WidgetLinkCheck {
   if (target.length === 0) return { ok: false, reason: "has no link" };
@@ -76,10 +97,15 @@ export function checkWidgetLinkTarget(target: string, origin?: string): WidgetLi
     } catch {
       return { ok: false, reason: "is not a valid path" };
     }
-    if (url.origin !== base || !url.pathname.startsWith("/")) {
-      return { ok: false, reason: "would leave the app" };
+    const href = `${url.pathname}${url.search}${url.hash}`;
+    // Judge what is DRAWN, not what was typed. The parser folds dot segments
+    // away, so `/.//evil.example`, `/a/..//evil.example` and
+    // `/%2e//evil.example` all pass every check on the typed text above and
+    // then come out as `//evil.example` — another site to the browser.
+    if (!drawnPathStaysOn(href, base)) {
+      return { ok: false, reason: 'leads out of the app once its "." and ".." parts are resolved' };
     }
-    return { ok: true, href: `${url.pathname}${url.search}${url.hash}`, external: false };
+    return { ok: true, href, external: false };
   }
 
   let url: URL;
