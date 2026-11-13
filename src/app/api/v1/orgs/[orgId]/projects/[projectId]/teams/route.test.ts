@@ -9,7 +9,7 @@
 // teamScopedAccess is on, so who may edit them is the load-bearing question.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, RolePermissions } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole, ProjectRole } from "@prisma/client";
 
@@ -92,7 +92,7 @@ describe("POST teams — who may create one", () => {
   it("allows an org ADMIN — org-wide administration, from the org role", async () => {
     // The delegable PROJECT_MANAGE bit no longer stands in for org-wide reach:
     // a "Project Manager" work role must not administer every project's teams.
-    getAuthContext.mockResolvedValue(ctx({ orgRole: OrgRole.ADMIN }));
+    getAuthContext.mockResolvedValue(ctx({ orgRole: OrgRole.ADMIN, permissions: RolePermissions.ADMIN }));
     const res = await POST(postReq({ name: "Alpha" }), { params });
     expect(res.status).toBe(201);
     expect(prisma.team.create).toHaveBeenCalled();
@@ -109,7 +109,7 @@ describe("POST teams — who may create one", () => {
 describe("POST teams — validation", () => {
   beforeEach(() => {
     getAuthContext.mockResolvedValue(
-      ctx({ orgRole: OrgRole.ADMIN }),
+      ctx({ orgRole: OrgRole.ADMIN, permissions: RolePermissions.ADMIN }),
     );
   });
 

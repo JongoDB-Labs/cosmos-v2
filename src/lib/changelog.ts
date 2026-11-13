@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.556.2",
+    date: "2026-11-13",
+    title: "Action restrictions hold for organization admins",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An organization admin's role no longer gets around a restriction with no conditions. Under one, an admin, or an API key made by an owner or an admin, can no longer rename or manage a project, or create a board, just by being an admin. The owner's own sign-in still can, so an owner can always undo a restriction.",
+      },
+    ],
+  },
+  {
     version: "2.556.1",
     date: "2026-11-13",
     title: "Cosmo's bulk changes report items in the order you gave them",
