@@ -144,6 +144,16 @@ describe("projectResult (wrapper unwrap — what the loop uses)", () => {
     });
   });
 
+  it("a saved view created private when the model asked to share keeps the asked visibility and the next step, not the note", () => {
+    const created = {
+      created: true, id: "v1", name: "Hot items", visibility: "PRIVATE", ownerId: "u1", url: "/acme/work-items?filter=v1",
+      requestedVisibility: "ORG", nextStep: "share_saved_view", note: "Saved as private. Sharing it is a separate step.",
+    };
+    expect(projectResult(created, entityTypeForTool("create_saved_view"))).toEqual({
+      created: true, id: "v1", visibility: "PRIVATE", ownerId: "u1", requestedVisibility: "ORG", nextStep: "share_saved_view",
+    });
+  });
+
   it("a bare entity[] result is projected element-wise", () => {
     expect(projectResult([{ id: "a", title: "x" }], "work_item")).toEqual([{ id: "a" }]);
   });
@@ -375,5 +385,62 @@ describe("a single entity is projected, not dropped", () => {
   it("an unmapped entity type is still a FULL withhold, single entity or not", () => {
     expect(projectResult({ id: "x", ticketNumber: 1 }, "no_such_entity")).toEqual({ withheld: true, ref: "withheld:structural" });
     expect(projectResult({ id: "x" }, undefined)).toEqual({ withheld: true, ref: "withheld:structural" });
+  });
+});
+
+describe("get_person in an org whose results are withheld", () => {
+  // The exact shape the executor returns (people.ts). Before the assignments
+  // moved to the top level, the model saw `{count: 2, total: 2}` and no item at
+  // all, so "what is Bob working on?" could only be answered with a number.
+  const result = {
+    person: { userId: "u-1", name: "Bob Example", email: "bob@example.com", role: "MEMBER" },
+    projects: [{ projectId: "p-1", key: "ABC", name: "Secret Program", archived: false, role: "MEMBER" }],
+    teams: [{ teamId: "t-1", name: "Payload Team", projectId: "p-1", isLead: true }],
+    openAssignments: { count: 1, total: 1 },
+    assignments: [
+      {
+        id: "w-1", ticketNumber: 12, ticketKey: "ABC-12", projectId: "p-1",
+        title: "Replace the flight computer", columnKey: "in-progress-custom",
+        priority: "HIGH", dueDate: "2026-12-01T00:00:00.000Z", intervalId: "s-1",
+      },
+    ],
+  };
+
+  it("keeps each assignment's id, number and structural fields", () => {
+    const out = projectResult(result, entityTypeForTool("get_person")) as {
+      assignments: Record<string, unknown>[];
+      openAssignments: Record<string, unknown>;
+    };
+    expect(out.assignments).toEqual([
+      { id: "w-1", ticketNumber: 12, projectId: "p-1", priority: "HIGH", dueDate: "2026-12-01T00:00:00.000Z", intervalId: "s-1" },
+    ]);
+    expect(out.openAssignments).toEqual({ count: 1, total: 1 });
+  });
+
+  it("drops every title, name, key, email and free-text column", () => {
+    const serialized = JSON.stringify(projectResult(result, entityTypeForTool("get_person")));
+    // Positive control: the structural values ARE in the same string.
+    expect(serialized).toContain("w-1");
+    expect(serialized).toContain("u-1");
+    for (const secret of ["Replace the flight computer", "ABC-12", "Bob Example", "bob@example.com", "Secret Program", "Payload Team", "in-progress-custom", "\"ABC\""]) {
+      expect(serialized).not.toContain(secret);
+    }
+  });
+});
+
+describe("ceremony notes in an org whose results are withheld", () => {
+  // A retro board's column keys are typed by its users ("went-well", or anything
+  // else), so they are free text like a work item's columnKey and never leave.
+  const note = { id: "n-1", columnKey: "things that went badly", authorId: "u-1", isMine: true, createdAt: "2026-11-12T00:00:00.000Z", body: "Secret note" };
+
+  it("keeps the note's id, author and time, and drops its column and body", () => {
+    for (const tool of ["add_ceremony_note", "update_ceremony_note"]) {
+      const out = projectResult({ created: true, note }, entityTypeForTool(tool)) as { note: Record<string, unknown> };
+      expect(out.note).toEqual({ id: "n-1", authorId: "u-1", isMine: true, createdAt: "2026-11-12T00:00:00.000Z" });
+      const serialized = JSON.stringify(out);
+      expect(serialized).toContain("n-1"); // positive control
+      expect(serialized).not.toContain("things that went badly");
+      expect(serialized).not.toContain("Secret note");
+    }
   });
 });

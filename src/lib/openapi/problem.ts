@@ -73,6 +73,8 @@ export class ProblemError extends Error {
     readonly code: ProblemCode,
     detail?: string,
     readonly headers?: HeadersInit,
+    /** Per-field problems, sent as the body's `issues`. */
+    readonly issues?: unknown[],
   ) {
     super(detail ?? PROBLEM_CODES[code]);
     this.name = "ProblemError";

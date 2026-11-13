@@ -167,6 +167,7 @@ export const googleTools: ToolDefinition[] = [
   },
   {
     name: "delete_calendar_event",
+    confirm: true,
     description: "Delete a Google Calendar event by ID.",
     input_schema: {
       type: "object",

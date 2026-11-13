@@ -65,6 +65,13 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   update_work_item: "work_items",
   archive_work_item: "work_items",
   delete_work_item: "work_items",
+  // Changing many work items at once, and the saved filters over them.
+  bulk_update_work_items: "work_items",
+  list_saved_views: "work_items",
+  create_saved_view: "work_items",
+  update_saved_view: "work_items",
+  share_saved_view: "work_items",
+  delete_saved_view: "work_items",
   // A transition is a status change under the project's workflow.
   list_transitions: "work_items",
   transition_item: "work_items",
@@ -111,6 +118,12 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   // ── projects (incl. govcon PM Dashboard registers, OKRs, planning) ────────────
   list_projects: "projects",
   list_org_members: "projects",
+  list_project_members: "projects",
+  get_person: "projects",
+  add_project_member: "projects",
+  remove_project_member: "projects",
+  add_team_member: "projects",
+  remove_team_member: "projects",
   create_project: "projects",
   update_project: "projects",
   // PM Dashboard register tools (risk/blocker/deliverable/change) — project-management
@@ -151,6 +164,11 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   // Boards, documents, meetings, and the product-feedback backlog — project-scoped /
   // product-management surfaces, grouped under `projects` for one coarse deny lever.
   list_boards: "projects",
+  get_board: "projects",
+  create_board: "projects",
+  update_board: "projects",
+  set_board_columns: "projects",
+  delete_board: "projects",
   list_documents: "projects",
   list_meetings: "projects",
   create_meeting: "projects",
@@ -167,6 +185,19 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   update_interval: "intervals",
   complete_interval: "intervals",
   generate_interval_brief: "intervals",
+  // A sprint's ceremonies (retro, review) belong to the sprint. Promoting an
+  // action item FILES a work item, so it sits with the work items: an org that
+  // denies work_items must not get one created through the retro instead.
+  get_ceremony: "intervals",
+  open_ceremony: "intervals",
+  close_ceremony: "intervals",
+  add_ceremony_note: "intervals",
+  update_ceremony_note: "intervals",
+  delete_ceremony_note: "intervals",
+  add_ceremony_action: "intervals",
+  update_ceremony_action: "intervals",
+  delete_ceremony_action: "intervals",
+  promote_ceremony_action: "work_items",
 
   // ── search / RAG ─────────────────────────────────────────────────────────────
   semantic_search: "search",

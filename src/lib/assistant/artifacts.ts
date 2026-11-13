@@ -95,6 +95,9 @@ const TOOL_ARTIFACT_TYPE: Record<string, EntityType> = {
   update_change_request: "changeRequest",
   create_crm_contact: "crmContact",
   update_crm_contact: "crmContact",
+  create_board: "board",
+  update_board: "board",
+  delete_board: "board",
 };
 
 /**
@@ -178,6 +181,9 @@ export function toolCallToArtifact(
   const result = asRecord(tc.result) ?? {};
   // A failed mutation (executor returned `{ error }`) produced no entity → no card.
   if (result.error !== undefined) return null;
+  // Nor did a confirm-class call made without its token: the loop answered
+  // with a preview (lib/ai/confirmation.ts) and nothing has changed yet.
+  if (result.status === "confirmation_required") return null;
   const args = asRecord(tc.arguments) ?? {};
   const nested = firstNestedEntity(result);
 
@@ -212,7 +218,8 @@ export function toolCallToArtifact(
   // Project deep-links need the owning project's KEY. `create_project` carries it
   // in the args; project-scoped types (objective/milestone/…) only expose a
   // projectId, so their URL builder returns null and the card renders un-linked.
-  const projectKey = str(args.key) ?? (nested ? str(nested.key) : undefined);
+  // A board's tools return the key beside the board as `projectKey`.
+  const projectKey = str(args.key) ?? (nested ? str(nested.key) : undefined) ?? str(result.projectKey);
 
   // A deleted entity has no page to open → never link it.
   const url =

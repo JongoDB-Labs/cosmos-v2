@@ -93,7 +93,24 @@ import {
   createKpi,
   updateKpi,
 } from "./executors/goals-kpis";
-import { listBoards } from "./executors/boards";
+import {
+  listProjectMembers, getPerson, addProjectMember, removeProjectMemberTool, addTeamMemberTool, removeTeamMemberTool,
+} from "./executors/people";
+import { bulkUpdateWorkItems } from "./executors/bulk";
+import { listSavedViews, createSavedView, updateSavedView, shareSavedView, deleteSavedView } from "./executors/saved-views";
+import {
+  getCeremony,
+  openCeremonyTool,
+  closeCeremonyTool,
+  addCeremonyNoteTool,
+  updateCeremonyNoteTool,
+  deleteCeremonyNoteTool,
+  addCeremonyActionTool,
+  updateCeremonyActionTool,
+  deleteCeremonyActionTool,
+  promoteCeremonyActionTool,
+} from "./executors/ceremonies";
+import { listBoards, getBoardTool, createBoardTool, updateBoardTool, setBoardColumns, deleteBoardTool } from "./executors/boards";
 import { listDocuments } from "./executors/documents";
 import {
   createCrmContact,
@@ -435,6 +452,54 @@ async function dispatchTool(
       return updateComplianceControl(input, ctx);
     case "list_org_members":
       return listOrgMembers(input, ctx);
+    case "list_project_members":
+      return listProjectMembers(input, ctx);
+    case "get_person":
+      return getPerson(input, ctx);
+    case "add_project_member":
+      return addProjectMember(input, ctx);
+    case "remove_project_member":
+      return removeProjectMemberTool(input, ctx);
+    case "add_team_member":
+      return addTeamMemberTool(input, ctx);
+    case "remove_team_member":
+      return removeTeamMemberTool(input, ctx);
+    case "bulk_update_work_items":
+      return bulkUpdateWorkItems(input, ctx);
+
+    // Saved views (saved filters)
+    case "list_saved_views":
+      return listSavedViews(input, ctx);
+    case "create_saved_view":
+      return createSavedView(input, ctx);
+    case "update_saved_view":
+      return updateSavedView(input, ctx);
+    case "share_saved_view":
+      return shareSavedView(input, ctx);
+    case "delete_saved_view":
+      return deleteSavedView(input, ctx);
+
+    // Sprint ceremonies (retros, reviews)
+    case "get_ceremony":
+      return getCeremony(input, ctx);
+    case "open_ceremony":
+      return openCeremonyTool(input, ctx);
+    case "close_ceremony":
+      return closeCeremonyTool(input, ctx);
+    case "add_ceremony_note":
+      return addCeremonyNoteTool(input, ctx);
+    case "update_ceremony_note":
+      return updateCeremonyNoteTool(input, ctx);
+    case "delete_ceremony_note":
+      return deleteCeremonyNoteTool(input, ctx);
+    case "add_ceremony_action":
+      return addCeremonyActionTool(input, ctx);
+    case "update_ceremony_action":
+      return updateCeremonyActionTool(input, ctx);
+    case "delete_ceremony_action":
+      return deleteCeremonyActionTool(input, ctx);
+    case "promote_ceremony_action":
+      return promoteCeremonyActionTool(input, ctx);
 
     // PM Dashboard registers
     case "list_risks":
@@ -549,6 +614,16 @@ async function dispatchTool(
     // Boards + documents (read)
     case "list_boards":
       return listBoards(input, ctx);
+    case "get_board":
+      return getBoardTool(input, ctx);
+    case "create_board":
+      return createBoardTool(input, ctx);
+    case "update_board":
+      return updateBoardTool(input, ctx);
+    case "set_board_columns":
+      return setBoardColumns(input, ctx);
+    case "delete_board":
+      return deleteBoardTool(input, ctx);
     case "list_documents":
       return listDocuments(input, ctx);
 
@@ -620,6 +695,28 @@ const ASSISTANT_AUDIT_ACTIONS: Record<string, { action: string; entity: string }
   create_milestone: { action: "assistant.milestone.created", entity: "milestone" },
   update_milestone: { action: "assistant.milestone.updated", entity: "milestone" },
   delete_milestone: { action: "assistant.milestone.deleted", entity: "milestone" },
+  create_board: { action: "assistant.board.created", entity: "board" },
+  update_board: { action: "assistant.board.updated", entity: "board" },
+  set_board_columns: { action: "assistant.board.columns_updated", entity: "board" },
+  delete_board: { action: "assistant.board.deleted", entity: "board" },
+  add_project_member: { action: "assistant.project_member.set", entity: "project" },
+  remove_project_member: { action: "assistant.project_member.removed", entity: "project" },
+  add_team_member: { action: "assistant.team_member.added", entity: "project" },
+  remove_team_member: { action: "assistant.team_member.removed", entity: "project" },
+  bulk_update_work_items: { action: "assistant.work_item.bulk_updated", entity: "work_item" },
+  create_saved_view: { action: "assistant.saved_view.created", entity: "saved_view" },
+  update_saved_view: { action: "assistant.saved_view.updated", entity: "saved_view" },
+  share_saved_view: { action: "assistant.saved_view.shared", entity: "saved_view" },
+  delete_saved_view: { action: "assistant.saved_view.deleted", entity: "saved_view" },
+  open_ceremony: { action: "assistant.ceremony.opened", entity: "ceremony" },
+  close_ceremony: { action: "assistant.ceremony.closed", entity: "ceremony" },
+  add_ceremony_note: { action: "assistant.ceremony_note.created", entity: "ceremony_note" },
+  update_ceremony_note: { action: "assistant.ceremony_note.updated", entity: "ceremony_note" },
+  delete_ceremony_note: { action: "assistant.ceremony_note.deleted", entity: "ceremony_note" },
+  add_ceremony_action: { action: "assistant.ceremony_action.created", entity: "ceremony_action" },
+  update_ceremony_action: { action: "assistant.ceremony_action.updated", entity: "ceremony_action" },
+  delete_ceremony_action: { action: "assistant.ceremony_action.deleted", entity: "ceremony_action" },
+  promote_ceremony_action: { action: "assistant.ceremony_action.promoted", entity: "work_item" },
   create_feedback: { action: "assistant.feedback.created", entity: "feedback" },
   set_feedback_status: { action: "assistant.feedback.updated", entity: "feedback" },
   create_meeting: { action: "assistant.meeting.created", entity: "sync_meeting" },
@@ -647,7 +744,7 @@ function pickEntityId(result: unknown): string | undefined {
   if (!result || typeof result !== "object") return undefined;
   const r = result as Record<string, unknown>;
   if (typeof r.id === "string") return r.id;
-  for (const key of ["workItem", "note", "comment", "timeEntry", "revenue", "expense", "interval", "event", "item", "risk", "project", "blocker", "deliverable", "changeRequest", "objective", "keyResult", "checkin", "link", "milestone", "feedback", "meeting", "goal", "kpi", "contact"]) {
+  for (const key of ["workItem", "note", "comment", "timeEntry", "revenue", "expense", "interval", "event", "item", "risk", "project", "blocker", "deliverable", "changeRequest", "objective", "keyResult", "checkin", "link", "milestone", "feedback", "meeting", "goal", "kpi", "contact", "board", "ceremony", "action"]) {
     const nested = r[key];
     if (nested && typeof nested === "object" && typeof (nested as Record<string, unknown>).id === "string") {
       return (nested as Record<string, unknown>).id as string;

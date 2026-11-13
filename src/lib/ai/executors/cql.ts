@@ -29,7 +29,7 @@ function invalid(error: z.ZodError): { error: string } {
 }
 
 /** The org's slug, or an error when the query language is off for it. */
-async function cqlOrg(ctx: ToolContext): Promise<{ slug: string } | { error: string }> {
+export async function cqlOrg(ctx: ToolContext): Promise<{ slug: string } | { error: string }> {
   const org = await prisma.organization.findUnique({ where: { id: ctx.orgId }, select: { slug: true, settings: true } });
   if (!org || !cqlEnabled(org.settings)) {
     return { error: "The query language is not switched on for this organization. Use list_work_items instead." };
@@ -38,7 +38,7 @@ async function cqlOrg(ctx: ToolContext): Promise<{ slug: string } | { error: str
 }
 
 /** What the model needs to fix a query: the message, where, and any suggested fix. */
-function diagnosticsForModel(diagnostics: CqlDiagnostic[]) {
+export function diagnosticsForModel(diagnostics: CqlDiagnostic[]) {
   return diagnostics.map((d) => ({
     severity: d.severity,
     message: d.message,

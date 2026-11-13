@@ -27,6 +27,7 @@ import { stubToolCtx } from "@/lib/testing/tool-auth";
 import { connectorToolDefs } from "@/lib/ai/connectors";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import ts from "typescript";
 import type { OrgRole } from "@prisma/client";
 
 const ORG = "00000000-0000-0000-0000-0000000000a1";
@@ -104,7 +105,61 @@ const AUTHORIZES_AFTER_PARSE = new Set([
   "create_change_request", "update_change_request",
   "create_milestone", "update_milestone", "delete_milestone",
   "create_goal", "update_goal", "create_kpi", "update_kpi",
+  // Boards: the project id is an input and the gate is the board service's own
+  // (`canManageBoardsInProject` to create; the route's bit or managing the
+  // project, or having made the board, to change or delete it). Behavioural
+  // cover: boards-write.db.test.ts drives a real member, a project manager, a
+  // board's creator and a scoped key through both the route and the tool.
+  "create_board", "update_board", "set_board_columns", "delete_board",
+  // Project and team rosters: gated by the routes' own `requireRosterManage` /
+  // `requireTeamManage` (lib/projects/membership.server.ts), not by
+  // assertProjectManage, which would admit a holder of the delegable
+  // PROJECT_MANAGE bit the routes refuse. Behavioural cover: people.db.test.ts.
+  "add_project_member", "remove_project_member", "add_team_member", "remove_team_member",
+  // Bulk: the projects come from the selection (a query or ids), so the gate,
+  // `assertProjectManage` with the bulk route's ITEM_BULK_EDIT, runs per
+  // project after parse. Behavioural cover: bulk.db.test.ts.
+  "bulk_update_work_items",
 ]);
+
+/**
+ * The write gates an AUTHORIZES_AFTER_PARSE executor may reach, by name:
+ * `assertProjectManage`, the agent's forward to `requireProjectManage`;
+ * `requireRosterManage`, the project-roster routes' own gate
+ * (lib/projects/membership.server.ts); and the board service's `createBoard`,
+ * `updateBoard` and `deleteBoard`, whose gates (the create gate, and the
+ * manager-or-creator rule of lib/rbac/board-ownership.ts) the board routes and
+ * the tools share.
+ */
+const AFTER_PARSE_GATES = new Set(["assertProjectManage", "requireRosterManage", "createBoard", "updateBoard", "deleteBoard"]);
+
+/**
+ * The write gates an exported executor CALLS, read from its syntax tree. A gate
+ * named in a comment or a string is not a call, and neither is one inside a
+ * function declared within the executor (a helper it may never invoke), so the
+ * text of a gate's name no longer passes for the gate. Null when no exported
+ * function of that name is declared in the source.
+ */
+export function gateCallsIn(source: string, fnName: string): string[] | null {
+  const sf = ts.createSourceFile("executor.ts", source, ts.ScriptTarget.Latest, true);
+  let body: ts.Block | undefined;
+  sf.forEachChild((n) => {
+    if (ts.isFunctionDeclaration(n) && n.name?.text === fnName && n.body) body = n.body;
+  });
+  if (!body) return null;
+  const found = new Set<string>();
+  const visit = (n: ts.Node) => {
+    if (ts.isFunctionDeclaration(n)) return;
+    if (ts.isCallExpression(n)) {
+      const callee = n.expression;
+      const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : null;
+      if (name && AFTER_PARSE_GATES.has(name)) found.add(name);
+    }
+    ts.forEachChild(n, visit);
+  };
+  ts.forEachChild(body, visit);
+  return [...found];
+}
 
 /**
  * AUTHORIZES_AFTER_ROW_READ — the same artefact, a different cause.
@@ -158,17 +213,36 @@ describe("a caller's permissions change what every tool does", () => {
   it("every AUTHORIZES_AFTER_PARSE tool really does gate, per the OTHER rule", () => {
     // The exemption above is only honest while this holds. Checked here, in the
     // same file as the exemption, so the two cannot drift apart: each listed
-    // tool's executor must still forward to `assertProjectManage`.
+    // tool's OWN executor (found through the dispatch in tool-executor.ts) must
+    // still reach a write gate. Per tool, not a file-wide count: a count is
+    // satisfied by one tool's gates standing in for another's missing one.
     const dir = join(process.cwd(), "src/lib/ai/executors");
-    const src = readdirSync(dir)
+    const files = readdirSync(dir)
       .filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f))
-      .map((f) => readFileSync(join(dir, f), "utf8"))
-      .join("\n");
-    expect(src).toContain("assertProjectManage");
-    // And nothing listed may have lost its gate wholesale: the count of
-    // assertProjectManage call sites must cover every exempted tool.
-    const calls = src.match(/assertProjectManage\(/g)?.length ?? 0;
-    expect(calls).toBeGreaterThanOrEqual(AUTHORIZES_AFTER_PARSE.size);
+      .map((f) => readFileSync(join(dir, f), "utf8"));
+    const dispatch = readFileSync(join(process.cwd(), "src/lib/ai/tool-executor.ts"), "utf8");
+
+    const ungated: string[] = [];
+    for (const tool of AUTHORIZES_AFTER_PARSE) {
+      const fn = dispatch.match(new RegExp(`case "${tool}":\\s*return (\\w+)\\(`))?.[1];
+      const calls = fn ? files.map((src) => gateCallsIn(src, fn)).find((c) => c !== null) : undefined;
+      if (!calls) {
+        ungated.push(`${tool}: executor not found`);
+        continue;
+      }
+      if (calls.length === 0) ungated.push(`${tool} → ${fn}`);
+    }
+    expect(ungated, "these exempted tools no longer reach a write gate of their own").toEqual([]);
+
+    // CONTROLS, so the rule can fail. A read gate is not a write gate; a gate
+    // named in a comment or a string is not called; nor is one inside a helper
+    // the executor declares; a real call is found.
+    const probe = (body: string) => gateCallsIn(`export async function probe(ctx) {\n${body}\n}`, "probe");
+    expect(probe('await assertProjectRead(ctx, projectId, "PROJECT_READ");')).toEqual([]);
+    expect(probe('// await assertProjectManage(ctx, projectId, 1n);\nconst s = "requireRosterManage(ctx, p)";')).toEqual([]);
+    expect(probe("function never() { return assertProjectManage(ctx, p, 1n); }")).toEqual([]);
+    expect(probe("const r = await assertProjectManage(ctx, projectId, 1n);")).toEqual(["assertProjectManage"]);
+    expect(gateCallsIn("export async function other() {}", "probe")).toBeNull();
   });
 
   it("the row-read exemption still forwards to the route's own gate", () => {

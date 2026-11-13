@@ -33,6 +33,8 @@ vi.mock("@/lib/chat/ensure-bots", () => ({
 import { runChatBot } from "./bot-runner";
 import { stubAuth } from "@/lib/testing/tool-auth";
 import { NoModelCredentialError } from "@/lib/ai/egress/types";
+import { cosmosTools } from "@/lib/ai/tools";
+import { isConfirmClass } from "@/lib/ai/confirm-class";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -99,5 +101,43 @@ describe("runChatBot — a failed run posts a SYSTEM notice", () => {
     runAgentLoop.mockRejectedValue(new Error("401 invalid x-api-key"));
     await run();
     expect(postServerMessage.mock.calls.at(-1)?.[0].content).toBe("🤖 AI is unavailable right now.");
+  });
+});
+
+// A chat bot has no way to show the user a preview and wait for their answer,
+// so it is never handed a confirm-class tool (a delete, an access change,
+// closing a ceremony, a bulk change), even at FULL scope.
+describe("runChatBot — no confirm-class tool reaches a bot", () => {
+  for (const bot of ["assistant", "notetaker", "answerer"] as const) {
+    it(`${bot}: the tool list holds no confirm-class tool`, async () => {
+      runAgentLoop.mockResolvedValue({ text: "ok", transcript: "ok", toolCalls: [] });
+      await runChatBot({ bot, orgId: "o1", orgSlug: "acme", channelId: "ch1", invokerUserId: "u1", invokerAuth: stubAuth("o1", "u1"), prompt: "q" });
+      const names = (runAgentLoop.mock.calls[0][0].tools as { name: string; confirm?: boolean }[]).map((t) => t.name);
+      expect(names.filter((n) => isConfirmClass({ name: n }) || cosmosTools.find((t) => t.name === n)?.confirm)).toEqual([]);
+    });
+  }
+
+  it("positive control: the FULL-scope assistant still gets ordinary writes and reads", async () => {
+    runAgentLoop.mockResolvedValue({ text: "ok", transcript: "ok", toolCalls: [] });
+    await runChatBot({ bot: "assistant", orgId: "o1", orgSlug: "acme", channelId: "ch1", invokerUserId: "u1", invokerAuth: stubAuth("o1", "u1"), prompt: "q" });
+    const names = (runAgentLoop.mock.calls[0][0].tools as { name: string }[]).map((t) => t.name);
+    for (const n of ["create_work_item", "update_work_item", "list_projects"]) expect(names).toContain(n);
+    // And the catalog it was cut from really has them, so the absence above is the filter.
+    for (const n of ["delete_work_item", "bulk_update_work_items", "remove_project_member"]) {
+      expect(cosmosTools.map((t) => t.name)).toContain(n);
+    }
+  });
+
+  it("a bot gets no tool that changes access either: adding someone to a project or team, or sharing a view", async () => {
+    runAgentLoop.mockResolvedValue({ text: "ok", transcript: "ok", toolCalls: [] });
+    await runChatBot({ bot: "assistant", orgId: "o1", orgSlug: "acme", channelId: "ch1", invokerUserId: "u1", invokerAuth: stubAuth("o1", "u1"), prompt: "q" });
+    const names = (runAgentLoop.mock.calls[0][0].tools as { name: string }[]).map((t) => t.name);
+    for (const n of ["add_project_member", "add_team_member", "share_saved_view"]) {
+      expect(names).not.toContain(n);
+      // The catalog has it, so the absence is the filter.
+      expect(cosmosTools.map((t) => t.name)).toContain(n);
+    }
+    // Positive control: reading people is still offered.
+    expect(names).toContain("list_project_members");
   });
 });

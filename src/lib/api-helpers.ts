@@ -29,7 +29,7 @@ export function noContent() {
 export function handleApiError(error: unknown, request?: Request) {
   const opts = { request };
   if (error instanceof ProblemError) {
-    return problem(error.status, error.code, error.message, { ...opts, headers: error.headers });
+    return problem(error.status, error.code, error.message, { ...opts, headers: error.headers, issues: error.issues });
   }
   if (error instanceof TransitionError) {
     // A workflow refusal: a problem whose code says which, with the transition,

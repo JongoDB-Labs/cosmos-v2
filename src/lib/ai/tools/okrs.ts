@@ -52,6 +52,7 @@ export const okrTools: ToolDefinition[] = [
   },
   {
     name: "delete_objective",
+    confirm: true,
     description: "Delete an objective. Its key results cascade-delete.",
     input_schema: {
       type: "object",

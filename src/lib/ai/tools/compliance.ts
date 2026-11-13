@@ -38,6 +38,13 @@ export const complianceTools: ToolDefinition[] = [
     name: "list_org_members",
     description:
       "List the people in this organization (name, email, role) so you can assign work or notify the right person — e.g. find the ISSO / security lead (an ADMIN) to assign a remediation task to and email.",
-    input_schema: { type: "object", properties: {}, required: [] },
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Find people whose name or email contains this, e.g. \"sam\"" },
+        limit: { type: "integer", description: "At most this many (default all)" },
+      },
+      required: [],
+    },
   },
 ];

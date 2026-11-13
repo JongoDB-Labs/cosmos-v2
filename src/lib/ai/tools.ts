@@ -20,6 +20,10 @@ import { goalsKpisTools } from "./tools/goals-kpis";
 import { boardTools } from "./tools/boards";
 import { documentTools } from "./tools/documents";
 import { crmTools } from "./tools/crm";
+import { peopleTools } from "./tools/people";
+import { bulkTools } from "./tools/bulk";
+import { savedViewTools } from "./tools/saved-views";
+import { ceremonyTools } from "./tools/ceremonies";
 
 export interface ToolDefinition {
   name: string;
@@ -35,6 +39,14 @@ export interface ToolDefinition {
    * a known domain, rather than letting it through under the wrong one.
    */
   domain?: string;
+  /**
+   * A confirm-class tool: it deletes, removes someone, closes a ceremony, or
+   * changes many things at once. The agent loop runs it only after the user
+   * has seen a preview and answered (see `confirmation.ts`). Every tool whose
+   * name matches `nameIsConfirmClass` must carry this tag; an arch test fails
+   * otherwise.
+   */
+  confirm?: boolean;
   /**
    * JSON Schema describing the tool's parameters.
    * Named `input_schema` to mirror Anthropic's native tool_use shape — the
@@ -227,6 +239,12 @@ export const cosmosTools: ToolDefinition[] = [
   ...boardTools,
   ...documentTools,
   ...crmTools,
+  // People (rosters, one person's work) and bulk work-item changes.
+  ...peopleTools,
+  ...bulkTools,
+  // Saved views (saved filters) and sprint ceremonies (retros, reviews).
+  ...savedViewTools,
+  ...ceremonyTools,
   // EXTERNAL connectors (Google Workspace, GitHub, …) are no longer hand-listed
   // here — they come from the declarative connector registry (connectors/index.ts),
   // so adding a connector is one descriptor + one registration, with no edit to this
@@ -258,4 +276,8 @@ export {
   boardTools,
   documentTools,
   crmTools,
+  peopleTools,
+  bulkTools,
+  savedViewTools,
+  ceremonyTools,
 };

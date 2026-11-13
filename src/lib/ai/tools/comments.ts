@@ -26,6 +26,7 @@ export const commentTools: ToolDefinition[] = [
   },
   {
     name: "delete_comment",
+    confirm: true,
     description: "Delete a comment. Only the author or org admin/owner.",
     input_schema: {
       type: "object",

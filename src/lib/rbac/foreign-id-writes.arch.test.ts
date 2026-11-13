@@ -112,6 +112,27 @@ const VIA: Record<string, string> = {
   updateProgramEvent: "src/lib/program-calendar/service.ts",
   assignWorkflow: "src/lib/workflow/versions.server.ts",
   createWorkflow: "src/lib/workflow/versions.server.ts",
+  // One function behind each REST route and its assistant tool.
+  getBoard: "src/lib/boards/board-service.server.ts",
+  updateBoard: "src/lib/boards/board-service.server.ts",
+  replaceBoardColumns: "src/lib/boards/board-service.server.ts",
+  deleteBoard: "src/lib/boards/board-service.server.ts",
+  getCeremonyPayload: "src/lib/intervals/ceremony.server.ts",
+  listCeremonyBoards: "src/lib/intervals/ceremony.server.ts",
+  openCeremony: "src/lib/intervals/ceremony.server.ts",
+  closeCeremony: "src/lib/intervals/ceremony.server.ts",
+  addCeremonyNote: "src/lib/intervals/ceremony.server.ts",
+  updateCeremonyNote: "src/lib/intervals/ceremony.server.ts",
+  deleteCeremonyNote: "src/lib/intervals/ceremony.server.ts",
+  addCeremonyAction: "src/lib/intervals/ceremony.server.ts",
+  updateCeremonyAction: "src/lib/intervals/ceremony.server.ts",
+  deleteCeremonyAction: "src/lib/intervals/ceremony.server.ts",
+  promoteCeremonyAction: "src/lib/intervals/ceremony.server.ts",
+  addTeamMember: "src/lib/projects/membership.server.ts",
+  removeTeamMember: "src/lib/projects/membership.server.ts",
+  createSavedView: "src/lib/query/saved-view-service.server.ts",
+  updateSavedView: "src/lib/query/saved-view-service.server.ts",
+  deleteSavedView: "src/lib/query/saved-view-service.server.ts",
 };
 
 const READ = "a read: it filters a query run within the caller's own visibility, and stores nothing";

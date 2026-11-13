@@ -7,6 +7,8 @@ import { getAgentPolicy } from "./policy";
 import { checkAgentPolicy } from "./policy/enforce";
 import { narrowAuthToPolicyProjects } from "./policy/project-scope";
 import { projectRosterBlock } from "./project-roster";
+import { isConfirmClass } from "./confirm-class";
+import { confirmationChannel, confirmationGate, pendingConfirmationsBlock, withConfirmationArg, withoutToken } from "./confirmation";
 import { runModelTurn, toModelTools, projectForModel, projectResult, entityTypeForTool, augmentWithHandles, resolveHandlesDeep, sha256Hex, logEgressDecision, type ModelMessage } from "./egress";
 import type { TenantClass } from "./egress";
 import { conservativeCeiling, effectiveCeiling, maxByRank, rankOf } from "@/lib/classification/effective";
@@ -158,9 +160,21 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
     ...connectorToolDefs(opts.tenantClass, enabledFilter).filter((t) => !requested || requested.has(t.name)),
     ...pluginTools,
   ];
-  const tools = toModelTools(tenantTools);
+  // ── CONFIRM-CLASS tools (deletes, access changes, closing a ceremony, bulk
+  // changes) run only after the USER answers a preview: see confirmation.ts. That
+  // needs this user's own assistant conversation to ask in. A run without one (a
+  // chat bot, a meeting summary) is not offered these tools at all; a run with
+  // one is offered them with the optional token argument described.
+  const channel = tenantTools.some(isConfirmClass)
+    ? await confirmationChannel({ orgId: opts.orgId, userId: opts.userId, conversationId: opts.conversationId })
+    : null;
+  const offeredTools = channel
+    ? tenantTools.map((t) => (isConfirmClass(t) ? withConfirmationArg(t) : t))
+    : tenantTools.filter((t) => !isConfirmClass(t));
+  const confirmClass: ReadonlySet<string> = new Set(offeredTools.filter(isConfirmClass).map((t) => t.name));
+  const tools = toModelTools(offeredTools);
   // What the model was offered: the only names this run will execute.
-  const offered: ReadonlySet<string> = new Set(tenantTools.map((t) => t.name));
+  const offered: ReadonlySet<string> = new Set(offeredTools.map((t) => t.name));
   const max = opts.maxIterations ?? MAX_TOOL_ITERATIONS;
   const model = opts.model ?? DEFAULT_MODEL;
   const messages: ModelMessage[] = [{ role: "user", content: opts.initialPrompt }];
@@ -187,6 +201,17 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   } catch {
     // Leaving the roster out costs a discovery round-trip; it never widens access, because
     // every gate below still enforces `scopedAuth` on its own.
+  }
+  // The previews still waiting for this user's answer, with their tokens: the
+  // history the model gets is text only, so the token would otherwise be lost
+  // between the run that showed the preview and the one the user's yes starts.
+  if (channel) {
+    try {
+      const pending = await pendingConfirmationsBlock({ channel, orgId: opts.orgId, userId: opts.userId });
+      if (pending) systemPrompt = `${systemPrompt}\n\n${pending}`;
+    } catch {
+      // Without it a confirmed change can't be made this run; nothing is widened.
+    }
   }
 
   for (let turn = 0; turn < max; turn++) {
@@ -376,9 +401,35 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
           });
         }
       }
+      // ── CONFIRMATION (confirm-class tools only; last gate before execution) ──
+      // No token: nothing runs; the model gets a preview and a token. A token
+      // runs the call only once the user has answered in a later message, with
+      // the same arguments and the same resolved targets (confirmation.ts).
+      let gateOutput: Record<string, unknown> | undefined;
+      if (channel && confirmClass.has(u.name)) {
+        const gate = await confirmationGate({
+          channel, orgId: opts.orgId, userId: opts.userId, toolName: u.name, args: u.input, execInput,
+          ctx: { orgId: opts.orgId, userId: opts.userId, auth: scopedAuth },
+        });
+        if (gate.kind === "notice") {
+          // Written by the confirmation step from the model's own arguments, ids and
+          // counts — no row content — so it is handed over as is (exposed, audited).
+          logEgressDecision({
+            conversationId: opts.conversationId, turn, valueKind: "tool_result",
+            toolName: u.name, exposed: true, withheldCount: 0,
+            contentHash: sha256Hex(JSON.stringify(gate.forModel)), decidedBy: "none",
+            tenantClass: opts.tenantClass, mode: "enforced",
+          });
+          toolResultBlocks.push({ type: "tool_result" as const, tool_use_id: u.id, content: JSON.stringify(gate.forModel) });
+          toolCalls.push({ id: u.id, name: u.name, arguments: withoutToken(u.input), result: gate.forUser });
+          continue;
+        }
+        if (gate.kind === "result") gateOutput = gate.output;
+        else execInput = gate.execInput;
+      }
       // Thread the tenant class + conversation id so the connector dispatch layer
       // (L2) can hard-refuse a commercial-only tool for a gov tenant and AUDIT it.
-      const output = await executeTool(u.name, execInput, {
+      const output = gateOutput ?? await executeTool(u.name, execInput, {
         orgId: opts.orgId,
         userId: opts.userId,
         // `scopedAuth`, NOT `opts.auth`: the agent policy's project allowlist rides on the
@@ -480,7 +531,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       // so widening this UI/audit record to the resolved CUI would re-expose it to a
       // surface that only ever shows what the invoking user already sees. Keep it
       // consistent with the existing "userView/arguments → UI" rule.
-      toolCalls.push({ id: u.id, name: u.name, arguments: u.input, result: output });
+      toolCalls.push({ id: u.id, name: u.name, arguments: confirmClass.has(u.name) ? withoutToken(u.input) : u.input, result: output });
     }
     messages.push({ role: "user", content: toolResultBlocks });
   }
