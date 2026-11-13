@@ -74,6 +74,15 @@ const SAVED_VIEW_WRITES = new Set([
 /** Authenticated by a token in the URL: no key reaches them, before or now. */
 const TOKEN_AUTHENTICATED = new Set(["confirmFilterUnsubscribe", "filterUnsubscribe"]);
 /**
+ * Platform-admin operations authenticated by the browser session alone:
+ * `requireSystemAdmin` reads the session cookie and nothing else, so no key
+ * reaches them, before or now, and their contracts name no scopes. The gate
+ * scan sees no bit in them, which is why they would otherwise be counted as
+ * reached by every scope. Pinned below: each refuses every key at the gate,
+ * and its handler admits a caller only through requireSystemAdmin.
+ */
+const SESSION_ONLY_ADMIN = new Set(["listSsoProvisionedAccounts", "clearSsoProvisionedAccount"]);
+/**
  * Not an exception, a gap in what this test reads: these handlers gate a key
  * on COMMENT_CREATE (`ctx.isApiKey ? "COMMENT_CREATE" : "COMMENT_READ"`) since
  * read-key-writes.test.ts closed read keys editing and erasing comments, before
@@ -120,7 +129,7 @@ describe("no pre-existing scope loses an operation its mask reached", () => {
     ({ userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], scopes, isApiKey: true }) as never;
   const all = contracts();
   const cases = all.flatMap(({ contract, src, file }) => {
-    if (TOKEN_AUTHENTICATED.has(contract.operationId)) return [];
+    if (TOKEN_AUTHENTICATED.has(contract.operationId) || SESSION_ONLY_ADMIN.has(contract.operationId)) return [];
     const need = bitsChecked(src, contract.method, file);
     return Object.keys(BEFORE)
       .filter((s) => (BEFORE[s] & need) === need) // the old mask reached it
@@ -157,6 +166,20 @@ describe("the named exceptions are exactly what they say", () => {
     for (const s of Object.keys(BEFORE)) expect(() => assertScopes(ctx([s]), found.contract)).toThrow();
     const code = handlerCode(found.src, found.contract.method, found.file)!;
     expect(code).not.toMatch(/getAuthContext|orgContext|resolveAuth|cqlGate|getCurrentUser|verifyApiKey/);
+  });
+
+  it.each([...SESSION_ONLY_ADMIN])("%s: every key is refused, and only a platform admin's session gets in", (op) => {
+    const found = contracts().find(({ contract }) => contract.operationId === op);
+    expect(found, `${op} has no contract`).toBeDefined();
+    expect(found!.contract.scopes).toEqual([]);
+    for (const s of Object.keys(BEFORE)) expect(() => assertScopes(ctx([s]), found!.contract)).toThrow();
+    const code = handlerCode(found!.src, found!.contract.method, found!.file)!;
+    expect(code).toMatch(/\brequireSystemAdmin\(\)/);
+    expect(code).not.toMatch(/getAuthContext|orgContext|resolveAuth|cqlGate|verifyApiKey|classifyBearer|authorization/i);
+    // And requireSystemAdmin itself reads only the session cookie.
+    const gate = readFileSync(path.join(process.cwd(), "src/lib/internal/require-system-admin.ts"), "utf8");
+    expect(gate).toMatch(/\bgetCurrentUser\(\)/);
+    expect(gate).not.toMatch(/getAuthContext|verifyApiKey|classifyBearer|authorization|headers\(/i);
   });
 
   it.each([...KEY_ARM_WRITES])("%s needs items:write at the gate, as its key arm already did", (op) => {

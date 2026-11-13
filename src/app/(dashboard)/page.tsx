@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { OrgPickerGrid, type PickerOrg } from "@/components/orgs/org-picker-grid";
+import { orgSessionRefusal, ORG_SESSION_REFUSAL_TEXT } from "@/lib/auth/org-session-scope";
 
 export default async function DashboardHomePage() {
   const currentUser = await getCurrentUser();
@@ -28,11 +29,16 @@ export default async function DashboardHomePage() {
 
   const orgs = user.memberships;
 
-  if (orgs.length === 1) {
+  // The same rule getAuthContext applies: which of these orgs this session may
+  // open. An org it can't open is shown with the reason and the way in, never
+  // redirected into (its page would send the person straight back here).
+  const refusals = await Promise.all(orgs.map((m) => orgSessionRefusal(currentUser, m.org)));
+
+  if (orgs.length === 1 && !refusals[0]) {
     redirect(`/${orgs[0].org.slug}`);
   }
 
-  const pickerOrgs: PickerOrg[] = orgs.map((m) => ({
+  const pickerOrgs: PickerOrg[] = orgs.map((m, i) => ({
     id: m.org.id,
     name: m.org.name,
     slug: m.org.slug,
@@ -40,6 +46,15 @@ export default async function DashboardHomePage() {
     role: m.role,
     logoUrl: m.org.logoUrl,
     projectCount: m.org.projects.length,
+    refusal: refusals[i]
+      ? {
+          text: ORG_SESSION_REFUSAL_TEXT[refusals[i]],
+          action:
+            refusals[i] === "sso_required"
+              ? { href: `/api/auth/sso/${encodeURIComponent(m.org.slug)}/login`, label: "Sign in with single sign-on" }
+              : { href: `/login?org=${encodeURIComponent(m.org.slug)}`, label: "Sign in another way" },
+        }
+      : undefined,
   }));
 
   return (

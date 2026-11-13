@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Settings, Trash2, ArrowRight } from "lucide-react";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -26,6 +27,9 @@ export interface PickerOrg {
   role: string;
   logoUrl: string | null;
   projectCount: number;
+  /** This session can't open the org (see lib/auth/org-session-scope): why, and
+   *  the way in. The card then explains instead of linking into the org. */
+  refusal?: { text: string; action: { href: string; label: string } };
 }
 
 /**
@@ -122,34 +126,29 @@ export function OrgPickerGrid({ orgs }: { orgs: PickerOrg[] }) {
                 triggerClassName="absolute right-3 top-3 z-10"
                 triggerLabel={`Actions for ${org.name}`}
               >
-                <Link
-                  href={`/${org.slug}`}
-                  className="block rounded-lg border bg-card p-6 transition-colors hover:border-primary"
-                >
-                  <div className="mb-3 flex items-center gap-3">
-                    {org.logoUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={org.logoUrl}
-                        alt={org.name}
-                        className="h-10 w-10 rounded-md"
-                      />
-                    ) : (
-                      <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 font-semibold text-primary">
-                        {org.name.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <h2 className="truncate font-medium">{org.name}</h2>
-                      <p className="text-xs capitalize text-muted-foreground">
-                        {org.role.toLowerCase()} &middot; {org.plan.toLowerCase()} plan
-                      </p>
-                    </div>
+                {org.refusal ? (
+                  <div className="block rounded-lg border bg-card p-6">
+                    <OrgCardHeader org={org} />
+                    <p className="text-sm text-foreground">{org.refusal.text}</p>
+                    {/* A plain link: both targets are full-page sign-in redirects. */}
+                    <a
+                      href={org.refusal.action.href}
+                      className={cn(buttonVariants({ size: "sm" }), "mt-3")}
+                    >
+                      {org.refusal.action.label}
+                    </a>
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {org.projectCount} project{org.projectCount !== 1 ? "s" : ""}
-                  </p>
-                </Link>
+                ) : (
+                  <Link
+                    href={`/${org.slug}`}
+                    className="block rounded-lg border bg-card p-6 transition-colors hover:border-primary"
+                  >
+                    <OrgCardHeader org={org} />
+                    <p className="text-sm text-muted-foreground">
+                      {org.projectCount} project{org.projectCount !== 1 ? "s" : ""}
+                    </p>
+                  </Link>
+                )}
               </ActionMenu>
             </div>
           );
@@ -194,5 +193,26 @@ export function OrgPickerGrid({ orgs }: { orgs: PickerOrg[] }) {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function OrgCardHeader({ org }: { org: PickerOrg }) {
+  return (
+    <div className="mb-3 flex items-center gap-3">
+      {org.logoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={org.logoUrl} alt={org.name} className="h-10 w-10 rounded-md" />
+      ) : (
+        <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 font-semibold text-primary">
+          {org.name.charAt(0).toUpperCase()}
+        </div>
+      )}
+      <div className="min-w-0">
+        <h2 className="truncate font-medium">{org.name}</h2>
+        <p className="text-xs capitalize text-muted-foreground">
+          {org.role.toLowerCase()} &middot; {org.plan.toLowerCase()} plan
+        </p>
+      </div>
+    </div>
   );
 }

@@ -24,7 +24,8 @@ const disposable = (over: Record<string, unknown> = {}) => ({
   mustChangePassword: true,
   googleId: null,
   auth0UserId: null,
-  _count: { memberships: 0 },
+  microsoftIdentity: null,
+  _count: { memberships: 0, federatedIdentities: 0 },
   ...over,
 });
 
@@ -124,6 +125,8 @@ describe("refuses to delete anything that might be a person", () => {
   it.each([
     ["google", { googleId: "g1" }],
     ["auth0", { auth0UserId: "a1" }],
+    ["microsoft", { microsoftIdentity: { id: "m1" } }],
+    ["sso", { _count: { memberships: 0, federatedIdentities: 1 } }],
   ])("leaves an account with a linked %s identity", async (_label, over) => {
     tx.user.findFirst.mockResolvedValue(disposable(over));
     expect((await run()).deleted).toBe(false);

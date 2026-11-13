@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isInternalAdmin } from "@/lib/internal/access";
+import { isSystemAdmin } from "@/lib/internal/access";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 
 // The billing PLAN is a PLATFORM-OWNER decision: only an internal admin
-// (isInternalAdmin against INTERNAL_ADMINS) may change an org's plan. An org
+// (isSystemAdmin: INTERNAL_ADMINS, first-party sign-in) may change an org's plan. An org
 // owner/admin can NEVER reach this route — it lives under /api/internal, gated
 // below — so plan is never org-owner self-service. This mirrors the internal
 // tenant-class route. Plan drives FEATURES; the separate tenantClass drives
@@ -23,7 +23,7 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 async function requirePlatformOwner() {
   const user = await getCurrentUser();
   if (!user) return null;
-  if (!isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)) return null;
+  if (!isSystemAdmin(user)) return null;
   return user;
 }
 

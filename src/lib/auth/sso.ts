@@ -1,7 +1,9 @@
 import crypto from "node:crypto";
 import * as oidc from "openid-client";
-import { OrgRole, type IdpConnection } from "@prisma/client";
+import { OrgRole, Prisma, type IdpConnection } from "@prisma/client";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { emailDomainListed } from "@/lib/auth/allowed-domains";
+import { isInternalAdmin } from "@/lib/internal/access";
 import { logAudit } from "@/lib/audit";
 import { autoJoinGeneral } from "@/lib/chat/seed-general";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/auth/client";
@@ -12,15 +14,32 @@ import { openSecret } from "@/lib/crypto/vault";
  * session + OrgMember + audit authority; the IdP only asserts identity.
  *
  * The three load-bearing invariants enforced here:
- *  1. Identity is matched on (idpConnId, subject) — NEVER email. `User.email`
- *     is not unique, so email-only matching would be account-takeover. Email is
- *     a *linking hint* only, and only for exactly one verified-email match.
+ *  1. Identity is matched on (idpConnId, subject), from the same token issuer —
+ *     NEVER email. `User.email` is not unique, so email-only matching would be
+ *     account-takeover. Email is a *linking hint* only (see step 2 below), and an
+ *     org's IdP is trusted for that org alone: it links only an account the org
+ *     holds or invited, accepts only the org's own invitations, never makes a
+ *     system admin, and the session it mints opens only this org (enforced in
+ *     getAuthContext, see lib/auth/org-session-scope).
  *  2. Claim-derived roles are capped at ADMIN — OWNER is never minted from a
  *     claim (the grant-ceiling invariant; OWNER stays human-assigned).
  *  3. GOV AAL floor: if the org is GOV and the connection sets `requiredAcr`,
  *     the IdP must assert an acr/amr that satisfies it, else the login is
  *     rejected (no in-app step-up this slice).
  */
+
+/**
+ * The address a JIT-created account gets when its IdP's claim can't be trusted
+ * for the org (not verified, or outside the org's allowed domains). Storing the
+ * claimed address would park it on an IdP-made account, where it blocks its real
+ * owner's first Google or Microsoft sign-in. Derived from the binding, so it is
+ * stable per (connection, subject), carries none of the IdP's text, and is not
+ * an address any provider can verify.
+ */
+export function ssoPlaceholderEmail(idpConnId: string, subject: string): string {
+  const id = crypto.createHash("sha256").update(`${idpConnId}\u0000${subject}`).digest("hex").slice(0, 24);
+  return `sso-${id}@sso.local`;
+}
 
 /**
  * The per-request SSO transaction cookie carrying state/nonce/PKCE between the
@@ -50,6 +69,9 @@ export interface SsoClaims {
   amr: string[];
   /** Optional display name hint for JIT-created users. */
   displayName?: string | null;
+  /** The validated token `iss`. A binding only matches tokens from the issuer
+   *  that made it. */
+  issuer?: string | null;
 }
 
 /** Minimal request context for audit (IP). Routes pass the NextRequest-derived bits. */
@@ -66,7 +88,15 @@ export type SsoLoginResult =
         | "org_not_found"
         | "missing_subject"
         | "aal_floor_unmet"
-        | "jit_disabled";
+        | "jit_disabled"
+        /** The binding was made by a different issuer than this token's. */
+        | "issuer_mismatch"
+        /** An account already holds the address, and this org neither holds nor
+         *  invited it. */
+        | "account_exists"
+        /** An account already holds the address, and this IdP is not trusted for
+         *  it (not verified, or not in a domain the org lists). */
+        | "email_untrusted";
     };
 
 // ─────────────────────────────────────────────
@@ -166,11 +196,15 @@ export function extractClaims(
   const nameVal = raw["name"];
   const displayName = typeof nameVal === "string" ? nameVal : null;
 
+  // openid-client has already checked `iss` against the discovered issuer.
+  const issVal = raw["iss"];
+  const issuer = typeof issVal === "string" && issVal ? issVal : null;
+
   // `sub` is the protocol subject — never overridden by attributeMapping.
   const subVal = raw["sub"];
   const subject = typeof subVal === "string" ? subVal : "";
 
-  return { subject, email, emailVerified, groups, acr, amr, displayName };
+  return { subject, email, emailVerified, groups, acr, amr, displayName, issuer };
 }
 
 // ─────────────────────────────────────────────
@@ -244,81 +278,155 @@ export async function completeSsoLogin(
     return { ok: false, reason: "org_not_found" };
   }
 
+  const security = await prisma.orgSecuritySettings.findUnique({
+    where: { orgId: org.id },
+    select: { allowedDomains: true },
+  });
+  // The IdP is trusted for an address only when it says the address is verified
+  // AND the org has listed that domain. An org that lists no domains has claimed
+  // no address, so its IdP is trusted for none: a new account gets a placeholder,
+  // and its claim can never park someone else's address on an IdP-made account.
+  const emailTrusted =
+    claims.emailVerified &&
+    !!claims.email &&
+    emailDomainListed(claims.email, security?.allowedDomains);
+
   const isGov = org.tenantClass === "GOV";
   const floorSatisfied = aalFloorSatisfied(conn.requiredAcr, claims);
   if (isGov && conn.requiredAcr && !floorSatisfied) {
     return { ok: false, reason: "aal_floor_unmet" };
   }
 
-  // 2. Identity match — (idpConnId, subject) ONLY. Email is never the authenticator.
+  // 2. Identity match — (idpConnId, subject) ONLY, from the same issuer. Email is
+  //    never the authenticator.
   let userId: string;
+  const issuer = claims.issuer ?? null;
   const existing = await prisma.federatedIdentity.findUnique({
     where: {
       idpConnId_subject: { idpConnId: conn.id, subject: claims.subject },
     },
-    select: { userId: true },
+    select: { id: true, userId: true, issuer: true },
   });
 
   if (existing) {
+    if (existing.issuer != null && existing.issuer !== issuer) {
+      // The connection now points at a different IdP than the one that made
+      // this binding. A matching subject string from another issuer is not the
+      // same person.
+      return { ok: false, reason: "issuer_mismatch" };
+    }
+    if (existing.issuer == null && issuer) {
+      // Bound before issuers were recorded: record it now, so from here on a
+      // token from any other issuer cannot use this binding.
+      await prisma.federatedIdentity.update({ where: { id: existing.id }, data: { issuer } });
+    }
     userId = existing.userId;
   } else {
     if (!conn.jitProvisioning) {
       return { ok: false, reason: "jit_disabled" };
     }
 
-    // Email may LINK a never-before-federated local account, but ONLY when it
-    // is verified AND there is EXACTLY ONE matching user. Any ambiguity (zero
-    // or 2+ matches) → create a fresh user. This is the account-takeover guard:
-    // two users sharing the claim email with a NEW subject must NOT be hijacked.
+    // A system admin's address is reserved for first-party sign-in: an IdP
+    // neither links to that account nor creates one under that address,
+    // whatever it says about verification.
+    if (claims.email && isInternalAdmin(claims.email, process.env.INTERNAL_ADMINS)) {
+      return { ok: false, reason: "account_exists" };
+    }
+
+    const holders = claims.email
+      ? await prisma.user.findMany({
+          where: {
+            email: { equals: claims.email, mode: "insensitive" },
+            isBot: false,
+            deactivatedAt: null,
+          },
+          select: { id: true },
+        })
+      : [];
+
+    // Email may LINK a never-before-federated account only when ALL hold:
+    //  - the IdP vouches for the address (verified, in a domain the org lists);
+    //  - exactly one account holds it;
+    //  - this org already holds that account (a live member; a removed one is
+    //    filtered out, as the auth chokepoint does) or has a pending, unexpired
+    //    invitation for the address. The org's admin chose this person; the
+    //    IdP only proves it is them. The account's other orgs are safe however
+    //    many it has: the session this mints opens THIS org only.
+    //  - it has no binding to this connection yet (a second subject for the
+    //    same account would be a takeover).
     let linkedUserId: string | null = null;
-    if (claims.emailVerified && claims.email) {
-      const matches = await prisma.user.findMany({
-        where: { email: claims.email },
-        select: { id: true },
-      });
-      if (matches.length === 1) {
-        // C1 guard: only email-link a user that is NOT already federated to
-        // THIS connection. If they already have a FederatedIdentity here (under
-        // a different subject), linking would bind a SECOND subject to the same
-        // user = account takeover. Any conflict → fall through to create a fresh
-        // user (subject stays the sole authenticator).
-        const alreadyFederated = await prisma.federatedIdentity.findFirst({
-          where: { userId: matches[0].id, idpConnId: conn.id },
+    if (emailTrusted && claims.email && holders.length === 1) {
+      const candidate = holders[0].id;
+      const [member, invited, alreadyFederated] = await Promise.all([
+        prisma.orgMember.findUnique({
+          where: { orgId_userId: { orgId: org.id, userId: candidate } },
+          select: { id: true },
+        }),
+        prisma.invitation.findFirst({
+          where: {
+            orgId: org.id,
+            email: { equals: claims.email, mode: "insensitive" },
+            expiresAt: { gt: new Date() },
+          },
+          select: { id: true },
+        }),
+        prisma.federatedIdentity.findFirst({
+          where: { userId: candidate, idpConnId: conn.id },
+          select: { id: true },
+        }),
+      ]);
+      if ((member || invited) && !alreadyFederated) linkedUserId = candidate;
+    }
+
+    // Never mint a second account under an address someone already holds: the
+    // duplicate would carry that address into every email-keyed decision.
+    if (!linkedUserId && holders.length > 0) {
+      return { ok: false, reason: emailTrusted ? "account_exists" : "email_untrusted" };
+    }
+
+    try {
+      if (linkedUserId) {
+        await prisma.federatedIdentity.create({
+          data: { userId: linkedUserId, idpConnId: conn.id, subject: claims.subject, issuer },
+        });
+        await prisma.user.update({
+          where: { id: linkedUserId },
+          data: { lastActiveAt: new Date() },
           select: { id: true },
         });
-        if (!alreadyFederated) {
-          linkedUserId = matches[0].id;
-        }
+        userId = linkedUserId;
+      } else {
+        // A new account, bound in the same write. `ssoProvisioned` marks that it
+        // came from this IdP: never a system admin, and Google or Microsoft
+        // sign-in never links to it by email. It gets the claimed address only
+        // when the IdP is trusted for it; otherwise a placeholder.
+        const created = await prisma.user.create({
+          data: {
+            email: emailTrusted && claims.email ? claims.email : ssoPlaceholderEmail(conn.id, claims.subject),
+            displayName:
+              claims.displayName ||
+              claims.email?.split("@")[0] ||
+              claims.subject,
+            lastActiveAt: new Date(),
+            ssoProvisioned: true,
+            federatedIdentities: {
+              create: { idpConnId: conn.id, subject: claims.subject, issuer },
+            },
+          },
+          select: { id: true },
+        });
+        userId = created.id;
       }
-    }
-
-    if (linkedUserId) {
-      const updated = await prisma.user.update({
-        where: { id: linkedUserId },
-        data: { lastActiveAt: new Date() },
-        select: { id: true },
+    } catch (err) {
+      // A concurrent first sign-in (a second tab) bound this subject a moment ago.
+      if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
+      const raced = await prisma.federatedIdentity.findUnique({
+        where: { idpConnId_subject: { idpConnId: conn.id, subject: claims.subject } },
+        select: { userId: true, issuer: true },
       });
-      userId = updated.id;
-    } else {
-      const created = await prisma.user.create({
-        data: {
-          email: claims.email ?? `${claims.subject}@sso.local`,
-          displayName:
-            claims.displayName ||
-            claims.email?.split("@")[0] ||
-            claims.subject,
-          lastActiveAt: new Date(),
-        },
-        select: { id: true },
-      });
-      userId = created.id;
+      if (!raced || (raced.issuer != null && raced.issuer !== issuer)) throw err;
+      userId = raced.userId;
     }
-
-    // Bind the (verified-or-new) user to this IdP subject. From now on this
-    // login is matched by subject, never email.
-    await prisma.federatedIdentity.create({
-      data: { userId, idpConnId: conn.id, subject: claims.subject },
-    });
   }
 
   // 3. Role mapping — capped at ADMIN, never OWNER.
@@ -359,16 +467,21 @@ export async function completeSsoLogin(
     );
   }
 
-  // 4. Consume pending invitations addressed to the (verified) email — mirrors
-  //    the Google branch. Only when we actually have an email to match on.
-  if (claims.email) {
+  // 4. Consume pending invitations to THIS org addressed to the email, and only
+  //    when the IdP is trusted for the address (verified, in the org's allowed
+  //    domains). Another org's invitations are never this IdP's to accept: the
+  //    invitee joins those through their own sign-in. The membership already
+  //    exists (step 3), so this clears the invitation without raising the role
+  //    above the IdP-derived one.
+  if (emailTrusted && claims.email) {
     const pendingInvites = await prisma.invitation.findMany({
-      where: { email: claims.email, expiresAt: { gt: new Date() } },
+      where: {
+        orgId: org.id,
+        email: { equals: claims.email, mode: "insensitive" },
+        expiresAt: { gt: new Date() },
+      },
     });
     for (const invite of pendingInvites) {
-      // Don't let an invitation escalate above the IdP-derived (capped) role for
-      // THIS org; for other orgs, honor the invite role (also never OWNER-mintable
-      // since invitations carry their own role). Use upsert to avoid races.
       const inviteRole =
         invite.role === OrgRole.OWNER ? OrgRole.ADMIN : invite.role;
       const newMember = await prisma.orgMember

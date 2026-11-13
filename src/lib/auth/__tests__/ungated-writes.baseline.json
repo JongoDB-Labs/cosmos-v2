@@ -1,6 +1,7 @@
 [
   "DELETE internal/users/[userId]",
   "DELETE v1/admin/allowed-emails/[id]",
+  "DELETE v1/admin/sso-provisioned/[userId]",
   "DELETE v1/me/background",
   "DELETE v1/me/sessions/[sessionId]",
   "DELETE v1/orgs/[orgId]/calendar-feeds/[feedId]",
@@ -20,7 +21,9 @@
   "PATCH v1/orgs/[orgId]/chat/channels/[channelId]",
   "PATCH v1/orgs/[orgId]/feedback/[feedbackId]/comments/[commentId]",
   "POST auth/account-request",
+  "POST auth/google/connect",
   "POST auth/logout",
+  "POST auth/microsoft/connect",
   "POST auth/password/first-login/change",
   "POST auth/password/first-login/mfa-enroll",
   "POST auth/password/first-login/mfa-setup",

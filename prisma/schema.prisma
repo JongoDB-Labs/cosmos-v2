@@ -428,6 +428,17 @@ model User {
   // fresh — while authored content stays attributed to an anonymized tombstone
   // rather than being deleted or dangling. Null for every live account.
   deactivatedAt      DateTime? @map("deactivated_at")
+  // True when an organization's identity provider (SSO JIT) created this account.
+  // Its email came from that IdP's claim, which the platform never verified, so
+  // the account is never a system admin and first-party sign-in (Google /
+  // Microsoft) never links onto it by email. Never cleared. See
+  // lib/auth/first-party-identity and lib/internal/access.
+  ssoProvisioned     Boolean   @default(false) @map("sso_provisioned")
+  // True when the password may have been set from an organization's SSO session,
+  // so it does not vouch for the account's address: it still signs in, but a
+  // password session of this account is never a system admin. An emailed reset
+  // clears it.
+  passwordUntrusted  Boolean   @default(false) @map("password_untrusted")
 
   memberships                 OrgMember[]
   preferences                 UserPreferences?
@@ -438,6 +449,7 @@ model User {
   ownedBoards                 Board[]                @relation("BoardOwner")
   personalBoardLayouts        PersonalBoardLayout[]
   federatedIdentities         FederatedIdentity[]
+  microsoftIdentity           MicrosoftIdentity?
   aiSettings                  UserAiSettings?
   // Prod-parity back-relations (chat bots + chat follows/alerts).
   chatBot                     ChatBot?
@@ -479,8 +491,10 @@ model Session {
   // request and read by getAuthContext to enforce OrgSecuritySettings
   // .sessionTimeoutMins. Defaults to now() so pre-existing sessions start fresh.
   lastActivityAt DateTime @default(now()) @map("last_activity_at")
-  // SSO assurance columns (additive; null/false for legacy + Google sessions).
-  authMethod     String?  @map("auth_method") // e.g. "oidc"; null = local/Google
+  // How the session signed in, plus SSO assurance (additive; null/false on legacy rows).
+  // "google" | "microsoft" | "password" | "oidc" (an org's SSO). Null on sessions
+  // minted before the method was recorded; those never carry system admin.
+  authMethod     String?  @map("auth_method")
   idpConnId      String?  @map("idp_conn_id") @db.Uuid // the IdpConnection used, if SSO
   amr            String[] @default([]) // Authentication Methods References from the token
   mfaSatisfied   Boolean  @default(false) @map("mfa_satisfied") // acr/amr met the org's floor
@@ -521,6 +535,11 @@ model FederatedIdentity {
   userId    String   @map("user_id") @db.Uuid
   idpConnId String   @map("idp_conn_id") @db.Uuid
   subject   String // the IdP 'sub' — the stable match key
+  // The validated token `iss` that made this binding. A binding only matches a
+  // token from the same issuer, so a connection re-pointed at another IdP cannot
+  // inherit the old IdP's subjects. Null on bindings made before it was recorded;
+  // the next sign-in fills it in.
+  issuer    String?
   createdAt DateTime @default(now()) @map("created_at")
 
   user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -529,6 +548,23 @@ model FederatedIdentity {
   @@unique([idpConnId, subject]) // THE security-critical key — never match on email
   @@index([userId])
   @@map("federated_identities")
+}
+
+/// The Microsoft (Entra) identity bound to an account: the token's tenant id and
+/// object id, the pair Microsoft documents as the stable user key. Email is
+/// mutable and, in `mail`, unverified, so after the first sign-in links an
+/// account this pair alone decides who signs in. One per account.
+model MicrosoftIdentity {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @unique @map("user_id") @db.Uuid
+  tenantId  String   @map("tenant_id")
+  objectId  String   @map("object_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, objectId])
+  @@map("microsoft_identities")
 }
 
 model AllowedEmail {

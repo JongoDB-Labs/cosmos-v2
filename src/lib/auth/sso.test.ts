@@ -15,10 +15,11 @@ import type { IdpConnection } from "@prisma/client";
 const { prisma, logAudit, autoJoinGeneral } = vi.hoisted(() => ({
   prisma: {
     organization: { findUnique: vi.fn() },
-    federatedIdentity: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+    orgSecuritySettings: { findUnique: vi.fn() },
+    federatedIdentity: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     user: { findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
     orgMember: { upsert: vi.fn(), findUnique: vi.fn() },
-    invitation: { findMany: vi.fn(), delete: vi.fn() },
+    invitation: { findMany: vi.fn(), findFirst: vi.fn(), delete: vi.fn() },
     session: { create: vi.fn() },
     sessionRecord: { create: vi.fn() },
   },
@@ -79,6 +80,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   // sensible defaults; individual tests override
   prisma.organization.findUnique.mockResolvedValue(org());
+  // The org lists the claimed address's domain, so its IdP is trusted for it.
+  prisma.orgSecuritySettings.findUnique.mockResolvedValue({ allowedDomains: ["agency.gov"] });
   prisma.federatedIdentity.findUnique.mockResolvedValue(null);
   prisma.federatedIdentity.findFirst.mockResolvedValue(null); // default: candidate not already federated
   prisma.user.findMany.mockResolvedValue([]);
@@ -98,6 +101,7 @@ beforeEach(() => {
       Promise.resolve({ id: "member-id", ...args.create }),
   );
   prisma.orgMember.findUnique.mockResolvedValue(null);
+  prisma.invitation.findFirst.mockResolvedValue(null); // no pending invitation for the address
   prisma.invitation.findMany.mockResolvedValue([]);
   prisma.session.create.mockImplementation(
     (args: { data: Record<string, unknown> }) => Promise.resolve(args.data),
@@ -124,21 +128,35 @@ describe("completeSsoLogin", () => {
   });
 
   it("(b) first login JITs User + FederatedIdentity + OrgMember", async () => {
-    const res = await completeSsoLogin("agency", conn(), claims(), {});
+    const res = await completeSsoLogin("agency", conn(), claims({ issuer: "https://idp.example.com" }), {});
 
     expect(res.ok).toBe(true);
+    // The binding is written in the same create as the account (atomic), and the
+    // account is marked as made by an IdP.
     expect(prisma.user.create).toHaveBeenCalledOnce();
-    expect(prisma.federatedIdentity.create).toHaveBeenCalledOnce();
-    expect(prisma.federatedIdentity.create).toHaveBeenCalledWith(
+    expect(prisma.user.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          idpConnId: CONN_ID,
-          subject: "idp-sub-123",
-          userId: "new-user-id",
+          ssoProvisioned: true,
+          federatedIdentities: {
+            create: { idpConnId: CONN_ID, subject: "idp-sub-123", issuer: "https://idp.example.com" },
+          },
         }),
       }),
     );
     expect(prisma.orgMember.upsert).toHaveBeenCalledOnce();
+  });
+
+  it("(b2) an org that lists no domains is trusted for no address: the new account gets a placeholder", async () => {
+    for (const settings of [null, { allowedDomains: [] }, { allowedDomains: ["other.example"] }]) {
+      prisma.user.create.mockClear();
+      prisma.orgSecuritySettings.findUnique.mockResolvedValue(settings);
+      const res = await completeSsoLogin("agency", conn(), claims(), {});
+      expect(res.ok).toBe(true);
+      const data = prisma.user.create.mock.calls[0][0].data;
+      expect(data.email).toMatch(/^sso-[0-9a-f]+@sso\.local$/);
+      expect(data.email).not.toContain("alice");
+    }
   });
 
   it("(c) TAKEOVER GUARD: a NEW subject sharing an email with existing users does NOT hijack — never email-only", async () => {
@@ -152,29 +170,30 @@ describe("completeSsoLogin", () => {
 
     const res = await completeSsoLogin("agency", conn(), claims(), {});
 
-    expect(res.ok).toBe(true);
-    // Must NOT link to either ambiguous email-match user → must create fresh.
-    expect(res.ok && res.userId).toBe("new-user-id");
-    expect(prisma.user.create).toHaveBeenCalledOnce();
+    // Must NOT link to either ambiguous email-match user, and must not mint a
+    // third account under the same address either.
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.reason).toBe("account_exists");
+    expect(prisma.user.create).not.toHaveBeenCalled();
     expect(prisma.user.update).not.toHaveBeenCalled();
-    // The new federated identity binds the fresh user to (conn, subject).
-    expect(prisma.federatedIdentity.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ userId: "new-user-id" }),
-      }),
-    );
+    expect(prisma.federatedIdentity.create).not.toHaveBeenCalled();
+    expect(prisma.session.create).not.toHaveBeenCalled();
   });
 
-  it("(c2) email-LINK is allowed only for exactly ONE verified-email match", async () => {
+  it("(c2) email-LINK is allowed only for exactly ONE verified-email match who is already a member", async () => {
     prisma.federatedIdentity.findUnique.mockResolvedValue(null);
     prisma.user.findMany.mockResolvedValue([
       { id: "the-only-match", email: "alice@agency.gov" },
     ]);
+    prisma.orgMember.findUnique.mockResolvedValue({ id: "member-row", role: OrgRole.MEMBER });
 
     const res = await completeSsoLogin("agency", conn(), claims(), {});
 
     expect(res.ok).toBe(true);
     expect(res.ok && res.userId).toBe("the-only-match");
+    expect(prisma.orgMember.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { orgId_userId: { orgId: ORG_ID, userId: "the-only-match" } } }),
+    );
     expect(prisma.user.create).not.toHaveBeenCalled();
     expect(prisma.federatedIdentity.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -183,11 +202,41 @@ describe("completeSsoLogin", () => {
     );
   });
 
+  it("(c2a) a verified-email match the org has INVITED (not yet a member) links", async () => {
+    prisma.federatedIdentity.findUnique.mockResolvedValue(null);
+    prisma.user.findMany.mockResolvedValue([{ id: "invitee", email: "alice@agency.gov" }]);
+    prisma.invitation.findFirst.mockResolvedValue({ id: "inv-1" });
+
+    const res = await completeSsoLogin("agency", conn(), claims(), {});
+
+    expect(res.ok && res.userId).toBe("invitee");
+    // Only this org's own, unexpired invitation for the address counts.
+    const where = prisma.invitation.findFirst.mock.calls[0][0].where;
+    expect(where.orgId).toBe(ORG_ID);
+    expect(where.email).toEqual({ equals: "alice@agency.gov", mode: "insensitive" });
+    expect(where.expiresAt.gt).toBeInstanceOf(Date);
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it("(c2b) a verified-email match who is NOT a member of the org is never linked", async () => {
+    prisma.federatedIdentity.findUnique.mockResolvedValue(null);
+    prisma.user.findMany.mockResolvedValue([{ id: "outsider", email: "alice@agency.gov" }]);
+    prisma.orgMember.findUnique.mockResolvedValue(null);
+
+    const res = await completeSsoLogin("agency", conn(), claims(), {});
+
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.reason).toBe("account_exists");
+    expect(prisma.federatedIdentity.create).not.toHaveBeenCalled();
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
   it("(c4) C1 GUARD: never email-link a user ALREADY federated to this conn (sub rotation = takeover)", async () => {
     prisma.federatedIdentity.findUnique.mockResolvedValue(null); // brand-new subject
     prisma.user.findMany.mockResolvedValue([
       { id: "already-fed-user", email: "alice@agency.gov" }, // exactly one verified-email match
     ]);
+    prisma.orgMember.findUnique.mockResolvedValue({ id: "member-row", role: OrgRole.MEMBER });
     // …but that user is ALREADY federated to THIS conn under a DIFFERENT subject:
     prisma.federatedIdentity.findFirst.mockResolvedValue({ id: "existing-fed" });
 
@@ -198,18 +247,14 @@ describe("completeSsoLogin", () => {
       {},
     );
 
-    expect(res.ok).toBe(true);
-    // Must NOT link to the already-federated user → a fresh user is created instead.
-    expect(res.ok && res.userId).toBe("new-user-id");
-    expect(prisma.user.create).toHaveBeenCalledOnce();
-    expect(prisma.federatedIdentity.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ userId: "new-user-id", subject: "idp-sub-EVIL" }),
-      }),
-    );
+    // Must NOT link to the already-federated user, and must not mint a duplicate.
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.reason).toBe("account_exists");
+    expect(prisma.user.create).not.toHaveBeenCalled();
+    expect(prisma.federatedIdentity.create).not.toHaveBeenCalled();
   });
 
-  it("(c3) unverified email never links — creates a new user", async () => {
+  it("(c3) unverified email never links, and never duplicates the holder", async () => {
     prisma.federatedIdentity.findUnique.mockResolvedValue(null);
     prisma.user.findMany.mockResolvedValue([
       { id: "would-be-match", email: "alice@agency.gov" },
@@ -222,9 +267,10 @@ describe("completeSsoLogin", () => {
       {},
     );
 
-    expect(res.ok).toBe(true);
-    expect(res.ok && res.userId).toBe("new-user-id");
-    expect(prisma.user.create).toHaveBeenCalledOnce();
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.reason).toBe("email_untrusted");
+    expect(prisma.user.create).not.toHaveBeenCalled();
+    expect(prisma.federatedIdentity.create).not.toHaveBeenCalled();
   });
 
   it("(d) ROLE CAP: a group claiming OWNER is capped to ADMIN; a group→ADMIN maps through", async () => {

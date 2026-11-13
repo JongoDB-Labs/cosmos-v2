@@ -26,6 +26,17 @@ const operatorEmail = `ra-op-${stamp}@delivery-gate.test`;
 const ownerEmail = `ra-owner-${stamp}@delivery-gate.test`;
 const operatorSession = `sess-op-${stamp}`;
 const ownerSession = `sess-owner-${stamp}`;
+// Accounts at an operator address that the trusted system-admin rule must NOT
+// count (lib/internal/access isSystemAdmin): one an organization's IdP made, one
+// signed in with a password an SSO session could have set, and the operator's
+// own session from before sessions recorded how they signed in.
+const ssoMadeEmail = `ra-ssomade-${stamp}@delivery-gate.test`;
+const untrustedEmail = `ra-untrusted-${stamp}@delivery-gate.test`;
+const ssoMadeSession = `sess-ssomade-${stamp}`;
+const untrustedSession = `sess-untrusted-${stamp}`;
+const legacyOperatorSession = `sess-op-legacy-${stamp}`;
+let ssoMadeId = "";
+let untrustedId = "";
 let orgId = "";
 let operatorId = "";
 let ownerId = "";
@@ -45,17 +56,28 @@ const storedDelivery = async () =>
     .autonomousDelivery;
 
 beforeAll(async () => {
-  vi.stubEnv("INTERNAL_ADMINS", operatorEmail);
+  vi.stubEnv("INTERNAL_ADMINS", [operatorEmail, ssoMadeEmail, untrustedEmail].join(","));
   orgId = (await prisma.organization.create({ data: { name: `ra ${stamp}`, slug: `ra-${stamp}` } })).id;
-  operatorId = (await prisma.user.create({ data: { email: operatorEmail, displayName: "Operator" } })).id;
+  // The operator signs in with Google, through the account's bound Google identity.
+  operatorId = (await prisma.user.create({ data: { email: operatorEmail, displayName: "Operator", googleId: `g-op-${stamp}` } })).id;
   ownerId = (await prisma.user.create({ data: { email: ownerEmail, displayName: "Owner" } })).id;
-  for (const userId of [operatorId, ownerId]) {
+  // Made by an org's IdP, and has since gained Google: still never an operator.
+  ssoMadeId = (
+    await prisma.user.create({ data: { email: ssoMadeEmail, displayName: "SSO made", ssoProvisioned: true, googleId: `g-ssomade-${stamp}` } })
+  ).id;
+  untrustedId = (
+    await prisma.user.create({ data: { email: untrustedEmail, displayName: "Untrusted", passwordHash: "x", passwordUntrusted: true } })
+  ).id;
+  for (const userId of [operatorId, ownerId, ssoMadeId, untrustedId]) {
     await prisma.orgMember.create({ data: { orgId, userId, role: "OWNER", permissions: "0" } });
   }
   projectA = (await prisma.project.create({ data: { orgId, name: "Alpha", key: `RA${stamp.slice(0, 3).toUpperCase()}` } })).id;
   const expiresAt = new Date(Date.now() + 3_600_000);
-  await prisma.session.create({ data: { id: operatorSession, userId: operatorId, expiresAt } });
+  await prisma.session.create({ data: { id: operatorSession, userId: operatorId, expiresAt, authMethod: "google" } });
   await prisma.session.create({ data: { id: ownerSession, userId: ownerId, expiresAt } });
+  await prisma.session.create({ data: { id: ssoMadeSession, userId: ssoMadeId, expiresAt, authMethod: "google" } });
+  await prisma.session.create({ data: { id: untrustedSession, userId: untrustedId, expiresAt, authMethod: "password" } });
+  await prisma.session.create({ data: { id: legacyOperatorSession, userId: operatorId, expiresAt } });
   // Every scope there is, minted by the operator.
   operatorKey = (
     await mintApiKey({
@@ -69,12 +91,14 @@ beforeAll(async () => {
 
 afterAll(async () => {
   vi.unstubAllEnvs();
-  await prisma.session.deleteMany({ where: { id: { in: [operatorSession, ownerSession] } } });
+  await prisma.session.deleteMany({
+    where: { id: { in: [operatorSession, ownerSession, ssoMadeSession, untrustedSession, legacyOperatorSession] } },
+  });
   await prisma.apiKey.deleteMany({ where: { orgId } });
   await prisma.project.deleteMany({ where: { orgId } });
   await prismaUnfiltered.orgMember.deleteMany({ where: { orgId } });
   await prisma.organization.deleteMany({ where: { id: orgId } });
-  await prisma.user.deleteMany({ where: { id: { in: [operatorId, ownerId] } } });
+  await prisma.user.deleteMany({ where: { id: { in: [operatorId, ownerId, ssoMadeId, untrustedId] } } });
 });
 
 beforeEach(async () => {
@@ -110,5 +134,23 @@ describe("the operator gate with real sign-in resolution", () => {
     expect(((await (await get()).json()) as { viewerIsOperator?: boolean }).viewerIsOperator).toBe(true);
     h.cookie = ownerSession;
     expect(((await (await get()).json()) as { viewerIsOperator?: boolean }).viewerIsOperator).toBe(false);
+  });
+
+  it.each([
+    ["an account an organization's IdP made, signed in with Google", () => ssoMadeSession],
+    ["a password session whose password an SSO session could have set", () => untrustedSession],
+    ["the operator's own session from before sessions recorded how they signed in", () => legacyOperatorSession],
+  ])("refuses %s at an operator address, with the operator sentence", async (_name, sessionOf) => {
+    h.cookie = sessionOf();
+    const res = await put(deliveryOn());
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error?: string }).error).toBe(OPERATOR_ONLY);
+    expect(await storedDelivery()).toBeUndefined();
+    expect(((await (await get()).json()) as { viewerIsOperator?: boolean }).viewerIsOperator).toBe(false);
+
+    // Positive control: the operator's own Google session, same request.
+    h.cookie = operatorSession;
+    expect((await put(deliveryOn())).status).toBe(200);
+    expect((await storedDelivery())?.enabled).toBe(true);
   });
 });

@@ -211,6 +211,16 @@ export function SignInProvidersManager() {
               multi-tenant — a single-tenant app rejects it with{" "}
               <span className="font-mono">AADSTS50194</span>.
             </p>
+            <p className="text-[11px] text-[var(--text-muted)]">
+              If everyone signs in from one organization, set its tenant here, and sign-in
+              refuses accounts from any other tenant. A first Microsoft sign-in finds or
+              creates an account by address only when Microsoft vouches for it: add the{" "}
+              <span className="font-mono">email</span> and{" "}
+              <span className="font-mono">xms_edov</span> optional claims under Token
+              configuration, or list your own domains in{" "}
+              <span className="font-mono">MICROSOFT_TRUSTED_DOMAINS</span>. Without either,
+              people connect Microsoft from their profile instead.
+            </p>
           </div>
 
           <label className="flex items-center gap-2 text-sm">

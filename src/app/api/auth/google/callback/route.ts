@@ -10,8 +10,9 @@ import { getGoogleLoginClient, googleRedirectUri, resolveGoogleLoginCreds } from
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import { consumePendingInvitations } from "@/lib/auth/consume-invitations";
-import { googleLoginBlockedByGovSso } from "@/lib/auth/sso-enforcement";
+import { resolveFirstPartyUser } from "@/lib/auth/first-party-identity";
 import { storeGoogleRefreshToken } from "@/lib/integrations/google";
+import { connectIntent, finishConnect } from "@/lib/auth/connect-flow";
 
 function redirectToLogin(origin: string, error: string) {
   return NextResponse.redirect(
@@ -44,6 +45,7 @@ export async function GET(request: NextRequest) {
   }
 
   let email: string | null = null;
+  let emailVerified = false;
   let googleId: string | null = null;
   let displayName = "";
   let avatarUrl: string | null = null;
@@ -72,6 +74,9 @@ export async function GET(request: NextRequest) {
       return res;
     }
     email = payload.email.toLowerCase();
+    // Strictly `true`: Google documents that an account's address can be
+    // unverified, and only a verified one may link an existing account.
+    emailVerified = payload.email_verified === true;
     googleId = payload.sub;
     displayName = payload.name ?? email.split("@")[0];
     avatarUrl = payload.picture ?? null;
@@ -85,70 +90,39 @@ export async function GET(request: NextRequest) {
     return res;
   }
 
-  // Allowlist check. ALLOWED_EMAILS env var (comma-separated) acts as a
-  // permanent bootstrap allowlist on top of the DB-managed allowed_emails table.
-  const envAllowed = (process.env.ALLOWED_EMAILS ?? "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-  const isEnvAllowed = envAllowed.includes(email);
-  const dbAllowed = isEnvAllowed
-    ? true
-    : Boolean(await prisma.allowedEmail.findUnique({ where: { email } }));
-  if (!dbAllowed) {
-    const res = redirectToLogin(origin, "not_allowed");
-    res.cookies.delete(OAUTH_STATE_COOKIE);
-    return res;
-  }
-
-  // Find or create the user. Prefer match by googleId, then by email.
-  let user = await prisma.user.findUnique({ where: { googleId } });
-  if (!user) {
-    const existingByEmail = await prisma.user.findFirst({ where: { email } });
-    if (existingByEmail) {
-      user = await prisma.user.update({
-        where: { id: existingByEmail.id },
-        data: {
-          googleId,
-          displayName: existingByEmail.displayName || displayName,
-          avatarUrl: avatarUrl ?? existingByEmail.avatarUrl,
-          lastActiveAt: new Date(),
-          // NOTE: the refresh token is NO LONGER written to the plaintext
-          // googleRefreshToken column. It is sealed into the connector
-          // credential vault below (after org membership is resolved).
-        },
-      });
-    } else {
-      user = await prisma.user.create({
-        data: {
-          email,
-          googleId,
-          displayName,
-          avatarUrl,
-          lastActiveAt: new Date(),
-        },
-      });
-    }
-  } else {
-    user = await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        lastActiveAt: new Date(),
-        ...(avatarUrl ? { avatarUrl } : {}),
-      },
+  // Connecting Google to the signed-in account (Profile, Sign-in methods), not
+  // signing in: bind this subject to that account, by the person's own request.
+  const connect = connectIntent(request, "google", state);
+  if (connect) {
+    const token = refreshToken;
+    return finishConnect(request, connect, { provider: "google", subject: googleId }, {
+      stateCookie: OAUTH_STATE_COOKIE,
+      afterConnect: token ? (uid) => storeGoogleRefreshToken(uid, token) : undefined,
     });
   }
 
-  // GOV SSO-enforcement guard (the bypass fix). If this identity belongs to a
-  // GOV org with an enabled+enforced IdpConnection, Google login is rejected —
-  // gov members MUST authenticate via the IdP (which asserts the MFA/AAL floor),
-  // not via Google. INTERNAL_ADMINS platform owners are exempt (break-glass:
-  // the interim gov-lockout recovery path; see HANDOFF.md + SSP §3.5).
-  if (await googleLoginBlockedByGovSso({ email, userId: user.id })) {
-    const res = redirectToLogin(origin, "sso_enforced");
+  // The Google subject decides. Email links a FIRST sign-in to an existing
+  // account only when Google verified it, the account has no Google identity yet
+  // and was not created by an organization's SSO. The allowlist (ALLOWED_EMAILS
+  // plus the allowed_emails table) applies inside resolveFirstPartyUser.
+  const resolved = await resolveFirstPartyUser({
+    identity: { provider: "google", subject: googleId },
+    verifiedEmails: emailVerified ? [email] : [],
+    profile: { displayName, avatarUrl },
+  });
+  if (!resolved.ok) {
+    console.warn(`[auth:google] sign-in refused: ${resolved.reason}`);
+    const res = redirectToLogin(origin, resolved.reason);
     res.cookies.delete(OAUTH_STATE_COOKIE);
     return res;
   }
+  const user = resolved.user;
+  // From here on the ACCOUNT's address, not whatever the token carries today.
+  email = user.email;
+
+  // An org that requires single sign-on is enforced where it is opened
+  // (getAuthContext, lib/auth/org-session-scope), not here: this session still
+  // opens the person's other orgs, and that org refuses it.
 
   // Consume any pending, unexpired invitations addressed to this email —
   // creates the membership (+ invite-time work-roles) and joins #general, so an
@@ -181,6 +155,9 @@ export async function GET(request: NextRequest) {
       id: sessionId,
       userId: user.id,
       expiresAt,
+      // The session counts for system admin only through the bound Google
+      // identity (see lib/internal/access).
+      authMethod: "google",
     },
   });
 

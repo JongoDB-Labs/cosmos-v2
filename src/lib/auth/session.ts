@@ -3,12 +3,13 @@ import { cache } from "react";
 import { prisma } from "@/lib/db/client";
 import { type AuthContext } from "@/lib/rbac/check";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
-import { isInternalAdmin } from "@/lib/internal/access";
+import { isSystemAdmin, type SystemAdminSubject } from "@/lib/internal/access";
 import { admitsAddress, allowlistState } from "@/lib/auth/ip-allowlist";
 import { trustedClientIp } from "@/lib/auth/client-ip";
 import { SESSION_COOKIE } from "./client";
 import { verifyApiKeyHeader } from "./api-key";
 import { classifyBearer } from "./bearer";
+import { orgSessionRefusal } from "./org-session-scope";
 
 /**
  * Whether a session satisfies an org's Require-MFA floor, under the
@@ -31,12 +32,18 @@ function sessionSatisfiesMfa(user: {
  */
 const ACTIVITY_WRITE_THROTTLE_MS = 60_000;
 
-type SessionUser = {
+export type SessionUser = {
   id: string;
   email: string;
   displayName: string;
   avatarUrl: string | null;
-  /** SSO assurance, surfaced per-request from the Session row. */
+  /** The account was created by an organization's IdP (never a system admin). */
+  ssoProvisioned: boolean;
+  /** First-party credentials bound to the account (see lib/internal/access). */
+  googleBound: boolean;
+  microsoftBound: boolean;
+  passwordUntrusted: boolean;
+  /** How the session signed in, and SSO assurance, from the Session row. */
   authMethod: string | null;
   idpConnId: string | null;
   amr: string[];
@@ -68,7 +75,15 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   const cookieStore = await cookies();
   const sessionId = cookieStore.get(SESSION_COOKIE)?.value;
   if (!sessionId) return null;
+  return getSessionUser(sessionId);
+});
 
+/**
+ * The live session `sessionId` names, as getCurrentUser reads it. For route
+ * handlers that hold the cookie on the request (an OAuth callback that must
+ * know who is signed in), so they read the same fields the same way.
+ */
+export async function getSessionUser(sessionId: string): Promise<SessionUser | null> {
   const session = await prisma.session.findUnique({
     where: { id: sessionId },
     select: {
@@ -84,6 +99,10 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
           email: true,
           displayName: true,
           avatarUrl: true,
+          ssoProvisioned: true,
+          googleId: true,
+          passwordUntrusted: true,
+          microsoftIdentity: { select: { id: true } },
         },
       },
     },
@@ -97,6 +116,10 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
     email: session.user.email,
     displayName: session.user.displayName,
     avatarUrl: session.user.avatarUrl,
+    ssoProvisioned: session.user.ssoProvisioned,
+    googleBound: session.user.googleId != null,
+    microsoftBound: session.user.microsoftIdentity != null,
+    passwordUntrusted: session.user.passwordUntrusted,
     authMethod: session.authMethod,
     idpConnId: session.idpConnId,
     amr: session.amr,
@@ -104,30 +127,25 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
     sessionId,
     lastActivityAt: session.lastActivityAt,
   };
-});
+}
 
 /**
  * Whether a session that authenticated a request earlier still would: its row
- * still exists (signing out and revocation delete it), it has not expired, and
- * the org's floors still admit it from the address it connected from
- * (`orgSessionFloors`, the same check `getAuthContext` makes). For a
+ * still exists (signing out and revocation delete it), it has not expired, the
+ * org still opens to it (`orgSessionRefusal`: an SSO session opens only its
+ * IdP's org, and an org that requires SSO only its own SSO sessions), and the
+ * org's floors still admit it from the address it connected from
+ * (`orgSessionFloors`). The same checks `getAuthContext` makes. For a
  * long-lived connection, the org event stream, which authenticates once and
  * must not outlive its session. Reads only: holding a stream open is not
  * activity, so it never slides the idle window.
  */
 export async function sessionStillValid(sessionId: string, orgId: string, clientIp: string | null): Promise<boolean> {
-  const session = await prisma.session.findUnique({
-    where: { id: sessionId },
-    select: {
-      expiresAt: true,
-      lastActivityAt: true,
-      authMethod: true,
-      mfaSatisfied: true,
-      user: { select: { email: true } },
-    },
-  });
-  if (!session || session.expiresAt.getTime() <= Date.now()) return false;
-  const floors = await orgSessionFloors(orgId, { ...session, email: session.user.email }, clientIp);
+  const user = await getSessionUser(sessionId);
+  if (!user) return false;
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { id: true, tenantClass: true } });
+  if (!org || (await orgSessionRefusal(user, org))) return false;
+  const floors = await orgSessionFloors(orgId, user, clientIp);
   return floors.ok;
 }
 
@@ -139,9 +157,10 @@ type FloorVerdict =
  * The org's floors for a session: Require-MFA, the idle timeout and the IP
  * allowlist. The ONE copy: `getAuthContext` applies it to every request and
  * `sessionStillValid` to a stream that stays open, so the two cannot drift (a
- * second copy for the stream once had only the idle timeout). System admins
- * (INTERNAL_ADMINS) are break-glass exempt from all three, so a
- * misconfiguration can't lock the operator out. Reads only; the idle decision
+ * second copy for the stream once had only the idle timeout). A platform admin
+ * (`isSystemAdmin`: an INTERNAL_ADMINS address on a session that vouches for
+ * it) is break-glass exempt from all three, so a misconfiguration can't lock
+ * the operator out. Reads only; the idle decision
  * uses `lastActivityAt` as read, so a request cannot revive its own session.
  *
  * `clientIp` is the request's trusted address (`trustedClientIp`, which reads
@@ -151,14 +170,14 @@ type FloorVerdict =
  */
 async function orgSessionFloors(
   orgId: string,
-  session: { email: string; authMethod: string | null; mfaSatisfied: boolean; lastActivityAt: Date },
+  session: SystemAdminSubject & { mfaSatisfied: boolean; lastActivityAt: Date },
   clientIp: string | null,
 ): Promise<FloorVerdict> {
   const sec = await prisma.orgSecuritySettings.findUnique({
     where: { orgId },
     select: { mfaRequired: true, ipAllowlistEnabled: true, sessionTimeoutMins: true },
   });
-  if (!sec || isInternalAdmin(session.email, process.env.INTERNAL_ADMINS)) return { ok: true, idleTimeout: false };
+  if (!sec || isSystemAdmin(session)) return { ok: true, idleTimeout: false };
   if (sec.mfaRequired && !sessionSatisfiesMfa(session)) return { ok: false, why: "mfa" };
   // sessionTimeoutMins <= 0 disables the idle gate.
   const idleTimeout = sec.sessionTimeoutMins > 0;
@@ -259,6 +278,11 @@ export const getAuthContext = cache(
 
     const user = await getCurrentUser();
     if (!user) return null;
+
+    // Which orgs this session may open at all: an SSO session opens only its own
+    // IdP's org, and an org that requires SSO opens only to its IdP's sessions
+    // (or a platform admin's own first-party one). See lib/auth/org-session-scope.
+    if (await orgSessionRefusal(user, org)) return null;
 
     // Effective permissions fold in work-role grants (widen) + collect ABAC
     // rules; one query, memoized by the cache() wrapper above.

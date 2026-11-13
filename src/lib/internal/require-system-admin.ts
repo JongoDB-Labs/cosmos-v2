@@ -1,10 +1,11 @@
 import { getCurrentUser } from "@/lib/auth/session";
-import { isInternalAdmin } from "@/lib/internal/access";
+import { isSystemAdmin } from "@/lib/internal/access";
 
 /**
  * Gate for INSTANCE-WIDE admin surfaces (sign-in providers, the global email
  * allowlist, tenant-class, etc.). Returns the current user iff they're a
- * platform/system admin per the INTERNAL_ADMINS allowlist, else null.
+ * platform/system admin (INTERNAL_ADMINS, through `isSystemAdmin`: never an
+ * IdP-created account or an SSO session), else null.
  *
  * This is the SYSTEM tier of the admin hierarchy (system → org → project →
  * board). It deliberately does NOT accept "OWNER of any org": org ownership is
@@ -15,5 +16,5 @@ import { isInternalAdmin } from "@/lib/internal/access";
 export async function requireSystemAdmin() {
   const me = await getCurrentUser();
   if (!me) return null;
-  return isInternalAdmin(me.email, process.env.INTERNAL_ADMINS) ? me : null;
+  return isSystemAdmin(me) ? me : null;
 }

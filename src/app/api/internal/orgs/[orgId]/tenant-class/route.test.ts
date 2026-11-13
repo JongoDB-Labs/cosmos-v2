@@ -7,9 +7,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const { getCurrentUser, isInternalAdmin, prisma, logAudit, applyGovGuardrails } = vi.hoisted(() => ({
+const { getCurrentUser, isSystemAdmin, prisma, logAudit, applyGovGuardrails } = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
-  isInternalAdmin: vi.fn(),
+  isSystemAdmin: vi.fn(),
   prisma: {
     organization: { findUnique: vi.fn(), update: vi.fn() },
     $transaction: vi.fn(),
@@ -19,7 +19,7 @@ const { getCurrentUser, isInternalAdmin, prisma, logAudit, applyGovGuardrails } 
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser }));
-vi.mock("@/lib/internal/access", () => ({ isInternalAdmin }));
+vi.mock("@/lib/internal/access", () => ({ isSystemAdmin }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/audit", () => ({ logAudit }));
 vi.mock("@/lib/runtime-config/guardrails", () => ({ applyGovGuardrails }));
@@ -54,7 +54,7 @@ describe("PATCH tenant-class — platform-owner RBAC", () => {
 
   it("403 for a tenant-admin (signed in but NOT an internal admin) — cannot flip tenantClass", async () => {
     getCurrentUser.mockResolvedValue({ id: "u1", email: "admin@tenant.com" });
-    isInternalAdmin.mockReturnValue(false);
+    isSystemAdmin.mockReturnValue(false);
     const res = await PATCH(patch({ tenantClass: "GOV" }), { params });
     expect(res.status).toBe(403);
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -65,7 +65,7 @@ describe("PATCH tenant-class — platform-owner RBAC", () => {
 describe("PATCH tenant-class — platform-owner flip applies guardrails", () => {
   beforeEach(() => {
     getCurrentUser.mockResolvedValue({ id: "owner-1", email: "owner@platform.com" });
-    isInternalAdmin.mockReturnValue(true);
+    isSystemAdmin.mockReturnValue(true);
   });
 
   it("flip to GOV ⇒ applyGovGuardrails called in the txn + tenant_class.changed audited", async () => {

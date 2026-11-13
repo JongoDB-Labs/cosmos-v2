@@ -49,6 +49,41 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+                version: "2.552.6",
+                date: "2026-11-13",
+                title: "Your account is tied to the sign-in you use, and single sign-on opens its own organization",
+                highlights: [
+                  {
+                    kind: "fix",
+                    text: "Google, Microsoft and your organization's single sign-on now recognize you by the account you signed in with, not by your email address. The first time you sign in after this update, your account is found by its verified email address. After that, only that same Google or Microsoft account signs you in, even if its email address changes.",
+                  },
+                  {
+                    kind: "fix",
+                    text: "A sign-in through an organization's single sign-on now opens that organization only. Your other organizations ask you to sign in another way.",
+                  },
+                  {
+                    kind: "fix",
+                    text: "An organization that requires single sign-on no longer stops you signing in with Google, Microsoft or a password. Those sign-ins open your other organizations, and that organization asks for single sign-on.",
+                  },
+                  {
+                    kind: "fix",
+                    text: "Single sign-on finds an existing account only when its organization already has you as a member or has invited you, and only for a verified address in the organization's domains. Otherwise it asks an administrator to invite you.",
+                  },
+                  {
+                    kind: "feature",
+                    text: "Profile now has Sign-in methods, where you can connect Google or Microsoft to your account. If Microsoft sign-in can't find your account by email, sign in another way and connect Microsoft there. If you signed in before this update, sign out and sign in again first.",
+                  },
+                  {
+                    kind: "fix",
+                    text: "A first password can be added only from a recent Google or Microsoft sign-in, never through single sign-on, and an account made by single sign-on can't have one.",
+                  },
+                  {
+                    kind: "improvement",
+                    text: "Platform admins: sign in again after this update to reach the admin pages. Admin access needs a Google, Microsoft or password sign-in that vouches for your address. Sign-in providers explains the Microsoft setup, and lists accounts made by single sign-on so you can clear that mark when someone made their account themselves.",
+                  },
+                ],
+              },
+  {
     version: "2.552.5",
     date: "2026-11-13",
     title: "Turning on automated delivery is the instance operator's call",

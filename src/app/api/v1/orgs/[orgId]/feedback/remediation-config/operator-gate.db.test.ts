@@ -64,7 +64,9 @@ const configUrl = () => `http://localhost/api/v1/orgs/${orgId}/feedback/remediat
 const putConfig = (body: unknown) => PUT(new NextRequest(configUrl(), { method: "PUT", body: JSON.stringify(body) }), at());
 const getConfig = () => GET(new NextRequest(configUrl()), at());
 
-function sessionOf(userId: string, email: string) {
+// A Google session through the account's bound Google identity: the kind the
+// trusted system-admin rule (lib/internal/access isSystemAdmin) counts.
+function sessionOf(userId: string, email: string, trust: Record<string, unknown> = {}) {
   return {
     id: userId,
     email,
@@ -72,10 +74,15 @@ function sessionOf(userId: string, email: string) {
     avatarUrl: null,
     authMethod: "google",
     idpConnId: null,
+    ssoProvisioned: false,
+    googleBound: true,
+    microsoftBound: false,
+    passwordUntrusted: false,
     amr: [],
     mfaSatisfied: false,
     sessionId: `s-${userId}`,
     lastActivityAt: new Date(),
+    ...trust,
   };
 }
 function ownerCtx(userId: string, extra: Partial<AuthContext> = {}): AuthContext {
@@ -131,7 +138,7 @@ async function expectOperatorOnly(res: Response) {
 beforeAll(async () => {
   vi.stubEnv("INTERNAL_ADMINS", operatorEmail);
   orgId = (await prisma.organization.create({ data: { name: `dg ${stamp}`, slug: `dg-${stamp}` } })).id;
-  operatorId = (await prisma.user.create({ data: { email: operatorEmail, displayName: "Operator" } })).id;
+  operatorId = (await prisma.user.create({ data: { email: operatorEmail, displayName: "Operator", googleId: `g-op-${stamp}` } })).id;
   ownerId = (await prisma.user.create({ data: { email: ownerEmail, displayName: "Owner" } })).id;
   for (const userId of [operatorId, ownerId]) {
     await prisma.orgMember.create({ data: { orgId, userId, role: "OWNER", permissions: "0" } });
@@ -325,6 +332,26 @@ describe("turning automated delivery on is the instance operator's call", () => 
     h.ctx = ownerCtx(ownerId);
     h.cookieUser = sessionOf(operatorId, operatorEmail);
     await expectOperatorOnly(await putConfig(deliveryOn([projectA])));
+  });
+
+  // The operator's address is not enough: the session has to vouch for it.
+  it.each([
+    ["an account an organization's IdP made", { ssoProvisioned: true }],
+    ["a password session whose password an SSO session could have set", { authMethod: "password", googleBound: false, passwordUntrusted: true }],
+    ["an SSO sign-in", { authMethod: "oidc", idpConnId: "conn-1", googleBound: false }],
+    ["a Google sign-in to an account with no bound Google identity", { googleBound: false }],
+    ["a session from before sessions recorded how they signed in", { authMethod: null }],
+  ])("%s at the operator's address is not the operator", async (_name, trust) => {
+    h.ctx = ownerCtx(operatorId);
+    h.cookieUser = sessionOf(operatorId, operatorEmail, trust);
+    const before = await storedSettings();
+    await expectOperatorOnly(await putConfig(deliveryOn([projectA])));
+    expect(await storedSettings()).toEqual(before);
+    expect(((await (await getConfig()).json()) as { viewerIsOperator?: boolean }).viewerIsOperator).toBe(false);
+
+    // Positive control: the same actor, with a session that vouches for the address.
+    asOperator();
+    expect((await putConfig(deliveryOn([projectA]))).status).toBe(200);
   });
 
   it("an API key cannot turn it on, even one the operator minted", async () => {

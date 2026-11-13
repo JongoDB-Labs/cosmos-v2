@@ -8,6 +8,7 @@ import {
   microsoftRedirectUri,
 } from "@/lib/auth/microsoft";
 import { getProviderConfig } from "@/lib/auth/provider-config";
+import { CONNECT_COOKIE } from "@/lib/auth/connect-sign-in";
 
 /** Begin Microsoft (Entra ID) sign-in: stash a CSRF state cookie and redirect
  *  to the Microsoft authorize endpoint. Creds come from the vault-backed
@@ -46,5 +47,8 @@ export async function GET(request: NextRequest) {
     maxAge: 5 * 60,
     secure: process.env.NODE_ENV === "production",
   });
+  // A sign-in, not a connect: drop any connect request left from an abandoned
+  // round trip (its state would not match anyway).
+  response.cookies.delete(CONNECT_COOKIE);
   return response;
 }

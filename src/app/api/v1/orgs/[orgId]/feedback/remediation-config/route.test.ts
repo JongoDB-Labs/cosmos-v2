@@ -84,7 +84,18 @@ const OPERATOR_EMAIL = "operator@example.com";
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("INTERNAL_ADMINS", OPERATOR_EMAIL);
-  getCurrentUser.mockResolvedValue({ id: "44444444-4444-4444-4444-444444444444", email: OPERATOR_EMAIL });
+  // A Google session through the account's bound Google identity, which the
+  // trusted system-admin rule counts.
+  getCurrentUser.mockResolvedValue({
+    id: "44444444-4444-4444-4444-444444444444",
+    email: OPERATOR_EMAIL,
+    ssoProvisioned: false,
+    authMethod: "google",
+    idpConnId: null,
+    googleBound: true,
+    microsoftBound: false,
+    passwordUntrusted: false,
+  });
   orgSettings = { unrelatedKey: { keep: "me" } };
   // The PUT reads the stored settings under a row lock inside a transaction.
   prisma.$transaction.mockImplementation(async (fn: (tx: typeof prisma) => unknown) => fn(prisma));

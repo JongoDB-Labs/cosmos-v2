@@ -8,14 +8,20 @@ import {
 import {
   MS_STATE_COOKIE,
   exchangeMicrosoftCode,
-  fetchMicrosoftProfile,
   microsoftRedirectUri,
+  readMicrosoftIdToken,
+  resolveMicrosoftTenantPolicy,
+  verifiedMicrosoftEmails,
+  type MicrosoftIdClaims,
+  type MicrosoftTenantPolicy,
 } from "@/lib/auth/microsoft";
+import { resolveFirstPartyUser } from "@/lib/auth/first-party-identity";
 import { getProviderConfig } from "@/lib/auth/provider-config";
 import { getPublicOrigin } from "@/lib/auth/public-url";
+import { connectIntent, finishConnect } from "@/lib/auth/connect-flow";
+import { connectOutcomeUrl, CONNECT_COOKIE } from "@/lib/auth/connect-sign-in";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import { consumePendingInvitations } from "@/lib/auth/consume-invitations";
-import { googleLoginBlockedByGovSso } from "@/lib/auth/sso-enforcement";
 
 function redirectToLogin(origin: string, error: string) {
   return NextResponse.redirect(
@@ -48,9 +54,8 @@ export async function GET(request: NextRequest) {
     return res;
   }
 
-  let email: string;
-  let displayName: string;
-  let candidates: string[] = [];
+  let claims: MicrosoftIdClaims;
+  let policy: MicrosoftTenantPolicy;
   try {
     const tokens = await exchangeMicrosoftCode({
       clientId: cfg.clientId,
@@ -59,19 +64,17 @@ export async function GET(request: NextRequest) {
       code,
       redirectUri: microsoftRedirectUri(request),
     });
-    if (!tokens.access_token) {
-      console.error("[auth:microsoft] token exchange returned no access_token");
+    if (!tokens.id_token) {
+      console.error("[auth:microsoft] token exchange returned no id_token");
       const res = redirectToLogin(origin, "auth_failed");
       res.cookies.delete(MS_STATE_COOKIE);
       return res;
     }
-    const profile = await fetchMicrosoftProfile(tokens.access_token);
-    email = profile.email;
-    displayName = profile.displayName;
-    candidates = profile.emailCandidates;
+    claims = readMicrosoftIdToken(tokens.id_token, cfg.clientId);
+    policy = await resolveMicrosoftTenantPolicy(cfg.tenant);
   } catch (err) {
     console.error(
-      "[auth:microsoft] token/profile exchange failed:",
+      "[auth:microsoft] token exchange / id_token check failed:",
       err instanceof Error ? err.message : String(err),
     );
     const res = redirectToLogin(origin, "auth_failed");
@@ -79,66 +82,72 @@ export async function GET(request: NextRequest) {
     return res;
   }
 
-  // Allowlist parity with the Google path: ALLOWED_EMAILS env bootstrap on top
-  // of the DB-managed allowed_emails table. Checked against ALL of the user's
-  // own verified addresses (primary SMTP `mail` + UPN) — enterprise M365 accounts
-  // frequently have a `mail` alias that differs from the UPN, and gating only on
-  // `mail || UPN` would wrongly reject a user whose OTHER address is allowlisted.
-  // The matched address becomes the identity so they resolve to their account.
-  const envAllowed = (process.env.ALLOWED_EMAILS ?? "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-  let matchedEmail = candidates.find((c) => envAllowed.includes(c)) ?? null;
-  if (!matchedEmail) {
-    const row = await prisma.allowedEmail.findFirst({
-      where: { email: { in: candidates } },
-      select: { email: true },
-    });
-    matchedEmail = row?.email ?? null;
+  const connect = connectIntent(request, "microsoft", state);
+
+  // A configured tenant is enforced here as well as in the authority URL: the
+  // token's own `tid` must be that tenant. For a sign-in and a connect alike.
+  if (policy.kind === "pinned" && claims.tenantId !== policy.tenantId) {
+    console.warn("[auth:microsoft] refused: token tenant is not the configured tenant");
+    const res = connect
+      ? NextResponse.redirect(connectOutcomeUrl(origin, connect.returnTo, { error: "ms_wrong_tenant" }))
+      : redirectToLogin(origin, "ms_wrong_tenant");
+    res.cookies.delete(MS_STATE_COOKIE);
+    res.cookies.delete(CONNECT_COOKIE);
+    return res;
   }
-  if (!matchedEmail) {
-    console.warn(
-      `[auth:microsoft] sign-in denied — no allowlisted address among [${candidates.join(", ")}]`,
+
+  // Connecting Microsoft to the signed-in account (Profile, Sign-in methods):
+  // bind (tid, oid) to that account by the person's own request. No address is
+  // consulted, so this is how an account Microsoft can't link by email gets it.
+  if (connect) {
+    return finishConnect(
+      request,
+      connect,
+      { provider: "microsoft", tenantId: claims.tenantId, objectId: claims.objectId },
+      { stateCookie: MS_STATE_COOKIE },
     );
-    const res = redirectToLogin(origin, "not_allowed");
+  }
+
+  // The (tid, oid) binding decides. Email links a FIRST sign-in only when it is
+  // an address Microsoft vouches for (see verifiedMicrosoftEmails); the
+  // directory `mail` attribute never counts on its own. The allowlist
+  // (ALLOWED_EMAILS plus the allowed_emails table) applies inside
+  // resolveFirstPartyUser. When nothing could count because the deployment
+  // isn't set up for it, the person is told an administrator must act.
+  const vouched = verifiedMicrosoftEmails(claims);
+  const resolved = await resolveFirstPartyUser({
+    identity: { provider: "microsoft", tenantId: claims.tenantId, objectId: claims.objectId },
+    verifiedEmails: vouched.emails,
+    noVerifiedEmail: vouched.setupIncomplete ? "ms_setup_incomplete" : "email_unverified",
+    profile: {
+      displayName:
+        claims.name || (claims.email ?? claims.preferredUsername ?? "").split("@")[0] || "Microsoft user",
+    },
+  });
+  if (!resolved.ok) {
+    console.warn(`[auth:microsoft] sign-in refused: ${resolved.reason}`);
+    const res = redirectToLogin(origin, resolved.reason);
     res.cookies.delete(MS_STATE_COOKIE);
     return res;
   }
-  email = matchedEmail;
+  const user = resolved.user;
+  const email = user.email;
 
-  // Find or create by email. We don't store a provider id for Microsoft (no
-  // schema column) — the email is the identity, shared with any existing
-  // Google/SSO account for the same address.
-  let user = await prisma.user.findFirst({ where: { email } });
-  if (!user) {
-    user = await prisma.user.create({
-      data: { email, displayName, lastActiveAt: new Date() },
-    });
-  } else {
-    user = await prisma.user.update({
-      where: { id: user.id },
-      data: { lastActiveAt: new Date() },
-    });
-  }
-
-  // SSO-enforcement parity: a member/invitee of a GOV org with an enabled +
-  // enforced IdP must authenticate via that IdP, not Microsoft consumer/work
-  // sign-in. INTERNAL_ADMINS are exempt (break-glass).
-  if (await googleLoginBlockedByGovSso({ email, userId: user.id })) {
-    const res = redirectToLogin(origin, "sso_enforced");
-    res.cookies.delete(MS_STATE_COOKIE);
-    return res;
-  }
+  // An org that requires single sign-on refuses this session where the org is
+  // opened (lib/auth/org-session-scope); the person's other orgs still open.
 
   // Consume pending invitations (membership + invite-time work-roles + #general),
   // so an invited user lands in their org instead of the empty /onboarding screen.
+  // Keyed on the ACCOUNT's address, which a verified address linked or created,
+  // never on whatever the token carries today.
   await consumePendingInvitations(user.id, email);
 
   const sessionId = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000);
   await prisma.session.create({
-    data: { id: sessionId, userId: user.id, expiresAt },
+    // The session counts for system admin only through the bound Microsoft
+    // identity (see lib/internal/access).
+    data: { id: sessionId, userId: user.id, expiresAt, authMethod: "microsoft" },
   });
 
   const response = NextResponse.redirect(new URL("/", origin));
