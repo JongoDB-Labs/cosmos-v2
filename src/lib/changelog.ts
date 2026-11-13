@@ -63,7 +63,7 @@ const RELEASES: Release[] = [
       },
       {
         kind: "fix",
-        text: "A Program Increment can no longer be placed inside another Program Increment, or inside any other interval. Creating or moving one that way is refused with a message that says why, from the API, from Cosmo and from a spreadsheet import. If older data already has a Program Increment inside another one, both the query language and the classic filter bar now treat it as a Program Increment of its own, so the two give the same answer.",
+        text: "A Program Increment can no longer be placed inside another Program Increment, or inside any other interval. Creating or moving one that way is refused with a message that says why, from the API, from Cosmo and from a spreadsheet import, where the import preview already flags the row before you commit. If older data already has a Program Increment inside another one, both the query language and the classic filter bar now treat it as a Program Increment of its own, so the two give the same answer.",
       },
       {
         kind: "fix",

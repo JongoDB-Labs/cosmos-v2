@@ -12,7 +12,7 @@
 //
 // Every absence is paired with a positive control in the same spec, so a query
 // that matched nothing could not pass.
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
@@ -25,6 +25,8 @@ describe("CQL: comment text search reads only readable comments (e2e DB)", () =>
   let w: World;
   /** A word that appears in comments only, never in a title or description. */
   let word: string;
+  /** A second such word, in one public comment on a P1 item and one on a P3 item. */
+  let perProject: string;
 
   beforeAll(async () => {
     w = await seedWorld();
@@ -57,6 +59,12 @@ describe("CQL: comment text search reads only readable comments (e2e DB)", () =>
     await comment(mixed, `the ${word} is here`, { hiddenAt: earlier });
     await item("c-in-description", `the ${word} is in the description`);
     await item("c-no-match", "unrelated");
+
+    // The same public comment, mentioning the actor, in two readable projects.
+    perProject = `wombat${w.stamp}`;
+    const me = w.actor.id;
+    await comment(await item("c-p1-public"), `the ${perProject} is here, <@${me}>`);
+    await comment(await item("c-p3-public", "", w.P3.id), `the ${perProject} is here, <@${me}>`);
   }, 60_000);
 
   afterAll(async () => {
@@ -74,6 +82,12 @@ describe("CQL: comment text search reads only readable comments (e2e DB)", () =>
     const r = await executeCql(ctx, { cql }, { now: NOW, pageSize: 100 });
     return r.data.map((x) => String(x.title)).filter((t) => t.startsWith("c-")).sort();
   };
+
+  /** The same reader, with an ABAC deny on COMMENT_READ in P3 alone. Items in P3 stay readable. */
+  const noCommentsInP3 = (): AuthContext => ({
+    ...reader(),
+    abacRules: [{ effect: "deny", actions: ["COMMENT_READ"], conditions: [{ attr: "projectId", op: "eq", value: w.P3.id }] }],
+  });
 
   const UNREADABLE = ["c-internal", "c-deleted", "c-hidden", "c-over-ceiling", "c-hidden-beside-a-visible-one"];
 
@@ -104,5 +118,66 @@ describe("CQL: comment text search reads only readable comments (e2e DB)", () =>
     for (const t of UNREADABLE) expect(got).toContain(t);
     expect(got).toContain("c-no-match");
     for (const t of ["c-visible", "c-marked-within-ceiling"]) expect(got).not.toContain(t);
+  });
+
+  describe("COMMENT_READ is decided per project", () => {
+    it("the control: with COMMENT_READ in both projects, both public comments match", async () => {
+      // So the P3 absence below is the policy, not an unreadable item or a missing comment.
+      expect(await titles(reader(), `comment ~ "${perProject}"`)).toEqual(["c-p1-public", "c-p3-public"]);
+      expect(await titles(reader(), "mentions = me")).toEqual(["c-p1-public", "c-p3-public"]);
+    });
+
+    it("denied COMMENT_READ in P3: `comment ~`, `text ~` and `mentions` match only the P1 comment", async () => {
+      const ctx = noCommentsInP3();
+      expect(await titles(ctx, `comment ~ "${perProject}"`)).toEqual(["c-p1-public"]);
+      expect(await titles(ctx, `text ~ "${perProject}"`)).toEqual(["c-p1-public"]);
+      expect(await titles(ctx, perProject)).toEqual(["c-p1-public"]);
+      expect(await titles(ctx, "mentions = me")).toEqual(["c-p1-public"]);
+    });
+
+    it("denied COMMENT_READ in P3: the P3 item is readable, and `NOT comment ~` keeps it", async () => {
+      const ctx = noCommentsInP3();
+      const got = await titles(ctx, `NOT comment ~ "${perProject}"`);
+      expect(got).toContain("c-p3-public");
+      expect(got).not.toContain("c-p1-public");
+    });
+  });
+
+  describe("the comment scope's cost does not grow with the project count", () => {
+    beforeAll(async () => {
+      // More readable projects, so a per-project lookup would show as a count.
+      for (let i = 0; i < 6; i++) {
+        await prisma.project.create({ data: { orgId: w.orgA, name: `Extra ${i}`, key: `XTR${i}` } });
+      }
+    });
+
+    /** Reads of the project and membership tables while one query runs. */
+    const lookups = async (ctx: AuthContext, cql: string) => {
+      const delegates = { project: prisma.project, projectMember: prisma.projectMember, orgMember: prisma.orgMember } as unknown as Record<
+        string,
+        Record<string, (...args: unknown[]) => unknown>
+      >;
+      const reads = ["findFirst", "findFirstOrThrow", "findUnique", "findUniqueOrThrow", "findMany", "count"];
+      const spies = Object.values(delegates).flatMap((d) => reads.map((op) => vi.spyOn(d, op)));
+      try {
+        await executeCql(ctx, { cql }, { now: NOW, pageSize: 100 });
+        return spies.reduce((n, s) => n + s.mock.calls.length, 0);
+      } finally {
+        for (const s of spies) s.mockRestore();
+      }
+    };
+
+    it("a comment search reads no more projects than the same search on titles", async () => {
+      const ctx = reader();
+      const readable = await prisma.project.count({ where: { orgId: w.orgA, teamScopedAccess: false } });
+      expect(readable).toBeGreaterThanOrEqual(8);
+      const titlesOnly = await lookups(ctx, `title ~ "${perProject}"`);
+      // The control: the spies see the readable-project lookup every query makes.
+      expect(titlesOnly).toBeGreaterThan(0);
+      expect(await lookups(ctx, `text ~ "${perProject}"`)).toBe(titlesOnly);
+      expect(await lookups(ctx, `comment ~ "${perProject}"`)).toBe(titlesOnly);
+      // And the scope it builds is still the per-project one.
+      expect(await titles(noCommentsInP3(), `text ~ "${perProject}"`)).toEqual(["c-p1-public"]);
+    });
   });
 });

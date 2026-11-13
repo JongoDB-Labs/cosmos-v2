@@ -18,7 +18,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { isUuid } from "@/lib/ids";
 import { ForbiddenError, type AuthContext } from "@/lib/rbac/check";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireAccess } from "@/lib/abac/require-access";
 import { readableCommentsWhere } from "@/lib/work-items/read.server";
 import { documentVisibilityWhere } from "@/lib/files/access";
 import { getVisibleProjectIds } from "@/lib/rbac/project-access";
@@ -672,12 +672,18 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
   // `mentions`, `comment` and `text` (COMMENT_TEXT_FIELDS). The comment
   // thread's own gate, per project (COMMENT_READ, as the comments route asks
   // it), and the fragment every comment read applies. Only when the query names
-  // one of them: it costs a policy check per readable project.
+  // one of them.
+  //
+  // The permission half of requireProjectRead only. Its other half, project
+  // visibility, is already in `readableIds` (getReadableProjectIds applies the
+  // key scope and team scoping), and asking it again cost a project lookup per
+  // readable project on every comment search. requireAccess touches the
+  // database only when a COMMENT_READ rule names `in_project`.
   let readableComments: CompileEnv["readableComments"];
   if (COMMENT_TEXT_FIELDS.some((f) => mentionsField(a.query, f))) {
     const allowed = await Promise.all(
       readableIds.map((pid) =>
-        requireProjectRead(a.ctx, pid, "COMMENT_READ").then(
+        requireAccess(a.ctx, "COMMENT_READ", { orgId, projectId: pid }).then(
           () => pid,
           (e) => {
             if (e instanceof ForbiddenError) return null;

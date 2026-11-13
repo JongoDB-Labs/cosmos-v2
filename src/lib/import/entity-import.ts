@@ -920,6 +920,32 @@ async function updateEntityRow(
   }
 }
 
+/**
+ * The interval updates `kindChangeRefusal` would refuse, each with its reason.
+ * One query for every row that names a kind, rather than one per row. An
+ * import can't move an interval or its children, so the answer here is the
+ * one the commit gets.
+ */
+async function intervalKindRefusals(
+  orgId: string,
+  updates: Array<{ m: MappedRow; id: string }>,
+): Promise<Map<MappedRow, string>> {
+  const refused = new Map<MappedRow, string>();
+  const changing = updates.filter(({ m }) => typeof m.fields.intervalKind === "string");
+  if (!changing.length) return refused;
+  const rows = await prisma.interval.findMany({
+    where: { orgId, id: { in: changing.map(({ id }) => id) } },
+    select: { id: true, intervalKind: true, parentId: true, _count: { select: { children: true } } },
+  });
+  const current = new Map(rows.map((r) => [r.id, r]));
+  for (const { m, id } of changing) {
+    const row = current.get(id);
+    const refusal = row ? kindChangeRefusal(row, m.fields.intervalKind as string, row._count.children) : null;
+    if (refusal) refused.set(m, refusal);
+  }
+  return refused;
+}
+
 // ── Public entry point ───────────────────────────────────────────────────────
 
 export async function runEntityImport(
@@ -965,7 +991,7 @@ export async function runEntityImport(
   let willUpdate = 0;
   let skipped = 0;
   const creates: MappedRow[] = [];
-  const updates: Array<{ m: MappedRow; id: string }> = [];
+  let updates: Array<{ m: MappedRow; id: string }> = [];
   for (const m of mapped) {
     if (m.error) {
       errors.push({ row: m.rowNum, message: m.error });
@@ -986,6 +1012,19 @@ export async function runEntityImport(
       willCreate++;
       creates.push(m);
     }
+  }
+
+  // A kind change that would break one-level nesting is refused at commit
+  // (updateEntityRow). Ask it here too, so the preview reports the row instead
+  // of counting an update the commit will refuse.
+  if (def.key === "interval") {
+    const refused = await intervalKindRefusals(ctx.orgId, updates);
+    for (const [m, message] of refused) {
+      errors.push({ row: m.rowNum, message });
+      willUpdate--;
+      skipped++;
+    }
+    updates = updates.filter(({ m }) => !refused.has(m));
   }
 
   // Stable ordering: blocking errors won't be drowned by warnings in the cap.
