@@ -4,8 +4,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { sealMcpJson } from "@/lib/integrations/mcp-secrets";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { requireAccess } from "@/lib/abac/require-access";
+import { MCP_SERVER_PUBLIC_SELECT } from "@/lib/integrations/mcp-server-select";
 import {
   success,
   noContent,
@@ -13,6 +13,7 @@ import {
   getIpAddress,
 } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { endpointUrlSchema } from "@/lib/security/endpoint-url";
 
 // PATCH allows partial updates without the transport-coupling check — we
 // re-validate the resulting row's invariant (stdio→command, http/sse→url)
@@ -24,7 +25,7 @@ const patchMcpServerSchema = z.object({
   command: z.string().max(500).nullable().optional(),
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
-  url: z.string().url().max(1000).nullable().optional(),
+  url: endpointUrlSchema(1000).nullable().optional(),
   headers: z.record(z.string(), z.string()).optional(),
   enabled: z.boolean().optional(),
 });
@@ -41,10 +42,12 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.ORG_READ);
+    // The settings page that lists them opens only with MCP_MANAGE; so does this.
+    await requireAccess(ctx, "MCP_MANAGE");
 
     const server = await prisma.mcpServer.findFirst({
       where: { id: serverId, orgId },
+      select: MCP_SERVER_PUBLIC_SELECT,
     });
     if (!server) return new Response("Not found", { status: 404 });
 
@@ -62,7 +65,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.MCP_MANAGE);
+    await requireAccess(ctx, "MCP_MANAGE");
 
     const existing = await prisma.mcpServer.findFirst({
       where: { id: serverId, orgId },
@@ -121,6 +124,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           }),
         ...(data.enabled !== undefined && { enabled: data.enabled }),
       },
+      select: MCP_SERVER_PUBLIC_SELECT,
     });
 
     await logAudit({
@@ -147,7 +151,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.MCP_MANAGE);
+    await requireAccess(ctx, "MCP_MANAGE");
 
     const existing = await prisma.mcpServer.findFirst({
       where: { id: serverId, orgId },

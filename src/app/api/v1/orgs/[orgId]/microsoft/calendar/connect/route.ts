@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { refuseApiKey } from "@/lib/auth/key-gate";
+import { handleApiError } from "@/lib/api-helpers";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import {
@@ -15,11 +17,21 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 
 /** Start connecting the signed-in person's Outlook Calendar (COSMOS-202 B1). */
 export async function GET(request: NextRequest, { params }: RouteParams) {
+  try {
+    return await connect(request, params);
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
+async function connect(request: NextRequest, params: RouteParams["params"]) {
   const origin = getPublicOrigin(request);
   const org = await prisma.organization.findUnique({ where: { id: (await params).orgId }, select: { id: true, slug: true } });
   if (!org) return new Response("Not found", { status: 404 });
   const ctx = await getAuthContext(org.slug);
   if (!ctx) return new Response("Unauthorized", { status: 401 });
+  // Connecting someone's Outlook is a browser sign-in flow, never a key's.
+  refuseApiKey(ctx);
   const back = (outlook: string) => NextResponse.redirect(new URL(`/${org.slug}/settings/preferences?outlook=${outlook}`, origin));
 
   if (!rateLimit(getRateLimitKey(request, "ms.calendar.connect", ctx.userId), { capacity: 10, refillPerSecond: 0.1 }).allowed) {

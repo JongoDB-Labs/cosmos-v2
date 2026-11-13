@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { z } from "zod";
+import { requireAccess } from "@/lib/abac/require-access";
+import { logAudit } from "@/lib/audit";
 
 const updateBankAccountSchema = z.object({
   name: z.string().min(1).optional(),
@@ -23,7 +23,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.FINANCE_MANAGE);
+    await requireAccess(ctx, "FINANCE_MANAGE");
 
     const existing = await prisma.bankAccount.findFirst({
       where: { id: bankAccountId, orgId },
@@ -41,6 +41,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.mask !== undefined && { mask: data.mask }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
       },
+    });
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "bank_account.updated",
+      entity: "bank_account",
+      entityId: bankAccountId,
+      metadata: { changed: Object.keys(data) },
+      ipAddress: getIpAddress(request),
     });
 
     return success(updated);

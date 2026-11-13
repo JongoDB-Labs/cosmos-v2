@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { refuseApiKey } from "@/lib/auth/key-gate";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
@@ -36,6 +37,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // A person's own display and Do Not Disturb settings, not a key's.
+    refuseApiKey(ctx);
 
     const preferences = await prisma.userPreferences.upsert({
       where: { userId: ctx.userId },
@@ -62,6 +65,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // A person's own display and Do Not Disturb settings, not a key's.
+    refuseApiKey(ctx);
 
     const body = await request.json();
     const data = updatePreferencesSchema.parse(body);

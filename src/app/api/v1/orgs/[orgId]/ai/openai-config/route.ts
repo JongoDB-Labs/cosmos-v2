@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { setOpenAiConfig } from "@/lib/ai/ai-credentials";
+import { endpointUrlSchema } from "@/lib/security/endpoint-url";
 
 /**
  * Per-org OpenAI-COMPATIBLE endpoint config (e.g. https://api.openai.com/v1 or a
@@ -22,7 +23,7 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 
 const bodySchema = z.object({
   apiKey: z.string().trim().min(1, "API key is required"),
-  baseUrl: z.string().trim().url("A valid base URL is required"),
+  baseUrl: endpointUrlSchema(),
   model: z.string().trim().min(1, "Model is required"),
 });
 

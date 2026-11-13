@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { refuseApiKey } from "@/lib/auth/key-gate";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import { CalendarNotConnected, CalendarReconnectNeeded } from "@/lib/integrations/microsoft/calendar-token.server";
@@ -20,6 +21,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    refuseApiKey(ctx);
     if (!rateLimit(getRateLimitKey(request, "ms.calendar.sync", ctx.userId), { capacity: 3, refillPerSecond: 1 / 60 }).allowed) {
       return json(429, "Synced a moment ago. Try again in a minute.");
     }

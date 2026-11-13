@@ -4,8 +4,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { sealMcpJson } from "@/lib/integrations/mcp-secrets";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { requireAccess } from "@/lib/abac/require-access";
+import { MCP_SERVER_PUBLIC_SELECT } from "@/lib/integrations/mcp-server-select";
 import {
   success,
   created,
@@ -13,6 +13,7 @@ import {
   getIpAddress,
 } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { endpointUrlSchema } from "@/lib/security/endpoint-url";
 
 // Transport-aware schema. We require `command` for stdio and `url` for
 // http/sse. Zod's discriminated unions don't play nicely with `superRefine`
@@ -25,7 +26,7 @@ const createMcpServerSchema = z
     command: z.string().min(1).max(500).optional(),
     args: z.array(z.string()).default([]),
     env: z.record(z.string(), z.string()).default({}),
-    url: z.string().url().max(1000).optional(),
+    url: endpointUrlSchema(1000).optional(),
     headers: z.record(z.string(), z.string()).default({}),
     enabled: z.boolean().default(true),
   })
@@ -59,11 +60,13 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.ORG_READ);
+    // The settings page that lists them opens only with MCP_MANAGE; so does this.
+    await requireAccess(ctx, "MCP_MANAGE");
 
     const servers = await prisma.mcpServer.findMany({
       where: { orgId },
       orderBy: { createdAt: "desc" },
+      select: MCP_SERVER_PUBLIC_SELECT,
     });
 
     return success(servers);
@@ -80,7 +83,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.MCP_MANAGE);
+    await requireAccess(ctx, "MCP_MANAGE");
 
     const body = await request.json();
     const data = createMcpServerSchema.parse(body);
@@ -99,6 +102,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         headersEnc: sealMcpJson(data.headers),
         enabled: data.enabled,
       },
+      select: MCP_SERVER_PUBLIC_SELECT,
     });
 
     await logAudit({

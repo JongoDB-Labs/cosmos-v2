@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { z } from "zod";
+import { requireAccess } from "@/lib/abac/require-access";
+import { logAudit } from "@/lib/audit";
 
 const createBankAccountSchema = z.object({
   name: z.string().min(1),
@@ -23,7 +23,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.FINANCE_READ);
+    await requireAccess(ctx, "FINANCE_READ");
 
     const accounts = await prisma.bankAccount.findMany({
       where: { orgId },
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.FINANCE_MANAGE);
+    await requireAccess(ctx, "FINANCE_MANAGE");
 
     const body = await request.json();
     const data = createBankAccountSchema.parse(body);
@@ -58,6 +58,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         currency: data.currency ?? "USD",
         createdById: ctx.userId,
       },
+    });
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "bank_account.created",
+      entity: "bank_account",
+      entityId: account.id,
+      ipAddress: getIpAddress(request),
     });
 
     return created(account);

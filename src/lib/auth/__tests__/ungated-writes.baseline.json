@@ -11,7 +11,6 @@
   "DELETE v1/orgs/[orgId]/feedback/attachments/[attachmentId]",
   "DELETE v1/orgs/[orgId]/invoices/[invoiceId]",
   "DELETE v1/orgs/[orgId]/microsoft/calendar",
-  "DELETE v1/orgs/[orgId]/projects/[projectId]/documents/[docId]",
   "DELETE v1/orgs/[orgId]/projects/[projectId]/members",
   "DELETE v1/orgs/[orgId]/projects/[projectId]/teams/[teamId]",
   "PATCH internal/orgs/[orgId]/plan",

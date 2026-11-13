@@ -2,13 +2,15 @@ import { NextRequest } from "next/server";
 import { fileTypeFromBuffer } from "file-type";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { requireKeyScopes } from "@/lib/auth/key-gate";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, noContent } from "@/lib/api-helpers";
+import { success, handleApiError, noContent, getIpAddress } from "@/lib/api-helpers";
 import { getStorage } from "@/lib/storage";
 import { serveHeaders } from "@/lib/files/serve";
 import { LOGO_UPLOAD_TYPES, storedOrgLogo } from "@/lib/org/stored-logo";
 import { patchOrgSettings } from "@/lib/org/patch-settings.server";
+import { logAudit } from "@/lib/audit";
 
 /**
  * Organization logo — upload a file rather than paste a URL.
@@ -111,6 +113,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         where: { id: orgId },
         data: { logoUrl: `/api/v1/orgs/${orgId}/logo?v=${version}` },
       });
+      // In the transaction: a row that can't be written undoes the change.
+      await logAudit(
+        {
+          orgId,
+          userId: ctx.userId,
+          action: "logo.uploaded",
+          entity: "organization",
+          entityId: orgId,
+          metadata: { contentType, size: file.size },
+          ipAddress: getIpAddress(request),
+        },
+        tx,
+      );
       return settingsBefore;
     });
     const previous = storedOrgLogo(orgId, before)?.key ?? null;
@@ -138,6 +153,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     // sidebar. getAuthContext returns null for a non-member of this org.
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // A key needs `read`, like every other read; this one checks no bit.
+    requireKeyScopes(ctx, ["read"]);
 
     const logo = storedOrgLogo(orgId, org.settings);
     if (!logo) return new Response("Not found", { status: 404 });
@@ -157,7 +174,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
     const org = await orgFor(orgId);
@@ -171,6 +188,18 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     const before = await prisma.$transaction(async (tx) => {
       const settingsBefore = await patchOrgSettings(orgId, { remove: ["logoStorageKey", "logoContentType"] }, tx);
       await tx.organization.update({ where: { id: orgId }, data: { logoUrl: null } });
+      // In the transaction, as in POST.
+      await logAudit(
+        {
+          orgId,
+          userId: ctx.userId,
+          action: "logo.deleted",
+          entity: "organization",
+          entityId: orgId,
+          ipAddress: getIpAddress(request),
+        },
+        tx,
+      );
       return settingsBefore;
     });
     const key = storedOrgLogo(orgId, before)?.key ?? null;

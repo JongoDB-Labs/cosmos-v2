@@ -2,13 +2,13 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
-import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { MAX_MARKUP_PCT } from "@/lib/finance/markup";
 import { assertBillLinks } from "@/lib/payables/links.server";
 import { listBills, createBill } from "@/lib/payables/service";
+import { requireAccess } from "@/lib/abac/require-access";
+import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.FINANCE_READ);
+    await requireAccess(ctx, "FINANCE_READ");
 
     const sp = request.nextUrl.searchParams;
     return success(
@@ -62,11 +62,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.FINANCE_MANAGE);
+    await requireAccess(ctx, "FINANCE_MANAGE");
 
     const input = billInputSchema.parse(await request.json());
     await assertBillLinks(ctx, orgId, input);
-    return success(await createBill(orgId, ctx.userId, input), 201);
+    const bill = await createBill(orgId, ctx.userId, input);
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "bill.created",
+      entity: "bill",
+      entityId: bill.id,
+      ipAddress: getIpAddress(request),
+    });
+    return success(bill, 201);
   } catch (error) {
     return handleApiError(error);
   }

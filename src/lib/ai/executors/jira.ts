@@ -9,9 +9,13 @@
  *   can apologise and continue.
  * - Resolves the site `baseUrl` + optional `defaultProjectKey` from the integration's
  *   non-secret config (Integration.config, plaintext).
- * - Calls the Jira Cloud REST v3 API via `fetch` with HTTP Basic auth
- *   (`Authorization: Basic base64(email:apiToken)`). The fetch is INJECTABLE via the
- *   optional ctx.fetchImpl so tests mock it without a network.
+ * - Calls the Jira Cloud REST v3 API with HTTP Basic auth
+ *   (`Authorization: Basic base64(email:apiToken)`). The site URL is one an org admin
+ *   typed in, so the call goes through security/outbound-post.server.ts: never a
+ *   link-local or metadata address, a private one only inside the operator's
+ *   OUTBOUND_ALLOW_PRIVATE_CIDRS, no redirects, and an error reported by its status
+ *   alone. The fetch is INJECTABLE via the optional ctx.fetchImpl so tests mock it
+ *   without a network.
  * - Returns a SHALLOW shape including summary/description — the egress chokepoint
  *   (src/lib/ai/egress) decides what the MODEL actually sees (gov: structural-only,
  *   key/status/priority/issueType/timestamps; summary/description/comments withheld).
@@ -20,6 +24,7 @@
 
 import { prisma } from "@/lib/db/client";
 import { getOrgCredential } from "@/lib/integrations/credentials";
+import { fetchPublicUrl, OutboundRefused } from "@/lib/security/outbound-post.server";
 
 /** Minimal fetch signature we depend on — lets tests inject a mock. */
 type FetchLike = (
@@ -40,7 +45,7 @@ interface JiraToolContext {
   userId: string;
   /** The caller's org — scopes the sealed org credential + the integration config. */
   orgId: string;
-  /** Injected fetch for tests; defaults to global fetch. */
+  /** Injected fetch for tests; defaults to the checked outbound fetch. */
   fetchImpl?: FetchLike;
 }
 
@@ -105,37 +110,35 @@ async function jiraFetch(
   path: string,
   body?: unknown,
 ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
-  const doFetch = ctx.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
-  const res = await doFetch(`${access.baseUrl}${path}`, {
-    method,
-    headers: {
-      Authorization: basicAuth(access.email, access.apiToken),
-      Accept: "application/json",
-      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-      "User-Agent": "cosmos-connector",
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
+  // The site address is an org admin's choice, so it goes through the
+  // outbound checks: never link-local or cloud metadata, a private address
+  // only inside the operator's OUTBOUND_ALLOW_PRIVATE_CIDRS, the connection
+  // pinned to the address checked, no redirects, and an overall deadline.
+  const doFetch: FetchLike =
+    ctx.fetchImpl ?? ((url, init) => fetchPublicUrl(url, init ?? {}, { allowOperatorPrivate: true, timeoutMs: 30_000 }));
+  let res: Awaited<ReturnType<FetchLike>>;
+  try {
+    res = await doFetch(`${access.baseUrl}${path}`, {
+      method,
+      headers: {
+        Authorization: basicAuth(access.email, access.apiToken),
+        Accept: "application/json",
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        "User-Agent": "cosmos-connector",
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+  } catch (err) {
+    // Refused by the address checks, a network failure, or the deadline:
+    // said in our words, never the site's.
+    if (err instanceof OutboundRefused) return { ok: false, error: `Jira request not sent or not finished: ${err.message}` };
+    throw err;
+  }
   if (!res.ok) {
-    // Surface a clean, token-free error. 401/403 → likely bad/expired credentials.
-    let detail = "";
-    try {
-      const parsed = (await res.json()) as {
-        errorMessages?: unknown;
-        errors?: unknown;
-      };
-      if (Array.isArray(parsed?.errorMessages) && parsed.errorMessages.length) {
-        detail = `: ${parsed.errorMessages.join("; ")}`;
-      } else if (parsed?.errors && typeof parsed.errors === "object") {
-        const vals = Object.values(parsed.errors as Record<string, unknown>)
-          .filter((v): v is string => typeof v === "string")
-          .join("; ");
-        if (vals) detail = `: ${vals}`;
-      }
-    } catch {
-      /* body not JSON — ignore */
-    }
-    return { ok: false, error: `Jira API error (HTTP ${res.status})${detail}` };
+    // The status and our words for it, never the response body: the address
+    // is an admin's choice, and a body is whatever that address answered.
+    const hint = res.status === 401 || res.status === 403 ? ": Jira rejected the credentials" : "";
+    return { ok: false, error: `Jira API error (HTTP ${res.status})${hint}` };
   }
   return { ok: true, data: await res.json() };
 }

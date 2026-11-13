@@ -6,13 +6,13 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
-import { logAudit } from "@/lib/audit";
 import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 import { totalHours } from "@/lib/time/time-off";
 import { approvalAuthority } from "@/lib/time/approval";
 import { isManagerOf, hasManager } from "@/lib/time/timesheet-actions";
 import { roleCountsFor } from "@/lib/rbac/key-role";
 import type { Prisma } from "@prisma/client";
+import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -212,18 +212,29 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       },
       select: SELECT,
     });
-    // Booking another person's time, possibly pre-approved, is on the record.
-    if (onBehalf) {
-      await logAudit({
-        orgId,
-        userId: ctx.userId,
-        action: "time_off.filed_for",
-        entity: "time_off_request",
-        entityId: created.id,
-        metadata: { userId: subject, kind: body.kind, status: created.status } as Record<string, string>,
-        ipAddress: getIpAddress(req),
-      });
-    }
+    // Every request is on the record. Booking another person's time, possibly
+    // pre-approved, says whose it was.
+    await logAudit(
+      onBehalf
+        ? {
+            orgId,
+            userId: ctx.userId,
+            action: "time_off.filed_for",
+            entity: "time_off_request",
+            entityId: created.id,
+            metadata: { userId: subject, kind: body.kind, status: created.status } as Record<string, string>,
+            ipAddress: getIpAddress(req),
+          }
+        : {
+            orgId,
+            userId: ctx.userId,
+            action: "time_off.requested",
+            entity: "time_off_request",
+            entityId: created.id,
+            metadata: { subjectUserId: subject, kind: body.kind, status: created.status },
+            ipAddress: getIpAddress(req),
+          },
+    );
     return success(shape(created), 201);
   } catch (e) {
     return handleApiError(e);

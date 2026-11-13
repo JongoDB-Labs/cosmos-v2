@@ -177,6 +177,8 @@ async function webhookDeliveries(
           webhookId: hook.id,
           event: name,
           eventId: e.id,
+          // Who may read it, and whether it is sent, follow its project.
+          projectId: e.project_id,
           status: "PENDING",
           nextAttemptAt: now,
           // Ids, keys and the outbox's own payload (allowlisted values only): never a title or body.

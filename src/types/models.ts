@@ -472,13 +472,19 @@ export interface Integration {
   updatedAt: string;
 }
 
+/** A webhook as reads send it: never its signing secret, which only the
+ *  response that creates it carries. */
 export interface Webhook {
   id: string;
   orgId: string;
   url: string;
   events: string[];
-  secret: string;
   active: boolean;
+  /** Whose access it carries: it sends events only from projects this person can read. */
+  createdById?: string | null;
+  createdBy?: { displayName: string } | null;
+  /** Why it sends nothing at all (its creator left, say), or null. */
+  pausedReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }

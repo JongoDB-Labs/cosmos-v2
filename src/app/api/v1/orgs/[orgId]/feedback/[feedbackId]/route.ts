@@ -3,6 +3,7 @@ import { z } from "zod";
 import { FeedbackStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { refuseApiKey } from "@/lib/auth/key-gate";
 import { requireAccess } from "@/lib/abac/require-access";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
@@ -84,6 +85,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // A person's own requests, edited or withdrawn in the browser. A key can't
+    // read feedback (ORG_READ is in no scope), and the author's path checks no
+    // bit, so without this any key would edit or delete what its owner filed.
+    refuseApiKey(ctx);
 
     const existing = await prisma.feedbackItem.findFirst({
       where: { id: feedbackId, orgId },
@@ -177,6 +182,10 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // A person's own requests, edited or withdrawn in the browser. A key can't
+    // read feedback (ORG_READ is in no scope), and the author's path checks no
+    // bit, so without this any key would edit or delete what its owner filed.
+    refuseApiKey(ctx);
 
     const existing = await prisma.feedbackItem.findFirst({
       where: { id: feedbackId, orgId },

@@ -5,7 +5,8 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { logAudit } from "@/lib/audit";
 import { partnerSelect, mapVendorContract } from "@/lib/pm/vendor";
 import { logPmActivity } from "@/lib/pm/activity-log";
 import { canSeeProjectMoney, projectMoney, projectMoneyRows } from "@/lib/rbac/money-fields";
@@ -90,6 +91,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         endDate: data.endDate ? new Date(data.endDate) : null,
       },
       include: { partner: { select: partnerSelect } },
+    });
+
+    // The audit row names the record, never an amount (the audit log is read
+    // without any finance permission).
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "vendor.created",
+      entity: "vendor_contract",
+      entityId: created.id,
+      metadata: { projectId, partnerId: data.partnerId },
+      ipAddress: getIpAddress(request),
     });
 
     // Seed the activity log with a "created" event (best-effort).

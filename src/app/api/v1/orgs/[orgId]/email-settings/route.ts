@@ -2,11 +2,12 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission, ForbiddenError, type AuthContext } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { ForbiddenError, type AuthContext } from "@/lib/rbac/check";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { sealSecret } from "@/lib/crypto/vault";
 import { hasSealedApiKey } from "@/lib/integrations/org-email-config";
+import { logAudit } from "@/lib/audit";
+import { requireAccess } from "@/lib/abac/require-access";
 
 /**
  * Per-org transactional-email (Resend) delivery settings — set by an org OWNER
@@ -67,7 +68,7 @@ async function requireOwner(
   const ctx = await getAuthContext(org.slug);
   if (!ctx) return { ok: false, response: new Response("Unauthorized", { status: 401 }) };
 
-  requirePermission(ctx, Permission.ORG_MANAGE_SETTINGS);
+  await requireAccess(ctx, "ORG_MANAGE_SETTINGS");
   if (ctx.orgRole !== "OWNER") {
     throw new ForbiddenError("Only the organization owner can manage email delivery settings.");
   }
@@ -128,6 +129,16 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       where: { orgId },
       create: { orgId, ...data },
       update: data,
+    });
+    // What changed, never the key itself.
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "email_settings.updated",
+      entity: "org_email_settings",
+      entityId: orgId,
+      metadata: { changed: Object.keys(body).filter((k) => k !== "apiKey"), apiKeyChanged: !!trimmedKey },
+      ipAddress: getIpAddress(request),
     });
 
     return success(await readStatus(orgId));

@@ -1,6 +1,7 @@
 import { getAuthContext } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/client";
+import { MCP_SERVER_PUBLIC_SELECT } from "@/lib/integrations/mcp-server-select";
 import { McpServersManager } from "@/components/settings/mcp-servers-manager";
 import { PageShell } from "@/components/ui/page-shell";
 import {
@@ -49,6 +50,8 @@ export default async function McpServersSettingsPage({ params }: PageParams) {
       prisma.mcpServer.findMany({
         where: { orgId: ctx.orgId },
         orderBy: { createdAt: "desc" },
+        // Never the sealed env/headers: this cache is shipped to the browser.
+        select: MCP_SERVER_PUBLIC_SELECT,
       }),
   });
 

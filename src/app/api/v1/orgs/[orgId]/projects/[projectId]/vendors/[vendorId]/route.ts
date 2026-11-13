@@ -5,7 +5,8 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { logAudit } from "@/lib/audit";
 import { partnerSelect, mapVendorContract } from "@/lib/pm/vendor";
 import { logPmFieldChanges } from "@/lib/pm/activity-log";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
@@ -96,6 +97,18 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       include: { partner: { select: partnerSelect } },
     });
 
+    // The audit row names the fields that changed, never their values: some
+    // are amounts, and the audit log is read without any finance permission.
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "vendor.updated",
+      entity: "vendor_contract",
+      entityId: vendorId,
+      metadata: { projectId, changed: [...Object.keys(update), ...Object.keys(partnerUpdate)] },
+      ipAddress: getIpAddress(request),
+    });
+
     // Audit contract field changes (best-effort). Label-keyed maps so the
     // Activity log reads "changed status: active → completed". `existing` is the
     // raw Contract before the update; `updated` is the raw Contract after. Only
@@ -134,7 +147,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, projectId, vendorId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
@@ -146,11 +159,20 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
 
     const existing = await prisma.contract.findFirst({
       where: { id: vendorId, orgId, projectId },
-      select: { id: true },
+      select: { id: true, partnerId: true },
     });
     if (!existing) return new Response("Not found", { status: 404 });
 
     await prisma.contract.delete({ where: { id: vendorId } });
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "vendor.deleted",
+      entity: "vendor_contract",
+      entityId: vendorId,
+      metadata: { projectId, partnerId: existing.partnerId },
+      ipAddress: getIpAddress(request),
+    });
     return success({ id: vendorId });
   } catch (e) {
     return handleApiError(e);

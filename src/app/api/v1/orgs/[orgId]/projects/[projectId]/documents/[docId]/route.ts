@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { resolveAuth } from "@/lib/auth/api-key";
 import { requirePermission } from "@/lib/rbac/check";
-import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
@@ -50,6 +49,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await resolveAuth(req, org);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // The uploader's own file needs no bit, so a key of any scope (`read`,
+    // `rules:run`) would pass as its owner. A key needs the power that uploads
+    // a file here (PROJECT_UPDATE: items:write, planning:write, documents:write).
+    if (ctx.isApiKey) requirePermission(ctx, Permission.PROJECT_UPDATE);
     // Who may delete is one policy, in one module, shared with the org-level
     // route and the attachment list — not PROJECT_UPDATE spelled out again here.
     // The widening that matters: the person who UPLOADED a file may take it back

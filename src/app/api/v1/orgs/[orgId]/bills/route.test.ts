@@ -13,6 +13,9 @@ const { prisma } = vi.hoisted(() => ({
 const { getAuthContext } = vi.hoisted(() => ({ getAuthContext: vi.fn() }));
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
+// The route records an audit row; this unit test has no audit table.
+const { logAudit } = vi.hoisted(() => ({ logAudit: vi.fn(async () => undefined) }));
+vi.mock("@/lib/audit", () => ({ logAudit }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 // The list now narrows to the caller's visible projects, which reads the
 // project tables this mocked prisma does not carry. Unrestricted here, so the

@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { requireAccess } from "@/lib/abac/require-access";
+import { refuseProjectScopedKey } from "@/lib/auth/key-gate";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { openFieldWithHeal } from "@/lib/crypto/field-seal";
@@ -19,7 +19,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.WEBHOOK_MANAGE);
+    // A webhook is sent events from every project in the org, so a key limited
+    // to some projects can't manage one, whatever its scopes.
+    refuseProjectScopedKey(ctx);
+    await requireAccess(ctx, "WEBHOOK_MANAGE");
 
     const webhook = await prisma.webhook.findFirst({
       where: { id: webhookId, orgId },

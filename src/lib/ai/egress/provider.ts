@@ -1,6 +1,7 @@
 // src/lib/ai/egress/provider.ts
 import Anthropic from "@anthropic-ai/sdk";
 import { NoModelCredentialError, type ModelCredential } from "./types";
+import { fetchPublicUrl, OutboundRefused } from "@/lib/security/outbound-post.server";
 
 export type { ModelCredential } from "./types";
 
@@ -254,11 +255,20 @@ function mapFinishReason(reason: string | null | undefined): string | null {
   }
 }
 
+/** The whole exchange, streamed answer included (the Anthropic SDK's default is also 10 minutes). */
+const OPENAI_TIMEOUT_MS = 600_000;
+
 /**
  * Call an OpenAI-COMPATIBLE Chat Completions endpoint. Streams when `onTextDelta`
  * is set (parses SSE `data:` lines). Returns the SAME {@link ModelTurnResult} shape
- * as the Anthropic path so the agent loop is provider-agnostic. Throws on non-2xx
- * with the status + a body snippet (the caller's error handling maps it).
+ * as the Anthropic path so the agent loop is provider-agnostic.
+ *
+ * The base URL is one an org admin typed in, so it goes out through the same
+ * checks as any outside URL (security/outbound-post.server.ts): never a
+ * link-local or metadata address, a private one only inside the operator's
+ * OUTBOUND_ALLOW_PRIVATE_CIDRS, no redirects, and one overall deadline. A
+ * non-2xx throws with the status alone: what the endpoint sent back is never
+ * repeated, since the URL could point at something that isn't a model.
  */
 async function callOpenAi(
   req: CallModelRequest,
@@ -274,20 +284,32 @@ async function callOpenAi(
     ...(stream ? { stream: true } : {}),
   };
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${credential.apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetchPublicUrl(
+      url,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${credential.apiKey}`,
+        },
+        body: JSON.stringify(body),
+      },
+      { allowOperatorPrivate: true, timeoutMs: OPENAI_TIMEOUT_MS },
+    );
+  } catch (err) {
+    if (err instanceof OutboundRefused) {
+      throw new Error(`OpenAI-compatible request not sent or not finished: ${err.message}`);
+    }
+    throw err;
+  }
 
   if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    throw new Error(
-      `OpenAI-compatible request failed (${res.status}): ${errText.slice(0, 300)}`,
-    );
+    // Close the answer unread: its body is never repeated.
+    await res.body?.cancel().catch(() => undefined);
+    const hint = res.status === 401 || res.status === 403 ? ": the endpoint rejected the API key" : "";
+    throw new Error(`OpenAI-compatible request failed (HTTP ${res.status})${hint}`);
   }
 
   if (stream && res.body) {

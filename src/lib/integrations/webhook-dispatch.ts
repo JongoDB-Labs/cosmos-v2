@@ -20,11 +20,17 @@ export async function dispatchWebhook(orgId: string, event: string, payload: Rec
   return Promise.all(hooks.map((hook) => queueDelivery(hook.id, event, payload)));
 }
 
-/** Queue one delivery to one webhook, whatever it subscribes to (an automation's webhook action). Returns its id. */
+/**
+ * Queue one delivery to one webhook, whatever it subscribes to (an automation's
+ * webhook action). Returns its id. A payload naming a `projectId` is recorded
+ * as about that project: it is sent only if the webhook's creator can read the
+ * project, and shown only to people who can.
+ */
 export async function queueDelivery(webhookId: string, event: string, payload: Record<string, unknown>): Promise<string> {
   const id = randomUUID();
+  const projectId = typeof payload.projectId === "string" ? payload.projectId : null;
   await prisma.webhookDelivery.create({
-    data: { id, webhookId, event, payload: { id, ...payload } as Prisma.InputJsonValue, status: "PENDING", nextAttemptAt: new Date() },
+    data: { id, webhookId, event, projectId, payload: { id, ...payload } as Prisma.InputJsonValue, status: "PENDING", nextAttemptAt: new Date() },
   });
   return id;
 }

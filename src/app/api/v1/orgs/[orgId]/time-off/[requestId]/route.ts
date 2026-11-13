@@ -6,7 +6,8 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { approvalAuthority } from "@/lib/time/approval";
 import { isManagerOf, hasManager } from "@/lib/time/timesheet-actions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { logAudit } from "@/lib/audit";
 import { totalHours } from "@/lib/time/time-off";
 import { roleCountsFor } from "@/lib/rbac/key-role";
 
@@ -85,6 +86,15 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         data: { status: "WITHDRAWN" },
         select: SELECT,
       });
+      await logAudit({
+        orgId,
+        userId: ctx.userId,
+        action: "time_off.withdrawn",
+        entity: "time_off_request",
+        entityId: requestId,
+        metadata: { subjectUserId: existing.userId, kind: updated.kind },
+        ipAddress: getIpAddress(req),
+      });
       return success(shape(updated));
     }
 
@@ -112,6 +122,17 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         decisionNote: body.decisionNote ?? null,
       },
       select: SELECT,
+    });
+    // Who decided whose time off, and which way. Not the note: it is the
+    // approver's free text about a person, kept on the request itself.
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "time_off.decided",
+      entity: "time_off_request",
+      entityId: requestId,
+      metadata: { subjectUserId: existing.userId, kind: updated.kind, decision: updated.status },
+      ipAddress: getIpAddress(req),
     });
     return success(shape(updated));
   } catch (e) {

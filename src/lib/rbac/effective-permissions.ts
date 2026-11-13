@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { resolvePermissions, type AuthContext } from "./check";
-import { maskFromDb } from "./permissions";
+import { Permission, maskFromDb } from "./permissions";
 import { coerceRules, type AbacRule } from "@/lib/abac/engine";
 import type { OrgRole } from "@prisma/client";
 
@@ -11,11 +11,18 @@ import type { OrgRole } from "@prisma/client";
  * + ABAC rules are folded in EXACTLY ONCE. AI tools do NOT call this: they are
  * authorised against the caller's own AuthContext (see ai/executors/_ctx.ts).
  *
- * `permissions` is purely WIDENED by work-role grants (role base | stored
- * override | Σ grants) — it can never lose a bit, so adding work-roles can
- * never lock anyone out. `abacRules` (member rules ++ assigned work-role
- * policies) only NARROW, and only when evaluated via requireAccess(). The
- * resolved BigInt + rules stay server-side; never serialize `permissions`.
+ * `permissions` is WIDENED by work-role grants (role base | stored override |
+ * Σ grants), so adding work-roles can never lock anyone out. The one thing
+ * that takes bits away is the org's own actionRestrictions: a restriction with
+ * NO conditions denies its actions outright, so those bits are removed here,
+ * once, and every bit-only check (requirePermission, Cosmo's assertPermission)
+ * honours it without knowing restrictions exist. Except for an OWNER's own
+ * session, the same break-glass requireAccess gives it, so an owner can always
+ * undo a restriction; a key (`forApiKey`) gets no break-glass and always loses
+ * them. `abacRules` (member rules ++ assigned work-role policies ++ the org's
+ * actionRestrictions) NARROW further, wherever requireAccess() evaluates them:
+ * that is where a restriction WITH conditions applies. The resolved BigInt +
+ * rules stay server-side; never serialize `permissions`.
  */
 export interface EffectivePermissions {
   orgRole: OrgRole;
@@ -33,9 +40,26 @@ export interface EffectivePermissions {
   abacRules: AbacRule[];
 }
 
+/** The bits of every action an org's restrictions deny with no conditions. */
+export function unconditionalDenyMask(rules: AbacRule[]): bigint {
+  let mask = 0n;
+  for (const rule of rules) {
+    if (rule.effect !== "deny" || rule.conditions.length > 0) continue;
+    for (const action of rule.actions) {
+      const bit = (Permission as Record<string, bigint>)[action];
+      if (typeof bit === "bigint") mask |= bit;
+    }
+  }
+  return mask;
+}
+
 export async function loadEffectivePermissions(
   orgId: string,
   userId: string,
+  opts: {
+    /** The caller is an API key acting for this user: no OWNER break-glass. */
+    forApiKey?: boolean;
+  } = {},
 ): Promise<EffectivePermissions | null> {
   const member = await prisma.orgMember.findUnique({
     where: { orgId_userId: { orgId, userId } },
@@ -46,6 +70,10 @@ export async function loadEffectivePermissions(
       workRoles: {
         select: { workRole: { select: { grants: true, policies: true } } },
       },
+      // The org's own deny rules (security settings), which apply to every
+      // member and every key alike; an OWNER's session passes them (its
+      // break-glass). See the note above on how they apply.
+      org: { select: { securitySettings: { select: { actionRestrictions: true } } } },
     },
   });
   if (!member) return null;
@@ -57,12 +85,16 @@ export async function loadEffectivePermissions(
     workRolePolicies.push(...coerceRules(assignment.workRole.policies));
   }
 
-  const basePermissions = resolvePermissions(member.role, maskFromDb(member.permissions));
+  const restrictions = coerceRules(member.org.securitySettings?.actionRestrictions);
+  const breakGlass = member.role === "OWNER" && !opts.forApiKey;
+  const removed = breakGlass ? 0n : unconditionalDenyMask(restrictions);
+
+  const basePermissions = resolvePermissions(member.role, maskFromDb(member.permissions)) & ~removed;
   return {
     orgRole: member.role,
-    permissions: basePermissions | grants,
+    permissions: (basePermissions | grants) & ~removed,
     basePermissions,
-    abacRules: [...coerceRules(member.abacRules), ...workRolePolicies],
+    abacRules: [...coerceRules(member.abacRules), ...workRolePolicies, ...restrictions],
   };
 }
 

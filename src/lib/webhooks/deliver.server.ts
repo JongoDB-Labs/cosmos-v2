@@ -11,11 +11,17 @@
  *
  * Every send goes through postToPublicUrl: resolved, checked and pinned at
  * send time, no redirects.
+ *
+ * A webhook acts for the person who created it (access.server.ts): a delivery
+ * about a project they can't read now is not sent, and nothing is sent once
+ * they are no longer a member. Either way the delivery is closed as FAILED
+ * with the reason, and no attempt is counted.
  */
 import { createHmac } from "crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { openFieldWithHeal } from "@/lib/crypto/field-seal";
 import { OutboundRefused, postToPublicUrl, type OutboundResult } from "@/lib/security/outbound-post.server";
+import { NOT_SENT_CANT_READ, creatorReach, type CreatorReach } from "./access.server";
 
 /** Wait before attempt n+1 after attempt n failed (index n). Six attempts in all, over about 14 hours. */
 export const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 3_600_000, 12 * 3_600_000] as const;
@@ -79,11 +85,21 @@ export async function sendDueDeliveries(
     await tx.webhookDelivery.updateMany({ where: { id: { in: ids } }, data: { nextAttemptAt: new Date(leaseAt.getTime() + LEASE_MS) } });
     return tx.webhookDelivery.findMany({
       where: { id: { in: ids } },
-      select: { id: true, event: true, payload: true, attempts: true, webhook: { select: { id: true, url: true, secret: true, active: true } } },
+      select: {
+        id: true, event: true, payload: true, attempts: true, projectId: true,
+        webhook: { select: { id: true, orgId: true, createdById: true, url: true, secret: true, active: true } },
+      },
     });
   });
 
   const run: DeliveryRun = { sent: 0, succeeded: 0, retrying: 0, failed: 0 };
+  // Each creator's reach, worked out once per run however many deliveries share it.
+  const reaches = new Map<string, Promise<CreatorReach>>();
+  const reachOf = (w: { orgId: string; createdById: string | null }) => {
+    const k = `${w.orgId}:${w.createdById ?? ""}`;
+    if (!reaches.has(k)) reaches.set(k, creatorReach(w.orgId, w.createdById));
+    return reaches.get(k)!;
+  };
   // A few at a time: one slow endpoint shouldn't hold up the rest, nor should a
   // batch open 25 connections at once.
   for (let i = 0; i < leased.length && !opts.signal?.aborted; i += 5) {
@@ -91,6 +107,14 @@ export async function sendDueDeliveries(
       const attempt = d.attempts + 1;
       if (!d.webhook.active) {
         await db.webhookDelivery.update({ where: { id: d.id }, data: { status: "FAILED", nextAttemptAt: null, responseBody: "Not sent: the webhook is switched off." } });
+        run.failed++;
+        return;
+      }
+      const reach = await reachOf(d.webhook);
+      const notSent =
+        "paused" in reach ? `Not sent: ${reach.paused.charAt(0).toLowerCase()}${reach.paused.slice(1)}` : d.projectId && !reach.readable.has(d.projectId) ? NOT_SENT_CANT_READ : null;
+      if (notSent) {
+        await db.webhookDelivery.update({ where: { id: d.id }, data: { status: "FAILED", nextAttemptAt: null, responseBody: notSent } });
         run.failed++;
         return;
       }
