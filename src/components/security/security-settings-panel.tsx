@@ -16,6 +16,11 @@ import { LoadError } from "@/components/ui/load-error";
 import { ToggleSwitch as Toggle } from "@/components/ui/toggle-switch";
 import { SectionCard } from "@/components/ui/section-card";
 import {
+  ActionRestrictionsEditor,
+  emptyRestriction,
+  type Restriction,
+} from "@/components/security/action-restrictions-editor";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -33,6 +38,7 @@ import {
   Plus,
   Copy,
   Check,
+  Ban,
   AlertTriangle,
   X,
   RefreshCw,
@@ -49,10 +55,33 @@ interface OrgSecuritySettings {
   ssoConnectionId: string | null;
   allowedDomains: string[];
   auditRetentionDays: number;
+  maxSessionAgeMins: number;
+  idleTimeoutMins: number;
+  maxConcurrentSessions: number;
+  actionRestrictions: unknown;
   createdAt: string;
   updatedAt: string;
   /** The address the IP allowlist judges this person by; null when Cosmos can't read it. */
   clientIp?: string | null;
+}
+
+/** The stored restrictions as the editor shows them: a list, or `{ rules: [...] }`. */
+function toRestrictions(raw: unknown): Restriction[] {
+  const list = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object" && Array.isArray((raw as { rules?: unknown }).rules)
+      ? (raw as { rules: unknown[] }).rules
+      : [];
+  return list.filter(
+    (r): r is Restriction =>
+      !!r && typeof r === "object" && Array.isArray((r as Restriction).actions) && Array.isArray((r as Restriction).conditions),
+  );
+}
+
+/** Session caps: 0 turns one off, anything else must be at least its floor. */
+const CAP_FLOORS = { maxSessionAgeMins: 15, idleTimeoutMins: 5, maxConcurrentSessions: 1 } as const;
+function capProblem(value: number, floor: number): string | null {
+  return value === 0 || value >= floor ? null : `Use 0 to turn this off, or at least ${floor}.`;
 }
 
 interface SessionRecord {
@@ -120,6 +149,10 @@ export function SecuritySettingsPanel({
     ipAllowlistEnabled: false,
     scimEnabled: false,
     auditRetentionDays: 90,
+    maxSessionAgeMins: 0,
+    idleTimeoutMins: 0,
+    maxConcurrentSessions: 0,
+    actionRestrictions: [] as Restriction[],
   });
 
   const settingsKey = useOrgQueryKey("security-settings");
@@ -194,6 +227,10 @@ export function SecuritySettingsPanel({
         ipAllowlistEnabled: settings.ipAllowlistEnabled,
         scimEnabled: settings.scimEnabled,
         auditRetentionDays: settings.auditRetentionDays,
+        maxSessionAgeMins: settings.maxSessionAgeMins ?? 0,
+        idleTimeoutMins: settings.idleTimeoutMins ?? 0,
+        maxConcurrentSessions: settings.maxConcurrentSessions ?? 0,
+        actionRestrictions: toRestrictions(settings.actionRestrictions),
       });
     }
   }, [settings]);
@@ -218,6 +255,10 @@ export function SecuritySettingsPanel({
           ipAllowlistEnabled: form.ipAllowlistEnabled,
           scimEnabled: form.scimEnabled,
           auditRetentionDays: form.auditRetentionDays,
+          maxSessionAgeMins: form.maxSessionAgeMins,
+          idleTimeoutMins: form.idleTimeoutMins,
+          maxConcurrentSessions: form.maxConcurrentSessions,
+          actionRestrictions: form.actionRestrictions,
         }),
       }),
     invalidate: [["security-settings"]],
@@ -311,6 +352,17 @@ export function SecuritySettingsPanel({
     deleteTokenMutation.isPending;
 
   function handleSave() {
+    for (const k of Object.keys(CAP_FLOORS) as (keyof typeof CAP_FLOORS)[]) {
+      if (capProblem(form[k], CAP_FLOORS[k])) {
+        notifyError(null, "Fix the session limits marked in red before saving.");
+        return;
+      }
+    }
+    const empty = emptyRestriction(form.actionRestrictions);
+    if (empty !== null) {
+      notifyError(null, `Restriction ${empty + 1} has no actions ticked. Tick at least one, or remove it.`);
+      return;
+    }
     saveSettings.mutate(undefined, { onSuccess: () => invalidateAll() });
   }
 
@@ -513,6 +565,33 @@ export function SecuritySettingsPanel({
                   sessionTimeoutMins: parseInt(e.target.value) || 60,
                 }))
               }
+            />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <CapField
+              id="max-session-age"
+              label="Maximum session age (minutes)"
+              hint="A sign-in stops working here after this long, however active it is. 0 turns it off; otherwise at least 15."
+              floor={CAP_FLOORS.maxSessionAgeMins}
+              value={form.maxSessionAgeMins}
+              onChange={(v) => setForm((p) => ({ ...p, maxSessionAgeMins: v }))}
+            />
+            <CapField
+              id="idle-timeout"
+              label="Idle timeout (minutes)"
+              hint="A sign-in left unused this long stops working here; the shorter of this and the session timeout applies. 0 turns it off; otherwise at least 5."
+              floor={CAP_FLOORS.idleTimeoutMins}
+              value={form.idleTimeoutMins}
+              onChange={(v) => setForm((p) => ({ ...p, idleTimeoutMins: v }))}
+            />
+            <CapField
+              id="max-concurrent-sessions"
+              label="Sessions per person"
+              hint="Only each person's newest sign-ins, up to this many, work here; signing in again retires the oldest. 0 means no limit."
+              floor={CAP_FLOORS.maxConcurrentSessions}
+              value={form.maxConcurrentSessions}
+              onChange={(v) => setForm((p) => ({ ...p, maxConcurrentSessions: v }))}
             />
           </div>
 
@@ -835,6 +914,17 @@ export function SecuritySettingsPanel({
       </SectionCard>
 
       <SectionCard
+        icon={Ban}
+        title="Action Restrictions"
+        description="Take specific actions away from everyone in the organization"
+      >
+        <ActionRestrictionsEditor
+          value={form.actionRestrictions}
+          onChange={(next) => setForm((p) => ({ ...p, actionRestrictions: next }))}
+        />
+      </SectionCard>
+
+      <SectionCard
         icon={RefreshCw}
         title="Data Retention"
         description="Configure how long audit logs are retained"
@@ -1036,6 +1126,47 @@ export function SecuritySettingsPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function CapField({
+  id,
+  label,
+  hint,
+  floor,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  floor: number;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  const problem = capProblem(value, floor);
+  return (
+    <div className="grid content-start gap-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        type="number"
+        min={0}
+        step={1}
+        value={value}
+        aria-describedby={`${id}-hint${problem ? ` ${id}-problem` : ""}`}
+        aria-invalid={problem ? true : undefined}
+        onChange={(e) => onChange(Math.max(0, parseInt(e.target.value, 10) || 0))}
+      />
+      <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+        {hint}
+      </p>
+      {problem && (
+        <p id={`${id}-problem`} className="text-xs text-red-700 dark:text-red-400">
+          {problem}
+        </p>
+      )}
     </div>
   );
 }

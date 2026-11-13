@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { requireKeyScopes } from "@/lib/auth/key-gate";
 import { requirePermission } from "@/lib/rbac/check";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
@@ -32,6 +33,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const { org, ctx } = await load((await params).orgId);
     if (!org) return new Response("Not found", { status: 404 });
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // A key needs `read`, like every other read; this one checks no bit.
+    requireKeyScopes(ctx, ["read"]);
     return success({
       enabled: cqlEnabled(org.settings),
       emailTitles: cqlEmailTitles(org.settings, org.tenantClass),

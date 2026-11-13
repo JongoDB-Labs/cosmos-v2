@@ -1,10 +1,12 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { requireAccess } from "@/lib/abac/require-access";
+import { refuseProjectScopedKey } from "@/lib/auth/key-gate";
 import { success, handleApiError } from "@/lib/api-helpers";
 import type { WebhookDeliveryStatus } from "@prisma/client";
+import { DELIVERY_SELECT, toDeliveryDto } from "@/lib/webhooks/dto";
+import { readableDeliveriesWhere } from "@/lib/webhooks/access.server";
 
 type RouteParams = { params: Promise<{ orgId: string; webhookId: string }> };
 
@@ -16,10 +18,19 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.WEBHOOK_MANAGE);
+    // A webhook is sent events from every project in the org, so a key limited
+    // to some projects can't manage one, whatever its scopes.
+    refuseProjectScopedKey(ctx);
+    await requireAccess(ctx, "WEBHOOK_MANAGE");
+    // The log holds event payloads from every project: reading it needs
+    // ITEM_READ too, and shows only projects the caller can read.
+    await requireAccess(ctx, "ITEM_READ");
+    const readable = await readableDeliveriesWhere(ctx);
+    if (!readable) return new Response("Forbidden", { status: 403 });
 
     const webhook = await prisma.webhook.findFirst({
       where: { id: webhookId, orgId },
+      select: { id: true },
     });
     if (!webhook) return new Response("Not found", { status: 404 });
 
@@ -32,12 +43,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: {
         webhookId,
         ...(statusParam ? { status: statusParam as WebhookDeliveryStatus } : {}),
+        ...readable,
       },
       orderBy: { createdAt: "desc" },
       take: limit,
+      select: DELIVERY_SELECT,
     });
 
-    return success(deliveries);
+    return success(deliveries.map(toDeliveryDto));
   } catch (error) {
     return handleApiError(error);
   }

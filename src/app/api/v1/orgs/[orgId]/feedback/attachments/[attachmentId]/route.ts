@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { refuseApiKey } from "@/lib/auth/key-gate";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { noContent, handleApiError } from "@/lib/api-helpers";
@@ -79,6 +80,9 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // Like reading one (ORG_READ, in no scope): the uploader's delete checks no
+    // bit, so it refuses a key outright rather than admit one of any scope.
+    refuseApiKey(ctx);
 
     const att = await prisma.feedbackAttachment.findUnique({
       where: { id: attachmentId },

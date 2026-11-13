@@ -1,14 +1,16 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { requireAccess } from "@/lib/abac/require-access";
+import { refuseProjectScopedKey } from "@/lib/auth/key-gate";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { randomBytes } from "crypto";
-import { webhookUrlSchema } from "@/lib/security/webhook-url";
+import { auditableUrl, webhookUrlSchema } from "@/lib/security/webhook-url";
 import { sealField } from "@/lib/crypto/field-seal";
+import { WEBHOOK_PUBLIC_SELECT } from "@/lib/webhooks/dto";
+import { listWebhooks } from "@/lib/webhooks/access.server";
 
 const createWebhookSchema = z.object({
   url: webhookUrlSchema,
@@ -25,26 +27,13 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.WEBHOOK_MANAGE);
+    // A webhook is sent events from every project in the org, so a key limited
+    // to some projects can't manage one, whatever its scopes.
+    refuseProjectScopedKey(ctx);
+    await requireAccess(ctx, "WEBHOOK_MANAGE");
 
-    // Project explicitly to keep the sealed `secret` envelope off the wire —
-    // the list UI never renders it (the plaintext is shown once at create), so
-    // there's no reason to ship even the encrypted blob to the browser.
-    const webhooks = await prisma.webhook.findMany({
-      where: { orgId },
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        orgId: true,
-        url: true,
-        events: true,
-        active: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
-
-    return success(webhooks);
+    // Never the sealed `secret`: the plaintext is shown once, at create.
+    return success(await listWebhooks(orgId));
   } catch (error) {
     return handleApiError(error);
   }
@@ -58,7 +47,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.WEBHOOK_MANAGE);
+    // A webhook is sent events from every project in the org, so a key limited
+    // to some projects can't manage one, whatever its scopes.
+    refuseProjectScopedKey(ctx);
+    await requireAccess(ctx, "WEBHOOK_MANAGE");
 
     const body = await request.json();
     const data = createWebhookSchema.parse(body);
@@ -66,7 +58,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // The signing secret is generated once and SEALED at rest (3.13.16): the DB
     // column holds the vault envelope, never the plaintext HMAC key. We return the
     // plaintext ONCE in this create response so the caller can configure their
-    // consumer — subsequent GETs only ever expose the sealed envelope.
+    // consumer. No later read or edit returns it, sealed or open.
     const secret = randomBytes(32).toString("hex");
 
     const webhook = await prisma.webhook.create({
@@ -76,7 +68,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         events: data.events,
         secret: sealField(secret),
         active: true,
+        // It acts for whoever created it (the person behind a key, for a key):
+        // events are sent only from projects they can read.
+        createdById: ctx.userId,
       },
+      select: WEBHOOK_PUBLIC_SELECT,
     });
 
     await logAudit({
@@ -85,13 +81,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       action: "webhook.created",
       entity: "webhook",
       entityId: webhook.id,
-      metadata: { url: data.url } as Record<string, string>,
+      metadata: { url: auditableUrl(data.url) } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });
 
     // Return the PLAINTEXT secret once (so the caller can configure their consumer);
     // the persisted column holds only the sealed envelope.
-    return created({ ...webhook, secret });
+    return created({ ...webhook, secret, pausedReason: null });
   } catch (error) {
     return handleApiError(error);
   }

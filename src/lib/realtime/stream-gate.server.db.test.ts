@@ -164,7 +164,7 @@ describe("the stream gate ends with the session it opened with", () => {
   /** A session row for the member, and a gate that re-checks it on every recompute. */
   async function sessionGate(
     t: { now: number },
-    row: { expiresAt?: Date; lastActivityAt?: Date; authMethod?: string; mfaSatisfied?: boolean } = {},
+    row: { expiresAt?: Date; lastActivityAt?: Date; authMethod?: string; mfaSatisfied?: boolean; createdAt?: Date } = {},
     clientIp: string | null = "203.0.113.7",
   ) {
     const id = `gate-${stamp}-${Math.random().toString(36).slice(2, 10)}`;
@@ -176,6 +176,7 @@ describe("the stream gate ends with the session it opened with", () => {
         lastActivityAt: row.lastActivityAt,
         authMethod: row.authMethod,
         mfaSatisfied: row.mfaSatisfied ?? false,
+        createdAt: row.createdAt,
       },
     });
     const gate = await openStreamGate((await loadMemberAuthContext(orgId, userId))!, {
@@ -295,6 +296,66 @@ describe("the stream gate ends with the session it opened with", () => {
       expect(gate.closed).toBe(true);
     } finally {
       await prisma.ipAllowlist.deleteMany({ where: { orgId } });
+      await prisma.orgSecuritySettings.deleteMany({ where: { orgId } });
+    }
+  });
+
+  // The session limits in the security settings hold for a stream too: it is
+  // the same session, checked by the same floors as every request.
+  it("closes once the session is older than the org's maximum age, and not before", async () => {
+    await prisma.orgSecuritySettings.upsert({ where: { orgId }, create: { orgId, maxSessionAgeMins: 60 }, update: { maxSessionAgeMins: 60 } });
+    try {
+      const t = { now: 16_000_000 };
+      const { id, gate } = await sessionGate(t, { createdAt: new Date(Date.now() - 50 * MIN) });
+      t.now += AUDIENCE_TTL_MS;
+      await gate.refreshIfStale();
+      expect(gate.closed).toBe(false);
+
+      await prisma.session.update({ where: { id }, data: { createdAt: new Date(Date.now() - 61 * MIN) } });
+      t.now += AUDIENCE_TTL_MS;
+      await gate.refreshIfStale();
+      expect(gate.closed).toBe(true);
+    } finally {
+      await prisma.orgSecuritySettings.deleteMany({ where: { orgId } });
+    }
+  });
+
+  it("closes once the session has been idle past the org's idle timeout, and not before", async () => {
+    await prisma.orgSecuritySettings.upsert({ where: { orgId }, create: { orgId, sessionTimeoutMins: 0, idleTimeoutMins: 15 }, update: { sessionTimeoutMins: 0, idleTimeoutMins: 15 } });
+    try {
+      const t = { now: 17_000_000 };
+      const { id, gate } = await sessionGate(t, { lastActivityAt: new Date(Date.now() - 10 * MIN) });
+      t.now += AUDIENCE_TTL_MS;
+      await gate.refreshIfStale();
+      expect(gate.closed).toBe(false);
+
+      await prisma.session.update({ where: { id }, data: { lastActivityAt: new Date(Date.now() - 16 * MIN) } });
+      t.now += AUDIENCE_TTL_MS;
+      await gate.refreshIfStale();
+      expect(gate.closed).toBe(true);
+    } finally {
+      await prisma.orgSecuritySettings.deleteMany({ where: { orgId } });
+    }
+  });
+
+  it("closes once a newer sign-in takes the person's last session slot, and not before", async () => {
+    await prisma.session.deleteMany({ where: { userId } });
+    await prisma.orgSecuritySettings.upsert({ where: { orgId }, create: { orgId, maxConcurrentSessions: 1 }, update: { maxConcurrentSessions: 1 } });
+    try {
+      const t = { now: 18_000_000 };
+      const { gate } = await sessionGate(t, { createdAt: new Date(Date.now() - 5 * MIN) });
+      t.now += AUDIENCE_TTL_MS;
+      await gate.refreshIfStale();
+      expect(gate.closed).toBe(false);
+
+      await prisma.session.create({
+        data: { id: `gate-${stamp}-newer`, userId, expiresAt: new Date(Date.now() + 60 * MIN), mfaSatisfied: false },
+      });
+      t.now += AUDIENCE_TTL_MS;
+      await gate.refreshIfStale();
+      expect(gate.closed).toBe(true);
+    } finally {
+      await prisma.session.deleteMany({ where: { userId } });
       await prisma.orgSecuritySettings.deleteMany({ where: { orgId } });
     }
   });

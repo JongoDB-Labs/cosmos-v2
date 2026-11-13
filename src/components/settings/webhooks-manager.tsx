@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { cn } from "@/lib/utils";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { notifyError } from "@/lib/errors/notify";
@@ -47,6 +47,15 @@ import { WEBHOOK_EVENTS } from "@/lib/webhooks/events";
 const AVAILABLE_EVENTS: string[] = WEBHOOK_EVENTS.map((e) => e.name);
 const EVENT_LABEL = new Map<string, string>(WEBHOOK_EVENTS.map((e) => [e.name, e.label]));
 
+/** Why the server refused the URL (an address that isn't public, say), so it
+ *  can sit under the field instead of a bare "Invalid request". */
+function urlIssue(err: unknown): string | null {
+  if (!(err instanceof FetchError) || !err.body || typeof err.body !== "object") return null;
+  const issues = (err.body as { issues?: Array<{ path?: unknown[]; message?: unknown }> }).issues;
+  const hit = Array.isArray(issues) ? issues.find((i) => i?.path?.[0] === "url") : undefined;
+  return typeof hit?.message === "string" ? hit.message : null;
+}
+
 interface WebhooksManagerProps {
   orgId: string;
 }
@@ -59,7 +68,7 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
   const [editingWebhook, setEditingWebhook] = useState<Webhook | null>(null);
   const [deletingWebhook, setDeletingWebhook] = useState<Webhook | null>(null);
   const [deliveries, setDeliveries] = useState<Record<string, WebhookDelivery[]>>({});
-  const [loadingDeliveriesFor, setLoadingDeliveriesFor] = useState<string | null>(null);
+  const [deliveryErrors, setDeliveryErrors] = useState<Record<string, string>>({});
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ id: string; success: boolean; message: string } | null>(null);
   const [createdSecret, setCreatedSecret] = useState("");
@@ -84,15 +93,27 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
 
   async function fetchDeliveries(webhookId: string) {
     if (deliveries[webhookId]) return;
-    setLoadingDeliveriesFor(webhookId);
+    const settle = (rows: WebhookDelivery[], error?: string) => {
+      setDeliveries((prev) => ({ ...prev, [webhookId]: rows }));
+      if (error) setDeliveryErrors((prev) => ({ ...prev, [webhookId]: error }));
+    };
     try {
       const res = await fetch(`${apiBase}/${webhookId}/deliveries`);
       if (res.ok) {
         const json = await res.json();
-        setDeliveries((prev) => ({ ...prev, [webhookId]: json.data ?? [] }));
+        // The route sends the list itself, not { data: [...] }.
+        settle(Array.isArray(json) ? json : []);
+      } else {
+        // Settled either way, so the row shows why instead of loading forever.
+        settle(
+          [],
+          res.status === 403
+            ? "The delivery log shows event details, so it needs permission to read work items as well."
+            : "Couldn't load the delivery log.",
+        );
       }
-    } finally {
-      setLoadingDeliveriesFor(null);
+    } catch {
+      settle([], "Couldn't load the delivery log.");
     }
   }
 
@@ -169,7 +190,11 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
       setCreateDialogOpen(false);
       if (secret) setSecretDialogOpen(true);
     },
-    onError: (err) => notifyError(err, "Couldn't create the webhook."),
+    onError: (err) => {
+      const why = urlIssue(err);
+      if (why) setErrors((prev) => ({ ...prev, url: why }));
+      else notifyError(err, "Couldn't create the webhook.");
+    },
   });
 
   const updateMutation = useOrgMutation<
@@ -183,7 +208,11 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
         body: JSON.stringify(body),
       }),
     invalidate: [["webhooks", "list"]],
-    onError: (err) => notifyError(err, "Couldn't update the webhook."),
+    onError: (err) => {
+      const why = urlIssue(err);
+      if (why) setErrors((prev) => ({ ...prev, url: why }));
+      else notifyError(err, "Couldn't update the webhook.");
+    },
   });
 
   const deleteMutation = useOrgMutation<unknown, Error, string>({
@@ -249,11 +278,19 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
       setTestResult(null);
       try {
         const res = await fetch(`${apiBase}/${webhookId}/test`, { method: "POST" });
-        const json = await res.json();
+        const json = await res.json().catch(() => ({}));
+        // The route answers 200 with the delivery whether or not the endpoint
+        // took it; the delivery's own status says which.
+        const delivered = res.ok && json?.status === "SUCCESS";
+        const why = json?.responseBody ?? (json?.statusCode ? `HTTP ${json.statusCode}` : null);
         setTestResult({
           id: webhookId,
-          success: res.ok,
-          message: json.message ?? (res.ok ? "Test delivery sent" : "Test failed"),
+          success: delivered,
+          message: delivered
+            ? "Test delivery sent"
+            : res.ok
+              ? `Test delivery failed${why ? `: ${String(why).slice(0, 200)}` : ""}`
+              : (json?.error ?? "Test failed"),
         });
       } catch {
         setTestResult({ id: webhookId, success: false, message: "Network error" });
@@ -311,11 +348,24 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
       accessorKey: "url",
       header: "URL",
       cell: ({ row }) => {
-        const url = row.original.url;
+        const { url, pausedReason, createdBy } = row.original;
         return (
-          <code className="block max-w-xs truncate rounded bg-muted px-1.5 py-0.5 text-xs">
-            {url.length > 50 ? url.slice(0, 50) + "..." : url}
-          </code>
+          <div className="space-y-1">
+            <code className="block max-w-xs truncate rounded bg-muted px-1.5 py-0.5 text-xs">
+              {url.length > 50 ? url.slice(0, 50) + "..." : url}
+            </code>
+            {/* A webhook acts for whoever created it. */}
+            {pausedReason ? (
+              <p className="flex max-w-xs items-start gap-1 text-xs text-amber-800 dark:text-amber-300">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+                <span>Sends nothing. {pausedReason}</span>
+              </p>
+            ) : createdBy?.displayName ? (
+              <p className="max-w-xs text-xs text-muted-foreground">
+                Sends events from projects {createdBy.displayName} can read.
+              </p>
+            ) : null}
+          </div>
         );
       },
     },
@@ -351,6 +401,7 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
             type="button"
             role="switch"
             aria-checked={webhook.active}
+            aria-label={`Toggle ${webhook.url}`}
             onClick={() => handleToggleActive(webhook)}
             className={cn(
               "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors",
@@ -462,21 +513,18 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
           </div>
         }
         renderExpanded={(webhook) => {
-          // Lazy-load deliveries when first expanded.
-          if (!deliveries[webhook.id] && loadingDeliveriesFor !== webhook.id) {
-            // Fire and forget; state update triggers a re-render.
-            void fetchDeliveries(webhook.id);
-          }
           const rows = deliveries[webhook.id];
           return (
             <div className="space-y-3">
+              {/* Lazy-load deliveries when first expanded. */}
+              {!rows && <LoadOnOpen id={webhook.id} load={fetchDeliveries} />}
               {testResult && testResult.id === webhook.id && (
                 <div
                   className={cn(
                     "flex items-center gap-2 rounded px-3 py-2 text-xs",
                     testResult.success
-                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                      : "bg-red-500/10 text-red-600 dark:text-red-400"
+                      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                      : "bg-red-500/10 text-red-700 dark:text-red-400"
                   )}
                 >
                   {testResult.success ? (
@@ -498,6 +546,10 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
                   <div className="flex items-center justify-center py-6">
                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                   </div>
+                ) : deliveryErrors[webhook.id] ? (
+                  <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+                    {deliveryErrors[webhook.id]}
+                  </p>
                 ) : rows.length === 0 ? (
                   <p className="px-3 py-4 text-center text-xs text-muted-foreground">
                     No deliveries yet
@@ -507,7 +559,7 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
                     {rows.map((delivery) => (
                       <div
                         key={delivery.id}
-                        className="flex items-center gap-3 px-3 py-2 text-xs"
+                        className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-xs"
                       >
                         <span className="shrink-0">
                           {delivery.status === "SUCCESS" && (
@@ -536,6 +588,11 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
                         <span className="text-muted-foreground">
                           {delivery.attempts} attempt{delivery.attempts !== 1 ? "s" : ""}
                         </span>
+                        {/* No status code: Cosmos never got an answer, and the text is
+                            its own reason (not sent, refused, timed out). */}
+                        {delivery.status === "FAILED" && delivery.statusCode == null && delivery.responseBody && (
+                          <span className="basis-full text-muted-foreground">{delivery.responseBody}</span>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -745,7 +802,12 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
             <code className="flex-1 break-all rounded-md border bg-muted px-3 py-2 font-mono text-xs">
               {createdSecret}
             </code>
-            <Button variant="outline" size="icon" onClick={copySecret}>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={copySecret}
+              aria-label={copiedSecret ? "Secret copied" : "Copy secret"}
+            >
               {copiedSecret ? (
                 <Check className="h-4 w-4 text-emerald-500" />
               ) : (
@@ -760,4 +822,19 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
       </Dialog>
     </div>
   );
+}
+
+/**
+ * Asks for a webhook's delivery log when its row opens: from an effect, once
+ * per opening, never while the table is rendering.
+ */
+function LoadOnOpen({ id, load }: { id: string; load: (id: string) => Promise<void> }) {
+  const loadRef = useRef(load);
+  useEffect(() => {
+    loadRef.current = load;
+  });
+  useEffect(() => {
+    void loadRef.current(id);
+  }, [id]);
+  return null;
 }

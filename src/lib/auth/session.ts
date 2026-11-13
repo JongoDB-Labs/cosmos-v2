@@ -28,9 +28,17 @@ function sessionSatisfiesMfa(user: {
 /**
  * Don't write `lastActivityAt` on every request — only once the anchor is this
  * stale. Idle timeouts are configured in minutes, so a 60s write throttle keeps
- * the sliding window accurate without a DB write per request.
+ * the sliding window accurate without a DB write per request. A window shorter
+ * than two minutes is stamped at least twice per window instead (see below),
+ * or a steadily active session would lapse between two stamps.
  */
 const ACTIVITY_WRITE_THROTTLE_MS = 60_000;
+
+/** The stricter of two minute limits where 0 (or less) means "off"; 0 when both are off. */
+function strictestLimit(a: number, b: number): number {
+  const on = [a, b].filter((m) => m > 0);
+  return on.length ? Math.min(...on) : 0;
+}
 
 export type SessionUser = {
   id: string;
@@ -54,6 +62,8 @@ export type SessionUser = {
    * is known, so an idle-expired request can't revive its own session). */
   sessionId: string;
   lastActivityAt: Date;
+  /** When the session was created, for the org's absolute session-age cap. */
+  sessionCreatedAt: Date;
 };
 
 /**
@@ -88,6 +98,7 @@ export async function getSessionUser(sessionId: string): Promise<SessionUser | n
     where: { id: sessionId },
     select: {
       expiresAt: true,
+      createdAt: true,
       lastActivityAt: true,
       authMethod: true,
       idpConnId: true,
@@ -126,6 +137,7 @@ export async function getSessionUser(sessionId: string): Promise<SessionUser | n
     mfaSatisfied: session.mfaSatisfied,
     sessionId,
     lastActivityAt: session.lastActivityAt,
+    sessionCreatedAt: session.createdAt,
   };
 }
 
@@ -150,18 +162,20 @@ export async function sessionStillValid(sessionId: string, orgId: string, client
 }
 
 type FloorVerdict =
-  | { ok: true; /** The idle timeout applies, so a live request slides its window. */ idleTimeout: boolean }
-  | { ok: false; why: "mfa" | "idle" | "ip" };
+  | { ok: true; /** The idle limit in minutes, 0 when off; a live request slides its window. */ idleLimitMins: number }
+  | { ok: false; why: "mfa" | "age" | "idle" | "concurrent" | "ip" };
 
 /**
- * The org's floors for a session: Require-MFA, the idle timeout and the IP
- * allowlist. The ONE copy: `getAuthContext` applies it to every request and
- * `sessionStillValid` to a stream that stays open, so the two cannot drift (a
- * second copy for the stream once had only the idle timeout). A platform admin
+ * The org's floors for a session: Require-MFA, the session age cap, the idle
+ * timeout, the sessions-per-person cap and the IP allowlist. The ONE copy:
+ * `getAuthContext` applies it to every request and `sessionStillValid` to a
+ * stream that stays open, so the two cannot drift (a second copy for the
+ * stream once had only the idle timeout). Both pass the SessionUser that
+ * `getSessionUser` read, so there is one session query. A platform admin
  * (`isSystemAdmin`: an INTERNAL_ADMINS address on a session that vouches for
- * it) is break-glass exempt from all three, so a misconfiguration can't lock
- * the operator out. Reads only; the idle decision
- * uses `lastActivityAt` as read, so a request cannot revive its own session.
+ * it) is break-glass exempt from all of them, so a misconfiguration can't lock
+ * the operator out. Reads only; the idle decision uses `lastActivityAt` as
+ * read, so a request cannot revive its own session.
  *
  * `clientIp` is the request's trusted address (`trustedClientIp`, which reads
  * only the header the deployment's edge writes); a stream passes the one it
@@ -170,22 +184,68 @@ type FloorVerdict =
  */
 async function orgSessionFloors(
   orgId: string,
-  session: SystemAdminSubject & { mfaSatisfied: boolean; lastActivityAt: Date },
+  session: SystemAdminSubject &
+    Pick<SessionUser, "id" | "sessionId" | "mfaSatisfied" | "lastActivityAt" | "sessionCreatedAt">,
   clientIp: string | null,
 ): Promise<FloorVerdict> {
   const sec = await prisma.orgSecuritySettings.findUnique({
     where: { orgId },
-    select: { mfaRequired: true, ipAllowlistEnabled: true, sessionTimeoutMins: true },
+    select: {
+      mfaRequired: true,
+      ipAllowlistEnabled: true,
+      sessionTimeoutMins: true,
+      idleTimeoutMins: true,
+      maxSessionAgeMins: true,
+      maxConcurrentSessions: true,
+    },
   });
-  if (!sec || isSystemAdmin(session)) return { ok: true, idleTimeout: false };
+  if (!sec || isSystemAdmin(session)) return { ok: true, idleLimitMins: 0 };
   if (sec.mfaRequired && !sessionSatisfiesMfa(session)) return { ok: false, why: "mfa" };
-  // sessionTimeoutMins <= 0 disables the idle gate.
-  const idleTimeout = sec.sessionTimeoutMins > 0;
-  if (idleTimeout && Date.now() - session.lastActivityAt.getTime() > sec.sessionTimeoutMins * 60_000) {
+
+  const now = Date.now();
+  // Absolute age: a session older than maxSessionAgeMins stops working in this
+  // org however active it has been. Refused, not deleted: a Session is the
+  // person's in every org they belong to, and only this one set the cap. 0
+  // disables it.
+  if (sec.maxSessionAgeMins > 0 && now - session.sessionCreatedAt.getTime() > sec.maxSessionAgeMins * 60_000) {
+    return { ok: false, why: "age" };
+  }
+
+  // Idle timeout (sliding window): the stricter of sessionTimeoutMins and
+  // idleTimeoutMins. 0 disables either one.
+  const idleLimitMins = strictestLimit(sec.sessionTimeoutMins, sec.idleTimeoutMins);
+  if (idleLimitMins > 0 && now - session.lastActivityAt.getTime() > idleLimitMins * 60_000) {
     return { ok: false, why: "idle" };
   }
+
+  // Concurrent sessions: only the person's maxConcurrentSessions newest live
+  // sessions work in this org, so signing in again elsewhere retires the
+  // oldest. Refused, not deleted (see the age cap). 0 disables it. Only
+  // sessions this org would accept count: one it refuses anyway (no MFA where
+  // MFA is required, past the age cap, idle too long) must not take a slot
+  // from one it accepts.
+  if (sec.maxConcurrentSessions > 0) {
+    const newest = await prisma.session.findMany({
+      where: {
+        userId: session.id,
+        expiresAt: { gt: new Date(now) },
+        ...(sec.maxSessionAgeMins > 0 ? { createdAt: { gte: new Date(now - sec.maxSessionAgeMins * 60_000) } } : {}),
+        ...(idleLimitMins > 0 ? { lastActivityAt: { gte: new Date(now - idleLimitMins * 60_000) } } : {}),
+        // sessionSatisfiesMfa, as a query: SQL's `<>` skips NULL, so a legacy
+        // session (authMethod null) is named outright.
+        ...(sec.mfaRequired
+          ? { OR: [{ mfaSatisfied: true }, { authMethod: { not: "password" } }, { authMethod: null }] }
+          : {}),
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: sec.maxConcurrentSessions,
+      select: { id: true },
+    });
+    if (!newest.some((s) => s.id === session.sessionId)) return { ok: false, why: "concurrent" };
+  }
+
   if (sec.ipAllowlistEnabled && !admitsAddress(clientIp, await allowlistState(orgId))) return { ok: false, why: "ip" };
-  return { ok: true, idleTimeout };
+  return { ok: true, idleLimitMins };
 }
 
 /**
@@ -289,9 +349,9 @@ export const getAuthContext = cache(
     const effective = await loadEffectivePermissions(org.id, user.id);
     if (!effective) return null;
 
-    // Request-time org security floors (Require-MFA, idle timeout, IP
-    // allowlist), enforced HERE so every org-scoped API route + SSR page
-    // inherits them. The per-user MFA enroll endpoints use getCurrentUser (not
+    // Request-time org security floors (Require-MFA, session age, idle
+    // timeout, sessions per person, IP allowlist), enforced HERE so every
+    // org-scoped API route + SSR page inherits them. The per-user MFA enroll endpoints use getCurrentUser (not
     // this), so a denied user can still reach enrollment.
     const floors = await orgSessionFloors(org.id, user, trustedClientIp(requestHeaders));
     if (!floors.ok) {
@@ -304,7 +364,10 @@ export const getAuthContext = cache(
       return null;
     }
     // A live request slides the idle window forward (throttled).
-    if (floors.idleTimeout && Date.now() - user.lastActivityAt.getTime() > ACTIVITY_WRITE_THROTTLE_MS) {
+    if (
+      floors.idleLimitMins > 0 &&
+      Date.now() - user.lastActivityAt.getTime() > Math.min(ACTIVITY_WRITE_THROTTLE_MS, (floors.idleLimitMins * 60_000) / 2)
+    ) {
       await prisma.session
         .update({
           where: { id: user.sessionId },

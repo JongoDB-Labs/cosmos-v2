@@ -3,10 +3,10 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { postEntry, ClosedPeriodError } from "@/lib/ledger/posting";
+import { requireAccess } from "@/lib/abac/require-access";
+import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.ACCOUNTING_READ);
+    await requireAccess(ctx, "ACCOUNTING_READ");
 
     const take = Math.min(Number(request.nextUrl.searchParams.get("limit")) || 50, 200);
     const entries = await prisma.journalEntry.findMany({
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.ACCOUNTING_MANAGE);
+    await requireAccess(ctx, "ACCOUNTING_MANAGE");
 
     const parsed = createSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return new Response("Bad Request", { status: 400 });
@@ -102,8 +102,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       });
     }
 
+    let entry: Awaited<ReturnType<typeof postEntry>>;
     try {
-      const entry = await postEntry({
+      entry = await postEntry({
         orgId,
         createdById: ctx.userId,
         date,
@@ -111,7 +112,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         source: "MANUAL",
         lines,
       });
-      return created(entry);
     } catch (err) {
       if (err instanceof ClosedPeriodError) {
         return new Response(JSON.stringify({ error: err.message }), {
@@ -126,6 +126,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         headers: { "content-type": "application/json" },
       });
     }
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "journal_entry.posted",
+      entity: "journal_entry",
+      entityId: entry.id,
+      metadata: { date: parsed.data.date, lines: lines.length },
+      ipAddress: getIpAddress(request),
+    });
+    return created(entry);
   } catch (error) {
     return handleApiError(error);
   }

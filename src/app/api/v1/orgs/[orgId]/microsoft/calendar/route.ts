@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { refuseApiKey } from "@/lib/auth/key-gate";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { getProviderConfig } from "@/lib/auth/provider-config";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
@@ -16,7 +17,11 @@ async function resolve(orgId: string) {
   const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { id: true, slug: true } });
   if (!org) return null;
   const ctx = await getAuthContext(org.slug);
-  return ctx ? { org, ctx } : null;
+  if (!ctx) return null;
+  // A person's own Outlook connection: never an API key's. Disconnecting with
+  // ?invites=cancel cancels their meeting invitations and emails attendees.
+  refuseApiKey(ctx);
+  return { org, ctx };
 }
 
 /**

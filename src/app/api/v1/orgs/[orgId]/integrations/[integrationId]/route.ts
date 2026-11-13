@@ -10,6 +10,7 @@ import type { Prisma } from "@prisma/client";
 import { IntegrationRegistry } from "@/lib/integrations/registry";
 import "@/lib/integrations/registry/index";
 import { splitConfigSecrets } from "@/lib/integrations/config-secrets";
+import { configUrlProblem } from "@/lib/integrations/config-urls";
 import { setOrgCredential, deleteOrgCredential } from "@/lib/integrations/credentials";
 import { MS_CALENDAR } from "@/lib/integrations/microsoft/calendar-connect";
 import { purgeOrgCalendarConnections } from "@/lib/integrations/microsoft/calendar-token.server";
@@ -72,6 +73,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     let configUpdate: Record<string, unknown> | undefined;
     if (data.config !== undefined) {
       const provider = IntegrationRegistry.get(existing.provider);
+      const urlProblem = configUrlProblem(provider, data.config);
+      if (urlProblem) return Response.json({ error: urlProblem }, { status: 400 });
       const { publicConfig, secrets, hasSecrets } = splitConfigSecrets(provider, data.config);
       if (hasSecrets) {
         await setOrgCredential(orgId, existing.provider, secrets);

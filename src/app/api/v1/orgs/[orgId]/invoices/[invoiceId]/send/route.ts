@@ -3,10 +3,10 @@ import { requireInvoiceVisible } from "@/lib/invoicing/visibility.server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { sendInvoice } from "@/lib/invoicing/service";
+import { requireAccess } from "@/lib/abac/require-access";
+import { logAudit } from "@/lib/audit";
 
 const bodySchema = z.object({ issueDate: z.coerce.date().optional() });
 
@@ -19,11 +19,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.FINANCE_MANAGE);
+    await requireAccess(ctx, "FINANCE_MANAGE");
     await requireInvoiceVisible(ctx, orgId, invoiceId);
 
     const body = bodySchema.parse(await request.json().catch(() => ({})));
-    return success(await sendInvoice(orgId, invoiceId, ctx.userId, body.issueDate));
+    const sent = await sendInvoice(orgId, invoiceId, ctx.userId, body.issueDate);
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "invoice.sent",
+      entity: "invoice",
+      entityId: invoiceId,
+      ipAddress: getIpAddress(request),
+    });
+    return success(sent);
   } catch (error) {
     return handleApiError(error);
   }

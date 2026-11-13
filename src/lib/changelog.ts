@@ -49,6 +49,33 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.553.1",
+    date: "2026-11-13",
+    title: "Tighter API keys, outbound connections, sessions and webhooks",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Security settings can now set a maximum session age, an idle timeout, how many sessions each person may have, and action restrictions. Each is off when set to 0. A restriction with no conditions removes that permission everywhere: for every API key, and for every member except the owner. A restriction with conditions applies where Cosmos checks the specific item.",
+      },
+      {
+        kind: "fix",
+        text: "Jira sites, OpenAI-compatible model endpoints and MCP servers can't point at link-local or cloud metadata addresses, redirects aren't followed, and a failed request shows only its status. A private network address works only inside ranges the person who runs your Cosmos instance allows.",
+      },
+      {
+        kind: "improvement",
+        text: "A webhook now acts for the person who created it. It sends an event only if they can read its project, and nothing once they leave the organization; the webhooks page shows whose access it carries, or why it sends nothing. Changing a webhook's URL or events, or turning it back on, makes it act for you. Reading the delivery log also needs permission to read work items.",
+      },
+      {
+        kind: "fix",
+        text: "API keys can no longer change personal settings such as the Outlook connection or preferences. A webhook's signing secret is shown only once, when it is created, and MCP server details never include stored secrets.",
+      },
+      {
+        kind: "improvement",
+        text: "Finance, payroll, vendor, time-off, e-signature and organization settings changes are now in the audit log. Entries name what changed, never amounts.",
+      },
+    ],
+  },
+  {
     version: "2.553.0",
     date: "2026-11-13",
     title: "Cosmo can work with boards, saved views, people, retrospectives and bulk changes",

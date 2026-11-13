@@ -16,6 +16,7 @@ const { getAuthContext, prisma } = vi.hoisted(() => ({
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));
+vi.mock("@/lib/integrations/credentials", () => ({ setOrgCredential: vi.fn() }));
 
 import { POST } from "./route";
 import "@/lib/integrations/registry/index";
@@ -40,6 +41,7 @@ function post(body: unknown) {
 beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
+  prisma.integration.create.mockResolvedValue({ id: "int-1" });
   getAuthContext.mockResolvedValue(ctx());
 });
 
@@ -56,5 +58,38 @@ describe("POST /integrations guardrail", () => {
     const res = await POST(post({ provider: "totally-unknown" }), { params });
     expect(res.status).toBe(400);
     expect(prisma.integration.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /integrations: a site URL Cosmos will call", () => {
+  const jira = (baseUrl: string) =>
+    post({ provider: "jira", config: { email: "a@example.com", apiToken: "t", baseUrl } });
+
+  it.each([
+    "http://169.254.169.254/latest/meta-data/",
+    "http://metadata.google.internal/",
+    "http://[fd00:ec2::254]/",
+    "http://10.0.0.5/",
+    "http://localhost:8080/",
+    "file:///etc/passwd",
+  ])("refuses %s with 400 and saves nothing", async (baseUrl) => {
+    vi.stubEnv("OUTBOUND_ALLOW_PRIVATE_CIDRS", "");
+    const res = await POST(jira(baseUrl), { params });
+    expect(res.status).toBe(400);
+    expect(prisma.integration.create).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+  });
+
+  it("saves a public site (control)", async () => {
+    const res = await POST(jira("https://example.atlassian.net"), { params });
+    expect(res.status).toBe(201);
+    expect(prisma.integration.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves a private site only inside the operator's ranges", async () => {
+    vi.stubEnv("OUTBOUND_ALLOW_PRIVATE_CIDRS", "10.0.0.0/8");
+    const res = await POST(jira("http://10.0.0.5/"), { params });
+    expect(res.status).toBe(201);
+    vi.unstubAllEnvs();
   });
 });

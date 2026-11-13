@@ -2,12 +2,12 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { createEnvelope } from "@/lib/integrations/docusign";
 import { mayReadContract } from "@/lib/crm/contract-scope";
 import { moneyGate, projectMoney } from "@/lib/rbac/money-fields";
+import { requireAccess } from "@/lib/abac/require-access";
+import { logAudit } from "@/lib/audit";
 
 const schema = z.object({
   signerEmail: z.string().email(),
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.CRM_UPDATE);
+    await requireAccess(ctx, "CRM_UPDATE");
 
     const contract = await prisma.contract.findFirst({
       where: { id: contractId, orgId: ctx.orgId },
@@ -53,6 +53,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const updated = await prisma.contract.update({
       where: { id: contractId },
       data: { docusignEnvelopeId: envelopeId, docusignStatus: "sent" },
+    });
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "contract.signature_requested",
+      entity: "contract",
+      entityId: contractId,
+      metadata: { envelopeId, documentName: body.documentName },
+      ipAddress: getIpAddress(request),
     });
 
     return success({

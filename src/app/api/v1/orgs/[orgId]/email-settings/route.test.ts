@@ -30,6 +30,9 @@ const { getAuthContext, prisma } = vi.hoisted(() => ({
 
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
+// The route records an audit row; this unit test has no audit table.
+const { logAudit } = vi.hoisted(() => ({ logAudit: vi.fn(async (entry: unknown) => void entry) }));
+vi.mock("@/lib/audit", () => ({ logAudit }));
 
 import { openSecret } from "@/lib/crypto/vault";
 import { GET, PUT } from "./route";
@@ -171,6 +174,11 @@ describe("PUT /orgs/[orgId]/email-settings — seals the key", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).not.toHaveProperty("apiKey");
     expect(JSON.stringify(body)).not.toContain("re_new_secret");
+
+    // The audit row says the key changed, never what it is.
+    expect(logAudit).toHaveBeenCalledTimes(1);
+    expect(logAudit.mock.calls[0][0]).toMatchObject({ action: "email_settings.updated", metadata: { apiKeyChanged: true } });
+    expect(JSON.stringify(logAudit.mock.calls)).not.toContain("re_new_secret");
   });
 
   it("leaves the existing sealed key UNTOUCHED when apiKey is omitted", async () => {

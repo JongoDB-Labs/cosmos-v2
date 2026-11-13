@@ -131,7 +131,10 @@ describe("routes that send email addresses", () => {
         break;
       }
       case "keyless":
-        expect(src).toContain(`Permission.${rule.bit}`);
+        // The bit, checked as a mask (`Permission.X`) or by requireAccess,
+        // which takes the permission's key and also applies the org's
+        // conditional restrictions.
+        expect(src).toMatch(new RegExp(`Permission\\.${rule.bit}|\\brequireAccess\\(\\s*ctx\\s*,\\s*"${rule.bit}"`));
         expect(KEY_REACH & Permission[rule.bit]).toBe(0n);
         break;
       case "chat":

@@ -2,10 +2,10 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { categorizeTransaction } from "@/lib/bank/reconcile";
+import { requireAccess } from "@/lib/abac/require-access";
+import { logAudit } from "@/lib/audit";
 
 const schema = z.object({
   category: z.string().min(1),
@@ -21,12 +21,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.FINANCE_MANAGE);
+    await requireAccess(ctx, "FINANCE_MANAGE");
 
     const body = await request.json();
     const { category } = schema.parse(body);
 
-    return success(await categorizeTransaction(orgId, txnId, category, ctx.userId));
+    const result = await categorizeTransaction(orgId, txnId, category, ctx.userId);
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "bank_transaction.categorized",
+      entity: "bank_transaction",
+      entityId: txnId,
+      metadata: { category },
+      ipAddress: getIpAddress(request),
+    });
+    return success(result);
   } catch (error) {
     return handleApiError(error);
   }

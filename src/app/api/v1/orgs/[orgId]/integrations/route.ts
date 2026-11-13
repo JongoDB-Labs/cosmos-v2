@@ -10,6 +10,7 @@ import type { Prisma } from "@prisma/client";
 import { IntegrationRegistry } from "@/lib/integrations/registry";
 import "@/lib/integrations/registry/index";
 import { splitConfigSecrets } from "@/lib/integrations/config-secrets";
+import { configUrlProblem } from "@/lib/integrations/config-urls";
 import { setOrgCredential } from "@/lib/integrations/credentials";
 
 const createIntegrationSchema = z.object({
@@ -61,6 +62,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         { status: 400 },
       );
     }
+
+    const urlProblem = configUrlProblem(provider, data.config ?? {});
+    if (urlProblem) return NextResponse.json({ error: urlProblem }, { status: 400 });
 
     // Split the submitted config: secret fields (configField secret:true) are
     // sealed into the vault as an org-level credential and NEVER written to the

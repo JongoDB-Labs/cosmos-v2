@@ -216,6 +216,7 @@ const NOT_A_PROJECT_WRITE: Record<string, string> = {
   "DELETE /v1/orgs/[orgId]/members/[memberId]/route.ts": "removing a member clears their own Teams conversation",
   "PUT /v1/orgs/[orgId]/microsoft/teams-app/notifications/route.ts": "the caller's own Teams notification settings",
   "DELETE /v1/orgs/[orgId]/workflow-templates/[templateId]/route.ts": "org templates belong to no project",
+  "POST /v1/orgs/[orgId]/webhooks/[webhookId]/test/route.ts": "a test delivery is about no project",
 };
 
 describe("writes outside projects/[projectId] that touch a project are gated too", () => {

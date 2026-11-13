@@ -2,11 +2,11 @@ import { NextRequest } from "next/server";
 import { requireInvoiceVisible } from "@/lib/invoicing/visibility.server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { recordPayment } from "@/lib/invoicing/service";
 import { paymentInputSchema } from "@/lib/invoicing/validation";
+import { requireAccess } from "@/lib/abac/require-access";
+import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string; invoiceId: string }> };
 
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.FINANCE_READ);
+    await requireAccess(ctx, "FINANCE_READ");
     await requireInvoiceVisible(ctx, orgId, invoiceId);
 
     const data = await prisma.payment.findMany({
@@ -37,11 +37,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.FINANCE_MANAGE);
+    await requireAccess(ctx, "FINANCE_MANAGE");
     await requireInvoiceVisible(ctx, orgId, invoiceId);
 
     const input = paymentInputSchema.parse(await request.json());
-    return success(await recordPayment(orgId, invoiceId, ctx.userId, input));
+    const payment = await recordPayment(orgId, invoiceId, ctx.userId, input);
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "invoice.payment_recorded",
+      entity: "invoice",
+      entityId: invoiceId,
+      ipAddress: getIpAddress(request),
+    });
+    return success(payment);
   } catch (error) {
     return handleApiError(error);
   }

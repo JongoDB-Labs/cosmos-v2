@@ -3,10 +3,10 @@ import { z } from "zod";
 import { AccountType, NormalBalance } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { seedSystemCoA } from "@/lib/ledger/chart-of-accounts";
+import { requireAccess } from "@/lib/abac/require-access";
+import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.ACCOUNTING_READ);
+    await requireAccess(ctx, "ACCOUNTING_READ");
 
     if ((await prisma.account.count({ where: { orgId } })) === 0) await seedSystemCoA(orgId);
     const accounts = await prisma.account.findMany({
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.ACCOUNTING_MANAGE);
+    await requireAccess(ctx, "ACCOUNTING_MANAGE");
 
     const parsed = createSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return new Response("Bad Request", { status: 400 });
@@ -87,6 +87,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         isSystem: false,
       },
       select: { id: true, code: true, name: true, type: true, normalBalance: true, isActive: true, parentId: true },
+    });
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "gl_account.created",
+      entity: "gl_account",
+      entityId: account.id,
+      metadata: { code, type },
+      ipAddress: getIpAddress(request),
     });
     return created(account);
   } catch (error) {

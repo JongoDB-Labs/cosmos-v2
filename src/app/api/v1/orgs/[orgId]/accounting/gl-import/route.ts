@@ -3,13 +3,13 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/client";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { ClosedPeriodError } from "@/lib/ledger/posting";
 import { GlImportError, planGlImport } from "@/lib/ledger/gl-import";
 import { currentBalances, importTrialBalance } from "@/lib/ledger/gl-import-service";
 import { parseTrialBalanceCsv } from "@/lib/ledger/trial-balance-csv";
+import { requireAccess } from "@/lib/abac/require-access";
+import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.ACCOUNTING_MANAGE);
+    await requireAccess(ctx, "ACCOUNTING_MANAGE");
 
     const body = bodySchema.parse(await request.json());
     if (!body.csv && !body.rows) {
@@ -87,6 +87,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         submitted,
         createdById: ctx.userId,
         memo: body.memo,
+      });
+      await logAudit({
+        orgId,
+        userId: ctx.userId,
+        action: "ledger.gl_imported",
+        entity: "journal_entry",
+        entityId: result.posted ? result.entryId : undefined,
+        metadata: { asOf: body.asOf, posted: result.posted },
+        ipAddress: getIpAddress(request),
       });
 
       return success({

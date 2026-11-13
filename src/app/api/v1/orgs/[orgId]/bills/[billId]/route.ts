@@ -2,13 +2,13 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { MAX_MARKUP_PCT } from "@/lib/finance/markup";
 import { inVisibleProject } from "@/lib/rbac/require-project-read";
 import { assertBillLinks } from "@/lib/payables/links.server";
 import { updateBill } from "@/lib/payables/service";
+import { requireAccess } from "@/lib/abac/require-access";
+import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string; billId: string }> };
 
@@ -35,7 +35,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.FINANCE_MANAGE);
+    await requireAccess(ctx, "FINANCE_MANAGE");
 
     // The bill's CURRENT project, before anything in the patch is considered.
     // assertBillLinks checks the project the body NAMES, which stops a bill
@@ -55,6 +55,15 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     await assertBillLinks(ctx, orgId, patch);
     const updated = await updateBill(orgId, billId, patch);
     if (!updated) return new Response("Not found", { status: 404 });
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "bill.updated",
+      entity: "bill",
+      entityId: billId,
+      metadata: { changed: Object.keys(patch) },
+      ipAddress: getIpAddress(request),
+    });
     return success(updated);
   } catch (error) {
     return handleApiError(error);

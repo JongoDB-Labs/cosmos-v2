@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError } from "@/lib/api-helpers";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { isValidSkinId } from "@/lib/theme/cookie";
 import { revalidateOrg } from "@/lib/cache/queries";
 import { logoUrlSchema } from "@/lib/security/image-url";
+import { requireAccess } from "@/lib/abac/require-access";
+import { logAudit } from "@/lib/audit";
 
 const schema = z.object({
   themePrimary: z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable().optional(),
@@ -38,7 +38,7 @@ export async function PATCH(
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.THEME_MANAGE);
+    await requireAccess(ctx, "THEME_MANAGE");
 
     const body = schema.parse(await request.json());
     const data: {
@@ -80,6 +80,15 @@ export async function PATCH(
     // so theme changes show immediately. Brand-field changes propagate separately
     // via the dashboard layout's fresh `include: { org: true }` load.
     revalidateOrg({ id: orgId, slug: org.slug });
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "theme.updated",
+      entity: "organization",
+      entityId: orgId,
+      metadata: { changed: Object.keys(data) },
+      ipAddress: getIpAddress(request),
+    });
 
     return success(updated);
   } catch (e) {

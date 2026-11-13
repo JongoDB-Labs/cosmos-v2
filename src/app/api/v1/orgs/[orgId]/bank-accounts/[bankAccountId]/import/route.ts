@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { parseOfx } from "@/lib/bank/parsers/ofx";
 import { parseCsv, type CsvMapping } from "@/lib/bank/parsers/csv";
 import { importTransactions } from "@/lib/bank/import";
+import { requireAccess } from "@/lib/abac/require-access";
+import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string; bankAccountId: string }> };
 
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.FINANCE_MANAGE);
+    await requireAccess(ctx, "FINANCE_MANAGE");
 
     // Verify the bank account belongs to this org
     const bankAccount = await prisma.bankAccount.findFirst({
@@ -58,7 +58,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const parsed =
       format === "csv" ? parseCsv(text, mapping as CsvMapping) : parseOfx(text);
 
-    return success(await importTransactions(orgId, bankAccountId, parsed));
+    const imported = await importTransactions(orgId, bankAccountId, parsed);
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "bank_account.imported",
+      entity: "bank_account",
+      entityId: bankAccountId,
+      metadata: { format },
+      ipAddress: getIpAddress(request),
+    });
+    return success(imported);
   } catch (error) {
     return handleApiError(error);
   }

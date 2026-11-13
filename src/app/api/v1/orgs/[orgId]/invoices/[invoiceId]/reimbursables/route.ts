@@ -2,11 +2,12 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { ConflictError, requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { ConflictError } from "@/lib/rbac/check";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { requireInvoiceVisible } from "@/lib/invoicing/visibility.server";
 import { addReimbursables, listUnbilledReimbursables } from "@/lib/invoicing/reimbursables.server";
+import { requireAccess } from "@/lib/abac/require-access";
+import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string; invoiceId: string }> };
 
@@ -34,7 +35,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const { org, ctx } = await load(orgId);
     if (!org) return new Response("Not found", { status: 404 });
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.FINANCE_READ);
+    await requireAccess(ctx, "FINANCE_READ");
     await requireInvoiceVisible(ctx, orgId, invoiceId);
 
     const inv = await prisma.invoice.findFirstOrThrow({ where: { id: invoiceId, orgId }, select: { status: true, projectId: true } });
@@ -52,11 +53,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { org, ctx } = await load(orgId);
     if (!org) return new Response("Not found", { status: 404 });
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.FINANCE_MANAGE);
+    await requireAccess(ctx, "FINANCE_MANAGE");
     await requireInvoiceVisible(ctx, orgId, invoiceId);
 
     const pick = bodySchema.parse(await request.json().catch(() => ({})));
-    return success(await addReimbursables(orgId, invoiceId, pick));
+    const added = await addReimbursables(orgId, invoiceId, pick);
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "invoice.reimbursables_added",
+      entity: "invoice",
+      entityId: invoiceId,
+      ipAddress: getIpAddress(request),
+    });
+    return success(added);
   } catch (error) {
     return handleApiError(error);
   }

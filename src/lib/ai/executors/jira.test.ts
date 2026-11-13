@@ -235,8 +235,16 @@ describe("API error handling (graceful, token-free)", () => {
       error?: string;
     };
     expect(res.error).toContain("HTTP 401");
-    expect(res.error).toContain("authenticated");
+    // Our words for the status, never the site's own response text.
+    expect(res.error).toContain("rejected the credentials");
+    expect(res.error).not.toContain("Client must be authenticated");
     expect(JSON.stringify(res)).not.toContain(TOKEN);
+  });
+
+  it("a refusal's response body never reaches the result", async () => {
+    const fetchImpl = mockFetch(400, { errorMessages: ["ami-id: i-0abc internal detail"], errors: { x: "more detail" } });
+    const res = (await jiraSearchIssues({}, { orgId: ORG, userId: USER, fetchImpl })) as { error?: string };
+    expect(res.error).toBe("Jira API error (HTTP 400)");
   });
 
   it("a thrown fetch (network failure) is caught → graceful error", async () => {
@@ -294,5 +302,20 @@ describe("PROJECTION CONTRACT — a gov jira_issue is structural-only", () => {
     const mv = projectStructural(project, "jira_project") as Record<string, unknown>;
     expect(mv).toEqual({ id: "10000", key: "ABC", projectTypeKey: "software" });
     expect(JSON.stringify(mv)).not.toContain("Secret");
+  });
+});
+
+describe("the configured site address is checked before anything is sent", () => {
+  it.each([
+    "http://169.254.169.254",
+    "http://metadata.google.internal",
+    "http://[fd00:ec2::254]",
+    "http://10.0.0.5",
+    "http://127.0.0.1:8080",
+  ])("refuses %s without a fetch", async (baseUrl) => {
+    prisma.integration.findFirst.mockResolvedValue({ config: { baseUrl, defaultProjectKey: "ABC" } });
+    const res = (await jiraSearchIssues({}, { orgId: ORG, userId: USER })) as { error?: string };
+    expect(res.error).toMatch(/isn't public|never allowed/);
+    expect(JSON.stringify(res)).not.toContain(TOKEN);
   });
 });

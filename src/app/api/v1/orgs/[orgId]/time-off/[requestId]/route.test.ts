@@ -15,6 +15,9 @@ const { prisma, getAuthContext, isManagerOf, hasManager } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
+// The route records an audit row; this unit test has no audit table.
+const { logAudit } = vi.hoisted(() => ({ logAudit: vi.fn(async () => undefined) }));
+vi.mock("@/lib/audit", () => ({ logAudit }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/time/timesheet-actions", () => ({ isManagerOf, hasManager }));
 

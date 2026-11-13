@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { refuseApiKey } from "@/lib/auth/key-gate";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
@@ -29,6 +30,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
     const r = await resolve((await params).orgId);
     if (!r) return new Response("Unauthorized", { status: 401 });
+    // Links are made, changed and listed in the browser (POST and PATCH say why).
+    refuseApiKey(r.ctx);
     const feeds = await prisma.calendarFeed.findMany({
       where: { orgId: r.org.id, userId: r.ctx.userId, revokedAt: null },
       orderBy: { createdAt: "asc" },
@@ -52,9 +55,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Browser only. The link is an unauthenticated feed of its owner's items,
     // meetings and sprints: it ignores a key's projectScope and outlives the
     // key's revocation, so a key minting one would escape both.
-    if (r.ctx.isApiKey) {
-      return NextResponse.json({ error: "Calendar feed links can only be created from the browser." }, { status: 403 });
-    }
+    refuseApiKey(r.ctx, "Calendar feed links can only be created from the browser.");
     if (!calendarFeedsEnabled(r.org.settings)) {
       return NextResponse.json({ error: "Calendar feeds are turned off for this organization." }, { status: 403 });
     }

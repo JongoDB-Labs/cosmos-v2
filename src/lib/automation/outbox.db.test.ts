@@ -32,6 +32,8 @@ beforeAll(async () => {
   orgId = (await prisma.organization.create({ data: { name: `ob ${stamp}`, slug: `ob-${stamp}` } })).id;
   projectKey = `OB${stamp.slice(-4).toUpperCase()}`;
   projectId = (await prisma.project.create({ data: { orgId, name: "O", key: projectKey } })).id;
+  // A webhook sends only what its creator can read, so its creator is a member.
+  await prisma.orgMember.create({ data: { orgId, userId, role: "OWNER", permissions: "0" } });
   await ensureFixtureStatuses(projectId);
   typeId = (await prisma.workItemType.findFirstOrThrow({ where: { orgId: null } })).id;
 });
@@ -48,7 +50,7 @@ beforeEach(async () => {
 });
 
 const hook = (events: string[], active = true) =>
-  prisma.webhook.create({ data: { orgId, url: "https://hooks.example/in", events, secret: sealField(SECRET), active } });
+  prisma.webhook.create({ data: { orgId, url: "https://hooks.example/in", events, secret: sealField(SECRET), active, createdById: userId } });
 
 async function createItem(title = "Merger with Initech") {
   const row = await createWorkItemRow(
@@ -78,6 +80,8 @@ describe("the outbox worker", () => {
     expect(r).toMatchObject({ queued: 1 });
     const [d] = await deliveriesOf(created.id);
     expect(d).toMatchObject({ event: "work_item.created", status: "PENDING", attempts: 0 });
+    // Who may read it, and whether it is sent, follow its project.
+    expect(d.projectId).toBe(projectId);
     expect(d.nextAttemptAt).not.toBeNull();
     expect(d.payload).toMatchObject({ type: "work_item.created", orgId, projectId, workItem: { id, key: `${projectKey}-${ticket}` }, actorId: userId, source: "API" });
     // Never the title or description.
@@ -246,13 +250,14 @@ describe("the webhook sender", () => {
     beforeEach(async () => {
       const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       other = (await prisma.organization.create({ data: { name: `ob-other ${stamp}`, slug: `ob-other-${stamp}` } })).id;
+      await prisma.orgMember.create({ data: { orgId: other, userId, role: "OWNER", permissions: "0" } });
     });
     afterEach(async () => {
       await prisma.organization.deleteMany({ where: { id: other } });
     });
     // A queued delivery shaped like the one backlog.db.test.ts writes: PENDING, plaintext secret.
     const theirs = async (nextAttemptAt: Date) => {
-      const w = await prisma.webhook.create({ data: { orgId: other, url: "https://hooks.example/in", events: [], secret: "s" } });
+      const w = await prisma.webhook.create({ data: { orgId: other, url: "https://hooks.example/in", events: [], secret: "s", createdById: userId } });
       return prisma.webhookDelivery.create({ data: { webhookId: w.id, event: "e", payload: {}, status: "PENDING", nextAttemptAt } });
     };
     const recording = (to: string[]): Post => async (_url, o) => (to.push(o.headers["X-Webhook-Delivery"]), { status: 200, body: "" });

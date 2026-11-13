@@ -202,7 +202,9 @@ export async function apiKeyAuthContext(
   orgId: string,
   key: { createdById: string; scopes: string[]; projectIds: string[] | null },
 ): Promise<AuthContext | null> {
-  const eff = await loadEffectivePermissions(orgId, key.createdById);
+  // forApiKey: a key gets no OWNER break-glass, so the org's restrictions bind
+  // an owner's key like anyone else's.
+  const eff = await loadEffectivePermissions(orgId, key.createdById, { forApiKey: true });
   if (!eff) return null;
   const mask = scopeMask(key.scopes);
   return {

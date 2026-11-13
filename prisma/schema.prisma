@@ -479,6 +479,7 @@ model User {
   teamsConversations          TeamsConversation[]
   slackUserLinks              SlackUserLink[]
   slackOutbox                 SlackOutbox[]
+  webhooksCreated             Webhook[]            @relation("WebhookCreator")
 
   @@map("users")
   createdProgramEvents ProgramEvent[]
@@ -2986,10 +2987,16 @@ model Webhook {
   events    String[]
   secret    String
   active    Boolean  @default(true)
+  /// Who created it. An event is sent only if this person can read its project
+  /// at send time, and a webhook whose creator is no longer a member of the org
+  /// sends nothing. Null only for a webhook from before this was recorded, which
+  /// also sends nothing (src/lib/webhooks/deliver.server.ts).
+  createdById String?  @map("created_by_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   org        Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy  User?             @relation("WebhookCreator", fields: [createdById], references: [id], onDelete: SetNull)
   deliveries WebhookDelivery[]
 
   @@index([orgId, active])
@@ -3011,6 +3018,10 @@ model WebhookDelivery {
   eventId       BigInt?               @map("event_id")
   /// When a PENDING delivery is next tried. Null: not queued.
   nextAttemptAt DateTime?             @map("next_attempt_at")
+  /// The project the event happened in; null for an org-wide or test delivery.
+  /// Who may read the delivery, and whether it is sent, depend on it. Not a
+  /// foreign key: the log outlives a deleted project.
+  projectId     String?               @map("project_id") @db.Uuid
   createdAt     DateTime              @default(now()) @map("created_at")
 
   webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)

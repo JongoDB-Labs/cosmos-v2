@@ -1,6 +1,5 @@
 import { getAuthContext } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/db/client";
 import { WebhooksManager } from "@/components/settings/webhooks-manager";
 import { PageShell } from "@/components/ui/page-shell";
 import {
@@ -10,6 +9,7 @@ import {
 } from "@/lib/query/server";
 import { canViewSettings } from "@/lib/rbac/settings-access";
 import { NoAccess } from "@/components/settings/no-access";
+import { listWebhooks } from "@/lib/webhooks/access.server";
 
 type PageParams = {
   params: Promise<{ orgSlug: string }>;
@@ -34,22 +34,9 @@ export default async function WebhooksPage({ params }: PageParams) {
   const qc = makeServerQueryClient();
   await qc.prefetchQuery({
     queryKey: ["org", orgSlug, "webhooks", "list"],
-    // Match the GET route's projection — keep the sealed `secret` out of the
-    // hydrated cache that ships to the browser.
-    queryFn: () =>
-      prisma.webhook.findMany({
-        where: { orgId: ctx.orgId },
-        orderBy: { createdAt: "desc" },
-        select: {
-          id: true,
-          orgId: true,
-          url: true,
-          events: true,
-          active: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      }),
+    // The GET route's own list: no sealed `secret` in the hydrated cache that
+    // ships to the browser, and each webhook's paused reason.
+    queryFn: () => listWebhooks(ctx.orgId),
   });
 
   return (

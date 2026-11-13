@@ -6,8 +6,16 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
-import { AccountRequestMode } from "@prisma/client";
+import { AccountRequestMode, type Prisma } from "@prisma/client";
 import { allowlistState, lockoutRefusal, lockoutResponse, securitySettingsFor } from "@/lib/auth/ip-allowlist";
+import { parseActionRestrictions } from "@/lib/security/action-restrictions";
+
+/** Minutes, where 0 turns the setting off and anything else is at least `min`. */
+const minutesOrOff = (min: number, max: number, what: string) =>
+  z
+    .number()
+    .int()
+    .refine((v) => v === 0 || (v >= min && v <= max), `${what}: 0 (off) or ${min} to ${max}`);
 
 const updateSettingsSchema = z.object({
   mfaRequired: z.boolean().optional(),
@@ -21,6 +29,18 @@ const updateSettingsSchema = z.object({
   // Whether outsiders may ask this org for an account, and who may ask.
   // OFF is the default everywhere; see the AccountRequest model.
   accountRequestMode: z.nativeEnum(AccountRequestMode).optional(),
+  // Session caps, enforced in getAuthContext. 0 turns each off.
+  maxSessionAgeMins: minutesOrOff(15, 525_600, "Maximum session age").optional(),
+  idleTimeoutMins: minutesOrOff(5, 43_200, "Idle timeout").optional(),
+  maxConcurrentSessions: z
+    .number()
+    .int()
+    .min(0, "Sessions per person: 0 (no limit) or more")
+    .max(100)
+    .optional(),
+  // Org-wide deny rules. Checked strictly below, not here, so a refusal can
+  // name the rule it is about.
+  actionRestrictions: z.unknown().optional(),
 });
 
 /**
@@ -91,7 +111,19 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     requirePermission(ctx, Permission.SECURITY_MANAGE);
 
     const body = await request.json();
-    const data = updateSettingsSchema.parse(body);
+    const { actionRestrictions: rawRestrictions, ...data } = updateSettingsSchema.parse(body);
+
+    let actionRestrictions: Prisma.InputJsonValue | undefined;
+    if (rawRestrictions !== undefined) {
+      const parsed = parseActionRestrictions(rawRestrictions);
+      if (!parsed.ok) {
+        return new Response(
+          JSON.stringify({ error: parsed.error, ruleIndex: parsed.ruleIndex }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      actionRestrictions = parsed.rules as unknown as Prisma.InputJsonValue;
+    }
 
     // AU-11: enforce the gov retention floor (>=3yr) for GOV-class tenants.
     data.auditRetentionDays = clampGovRetentionDays(org.tenantClass, data.auditRetentionDays);
@@ -136,6 +168,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         orgId,
         ...data,
         ssoConnectionId: data.ssoConnectionId ?? null,
+        ...(actionRestrictions !== undefined && { actionRestrictions }),
       },
       update: {
         ...(data.mfaRequired !== undefined && { mfaRequired: data.mfaRequired }),
@@ -147,8 +180,22 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.allowedDomains !== undefined && { allowedDomains: data.allowedDomains }),
         ...(data.auditRetentionDays !== undefined && { auditRetentionDays: data.auditRetentionDays }),
         ...(data.accountRequestMode !== undefined && { accountRequestMode: data.accountRequestMode }),
+        ...(data.maxSessionAgeMins !== undefined && { maxSessionAgeMins: data.maxSessionAgeMins }),
+        ...(data.idleTimeoutMins !== undefined && { idleTimeoutMins: data.idleTimeoutMins }),
+        ...(data.maxConcurrentSessions !== undefined && { maxConcurrentSessions: data.maxConcurrentSessions }),
+        ...(actionRestrictions !== undefined && { actionRestrictions }),
       },
     });
+
+    // What changed, and the new value of each session cap. Restrictions are
+    // recorded by count only: the rules themselves are on the settings row.
+    const changed = Object.entries(data).filter(([, v]) => v !== undefined).map(([k]) => k);
+    if (actionRestrictions !== undefined) changed.push("actionRestrictions");
+    const capValues: Record<string, string> = {};
+    for (const k of ["maxSessionAgeMins", "idleTimeoutMins", "maxConcurrentSessions"] as const) {
+      if (data[k] !== undefined) capValues[k] = String(data[k]);
+    }
+    const restrictionCount = Array.isArray(actionRestrictions) ? actionRestrictions.length : null;
 
     await logAudit({
       orgId,
@@ -156,7 +203,13 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       action: "security_settings.updated",
       entity: "org_security_settings",
       entityId: settings.id,
-      metadata: { changes: Object.keys(data).join(", ") } as Record<string, string>,
+      metadata: {
+        changes: changed.join(", "),
+        ...capValues,
+        ...(restrictionCount !== null && {
+          actionRestrictions: `${restrictionCount} rule${restrictionCount === 1 ? "" : "s"}`,
+        }),
+      } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });
 
