@@ -50,6 +50,7 @@ export const noteTools: ToolDefinition[] = [
   },
   {
     name: "delete_note",
+    confirm: true,
     description: "Delete a note. Only the author or org admin/owner may delete.",
     input_schema: {
       type: "object",

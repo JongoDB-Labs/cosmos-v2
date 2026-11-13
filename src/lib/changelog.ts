@@ -49,6 +49,53 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.553.0",
+    date: "2026-11-13",
+    title: "Cosmo can work with boards, saved views, people, retrospectives and bulk changes",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Ask Cosmo to make a board from a query, rename it, change its columns or delete it. The same people who can do this on the Boards page can do it through Cosmo, and nobody else. That includes a dashboard you made yourself, which you can rename or delete without managing the project.",
+      },
+      {
+        kind: "feature",
+        text: "Cosmo can list your saved views, save a new one from a query, change it, share it with your project or team, and delete it. A view Cosmo saves is always private at first: sharing it is a separate step that asks you before it happens.",
+      },
+      {
+        kind: "feature",
+        text: "Ask Cosmo about a teammate: their role, the projects and teams they are on, and the open work assigned to them, limited to projects you can see. If you may manage a project or team, Cosmo can add people to it or take them off.",
+      },
+      {
+        kind: "feature",
+        text: "Cosmo can run a sprint retrospective: read it, open and close it, add, edit and delete notes and action items, and turn an action item into a work item.",
+      },
+      {
+        kind: "feature",
+        text: "Cosmo can change up to 100 work items at once: move them into or out of a sprint, or change their status, priority, assignee or labels. Before it changes anything it tells you how many items will change and what will change, and waits for your yes. Items you may not change are skipped, and Cosmo tells you which and why.",
+      },
+      {
+        kind: "improvement",
+        text: "Cosmo now always asks before it deletes something, adds someone to a project or team or takes them off, shares a saved view, closes a retrospective, or changes many items at once, and this no longer depends on Cosmo remembering to ask. It shows you what will change, and makes the change only after you answer yes in your next message, within five minutes. If what it would change has moved on in the meantime, it shows you again. The assistant bot in chat channels, which can't wait for an answer, no longer does these things at all.",
+      },
+      {
+        kind: "fix",
+        text: "A board shared with one team, or on a project limited to its team, could be renamed or deleted by someone who could not open it. These changes are now refused, as opening it already was. The same now holds for a team board's retrospective notes, action items and closing.",
+      },
+      {
+        kind: "fix",
+        text: "An API key limited to some projects could change boards in other projects. It no longer can.",
+      },
+      {
+        kind: "fix",
+        text: "A project's only manager could be removed from the project, or changed to an ordinary role, leaving nobody to manage it. Both are now refused with a message saying to make someone else a manager first.",
+      },
+      {
+        kind: "fix",
+        text: "Cosmo now receives the list of your organization's projects at the start of each chat, so it can find a project by its key without searching. A mistake meant the list was never sent.",
+      },
+    ],
+  },
+  {
                 version: "2.552.6",
                 date: "2026-11-13",
                 title: "Your account is tied to the sign-in you use, and single sign-on opens its own organization",

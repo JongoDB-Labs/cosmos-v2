@@ -11,6 +11,7 @@ import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { ensureOrgBots, type BuiltInBotKey } from "@/lib/chat/ensure-bots";
 import { filterToolsByScope } from "@/lib/chat/tool-filter";
+import { isConfirmClass } from "@/lib/ai/confirm-class";
 import type { ChatBotToolScope } from "@prisma/client";
 import type { AuthContext } from "@/lib/rbac/check";
 
@@ -244,7 +245,12 @@ export async function runChatBot(args: {
       args.bot === "notetaker"
         ? cosmosTools.filter((t) => NOTETAKER_TOOLS.has(t.name))
         : [...cosmosTools, ...(await pluginToolDefs(args.orgId))];
-    const tools = filterToolsByScope(toolScope, candidate);
+    // (3) No confirm-class tool at all, whatever the scope. A delete, a change
+    // of access, closing a ceremony or a bulk change runs only after the user
+    // answers a preview (see ai/confirmation.ts), and a channel bot has no way
+    // to show one and wait. The agent loop also withholds these tools from any
+    // run without an assistant conversation; this says it where the list is cut.
+    const tools = filterToolsByScope(toolScope, candidate).filter((t) => !isConfirmClass(t));
 
     // The bot's preferred model (its chat_bots row) wins over the request
     // default; a bare/unknown request model falls back to the configured default.

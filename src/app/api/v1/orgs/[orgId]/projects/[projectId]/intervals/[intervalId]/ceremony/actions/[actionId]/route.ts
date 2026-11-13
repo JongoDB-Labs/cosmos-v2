@@ -1,13 +1,7 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@/lib/db/client";
-import { assignableMembersWhere } from "@/lib/work-items/apply-change.server";
 import { success, handleApiError } from "@/lib/api-helpers";
-import { z } from "zod";
-import {
-  requireContributor,
-  isResponse,
-  publishCeremonyChanged,
-} from "../../_helpers";
+import { updateCeremonyAction, deleteCeremonyAction } from "@/lib/intervals/ceremony.server";
+import { ceremonyAuth, isResponse } from "../../_helpers";
 
 type RouteParams = {
   params: Promise<{
@@ -18,94 +12,31 @@ type RouteParams = {
   }>;
 };
 
-const patchSchema = z.object({
-  text: z.string().trim().min(1).max(2000).optional(),
-  ownerId: z.string().uuid().nullish(),
-  dueDate: z.coerce.date().nullish(),
-});
-
-/** Scoped lookup — an action ID alone must not reach another tenant's ceremony. */
-async function loadAction(
-  actionId: string,
-  scope: { orgId: string; projectId: string; intervalId: string }
-) {
-  return prisma.retroActionItem.findFirst({
-    where: {
-      id: actionId,
-      ceremony: {
-        orgId: scope.orgId,
-        intervalId: scope.intervalId,
-        board: { projectId: scope.projectId },
-      },
-    },
-    select: {
-      id: true,
-      ceremonyId: true,
-      workItemId: true,
-      ceremony: { select: { status: true } },
-    },
-  });
-}
-
+/** Edit an action item. Gate and work: lib/intervals/ceremony.server.ts. */
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, projectId, intervalId, actionId } = await params;
-    const loaded = await requireContributor(orgId, projectId, intervalId);
-    if (isResponse(loaded)) return loaded;
+    const ctx = await ceremonyAuth(orgId);
+    if (isResponse(ctx)) return ctx;
 
-    const action = await loadAction(actionId, { orgId, projectId, intervalId });
-    if (!action) return new Response("Action item not found", { status: 404 });
-    if (action.ceremony.status === "CLOSED") {
-      return new Response(JSON.stringify({ error: "This ceremony is closed" }), {
-        status: 409,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    const data = patchSchema.parse(await request.json());
-    // Same rule as creating one: an owner must be a member of this org (the
-    // owner becomes the assignee when the action is promoted to a work item).
-    if (data.ownerId) {
-      const member = await prisma.orgMember.findFirst({ where: assignableMembersWhere(orgId, [data.ownerId]), select: { id: true } });
-      if (!member) {
-        return new Response(
-          JSON.stringify({ error: "That owner is not a member of this organization" }),
-          { status: 400, headers: { "Content-Type": "application/json" } },
-        );
-      }
-    }
-    const updated = await prisma.retroActionItem.update({
-      where: { id: action.id },
-      data: {
-        ...(data.text !== undefined ? { text: data.text } : {}),
-        ...(data.ownerId !== undefined ? { ownerId: data.ownerId } : {}),
-        ...(data.dueDate !== undefined ? { dueDate: data.dueDate } : {}),
-      },
-    });
-
-    publishCeremonyChanged(orgId, projectId, action.ceremonyId);
-    return success(updated);
+    return success(
+      await updateCeremonyAction(ctx, { orgId, projectId, intervalId }, actionId, () => request.json()),
+    );
   } catch (e) {
     return handleApiError(e);
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+/** Delete an action item; a work item already promoted from it stays. */
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, projectId, intervalId, actionId } = await params;
-    const loaded = await requireContributor(orgId, projectId, intervalId);
-    if (isResponse(loaded)) return loaded;
+    const ctx = await ceremonyAuth(orgId);
+    if (isResponse(ctx)) return ctx;
 
-    const action = await loadAction(actionId, { orgId, projectId, intervalId });
-    if (!action) return new Response("Action item not found", { status: 404 });
-
-    // Deleting the action does NOT delete a work item already promoted from it:
-    // the team committed to that work, and it now lives in the backlog on its
-    // own terms.
-    await prisma.retroActionItem.delete({ where: { id: action.id } });
-
-    publishCeremonyChanged(orgId, projectId, action.ceremonyId);
-    return success({ id: action.id, promotedWorkItemId: action.workItemId });
+    return success(
+      await deleteCeremonyAction(ctx, { orgId, projectId, intervalId }, actionId),
+    );
   } catch (e) {
     return handleApiError(e);
   }

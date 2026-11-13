@@ -60,16 +60,35 @@ function handlerBody(src: string, method: string): string | null {
 }
 
 /**
+ * Library modules that hold routes' gate-and-work, shared with the assistant's
+ * tools (one gate, two entry points). A route that forwards to one has its gate
+ * THERE, so the scan follows it exactly as it follows a route's `./_helpers`;
+ * without that, each forwarding route would read as ungated. List a module only
+ * when its exported functions are the routes' own handlers' bodies, never a
+ * general library, whose internals would be counted as a route's gate.
+ */
+const ROUTE_SERVICES = new Set([
+  "src/lib/intervals/ceremony.server.ts",
+  "src/lib/boards/board-service.server.ts",
+  "src/lib/projects/membership.server.ts",
+  "src/lib/query/saved-view-service.server.ts",
+]);
+
+/**
  * Where an import specifier resolves, for the modules the scan follows: a
- * route's own helpers (`./_helpers`, `../shared`) and other route modules
- * (`@/app/...`, the forwards). Library gates (`@/lib/...`) are recognised by
- * name above instead, and following them would count their internals.
+ * route's own helpers (`./_helpers`, `../shared`), other route modules
+ * (`@/app/...`, the forwards) and the ROUTE_SERVICES above. Other library gates
+ * (`@/lib/...`) are recognised by name above instead, and following them would
+ * count their internals.
  */
 function resolveImport(fromFile: string, spec: string): string | null {
   let base: string;
   if (spec.startsWith(".")) base = path.join(path.dirname(fromFile), spec);
   else if (spec.startsWith("@/app/")) base = path.join("src", spec.slice(2));
-  else return null;
+  else if (spec.startsWith("@/lib/")) {
+    const file = path.join("src", `${spec.slice(2)}.ts`);
+    return ROUTE_SERVICES.has(file) && existsSync(file) ? file : null;
+  } else return null;
   for (const f of [`${base}.ts`, `${base}.tsx`, path.join(base, "index.ts")]) if (existsSync(f)) return f;
   return null;
 }
@@ -124,8 +143,8 @@ function calledHelpers(code: string, src: string, file: string | undefined, dept
  * A handler's body plus the helpers it calls: the module's own functions
  * (wherever they sit in the file) and, when `file` is given, functions it
  * imports from route-local modules and other route modules, two levels deep.
- * That is how ceremony routes gate (requireContributor in ./_helpers) and how
- * the work-item aliases forward to the project routes.
+ * That is how ceremony routes gate (their ROUTE_SERVICES module) and how the
+ * work-item aliases forward to the project routes.
  */
 export function handlerCode(src: string, method: string, file?: string): string | null {
   const body = handlerBody(src, method);

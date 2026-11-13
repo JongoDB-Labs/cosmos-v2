@@ -217,6 +217,10 @@ describe("saved filters v2 (e2e DB)", () => {
     // An unknown value is a positioned 400, nothing saved.
     const bad = await create(req("saved-views", "POST", { name: "bad", cql: "sprint = Nosuchsprint" }), { params: params() });
     expect(bad.status).toBe(400);
+    // The query language's own body, with the position to fix — not a bare { error } string.
+    const badBody = (await bad.json()) as { error: { code: string; diagnostics: unknown[] } };
+    expect(badBody.error.code).toBe("CQL_INVALID");
+    expect(badBody.error.diagnostics.length).toBeGreaterThan(0);
     expect(await prisma.savedView.count({ where: { name: "bad" } })).toBe(0);
   });
 

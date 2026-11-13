@@ -97,6 +97,22 @@ describe("baseSystemPrompt() — ask-when-unsure + sprint assignment", () => {
   });
 });
 
+describe("baseSystemPrompt() — confirming a bulk change", () => {
+  it("always confirms a bulk change with its count, with no stated-intent exception", () => {
+    const p = baseSystemPrompt();
+    // The general rule lets a user who "stated exactly what to do" skip the
+    // confirmation; a bulk change must not take that exit.
+    expect(p).toMatch(/unless the user already stated exactly what to do/);
+    const bulk = p.split("\n").find((l) => l.includes("bulk_update_work_items"));
+    expect(bulk, "the prompt names the bulk tool in its own rule").toBeDefined();
+    expect(bulk).toMatch(/always say how many items/i);
+    expect(bulk).toMatch(/wait for the user's yes/i);
+    expect(bulk).toMatch(/even when they named the change/i);
+    // The rule matches what the loop enforces: preview first, the token after the yes.
+    expect(bulk).toMatch(/confirmationToken/);
+  });
+});
+
 describe("baseSystemPrompt() — how Cosmo handles a refusal", () => {
   // The server deliberately answers "not found" for BOTH a missing resource and
   // one outside the caller's access (see executors/_ctx.ts assertProjectRead),

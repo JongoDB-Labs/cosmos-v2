@@ -143,8 +143,12 @@ async function resolveRoster(auth: AuthContext, orgId: string): Promise<RosterPr
 
   const rows = await prisma.project.findMany({
     where: { orgId, id: { in: [...visible] } },
-    select: { id: true, key: true, name: true, archivedAt: true },
+    // A project's archive state is the `archived` flag; Project has no `archivedAt`.
+    // Selecting one made every call throw at runtime (tsc does not check a select's
+    // keys against the model here), and the agent loop's best-effort catch turned
+    // that into "no roster" on every run.
+    select: { id: true, key: true, name: true, archived: true },
     orderBy: { key: "asc" },
   });
-  return rows.map((p) => ({ id: p.id, key: p.key, name: p.name, archived: p.archivedAt !== null }));
+  return rows.map((p) => ({ id: p.id, key: p.key, name: p.name, archived: p.archived }));
 }

@@ -23,7 +23,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
-import { CQL_VERSION, type CqlNode, type CqlQuery } from "@/lib/query/ast";
+import type { CqlQuery } from "@/lib/query/ast";
+import { withoutProjectClauses } from "@/lib/boards/board-query";
 import {
   BOARD_TYPE_REGISTRY,
   savableFromViewTypes,
@@ -285,16 +286,6 @@ export function SaveAsBoardDialog({
   );
 }
 
-const isProjectClause = (n: CqlNode) => (n.op === "cmp" || n.op === "in") && n.field.kind === "sys" && n.field.id === "project";
-
-/** A query without its top-level project clauses (`project = X AND …`). */
-export function withoutProjectClauses(q: CqlQuery): CqlQuery {
-  const w = q.where;
-  let where: CqlNode | null = w;
-  if (w && isProjectClause(w)) where = null;
-  else if (w?.op === "and") {
-    const args = w.args.filter((a) => !isProjectClause(a));
-    where = args.length === 0 ? null : args.length === 1 ? args[0] : { op: "and", args };
-  }
-  return { v: CQL_VERSION, where, ...(q.orderBy ? { orderBy: q.orderBy } : {}) };
-}
+// Moved to a shared module so the assistant's create_board stores the same
+// shape; re-exported for existing importers.
+export { withoutProjectClauses };

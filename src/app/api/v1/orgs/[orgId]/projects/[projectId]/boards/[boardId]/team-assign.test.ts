@@ -52,7 +52,9 @@ beforeEach(() => {
   });
   prisma.organization.findUnique.mockResolvedValue({ id: ORG, slug: "acme" });
   prisma.project.findFirst.mockResolvedValue({ id: PROJ, orgId: ORG, teamScopedAccess: false });
-  prisma.board.findFirst.mockResolvedValue({ id: BOARD, projectId: PROJ, orgId: ORG });
+  // A real row always carries teamId; this board is shared with the project
+  // until the spec assigns it.
+  prisma.board.findFirst.mockResolvedValue({ id: BOARD, projectId: PROJ, orgId: ORG, teamId: null });
   prisma.team.findFirst.mockResolvedValue({ id: TEAM });
   prisma.board.update.mockResolvedValue({ id: BOARD, columns: [] });
   prisma.orgMember.findUnique.mockResolvedValue({ id: "om1" });

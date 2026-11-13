@@ -3,7 +3,8 @@ import { Permission } from "@/lib/rbac/permissions";
 import { ComplianceFramework, ControlStatus } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, type ToolContext } from "./_ctx";
+import { assertPermission, loadAuthContext, type ToolContext } from "./_ctx";
+import { scopedRosterUserIds } from "@/lib/members/scoped-roster.server";
 
 const querySchema = z.object({
   framework: z.nativeEnum(ComplianceFramework).optional(),
@@ -97,17 +98,45 @@ export async function updateComplianceControl(
 }
 
 /** People in the org (name, email, role) — so the AI can assign + notify. */
+const listMembersSchema = z.object({
+  query: z.string().trim().max(100).optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+});
+
 export async function listOrgMembers(
-  _input: Record<string, unknown>,
+  input: Record<string, unknown>,
   ctx: ToolContext
 ) {
   const denied = await assertPermission(ctx, Permission.ORG_READ);
   if (denied) return denied;
+  const parsed = listMembersSchema.safeParse(input ?? {});
+  if (!parsed.success) {
+    return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
+  }
+  const { query, limit } = parsed.data;
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
 
+  // The roster GET /members returns this caller: the whole org for a session,
+  // only the scoped projects' people for a project-scoped key.
+  const roster = await scopedRosterUserIds(auth);
+  // Looking someone up by name ("who is Sam?") matches the name or the email,
+  // case-insensitively, so the model need not page the whole roster.
+  const match = query
+    ? {
+        user: {
+          OR: [
+            { displayName: { contains: query, mode: "insensitive" as const } },
+            { email: { contains: query, mode: "insensitive" as const } },
+          ],
+        },
+      }
+    : {};
   const members = await prisma.orgMember.findMany({
-    where: { orgId: ctx.orgId },
+    where: { orgId: ctx.orgId, ...(roster ? { userId: { in: roster } } : {}), ...match },
     select: { userId: true, role: true, user: { select: { displayName: true, email: true } } },
     orderBy: { joinedAt: "asc" },
+    ...(limit ? { take: limit } : {}),
   });
   return {
     count: members.length,

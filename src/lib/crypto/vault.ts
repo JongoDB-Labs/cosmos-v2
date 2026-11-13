@@ -201,6 +201,20 @@ export function activeKid(): string {
   return loadKeyring().active;
 }
 
+/**
+ * A 32-byte key for one PURPOSE (a MAC key, say), derived with HKDF-SHA256 from
+ * a ring key, so no other use of the vault key can produce or check it. With no
+ * `kid`, from the ACTIVE key; pass the kid a value was made under to check it
+ * after a rotation. Throws, like the rest of the vault, when no key is configured
+ * or the kid has been retired.
+ */
+export function purposeKey(purpose: string, kid?: string): { kid: string; key: Buffer } {
+  const ring = loadKeyring();
+  const use = kid ?? ring.active;
+  const key = Buffer.from(crypto.hkdfSync("sha256", keyForKid(ring, use), Buffer.alloc(0), `cosmos-vault:${purpose}`, KEY_BYTES));
+  return { kid: use, key };
+}
+
 /** Seal a plaintext secret under the ACTIVE keyring kid (current `v2` envelope). */
 export function sealSecret(plaintext: string): string {
   const ring = loadKeyring();

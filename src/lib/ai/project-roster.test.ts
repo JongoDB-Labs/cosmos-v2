@@ -34,8 +34,8 @@ const P2 = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
 const auth = stubAuth(ORG, ME, { orgRole: "MEMBER", permissions: Permission.ITEM_READ });
 
 const ROWS = [
-  { id: P1, key: "APL", name: "Apollo Ground Segment", archivedAt: null },
-  { id: P2, key: "BCN", name: "Beacon Telemetry", archivedAt: new Date("2026-01-01") },
+  { id: P1, key: "APL", name: "Apollo Ground Segment", archived: false },
+  { id: P2, key: "BCN", name: "Beacon Telemetry", archived: true },
 ];
 
 const block = (over: Partial<Parameters<typeof projectRosterBlock>[0]> = {}) =>

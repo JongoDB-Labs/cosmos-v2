@@ -68,6 +68,7 @@ export const meetingTools: ToolDefinition[] = [
   },
   {
     name: "delete_meeting",
+    confirm: true,
     description: "Delete a meeting.",
     input_schema: {
       type: "object",

@@ -96,6 +96,31 @@ describe("toolCallToArtifact — mutating tool results become linked cards", () 
     expect(a).toMatchObject({ action: "updated", id: "wi-77", url: "/acme/work-items?item=wi-77" });
   });
 
+  // A confirm-class call without its token changes nothing: the loop answers
+  // with a preview. A card there said "deleted" for a board that still existed.
+  it("returns null for a confirmation preview, and cards the confirmed call (positive control)", () => {
+    const args = { projectId: "p-1", boardId: "b-1" };
+    const preview = {
+      status: "confirmation_required",
+      tool: "delete_board",
+      change: args,
+      targetCount: 2,
+      targetIds: ["b-1", "p-1"],
+      expiresAt: "2026-01-01T00:05:00.000Z",
+      instruction: "Nothing has changed yet.",
+    };
+    expect(toolCallToArtifact({ id: "tc-p", name: "delete_board", arguments: args, result: preview }, ORG)).toBeNull();
+    expect(toolCallToArtifact({ id: "tc-u", name: "update_work_item", arguments: { itemId: "wi-1" }, result: { ...preview, tool: "update_work_item" } }, ORG)).toBeNull();
+
+    const done = toolCallToArtifact(
+      { id: "tc-c", name: "delete_board", arguments: { ...args, confirmationToken: "cf1.k.n.m" }, result: { deleted: true, id: "b-1", board: { id: "b-1", name: "Standup", projectId: "p-1" } } },
+      ORG,
+    );
+    expect(done?.action).toBe("deleted");
+    expect(done?.id).toBe("b-1");
+    expect(done?.label).toBe("Standup");
+  });
+
   it("returns null for a FAILED mutation (error result, no id)", () => {
     expect(
       toolCallToArtifact(

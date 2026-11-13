@@ -1,7 +1,9 @@
+import { ZodError } from "zod";
 import { hasPermission, type PermissionKey } from "@/lib/rbac/permissions";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
-import type { AuthContext } from "@/lib/rbac/check";
+import { ConflictError, ForbiddenError, NotFoundError, type AuthContext } from "@/lib/rbac/check";
+import { ProblemError } from "@/lib/openapi/problem";
 import type { OrgRole } from "@prisma/client";
 
 /**
@@ -213,6 +215,33 @@ export async function assertAllPermissions(
     if (!hasPermission(actor.permissions, p)) {
       return { error: "Insufficient permissions" };
     }
+  }
+  return null;
+}
+
+/**
+ * A refusal THROWN by code a route and a tool share, as the tool's `{error}`.
+ *
+ * Where a REST route's gate-and-write lives in a shared server function (one
+ * gate, two entry points), that function refuses the way the route always did:
+ * it throws `NotFoundError`, `ForbiddenError`, `ConflictError` or a
+ * `ProblemError`, and the route's `handleApiError` makes the status. A tool has
+ * no `handleApiError`. Left uncaught, the throw reaches `toolFailureResult`,
+ * which tells the model the failure was INTERNAL and "not caused by anything in
+ * the request" — the opposite of the truth for a refusal, and the model would
+ * then tell the user to simply try again.
+ *
+ * So a tool folds exactly these classes into its answer, in the route's own
+ * words, and returns `null` for anything else so the caller rethrows it as the
+ * internal failure it really is.
+ */
+export function serviceRefusal(e: unknown): { error: string } | null {
+  if (e instanceof NotFoundError) return { error: e.message || "Not found" };
+  if (e instanceof ForbiddenError) return { error: e.message || "You do not have permission to do that" };
+  if (e instanceof ConflictError) return { error: e.message };
+  if (e instanceof ProblemError) return { error: e.message };
+  if (e instanceof ZodError) {
+    return { error: `Invalid input: ${e.issues.map((i) => i.message).join("; ")}` };
   }
   return null;
 }

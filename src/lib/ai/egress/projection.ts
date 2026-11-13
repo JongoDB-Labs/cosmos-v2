@@ -71,6 +71,22 @@ const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // listOrgMembers returns `{userId, name, email, role}`. name/email are PII →
   // allowlist ONLY userId + role (FIX C).
   org_member: ["userId", "role"],
+  // listProjectMembers returns `{projectMemberId, userId, name, email, role, isBot,
+  // teamIds}`; add/remove_project_member return `{member: {id, projectId, userId,
+  // role}}`. name/email are PII and teamIds an array → dropped.
+  project_member: ["id", "projectMemberId", "projectId", "userId", "role", "isBot"],
+  // add/remove_team_member return `{membership: {id, teamId, projectId, userId}}`.
+  team_membership: ["id", "teamId", "projectId", "userId"],
+  // get_person returns `{person, projects[], teams[], openAssignments, assignments[]}`.
+  // Names, keys, emails, titles and the free-text `columnKey` are content/PII; ids,
+  // roles, flags and an assignment's number, priority, due date and sprint are
+  // structural, the same fields `work_item` keeps. The assignments are a TOP-level
+  // array so they are projected element by element: nested inside
+  // `openAssignments` they were dropped whole, and the model saw only a count.
+  person: [
+    "userId", "role", "projectId", "teamId", "isLead", "archived", "count", "total",
+    "id", "ticketNumber", "priority", "dueDate", "intervalId",
+  ],
   // queryComplianceControls returns `controlId, framework, title, status, notes,
   // dueDate` (+ `id` on update). `title`/`notes` are content → excluded.
   compliance_control: ["id", "framework", "controlId", "status", "dueDate"],
@@ -167,6 +183,30 @@ const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   work_item_transition: ["toCategory", "requiresInput"],
   // listBoards returns id/projectId/type/sortOrder(+name). `name`/`slug` are content/url-ish → dropped.
   board: ["id", "projectId", "type", "sortOrder", "createdAt"],
+  // Saved views (saved filters): list/create/update/share return id/visibility/
+  // projectId/teamId/ownerId/flags/updatedAt, flat. `name`/`description` are the
+  // owner's words, `ownerName`/`teamName`/`projectKey` are names and `url` embeds
+  // the org slug → all dropped. A create asked to share says so with the asked
+  // visibility (an enum) and the next tool's name (a constant).
+  saved_view: [
+    "id", "visibility", "projectId", "teamId", "ownerId", "mine", "canEdit", "canDelete",
+    "favorite", "partiallyRestricted", "updatedAt", "requestedVisibility", "nextStep",
+  ],
+  // Sprint ceremonies. get_ceremony nests a sprint, a board, its shipped work and
+  // the ceremony; each nested object is projected through this one list, so it
+  // names the structural scalars any of them carry. Note and action TEXT, board
+  // and sprint names, column names and item titles are content → dropped.
+  ceremony: [
+    "id", "kind", "status", "closedAt", "type", "teamId", "number", "startDate", "endDate",
+    "ticketNumber", "storyPoints", "noteCount", "actionCount", "showsNoteAuthors",
+  ],
+  // add/update/delete a retro note: `text` is the note, never kept; `authorId` is
+  // already withheld by the service unless the board shows authors. `columnKey`
+  // is dropped: a retro board's columns are named by its users, so the key is
+  // free text, as a work item's columnKey is.
+  ceremony_note: ["id", "authorId", "isMine", "createdAt"],
+  // add/update/delete a retro action item: `text` is content → dropped.
+  ceremony_action: ["id", "ownerId", "dueDate", "workItemId", "promotedWorkItemId", "createdAt"],
   // listDocuments returns id/projectId/uploadedById/contentType/format/status/size/pageCount/
   // classificationLevel(+title). `title`/`filename`/`storageKey` are content → dropped; the MIME
   // `contentType`, `format`, parse `status`, and `classificationLevel` are structural.
@@ -281,6 +321,10 @@ const NATIVE_TOOL_ENTITY: Record<string, string> = {
   query_intervals: "interval", list_intervals: "interval", create_interval: "interval",
   query_crm: "crm_contact",
   list_org_members: "org_member",
+  list_project_members: "project_member", add_project_member: "project_member",
+  remove_project_member: "project_member", get_person: "person",
+  add_team_member: "team_membership", remove_team_member: "team_membership",
+  bulk_update_work_items: "work_item",
   query_compliance_controls: "compliance_control", update_compliance_control: "compliance_control",
   semantic_search: "search_result",
   // Projects + intervals (writes reuse the existing project/interval structural entities).
@@ -310,7 +354,16 @@ const NATIVE_TOOL_ENTITY: Record<string, string> = {
   // Work-item dependency links.
   list_item_links: "work_item_link", link_items: "work_item_link", unlink_items: "work_item_link",
   // Boards + documents (read).
-  list_boards: "board", list_documents: "document",
+  list_boards: "board", get_board: "board", create_board: "board",
+  update_board: "board", set_board_columns: "board", delete_board: "board", list_documents: "document",
+  // Saved views + sprint ceremonies. Promoting an action item answers with the
+  // work item it filed.
+  list_saved_views: "saved_view", create_saved_view: "saved_view", update_saved_view: "saved_view",
+  share_saved_view: "saved_view", delete_saved_view: "saved_view",
+  get_ceremony: "ceremony", open_ceremony: "ceremony", close_ceremony: "ceremony",
+  add_ceremony_note: "ceremony_note", update_ceremony_note: "ceremony_note", delete_ceremony_note: "ceremony_note",
+  add_ceremony_action: "ceremony_action", update_ceremony_action: "ceremony_action",
+  delete_ceremony_action: "ceremony_action", promote_ceremony_action: "work_item",
   // CRM contact writes (reuse crm_contact) + partner/product reads.
   create_crm_contact: "crm_contact", update_crm_contact: "crm_contact",
   list_partners: "partner", list_products: "product",

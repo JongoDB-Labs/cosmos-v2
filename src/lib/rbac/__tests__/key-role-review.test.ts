@@ -31,7 +31,11 @@ vi.mock("@/lib/auth/api-key", async (orig) => ({
   ...(await orig<typeof import("@/lib/auth/api-key")>()),
   resolveAuth: async () => h.getAuthContext(),
 }));
-vi.mock("@/lib/rbac/require-project-read", () => ({ requireProjectRead: async () => undefined }));
+vi.mock("@/lib/rbac/require-project-read", () => ({
+  requireProjectRead: async () => undefined,
+  // The board writes check visibility in the board service now; visible here.
+  requireProjectVisible: async () => undefined,
+}));
 vi.mock("@/lib/rbac/project-access", async (orig) => ({
   ...(await orig<typeof import("@/lib/rbac/project-access")>()),
   isProjectVisible: async () => true,
@@ -51,7 +55,9 @@ vi.mock("@/lib/db/client", () => {
       },
       project: { findFirst: async () => ({ id: PROJECT, orgId: ORG }), update: write("project.update") },
       team: { findFirst: async () => null, create: write("team.create") },
-      board: { findFirst: async () => ({ id: BOARD, projectId: PROJECT, orgId: ORG }), update: write("board.update"), delete: write("board.delete") },
+      // Shared with the whole project (no team), so the service's team check
+      // admits everyone who passes the project gate.
+      board: { findFirst: async () => ({ id: BOARD, projectId: PROJECT, orgId: ORG, teamId: null }), update: write("board.update"), delete: write("board.delete") },
       chatChannel: {
         findUnique: async () => ({ id: "ch1", orgId: ORG, kind: "CHANNEL", isPrivate: false, isGeneral: false, archivedAt: null, name: "c" }),
         update: write("chatChannel.update"),
