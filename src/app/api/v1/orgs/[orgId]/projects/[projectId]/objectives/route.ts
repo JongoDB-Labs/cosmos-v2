@@ -5,7 +5,8 @@ import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-pr
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
 import { measureKeyResult, rollUpObjective } from "@/lib/okr/progress";
-import { objectiveHealth } from "@/lib/okr/health";
+import { isOverdue, objectiveHealth } from "@/lib/okr/health";
+import { dependenciesOf } from "@/lib/okr/dependencies.server";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
@@ -66,6 +67,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // rolls up from the measured KRs (or, with none, from its own links), and
     // health is derived from that progress vs. the objective's target date.
     // Cosmo, dashboards and goals read the same rule (lib/okr).
+    // What each objective needs first, limited to projects the reader can read OKRs in.
+    const dependsOn = await dependenciesOf(ctx, objectives.map((o) => o.id));
     const shaped = objectives.map((o) => {
       const measured = o.keyResults.map((kr) => {
         const linkedItems = kr.links.map((l) => l.workItem);
@@ -98,6 +101,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         linkedDone: roll.linkedDone,
         linkedItems,
         health: objectiveHealth(roll.progress, o.targetDate, o.status, o.createdAt),
+        overdue: isOverdue(roll.progress, o.targetDate, o.status),
+        dependsOn: dependsOn.get(o.id) ?? [],
       };
     });
 
@@ -153,6 +158,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         status: data.status,
         parentId: data.parentId ?? null,
         intervalId: data.intervalId ?? null,
+        targetDate: data.targetDate ? new Date(data.targetDate) : null,
         committed: data.committed,
         progress: 0,
         sortOrder,

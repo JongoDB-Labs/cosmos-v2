@@ -32,6 +32,9 @@ import {
 } from "./refs";
 import { entityUrl } from "./urls";
 import { parseTicketQuery } from "./ticket-query";
+import { ATTRIBUTE_BUDGET_MS, itemAttributeMatch, type AttributeMatch } from "./item-attributes.server";
+import { withStatementTimeout } from "@/lib/query/timeout.server";
+import type { Prisma } from "@prisma/client";
 
 import { FEEDBACK_SUBJECT } from "@/lib/feedback/subject";
 import { feedbackItemUrl } from "@/lib/feedback/urls";
@@ -112,6 +115,8 @@ export type EntityHit = {
   id: string;
   label: string;
   sublabel?: string;
+  /** Why it matched when its name doesn't say: "Label: Security". */
+  matched?: string;
   url: string | null;
 };
 
@@ -123,11 +128,17 @@ type Raw = {
   projectId?: string | null;
   projectKey?: string | null;
   sublabel?: string;
+  matched?: string;
 };
 type TypedRaw = Raw & { type: EntityType };
 
+type SearchOptions = {
+  /** Also match what a record carries, not just its name: a work item's labels and custom-field values (⌘K). */
+  attributes?: boolean;
+};
+
 type Handler = {
-  search(q: string, scope: SearchScope, take: number): Promise<Raw[]>;
+  search(q: string, scope: SearchScope, take: number, opts?: SearchOptions): Promise<Raw[]>;
   resolve(ids: string[], scope: SearchScope): Promise<Raw[]>;
 };
 
@@ -160,6 +171,15 @@ function makeHandler(cfg: {
   extraSelect?: Record<string, boolean>;
   /** A last per-row narrowing that a `where` cannot express (a board's team). */
   keep?: (rows: Record<string, unknown>[], scope: SearchScope) => Promise<Record<string, unknown>[]>;
+  /**
+   * More a row can match on when `attributes` is asked for; the match carries
+   * its own scope. `delegate` is this model's in a transaction, where the
+   * query runs under ATTRIBUTE_BUDGET_MS: an OR the title index can't serve.
+   */
+  attributes?: {
+    match: (q: string, scope: SearchScope) => Promise<AttributeMatch | null>;
+    delegate: (tx: Prisma.TransactionClient) => Delegate;
+  };
 }): Handler {
   const select: Record<string, boolean> = { id: true, [cfg.field]: true, ...cfg.extraSelect };
   if (cfg.hasCode) select.code = true;
@@ -187,20 +207,50 @@ function makeHandler(cfg: {
   });
 
   return {
-    async search(q, scope, take) {
+    async search(q, scope, take, opts) {
       // Entities with a ticket number are looked up BY that number at least as
       // often as by title — "TEST-123" is how people refer to them — but the
       // number was only ever selected for display, never searched.
       const ticket = cfg.hasTicket ? parseTicketQuery(q).ticketNumber : undefined;
       const text = ticket === undefined ? { [cfg.field]: ci(q) } : { OR: [{ [cfg.field]: ci(q) }, { ticketNumber: ticket }] };
 
-      const rows = await cfg.delegate.findMany({
-        where: { orgId: scope.orgId, AND: [text, ...(await bounds(scope))] },
-        select,
-        take,
-        orderBy: { [cfg.field]: "asc" },
-      });
-      return (await narrow(rows, scope)).map(toRaw);
+      // The name match, or the attribute match, inside the caller's bounds either way.
+      const inBounds = await bounds(scope);
+      const find = (db: Delegate, match: Record<string, unknown>) =>
+        db.findMany({ where: { orgId: scope.orgId, AND: [match, ...inBounds] }, select, take, orderBy: { [cfg.field]: "asc" } });
+
+      // Any failure in the attribute branch (building it, running out of time,
+      // describing it) costs the extra matches, never the name matches.
+      const attrs = opts?.attributes ? cfg.attributes : undefined;
+      let rows: Record<string, unknown>[] | null = null;
+      let also: AttributeMatch | null = null;
+      if (attrs) {
+        try {
+          also = await attrs.match(q, scope);
+          if (also) {
+            const where = also.where;
+            rows = await withStatementTimeout(ATTRIBUTE_BUDGET_MS, (tx) => find(attrs.delegate(tx), { OR: [text, where] }));
+          }
+        } catch (e) {
+          console.error("[search] attribute match failed or ran out of time; searching names only", e);
+          also = null;
+        }
+      }
+      rows ??= await find(cfg.delegate, text);
+
+      const raws = (await narrow(rows, scope)).map(toRaw);
+      if (also) {
+        try {
+          // Say why only where the name doesn't already show it.
+          const lower = q.toLowerCase();
+          const why = await also.describe(raws.filter((r) => !r.title.toLowerCase().includes(lower)).map((r) => r.id));
+          for (const r of raws) r.matched = why.get(r.id);
+        } catch (e) {
+          // eslint-disable-next-line no-restricted-syntax -- best-effort: the reason is a caption; the matches reach the user without it
+          console.error("[search] describing attribute matches failed; returning them without a reason", e);
+        }
+      }
+      return raws;
     },
     async resolve(ids, scope) {
       if (ids.length === 0) return [];
@@ -319,7 +369,16 @@ const HANDLERS: Record<EntityType, Handler> = {
       return rows.map((r) => ({ id: r.id, title: r.title }));
     },
   },
-  workItem: makeHandler({ delegate: d(prisma.workItem), field: "title", hasTicket: true, projectScoped: true, read: READS.workItem }),
+  workItem: makeHandler({
+    delegate: d(prisma.workItem),
+    field: "title",
+    hasTicket: true,
+    projectScoped: true,
+    read: READS.workItem,
+    // ⌘K also finds an item by its labels and custom-field values. The match is
+    // a CQL query inside CQL's own scope envelope, and `bounds` still applies.
+    attributes: { match: (q, scope) => itemAttributeMatch(scope.ctx, q), delegate: (tx) => d(tx.workItem) },
+  }),
   // The one meeting-read rule: MEETING_READ and any policy on it, per project
   // and for meetings under none, and the project's visibility.
   meeting: makeHandler({ delegate: d(prisma.syncMeeting), field: "title", where: (scope) => readableMeetingsWhere(scope.ctx) }),
@@ -392,6 +451,7 @@ async function finalize(hits: TypedRaw[], orgSlug: string): Promise<EntityHit[]>
       id: h.id,
       label,
       sublabel: h.sublabel,
+      ...(h.matched && { matched: h.matched }),
       url: entityUrl(h.type, { orgSlug, projectKey, id: h.id }),
     };
   });
@@ -404,6 +464,8 @@ export async function searchEntities(opts: {
   query: string;
   types?: EntityType[];
   perType?: number;
+  /** ⌘K: also match labels and custom-field values. The @ typeahead names things, so it leaves this off. */
+  attributes?: boolean;
 }): Promise<EntityHit[]> {
   const q = opts.query.trim();
   if (!q) return [];
@@ -416,7 +478,7 @@ export async function searchEntities(opts: {
     types.map(async (t): Promise<TypedRaw[]> => {
       if (!mayRead(t, scope)) return [];
       try {
-        const rows = await HANDLERS[t].search(q, scope, perType);
+        const rows = await HANDLERS[t].search(q, scope, perType, { attributes: opts.attributes });
         return rows.map((r) => ({ ...r, type: t }));
       } catch {
         return [];

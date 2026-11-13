@@ -41,9 +41,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       query: q,
       types: PALETTE_TYPES,
       perType: PER_TYPE,
+      // A work item is found by its labels and custom-field values too, inside
+      // the same scope as its title (lib/mentions/item-attributes.server.ts).
+      attributes: true,
     });
 
-    // Flatten to the shape the command palette consumes: { id, type, name, url }.
+    // Flatten to the shape the command palette consumes: { id, type, name, url },
+    // plus `description` saying what matched when the name doesn't show it.
     // People have no profile page (`entityUrl` → null) but are still a useful
     // search target, so fall back to the org's Team roster. Any other hit with
     // no deep-link (e.g. its owning project was deleted) is unnavigable → drop.
@@ -52,6 +56,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         id: h.id,
         type: h.type,
         name: h.label,
+        ...(h.matched && { description: h.matched }),
         url: h.url ?? (h.type === "user" ? `/${org.slug}/team` : null),
       }))
       .filter((r): r is typeof r & { url: string } => r.url != null);

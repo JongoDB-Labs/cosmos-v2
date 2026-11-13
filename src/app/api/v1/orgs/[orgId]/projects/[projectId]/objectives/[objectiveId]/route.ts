@@ -95,7 +95,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       let cur = parent.parentId;
       for (let guard = 0; cur && guard < 100; guard++) {
         if (cur === objectiveId) {
-          return problem(400, "invalid_request", "That alignment would create an interval", { request });
+          return problem(400, "invalid_request", "That alignment would create a loop", { request });
         }
         const next = await prisma.objective.findUnique({
           where: { id: cur },

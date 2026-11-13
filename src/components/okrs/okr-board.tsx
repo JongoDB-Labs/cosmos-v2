@@ -23,10 +23,21 @@ import { OkrObjectivesView } from "./okr-objectives-view";
 import { OkrHealthView } from "./okr-health-view";
 import { OkrAlignmentView } from "./okr-alignment-view";
 import { ObjectiveLinksDialog } from "./objective-links-dialog";
+import { ObjectiveDependenciesDialog } from "./objective-dependencies-dialog";
+import { dateOnlyKey } from "@/lib/time/date-only";
 import { notifyError } from "@/lib/errors/notify";
 import { BoardToolbar } from "@/components/boards/shared/board-toolbar";
 import { cn } from "@/lib/utils";
 import type { Objective, KeyResult } from "@/types/models";
+
+/**
+ * A due DAY from a date input (`YYYY-MM-DD`) as the instant the API stores:
+ * UTC midnight, the same convention as every other date-only value here, so
+ * the card (formatted in UTC) shows the day that was picked. Empty clears it.
+ */
+function dueInstant(day: string): string | null {
+  return day ? `${day}T00:00:00.000Z` : null;
+}
 
 interface OkrBoardProps {
   orgId: string;
@@ -45,6 +56,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
   const [newTitle, setNewTitle] = useState("");
   const [newCommitted, setNewCommitted] = useState(true);
   const [newIntervalId, setNewIntervalId] = useState("");
+  const [newTargetDate, setNewTargetDate] = useState("");
   const [adding, setAdding] = useState(false);
 
   const [editObjective, setEditObjective] = useState<Objective | null>(null);
@@ -57,12 +69,17 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
   // product could write them.
   const [editCommitted, setEditCommitted] = useState(true);
   const [editIntervalId, setEditIntervalId] = useState("");
+  // The due day. The column, the API and Cosmo could set it; nothing here could.
+  const [editTargetDate, setEditTargetDate] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Objective | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [view, setView] = useState<"objectives" | "health" | "alignment">("objectives");
   // #52 — the objective whose work-item links are being edited.
   const [linkTarget, setLinkTarget] = useState<Objective | null>(null);
+  // The objective whose dependencies are being edited, by id so the dialog
+  // reads the refreshed row after each change.
+  const [dependencyTargetId, setDependencyTargetId] = useState<string | null>(null);
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
@@ -131,6 +148,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
           status: "ACTIVE",
           committed: newCommitted,
           ...(newIntervalId ? { intervalId: newIntervalId } : {}),
+          ...(newTargetDate ? { targetDate: dueInstant(newTargetDate) } : {}),
         }),
       });
 
@@ -138,7 +156,10 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
 
       const created: Objective = await res.json();
       setObjectives((prev) => [...prev, created]);
+      // Health and overdue are the server's; fetch them for the new row.
+      reload();
       setNewTitle("");
+      setNewTargetDate("");
       setShowAddForm(false);
     } catch (err) {
       console.error("Failed to create objective:", err);
@@ -231,6 +252,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
     setEditParentId(objective.parentId ?? "");
     setEditCommitted(objective.committed ?? true);
     setEditIntervalId(objective.intervalId ?? "");
+    setEditTargetDate(objective.targetDate ? dateOnlyKey(objective.targetDate) : "");
   }
 
   async function handleSaveEdit() {
@@ -248,6 +270,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
           parentId: editParentId || null,
           committed: editCommitted,
           intervalId: editIntervalId || null,
+          targetDate: dueInstant(editTargetDate),
         }),
       });
 
@@ -259,6 +282,9 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
           o.id === updated.id ? { ...o, ...updated } : o
         )
       );
+      // The PUT answers with the stored row; live progress, health and
+      // overdue come from the list, so refetch rather than show stale ones.
+      reload();
       setEditObjective(null);
     } catch (err) {
       console.error("Failed to update objective:", err);
@@ -326,7 +352,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
               className={cn(
                 "rounded-md px-3 py-1 text-sm transition-colors",
                 view === key
-                  ? "bg-[var(--primary)] text-white"
+                  ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
                   : "text-[var(--text-muted)] hover:text-[var(--text)]",
               )}
             >
@@ -373,6 +399,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
             setDeleteTarget(objectives.find((o) => o.id === id) ?? null)
           }
           onLinkItems={(o: Objective) => setLinkTarget(o)}
+          onEditDependencies={(o: Objective) => setDependencyTargetId(o.id)}
           onCheckedIn={reload}
           onReorder={handleReorderObjectives}
         />
@@ -410,6 +437,16 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
         {/* The two fields the schema gained in 2.247.0. Optional: an objective
             with neither is an ordinary, committed, untimeboxed one. */}
         <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs">
+            Due
+            <input
+              type="date"
+              aria-label="Due date"
+              value={newTargetDate}
+              onChange={(e) => setNewTargetDate(e.target.value)}
+              className="h-8 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 text-xs text-[var(--text)]"
+            />
+          </label>
           <select
             aria-label="Interval"
             value={newIntervalId}
@@ -460,7 +497,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
           <DialogHeader>
             <DialogTitle>Edit objective</DialogTitle>
             <DialogDescription>
-              Update the title, description, and period for this objective.
+              Update the title, description, due date and period for this objective.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -492,6 +529,18 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
                 value={editPeriod}
                 onChange={(e) => setEditPeriod(e.target.value)}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="objective-target-date">Due date</Label>
+              <Input
+                id="objective-target-date"
+                type="date"
+                value={editTargetDate}
+                onChange={(e) => setEditTargetDate(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Shown as overdue once this day has passed and it isn&apos;t done.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="objective-parent">Aligns to (parent objective)</Label>
@@ -567,6 +616,19 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
           open
           onOpenChange={(o) => {
             if (!o) setLinkTarget(null);
+          }}
+          onChanged={reload}
+        />
+      )}
+
+      {dependencyTargetId && objectives.some((o) => o.id === dependencyTargetId) && (
+        <ObjectiveDependenciesDialog
+          orgId={orgId}
+          projectId={projectId}
+          objective={objectives.find((o) => o.id === dependencyTargetId)!}
+          projectObjectives={objectives}
+          onOpenChange={(o) => {
+            if (!o) setDependencyTargetId(null);
           }}
           onChanged={reload}
         />

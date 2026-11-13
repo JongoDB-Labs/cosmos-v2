@@ -3024,6 +3024,16 @@
               "no_date"
             ],
             "description": "Progress against the time elapsed toward `targetDate`."
+          },
+          "overdue": {
+            "type": "boolean",
+            "description": "Past the end of its target day, and neither completed nor cancelled."
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectiveDependsOn"
+            }
           }
         },
         "required": [
@@ -3048,9 +3058,70 @@
           "linkedTotal",
           "linkedDone",
           "linkedItems",
-          "health"
+          "health",
+          "overdue",
+          "dependsOn"
         ],
         "description": "A key result with linked work items counts done items as its current value, and the linked items as its target unless one was set; the objective rolls up from its key results (or, with none, from its own linked items)."
+      },
+      "ObjectiveDependsOn": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "projectId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "ACTIVE",
+              "COMPLETED",
+              "CANCELLED"
+            ]
+          },
+          "targetDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "progress": {
+            "type": "integer",
+            "description": "0–100."
+          },
+          "health": {
+            "type": "string",
+            "enum": [
+              "done",
+              "on_track",
+              "at_risk",
+              "behind",
+              "no_date"
+            ]
+          },
+          "overdue": {
+            "type": "boolean",
+            "description": "Past the end of its target day, and neither completed nor cancelled."
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "projectId",
+          "status",
+          "targetDate",
+          "progress",
+          "health",
+          "overdue"
+        ],
+        "description": "An objective this one depends on. Only those in projects the caller can read OKRs in are listed."
       },
       "ReorderResult": {
         "type": "object",
@@ -3170,6 +3241,39 @@
           "createdAt",
           "updatedAt",
           "keyResults"
+        ]
+      },
+      "ObjectiveDependency": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "orgId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "objectiveId": {
+            "type": "string",
+            "format": "uuid",
+            "example": "0b8f6c1e-6a52-4bd0-9b0e-3a4c2f6d1e7a",
+            "description": "The objective that waits."
+          },
+          "dependsOnId": {
+            "type": "string",
+            "format": "uuid",
+            "example": "0b8f6c1e-6a52-4bd0-9b0e-3a4c2f6d1e7a",
+            "description": "The objective it needs first."
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "objectiveId",
+          "dependsOnId",
+          "createdAt"
         ]
       },
       "Status": {
@@ -13519,7 +13623,7 @@
       "get": {
         "operationId": "listObjectives",
         "summary": "List objectives",
-        "description": "The project's objectives in their manual order, with key results, progress and health.",
+        "description": "The project's objectives in their manual order, with key results, progress, health, whether each is overdue, and what each depends on.",
         "tags": [
           "OKRs"
         ],
@@ -13912,6 +14016,13 @@
                   "committed": {
                     "type": "boolean",
                     "default": true
+                  },
+                  "targetDate": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
                   }
                 },
                 "required": [
@@ -14430,6 +14541,320 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Objective"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/projects/{projectId}/objectives/{objectiveId}/dependencies": {
+      "post": {
+        "operationId": "addObjectiveDependency",
+        "summary": "Add a dependency to an objective",
+        "description": "Records that this objective needs `dependsOnId` first. The other objective may be in another project you can read OKRs in, never another organization's. Refused if it would make a loop. Adding one that exists returns it.",
+        "tags": [
+          "OKRs"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "beta",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "objectiveId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "dependsOnId": {
+                    "$ref": "#/components/schemas/Uuid"
+                  }
+                },
+                "required": [
+                  "dependsOnId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Add a dependency to an objective",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectiveDependency"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed or fails validation (`invalid_request`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential (`unauthorized`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credential lacks a scope or the user lacks a permission (`forbidden`, `insufficient_scope`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to this caller (`not_found`).",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/projects/{projectId}/objectives/{objectiveId}/dependencies/{dependsOnId}": {
+      "delete": {
+        "operationId": "removeObjectiveDependency",
+        "summary": "Remove a dependency from an objective",
+        "description": "Answers with the id of the objective it no longer depends on; 404 if it didn't depend on it.",
+        "tags": [
+          "OKRs"
+        ],
+        "security": [
+          {
+            "bearerPat": [
+              "items:write"
+            ]
+          },
+          {
+            "bearerPat": [
+              "documents:write"
+            ]
+          }
+        ],
+        "x-cosmos-scopes": [
+          "items:write"
+        ],
+        "x-cosmos-stability": "beta",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "projectId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "objectiveId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "required": true,
+            "name": "dependsOnId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Remove a dependency from an objective",
+            "headers": {
+              "X-Request-Id": {
+                "description": "This request's id. Echoed when you send one; quote it to support.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedRef"
                 }
               }
             }

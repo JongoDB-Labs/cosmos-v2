@@ -40,6 +40,8 @@ import { PRIORITY_ORDER, type SystemFieldId } from "./fields";
 import { applyRel, dayOf, durationSeconds, endOf, literalRange, periodOffset, startOf, workingDaysFrom, type Period } from "./dates";
 import { HISTORY_BY_FIELD, fnKey, varKey, type CompileEnv, type SqlSortKey, type StatusCategory } from "./env";
 import { HISTORY, historyKey, isHistoryColumn, type HistoryField, type HistorySpec, type HistoryValueSet } from "./history";
+// Shared with ⌘K's label lookup, which may not import the compiler (query.arch.test.ts).
+import { likeText } from "./like";
 import type { CustomFieldType } from "./typecheck";
 
 type Where = Prisma.WorkItemWhereInput;
@@ -253,14 +255,6 @@ interface FieldCompiler {
   text?(q: string): Where;
 }
 
-/**
- * The text of a `~` search as a LIKE operand. Prisma's contains/startsWith do
- * NOT escape LIKE wildcards: unescaped, `summary ~ "%"` matched every item and
- * `_` matched any character. Postgres' default LIKE escape is backslash.
- */
-export function likeText(q: string): string {
-  return q.replace(/\*$/, "").replace(/[\\%_]/g, (c) => `\\${c}`);
-}
 
 /**
  * The actor's readable comment scope, for a field that reads comment text

@@ -560,7 +560,13 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
                       onSelect={() => handleSelect(result)}
                     >
                       {typeIcons[result.type]}
-                      <span className="flex-1 truncate">{result.name}</span>
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate">{result.name}</span>
+                        {/* Why it matched when the name doesn't show it: "Label: Security". */}
+                        {result.description && (
+                          <span className="truncate text-xs text-muted-foreground">{result.description}</span>
+                        )}
+                      </span>
                       <Badge variant="neutral" className="ml-2 text-[10px]">
                         {typeLabels[result.type]}
                       </Badge>
