@@ -187,6 +187,14 @@ describe("bulk_update_work_items holds the bulk route's gate", () => {
     expect(rows.get(ok)).toBe("doing");
   });
 
+  it("reports rows in the order the ids were given, once each, whatever order the database returns them in", async () => {
+    // Six rows passed in descending id order: neither the id index nor the
+    // insertion order is likely to match it, so a result in database order fails.
+    const ids = (await Promise.all(Array.from({ length: 6 }, (_, i) => item(managed, `order ${i}`)))).sort().reverse();
+    const out = await bulk({ ids: [...ids, ids[0]], priority: "LOW" }, blind);
+    expect(out.skipped?.map((s) => s.id)).toEqual(ids);
+  });
+
   it("a row the caller may not read is not found, is not changed, and its key is never echoed", async () => {
     const keyOf = async (id: string) => {
       const r = await prisma.workItem.findUniqueOrThrow({ where: { id }, select: { ticketNumber: true, project: { select: { key: true } } } });

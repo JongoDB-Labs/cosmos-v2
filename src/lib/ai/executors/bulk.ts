@@ -67,19 +67,24 @@ function invalid(error: z.ZodError): { error: string } {
   return { error: `Invalid input: ${error.issues.map((i) => i.message).join("; ")}` };
 }
 
-/** The rows ids name, in this org. Ids that name nothing are reported, not guessed at. */
+/** The rows ids name, in this org, in the order the ids were given and once
+ *  each (the database returns them in its own order). Ids that name nothing
+ *  are reported, not guessed at. */
 async function rowsByIds(orgId: string, ids: string[]): Promise<{ rows: Row[]; missing: string[] }> {
+  const unique = [...new Set(ids)];
   const found = await prisma.workItem.findMany({
-    where: { id: { in: ids }, orgId },
+    where: { id: { in: unique }, orgId },
     select: { id: true, projectId: true, ticketNumber: true, createdById: true, assigneeId: true, tags: true, project: { select: { key: true } } },
   });
   const byId = new Map(found.map((r) => [r.id, r]));
   return {
-    rows: found.map((r) => ({
-      id: r.id, projectId: r.projectId, ticketKey: `${r.project.key}-${r.ticketNumber}`,
-      createdById: r.createdById, assigneeId: r.assigneeId, tags: r.tags,
-    })),
-    missing: ids.filter((id) => !byId.has(id)),
+    rows: unique.flatMap((id) => {
+      const r = byId.get(id);
+      return r
+        ? [{ id: r.id, projectId: r.projectId, ticketKey: `${r.project.key}-${r.ticketNumber}`, createdById: r.createdById, assigneeId: r.assigneeId, tags: r.tags }]
+        : [];
+    }),
+    missing: unique.filter((id) => !byId.has(id)),
   };
 }
 
