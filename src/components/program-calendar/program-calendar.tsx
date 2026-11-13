@@ -78,13 +78,17 @@ const ymd = (d: Date) => d.toISOString().slice(0, 10);
 export function ProgramCalendar({
   orgId,
   projectId,
+  includeOrgEvents = false,
   canCreate,
   owners,
   deliverables,
   overlays,
 }: {
   orgId: string;
+  /** Show this project's events, and file a new event under it. */
   projectId?: string;
+  /** With `projectId`, also show the org-level events (those with no project). */
+  includeOrgEvents?: boolean;
   canCreate: boolean;
   owners: { key: string; label: string }[];
   deliverables: { id: string; name: string }[];
@@ -120,11 +124,12 @@ export function ProgramCalendar({
     if (selectedCategories.length) p.set("categoryIds", selectedCategories.join(","));
     if (selectedOwners.length) p.set("ownerKeys", selectedOwners.join(","));
     if (projectId) p.set("projectId", projectId);
+    if (projectId && includeOrgEvents) p.set("includeOrgEvents", "true");
     if (filters.showOnDashboardOnly) p.set("showOnDashboardOnly", "true");
     if (filters.customerAttending) p.set("customerAttending", "true");
     if (filters.hasDeliverable) p.set("hasDeliverable", "true");
     return p.toString();
-  }, [window, selectedCategories, selectedOwners, filters, projectId]);
+  }, [window, selectedCategories, selectedOwners, filters, projectId, includeOrgEvents]);
 
   // Through useOrgQueryKey so switching org serves a different cache namespace.
   const eventsKey = useOrgQueryKey("program-events", params);
@@ -259,7 +264,10 @@ export function ProgramCalendar({
 
   const save = useOrgMutation({
     mutationFn: async (d: EventDraft) => {
-      const body = draftToBody(d);
+      // A NEW event goes under the picked project, so it stays in the view it
+      // was made in. An edit leaves the event's project as it is: with org
+      // events shown, an org-level event edited here must not move.
+      const body = draftToBody(d, d.id ? undefined : projectId);
       const url = d.id
         ? `/api/v1/orgs/${orgId}/program-events/${d.id}`
         : `/api/v1/orgs/${orgId}/program-events`;
@@ -431,8 +439,9 @@ export function ProgramCalendar({
 }
 
 /** Form values to the API body. The single place a date STRING becomes an
- *  instant, so the all-day rule is applied once. */
-export function draftToBody(d: EventDraft) {
+ *  instant, so the all-day rule is applied once. `projectId` is sent only when
+ *  given; leaving it out of an edit keeps the event's project unchanged. */
+export function draftToBody(d: EventDraft, projectId?: string) {
   const startsAt = d.allDay
     ? `${d.startDate}T00:00:00.000Z`
     : new Date(`${d.startDate}T${d.startTime}:00`).toISOString();
@@ -455,5 +464,6 @@ export function draftToBody(d: EventDraft) {
     customerAttending: d.customerAttending,
     description: d.description,
     showOnDashboard: d.showOnDashboard,
+    ...(projectId ? { projectId } : {}),
   };
 }

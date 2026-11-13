@@ -55,7 +55,7 @@ const RELEASES: Release[] = [
     highlights: [
       {
         kind: "feature",
-        text: "Program Management has a Calendar view beside the overview. It shows program events from every project you can see, and follows the page's project picker. The Categories, Owners and Filters menus work as they do on a project's calendar.",
+        text: "Program Management has a Calendar view beside the overview. It shows program events from every project you can see, and follows the page's project picker. With a project picked, you see that project's events and the ones for the whole organization, and a new event is filed under that project. The Categories, Owners and Filters menus work as they do on a project's calendar.",
       },
       {
         kind: "feature",

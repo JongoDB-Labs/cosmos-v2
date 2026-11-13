@@ -94,7 +94,10 @@ export function EventChip({
 
   const Icon = kind ? KIND_ICON[kind] : null;
   const classes = cn(
-    "pc-chip my-[2px] flex min-w-0 items-center gap-1 px-1.5 text-[11px] font-semibold leading-none",
+    // `relative` holds the sr-only kind label (absolutely positioned) inside
+    // the chip. Without it the label is placed against the page and, from a
+    // chip near the right edge, widened the whole document on a phone.
+    "pc-chip relative my-[2px] flex min-w-0 items-center gap-1 px-1.5 text-[11px] font-semibold leading-none",
     "hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
     // A bar that runs past the edge of the week loses its rounding on that
     // side, so the eye reads it as continuing rather than ending here.

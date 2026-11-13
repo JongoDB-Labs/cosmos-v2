@@ -147,6 +147,7 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
         tourAnchor="program-management"
         title="Program Management"
         maxWidth={pageWidth(true)}
+        wrapActions
         actions={<ProgramViews orgSlug={orgSlug} view="overview" projectKey={null} />}
       >
         <EmbeddedDashboard src={embed.href} signInSrc={programManagementSignInUrl()?.href ?? embed.href} />
@@ -242,6 +243,7 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
           ? `${selected.name} — schedule, risk and delivery`
           : `Every project in ${org.name} you can see — schedule, risk and delivery`
       }
+      wrapActions
       actions={
         <>
           <ProgramViews orgSlug={orgSlug} view="overview" projectKey={selectedKey} />
@@ -428,6 +430,7 @@ async function programCalendarView(ctx: AuthContext, orgSlug: string, requestedK
           ? `${selected.name} — program calendar`
           : `Program calendar for every project in ${org.name} you can see`
       }
+      wrapActions
       actions={
         <>
           <ProgramViews orgSlug={orgSlug} view="calendar" projectKey={selectedKey} />
@@ -438,6 +441,7 @@ async function programCalendarView(ctx: AuthContext, orgSlug: string, requestedK
       <ProgramCalendar
         orgId={ctx.orgId}
         projectId={selected?.id}
+        includeOrgEvents
         canCreate={hasPermission(ctx.permissions, Permission.BOARD_UPDATE)}
         owners={owners}
         deliverables={deliverables.map((d) => ({ id: d.id, name: d.title }))}

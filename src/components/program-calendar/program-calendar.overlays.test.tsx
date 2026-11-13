@@ -54,11 +54,22 @@ function overlays(storageKey = "cosmos:pm-calendar-overlays:o1:u1"): CalendarOve
   };
 }
 
-function mount(o?: CalendarOverlays) {
+function mount(
+  o?: CalendarOverlays,
+  extra: { projectId?: string; includeOrgEvents?: boolean; canCreate?: boolean } = {},
+) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <ProgramCalendar orgId="o1" canCreate={false} owners={[]} deliverables={[]} overlays={o} />
+      <ProgramCalendar
+        orgId="o1"
+        canCreate={extra.canCreate ?? false}
+        owners={[]}
+        deliverables={[]}
+        overlays={o}
+        projectId={extra.projectId}
+        includeOrgEvents={extra.includeOrgEvents}
+      />
     </QueryClientProvider>,
   );
 }
@@ -78,6 +89,8 @@ beforeEach(() => {
     if (u.includes("/program-events?")) return eventsResponse() as never;
     if (u.includes("/event-categories?")) return [{ ...CATEGORY, count: 1 }] as never;
     if (u.includes("/program-calendar/agile?")) return (await agileResponse()) as never;
+    // Saving an event: POST to the list, PATCH to one event.
+    if (/\/program-events(\/[^/?]+)?$/.test(u)) return {} as never;
     throw new Error(`unexpected fetch ${u}`);
   });
 });
@@ -269,5 +282,62 @@ describe("an overlay that cannot load says so", () => {
     await screen.findByText("Sprint 4");
     expect(screen.queryByText(/Only the first/)).toBeNull();
     expect(screen.queryByText(/could not be loaded/)).toBeNull();
+  });
+});
+
+describe("a picked project", () => {
+  const PROJECT = "22222222-2222-4222-8222-222222222222";
+  const eventsUrl = () =>
+    new URL(String(vi.mocked(jsonFetch).mock.calls.find(([u]) => String(u).includes("/program-events?"))![0]), "http://x");
+  const saved = (method: string) => {
+    const call = vi.mocked(jsonFetch).mock.calls.find(([, init]) => init?.method === method);
+    return call ? { url: String(call[0]), body: JSON.parse(String(call[1]!.body)) as Record<string, unknown> } : null;
+  };
+
+  it("asks for that project's events AND the org-level ones", async () => {
+    mount(overlays(), { projectId: PROJECT, includeOrgEvents: true });
+    await screen.findByText("Program review");
+    expect(eventsUrl().searchParams.get("projectId")).toBe(PROJECT);
+    expect(eventsUrl().searchParams.get("includeOrgEvents")).toBe("true");
+  });
+
+  it("control: a caller that does not ask for org events does not send the flag", async () => {
+    mount(undefined, { projectId: PROJECT });
+    await screen.findByText("Program review");
+    expect(eventsUrl().searchParams.get("projectId")).toBe(PROJECT);
+    expect(eventsUrl().searchParams.has("includeOrgEvents")).toBe(false);
+  });
+
+  it("a new event is filed under the picked project, so it stays in the view it was made in", async () => {
+    const user = userEvent.setup();
+    mount(overlays(), { projectId: PROJECT, includeOrgEvents: true, canCreate: true });
+    await screen.findByText("Program review");
+    await user.click(screen.getByRole("button", { name: "New event" }));
+    await user.type(await screen.findByLabelText("Event title"), "Planning call");
+    await user.click(screen.getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(saved("POST")).not.toBeNull());
+    expect(saved("POST")!.url).toBe("/api/v1/orgs/o1/program-events");
+    expect(saved("POST")!.body).toMatchObject({ title: "Planning call", projectId: PROJECT });
+  });
+
+  it("control: with no project picked, a new event is org-level", async () => {
+    const user = userEvent.setup();
+    mount(overlays(), { canCreate: true });
+    await screen.findByText("Program review");
+    await user.click(screen.getByRole("button", { name: "New event" }));
+    await user.type(await screen.findByLabelText("Event title"), "Planning call");
+    await user.click(screen.getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(saved("POST")).not.toBeNull());
+    expect(saved("POST")!.body).not.toHaveProperty("projectId");
+  });
+
+  it("editing an org-level event shown under a project leaves it org-level", async () => {
+    const user = userEvent.setup();
+    mount(overlays(), { projectId: PROJECT, includeOrgEvents: true, canCreate: true });
+    await user.click(await screen.findByText("Program review"));
+    await user.click(await screen.findByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(saved("PATCH")).not.toBeNull());
+    expect(saved("PATCH")!.url).toBe("/api/v1/orgs/o1/program-events/e1");
+    expect(saved("PATCH")!.body).not.toHaveProperty("projectId");
   });
 });

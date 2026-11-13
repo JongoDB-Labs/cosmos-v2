@@ -30,7 +30,17 @@ export interface EventFilters {
   showOnDashboardOnly?: boolean;
   customerAttending?: boolean;
   hasDeliverable?: boolean;
+  /** Only this project's events. */
   projectId?: string;
+  /**
+   * With `projectId`: that project's events AND the org-level ones (no
+   * project), which belong to every project. The program calendar sends it when
+   * a project is picked, because a program review filed for the whole org is
+   * still on that project's calendar. Off by default, so `projectId` alone
+   * keeps meaning "only this project" for every existing caller. Ignored
+   * without `projectId`, where org-level events are already included.
+   */
+  includeOrgEvents?: boolean;
 }
 
 export const eventSelect = {
@@ -93,11 +103,14 @@ async function scopeWhere(
   const and: Prisma.ProgramEventWhereInput[] = [];
   if (visible.OR) and.push(visible);
   if (owner) and.push(owner);
+  // Inside the same AND as the visibility rule, never beside it: this is an OR
+  // too, and an OR spread next to another would replace it.
+  if (f.projectId && f.includeOrgEvents) and.push({ OR: [{ projectId: f.projectId }, { projectId: null }] });
   return {
     orgId: ctx.orgId,
     ...(and.length ? { AND: and } : {}),
     ...(f.categoryIds?.length ? { categoryId: { in: f.categoryIds } } : {}),
-    ...(f.projectId ? { projectId: f.projectId } : {}),
+    ...(f.projectId && !f.includeOrgEvents ? { projectId: f.projectId } : {}),
     ...(f.showOnDashboardOnly ? { showOnDashboard: true } : {}),
     ...(f.customerAttending ? { customerAttending: true } : {}),
     ...(f.hasDeliverable ? { deliverableId: { not: null } } : {}),

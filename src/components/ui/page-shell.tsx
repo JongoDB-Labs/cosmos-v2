@@ -23,6 +23,13 @@ export interface PageShellProps {
    * the point of having one.
    */
   tourAnchor?: string;
+  /**
+   * Lets wide `actions` drop below the title when both do not fit on one line,
+   * and wrap among themselves. Without it the actions never shrink, so on a
+   * phone a wide set squeezes the title to nothing. Opt-in: a page whose
+   * actions are a button or two keeps the layout it has always had.
+   */
+  wrapActions?: boolean;
 }
 
 const MAX_W = {
@@ -50,11 +57,14 @@ export function PageShell({
   maxWidth = "7xl",
   className,
   tourAnchor,
+  wrapActions = false,
 }: PageShellProps) {
   return (
     <div className={pageShellBoxClassName(maxWidth, className)}>
-      <div className="mb-5 flex items-start justify-between gap-4 md:mb-8">
-        <div className="min-w-0">
+      <div className={cn("mb-5 flex items-start justify-between gap-4 md:mb-8", wrapActions && "flex-wrap gap-y-3")}>
+        {/* With wrapActions the title claims at least 16rem of the line; when
+            the actions do not fit beside that, they move to the next line. */}
+        <div className={cn("min-w-0", wrapActions && "flex-1 basis-64")}>
           <h1 className="text-2xl font-semibold tracking-tight text-[var(--text)]">
             {title}
           </h1>
@@ -62,7 +72,11 @@ export function PageShell({
             <p className="mt-1 text-sm text-[var(--text-muted)]">{description}</p>
           )}
         </div>
-        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+        {actions && (
+          <div className={cn("flex items-center gap-2", wrapActions ? "min-w-0 flex-wrap" : "shrink-0")}>
+            {actions}
+          </div>
+        )}
       </div>
       {tourAnchor ? <div data-tour={tourAnchor}>{children}</div> : children}
     </div>
