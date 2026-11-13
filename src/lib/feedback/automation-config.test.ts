@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { pruneToProjects, readAutomationConfig, validateEnableGate, type AutomationConfig } from "./automation-config";
+import {
+  automationAuditDelta,
+  automationWidening,
+  pruneToProjects,
+  readAutomationConfig,
+  validateEnableGate,
+  widensAutomation,
+  type AutomationConfig,
+} from "./automation-config";
 
 /**
  * automation-config is the single place that turns an org's untrusted
@@ -261,5 +269,152 @@ describe("pruneToProjects", () => {
     const pruned = pruneToProjects(cfg, new Set(["a"]));
     expect(pruned.autoRemediation).toEqual({ enabled: true, projectIds: ["a"], defaultProjectId: "a" });
     expect(pruned.autonomousDelivery).toEqual({ enabled: true, projectIds: ["a"], notify: { parked: true, shipped: true }, workers: 2 });
+  });
+});
+
+describe("widensAutomation — what needs the instance operator", () => {
+  const cfg = (
+    triage: { enabled: boolean; projectIds: string[] },
+    delivery: { enabled: boolean; projectIds: string[]; notify?: { parked: boolean; shipped: boolean }; workers?: number },
+  ): AutomationConfig => ({
+    autoRemediation: { ...triage, defaultProjectId: triage.projectIds[0] ?? null },
+    autonomousDelivery: { notify: { parked: true, shipped: true }, workers: 2, ...delivery },
+  });
+  const off = cfg({ enabled: false, projectIds: [] }, { enabled: false, projectIds: [] });
+
+  it("turning either automation on widens", () => {
+    expect(widensAutomation(off, cfg({ enabled: true, projectIds: [] }, { enabled: false, projectIds: [] }))).toBe(true);
+    expect(widensAutomation(off, cfg({ enabled: false, projectIds: [] }, { enabled: true, projectIds: [] }))).toBe(true);
+  });
+
+  it("adding a project to either list widens, whether or not that automation is on", () => {
+    const on = cfg({ enabled: true, projectIds: ["a"] }, { enabled: true, projectIds: ["a"] });
+    expect(widensAutomation(on, cfg({ enabled: true, projectIds: ["a", "b"] }, { enabled: true, projectIds: ["a"] }))).toBe(true);
+    expect(widensAutomation(on, cfg({ enabled: true, projectIds: ["a"] }, { enabled: true, projectIds: ["a", "b"] }))).toBe(true);
+    expect(widensAutomation(off, cfg({ enabled: false, projectIds: [] }, { enabled: false, projectIds: ["a"] }))).toBe(true);
+  });
+
+  it("swapping one project for another widens: the count is unchanged but a new project joins", () => {
+    const on = cfg({ enabled: false, projectIds: [] }, { enabled: true, projectIds: ["a", "b"] });
+    expect(widensAutomation(on, cfg({ enabled: false, projectIds: [] }, { enabled: true, projectIds: ["a", "c"] }))).toBe(true);
+  });
+
+  it("turning off, removing projects, notify changes and fewer workers never widen", () => {
+    const on = cfg({ enabled: true, projectIds: ["a", "b"] }, { enabled: true, projectIds: ["a", "b"] });
+    expect(widensAutomation(on, on)).toBe(false);
+    expect(widensAutomation(on, off)).toBe(false);
+    expect(widensAutomation(on, cfg({ enabled: true, projectIds: ["b"] }, { enabled: true, projectIds: ["a"] }))).toBe(false);
+    expect(
+      widensAutomation(
+        on,
+        cfg({ enabled: true, projectIds: ["b", "a"] }, { enabled: true, projectIds: ["a", "b"], notify: { parked: false, shipped: false }, workers: 1 }),
+      ),
+    ).toBe(false);
+  });
+
+  it("raising parallel build workers widens, on or off: the shared pool runs the highest count any enabled org asks for", () => {
+    const at = (workers: number, enabled = true) => cfg({ enabled: false, projectIds: [] }, { enabled, projectIds: ["a"], workers });
+    expect(widensAutomation(at(2), at(3))).toBe(true);
+    expect(widensAutomation(at(1), at(2))).toBe(true);
+    expect(widensAutomation(at(1, false), at(3, false))).toBe(true);
+    expect(widensAutomation(at(3), at(2))).toBe(false);
+    expect(widensAutomation(at(2), at(2))).toBe(false);
+  });
+
+  it("a legacy config with no stored worker count reads as the default 2, so asking for 3 widens and 2 does not", () => {
+    const stored = readAutomationConfig({ autonomousDelivery: { enabled: true, projectIds: ["a"] } });
+    expect(widensAutomation(stored, cfg({ enabled: false, projectIds: [] }, { enabled: true, projectIds: ["a"], workers: 3 }))).toBe(true);
+    expect(widensAutomation(stored, cfg({ enabled: false, projectIds: [] }, { enabled: true, projectIds: ["a"], workers: 2 }))).toBe(false);
+  });
+
+  it("compares against the legacy stored shape as normalized: an unchanged legacy target is not an addition", () => {
+    const stored = readAutomationConfig({ autoRemediation: { enabled: true, targetProjectId: "a" } });
+    expect(widensAutomation(stored, cfg({ enabled: true, projectIds: ["a"] }, { enabled: false, projectIds: [] }))).toBe(false);
+  });
+});
+
+describe("automationWidening — what a refused request asked for, as counts", () => {
+  const base: AutomationConfig = {
+    autoRemediation: { enabled: false, projectIds: ["a"], defaultProjectId: "a" },
+    autonomousDelivery: { enabled: true, projectIds: ["a"], notify: { parked: true, shipped: true }, workers: 2 },
+  };
+
+  it("names each widening and counts added projects, never which", () => {
+    const widening = automationWidening(base, {
+      autoRemediation: { enabled: true, projectIds: ["a", "b", "c"], defaultProjectId: "a" },
+      autonomousDelivery: { ...base.autonomousDelivery, projectIds: ["a", "b", "b"], workers: 3 },
+    });
+    expect(widening).toEqual({
+      turnsOnAutoTriage: true,
+      turnsOnDelivery: false,
+      autoTriageProjectsAdded: 2,
+      deliveryProjectsAdded: 1,
+      workersBefore: 2,
+      workersAfter: 3,
+    });
+    expect(JSON.stringify(widening)).not.toMatch(/"a"|"b"|"c"/);
+  });
+
+  it("is all-false and zero for a change that narrows", () => {
+    expect(
+      automationWidening(base, { ...base, autonomousDelivery: { ...base.autonomousDelivery, enabled: false, workers: 1 } }),
+    ).toEqual({
+      turnsOnAutoTriage: false,
+      turnsOnDelivery: false,
+      autoTriageProjectsAdded: 0,
+      deliveryProjectsAdded: 0,
+      workersBefore: 2,
+      workersAfter: 1,
+    });
+  });
+});
+
+describe("automationAuditDelta — what gets audited", () => {
+  const base: AutomationConfig = {
+    autoRemediation: { enabled: true, projectIds: ["a", "b"], defaultProjectId: "a" },
+    autonomousDelivery: { enabled: true, projectIds: ["a"], notify: { parked: true, shipped: true }, workers: 2 },
+  };
+
+  it("is null when neither flag, project list nor worker count moved, even if notify or order did", () => {
+    expect(automationAuditDelta(base, base)).toBeNull();
+    expect(
+      automationAuditDelta(base, {
+        autoRemediation: { enabled: true, projectIds: ["b", "a"], defaultProjectId: "b" },
+        autonomousDelivery: { ...base.autonomousDelivery, notify: { parked: false, shipped: true } },
+      }),
+    ).toBeNull();
+  });
+
+  it("records a change in parallel build workers, either way", () => {
+    expect(automationAuditDelta(base, { ...base, autonomousDelivery: { ...base.autonomousDelivery, workers: 3 } })).toMatchObject({
+      workersBefore: 2,
+      workersAfter: 3,
+    });
+    expect(automationAuditDelta(base, { ...base, autonomousDelivery: { ...base.autonomousDelivery, workers: 1 } })).toMatchObject({
+      workersBefore: 2,
+      workersAfter: 1,
+    });
+  });
+
+  it("records flags before and after and project COUNTS, never project ids", () => {
+    const delta = automationAuditDelta(base, { ...base, autonomousDelivery: { ...base.autonomousDelivery, enabled: false } });
+    expect(delta).toEqual({
+      autoTriageEnabledBefore: true,
+      autoTriageEnabledAfter: true,
+      autoTriageProjectsBefore: 2,
+      autoTriageProjectsAfter: 2,
+      deliveryEnabledBefore: true,
+      deliveryEnabledAfter: false,
+      deliveryProjectsBefore: 1,
+      deliveryProjectsAfter: 1,
+      workersBefore: 2,
+      workersAfter: 2,
+    });
+    expect(JSON.stringify(delta)).not.toMatch(/"a"|"b"/);
+  });
+
+  it("records a same-size swap of projects", () => {
+    const delta = automationAuditDelta(base, { ...base, autonomousDelivery: { ...base.autonomousDelivery, projectIds: ["c"] } });
+    expect(delta).toMatchObject({ deliveryProjectsBefore: 1, deliveryProjectsAfter: 1 });
   });
 });

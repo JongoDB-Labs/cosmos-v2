@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import { fileTypeFromBuffer } from "file-type";
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
@@ -9,6 +8,7 @@ import { success, handleApiError, noContent } from "@/lib/api-helpers";
 import { getStorage } from "@/lib/storage";
 import { serveHeaders } from "@/lib/files/serve";
 import { LOGO_UPLOAD_TYPES, storedOrgLogo } from "@/lib/org/stored-logo";
+import { patchOrgSettings } from "@/lib/org/patch-settings.server";
 
 /**
  * Organization logo — upload a file rather than paste a URL.
@@ -97,17 +97,23 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const storageKey = `${orgId}/branding/logo-${version}.${EXT[contentType]}`;
     await getStorage().put(storageKey, buffer, { contentType, filename: file.name });
 
-    const previous = storedOrgLogo(orgId, org.settings)?.key ?? null;
-    const settings = { ...((org.settings ?? {}) as Record<string, unknown>), logoStorageKey: storageKey, logoContentType: contentType };
-
-    await prisma.organization.update({
-      where: { id: orgId },
-      data: {
-        logoUrl: `/api/v1/orgs/${orgId}/logo?v=${version}`,
-        // Prisma's Json input is a closed union; a plain Record is not assignable.
-        settings: settings as Prisma.InputJsonObject,
-      },
+    // Only the two logo keys and logoUrl are written, against the row as it is
+    // now: the org read above is from before the storage upload, and writing
+    // that whole settings object back would undo any other setting changed
+    // meanwhile.
+    const before = await prisma.$transaction(async (tx) => {
+      const settingsBefore = await patchOrgSettings(
+        orgId,
+        { set: { logoStorageKey: storageKey, logoContentType: contentType } },
+        tx,
+      );
+      await tx.organization.update({
+        where: { id: orgId },
+        data: { logoUrl: `/api/v1/orgs/${orgId}/logo?v=${version}` },
+      });
+      return settingsBefore;
     });
+    const previous = storedOrgLogo(orgId, before)?.key ?? null;
 
     // Best-effort: a stale object left behind costs a little storage, whereas
     // failing the request after the record already points at the new one would
@@ -161,15 +167,13 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_UPDATE);
 
-    const key = storedOrgLogo(orgId, org.settings)?.key ?? null;
-    const settings = { ...((org.settings ?? {}) as Record<string, unknown>) };
-    delete settings.logoStorageKey;
-    delete settings.logoContentType;
-
-    await prisma.organization.update({
-      where: { id: orgId },
-      data: { logoUrl: null, settings: settings as Prisma.InputJsonObject },
+    // Only the two logo keys and logoUrl change; see POST.
+    const before = await prisma.$transaction(async (tx) => {
+      const settingsBefore = await patchOrgSettings(orgId, { remove: ["logoStorageKey", "logoContentType"] }, tx);
+      await tx.organization.update({ where: { id: orgId }, data: { logoUrl: null } });
+      return settingsBefore;
     });
+    const key = storedOrgLogo(orgId, before)?.key ?? null;
     if (key) await getStorage().delete(key).catch(() => {});
 
     return noContent();

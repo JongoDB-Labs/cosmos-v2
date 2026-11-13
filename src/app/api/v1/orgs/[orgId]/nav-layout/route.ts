@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { readNavLayout, UNHIDEABLE_NAV_IDS } from "@/lib/nav/nav-layout";
+import { patchOrgSettings } from "@/lib/org/patch-settings.server";
 import { z } from "zod";
 
 const schema = z.object({
@@ -56,23 +57,13 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const settings =
-      typeof org.settings === "object" && org.settings !== null
-        ? (org.settings as Record<string, unknown>)
-        : {};
-    const previous = readNavLayout(settings);
-
-    // Merge, never replace: `settings` is shared with other features and a
-    // wholesale write here would drop whatever they keep in it.
-    const existingLayout =
-      typeof settings.navLayout === "object" && settings.navLayout !== null
-        ? (settings.navLayout as Record<string, unknown>)
-        : {};
-
-    await prisma.organization.update({
-      where: { id: orgId },
-      data: { settings: { ...settings, navLayout: { ...existingLayout, hidden: data.hidden } } },
-    });
+    // Merge, never replace: `settings` is shared with other features, so only
+    // `navLayout.hidden` is written, against the row as it is now. Writing
+    // back the whole object read above would undo any other setting changed
+    // since.
+    const before = await patchOrgSettings(orgId, { merge: { key: "navLayout", fields: { hidden: data.hidden } } });
+    if (!before) return new Response("Not found", { status: 404 });
+    const previous = readNavLayout(before);
 
     await logAudit({
       orgId,

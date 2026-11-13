@@ -47,14 +47,19 @@ async function requestAuth(orgId: string): Promise<{ authMethod?: AuthMethod; ap
 const isRecord = (v: unknown): v is Record<string, Prisma.InputJsonValue> =>
   !!v && typeof v === "object" && !Array.isArray(v);
 
-export async function logAudit(entry: AuditEntry) {
+/** Where an audit row is written. Pass a transaction client to make the row
+ *  part of the change it records: if the row can't be written, the change
+ *  rolls back with it. */
+export type AuditWriter = Pick<Prisma.TransactionClient, "auditLog">;
+
+export async function logAudit(entry: AuditEntry, db: AuditWriter = prisma) {
   const auth = await requestAuth(entry.orgId);
   // Recorded beside the caller's own metadata, which wins on a clash; a
   // non-object metadata value is kept as it was.
   const metadata = entry.metadata === undefined || isRecord(entry.metadata)
     ? { ...auth, ...(entry.metadata ?? {}) }
     : entry.metadata;
-  await prisma.auditLog.create({
+  await db.auditLog.create({
     data: {
       orgId: entry.orgId,
       userId: entry.userId ?? null,

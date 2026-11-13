@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
-import { type AutomationConfig, validateEnableGate } from "@/lib/feedback/automation-config";
+import { type AutomationConfig, OPERATOR_ONLY_MESSAGE, validateEnableGate } from "@/lib/feedback/automation-config";
 import { Button } from "@/components/ui/button";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { cn } from "@/lib/utils";
@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Wand2, Info, Bot } from "lucide-react";
+import { Wand2, Info, Bot, Lock } from "lucide-react";
 
 interface ProjectOption {
   id: string;
@@ -32,6 +32,9 @@ interface Config extends AutomationConfig {
   aiConnected: boolean;
   aiProvider: string;
   claudeSubscription: { connected: boolean; email?: string | null };
+  /** Whether this viewer is the instance operator, who alone may turn either
+   *  automation on or add projects to it. Anyone here may turn things off. */
+  viewerIsOperator?: boolean;
 }
 
 const NONE = "__none__";
@@ -93,6 +96,23 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
   const projects = data?.projects ?? [];
   const aiConnected = data?.aiConnected ?? false;
   const defaultProjectOptions = projects.filter((p) => triageProjectIds.includes(p.id));
+
+  // Turning an automation on, adding a project to it, or raising the parallel
+  // build workers is the instance operator's call; the server refuses it from
+  // anyone else. Measured against what is SAVED (the query data, which a save
+  // writes back), not the form's unsaved state, because that is what the
+  // server compares against. Turning off, removing projects and fewer workers
+  // stay open to every org admin.
+  const operator = data?.viewerIsOperator ?? false;
+  const savedTriage = data?.autoRemediation;
+  const savedDelivery = data?.autonomousDelivery;
+  const canEnableTriage = operator || (savedTriage?.enabled ?? false);
+  const canEnableDelivery = operator || (savedDelivery?.enabled ?? false);
+  const triageLocked = (id: string) =>
+    !operator && !triageProjectIds.includes(id) && !(savedTriage?.projectIds ?? []).includes(id);
+  const deliveryLocked = (id: string) =>
+    !operator && !deliveryProjectIds.includes(id) && !(savedDelivery?.projectIds ?? []).includes(id);
+  const workersLocked = (n: number) => !operator && n > (savedDelivery?.workers ?? 2);
 
   function toggleTriageProject(id: string) {
     const next = triageProjectIds.includes(id)
@@ -301,11 +321,14 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
               default board for anything unmatched — point both at a single board to
               funnel all of this org&apos;s feedback there.
             </p>
+            {!operator && <OperatorOnlyNote id="auto-triage-operator-only" />}
           </div>
           <ToggleSwitch
             checked={triageEnabled}
             onCheckedChange={setTriageEnabled}
+            disabled={!triageEnabled && !canEnableTriage}
             aria-label="Enable auto-triage"
+            aria-describedby={operator ? undefined : "auto-triage-operator-only"}
           />
         </div>
 
@@ -318,6 +341,8 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
             selectedIds={triageProjectIds}
             onToggle={toggleTriageProject}
             ariaLabel="Projects to receive triaged feedback"
+            isLocked={triageLocked}
+            describedBy={operator ? undefined : "auto-triage-operator-only"}
           />
         </div>
 
@@ -375,16 +400,21 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
             <p className="mt-1 text-sm text-[var(--text-muted)]">
               Owner capability — a worker implements, tests, and ships the
               product&apos;s own code from the selected backlog(s); safe changes
-              deploy, risky ones wait for your approval. This isn&apos;t a per-team
-              setting — it&apos;s scoped per org here for now, and moves to a
-              platform-admin control as multi-tenant support matures.
+              deploy, risky ones wait for your approval. Builds run on the
+              instance&apos;s shared workers, so turning it on, adding projects
+              or adding parallel builds is up to the instance operator; any org
+              admin can turn it off, remove projects or run fewer builds.
             </p>
+            {!operator && <OperatorOnlyNote id="delivery-operator-only" />}
           </div>
           <ToggleSwitch
             checked={deliveryEnabled}
             onCheckedChange={toggleDelivery}
-            disabled={savingDelivery || !aiConnected}
+            // Turning OFF is never blocked; turning on needs a connected model
+            // and the instance operator.
+            disabled={savingDelivery || (!deliveryEnabled && (!aiConnected || !canEnableDelivery))}
             aria-label="Enable autonomous delivery"
+            aria-describedby={operator ? undefined : "delivery-operator-only"}
           />
         </div>
 
@@ -397,6 +427,8 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
             selectedIds={deliveryProjectIds}
             onToggle={toggleDeliveryProject}
             ariaLabel="Projects for autonomous delivery"
+            isLocked={deliveryLocked}
+            describedBy={operator ? undefined : "delivery-operator-only"}
           />
           <p className="mt-1 text-xs text-[var(--text-muted)]">
             These projects&apos; backlogs are implemented &amp; shipped as cosmos-v2 code changes.
@@ -407,19 +439,20 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
           <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">
             Parallel builds
           </label>
-          <div className="flex items-center gap-2">
+          <div role="group" aria-label="Parallel builds" className="flex items-center gap-2">
             {[1, 2, 3].map((n) => (
               <button
                 key={n}
                 type="button"
                 onClick={() => changeWorkers(n)}
-                disabled={savingDelivery}
+                disabled={savingDelivery || workersLocked(n)}
                 aria-pressed={deliveryWorkers === n}
+                aria-describedby={workersLocked(n) ? "delivery-operator-only" : undefined}
                 className={cn(
-                  "rounded-md border px-3 py-1.5 text-sm transition-colors",
+                  "rounded-md border px-3 py-1.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                   deliveryWorkers === n
                     ? "border-[var(--primary)] bg-[var(--primary-tint)] text-[var(--primary)] font-medium"
-                    : "border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--primary-tint)]",
+                    : "border-[var(--border)] text-[var(--text-muted)] enabled:hover:bg-[var(--primary-tint)]",
                 )}
               >
                 {n}
@@ -489,18 +522,36 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
   );
 }
 
+/** Says why the controls that turn automation on are disabled, for a viewer
+ *  who isn't the instance operator. The disabled controls point at it with
+ *  aria-describedby. */
+function OperatorOnlyNote({ id }: { id: string }) {
+  return (
+    <p id={id} className="mt-2 flex items-start gap-1.5 text-xs text-[var(--text-muted)]">
+      <Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+      <span>{OPERATOR_ONLY_MESSAGE}</span>
+    </p>
+  );
+}
+
 /** Shared checklist body for both cards' project multi-selects — one row per
- *  org project, `{key} · {name}`, backed by the existing Checkbox primitive. */
+ *  org project, `{key} · {name}`, backed by the existing Checkbox primitive.
+ *  `isLocked` disables a row the viewer may not add (unchecking is never
+ *  locked). */
 function ProjectChecklist({
   projects,
   selectedIds,
   onToggle,
   ariaLabel,
+  isLocked,
+  describedBy,
 }: {
   projects: ProjectOption[];
   selectedIds: string[];
   onToggle: (id: string) => void;
   ariaLabel: string;
+  isLocked?: (id: string) => boolean;
+  describedBy?: string;
 }) {
   if (projects.length === 0) {
     return (
@@ -513,19 +564,31 @@ function ProjectChecklist({
     <div
       role="group"
       aria-label={ariaLabel}
+      aria-describedby={describedBy}
       className="max-h-48 divide-y divide-[var(--border)] overflow-y-auto rounded-md border border-[var(--border)]"
     >
-      {projects.map((p) => (
-        <label
-          key={p.id}
-          className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-[var(--surface)]/30"
-        >
-          <Checkbox checked={selectedIds.includes(p.id)} onChange={() => onToggle(p.id)} />
-          <span>
-            {p.key} · {p.name}
-          </span>
-        </label>
-      ))}
+      {projects.map((p) => {
+        const locked = isLocked?.(p.id) ?? false;
+        return (
+          <label
+            key={p.id}
+            className={cn(
+              "flex items-center gap-2 px-3 py-2 text-sm",
+              locked ? "cursor-not-allowed text-[var(--text-muted)]" : "cursor-pointer hover:bg-[var(--surface)]/30",
+            )}
+          >
+            <Checkbox
+              checked={selectedIds.includes(p.id)}
+              onChange={() => onToggle(p.id)}
+              disabled={locked}
+              className={locked ? "cursor-not-allowed" : undefined}
+            />
+            <span>
+              {p.key} · {p.name}
+            </span>
+          </label>
+        );
+      })}
     </div>
   );
 }
