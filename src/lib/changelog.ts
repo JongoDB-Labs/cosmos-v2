@@ -59,11 +59,11 @@ const RELEASES: Release[] = [
       },
       {
         kind: "improvement",
-        text: "If your Outlook calendar isn't connected, the Outlook toggle says so and links to Settings, Preferences, where you connect it. If Microsoft is busy or refuses, the calendar says that too, instead of showing an empty month.",
+        text: "If your Outlook calendar isn't connected, the Outlook toggle says so and links to Settings, Preferences, where you connect it. If Microsoft is busy, doesn't answer or refuses, the calendar says that too, instead of showing an empty month, and it waits no more than about ten seconds on a busy Microsoft.",
       },
       {
         kind: "improvement",
-        text: "Meetings show at your own local time, and each one opens in Outlook. Cancelled meetings are left out.",
+        text: "Meetings show at your own local time, all-day events keep the dates they have in Outlook, and each one opens in Outlook. Cancelled meetings are left out.",
       },
       {
         kind: "improvement",

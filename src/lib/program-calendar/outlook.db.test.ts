@@ -10,11 +10,16 @@
 import crypto from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db/client";
-import { fakeGraph } from "@/lib/testing/fake-graph";
+import { fakeGraph, type FakeEvent } from "@/lib/testing/fake-graph";
 import { MS_CALENDAR } from "@/lib/integrations/microsoft/calendar-connect";
-import { completeCalendarConnect, calendarConnection, patchCalendarMeta } from "@/lib/integrations/microsoft/calendar-token.server";
+import {
+  completeCalendarConnect,
+  calendarConnection,
+  patchCalendarMeta,
+  _forgetCalendarAccessToken,
+} from "@/lib/integrations/microsoft/calendar-token.server";
 import { OUTLOOK_MAX_PAGES, OUTLOOK_PAGE_SIZE } from "./overlays";
-import { loadOutlookOverlay, outlookOverlayStatus, toOverlayEvent } from "./outlook.server";
+import { loadOutlookOverlay, outlookOverlayStatus, OUTLOOK_THROTTLE_BUDGET_MS } from "./outlook.server";
 
 // The Microsoft sign-in app, without the shared global row (and its vault key)
 // that another test file may be writing at the same time.
@@ -30,7 +35,9 @@ const WINDOW = { from: new Date("2027-03-01T00:00:00.000Z"), to: new Date("2027-
 
 const ORIGINAL_VAULT_KEY = process.env.SSO_VAULT_KEY;
 let orgId = "", offOrgId = "";
-const user: Record<"viewer" | "colleague" | "unlinked" | "lapsed", string> = { viewer: "", colleague: "", unlinked: "", lapsed: "" };
+const user: Record<"viewer" | "colleague" | "unlinked" | "lapsed" | "renewing", string> = {
+  viewer: "", colleague: "", unlinked: "", lapsed: "", renewing: "",
+};
 const g = fakeGraph();
 const deps = { fetch: g.fetch, sleep: g.sleep };
 const token = (who: keyof typeof user) => `Bearer at-${user[who]}`;
@@ -63,7 +70,7 @@ beforeAll(async () => {
   await prisma.integration.create({
     data: { orgId, provider: MS_CALENDAR, displayName: "Outlook Calendar", config: { tenantId: TENANT }, status: "ACTIVE", installedById: user.viewer },
   });
-  for (const who of ["viewer", "colleague", "lapsed"] as const) await connect(orgId, user[who]);
+  for (const who of ["viewer", "colleague", "lapsed", "renewing"] as const) await connect(orgId, user[who]);
   const lapsed = await calendarConnection(orgId, user.lapsed);
   await patchCalendarMeta(lapsed!.id, { status: "reconnect" });
 
@@ -77,6 +84,15 @@ beforeAll(async () => {
   g.addEventAt(viewerMain, `viewer-offsite-${stamp}`, "2027-03-10T00:00:00.0000000", "2027-03-12T00:00:00.0000000", { isAllDay: true });
   g.addEventAt(viewerMain, `viewer-badlink-${stamp}`, "2027-03-05T09:00:00.0000000", "2027-03-05T09:30:00.0000000", { webLink: "javascript:alert(1)" });
   g.addEventAt(colleagueMain, `colleague-review-${stamp}`, "2027-03-03T14:30:00.0000000", "2027-03-03T15:00:00.0000000");
+  // What a full Graph event carries beyond the drawn fields. The fake sends
+  // every field whatever `$select` asks, so this reaches the overlay's mapping.
+  g.addEventAt(viewerMain, `viewer-briefing-${stamp}`, "2027-03-08T09:00:00.0000000", "2027-03-08T10:00:00.0000000", {
+    webLink: "https://outlook.example/item/2",
+    body: { contentType: "html", content: "<p>Agenda: budget figures</p>" },
+    attendees: [{ type: "required", emailAddress: { name: "A colleague", address: "colleague@example.test" } }],
+  } as Partial<FakeEvent>);
+  const renewingMain = g.addCalendar({ name: "Calendar", owner: token("renewing"), isDefault: true });
+  g.addEventAt(renewingMain, `renewing-planning-${stamp}`, "2027-03-09T09:00:00.0000000", "2027-03-09T10:00:00.0000000");
 });
 
 afterAll(async () => {
@@ -186,6 +202,140 @@ describe("what the window holds", () => {
   });
 });
 
+describe("what reaches the browser", () => {
+  it("each event is exactly the six drawn fields, though Graph sent a body and attendees", async () => {
+    // Positive control: the Graph read itself does carry them.
+    const q = new URLSearchParams({ startDateTime: WINDOW.from.toISOString(), endDateTime: WINDOW.to.toISOString() });
+    const res = await g.fetch(`https://graph.microsoft.com/v1.0/me/calendarView?${q}`, { headers: { Authorization: token("viewer") } });
+    const raw = ((await res.json()) as { value: Record<string, unknown>[] }).value.find((e) => e.subject === `viewer-briefing-${stamp}`);
+    expect(raw).toHaveProperty("body.content", "<p>Agenda: budget figures</p>");
+    expect(raw?.attendees).toHaveLength(1);
+
+    const p = await loadOutlookOverlay(orgId, user.viewer, WINDOW, deps);
+    expect(Object.keys(p).sort()).toEqual(["capped", "events", "status"]);
+    expect(p.events.find((e) => e.subject === `viewer-briefing-${stamp}`)).toEqual({
+      id: raw?.id,
+      subject: `viewer-briefing-${stamp}`,
+      start: "2027-03-08T09:00:00.000Z",
+      end: "2027-03-08T10:00:00.000Z",
+      allDay: false,
+      webLink: "https://outlook.example/item/2",
+    });
+    for (const e of p.events) expect(Object.keys(e).sort()).toEqual(["allDay", "end", "id", "start", "subject", "webLink"]);
+    expect(JSON.stringify(p)).not.toMatch(/Agenda|colleague@/);
+  });
+});
+
+const GRAPH = "https://graph.microsoft.com/";
+const isToken = (url: string) => url.includes("/oauth2/v2.0/token");
+
+/**
+ * `base`, except that the `n`th Graph call (from 0) gets what `answer` gives,
+ * when it gives anything; `token` answers the sign-in service, when given.
+ */
+function wrap(
+  base: typeof fetch,
+  answer: (n: number) => Promise<Response> | undefined,
+  token?: () => Promise<Response>,
+): typeof fetch {
+  let n = 0;
+  return (async (input: unknown, init?: RequestInit) => {
+    const url = String(input);
+    if (token && isToken(url)) return token();
+    if (url.startsWith(GRAPH)) {
+      const r = answer(n++);
+      if (r) return r;
+    }
+    return base(url, init);
+  }) as typeof fetch;
+}
+const throttled = (retryAfter: string) =>
+  Promise.resolve(new Response(JSON.stringify({ error: { code: "TooManyRequests" } }), { status: 429, headers: { "Retry-After": retryAfter } }));
+
+describe("whatever goes wrong reaching Microsoft, the page gets unavailable, not an error", () => {
+  const cases: [string, () => Promise<Response>, RegExp, string][] = [
+    ["a timeout", () => Promise.reject(new DOMException("The operation was aborted due to timeout", "TimeoutError")), /did not answer in time/, "TimeoutError"],
+    ["a dropped connection", () => Promise.reject(new TypeError("fetch failed")), /went wrong reaching Microsoft/, "TypeError"],
+    ["a body that is not JSON", () => Promise.resolve(new Response("<html>Bad gateway</html>", { status: 200, headers: { "Content-Type": "text/html" } })), /went wrong reaching Microsoft/, "SyntaxError"],
+  ];
+  it.each(cases)("%s", async (_name, fail, detail, logged) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const p = await loadOutlookOverlay(orgId, user.viewer, WINDOW, { fetch: wrap(g.fetch, () => fail()), sleep: g.sleep });
+      expect(p).toEqual({ status: "unavailable", events: [], capped: false, detail: expect.stringMatching(detail) });
+      // Logged by the error's name only. A JSON parse error's message quotes
+      // the body Microsoft sent.
+      expect(warn.mock.calls).toEqual([["outlook overlay read failed:", logged]]);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("<html>");
+    } finally {
+      warn.mockRestore();
+    }
+    // Control: the same read, Microsoft answering, is connected.
+    expect((await loadOutlookOverlay(orgId, user.viewer, WINDOW, deps)).status).toBe("connected");
+  });
+
+  it("the sign-in service failing to renew the token", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    _forgetCalendarAccessToken(orgId, user.renewing);
+    try {
+      const down = () => Promise.resolve(new Response(JSON.stringify({ error: "temporarily_unavailable" }), { status: 503 }));
+      const p = await loadOutlookOverlay(orgId, user.renewing, WINDOW, { fetch: wrap(g.fetch, () => undefined, down), sleep: g.sleep });
+      expect(p).toMatchObject({ status: "unavailable", events: [] });
+    } finally {
+      warn.mockRestore();
+    }
+    // A passing outage is not a revoked connection: no reconnect asked for.
+    expect(await outlookOverlayStatus(orgId, user.renewing)).toBe("connected");
+    // Control: the sign-in service answering, the same read gets the events.
+    const up = () => Promise.resolve(new Response(JSON.stringify({ access_token: `at-${user.renewing}`, expires_in: 3600 }), { status: 200 }));
+    const ok = await loadOutlookOverlay(orgId, user.renewing, WINDOW, { fetch: wrap(g.fetch, () => undefined, up), sleep: g.sleep });
+    expect(ok.status).toBe("connected");
+    expect(ok.events.map((e) => e.subject)).toContain(`renewing-planning-${stamp}`);
+  });
+});
+
+describe("waiting on Microsoft's throttling has one budget per read", () => {
+  const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+
+  it(`two waits that overrun ${OUTLOOK_THROTTLE_BUDGET_MS / 1000} s: the second is not started, and the read says throttled`, async () => {
+    const waits: number[] = [];
+    const f = wrap(g.fetch, (n) => (n < 2 ? throttled("6") : undefined));
+    const p = await loadOutlookOverlay(orgId, user.viewer, WINDOW, { fetch: f, sleep: async (ms) => void waits.push(ms) });
+    expect(p.status).toBe("unavailable");
+    expect(p.detail).toMatch(/limiting requests/);
+    expect(waits).toEqual([6_000]);
+  });
+
+  it("control: waits that fit are waited, and the read goes on", async () => {
+    const waits: number[] = [];
+    const f = wrap(g.fetch, (n) => (n < 2 ? throttled("4") : undefined));
+    const p = await loadOutlookOverlay(orgId, user.viewer, WINDOW, { fetch: f, sleep: async (ms) => void waits.push(ms) });
+    expect(p.status).toBe("connected");
+    expect(waits).toEqual([4_000, 4_000]);
+  });
+
+  it("the budget spans the pages: a wait on page two counts what page one waited", async () => {
+    const h = fakeGraph();
+    const main = h.addCalendar({ name: "Calendar", owner: token("viewer"), isDefault: true });
+    for (let i = 0; i < OUTLOOK_PAGE_SIZE + 10; i++) h.addEventAt(main, `p${i}`, "2027-03-02T08:00:00.0000000", "2027-03-02T09:00:00.0000000");
+    // Graph calls: page one throttled, page one, page two throttled, page two.
+    const waits: number[] = [];
+    const f = wrap(h.fetch, (n) => (n === 0 || n === 2 ? throttled("6") : undefined));
+    const p = await loadOutlookOverlay(orgId, user.viewer, WINDOW, { fetch: f, sleep: async (ms) => void waits.push(ms) });
+    expect(p.status).toBe("unavailable");
+    expect(sum(waits)).toBeLessThanOrEqual(OUTLOOK_THROTTLE_BUDGET_MS);
+    expect(waits).toEqual([6_000]);
+
+    // Control: page two throttled alone is waited out, and both pages arrive.
+    const again: number[] = [];
+    const g2 = wrap(h.fetch, (n) => (n === 1 ? throttled("6") : undefined));
+    const ok = await loadOutlookOverlay(orgId, user.viewer, WINDOW, { fetch: g2, sleep: async (ms) => void again.push(ms) });
+    expect(ok.status).toBe("connected");
+    expect(ok.events).toHaveLength(OUTLOOK_PAGE_SIZE + 10);
+    expect(again).toEqual([6_000]);
+  });
+});
+
 describe("when Microsoft does not answer usefully", () => {
   it("throttled past the retries: unavailable, saying so in words; then connected again", async () => {
     g.throttleNext(3, "1");
@@ -202,23 +352,5 @@ describe("when Microsoft does not answer usefully", () => {
     const p = await loadOutlookOverlay(orgId, user.viewer, WINDOW, { fetch: h.fetch, sleep: h.sleep });
     expect(p.status).toBe("unavailable");
     expect(p.detail).toContain("404");
-  });
-});
-
-describe("one Graph event as the overlay draws it", () => {
-  const at = (dateTime: string) => ({ dateTime, timeZone: "UTC" });
-  it("an all-day boundary moved onto another clock comes back to its date", () => {
-    const e = toOverlayEvent({ id: "a", subject: "Offsite", isAllDay: true, start: at("2027-03-10T05:00:00.0000000"), end: at("2027-03-11T05:00:00.0000000") });
-    expect(e).toMatchObject({ start: "2027-03-10T00:00:00.000Z", end: "2027-03-11T00:00:00.000Z" });
-  });
-
-  it("an empty subject reads as having no title; an unreadable time is left off", () => {
-    expect(toOverlayEvent({ id: "b", subject: "  ", start: at("2027-03-10T09:00:00"), end: at("2027-03-10T10:00:00") })?.subject).toBe("(No title)");
-    expect(toOverlayEvent({ id: "c", subject: "x", start: at("not a time"), end: at("2027-03-10T10:00:00") })).toBeNull();
-  });
-
-  it("a time with an explicit offset is honoured", () => {
-    const e = toOverlayEvent({ id: "d", subject: "x", start: at("2027-03-10T09:00:00-05:00"), end: at("2027-03-10T10:00:00-05:00") });
-    expect(e?.start).toBe("2027-03-10T14:00:00.000Z");
   });
 });

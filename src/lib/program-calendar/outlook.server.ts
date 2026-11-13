@@ -60,6 +60,14 @@ interface GraphPage {
 const SELECT = "id,subject,start,end,isAllDay,isCancelled,webLink";
 
 /**
+ * The longest one overlay read waits on Microsoft's throttling, across all its
+ * pages. Graph's Retry-After can ask for 30 s, twice a call, and someone is
+ * waiting on the page: past this, the read stops and says Microsoft is
+ * limiting requests.
+ */
+export const OUTLOOK_THROTTLE_BUDGET_MS = 10_000;
+
+/**
  * The viewer's main-calendar events overlapping [from, to).
  *
  * `/me/calendarView` is the right read for a window: it returns each
@@ -85,9 +93,21 @@ export async function loadOutlookOverlay(
   });
   let next: string | undefined = `/me/calendarView?${query}`;
   const events: OutlookEvent[] = [];
+  // Every throttle wait goes through this sleep, so one budget covers them all.
+  // A wait that would overrun it is not started: the read ends as throttled.
+  let waited = 0;
+  const pause = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const paced: GraphDeps = {
+    ...deps,
+    sleep: async (ms) => {
+      if (waited + ms > OUTLOOK_THROTTLE_BUDGET_MS) throw new GraphThrottled(429, "throttle_budget");
+      waited += ms;
+      await pause(ms);
+    },
+  };
   try {
     for (let page = 0; next && page < OUTLOOK_MAX_PAGES; page++) {
-      const { data }: { data: GraphPage | null } = await graphRequest<GraphPage>(orgId, userId, "GET", next, undefined, deps);
+      const { data }: { data: GraphPage | null } = await graphRequest<GraphPage>(orgId, userId, "GET", next, undefined, paced);
       for (const e of data?.value ?? []) {
         const mapped = toOverlayEvent(e);
         if (mapped) events.push(mapped);
@@ -112,7 +132,18 @@ export async function loadOutlookOverlay(
         detail: `Microsoft did not return your calendar (${e.status || "no answer"}${e.code ? `, ${e.code}` : ""}).`,
       };
     }
-    throw e;
+    // Anything else is still Microsoft not answering usefully, not a fault in
+    // the page: a timeout, a dropped connection, a body that is not JSON, the
+    // sign-in service failing to renew the token. The error's name only is
+    // logged: a JSON parse error's message quotes the body.
+    const timedOut = e instanceof Error && e.name === "TimeoutError";
+    console.warn("outlook overlay read failed:", e instanceof Error ? e.name : typeof e);
+    return {
+      status: "unavailable", events: [], capped: false,
+      detail: timedOut
+        ? "Microsoft did not answer in time. Try again in a minute."
+        : "Something went wrong reaching Microsoft. Try again in a minute.",
+    };
   }
   return { status: "connected", events, capped: Boolean(next) };
 }
@@ -123,8 +154,11 @@ export async function loadOutlookOverlay(
  *
  * Times: every Graph call here sends `Prefer: outlook.timezone="UTC"`, so
  * `dateTime` is a UTC wall time with no offset, read as UTC. An all-day event
- * is a run of whole dates, which Graph gives as midnights: kept as those dates
- * (see `dateOf`), never shifted by a zone.
+ * is a run of whole dates, kept as the dates Graph wrote (see `dateOf`), never
+ * shifted by a zone.
+ *
+ * The result is built field by field, so nothing else a Graph event carries
+ * (a body, attendees) can reach the browser, whatever `$select` returned.
  */
 export function toOverlayEvent(e: GraphEvent): OutlookEvent | null {
   if (e.isCancelled) return null;
@@ -161,18 +195,21 @@ function utcInstant(s: string): number | null {
 }
 
 /**
- * An all-day boundary as UTC midnight of its date.
+ * An all-day boundary as UTC midnight of the date Graph wrote.
  *
- * Graph gives an all-day event's start and end as midnights. If one ever comes
- * back moved onto another zone's clock (say 05:00 for a US mailbox), the
- * nearest midnight is the date it meant: no zone sits more than twelve hours
- * from UTC on the side that would round the wrong way, except a few Pacific
- * islands at +13 and +14.
+ * The assumption about Graph: an all-day event is a run of calendar dates,
+ * not two instants. Graph writes its start and end as midnights on those dates
+ * ("2027-03-10T00:00:00.0000000"), and `Prefer: outlook.timezone` does not
+ * move them, so the date part as written is the date. Nothing is converted or
+ * rounded: if a value ever came with a clock time or an offset, turning it
+ * into a UTC instant first would put the date of a zone at +13 or +14 on the
+ * day before.
  */
 function dateOf(s: string): number | null {
-  const ms = utcInstant(s);
-  if (ms === null) return null;
-  return Math.round(ms / DAY_MS) * DAY_MS;
+  const m = WALL.exec(s);
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  return Date.UTC(+y, +mo - 1, +d);
 }
 
 function httpsOnly(link: string | null | undefined): string | null {
