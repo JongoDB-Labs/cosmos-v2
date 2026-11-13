@@ -170,4 +170,84 @@ describe("the board builder's entry point", () => {
     fireEvent.click(kebab(/Tab actions for Sprint Health/));
     expect(menuLabels()).toContain("Edit layout: Sprint Health");
   });
+
+  // ── A member's own dashboards, and their own view of a shared one ──────────
+  //
+  // Positive controls first: each absent-side assertion below is paired with a
+  // present-side one on the SAME menu, so "not there" cannot be an unopened
+  // menu or a probe that sees nothing.
+
+  const member = {
+    ...baseProps,
+    canManageBoards: false,
+    canCreateBoards: true,
+    canSetProjectDefault: false,
+  };
+
+  it("offers everyone who can see a dashboard their OWN layout of it", () => {
+    render(<ProjectBoardTabs {...member} />);
+    fireEvent.click(kebab(/Tab actions for Sprint Health/));
+    const labels = menuLabels();
+    expect(labels).toContain("Edit my layout: Sprint Health");
+    // …and not the shared one: this board is someone else's.
+    expect(labels).not.toContain("Edit layout: Sprint Health");
+    expect(labels).not.toContain("Rename board");
+    expect(labels).not.toContain("Delete board");
+  });
+
+  it("opens the builder on the personal layout", () => {
+    render(<ProjectBoardTabs {...member} />);
+    fireEvent.click(kebab(/Tab actions for Sprint Health/));
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Edit my layout: Sprint Health" }),
+    );
+    expect(push).toHaveBeenCalledWith(
+      "/acme/projects/PROJ/boards/b-dash/builder?view=mine",
+    );
+  });
+
+  it("offers no personal layout on a board that draws no widgets", () => {
+    render(<ProjectBoardTabs {...member} />);
+    fireEvent.click(kebab(/Tab actions for Sprint$/));
+    const labels = menuLabels();
+    expect(labels).toContain("Hide tab");
+    expect(labels.filter((l) => l?.includes("my layout"))).toEqual([]);
+  });
+
+  it("lets a member manage a dashboard THEY made, and only that one", () => {
+    render(
+      <ProjectBoardTabs
+        {...member}
+        boards={[
+          { id: "b-mine", name: "My Standup", type: "DASHBOARD", slug: "mine" },
+          { id: "b-dash", name: "Sprint Health", type: "DASHBOARD", slug: "health" },
+        ]}
+        ownedBoardIds={["b-mine"]}
+      />,
+    );
+    fireEvent.click(kebab(/Tab actions for My Standup/));
+    let labels = menuLabels();
+    expect(labels).toContain("Edit layout: My Standup");
+    expect(labels).toContain("Rename board");
+    expect(labels).toContain("Delete board");
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    cleanup();
+
+    render(
+      <ProjectBoardTabs
+        {...member}
+        boards={[
+          { id: "b-mine", name: "My Standup", type: "DASHBOARD", slug: "mine" },
+          { id: "b-dash", name: "Sprint Health", type: "DASHBOARD", slug: "health" },
+        ]}
+        ownedBoardIds={["b-mine"]}
+      />,
+    );
+    fireEvent.click(kebab(/Tab actions for Sprint Health/));
+    labels = menuLabels();
+    expect(labels).toContain("Edit my layout: Sprint Health");
+    expect(labels).not.toContain("Edit layout: Sprint Health");
+    expect(labels).not.toContain("Rename board");
+    expect(labels).not.toContain("Delete board");
+  });
 });

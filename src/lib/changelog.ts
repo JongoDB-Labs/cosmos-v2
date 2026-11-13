@@ -49,6 +49,41 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.552.0",
+    date: "2026-11-13",
+    title: "Every dashboard widget works, and members can lay out their own dashboards",
+    highlights: [
+      {
+        kind: "feature",
+        text: "All of the widgets in the dashboard builder now show real data. Seventeen that used to say \"not available\" now work: Area Chart, Pie Chart, Grouped List, Gauge, Calendar, Timeline, Gantt, Deadline List, Checklist, Link List, Activity Feed, Quick Action, and the Burndown, Velocity, RFI Tracker, Submittal Log and Incident Summary widgets for their sectors. Each one shows only the work items, sprints and people the dashboard itself shows you, and follows the dashboard's filter bar.",
+      },
+      {
+        kind: "feature",
+        text: "Members can now build their own dashboards. If you create a dashboard, you can rename it, change its layout and delete it, even if you do not manage the project's boards. Other people's dashboards stay as their owners and the project's managers set them.",
+      },
+      {
+        kind: "feature",
+        text: "Anyone who can see a dashboard can now arrange their own copy of its layout. Open the tab's menu and choose \"Edit my layout\". Only you see your arrangement, and \"Use the shared layout\" on the dashboard takes you back to the one everyone else sees.",
+      },
+      {
+        kind: "improvement",
+        text: "Seven widgets that could never show real data were removed from the builder: Embed, Filter, SLA Gauge, Production Output, Gradebook, Run of Show and Utilization Gauge. A dashboard that already has one shows why it was removed, so you can take it off the layout.",
+      },
+      {
+        kind: "improvement",
+        text: "The widget settings panel no longer shows the Data Source and Color options, which did nothing. It now has the options each widget really uses, such as what a Pie Chart or Grouped List groups by, which share a Gauge shows, how many days an Area Chart covers, and what a Quick Action button says.",
+      },
+      {
+        kind: "improvement",
+        text: "Dashboards now fit the width of your screen. Before, every dashboard and the layout builder drew at one fixed width, so on a laptop with the sidebar open the right-hand column ran off the edge. The Table widget also shows due dates as days (\"Nov 13\") instead of a raw timestamp.",
+      },
+      {
+        kind: "improvement",
+        text: "The Link List widget only opens links to pages in Cosmos and http or https links to other sites, which open in a new tab. A link the app could be tricked into treating as its own, or a javascript: or data: link, is not shown and cannot be saved. The links field in the builder says which line is wrong and why before you save.",
+      },
+    ],
+  },
+  {
     version: "2.551.0",
     date: "2026-11-12",
     title: "Teams meetings with a join link for everyone",

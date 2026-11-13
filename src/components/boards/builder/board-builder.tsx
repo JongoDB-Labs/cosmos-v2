@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useCallback, useRef, useState } from "react";
+import Link from "next/link";
+import { useQueryClient } from "@tanstack/react-query";
+import { useOrgQueryKey } from "@/lib/query/keys";
 import { GridLayout, verticalCompactor, type Layout } from "react-grid-layout";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Save,
@@ -20,6 +23,8 @@ import { useBuilderStore } from "@/lib/boards/builder-store";
 import { WidgetPalette, type PaletteWidget } from "./widget-palette";
 import { ConfigPanel } from "./config-panel";
 import { WidgetBody } from "@/components/boards/dashboard/widget-grid";
+import { FitWidth } from "@/components/boards/dashboard/fit-width";
+import { FetchError } from "@/lib/query/json-fetcher";
 import type { BuilderWidget, Board } from "@/types/models";
 
 import "react-grid-layout/css/styles.css";
@@ -30,6 +35,38 @@ interface BoardBuilderProps {
   boardId: string;
   initialBoard: Board;
   sector?: string;
+  /**
+   * `shared` edits the layout everyone sees (`Board.config.widgets`, via the
+   * board PUT). `personal` edits only the caller's own arrangement (via
+   * `…/my-layout`), and leaves the board itself untouched. The page decides
+   * which, from what the server would let this caller save.
+   */
+  mode?: "shared" | "personal";
+  /** Whether this caller may also edit the shared layout (offers the switch). */
+  canEditShared?: boolean;
+  /** The caller's saved arrangement, or null when they have none yet. */
+  personalWidgets?: BuilderWidget[] | null;
+  /** The board itself, for "Back to board". */
+  boardHref?: string;
+}
+
+/**
+ * The widget as the my-layout contract accepts it: exactly these keys, inside
+ * its bounds. The store's widgets can carry a layout read from an older board
+ * blob, which the strict contract would refuse whole.
+ */
+function toLayoutWidget(w: BuilderWidget): BuilderWidget {
+  return {
+    id: w.id,
+    type: w.type,
+    config: w.config,
+    layout: {
+      x: Math.min(11, Math.max(0, w.layout.x)),
+      y: Math.min(1000, Math.max(0, w.layout.y)),
+      w: Math.min(12, Math.max(1, w.layout.w)),
+      h: Math.min(100, Math.max(1, w.layout.h)),
+    },
+  };
 }
 
 export function BoardBuilder({
@@ -38,7 +75,15 @@ export function BoardBuilder({
   boardId,
   initialBoard,
   sector,
+  mode = "shared",
+  canEditShared = true,
+  personalWidgets = null,
+  boardHref,
 }: BoardBuilderProps) {
+  const personal = mode === "personal";
+  const qc = useQueryClient();
+  const boardKey = useOrgQueryKey("board", boardId);
+  const myLayoutKey = useOrgQueryKey("board-layout", boardId);
   const {
     widgets,
     selectedWidgetId,
@@ -68,8 +113,10 @@ export function BoardBuilder({
     if (initialized.current) return;
     initialized.current = true;
     const existingWidgets = (initialBoard.config as { widgets?: BuilderWidget[] })?.widgets ?? [];
-    loadFromBoard(initialBoard.name, existingWidgets);
-  }, [initialBoard, loadFromBoard]);
+    // A first personal layout starts from the shared one, so "make it mine"
+    // begins with what the person was already looking at.
+    loadFromBoard(initialBoard.name, (personal && personalWidgets) || existingWidgets);
+  }, [initialBoard, loadFromBoard, personal, personalWidgets]);
 
   const selectedWidget = widgets.find((w) => w.id === selectedWidgetId) ?? null;
 
@@ -99,28 +146,46 @@ export function BoardBuilder({
     // (avoids a TOCTOU where a late save() would clear their unsaved flag).
     const savedWidgets = save();
     try {
-      const res = await fetch(
-        `/api/v1/orgs/${orgId}/projects/${projectId}/boards/${boardId}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: boardName,
-            // Merge, don't replace. The PUT route writes `config` wholesale, so
-            // sending only `widgets` erased every other key in the blob -- and
-            // all of them have live readers: `query`/`savedFilter` are the
-            // board's CQL baseline (boardBaseline in use-board-query, read by
-            // every board type), `mode` decides Gantt vs Release Timeline
-            // (boards/[boardId]/page.tsx), and `typeKeys` is a Table's type
-            // columns. A Save here used to silently un-scope a saved board.
-            config: {
-              ...((initialBoard.config as Record<string, unknown> | null) ?? {}),
-              widgets: savedWidgets,
-            },
-          }),
-        }
-      );
-      if (!res.ok) throw new Error(`Failed to save board (HTTP ${res.status})`);
+      const base = `/api/v1/orgs/${orgId}/projects/${projectId}/boards/${boardId}`;
+      const res = personal
+        ? // The caller's own arrangement only. The board row, its name and the
+          // layout everyone else sees are not touched.
+          await fetch(`${base}/my-layout`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ widgets: savedWidgets.map(toLayoutWidget) }),
+          })
+        : await fetch(base, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: boardName,
+              // Merge, don't replace. The PUT route writes `config` wholesale, so
+              // sending only `widgets` erased every other key in the blob -- and
+              // all of them have live readers: `query`/`savedFilter` are the
+              // board's CQL baseline (boardBaseline in use-board-query, read by
+              // every board type), `mode` decides Gantt vs Release Timeline
+              // (boards/[boardId]/page.tsx), and `typeKeys` is a Table's type
+              // columns. A Save here used to silently un-scope a saved board.
+              config: {
+                ...((initialBoard.config as Record<string, unknown> | null) ?? {}),
+                widgets: savedWidgets,
+              },
+            }),
+          });
+      if (!res.ok) {
+        // Say what the server said: a refused link names the widget, the line
+        // and the reason, which "HTTP 400" does not.
+        const body: unknown = await res.json().catch(() => null);
+        const said =
+          body && typeof body === "object" && "error" in body
+            ? String((body as { error: unknown }).error)
+            : "";
+        throw new FetchError(res.status, body, said || `Failed to save board (HTTP ${res.status})`);
+      }
+      // The board view caches both; without this, "Back to board" shows the
+      // layout from before the save until the next refetch.
+      void qc.invalidateQueries({ queryKey: personal ? myLayoutKey : boardKey });
     } catch (err) {
       console.error("Failed to save board:", err);
       // Re-flag dirty so the Save button re-enables for a retry.
@@ -137,7 +202,19 @@ export function BoardBuilder({
     // class `board-builder.save-preserves-config.test.tsx` exists to stop, just
     // reached through a stale closure instead of a missing spread. Flagged by
     // eslint's exhaustive-deps, not by a test.
-  }, [orgId, projectId, boardId, boardName, save, markDirty, initialBoard.config]);
+  }, [
+    orgId,
+    projectId,
+    boardId,
+    boardName,
+    save,
+    markDirty,
+    initialBoard.config,
+    personal,
+    qc,
+    myLayoutKey,
+    boardKey,
+  ]);
 
   const handleLayoutChange = useCallback(
     (layout: Layout) => {
@@ -200,12 +277,40 @@ export function BoardBuilder({
     <div className="flex flex-col h-full">
       {/* Top toolbar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b bg-background">
+        {boardHref && (
+          <Link
+            href={boardHref}
+            className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
+          >
+            Back to board
+          </Link>
+        )}
+        {/* The board's name is part of the shared board, so a personal layout
+            shows it but cannot change it. */}
         <Input
           value={boardName}
           onChange={(e) => setBoardName(e.target.value)}
           className="w-56 font-medium"
           placeholder="Board name"
+          aria-label="Board name"
+          readOnly={personal}
         />
+        <span
+          data-testid="builder-mode"
+          className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+        >
+          {personal
+            ? "Your layout: only you see these changes"
+            : "Shared layout: everyone on the project sees these changes"}
+        </span>
+        {canEditShared && boardHref && (
+          <Link
+            href={personal ? `${boardHref}/builder` : `${boardHref}/builder?view=mine`}
+            className="text-xs text-[var(--primary)] hover:underline"
+          >
+            {personal ? "Edit the shared layout instead" : "Edit only my layout instead"}
+          </Link>
+        )}
 
         <div className="flex items-center gap-1 ml-auto">
           <Button
@@ -214,8 +319,9 @@ export function BoardBuilder({
             onClick={undo}
             disabled={undoStack.length === 0}
             title="Undo (Ctrl+Z)"
+            aria-label="Undo"
           >
-            <Undo2 className="h-4 w-4" />
+            <Undo2 className="h-4 w-4" aria-hidden />
           </Button>
           <Button
             variant="ghost"
@@ -223,8 +329,9 @@ export function BoardBuilder({
             onClick={redo}
             disabled={redoStack.length === 0}
             title="Redo (Ctrl+Shift+Z)"
+            aria-label="Redo"
           >
-            <Redo2 className="h-4 w-4" />
+            <Redo2 className="h-4 w-4" aria-hidden />
           </Button>
 
           <div className="w-px h-5 bg-border mx-1" />
@@ -234,6 +341,7 @@ export function BoardBuilder({
             size="icon-sm"
             onClick={() => setPreview((p) => !p)}
             title={preview ? "Edit mode" : "Preview mode"}
+            aria-label={preview ? "Edit mode" : "Preview mode"}
           >
             {preview ? (
               <EyeOff className="h-4 w-4" />
@@ -253,7 +361,7 @@ export function BoardBuilder({
             ) : (
               <Save className="h-3.5 w-3.5 mr-1" />
             )}
-            Save
+            {personal ? "Save my layout" : "Save"}
           </Button>
         </div>
       </div>
@@ -331,72 +439,78 @@ export function BoardBuilder({
               </div>
             </div>
           ) : (
-            <GridLayout
-              className="layout"
-              layout={gridLayout}
-              gridConfig={{ cols: 12, rowHeight: 60, margin: [12, 12] as [number, number] }}
-              width={900}
-              dragConfig={{ enabled: !preview }}
-              resizeConfig={{ enabled: !preview }}
-              onLayoutChange={handleLayoutChange}
-              compactor={verticalCompactor}
-            >
-              {widgets.map((widget) => (
-                // Mouse click-to-select only: the tile contains its own
-                // interactive controls (the X remove button + drag handle), so
-                // it can't be a role="button" without invalid nested-interactive
-                // ARIA. Keyboard selection would need a dedicated control inside
-                // the header — out of scope for this builder (a mouse-centric
-                // drag-and-drop canvas).
-                <div
-                  key={widget.id}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!preview) selectWidget(widget.id);
-                  }}
-                  className={cn(
-                    "relative rounded-lg border bg-background shadow-sm transition-shadow",
-                    "hover:shadow-md",
-                    selectedWidgetId === widget.id &&
-                      !preview &&
-                      "ring-2 ring-primary border-primary",
-                    preview && "cursor-default"
-                  )}
+            <FitWidth>
+              {(width) => (
+                <GridLayout
+                  className="layout"
+                  layout={gridLayout}
+                  gridConfig={{ cols: 12, rowHeight: 60, margin: [12, 12] as [number, number] }}
+                  width={width}
+                  dragConfig={{ enabled: !preview }}
+                  resizeConfig={{ enabled: !preview }}
+                  onLayoutChange={handleLayoutChange}
+                  compactor={verticalCompactor}
                 >
-                  {/* Widget header */}
-                  <div className="flex items-center justify-between px-3 py-2 border-b">
-                    <span className="text-xs font-medium truncate">
-                      {(widget.config.title as string) || widget.type.replace(/-/g, " ")}
-                    </span>
-                    {!preview && selectedWidgetId === widget.id && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeWidget(widget.id);
-                        }}
-                        className="text-muted-foreground hover:text-destructive transition-colors"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
+                  {widgets.map((widget) => (
+                    // Mouse click-to-select only: the tile contains its own
+                    // interactive controls (the X remove button + drag handle), so
+                    // it can't be a role="button" without invalid nested-interactive
+                    // ARIA. Keyboard selection would need a dedicated control inside
+                    // the header — out of scope for this builder (a mouse-centric
+                    // drag-and-drop canvas).
+                    <div
+                      key={widget.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!preview) selectWidget(widget.id);
+                      }}
+                      className={cn(
+                        "relative rounded-lg border bg-background shadow-sm transition-shadow",
+                        "hover:shadow-md",
+                        selectedWidgetId === widget.id &&
+                          !preview &&
+                          "ring-2 ring-primary border-primary",
+                        preview && "cursor-default"
+                      )}
+                    >
+                      {/* Widget header */}
+                      <div className="flex items-center justify-between px-3 py-2 border-b">
+                        <span className="text-xs font-medium truncate">
+                          {(widget.config.title as string) || widget.type.replace(/-/g, " ")}
+                        </span>
+                        {!preview && selectedWidgetId === widget.id && (
+                          <button
+                            type="button"
+                            aria-label="Remove widget"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeWidget(widget.id);
+                            }}
+                            className="text-muted-foreground hover:text-destructive transition-colors"
+                          >
+                            <X className="h-3.5 w-3.5" aria-hidden />
+                          </button>
+                        )}
+                      </div>
 
-                  {/* The widget itself, through the same registry the board
-                      reads — so what you arrange here is what the board shows,
-                      and a type the board cannot draw says so HERE rather than
-                      after you save. No board data in the builder, so each one
-                      shows its own no-data state; the SHAPE is the preview. */}
-                  <div className="p-3 h-[calc(100%-33px)]">
-                    <WidgetBody
-                      widget={widget}
-                      orgId={orgId}
-                      projectId={projectId}
-                      boardId={boardId}
-                    />
-                  </div>
-                </div>
-              ))}
-            </GridLayout>
+                      {/* The widget itself, through the same registry the board
+                          reads — so what you arrange here is what the board shows,
+                          and a type the board cannot draw says so HERE rather than
+                          after you save. No board data in the builder, so each one
+                          shows its own no-data state; the SHAPE is the preview. */}
+                      <div className="p-3 h-[calc(100%-33px)]">
+                        <WidgetBody
+                          widget={widget}
+                          orgId={orgId}
+                          projectId={projectId}
+                          boardId={boardId}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </GridLayout>
+              )}
+            </FitWidth>
           )}
         </div>
 

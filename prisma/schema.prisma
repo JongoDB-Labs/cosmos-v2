@@ -264,6 +264,7 @@ model Organization {
   roadmapNodes           RoadmapNode[]
   feedbackItems          FeedbackItem[]
   homeWidgets            HomeWidget[]
+  personalBoardLayouts   PersonalBoardLayout[]
   workRoles              WorkRole[]
   idpConnection          IdpConnection?
   connectorCredentials   ConnectorCredential[]
@@ -434,6 +435,8 @@ model User {
   intervalCapacities          IntervalCapacity[]
   pushSubscriptions           PushSubscription[]
   homeWidgets                 HomeWidget[]
+  ownedBoards                 Board[]                @relation("BoardOwner")
+  personalBoardLayouts        PersonalBoardLayout[]
   federatedIdentities         FederatedIdentity[]
   aiSettings                  UserAiSettings?
   // Prod-parity back-relations (chat bots + chat follows/alerts).
@@ -1046,6 +1049,14 @@ model Board {
   /// until someone assigns one — the same opt-in shape as teamScopedAccess.
   /// SetNull on team delete: losing a team must not hide its boards forever.
   teamId    String?      @map("team_id") @db.Uuid
+  /// The person who created this board, or null for a board the system made
+  /// (project creation, templates) or one created before ownership was
+  /// recorded. The owner may rename it, change its layout and delete it
+  /// without project-manager authority, still within the project role that let
+  /// them create a board at all (`canManageOwnBoard`). Null leaves a board to
+  /// its project's managers, exactly as every board was before.
+  /// SetNull on user delete: losing the person hands the board back to them.
+  ownerId   String?      @map("owner_id") @db.Uuid
   name      String
   // URL slug, unique per project (prod-parity). Nullable so the additive migration
   // can land before any backfill populates existing rows (Postgres treats NULLs as
@@ -1058,9 +1069,11 @@ model Board {
 
   project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   team             Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  owner            User?             @relation("BoardOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   columns          BoardColumn[]
   dashboardWidgets DashboardWidget[]
   ceremonies       SprintCeremony[]
+  personalLayouts  PersonalBoardLayout[]
 
   @@unique([projectId, slug])
   // Filtering is always "team is null OR team is one of mine", never a bare
@@ -2193,6 +2206,30 @@ model BoardTemplateWidget {
   children BoardTemplateWidget[] @relation("WidgetHierarchy")
 
   @@map("board_template_widgets")
+}
+
+/// One person's own arrangement of a dashboard's widgets.
+///
+/// Changes what THAT person sees and nothing else: the board's
+/// `config.widgets` stays the layout everyone else gets. Read and written only
+/// by its owner, through `boards/[boardId]/my-layout`, which gates it exactly
+/// as the board itself is gated. Gone with the board, the person or the org.
+model PersonalBoardLayout {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  boardId   String   @map("board_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  widgets   Json     @default("[]")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  board Board        @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  user  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, userId])
+  @@index([userId])
+  @@map("personal_board_layouts")
 }
 
 model DashboardWidget {

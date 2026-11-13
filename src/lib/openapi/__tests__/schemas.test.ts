@@ -22,7 +22,11 @@ type Entity = { schema: z.ZodObject<z.ZodRawShape>; model: string; omitted: Reco
 
 const ENTITIES: Record<string, Entity> = {
   Project: { schema: common.Project, model: "Project", omitted: {} },
-  Board: { schema: common.Board, model: "Board", omitted: {} },
+  Board: {
+    schema: common.Board,
+    model: "Board",
+    omitted: { ownerId: "who made a board reaches a reader only as `ownedByMe`" },
+  },
   BoardColumn: { schema: common.BoardColumn, model: "BoardColumn", omitted: {} },
   Interval: { schema: common.Interval, model: "Interval", omitted: {} },
   ProjectMember: { schema: common.ProjectMember, model: "ProjectMember", omitted: {} },

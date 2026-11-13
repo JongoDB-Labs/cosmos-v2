@@ -18,7 +18,8 @@ import {
   normalizeLayout,
   type BoardWidgetData,
 } from "@/lib/boards/widget-data";
-import { WIDGET_DEFINITIONS } from "@/lib/boards/widget-definitions";
+import { widgetDefinition } from "@/lib/boards/widget-definitions";
+import { FitWidth } from "./fit-width";
 import { registerBoardWidgets } from "./widgets/board-widgets";
 import type { BuilderWidget } from "@/types/models";
 
@@ -39,7 +40,7 @@ interface WidgetGridProps {
 
 /** The catalogue's display name for a type, or the raw type if it has none. */
 function widgetTypeName(type: string): string {
-  return WIDGET_DEFINITIONS.find((d) => d.type === type)?.name ?? type;
+  return widgetDefinition(type)?.name ?? type;
 }
 
 /** The tile title: the author's own, else the widget's catalogue name. */
@@ -51,26 +52,47 @@ export function widgetTileTitle(widget: BuilderWidget): string {
 }
 
 /**
- * The honest answer for a type nothing draws yet.
+ * The honest answer for a type nothing draws.
  *
- * Names the type BOTH ways — the catalogue label a person recognises from the
+ * A RETIRED type (one the palette stopped offering) says so and says why, so a
+ * board saved before the retirement explains its tile rather than looking
+ * broken. Anything else — a type no catalogue entry knows, say from a newer
+ * build — names the type both ways: the label a person recognises from the
  * palette, and the raw slug, which is what they would have to quote to ask for
  * it. A blank tile would read as a board that failed to load, which is the one
  * message that is actually false.
  */
 function UnavailableWidget({ widget }: { widget: BuilderWidget }) {
-  const name = widgetTypeName(widget.type);
+  const def = widgetDefinition(widget.type);
+  const name = def?.name ?? widget.type;
   return (
     <div
       data-testid={`widget-unavailable-${widget.id}`}
-      className="flex h-full flex-col items-center justify-center gap-1 px-3 text-center"
+      className="flex h-full flex-col items-center justify-center gap-1 overflow-auto px-3 text-center"
+      // Focusable: the reason can outgrow a small tile, and a scroll box with
+      // nothing tabbable in it cannot be scrolled by keyboard.
+      tabIndex={0}
     >
-      <p className="text-xs font-medium text-muted-foreground">
-        {name} is not available on this board yet
-      </p>
-      <p className="font-mono text-[10px] text-muted-foreground/70">
-        {widget.type}
-      </p>
+      {def?.retired ? (
+        <>
+          <p className="text-xs font-medium text-muted-foreground">
+            {name} was removed from the widget picker
+          </p>
+          <p className="text-[11px] text-muted-foreground">{def.retired}</p>
+          <p className="text-[11px] text-muted-foreground">
+            Edit the layout to remove this tile.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-xs font-medium text-muted-foreground">
+            {name} is not available on this board yet
+          </p>
+          <p className="font-mono text-[10px] text-muted-foreground/70">
+            {widget.type}
+          </p>
+        </>
+      )}
     </div>
   );
 }
@@ -212,29 +234,35 @@ export function WidgetGrid({
           they say different things — static is "the reader cannot move this",
           noCompactor is "nothing moves it for them". */}
       <div className="hidden flex-1 overflow-auto p-4 md:block" tabIndex={0}>
-        <GridLayout
-          layout={layout}
-          gridConfig={{
-            cols: 12,
-            rowHeight: 30,
-            margin: [12, 12] as [number, number],
-          }}
-          width={1200}
-          compactor={noCompactor}
-          dragConfig={{ enabled: false }}
-          resizeConfig={{ enabled: false }}
-        >
-          {placed.map((w) => (
-            <div
-              key={w.id}
-              className="flex flex-col overflow-hidden rounded-lg border bg-background p-4"
+        {/* Measured on FitWidth's own unpadded wrapper, so the grid gets the
+            room inside the `p-4` rather than overflowing it. */}
+        <FitWidth>
+          {(width) => (
+            <GridLayout
+              layout={layout}
+              gridConfig={{
+                cols: 12,
+                rowHeight: 30,
+                margin: [12, 12] as [number, number],
+              }}
+              width={width}
+              compactor={noCompactor}
+              dragConfig={{ enabled: false }}
+              resizeConfig={{ enabled: false }}
             >
-              <WidgetTile widget={w}>
-                <WidgetBody widget={w} {...rest} />
-              </WidgetTile>
-            </div>
-          ))}
-        </GridLayout>
+              {placed.map((w) => (
+                <div
+                  key={w.id}
+                  className="flex flex-col overflow-hidden rounded-lg border bg-background p-4"
+                >
+                  <WidgetTile widget={w}>
+                    <WidgetBody widget={w} {...rest} />
+                  </WidgetTile>
+                </div>
+              ))}
+            </GridLayout>
+          )}
+        </FitWidth>
       </div>
     </>
   );

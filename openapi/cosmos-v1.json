@@ -707,6 +707,10 @@
             ],
             "format": "uuid"
           },
+          "ownedByMe": {
+            "type": "boolean",
+            "description": "True when the caller created this board. The creator of a dashboard may rename it, change its layout and delete it without managing the project's boards."
+          },
           "name": {
             "type": "string"
           },
@@ -758,6 +762,7 @@
           "orgId",
           "projectId",
           "teamId",
+          "ownedByMe",
           "name",
           "slug",
           "type",

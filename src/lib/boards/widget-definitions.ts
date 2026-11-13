@@ -9,6 +9,17 @@ export interface WidgetDefinition {
   description: string;
   baseType?: string; // for skins — the generic type this is based on
   presetConfig?: Record<string, unknown>; // pre-filled config for skins
+  /**
+   * Why this type is no longer offered, when it is not.
+   *
+   * A retired type stays in the catalogue so a board that already saved one
+   * can still name it — the tile says it was removed and why, rather than
+   * going blank or quietly drawing something else under its title — but the
+   * palette never offers it again. Each reason is one of two: the product
+   * holds no data the widget could honestly show, or another surface already
+   * does the job.
+   */
+  retired?: string;
 }
 
 export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
@@ -56,7 +67,7 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
     icon: "AreaChart",
     defaultW: 6,
     defaultH: 4,
-    description: "Line chart with a filled area underneath.",
+    description: "Work created and work completed over time, as filled areas.",
   },
   {
     type: "pie-chart",
@@ -101,7 +112,7 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
     icon: "Gauge",
     defaultW: 3,
     defaultH: 3,
-    description: "Dial gauge showing a value within a defined range.",
+    description: "A dial showing what share of the board's work is done, in progress or overdue.",
   },
 
   // ── Time (4 generics) ───────────────────────────────────────────────────────
@@ -112,7 +123,7 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
     icon: "CalendarDays",
     defaultW: 6,
     defaultH: 5,
-    description: "Monthly or weekly calendar view with events.",
+    description: "A month calendar of the board's work items by due date.",
   },
   {
     type: "timeline-widget",
@@ -121,7 +132,7 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
     icon: "AlignLeft",
     defaultW: 8,
     defaultH: 4,
-    description: "Horizontal timeline of events or milestones.",
+    description: "Sprints and due dates on one horizontal line, with today marked.",
   },
   {
     type: "gantt",
@@ -130,7 +141,7 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
     icon: "GanttChartSquare",
     defaultW: 10,
     defaultH: 5,
-    description: "Project schedule with task bars and dependencies.",
+    description: "Work items with a start and due date, drawn as bars against today.",
   },
   {
     type: "deadline-list",
@@ -159,7 +170,7 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
     icon: "ListChecks",
     defaultW: 4,
     defaultH: 4,
-    description: "Interactive checklist with completion tracking.",
+    description: "The board's work items as a checklist, ticked when done, with a count of how many are finished.",
   },
   {
     type: "link-list",
@@ -177,7 +188,7 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
     icon: "Activity",
     defaultW: 4,
     defaultH: 5,
-    description: "Live stream of recent activity events.",
+    description: "The board's most recently updated work items.",
   },
   {
     type: "embed-iframe",
@@ -187,6 +198,8 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
     defaultW: 6,
     defaultH: 5,
     description: "Embed any external URL in an iframe.",
+    retired:
+      "The app only allows frames from itself, so any outside page would load as a refused frame. Opening that up would let a board show any site inside the app. Use a Link List to point at an outside page.",
   },
 
   // ── Interactive (2 generics) ────────────────────────────────────────────────
@@ -198,6 +211,8 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
     defaultW: 12,
     defaultH: 1,
     description: "Global filter bar that controls other widgets on the board.",
+    retired:
+      "The filter bar above every dashboard already narrows all of its widgets. A second filter inside the grid would be a second answer to the same question.",
   },
   {
     type: "quick-action",
@@ -206,7 +221,7 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
     icon: "Zap",
     defaultW: 3,
     defaultH: 2,
-    description: "Button or shortcut that triggers a pre-configured action.",
+    description: "A button that opens the New work item form for this project.",
   },
 
   // ── Sector skins — software ─────────────────────────────────────────────────
@@ -236,7 +251,7 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
     defaultH: 4,
     sector: "software",
     baseType: "bar-chart",
-    description: "Per-sprint velocity showing completed vs committed points.",
+    description: "Completed and committed story points for each finished sprint.",
     presetConfig: {
       title: "Team Velocity",
       xAxisKey: "sprint",
@@ -255,7 +270,7 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
     defaultH: 5,
     sector: "aec",
     baseType: "table",
-    description: "Request-for-information log with status, ball-in-court, and due date.",
+    description: "Work items carrying an RFI number, with status, assignee and due date.",
     presetConfig: {
       title: "RFI Log",
       columns: ["rfiNumber", "subject", "status", "ballInCourt", "dueDate"],
@@ -270,7 +285,7 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
     defaultH: 5,
     sector: "aec",
     baseType: "table",
-    description: "Submittal register tracking spec section, revision, and review status.",
+    description: "Work items carrying a submittal status, with workflow status and due date.",
     presetConfig: {
       title: "Submittal Log",
       columns: ["submittalNumber", "specSection", "description", "revision", "status", "returnDate"],
@@ -287,7 +302,7 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
     defaultH: 5,
     sector: "ops",
     baseType: "grouped-list",
-    description: "Active incidents grouped by severity with responder info.",
+    description: "Open incidents grouped by priority, with who is assigned.",
     presetConfig: {
       title: "Incident Summary",
       groupBy: "severity",
@@ -311,6 +326,8 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
       thresholds: [{ value: 95, color: "green" }, { value: 80, color: "yellow" }, { value: 0, color: "red" }],
       unit: "%",
     },
+    retired:
+      "No SLA targets or response clocks exist in this product, so there is nothing to measure compliance against.",
   },
 
   // ── Sector skins — manufacturing ────────────────────────────────────────────
@@ -330,6 +347,8 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
       seriesKeys: ["actual", "target"],
       yAxisLabel: "Units",
     },
+    retired:
+      "No production quantities or shift targets exist in this product.",
   },
 
   // ── Sector skins — education ────────────────────────────────────────────────
@@ -348,6 +367,8 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
       columns: ["student", "assignment1", "assignment2", "midterm", "final", "average"],
       showRowAverages: true,
     },
+    retired:
+      "No grades or assignments exist in this product.",
   },
 
   // ── Sector skins — event ────────────────────────────────────────────────────
@@ -367,6 +388,8 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
       showOwner: true,
       showNotes: true,
     },
+    retired:
+      "No cue times exist in this product. A Deadline List shows dated work in order.",
   },
 
   // ── Sector skins — consulting ───────────────────────────────────────────────
@@ -387,6 +410,8 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
       thresholds: [{ value: 80, color: "green" }, { value: 60, color: "yellow" }, { value: 0, color: "red" }],
       unit: "%",
     },
+    retired:
+      "No utilization figure is served anywhere yet. It needs time entries and capacity behind the finance permissions, which is its own change.",
   },
 ];
 
@@ -395,8 +420,15 @@ export const WIDGET_DEFINITIONS: WidgetDefinition[] = [
  *
  * - No sector arg → generics only (no sector skins)
  * - With sector arg → generics + skins for that sector
+ * - Never a retired type: the palette offers only what a board can draw.
  */
 export function getWidgetDefinitions(sector?: string): WidgetDefinition[] {
-  if (!sector) return WIDGET_DEFINITIONS.filter((w) => !w.sector);
-  return WIDGET_DEFINITIONS.filter((w) => !w.sector || w.sector === sector);
+  const offered = WIDGET_DEFINITIONS.filter((w) => !w.retired);
+  if (!sector) return offered.filter((w) => !w.sector);
+  return offered.filter((w) => !w.sector || w.sector === sector);
+}
+
+/** The catalogue entry for a type, or undefined for a type it never had. */
+export function widgetDefinition(type: string): WidgetDefinition | undefined {
+  return WIDGET_DEFINITIONS.find((d) => d.type === type);
 }

@@ -3,6 +3,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
 import { canManageBoardsInProject } from "@/lib/rbac/project-role";
+import { isOwnLayoutBoard } from "@/lib/rbac/board-ownership";
 import { narrowBoards } from "@/lib/rbac/board-access";
 import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
@@ -37,7 +38,7 @@ export default async function ProjectLayout({
     include: {
       boards: {
         orderBy: { sortOrder: "asc" },
-        select: { id: true, name: true, type: true, slug: true, teamId: true },
+        select: { id: true, name: true, type: true, slug: true, teamId: true, ownerId: true },
       },
     },
   });
@@ -87,6 +88,13 @@ export default async function ProjectLayout({
   const canManageBoards =
     (hasPermission(ctx.permissions, Permission.BOARD_DELETE) && mayManageBoards) || isProjectManager;
   const canCreateBoards = mayManageBoards;
+  // The boards this person made and may still change — `canManageOwnBoard`'s
+  // rule, applied here without a per-board query: `isOwnLayoutBoard` (you made
+  // it, and it is a widget board) AND the same create gate `mayManageBoards`
+  // already answered for this project.
+  const ownedBoardIds = mayManageBoards
+    ? boards.filter((b) => isOwnLayoutBoard(b, ctx.userId)).map((b) => b.id)
+    : [];
   // Who may set the PROJECT-WIDE default view (the tab everyone without a
   // personal override lands on). Mirrors the PUT …/projects/[projectId] gate
   // exactly: an org-wide PROJECT_UPDATE holder OR a MANAGER of this project.
@@ -193,10 +201,13 @@ export default async function ProjectLayout({
           projectKey={projectKey}
           orgId={ctx.orgId}
           projectId={project.id}
-          boards={boards}
+          // Without `ownerId`: who made a board reaches the client only as
+          // the yes/no answer in `ownedBoardIds`.
+          boards={boards.map((b) => ({ id: b.id, name: b.name, type: b.type, slug: b.slug }))}
           enabledFeatures={queryLanguage ? [...project.enabledFeatures, "filters"] : project.enabledFeatures}
           canManageBoards={canManageBoards}
           canCreateBoards={canCreateBoards}
+          ownedBoardIds={ownedBoardIds}
           canSetProjectDefault={canSetProjectDefault}
           defaultBoardId={defaultBoardId}
           defaultTab={defaultTab}

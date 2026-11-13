@@ -142,6 +142,11 @@ export const Board = z.object({
   orgId: Uuid,
   projectId: Uuid,
   teamId: NullableUuid,
+  ownedByMe: z
+    .boolean()
+    .describe(
+      "True when the caller created this board. The creator of a dashboard may rename it, change its layout and delete it without managing the project's boards.",
+    ),
   name: z.string(),
   slug: z.string().nullable(),
   type: z.enum(E.BoardType),

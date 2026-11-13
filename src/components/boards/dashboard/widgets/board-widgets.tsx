@@ -1,27 +1,26 @@
 "use client";
 
 /**
- * The widget components a DASHBOARD-family board can actually draw, and their
- * entries in `WidgetRegistry`.
+ * The widget components a DASHBOARD-family board can draw, and their entries in
+ * `WidgetRegistry`.
  *
- * SEVEN of the catalogue's thirty-one types are implemented — the ones that can
- * be answered from data `dashboard-view.tsx` already loads. Everything else
- * renders a tile naming the type (see `widget-grid.tsx`), which is a deliberate
- * choice over two worse ones: a blank tile reads as a broken board, and a
- * generic breakdown under a borrowed title ("Team Velocity" over a status
- * split) renders happily and LIES. The same reasoning already guards the
- * increment scope on this board: "the panels would render, and lie."
+ * Every type the palette offers is drawn here, from data the board already
+ * loaded under the viewer's own access (`BoardWidgetData`). The catalogue's
+ * remaining types are RETIRED (`WidgetDefinition.retired`): the palette no
+ * longer offers them, and a board that saved one before shows a tile saying
+ * why (see `widget-grid.tsx`). That is a deliberate choice over two worse
+ * ones: a blank tile reads as a broken board, and a generic breakdown under a
+ * borrowed title ("SLA Compliance" over a status split) renders happily and
+ * LIES.
  *
- * Which is also why the sector skins are NOT quietly routed to their
- * `baseType`. `software.velocity`'s preset asks for completed-vs-committed
- * points per sprint and `aec.rfi-tracker`'s for a ball-in-court column; this
- * product's work items hold neither. A skin whose preset we cannot honour gets
- * the unavailable tile.
+ * A sector skin is drawn by a component that honours what its preset asks for,
+ * not quietly routed to its `baseType`. The velocity chart reads each finished
+ * sprint's report; the RFI tracker lists items that carry the AEC RFI number
+ * field; the incident summary lists open items of the ops Incident type.
  */
 import { MetricCard } from "./metric-card";
 import { PriorityChart } from "./priority-chart";
 import { BurndownChart } from "./burndown-chart";
-import { cn } from "@/lib/utils";
 import { WIDGET_DEFINITIONS } from "@/lib/boards/widget-definitions";
 import {
   WidgetRegistry,
@@ -37,40 +36,68 @@ import {
   widgetMetricKey,
   widgetMetricLabel,
 } from "@/lib/boards/widget-data";
+import {
+  dayKey,
+  formatDay,
+  ItemTable,
+  NoData,
+  valueTestId,
+  type ItemColumn,
+} from "./widget-parts";
+import {
+  AreaChartWidget,
+  GaugeWidget,
+  PieChartWidget,
+  VelocityWidget,
+} from "./chart-widgets";
+import {
+  CalendarWidget,
+  DeadlineListWidget,
+  GanttWidget,
+  TimelineWidget,
+} from "./time-widgets";
+import {
+  ActivityFeedWidget,
+  ChecklistWidget,
+  GroupedListWidget,
+  IncidentSummaryWidget,
+  RfiTrackerWidget,
+  SubmittalLogWidget,
+} from "./list-widgets";
+import { LinkListWidget, QuickActionWidget } from "./content-widgets";
 
-/** The seven generic types this module draws. Exported for the arch test. */
+/** Every type this module draws. Exported for the arch test. */
 export const IMPLEMENTED_WIDGET_TYPES = [
+  // data
   "counter",
   "kpi-card",
   "bar-chart",
   "line-chart",
+  "area-chart",
+  "pie-chart",
   "table",
   "list",
+  "grouped-list",
+  "gauge",
+  // time
+  "calendar-widget",
+  "timeline-widget",
+  "gantt",
+  "deadline-list",
+  // content
   "text-block",
+  "checklist",
+  "link-list",
+  "activity-feed",
+  // interactive
+  "quick-action",
+  // sector skins
+  "software.burndown",
+  "software.velocity",
+  "aec.rfi-tracker",
+  "aec.submittal-log",
+  "ops.incident-summary",
 ] as const;
-
-/**
- * A widget mounted without board data (the builder's preview) says so rather
- * than drawing a zero. A zero is a claim about the project.
- */
-function NoData({ children = "No data yet" }: { children?: string }) {
-  return (
-    <div className="flex h-full items-center justify-center text-center text-xs text-muted-foreground">
-      {children}
-    </div>
-  );
-}
-
-/**
- * `widget-value-<id>`, so a test can assert THIS tile's number rather than
- * matching a bare digit that also appears in three other tiles — the same
- * reason `MetricCard` carries its own `metric-<label>` id. (A KPI card renders
- * through `MetricCard` and inherits that one, so only the counter needs this.)
- */
-function valueTestId(props: WidgetProps): string | undefined {
-  const id = props.config.__widgetId;
-  return typeof id === "string" ? `widget-value-${id}` : undefined;
-}
 
 // ── counter ──────────────────────────────────────────────────────────────────
 
@@ -194,16 +221,30 @@ function LineChartWidget(props: WidgetProps) {
 
 // ── table ────────────────────────────────────────────────────────────────────
 
-const TABLE_COLUMNS = [
-  { key: "key", label: "Key" },
-  { key: "title", label: "Title" },
-  { key: "status", label: "Status" },
-  { key: "priority", label: "Priority" },
-  { key: "assignee", label: "Assignee" },
-  { key: "dueDate", label: "Due" },
-] as const;
-
-type TableColumnKey = (typeof TABLE_COLUMNS)[number]["key"];
+/**
+ * The Table widget's columns, drawn by the same `ItemTable` the AEC registers
+ * use. A due date is a stored calendar day, so it is shown as one ("Nov 13"):
+ * the raw value is an ISO timestamp, and printing it was how this table once
+ * showed `2026-11-13T00:00:00.000Z` in a column a person reads at standup.
+ */
+const TABLE_COLUMNS: ReadonlyArray<ItemColumn & { key: string }> = [
+  {
+    key: "key",
+    label: "Key",
+    cell: (r) => r.key,
+    className: "whitespace-nowrap font-mono text-muted-foreground",
+  },
+  { key: "title", label: "Title", cell: (r) => r.title, className: "max-w-[18rem] truncate" },
+  { key: "status", label: "Status", cell: (r) => r.status },
+  { key: "priority", label: "Priority", cell: (r) => r.priority },
+  { key: "assignee", label: "Assignee", cell: (r) => r.assignee },
+  {
+    key: "dueDate",
+    label: "Due",
+    cell: (r) => (r.dueDate ? formatDay(dayKey(r.dueDate)) : ""),
+    className: "whitespace-nowrap",
+  },
+];
 
 /**
  * Which columns to show. A config may name a subset; names this product has no
@@ -219,64 +260,17 @@ function tableColumns(config: Record<string, unknown>) {
   return picked.length > 0 ? picked : TABLE_COLUMNS;
 }
 
-function cellOf(row: Record<TableColumnKey, string | null>, key: TableColumnKey) {
-  return row[key] ?? "—";
-}
-
 function TableWidget(props: WidgetProps) {
   const columns = tableColumns(props.config);
   const limit = widgetMaxItems(props.config, 25);
   if (!props.data) return <NoData />;
-  const rows = props.data.rows.slice(0, limit);
-  if (rows.length === 0) return <NoData>No matching items</NoData>;
-
   return (
-    // Focusable: a table of plain text in an `overflow-auto` box has no
-    // focusable descendant, which is `scrollable-region-focusable` (serious)
-    // — and genuinely unreachable by keyboard, which is the real problem the
-    // rule describes. `widget-grid.test.tsx` pins this as a property over the
-    // whole rendered tree, because the e2e a11y gate never loads a board with
-    // saved widgets.
-    <div className="h-full overflow-auto" tabIndex={0}>
-      <table className="w-full text-left text-xs">
-        <thead className="sticky top-0 bg-background">
-          <tr className="border-b">
-            {columns.map((c) => (
-              <th
-                key={c.key}
-                scope="col"
-                className="px-2 py-1 font-medium text-muted-foreground"
-              >
-                {c.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id} className="border-b last:border-0">
-              {columns.map((c) => (
-                <td
-                  key={c.key}
-                  className={cn(
-                    "px-2 py-1",
-                    c.key === "title" && "max-w-[18rem] truncate",
-                    c.key === "key" && "font-mono text-muted-foreground",
-                  )}
-                >
-                  {cellOf(r, c.key)}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {props.data.rows.length > rows.length && (
-        <p className="px-2 py-1 text-[11px] text-muted-foreground">
-          Showing {rows.length} of {props.data.rows.length}
-        </p>
-      )}
-    </div>
+    <ItemTable
+      rows={props.data.rows}
+      columns={[...columns]}
+      limit={limit}
+      empty="No matching items"
+    />
   );
 }
 
@@ -347,9 +341,28 @@ const COMPONENTS: Record<
   "kpi-card": KpiCardWidget,
   "bar-chart": BarChartWidget,
   "line-chart": LineChartWidget,
+  "area-chart": AreaChartWidget,
+  "pie-chart": PieChartWidget,
   table: TableWidget,
   list: ListWidget,
+  "grouped-list": GroupedListWidget,
+  gauge: GaugeWidget,
+  "calendar-widget": CalendarWidget,
+  "timeline-widget": TimelineWidget,
+  gantt: GanttWidget,
+  "deadline-list": DeadlineListWidget,
   "text-block": TextBlockWidget,
+  checklist: ChecklistWidget,
+  "link-list": LinkListWidget,
+  "activity-feed": ActivityFeedWidget,
+  "quick-action": QuickActionWidget,
+  // The sprint burndown IS the line chart's one series: the board computes
+  // exactly one time series, the active sprint's burndown.
+  "software.burndown": LineChartWidget,
+  "software.velocity": VelocityWidget,
+  "aec.rfi-tracker": RfiTrackerWidget,
+  "aec.submittal-log": SubmittalLogWidget,
+  "ops.incident-summary": IncidentSummaryWidget,
 };
 
 /**
@@ -370,6 +383,11 @@ export const BOARD_WIDGET_REGISTRATIONS: WidgetRegistration[] =
     if (!def) {
       throw new Error(
         `widget "${type}" is implemented but absent from WIDGET_DEFINITIONS`,
+      );
+    }
+    if (def.retired) {
+      throw new Error(
+        `widget "${type}" is implemented but marked retired in WIDGET_DEFINITIONS`,
       );
     }
     return {

@@ -13,16 +13,51 @@
 // It also pins the three behaviours that are mine and not the library's: which
 // types are drawn, what an undrawable type says, and the order of the mobile
 // stack.
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/acme/projects/ACME/boards/b1",
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+}));
+
 import { WidgetGrid } from "./widget-grid";
 import { WidgetRegistry } from "@/lib/boards/widget-registry";
 import { IMPLEMENTED_WIDGET_TYPES } from "./widgets/board-widgets";
-import { WIDGET_DEFINITIONS } from "@/lib/boards/widget-definitions";
-import type { BoardWidgetData } from "@/lib/boards/widget-data";
+import {
+  WIDGET_DEFINITIONS,
+  getWidgetDefinitions,
+} from "@/lib/boards/widget-definitions";
+import type { BoardWidgetData, WidgetItemRow } from "@/lib/boards/widget-data";
 import type { BuilderWidget } from "@/types/models";
+import { localDayKey, addDays, formatDay } from "./widgets/widget-parts";
+
+// Dates relative to the real today, so the time widgets (which read the
+// clock) see the same picture on any day the suite runs.
+const TODAY = localDayKey(new Date());
+const day = (offset: number) => `${addDays(TODAY, offset)}T00:00:00.000Z`;
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+
+const row = (over: Partial<WidgetItemRow> & { id: string; key: string; title: string }): WidgetItemRow => ({
+  status: "To Do",
+  columnKey: "todo",
+  statusCategory: "TODO",
+  priority: "Medium",
+  assignee: "Unassigned",
+  dueDate: null,
+  startDate: null,
+  createdAt: hoursAgo(24 * 10),
+  updatedAt: hoursAgo(24 * 10),
+  completedAt: null,
+  typeKey: null,
+  typeName: null,
+  customFields: {},
+  ...over,
+});
 
 const DATA: BoardWidgetData = {
+  projectKey: "ACME",
   metrics: { total: 7, completed: 3, inProgress: 2, overdue: 1 },
   series: {
     status: [{ name: "To Do", value: 4, color: "#6b7280" }],
@@ -32,24 +67,56 @@ const DATA: BoardWidgetData = {
   },
   burndown: [{ date: "Jan 1", ideal: 7, actual: 7 }],
   rows: [
-    {
+    row({
       id: "i1",
       key: "ACME-1",
       title: "Payment retries",
-      status: "To Do",
       priority: "High",
       assignee: "Ada",
-      dueDate: null,
-    },
-    {
+      dueDate: day(3),
+      startDate: day(-2),
+      updatedAt: hoursAgo(1),
+      typeKey: "ops.incident",
+      typeName: "Incident",
+      customFields: { "aec.rfi-number": "RFI-007" },
+    }),
+    row({
       id: "i2",
       key: "ACME-2",
       title: "Nav polish",
       status: "Done",
+      statusCategory: "DONE",
       priority: "Low",
-      assignee: "Unassigned",
-      dueDate: null,
-    },
+      dueDate: day(-1),
+      startDate: day(-5),
+      createdAt: hoursAgo(24 * 20),
+      completedAt: hoursAgo(48),
+      updatedAt: hoursAgo(48),
+      typeKey: "story",
+      typeName: "Story",
+      customFields: { "aec.submittal-status": "approved" },
+    }),
+    row({
+      id: "i3",
+      key: "ACME-3",
+      title: "Login timeout",
+      status: "In Progress",
+      statusCategory: "IN_PROGRESS",
+      priority: "Critical",
+      assignee: "Ada",
+      dueDate: day(-2),
+      createdAt: hoursAgo(24 * 5),
+      updatedAt: hoursAgo(3),
+      typeKey: "ops.incident",
+      typeName: "Incident",
+    }),
+  ],
+  velocity: [
+    { id: "s1", name: "Sprint 1", completed: 8, committed: 10 },
+    { id: "s2", name: "Sprint 2", completed: 12, committed: null },
+  ],
+  intervals: [
+    { id: "s3", name: "Sprint 3", startDate: day(-3), endDate: day(11), status: "ACTIVE" },
   ],
 };
 
@@ -61,15 +128,28 @@ const widget = (over: Partial<BuilderWidget> & { id: string }): BuilderWidget =>
 });
 
 function renderGrid(widgets: BuilderWidget[], data: BoardWidgetData = DATA) {
+  // A real client: the Quick Action widget opens the shared create dialog,
+  // which reads through React Query like every other board control.
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <WidgetGrid
-      widgets={widgets}
-      data={data}
-      orgId="o1"
-      projectId="p1"
-      boardId="b1"
-    />,
+    <QueryClientProvider client={qc}>
+      <WidgetGrid
+        widgets={widgets}
+        data={data}
+        orgId="o1"
+        projectId="p1"
+        boardId="b1"
+      />
+    </QueryClientProvider>,
   );
+}
+
+/** The DESKTOP copy of a widget's body (the mobile stack holds a second). */
+function tile(id: string): HTMLElement {
+  for (const el of screen.getAllByTestId(`widget-body-${id}`)) {
+    if (el.closest(".react-grid-item")) return el;
+  }
+  throw new Error(`no desktop tile for ${id}`);
 }
 
 /** The grid cell react-grid-layout drew for a widget, from its inline style. */
@@ -99,19 +179,36 @@ describe("the registry is actually populated", () => {
     }
   });
 
-  it("registers NOTHING for a type it cannot draw", () => {
-    // The control on the assertion above: a registry that answered for
-    // everything would make "unavailable" unreachable, and the fallback tile
-    // dead code.
-    const unimplemented = WIDGET_DEFINITIONS.map((d) => d.type).filter(
-      (t) => !(IMPLEMENTED_WIDGET_TYPES as readonly string[]).includes(t),
+  it("draws every type the palette offers, and the rest are retired with a reason", () => {
+    // Every catalogue type is either drawn or retired — no third state where
+    // the palette offers a tile that then says "not available".
+    const implemented = new Set<string>(IMPLEMENTED_WIDGET_TYPES);
+    const neither = WIDGET_DEFINITIONS.filter(
+      (d) => !implemented.has(d.type) && !d.retired,
+    ).map((d) => d.type);
+    expect(neither).toEqual([]);
+    expect(WIDGET_DEFINITIONS).toHaveLength(31);
+    expect(implemented.size).toBe(24);
+  });
+
+  it("registers NOTHING for a retired type, and the palette does not offer one", () => {
+    // The control on the first assertion above: a registry that answered for
+    // everything would make the retired tile unreachable.
+    const retired = WIDGET_DEFINITIONS.filter((d) => d.retired).map((d) => d.type);
+    expect(retired.length).toBe(7);
+    const offered = new Set(
+      ["software", "aec", "ops", "manufacturing", "education", "event", "consulting", undefined]
+        .flatMap((sector) => getWidgetDefinitions(sector))
+        .map((d) => d.type),
     );
-    expect(unimplemented.length).toBeGreaterThan(20);
-    for (const type of unimplemented) {
-      expect(WidgetRegistry.has(type), `${type} should not be drawable`).toBe(
-        false,
-      );
+    for (const type of retired) {
+      expect(WidgetRegistry.has(type), `${type} should not be drawable`).toBe(false);
+      expect(offered.has(type), `${type} should not be in the palette`).toBe(false);
+      // Each one says why, in a sentence a person can act on.
+      expect(WIDGET_DEFINITIONS.find((d) => d.type === type)!.retired!.length).toBeGreaterThan(20);
     }
+    // Positive control: the palette probe does see a drawable type.
+    expect(offered.has("gauge")).toBe(true);
   });
 
   it("names every registration after its catalogue entry", () => {
@@ -242,7 +339,19 @@ describe("what each implemented widget draws", () => {
     const rows = tables[0].querySelectorAll("tbody tr");
     expect(rows.length).toBe(1);
     expect(rows[0].textContent).toContain("ACME-1");
-    expect(screen.getAllByText(/Showing 1 of 2/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Showing 1 of 3/).length).toBeGreaterThan(0);
+  });
+
+  it("table shows a due date as a day, not as the stored timestamp", () => {
+    renderGrid([
+      widget({ id: "t3", type: "table", layout: { x: 0, y: 0, w: 8, h: 5 } }),
+    ]);
+    const table = screen.getAllByRole("table")[0];
+    const first = table.querySelector("tbody tr")!;
+    expect(first.textContent).toContain("ACME-1");
+    // Positive control: the row really has a due date, three days out.
+    expect(first.textContent).toContain(formatDay(addDays(TODAY, 3)));
+    expect(table.textContent).not.toMatch(/T00:00/);
   });
 
   it("table ignores column names this product has no field for", () => {
@@ -320,16 +429,26 @@ describe("what each implemented widget draws", () => {
   });
 });
 
-describe("an undrawable type", () => {
-  it("names the type both ways and renders no placeholder prose", () => {
-    renderGrid([widget({ id: "g1", type: "gauge" })]);
+describe("a type nothing draws", () => {
+  it("a retired type says it was removed, and why", () => {
+    renderGrid([widget({ id: "g1", type: "embed-iframe" })]);
     const tiles = screen.getAllByTestId("widget-unavailable-g1");
     expect(tiles.length).toBeGreaterThan(0);
     tiles.forEach((t) => {
       // The palette label a person recognises…
-      expect(t).toHaveTextContent("Gauge");
-      // …and the raw slug, which is what they would quote to ask for it.
-      expect(t).toHaveTextContent("gauge");
+      expect(t).toHaveTextContent("Embed / iFrame was removed from the widget picker");
+      // …and the reason, so a board saved before the retirement explains
+      // itself rather than looking broken.
+      expect(t).toHaveTextContent(/Link List/);
+    });
+  });
+
+  it("an unknown type names itself both ways", () => {
+    renderGrid([widget({ id: "u1", type: "from-a-newer-build" })]);
+    const tiles = screen.getAllByTestId("widget-unavailable-u1");
+    expect(tiles.length).toBeGreaterThan(0);
+    tiles.forEach((t) => {
+      expect(t).toHaveTextContent("from-a-newer-build");
       expect(t).toHaveTextContent(/not available/i);
     });
   });
@@ -346,6 +465,238 @@ describe("an undrawable type", () => {
   });
 });
 
+describe("the widgets that used to say 'not available'", () => {
+  const big = { x: 0, y: 0, w: 8, h: 8 };
+
+  it("gauge shows the configured share of the board's items", () => {
+    renderGrid([widget({ id: "ga", type: "gauge", config: { metric: "completed" }, layout: big })]);
+    // 3 completed of 7.
+    expect(within(tile("ga")).getByRole("img", { name: "Completed: 43% (3 of 7)" })).toBeTruthy();
+    expect(within(tile("ga")).getByTestId("widget-value-ga")).toHaveTextContent("43%");
+  });
+
+  it("gauge draws its value arc AFTER its track, so the arc is on top", () => {
+    renderGrid([widget({ id: "gb", type: "gauge", config: { metric: "overdue" }, layout: big })]);
+    const paths = [...tile("gb").querySelectorAll("svg path")];
+    expect(paths).toHaveLength(2);
+    // SVG paints in document order: the value arc must be the later sibling.
+    expect(paths[1].getAttribute("data-testid")).toBe("gauge-value-arc");
+    expect(within(tile("gb")).getByTestId("widget-value-gb")).toHaveTextContent("14%");
+  });
+
+  it("area-chart says what it draws and over how long", () => {
+    renderGrid([widget({ id: "ar", type: "area-chart", config: { days: 14 }, layout: big })]);
+    expect(within(tile("ar")).getByText("Created and completed, last 14 days")).toBeTruthy();
+  });
+
+  it("pie-chart says which grouping it is showing", () => {
+    renderGrid([widget({ id: "pi", type: "pie-chart", config: { groupBy: "priority" }, layout: big })]);
+    expect(within(tile("pi")).getByText("By priority")).toBeTruthy();
+  });
+
+  it("grouped-list groups the items, most urgent priority first", () => {
+    renderGrid([widget({ id: "gl", type: "grouped-list", config: { groupBy: "priority" }, layout: big })]);
+    const summaries = [...tile("gl").querySelectorAll("summary")].map((s) => s.textContent);
+    expect(summaries).toEqual(["Critical (1)", "High (1)", "Low (1)"]);
+  });
+
+  it("checklist ticks done items, lists open ones first and counts them", () => {
+    renderGrid([widget({ id: "ck", type: "checklist", layout: big })]);
+    const bar = within(tile("ck")).getByRole("progressbar", { name: "Items done" });
+    expect(bar.getAttribute("aria-valuenow")).toBe("1");
+    expect(bar.getAttribute("aria-valuemax")).toBe("3");
+    const items = within(tile("ck")).getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toEqual([
+      "Open:ACME-1Payment retries",
+      "Open:ACME-3Login timeout",
+      "Done:ACME-2Nav polish",
+    ]);
+  });
+
+  it("activity-feed lists the most recently updated first", () => {
+    renderGrid([widget({ id: "af", type: "activity-feed", layout: big })]);
+    const keys = within(tile("af"))
+      .getAllByRole("listitem")
+      .map((li) => li.textContent?.match(/ACME-\d/)?.[0]);
+    expect(keys).toEqual(["ACME-1", "ACME-3", "ACME-2"]);
+  });
+
+  it("deadline-list lists open dated work, overdue first, and leaves done work out", () => {
+    renderGrid([widget({ id: "dl", type: "deadline-list", layout: big })]);
+    const items = within(tile("dl")).getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toHaveLength(2);
+    expect(items[0]).toContain("ACME-3");
+    expect(items[0]).toContain("2d overdue");
+    expect(items[1]).toContain("ACME-1");
+    expect(items[1]).toContain("in 3d");
+  });
+
+  it("calendar-widget marks each due item on its day and pages by month", () => {
+    renderGrid([widget({ id: "ca", type: "calendar-widget", layout: big })]);
+    const t = tile("ca");
+    const dueKey = addDays(TODAY, 3);
+    // ACME-1 is due in three days, which may fall in next month.
+    let cell = t.querySelector(`td[data-day="${dueKey}"]`);
+    if (!cell) {
+      fireEvent.click(within(t).getByRole("button", { name: "Next month" }));
+      cell = t.querySelector(`td[data-day="${dueKey}"]`);
+    }
+    expect(cell, "no cell for the due day").toBeTruthy();
+    expect(cell!.textContent).toContain("ACME-1");
+
+    const heading = within(t).getByRole("table").querySelector("caption")!.textContent;
+    fireEvent.click(within(t).getByRole("button", { name: "Previous month" }));
+    expect(within(t).getByRole("table").querySelector("caption")!.textContent).not.toBe(heading);
+  });
+
+  it("timeline-widget draws the sprint and each due date in the window", () => {
+    renderGrid([widget({ id: "tl", type: "timeline-widget", layout: big })]);
+    const t = tile("tl");
+    expect(within(t).getByText("Sprint 3")).toBeTruthy();
+    const marks = within(within(t).getByRole("list", { name: "Due dates" }))
+      .getAllByRole("listitem")
+      .map((li) => li.textContent?.match(/ACME-\d/)?.[0])
+      .sort();
+    expect(marks).toEqual(["ACME-1", "ACME-2", "ACME-3"]);
+  });
+
+  it("gantt draws only items with both dates, and says how many it left out", () => {
+    renderGrid([widget({ id: "gt", type: "gantt", layout: big })]);
+    const t = tile("gt");
+    const bars = within(within(t).getByRole("list", { name: "Scheduled work items" })).getAllByRole(
+      "listitem",
+    );
+    expect(bars.map((b) => b.textContent?.match(/ACME-\d/)?.[0])).toEqual(["ACME-2", "ACME-1"]);
+    expect(t.textContent).toContain("1 without both dates not shown");
+  });
+
+  it("link-list keeps http(s) and in-app links and drops a script URL", () => {
+    renderGrid([
+      widget({
+        id: "ll",
+        type: "link-list",
+        config: {
+          links: "Docs|https://example.com/docs\nEvil|javascript:alert(1)\nBacklog|/acme/projects/ACME",
+        },
+        layout: big,
+      }),
+    ]);
+    const links = within(tile("ll")).getAllByRole("link");
+    expect(links.map((a) => a.textContent)).toEqual(["Docs(opens in a new tab)", "Backlog"]);
+    expect(links[0].getAttribute("target")).toBe("_blank");
+    expect(links[0].getAttribute("rel")).toBe("noopener noreferrer");
+    expect(links[1].getAttribute("href")).toBe("/acme/projects/ACME");
+    expect(tile("ll").innerHTML).not.toContain("javascript:");
+  });
+
+  it("link-list draws no link that leaves the app except as a new-tab external link (widget link validation)", () => {
+    renderGrid([
+      widget({
+        id: "lh",
+        type: "link-list",
+        config: {
+          links: [
+            "Backslash|/\\evil.example",
+            "Tab|/\t/evil.example",
+            "ProtoRel|//evil.example",
+            "Script|javascript:alert(1)",
+            "Data|data:text/html,<script>alert(1)</script>",
+            // Dot segments the URL parser folds to `//evil.example`.
+            "Dot|/.//evil.example",
+            "DotDot|/a/..//evil.example",
+            "Encoded|/%2e//evil.example",
+            "Query|/..//evil.example/x?q#h",
+            "Outside|https://evil.example",
+            "Home|/acme/projects/ACME",
+          ].join("\n"),
+        },
+        layout: big,
+      }),
+    ]);
+    const links = within(tile("lh")).getAllByRole("link");
+    // Positive controls: the in-app path and the external link both render.
+    expect(links.map((a) => a.textContent)).toEqual(["Outside(opens in a new tab)", "Home"]);
+    const [outside, home] = links;
+    expect(outside.getAttribute("href")).toBe("https://evil.example/");
+    expect(outside.getAttribute("target")).toBe("_blank");
+    expect(outside.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(home.getAttribute("href")).toBe("/acme/projects/ACME");
+    expect(home.getAttribute("target")).toBeNull();
+    // Every link that does not announce itself as external resolves to THIS
+    // origin, the way the browser will resolve it.
+    for (const a of links.filter((l) => l.getAttribute("target") !== "_blank")) {
+      expect(new URL(a.getAttribute("href")!, window.location.origin).origin).toBe(
+        window.location.origin,
+      );
+    }
+    const html = tile("lh").innerHTML;
+    // No href that starts `//`, `/\` or `/<whitespace>` (the allowed external
+    // link legitimately contains `//evil`, after its scheme).
+    expect(html).not.toMatch(/javascript:|data:text|href="\/[\/\\\s]/);
+  });
+
+  it("quick-action is a real button that opens the New work item form", () => {
+    renderGrid([widget({ id: "qa", type: "quick-action", config: { label: "Log a bug" }, layout: big })]);
+    expect(within(tile("qa")).getByRole("button", { name: /Log a bug/ })).toBeTruthy();
+  });
+
+  it("software.burndown draws the active sprint's burndown", () => {
+    renderGrid([widget({ id: "sb", type: "software.burndown", layout: big })]);
+    expect(within(tile("sb")).getByText("Interval burndown")).toBeTruthy();
+  });
+
+  it("software.velocity says what it reads, and says so when there is nothing", () => {
+    renderGrid([widget({ id: "sv", type: "software.velocity", layout: big })]);
+    expect(within(tile("sv")).getByText("Story points per finished sprint, as recorded at close")).toBeTruthy();
+    cleanup();
+    renderGrid([widget({ id: "sv2", type: "software.velocity", layout: big })], { ...DATA, velocity: [] });
+    expect(within(tile("sv2")).getByText("No finished sprints with a recorded velocity yet")).toBeTruthy();
+  });
+
+  it("aec.rfi-tracker lists only items carrying an RFI number", () => {
+    renderGrid([widget({ id: "rf", type: "aec.rfi-tracker", layout: big })]);
+    const rows = [...tile("rf").querySelectorAll("tbody tr")].map((r) => r.textContent);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toContain("RFI-007");
+    expect(rows[0]).toContain("Payment retries");
+  });
+
+  it("aec.submittal-log lists only items carrying a submittal status", () => {
+    renderGrid([widget({ id: "sl", type: "aec.submittal-log", layout: big })]);
+    const rows = [...tile("sl").querySelectorAll("tbody tr")].map((r) => r.textContent);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toContain("ACME-2");
+    expect(rows[0]).toContain("Approved");
+  });
+
+  it("ops.incident-summary groups OPEN incidents by priority", () => {
+    renderGrid([widget({ id: "is", type: "ops.incident-summary", layout: big })]);
+    const t = tile("is");
+    expect(t.textContent).toContain("2 open of 2, by priority");
+    expect([...t.querySelectorAll("summary")].map((s) => s.textContent)).toEqual([
+      "Critical (1)",
+      "High (1)",
+    ]);
+    // ACME-2 is a story, not an incident.
+    expect(t.textContent).not.toContain("ACME-2");
+  });
+
+  it("each sector register says so when nothing on the board qualifies", () => {
+    const bare = { ...DATA, rows: DATA.rows.map((r) => ({ ...r, typeKey: null, customFields: {} })) };
+    renderGrid(
+      [
+        widget({ id: "e1", type: "aec.rfi-tracker", layout: { x: 0, y: 0, w: 4, h: 4 } }),
+        widget({ id: "e2", type: "aec.submittal-log", layout: { x: 4, y: 0, w: 4, h: 4 } }),
+        widget({ id: "e3", type: "ops.incident-summary", layout: { x: 8, y: 0, w: 4, h: 4 } }),
+      ],
+      bare,
+    );
+    expect(tile("e1").textContent).toBe("No work items on this board have an RFI number");
+    expect(tile("e2").textContent).toBe("No work items on this board have a submittal status");
+    expect(tile("e3").textContent).toBe("No incident work items on this board");
+  });
+});
+
 describe("keyboard reach into the scroll regions", () => {
   it("leaves no scrollable box that a keyboard cannot reach", () => {
     // axe's `scrollable-region-focusable` is SERIOUS and this gate cannot see
@@ -359,21 +710,22 @@ describe("keyboard reach into the scroll regions", () => {
     // Written as a PROPERTY over the rendered tree rather than as three
     // assertions about three divs, so a scroll region added later is caught
     // without anyone remembering to extend this.
-    const { container } = renderGrid([
-      widget({ id: "s1", type: "counter" }),
-      widget({
-        id: "s2",
-        type: "text-block",
-        config: { content: "a".repeat(400) },
-        layout: { x: 4, y: 0, w: 6, h: 3 },
-      }),
-      widget({
-        id: "s3",
-        type: "table",
-        layout: { x: 0, y: 4, w: 8, h: 5 },
-      }),
-      widget({ id: "s4", type: "list", layout: { x: 8, y: 4, w: 4, h: 4 } }),
-    ]);
+    // One of EVERY drawable type, each in its own cell, with data.
+    const { container } = renderGrid(
+      IMPLEMENTED_WIDGET_TYPES.map((type, i) =>
+        widget({
+          id: `s${i}`,
+          type,
+          config:
+            type === "text-block"
+              ? { content: "a".repeat(400) }
+              : type === "link-list"
+                ? { links: "Docs|https://example.com/docs" }
+                : {},
+          layout: { x: (i % 2) * 6, y: Math.floor(i / 2) * 6, w: 6, h: 6 },
+        }),
+      ),
+    );
 
     const scrollers = [
       ...container.querySelectorAll<HTMLElement>(
@@ -381,7 +733,7 @@ describe("keyboard reach into the scroll regions", () => {
       ),
     ];
     // Positive control: a probe that found nothing would pass this silently.
-    expect(scrollers.length).toBeGreaterThan(3);
+    expect(scrollers.length).toBeGreaterThan(10);
 
     for (const el of scrollers) {
       const reachable =

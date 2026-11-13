@@ -6,8 +6,16 @@ import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requireBoardRead } from "@/lib/rbac/board-access";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
+import {
+  canManageOwnBoard,
+  mergeOwnerConfig,
+  OWNER_EDITABLE_BOARD_FIELDS,
+} from "@/lib/rbac/board-ownership";
+import { boardForReader } from "@/lib/boards/board-dto";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { widgetLinkProblems, widgetLinkRefusal } from "@/lib/boards/widget-links";
+import { problem } from "@/lib/openapi/problem";
 import { z } from "zod";
 import { BoardType, Prisma } from "@prisma/client";
 
@@ -47,7 +55,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // team scoping is meant to withhold.
     await requireBoardRead(ctx, projectId, board);
 
-    return success((await withStatusCategories(prisma, projectId, [board!]))[0]);
+    return success(boardForReader((await withStatusCategories(prisma, projectId, [board!]))[0], ctx.userId));
   } catch (error) {
     return handleApiError(error);
   }
@@ -63,18 +71,59 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     // Inheriting authority: org-wide BOARD_UPDATE holder OR a MANAGER of the
     // project that owns this board (a project-admin runs their own boards).
-    if (
-      !hasPermission(ctx.permissions, Permission.BOARD_UPDATE) &&
-      !(await canManageProject(ctx, projectId, Permission.BOARD_UPDATE))
-    ) {
-      return new Response("Forbidden", { status: 403 });
-    }
+    const managesBoards =
+      hasPermission(ctx.permissions, Permission.BOARD_UPDATE) ||
+      (await canManageProject(ctx, projectId, Permission.BOARD_UPDATE));
 
     const existing = await prisma.board.findFirst({ where: { id: boardId, projectId, orgId } });
+
+    // …or the person who made this board (`canManageOwnBoard`). Checked only
+    // when the manager gate said no, and answered with the SAME 403 the manager
+    // gate always gave — whether the board is missing or someone else's — so a
+    // member probing ids learns nothing they could not learn before.
+    if (!managesBoards) {
+      if (!existing || !(await canManageOwnBoard(ctx, projectId, existing))) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      // The owner path stands on the board being THEIRS TO SEE as well: a
+      // creator later moved off a restricted project, or off the board's team,
+      // must not keep editing through a URL.
+      await requireProjectRead(ctx, projectId, "BOARD_READ");
+      await requireBoardRead(ctx, projectId, existing);
+    }
     if (!existing) return new Response("Not found", { status: 404 });
 
     const body = await request.json();
     const data = updateBoardSchema.parse(body);
+
+    // An owner may rename their board and change its layout. Team assignment,
+    // type and tab order are project-management acts: they change how the
+    // project is organised for everyone, not what this one board shows.
+    if (!managesBoards) {
+      const beyond = (Object.keys(data) as Array<keyof typeof data>).filter(
+        (k) =>
+          data[k] !== undefined &&
+          !(OWNER_EDITABLE_BOARD_FIELDS as readonly string[]).includes(k),
+      );
+      if (beyond.length > 0) {
+        return new Response(
+          JSON.stringify({
+            error: `Only a project manager can change a board's ${beyond.join(", ")}.`,
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        );
+      }
+    }
+
+    // The same link rule the Link List draws with, so a direct API write cannot
+    // store a link the page would refuse to show (`widget-links.ts`).
+    const linkProblems = widgetLinkProblems((data.config as { widgets?: unknown } | undefined)?.widgets);
+    if (linkProblems.length > 0) {
+      return problem(400, "invalid_request", widgetLinkRefusal(linkProblems), {
+        request,
+        issues: linkProblems.map((message) => ({ message })),
+      });
+    }
 
     // A team id from another project would otherwise be accepted and make the
     // board invisible to everyone on THIS one — the FK only proves the team
@@ -92,12 +141,18 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    // A manager writes the config they send. An owner writes only its layout
+    // keys over what is stored (`mergeOwnerConfig`): the rest of a board's
+    // config is not theirs, even when the builder echoes it back.
+    const config =
+      data.config === undefined ? undefined : managesBoards ? data.config : mergeOwnerConfig(existing.config, data.config);
+
     const updated = await prisma.board.update({
       where: { id: boardId },
       data: {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.type !== undefined && { type: data.type }),
-        ...(data.config !== undefined && { config: data.config as Prisma.InputJsonValue }),
+        ...(config !== undefined && { config: config as Prisma.InputJsonValue }),
         ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
         ...(data.teamId !== undefined && { teamId: data.teamId }),
       },
@@ -114,7 +169,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
-    return success((await withStatusCategories(prisma, projectId, [updated]))[0]);
+    return success(boardForReader((await withStatusCategories(prisma, projectId, [updated]))[0], ctx.userId));
   } catch (error) {
     return handleApiError(error);
   }
@@ -128,15 +183,31 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    // Inheriting authority: org-wide BOARD_DELETE holder OR project MANAGER.
-    if (
-      !hasPermission(ctx.permissions, Permission.BOARD_DELETE) &&
-      !(await canManageProject(ctx, projectId, Permission.BOARD_DELETE))
-    ) {
-      return new Response("Forbidden", { status: 403 });
-    }
+    // Inheriting authority: org-wide BOARD_DELETE holder OR project MANAGER,
+    // or the board's own creator (same reasoning and same 403 as PUT above).
+    const managesBoards =
+      hasPermission(ctx.permissions, Permission.BOARD_DELETE) ||
+      (await canManageProject(ctx, projectId, Permission.BOARD_DELETE));
 
     const existing = await prisma.board.findFirst({ where: { id: boardId, projectId, orgId } });
+    if (!managesBoards) {
+      if (!existing || !(await canManageOwnBoard(ctx, projectId, existing))) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      await requireProjectRead(ctx, projectId, "BOARD_READ");
+      await requireBoardRead(ctx, projectId, existing);
+      // Deleting a board cascades to its ceremonies and every note on them —
+      // other people's writing. That is a manager's call, whoever made the
+      // board.
+      if ((await prisma.sprintCeremony.count({ where: { boardId: existing.id } })) > 0) {
+        return new Response(
+          JSON.stringify({
+            error: "This board has ceremony notes on it. Only a project manager can delete it.",
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        );
+      }
+    }
     if (!existing) return new Response("Not found", { status: 404 });
 
     await prisma.board.delete({ where: { id: boardId } });

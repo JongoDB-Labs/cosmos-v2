@@ -8,6 +8,8 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
+import { widgetLinkProblems, widgetLinkRefusal } from "@/lib/boards/widget-links";
+import { problem } from "@/lib/openapi/problem";
 
 const updateWidgetSchema = z.object({
   type: z.string().min(1).max(60).optional(),
@@ -54,6 +56,16 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = updateWidgetSchema.parse(body);
+
+    // The same link rule the Link List draws with, so a direct API write cannot
+    // store a link the page would refuse to show (`widget-links.ts`).
+    const linkProblems = widgetLinkProblems([{ config: data.config }]);
+    if (linkProblems.length > 0) {
+      return problem(400, "invalid_request", widgetLinkRefusal(linkProblems), {
+        request,
+        issues: linkProblems.map((message) => ({ message })),
+      });
+    }
 
     const updated = await prisma.dashboardWidget.update({
       where: { id: widgetId },

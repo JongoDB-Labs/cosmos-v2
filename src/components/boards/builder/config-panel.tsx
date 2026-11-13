@@ -11,32 +11,53 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Trash2, Settings2 } from "lucide-react";
-import { WIDGET_METRICS, WIDGET_GROUPS } from "@/lib/boards/widget-data";
+import {
+  WIDGET_METRICS,
+  WIDGET_GROUPS,
+  WIDGET_RATIOS,
+  widgetDays,
+  widgetMaxItems,
+} from "@/lib/boards/widget-data";
+import { widgetDefinition } from "@/lib/boards/widget-definitions";
+import { checkWidgetLinkTarget, widgetLinkLines } from "@/lib/boards/widget-links";
 import type { BuilderWidget } from "@/types/models";
 
-const presetColors = [
-  { label: "Blue", value: "#3b82f6" },
-  { label: "Green", value: "#22c55e" },
-  { label: "Yellow", value: "#eab308" },
-  { label: "Red", value: "#ef4444" },
-  { label: "Purple", value: "#a855f7" },
-  { label: "Pink", value: "#ec4899" },
-  { label: "Orange", value: "#f97316" },
-  { label: "Gray", value: "#6b7280" },
-];
+/** The widgets that break the board's items down by one grouping. */
+const GROUPED_TYPES = new Set(["bar-chart", "pie-chart", "grouped-list"]);
 
-const dataSources = [
-  { label: "Work Items", value: "work-items" },
-  { label: "Sprints", value: "sprints" },
-  { label: "Objectives", value: "objectives" },
-  { label: "Activity", value: "activity" },
-  { label: "Members", value: "members" },
-];
+/**
+ * The widgets with a row cap, and the cap each one uses when none is set — the
+ * same fallback the widget itself passes to `widgetMaxItems`, so the number
+ * shown here is the number the tile is actually using.
+ */
+const MAX_ITEMS_DEFAULT: Record<string, number> = {
+  list: 10,
+  table: 25,
+  "grouped-list": 25,
+  checklist: 25,
+  "activity-feed": 10,
+  "deadline-list": 10,
+  gantt: 12,
+  "aec.rfi-tracker": 25,
+  "aec.submittal-log": 25,
+  "ops.incident-summary": 25,
+};
 
 interface ConfigPanelProps {
   widget: BuilderWidget | null;
   onUpdateConfig: (config: Record<string, unknown>) => void;
   onDelete: () => void;
+}
+
+/** The Link List lines the save routes would refuse, and why. */
+function linkLineProblems(raw: unknown): Array<{ line: number; reason: string }> {
+  if (typeof raw !== "string") return [];
+  const out: Array<{ line: number; reason: string }> = [];
+  for (const l of widgetLinkLines(raw)) {
+    const check = checkWidgetLinkTarget(l.target);
+    if (!check.ok) out.push({ line: l.line, reason: check.reason });
+  }
+  return out;
 }
 
 export function ConfigPanel({ widget, onUpdateConfig, onDelete }: ConfigPanelProps) {
@@ -57,18 +78,24 @@ export function ConfigPanel({ widget, onUpdateConfig, onDelete }: ConfigPanelPro
   }
 
   const config = widget.config;
+  const linkProblems = linkLineProblems(config.links);
 
   return (
     <div className="flex flex-col w-72 border-l bg-muted/30 overflow-y-auto">
       <div className="flex items-center justify-between p-3 border-b">
         <div>
           <h3 className="text-sm font-semibold">Configure</h3>
-          <p className="text-xs text-muted-foreground capitalize">
-            {widget.type.replace(/-/g, " ")}
+          <p className="text-xs text-muted-foreground">
+            {widgetDefinition(widget.type)?.name ?? widget.type}
           </p>
         </div>
-        <Button variant="destructive" size="icon-sm" onClick={onDelete}>
-          <Trash2 className="h-3.5 w-3.5" />
+        <Button
+          variant="destructive"
+          size="icon-sm"
+          onClick={onDelete}
+          aria-label="Remove widget"
+        >
+          <Trash2 className="h-3.5 w-3.5" aria-hidden />
         </Button>
       </div>
 
@@ -82,59 +109,6 @@ export function ConfigPanel({ widget, onUpdateConfig, onDelete }: ConfigPanelPro
             onChange={(e) => onUpdateConfig({ title: e.target.value })}
             placeholder="Widget title"
           />
-        </div>
-
-        {/* Data source — for data widgets */}
-        {(widget.type === "card-list" ||
-          widget.type === "metric-counter" ||
-          widget.type === "bar-chart" ||
-          widget.type === "pie-chart" ||
-          widget.type === "activity-feed" ||
-          widget.type === "burndown-chart") && (
-          <div className="flex flex-col gap-1.5">
-            <Label>Data Source</Label>
-            <Select
-              value={(config.dataSource as string) ?? "work-items"}
-              onValueChange={(val) => onUpdateConfig({ dataSource: val })}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {dataSources.map((src) => (
-                  <SelectItem key={src.value} value={src.value}>
-                    {src.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {/* Color */}
-        <div className="flex flex-col gap-1.5">
-          <Label>Color</Label>
-          <Select
-            value={(config.color as string) ?? "#3b82f6"}
-            onValueChange={(val) => onUpdateConfig({ color: val })}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {presetColors.map((c) => (
-                <SelectItem key={c.value} value={c.value}>
-                  <span className="flex items-center gap-2">
-                    <span
-                      className="h-3 w-3 rounded-full border"
-                      style={{ backgroundColor: c.value }}
-                    />
-                    {c.label}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
 
         {/* Text content — for text block */}
@@ -157,24 +131,31 @@ export function ConfigPanel({ widget, onUpdateConfig, onDelete }: ConfigPanelPro
             <Label htmlFor="widget-links">Links (one per line, format: Label|URL)</Label>
             <textarea
               id="widget-links"
-              className="flex min-h-[80px] w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+              className="flex min-h-[80px] w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive dark:bg-input/30"
               value={(config.links as string) ?? ""}
               onChange={(e) => onUpdateConfig({ links: e.target.value })}
               placeholder={"Docs|https://...\nAPI|https://..."}
+              aria-invalid={linkProblems.length > 0 || undefined}
+              aria-describedby={linkProblems.length > 0 ? "widget-links-problems" : undefined}
             />
-          </div>
-        )}
-
-        {/* Metric label — for metric counter */}
-        {widget.type === "metric-counter" && (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="widget-label">Label</Label>
-            <Input
-              id="widget-label"
-              value={(config.label as string) ?? ""}
-              onChange={(e) => onUpdateConfig({ label: e.target.value })}
-              placeholder="e.g. Open work items"
-            />
+            {/* The server refuses a layout holding any of these (400), so say
+                which line and why HERE, before Save fails with a toast. Same
+                rule as the server and the renderer: `widget-links.ts`. */}
+            {linkProblems.length > 0 && (
+              <ul
+                id="widget-links-problems"
+                // The text token, not `text-destructive`: the fill colour fails
+                // AA contrast at this size on the light canvas (axe, measured).
+                className="space-y-0.5 text-xs text-[var(--status-critical-text,var(--status-critical))]"
+                data-testid="widget-links-problems"
+              >
+                {linkProblems.map((p) => (
+                  <li key={p.line}>
+                    Line {p.line}: the link {p.reason}, so this layout can&apos;t be saved.
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 
@@ -242,8 +223,9 @@ export function ConfigPanel({ widget, onUpdateConfig, onDelete }: ConfigPanelPro
           </div>
         )}
 
-        {/* What the bars are. Same reasoning as Metric above. */}
-        {widget.type === "bar-chart" && (
+        {/* What the bars, slices or groups are. Same reasoning as Metric
+            above. */}
+        {GROUPED_TYPES.has(widget.type) && (
           <div className="flex flex-col gap-1.5">
             <Label>Group by</Label>
             <Select
@@ -264,21 +246,73 @@ export function ConfigPanel({ widget, onUpdateConfig, onDelete }: ConfigPanelPro
           </div>
         )}
 
-        {/* Max items — for lists/feeds */}
-        {(widget.type === "card-list" ||
-          widget.type === "activity-feed" ||
-          widget.type === "list" ||
-          widget.type === "table") && (
+        {/* Which share a gauge shows. */}
+        {widget.type === "gauge" && (
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="widget-max-items">Max Items</Label>
+            <Label>Share of items</Label>
+            <Select
+              value={(config.metric as string) ?? "completed"}
+              onValueChange={(val) => onUpdateConfig({ metric: val })}
+            >
+              <SelectTrigger className="w-full" aria-label="Share of items">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {WIDGET_RATIOS.map((r) => (
+                  <SelectItem key={r.key} value={r.key}>
+                    {r.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* How far back the area chart reaches. */}
+        {widget.type === "area-chart" && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="widget-days">Days shown</Label>
+            <Input
+              id="widget-days"
+              type="number"
+              min={7}
+              max={365}
+              value={widgetDays(config, 30)}
+              onChange={(e) =>
+                onUpdateConfig({ days: parseInt(e.target.value, 10) || 30 })
+              }
+            />
+          </div>
+        )}
+
+        {/* The button's own words. */}
+        {widget.type === "quick-action" && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="widget-button-label">Button label</Label>
+            <Input
+              id="widget-button-label"
+              value={(config.label as string) ?? ""}
+              onChange={(e) => onUpdateConfig({ label: e.target.value })}
+              placeholder="New work item"
+            />
+          </div>
+        )}
+
+        {/* Row cap — for the widgets that list items. */}
+        {widget.type in MAX_ITEMS_DEFAULT && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="widget-max-items">Max items</Label>
             <Input
               id="widget-max-items"
               type="number"
               min={1}
               max={50}
-              value={(config.maxItems as number) ?? 10}
+              value={widgetMaxItems(config, MAX_ITEMS_DEFAULT[widget.type])}
               onChange={(e) =>
-                onUpdateConfig({ maxItems: parseInt(e.target.value, 10) || 10 })
+                onUpdateConfig({
+                  maxItems:
+                    parseInt(e.target.value, 10) || MAX_ITEMS_DEFAULT[widget.type],
+                })
               }
             />
           </div>

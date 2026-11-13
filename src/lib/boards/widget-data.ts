@@ -17,6 +17,15 @@
  * reused here come from `src/lib/dashboard/*` instead, which the dashboard view
  * already imports.
  */
+import {
+  isWorkItemResolved,
+  type DoneStateColumn,
+} from "@/lib/work-items/done-state";
+import {
+  checkWidgetLinkTarget,
+  MAX_WIDGET_LINKS,
+  widgetLinkLines,
+} from "./widget-links";
 import type { BuilderWidget } from "@/types/models";
 
 /** One categorical bucket — a bar or a slice. */
@@ -42,11 +51,73 @@ export interface WidgetItemRow {
   title: string;
   /** The status COLUMN's display name, not its category. */
   status: string;
+  /** The status column's key — what `isWorkItemResolved` reads, with the category. */
+  columnKey: string;
+  /**
+   * The status's workflow category — TODO, IN_PROGRESS, DONE or CANCELLED —
+   * read from the same column map the Completed and In Progress counters use,
+   * so a checklist tick and the Completed number cannot disagree.
+   */
+  statusCategory: string;
   priority: string;
   /** Display name, or "Unassigned". Never a bare user id. */
   assignee: string;
   /** ISO, or null. Formatting belongs to the widget. */
   dueDate: string | null;
+  startDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  /** The work type's catalogue key (`bug`, `ops.incident`), when it has one. */
+  typeKey: string | null;
+  typeName: string | null;
+  /**
+   * The item's custom field values, keyed by field key, exactly as the
+   * work-items route returned them. Only the AEC skins read it.
+   */
+  customFields: Record<string, unknown>;
+}
+
+/**
+ * The row's own status as the one-column list `isWorkItemResolved` and
+ * `isWorkItemDone` take. The row already carries the category the board's
+ * workflow gave its column, so the shared rules read THAT, not a guess from the
+ * column's name.
+ */
+export function rowStatusColumns(
+  row: Pick<WidgetItemRow, "columnKey" | "statusCategory">,
+): DoneStateColumn[] {
+  return [{ key: row.columnKey, category: row.statusCategory }];
+}
+
+/**
+ * Done or cancelled: no longer work anyone has to do. The shared presentation
+ * rule (`isWorkItemResolved`, bug 635be41c), not a second spelling of it.
+ */
+export function isClosedRow(
+  row: Pick<WidgetItemRow, "columnKey" | "statusCategory" | "completedAt">,
+): boolean {
+  return isWorkItemResolved(row, rowStatusColumns(row));
+}
+
+/** One finished sprint, as its report recorded it at close. */
+export interface WidgetVelocityPoint {
+  id: string;
+  name: string;
+  /** Story points finished. */
+  completed: number;
+  /** Story points the sprint held at close, or null on a report that predates it. */
+  committed: number | null;
+}
+
+/** A sprint or other interval, for the timeline. */
+export interface WidgetIntervalSpan {
+  id: string;
+  name: string;
+  /** ISO. */
+  startDate: string;
+  endDate: string;
+  status: "PLANNED" | "ACTIVE" | "COMPLETED";
 }
 
 /** The metrics a `counter` / `kpi-card` may point at. Order is palette order. */
@@ -71,12 +142,23 @@ export type WidgetGroupKey = (typeof WIDGET_GROUPS)[number]["key"];
 
 /** Everything a widget on this board can read. Computed once, per render pass. */
 export interface BoardWidgetData {
+  /** `PROJ` — for links and the New work item form. */
+  projectKey: string;
   metrics: Record<WidgetMetricKey, number>;
   series: Record<WidgetGroupKey, WidgetSeriesPoint[]>;
   /** The active interval's burndown. Empty when there is no active interval. */
   burndown: WidgetTimePoint[];
   /** The filtered items, flattened. Already in the board's own order. */
   rows: WidgetItemRow[];
+  /**
+   * Finished sprints, oldest first, from the reports written when each one
+   * closed. NOT narrowed by the filter bar: a closed sprint's report is a
+   * record of what that sprint held, not a view of today's items, which is
+   * also how the board's own "Across time" view reads it.
+   */
+  velocity: WidgetVelocityPoint[];
+  /** The project's sprints — not the increments that contain them. */
+  intervals: WidgetIntervalSpan[];
 }
 
 /**
@@ -90,10 +172,13 @@ export interface BoardWidgetData {
  * is handed a reason to write.
  */
 export const EMPTY_WIDGET_DATA: BoardWidgetData = {
+  projectKey: "",
   metrics: { total: 0, completed: 0, inProgress: 0, overdue: 0 },
   series: { status: [], priority: [], assignee: [], type: [] },
   burndown: [],
   rows: [],
+  velocity: [],
+  intervals: [],
 };
 
 const METRIC_KEYS = WIDGET_METRICS.map((m) => m.key) as readonly string[];
@@ -163,6 +248,98 @@ export function widgetConfigText(
 ): string {
   const raw = config[key];
   return typeof raw === "string" && raw.trim().length > 0 ? raw : fallback;
+}
+
+/** The shares a gauge can show: the metric over the board's total. */
+export const WIDGET_RATIOS = [
+  { key: "completed", label: "Completed" },
+  { key: "inProgress", label: "In progress" },
+  { key: "overdue", label: "Overdue" },
+] as const;
+
+export type WidgetRatioKey = (typeof WIDGET_RATIOS)[number]["key"];
+
+const RATIO_KEYS = WIDGET_RATIOS.map((r) => r.key) as readonly string[];
+
+/** Which share a gauge shows, defaulting to `completed`. */
+export function widgetRatioKey(config: Record<string, unknown>): WidgetRatioKey {
+  const raw = config.metric;
+  return typeof raw === "string" && RATIO_KEYS.includes(raw)
+    ? (raw as WidgetRatioKey)
+    : "completed";
+}
+
+/** A day count from config, clamped to 7–365. Used for the area chart's window. */
+export function widgetDays(config: Record<string, unknown>, fallback = 30): number {
+  const raw = config.days;
+  const n = typeof raw === "number" ? raw : Number.parseInt(String(raw), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(365, Math.max(7, Math.trunc(n)));
+}
+
+/** One entry of a Link List. */
+export interface WidgetLink {
+  label: string;
+  href: string;
+  /** Leaves the app: opens in a new tab, with no opener and no referrer. */
+  external: boolean;
+}
+
+/**
+ * The links a Link List draws: every line that passes the shared rule in
+ * `widget-links.ts` (http(s), or an in-app path that provably stays in the
+ * app), as its normalised href. A line that fails is dropped rather than drawn
+ * as a dead link — and cannot be saved in the first place, because the save
+ * routes run the same rule (`widgetLinkProblems`).
+ *
+ * `origin` is the viewer's `location.origin` when there is one.
+ */
+export function widgetLinks(config: Record<string, unknown>, origin?: string): WidgetLink[] {
+  const raw = config.links;
+  if (typeof raw !== "string") return [];
+  const out: WidgetLink[] = [];
+  for (const l of widgetLinkLines(raw)) {
+    const check = checkWidgetLinkTarget(l.target, origin);
+    if (!check.ok) continue;
+    out.push({ label: l.label, href: check.href, external: check.external });
+    if (out.length >= MAX_WIDGET_LINKS) break;
+  }
+  return out;
+}
+
+/**
+ * The rows grouped by one of the board's groupings, in a stable order: the
+ * order the series already uses (so a grouped list and a bar chart of the same
+ * grouping list their buckets alike), then any group the series did not name.
+ */
+export function groupRows(
+  rows: WidgetItemRow[],
+  group: WidgetGroupKey,
+  order: readonly string[] = [],
+): Array<{ name: string; rows: WidgetItemRow[] }> {
+  const pick = (r: WidgetItemRow): string => {
+    switch (group) {
+      case "status":
+        return r.status;
+      case "priority":
+        return r.priority;
+      case "assignee":
+        return r.assignee;
+      case "type":
+        return r.typeName ?? "No type";
+    }
+  };
+  const buckets = new Map<string, WidgetItemRow[]>();
+  for (const name of order) buckets.set(name, []);
+  for (const r of rows) {
+    const name = pick(r);
+    const bucket = buckets.get(name);
+    if (bucket) bucket.push(r);
+    else buckets.set(name, [r]);
+  }
+  return [...buckets.entries()]
+    .filter(([, list]) => list.length > 0)
+    .map(([name, list]) => ({ name, rows: list }));
 }
 
 /**

@@ -18,6 +18,7 @@ import { createProject, listProjects } from "./route.contract";
 import { seedBoardColumns } from "@/lib/workflow/provision.server";
 import { applyNamePattern, projectNumbering } from "@/lib/projects/numbering";
 import { allocateProjectNumber, isProjectNumberConflict } from "@/lib/projects/numbering.server";
+import { boardForReader } from "@/lib/boards/board-dto";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -276,7 +277,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     revalidateOrgProjects(orgId);
 
-    return respond(createProject, 201, project);
+    return respond(createProject, 201, {
+      ...project!,
+      boards: project!.boards.map((b) => boardForReader(b, ctx.userId)),
+    });
   } catch (error) {
     return handleApiError(error, request);
   }
