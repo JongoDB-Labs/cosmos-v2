@@ -7,8 +7,8 @@ import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { MS_CALENDAR, MS_CALENDAR_CALLBACK_PATH, calendarAdminConsentUrl } from "@/lib/integrations/microsoft/calendar-connect";
-import { liveInvites, releaseInvitesOnDisconnect, removeCosmosCalendar } from "@/lib/integrations/microsoft/calendar-sync.server";
-import { calendarConnection, disconnectCalendar, orgCalendarConfig } from "@/lib/integrations/microsoft/calendar-token.server";
+import { disconnectOutlook, liveInvites, releaseInvitesOnDisconnect } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { calendarConnection, orgCalendarConfig } from "@/lib/integrations/microsoft/calendar-token.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -59,7 +59,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 /**
- * Disconnect: the Outlook "Cosmos" calendar is removed if Microsoft allows, then
+ * Disconnect: the Teams meetings their Outlook holds for Cosmos meetings are
+ * ended, the Outlook "Cosmos" calendar is removed if Microsoft allows, then
  * our sealed token and links are deleted. Someone who sends Outlook invitations
  * for upcoming meetings must say what happens to them (?invites=keep|cancel);
  * without it the answer is 409 with how many there are.
@@ -78,8 +79,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       }
       await releaseInvitesOnDisconnect(r.org.id, r.ctx.userId, choice);
     }
-    const calendarRemoved = await removeCosmosCalendar(r.org.id, r.ctx.userId);
-    const had = await disconnectCalendar(r.org.id, r.ctx.userId);
+    // Teams meetings their Outlook holds end there first, then the calendar, token and links go.
+    const { had, calendarRemoved } = await disconnectOutlook(r.org.id, r.ctx.userId);
     if (had) {
       await logAudit({
         orgId: r.org.id, userId: r.ctx.userId, action: "microsoft_calendar.disconnected",

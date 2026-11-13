@@ -56,7 +56,7 @@ describe("renderFeed (e2e DB)", () => {
     await prisma.meetingAttendee.create({ data: { meetingId: meeting.id, userId: owner.id } });
     const { token, tokenHash } = newFeedToken();
     const feed = await prisma.calendarFeed.create({ data: { orgId: org.id, userId: owner.id, tokenHash, options: {} } });
-    return { org, owner, token, feed };
+    return { org, owner, token, feed, open };
   }
 
   it("serves my dated work and meetings in the window, and nothing else", async () => {
@@ -78,6 +78,23 @@ describe("renderFeed (e2e DB)", () => {
     expect(ics.match(/SUMMARY:Busy/g)).toHaveLength(2);
     expect(ics).toContain("DTSTART;VALUE=DATE:20261031");
     expect(ics).toContain("DTSTART;VALUE=DATE:20261102");
+  });
+
+  it("leaves out a meeting the person may not read, by the rule every meeting door uses", async () => {
+    const { org, owner, token, open } = await setup();
+    const inOpen = await prisma.syncMeeting.create({
+      data: { orgId: org.id, projectId: open.id, title: "Planning in OP", meetingDate: new Date("2026-10-25T15:00:00Z"), createdById: owner.id },
+    });
+    await prisma.meetingAttendee.create({ data: { meetingId: inOpen.id, userId: owner.id } });
+    const ics = async () => (await renderFeed(token, { origin: ORIGIN, now: NOW }))!.ics.replace(/\r\n /g, "");
+    expect(await ics()).toContain("SUMMARY:Planning in OP"); // the positive control
+    await prisma.orgMember.updateMany({
+      where: { orgId: org.id, userId: owner.id },
+      data: { abacRules: { rules: [{ effect: "deny", actions: ["MEETING_READ"], conditions: [{ attr: "projectId", op: "eq", value: open.id }] }] } },
+    });
+    const after = await ics();
+    expect(after).not.toContain("Planning in OP");
+    expect(after).toContain("SUMMARY:Sprint review"); // the deny is that project's only
   });
 
   it("is byte-identical across fetches when nothing changed (ETag-stable)", async () => {

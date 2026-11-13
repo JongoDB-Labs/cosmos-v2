@@ -50,6 +50,7 @@ import type { SyncMeeting, MeetingAttendee, OrgMember } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
 import { LoadError } from "@/components/ui/load-error";
 import { OutlookInvitePanel } from "./outlook-invite";
+import { TeamsJoinLink, TeamsMeetingPanel } from "./teams-meeting";
 
 interface MeetingDetailProps {
   orgId: string;
@@ -514,6 +515,8 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
       </div>
 
       <div className="flex flex-wrap gap-2">
+        {/* A link with no host is a dead one: nothing in Outlook holds its Teams meeting. */}
+        {meeting.teamsHostId && meeting.teamsJoinUrl && meeting.status !== "CANCELLED" && <TeamsJoinLink url={meeting.teamsJoinUrl} />}
         {meeting.meetingUrl ? (
           <>
             <a
@@ -774,6 +777,13 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
       </div>
 
       <OutlookInvitePanel orgId={orgId} meetingId={meetingId} version={refreshKey} />
+
+      <TeamsMeetingPanel
+        orgId={orgId}
+        meetingId={meetingId}
+        version={refreshKey}
+        onChange={(t) => setMeeting((m) => (m ? { ...m, teamsHostId: t.hostId, teamsJoinUrl: t.joinUrl } : m))}
+      />
 
       <Separator />
 

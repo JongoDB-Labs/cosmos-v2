@@ -457,6 +457,7 @@ model User {
   calendarFeeds               CalendarFeed[]
   externalEventLinks          ExternalEventLink[]
   meetingInvitesOrganized     SyncMeeting[]        @relation("MeetingInviteOrganizer")
+  meetingsHostingTeams        SyncMeeting[]        @relation("MeetingTeamsHost")
   ownedAutomationRules        AutomationRule[]     @relation("AutomationRuleOwner")
   teamsConversations          TeamsConversation[]
   slackUserLinks              SlackUserLink[]
@@ -2750,12 +2751,23 @@ model SyncMeeting {
   /// COSMOS-202 B2 invite mode: set while real Outlook invitations go out from
   /// this person's calendar. Null = attendees get mirrored copies instead.
   inviteOrganizerId  String?                     @map("invite_organizer_id") @db.Uuid
+  /// A Teams meeting: set while the meeting has one, made in this person's
+  /// Outlook (their own copy, or their invitation in invite mode). Null = off.
+  teamsHostId        String?                     @map("teams_host_id") @db.Uuid
+  /// The Teams join link Microsoft returned for the host's event. Not a
+  /// secret, but it lets people join: shown only to people who can see the meeting.
+  teamsJoinUrl       String?                     @map("teams_join_url")
+  /// Why there is no join link while it's on: "no_join_url" (Microsoft made
+  /// the event but no Teams meeting). Null otherwise.
+  teamsIssue         String?                     @map("teams_issue")
 
   attendees       MeetingAttendee[]
   customType      MeetingTypeOption? @relation(fields: [customTypeId], references: [id], onDelete: SetNull)
   inviteOrganizer User?              @relation("MeetingInviteOrganizer", fields: [inviteOrganizerId], references: [id], onDelete: SetNull)
+  teamsHost       User?              @relation("MeetingTeamsHost", fields: [teamsHostId], references: [id], onDelete: SetNull)
 
   @@index([orgId, meetingDate])
+  @@index([teamsHostId])
   @@map("sync_meetings")
 }
 

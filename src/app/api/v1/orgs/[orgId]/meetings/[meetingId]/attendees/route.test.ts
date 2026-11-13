@@ -39,7 +39,7 @@ const req = (method: string, body: unknown) =>
 beforeEach(() => {
   vi.clearAllMocks();
   getAuthContext.mockResolvedValue({
-    userId: ME, orgId: ORG_ID, orgRole: OrgRole.ADMIN, permissions: bits("MEETING_UPDATE"), basePermissions: bits("MEETING_UPDATE"), abacRules: [],
+    userId: ME, orgId: ORG_ID, orgRole: OrgRole.ADMIN, permissions: bits("MEETING_READ", "MEETING_UPDATE"), basePermissions: bits("MEETING_READ", "MEETING_UPDATE"), abacRules: [],
   });
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
   prisma.syncMeeting.findFirst.mockResolvedValue({ id: MEETING, meetingType: "STANDUP", meetingDate: new Date() });

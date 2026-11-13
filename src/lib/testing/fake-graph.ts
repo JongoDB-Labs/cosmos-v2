@@ -3,6 +3,14 @@
  * sync uses (COSMOS-202 B2): calendars, events, and a calendarView delta of
  * one calendar. Pass `fetch` as GraphDeps.fetch. `outlookEdit` plays a person
  * changing an event in Outlook; `throttleNext` makes the next calls 429.
+ *
+ * Teams: an event written with `isOnlineMeeting: true` and
+ * `onlineMeetingProvider: "teamsForBusiness"` gets a Teams meeting and an
+ * `onlineMeeting.joinUrl`, as Graph does. Once an event is online it stays
+ * online: later writes can't change that (Graph ignores them), and never make
+ * a second Teams meeting. `teamsOff` plays a mailbox where Microsoft makes the
+ * event but no Teams meeting (a personal account, or Teams off for the
+ * tenant); `teamsRefused` one where Graph answers 400 to the Teams fields.
  */
 export interface FakeEvent {
   id: string;
@@ -18,6 +26,9 @@ export interface FakeEvent {
   showAs?: string;
   seq: number;
   removed?: boolean;
+  isOnlineMeeting?: boolean;
+  onlineMeetingProvider?: string;
+  onlineMeeting?: { joinUrl: string } | null;
 }
 
 export function fakeGraph(origin = "https://graph.microsoft.com") {
@@ -43,6 +54,31 @@ export function fakeGraph(origin = "https://graph.microsoft.com") {
   /** Every cancellation an organizer sent: what the attendees were told. */
   const cancellations: { eventId: string; subject: string; comment: string; attendees: unknown[] }[] = [];
   const sleeps: number[] = [];
+  /** Every Teams meeting Microsoft made: which event, whose mailbox, its join link. */
+  const teamsMeetings: { eventId: string; owner: string; joinUrl: string }[] = [];
+  const teamsOff = new Set<string>();
+  const teamsRefused = new Set<string>();
+  const wantsTeams = (b?: Record<string, unknown>) =>
+    b?.isOnlineMeeting === true && b.onlineMeetingProvider === "teamsForBusiness";
+  /** Graph's rule: the first write that asks makes the Teams meeting; after that it stays as it is. */
+  const goOnline = (e: FakeEvent, owner: string, b?: Record<string, unknown>) => {
+    if (e.onlineMeeting) {
+      e.isOnlineMeeting = true;
+      e.onlineMeetingProvider = "teamsForBusiness";
+      return;
+    }
+    if (!wantsTeams(b)) return;
+    if (teamsOff.has(owner)) {
+      // Microsoft makes the event, but not a Teams meeting.
+      e.isOnlineMeeting = false;
+      e.onlineMeeting = null;
+      return;
+    }
+    const joinUrl = `https://teams.microsoft.com/l/meetup-join/fake-${++n}`;
+    e.isOnlineMeeting = true;
+    e.onlineMeeting = { joinUrl };
+    teamsMeetings.push({ eventId: e.id, owner, joinUrl });
+  };
 
   const bump = (e: FakeEvent) => {
     e.seq = ++seq;
@@ -105,7 +141,9 @@ export function fakeGraph(origin = "https://graph.microsoft.com") {
       if (!mine(calendarId)) return reply(404, { error: { code: "ErrorItemNotFound" } });
       const existing = [...events.values()].find((e) => !e.removed && e.calendarId === calendarId && body?.transactionId && e.transactionId === body.transactionId);
       if (existing) return reply(201, view(existing)); // Graph dedupes on transactionId
+      if (wantsTeams(body) && teamsRefused.has(owner)) return reply(400, { error: { code: "ErrorInvalidRequest" } });
       const e = { ...(body as object), id: `ev-${++n}`, calendarId } as FakeEvent;
+      goOnline(e, owner, body);
       bump(e);
       events.set(e.id, e);
       return reply(201, view(e));
@@ -124,7 +162,11 @@ export function fakeGraph(origin = "https://graph.microsoft.com") {
       if (!e || e.removed || !mine(e.calendarId)) return reply(404, { error: { code: "ErrorItemNotFound" } });
       if (method === "GET") return reply(200, view(e));
       if (method === "PATCH") {
-        Object.assign(e, body);
+        if (wantsTeams(body) && !e.onlineMeeting && teamsRefused.has(owner)) return reply(400, { error: { code: "ErrorInvalidRequest" } });
+        const { onlineMeeting: _om, ...writable } = (body ?? {}) as Record<string, unknown>; // read-only in Graph
+        void _om;
+        Object.assign(e, writable);
+        goOnline(e, owner, body);
         bump(e);
         return reply(200, view(e));
       }
@@ -180,6 +222,11 @@ export function fakeGraph(origin = "https://graph.microsoft.com") {
       return e.id;
     },
     cancellations,
+    teamsMeetings,
+    /** This mailbox's Microsoft makes events but no Teams meetings (a personal account, Teams off). */
+    teamsOff: (token: string) => void teamsOff.add(token),
+    /** This mailbox's Graph answers 400 to the Teams fields. */
+    teamsRefused: (token: string) => void teamsRefused.add(token),
     /** The window of every delta read, in order. */
     deltaWindows,
     sleep: async (ms: number) => void sleeps.push(ms),

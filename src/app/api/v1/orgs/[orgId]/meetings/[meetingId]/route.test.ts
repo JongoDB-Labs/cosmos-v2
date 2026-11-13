@@ -26,7 +26,7 @@ const params = Promise.resolve({ orgId: ORG_ID, meetingId: MEETING_ID });
 
 function ctx(): AuthContext {
   return { userId: "4", orgId: ORG_ID, orgRole: OrgRole.MEMBER,
-    permissions: Permission.MEETING_UPDATE, basePermissions: Permission.MEETING_UPDATE, abacRules: [] };
+    permissions: Permission.MEETING_READ | Permission.MEETING_UPDATE, basePermissions: Permission.MEETING_READ | Permission.MEETING_UPDATE, abacRules: [] };
 }
 beforeEach(() => {
   vi.clearAllMocks();

@@ -71,6 +71,16 @@ describe("OutlookInvitePanel", () => {
     expect(screen.getByText(/Classified meetings can't send Outlook invitations/)).toBeTruthy();
   });
 
+  it("while someone else hosts the Teams meeting, says who to ask instead of turning it on", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue(
+      state({ canChange: false, reason: "teams_hosted_by_someone_else", teamsHostId: "u2", teamsHostName: "Dana" }) as never,
+    );
+    wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);
+    const btn = await screen.findByRole("button", { name: "Send Outlook invitations" });
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Dana hosts this meeting's Teams link. Ask them to turn on invitations, or turn Teams off first.")).toBeTruthy();
+  });
+
   it("points someone not connected at their Outlook settings", async () => {
     vi.mocked(jsonFetch).mockResolvedValue(state({ canChange: false, reason: "not_connected" }) as never);
     wrap(<OutlookInvitePanel orgId="o1" meetingId="m1" />);

@@ -9,7 +9,7 @@ import { syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.serv
 import { createNotification } from "@/lib/notifications/create";
 import { allOrgMembers, attendeesNotMembers } from "@/lib/meetings/attendee-members";
 import { z } from "zod";
-import { inVisibleProject } from "@/lib/rbac/require-project-read";
+import { canReadMeeting } from "@/lib/meetings/meeting-reader";
 
 const addAttendeeSchema = z.object({
   userId: z.string().uuid(),
@@ -43,7 +43,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const meeting = await prisma.syncMeeting.findFirst({
       where: { id: meetingId, orgId },
     });
-    if (!meeting) return new Response("Not found", { status: 404 });
+    // Their stand-up notes are the meeting's: hidden with it, as a missing one.
+    if (!meeting || !(await canReadMeeting(ctx, meeting.projectId))) return new Response("Not found", { status: 404 });
 
     const attendees = await prisma.meetingAttendee.findMany({
       where: { meetingId },
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const meeting = await prisma.syncMeeting.findFirst({
       where: { id: meetingId, orgId },
     });
-    if (!meeting || !(await inVisibleProject(ctx, meeting.projectId))) return new Response("Not found", { status: 404 });
+    if (!meeting || !(await canReadMeeting(ctx, meeting.projectId))) return new Response("Not found", { status: 404 });
 
     const body = await request.json();
     const data = addAttendeeSchema.parse(body);
@@ -132,7 +133,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const meeting = await prisma.syncMeeting.findFirst({
       where: { id: meetingId, orgId },
     });
-    if (!meeting || !(await inVisibleProject(ctx, meeting.projectId))) return new Response("Not found", { status: 404 });
+    if (!meeting || !(await canReadMeeting(ctx, meeting.projectId))) return new Response("Not found", { status: 404 });
 
     const body = await request.json();
     const data = bulkUpdateSchema.parse(body);

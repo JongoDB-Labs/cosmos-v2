@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import type { Prisma, SyncMeeting } from "@prisma/client";
 import { after } from "next/server";
@@ -19,10 +20,17 @@ import {
   onCalendarOffboard,
   orgCalendarConfig,
   patchCalendarMeta,
+  disconnectCalendar,
   type CalendarMeta,
   type OffboardReason,
 } from "./calendar-token.server";
 import { GraphError, GraphThrottled, graphRequest, type GraphDeps } from "./graph.server";
+import {
+  NO_JOIN_URL, TEAMS_FIELDS, TEAMS_OFF, forgetTeamsLinks, joinUrlFrom, recordTeamsLink, type TeamsEndReason,
+} from "./teams-link.server";
+import type { TeamsRefusal } from "@/lib/meetings/teams-messages";
+
+export type { TeamsRefusal };
 
 /**
  * COSMOS-202 (B2): Cosmos meetings mirrored into each attendee's own Outlook,
@@ -44,6 +52,8 @@ import { GraphError, GraphThrottled, graphRequest, type GraphDeps } from "./grap
  *  - Deleting the event in Outlook only detaches it; the meeting stays.
  *  - Restricted (classified) meetings go out as a bare busy block, and only a
  *    time change comes back.
+ *  - A Teams meeting is made by exactly one event, the host's (see "Teams
+ *    meetings" below); everyone else's copy carries its join link as text.
  */
 
 const CALENDAR_NAME = "Cosmos";
@@ -62,6 +72,42 @@ const MIN_MINUTES = 5;
 const MAX_MINUTES = 24 * 60;
 const MAX_TITLE = 255;
 
+/** pg_advisory_xact_lock namespace: one sync of a meeting's Outlook copies at a time, across processes. */
+export const MEETING_SYNC_LOCK = 20205;
+/** Long enough for a large meeting's writes, retries included. */
+const SYNC_LOCK_TIMEOUT_MS = 5 * 60_000;
+/** The meetings whose lock this flow holds: a write inside a sync of the same meeting runs straight through. */
+const heldSyncLocks = new AsyncLocalStorage<ReadonlySet<string>>();
+/** In this process, a meeting's next sync waits behind the one before without holding a connection. */
+const syncQueue = new Map<string, Promise<void>>();
+
+/**
+ * Run `fn` as the only writer of this meeting's Outlook copies: two syncs at
+ * once (an edit's, a toggle's, a reconcile's) each saw no host event and each
+ * made a Teams meeting. In this process they queue; across processes a
+ * transaction-scoped advisory lock on the meeting holds the next one off until
+ * the first is done. Re-entrant: a sync inside a sync of the same meeting runs.
+ */
+async function underMeetingLock<T>(meetingId: string, fn: () => Promise<T>): Promise<T> {
+  const held = heldSyncLocks.getStore();
+  if (held?.has(meetingId)) return fn();
+  const run = (syncQueue.get(meetingId) ?? Promise.resolve()).then(() =>
+    prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${MEETING_SYNC_LOCK}::int, hashtext(${meetingId}))`;
+        return heldSyncLocks.run(new Set([...(held ?? []), meetingId]), fn);
+      },
+      { timeout: SYNC_LOCK_TIMEOUT_MS, maxWait: 10_000 },
+    ),
+  );
+  const settled = run.then(() => undefined, () => undefined);
+  syncQueue.set(meetingId, settled);
+  void settled.then(() => {
+    if (syncQueue.get(meetingId) === settled) syncQueue.delete(meetingId);
+  });
+  return run;
+}
+
 type MeetingWithAttendees = SyncMeeting & { attendees: { userId: string }[] };
 export type SyncDeps = GraphDeps & { signal?: AbortSignal };
 
@@ -74,12 +120,22 @@ interface GraphEvent {
   isAllDay?: boolean;
   isCancelled?: boolean;
   lastModifiedDateTime?: string;
+  /** Set once the event is a Teams meeting; Microsoft's join link for it. */
+  isOnlineMeeting?: boolean;
+  onlineMeeting?: { joinUrl?: string } | null;
   "@removed"?: { reason: string };
 }
 
 const utc = (d: Date) => ({ dateTime: d.toISOString().slice(0, 23), timeZone: "UTC" });
 /** Graph returns "2026-10-23T14:30:00.0000000" when asked for UTC. */
 const fromGraph = (dt?: { dateTime: string }) => (dt ? new Date(dt.dateTime.replace(/(\.\d{3})\d*$/, "$1") + "Z") : null);
+/** Whether Graph's answer for an event has the subject and times we wrote. */
+function sameEvent(ev: GraphEvent, body: { subject: string; start: { dateTime: string }; end: { dateTime: string } }): boolean {
+  const at = (dt?: { dateTime: string }) => fromGraph(dt)?.getTime();
+  return (ev.subject === undefined || ev.subject === body.subject)
+    && (ev.start === undefined || at(ev.start) === at(body.start))
+    && (ev.end === undefined || at(ev.end) === at(body.end));
+}
 const linkKey = (orgId: string, userId: string, entityId: string) => ({
   orgId_provider_userId_entityType_entityId: { orgId, provider: MS_CALENDAR, userId, entityType: ENTITY, entityId },
 });
@@ -285,8 +341,16 @@ async function forgetCalendar(orgId: string, userId: string) {
 
 // ── Push ────────────────────────────────────────────────────────────────────
 
-/** The Graph event body for a meeting, as this person should see it. */
-export function meetingEvent(m: SyncMeeting, restricted: boolean, link: string | null) {
+/** Where a Teams meeting's event says it is, as Outlook itself writes it. */
+const TEAMS_LOCATION = "Microsoft Teams Meeting";
+
+/**
+ * The Graph event body for a meeting, as this person should see it. `teams`:
+ * the meeting is a Teams meeting; its join link (once known) goes in the
+ * text, and `host` is whether this is the host's own event. Without it the
+ * body is exactly what it always was, so no existing copy is re-sent.
+ */
+export function meetingEvent(m: SyncMeeting, restricted: boolean, link: string | null, teams?: { joinUrl: string | null; host: boolean } | null) {
   const start = m.meetingDate;
   const minutes = Math.min(Math.max(m.durationMinutes || 30, MIN_MINUTES), MAX_MINUTES);
   const end = new Date(start.getTime() + minutes * 60_000);
@@ -296,7 +360,11 @@ export function meetingEvent(m: SyncMeeting, restricted: boolean, link: string |
       isAllDay: false, showAs: "busy", location: { displayName: "" },
     };
   }
-  const lines = [link ? `Open in Cosmos: ${link}` : null, m.meetingUrl ? `Join: ${m.meetingUrl}` : null].filter(Boolean);
+  const lines = [
+    link ? `Open in Cosmos: ${link}` : null,
+    m.meetingUrl ? `Join: ${m.meetingUrl}` : null,
+    teams?.joinUrl ? `Join the Teams meeting: ${teams.joinUrl}` : null,
+  ].filter(Boolean);
   return {
     subject: m.title || "Meeting",
     body: { contentType: "text", content: lines.join("\n") },
@@ -304,7 +372,7 @@ export function meetingEvent(m: SyncMeeting, restricted: boolean, link: string |
     end: utc(end),
     isAllDay: false,
     showAs: "busy",
-    location: { displayName: m.meetingUrl ?? "" },
+    location: { displayName: m.meetingUrl ?? (teams && (teams.host || teams.joinUrl) ? TEAMS_LOCATION : "") },
   };
 }
 
@@ -400,18 +468,56 @@ function inviteBody(base: ReturnType<typeof meetingEvent>, invitees: Invitee[]) 
   };
 }
 
-/** One hash per part, so an update can say what changed: time.title.details.attendees */
-const INVITE_PARTS = ["time", "title", "details", "attendees"] as const;
-function inviteHash(b: ReturnType<typeof inviteBody>): string {
+/**
+ * One hash per part, so an update can say what changed:
+ * time.title.details.attendees, then ".teams" while the invitation is a Teams
+ * meeting (absent otherwise, so an existing invitation's hash is unchanged).
+ */
+const INVITE_PARTS = ["time", "title", "details", "attendees", "teams"] as const;
+const TEAMS_SUFFIX = ".teams";
+function inviteHash(b: ReturnType<typeof inviteBody>, teams = false): string {
   const h = (v: unknown) => createHash("sha256").update(JSON.stringify(v)).digest("base64url").slice(0, 16);
-  return INVITE_PREFIX + [h([b.start, b.end]), h(b.subject), h([b.body, b.location]), h(b.attendees)].join(".");
+  return INVITE_PREFIX + [h([b.start, b.end]), h(b.subject), h([b.body, b.location]), h(b.attendees)].join(".") + (teams ? TEAMS_SUFFIX : "");
 }
 function changedInviteParts(before: string, after: string): string[] {
-  if (!before.startsWith(INVITE_PREFIX)) return [...INVITE_PARTS];
-  const a = before.slice(INVITE_PREFIX.length).split(".");
   const b = after.slice(INVITE_PREFIX.length).split(".");
+  if (!before.startsWith(INVITE_PREFIX)) return INVITE_PARTS.filter((_, i) => b[i] !== undefined);
+  const a = before.slice(INVITE_PREFIX.length).split(".");
   return INVITE_PARTS.filter((_, i) => a[i] !== b[i]);
 }
+
+// ── Teams meetings ──────────────────────────────────────────────────────────
+//
+// A meeting with a Teams host (teamsHostId) is a Teams meeting. Exactly one
+// Outlook event asks Microsoft for it: the host's own copy, or in invite mode
+// the organizer's invitation (the host then IS the organizer). Microsoft's
+// join link is kept on the meeting and goes, as text, into everyone else's
+// copy. Outlook can't take a Teams meeting off an event, and ignores asking
+// again: an edit updates the same event and keeps the same Teams meeting, and
+// a copy that stops being the host's is deleted (ending its Teams meeting) and
+// made again plain.
+
+/** A host's mirrored copy: its hash says so, so a copy that stops being one is replaced, not updated. */
+const TEAMS_PREFIX = "teams:";
+/** Whether a link's event was written as the Teams meeting (a host's copy, or a Teams invitation). */
+const isTeamsHash = (hash: string | null | undefined) =>
+  !!hash && (hash.startsWith(TEAMS_PREFIX) || (hash.startsWith(INVITE_PREFIX) && hash.endsWith(TEAMS_SUFFIX)));
+
+/**
+ * One person's copy of a meeting: the body to send, and the body to hash. The
+ * host's hash leaves out the join link Microsoft gave their own event, so
+ * keeping that link never re-sends the event (nor re-notifies invitees).
+ */
+function copyView(m: SyncMeeting, userId: string, restricted: boolean, link: string | null) {
+  const teams = !restricted && !!m.teamsHostId;
+  const hosting = teams && m.teamsHostId === userId;
+  const view = (joinUrl: string | null) => meetingEvent(m, restricted, link, teams ? { joinUrl, host: hosting } : null);
+  const base = view(teams ? m.teamsJoinUrl : null);
+  return { base, hashed: hosting ? view(null) : base, hosting };
+}
+type CopyView = ReturnType<typeof copyView>;
+const mirrorHash = (v: CopyView) => (v.hosting ? TEAMS_PREFIX : "") + bodyHash(v.hashed);
+const invitationHash = (v: CopyView, invitees: Invitee[]) => inviteHash(inviteBody(v.hashed, invitees), v.hosting);
 
 /** Thrown when an organizer is over their invitation budget: retried by the reconcile pass. */
 export class InviteDeferred extends Error {}
@@ -511,6 +617,7 @@ async function stopInvite(
       return "pending";
     }
     await prisma.externalEventLink.delete({ where: { id: link.id } });
+    await forgetTeamsLinks(orgId, organizer, [m.id]); // its Teams meeting went with it
   }
   await prisma.syncMeeting.updateMany({ where: { id: m.id, inviteOrganizerId: organizer }, data: { inviteOrganizerId: null } });
   await meetingActivity(orgId, actorId, m.id, "outlook_invite_cancelled", null, null, reason);
@@ -546,7 +653,11 @@ export interface InvitePreview {
   organizerId: string | null;
   /** May this person turn it on (or off) now; if not, why. */
   canChange: boolean;
-  reason: "classified" | "not_connected" | "reconnect" | "cannot_edit" | "too_many_attendees" | "cancelled" | null;
+  reason:
+    | "classified" | "not_connected" | "reconnect" | "cannot_edit" | "too_many_attendees" | "cancelled"
+    | "teams_hosted_by_someone_else" | null;
+  /** Who hosts the meeting's Teams meeting, if anyone: the invitation can't take it from someone else. */
+  teamsHostId: string | null;
   /** Who would get (or gets) the invitation. Only for someone who can edit the meeting; empty otherwise. */
   recipients: { name: string; email: string; outside: boolean }[];
   /** Its cancellation is waiting for the organizer to reconnect Outlook. */
@@ -587,6 +698,9 @@ export async function invitePreview(orgId: string, meetingId: string, actorId: s
     : !conn ? "not_connected"
     : conn.meta.status !== "connected" ? "reconnect"
     : !canEdit ? "cannot_edit"
+    // Their invitation would have to hold the Teams meeting, ending the one
+    // someone else's Outlook holds: they turn invitations on, or Teams goes off first.
+    : m.teamsHostId && m.teamsHostId !== actorId ? "teams_hosted_by_someone_else"
     : m.attendees.length > MAX_INVITEES ? "too_many_attendees"
     : null;
   const last = m.inviteOrganizerId ? null : await prisma.activity.findFirst({
@@ -602,6 +716,7 @@ export async function invitePreview(orgId: string, meetingId: string, actorId: s
     available: !!cfg,
     on: !!m.inviteOrganizerId,
     organizerId: m.inviteOrganizerId,
+    teamsHostId: m.teamsHostId,
     // Turning it off needs only edit rights; turning it on needs everything.
     canChange: m.inviteOrganizerId ? canEdit : reason === null,
     reason,
@@ -618,7 +733,8 @@ export async function invitePreview(orgId: string, meetingId: string, actorId: s
 }
 
 export class InviteRefused extends Error {
-  constructor(public reason: string) {
+  /** For "teams_hosted_by_someone_else": who hosts the Teams meeting. */
+  constructor(public reason: string, public hostId?: string) {
     super(reason);
   }
 }
@@ -651,10 +767,19 @@ export async function setMeetingInvite(orgId: string, meetingId: string, actorId
     throw new InviteRefused("already_on"); // turn it off first; one organizer at a time
   }
   const preview = await invitePreview(orgId, meetingId, actorId);
-  if (!preview || preview.reason) throw new InviteRefused(preview?.reason ?? "not_found");
-  // Atomic: of two people turning it on at once, one wins and the other is told.
-  const claimed = await prisma.syncMeeting.updateMany({ where: { id: meetingId, orgId, inviteOrganizerId: null }, data: { inviteOrganizerId: actorId } });
-  if (!claimed.count) throw new InviteRefused("already_on");
+  if (!preview || preview.reason) throw new InviteRefused(preview?.reason ?? "not_found", preview?.teamsHostId ?? undefined);
+  // Atomic: of two people turning it on at once, one wins and the other is
+  // told. And only while nobody else hosts its Teams meeting: the invitation
+  // would have to hold it, which would end theirs.
+  const claimed = await prisma.syncMeeting.updateMany({
+    where: { id: meetingId, orgId, inviteOrganizerId: null, OR: [{ teamsHostId: null }, { teamsHostId: actorId }] },
+    data: { inviteOrganizerId: actorId },
+  });
+  if (!claimed.count) {
+    const now = await prisma.syncMeeting.findFirst({ where: { id: meetingId, orgId }, select: { teamsHostId: true } });
+    if (now?.teamsHostId && now.teamsHostId !== actorId) throw new InviteRefused("teams_hosted_by_someone_else", now.teamsHostId);
+    throw new InviteRefused("already_on");
+  }
   await meetingActivity(orgId, actorId, meetingId, "outlook_invite_on", null, null, null);
   await syncMeeting(orgId, meetingId, deps);
 }
@@ -746,28 +871,239 @@ export async function offboardOrgInvites(orgId: string, deps: GraphDeps = {}) {
 }
 
 /**
+ * A connection is going (they disconnect, leave, are deactivated, or Outlook
+ * Calendar is turned off): delete the Teams meetings their Outlook holds for
+ * Cosmos meetings first, while their token still works. Nobody could end them
+ * later, and the room would stay open under someone who has gone. Best
+ * effort: a failure is logged and never stops the removal, which then ends
+ * Teams for those meetings in Cosmos anyway. Invitations are not touched here:
+ * the invitation rules decide what happens to them (kept, or cancelled).
+ */
+export async function endHostedTeamsInOutlook(
+  orgId: string, userId: string, reason: TeamsEndReason | OffboardReason, deps: GraphDeps = {},
+): Promise<{ ended: number; failed: number }> {
+  const hosted = await prisma.syncMeeting.findMany({ where: { orgId, teamsHostId: userId }, select: { id: true } });
+  if (!hosted.length) return { ended: 0, failed: 0 };
+  const links = await prisma.externalEventLink.findMany({
+    where: { orgId, provider: MS_CALENDAR, userId, entityType: ENTITY, entityId: { in: hosted.map((h) => h.id) } },
+  });
+  let ended = 0;
+  let failed = 0;
+  for (const link of links.filter((l) => l.contentHash?.startsWith(TEAMS_PREFIX))) {
+    try {
+      await graphRequest(orgId, userId, "DELETE", `/me/events/${encodeURIComponent(link.externalEventId)}`, undefined, deps);
+    } catch (e) {
+      if (!(e instanceof GraphError && e.status === 404)) {
+        failed++;
+        console.error("teams meeting end failed:", e instanceof Error ? e.message : "unknown");
+        continue;
+      }
+      // Already gone from their Outlook: ended all the same.
+    }
+    ended++;
+    await prisma.externalEventLink.deleteMany({ where: { id: link.id } });
+  }
+  await logAudit({
+    orgId, userId, action: "microsoft_calendar.teams_ended", entity: "user", entityId: userId,
+    metadata: { reason, meetings: String(hosted.length), ended: String(ended), failed: String(failed) },
+  }).catch(() => undefined);
+  return { ended, failed };
+}
+onCalendarOffboard((orgId, userId, reason, deps) => endHostedTeamsInOutlook(orgId, userId, reason, { ...deps, offboarding: true }).then(() => undefined));
+
+/** Every Teams host in an org, before the admin turns Outlook Calendar off. */
+export async function offboardOrgTeams(orgId: string, deps: GraphDeps = {}) {
+  const hosts = await prisma.syncMeeting.findMany({
+    where: { orgId, teamsHostId: { not: null } }, select: { teamsHostId: true }, distinct: ["teamsHostId"],
+  });
+  for (const h of hosts) {
+    await endHostedTeamsInOutlook(orgId, h.teamsHostId as string, "integration_disabled", { ...deps, offboarding: true })
+      .catch((e) => console.error("teams meeting end failed:", e instanceof Error ? e.message : "unknown"));
+  }
+}
+
+/**
+ * Someone disconnects their own Outlook: the Teams meetings it holds end
+ * there first, then the Cosmos calendar goes (if Microsoft allows), then the
+ * token and links (and Teams for those meetings in Cosmos). The invitations
+ * they send are settled before this (kept or cancelled, their choice).
+ */
+export async function disconnectOutlook(orgId: string, userId: string, deps: GraphDeps = {}): Promise<{ had: boolean; calendarRemoved: boolean }> {
+  await endHostedTeamsInOutlook(orgId, userId, "host_disconnected", deps)
+    .catch((e) => console.error("teams meeting end failed:", e instanceof Error ? e.message : "unknown"));
+  const calendarRemoved = await removeCosmosCalendar(orgId, userId, deps);
+  const had = await disconnectCalendar(orgId, userId);
+  return { had, calendarRemoved };
+}
+
+// ── Turning Teams on and off ────────────────────────────────────────────────
+
+export class TeamsRefused extends Error {
+  constructor(public reason: TeamsRefusal) {
+    super(reason);
+  }
+}
+
+export interface TeamsPreview {
+  /** Whether the org has Outlook Calendar on at all. */
+  available: boolean;
+  /** Whether the meeting is a Teams meeting, and whose Outlook holds it. */
+  on: boolean;
+  hostId: string | null;
+  isHost: boolean;
+  /** The join link, once Microsoft has given one. */
+  joinUrl: string | null;
+  /**
+   * While on: "ready" (there is a link); "pending" (not in the host's Outlook
+   * yet); "no_join_url" (Microsoft made the event but no Teams meeting);
+   * "host_not_connected" / "host_reconnect" (the host's Outlook can't be reached).
+   */
+  status: "ready" | "pending" | "no_join_url" | "host_not_connected" | "host_reconnect" | null;
+  /** May this person turn it on (or off) now; if not, why. */
+  canChange: boolean;
+  reason: TeamsRefusal | null;
+}
+
+/**
+ * What stops `actorId` making a meeting a Teams meeting in their own Outlook,
+ * apart from edit rights: the org has no Outlook Calendar, the meeting is
+ * classified, or they aren't connected. Null when nothing does. Also the
+ * check for a meeting being created.
+ */
+export async function teamsRefusalForNew(
+  orgId: string, actorId: string, m: { projectId: string | null; title: string; meetingUrl?: string | null },
+): Promise<TeamsRefusal | null> {
+  const [cfg, cls, conn] = await Promise.all([orgCalendarConfig(orgId), createClassificationResolver(orgId), calendarConnection(orgId, actorId)]);
+  if (!cfg) return "not_available";
+  if (cls.restricted(m.projectId, m.title, m.meetingUrl ?? null)) return "classified";
+  if (!conn) return "not_connected";
+  if (conn.meta.status !== "connected") return "reconnect";
+  return null;
+}
+
+/** A meeting's Teams meeting, and what this person may do about it. Null for no such meeting. */
+export async function teamsPreview(orgId: string, meetingId: string, actorId: string): Promise<TeamsPreview | null> {
+  const m = await prisma.syncMeeting.findFirst({ where: { id: meetingId, orgId } });
+  if (!m) return null;
+  const [cfg, canEdit, hostConn] = await Promise.all([
+    orgCalendarConfig(orgId),
+    viewerFor(orgId, actorId).then((v) => v.canEdit(m)),
+    m.teamsHostId ? calendarConnection(orgId, m.teamsHostId) : null,
+  ]);
+  let reason: TeamsRefusal | null;
+  if (m.teamsHostId) {
+    // Off needs edit rights; and an invitation that went out with it can't
+    // lose it (Outlook keeps a Teams meeting on its event): stop the
+    // invitations first, which cancels that event.
+    const own = m.inviteOrganizerId
+      ? await prisma.externalEventLink.findUnique({ where: linkKey(orgId, m.inviteOrganizerId, m.id), select: { contentHash: true } })
+      : null;
+    reason = !canEdit ? "cannot_edit" : isSentInvite(own?.contentHash) ? "invite_sent" : null;
+  } else {
+    reason = !cfg ? "not_available"
+      : m.status === "CANCELLED" ? "cancelled"
+      : !canEdit ? "cannot_edit"
+      // The invitation is the event that would hold it, in the organizer's Outlook.
+      : m.inviteOrganizerId && m.inviteOrganizerId !== actorId ? "invites_by_someone_else"
+      : await teamsRefusalForNew(orgId, actorId, m);
+  }
+  const status: TeamsPreview["status"] = !m.teamsHostId ? null
+    : m.teamsJoinUrl ? "ready"
+    : m.teamsIssue === NO_JOIN_URL ? "no_join_url"
+    : !hostConn ? "host_not_connected"
+    : hostConn.meta.status !== "connected" ? "host_reconnect"
+    : "pending";
+  return {
+    available: !!cfg,
+    on: !!m.teamsHostId,
+    hostId: m.teamsHostId,
+    isHost: !!m.teamsHostId && m.teamsHostId === actorId,
+    joinUrl: m.teamsHostId ? m.teamsJoinUrl : null,
+    status,
+    canChange: reason === null,
+    reason,
+  };
+}
+
+/**
+ * Make a meeting a Teams meeting, held in `actorId`'s own Outlook, or stop
+ * it being one. On is refused unless they can edit it, are connected, and it
+ * isn't classified or cancelled (and, with Outlook invitations on, only the
+ * organizer can); 10 changes an hour each. Waits for the sync, so the join
+ * link is known when it returns, if Microsoft gave one.
+ */
+export async function setMeetingTeams(orgId: string, meetingId: string, actorId: string, enabled: boolean, deps: GraphDeps = {}): Promise<void> {
+  if (!rateLimit(`ms.teams.toggle:${actorId}`, { capacity: 10, refillPerSecond: 10 / 3600 }).allowed) {
+    throw new TeamsRefused("rate_limited");
+  }
+  const p = await teamsPreview(orgId, meetingId, actorId);
+  if (!p) throw new TeamsRefused("not_found");
+  if (p.on === enabled) return;
+  if (p.reason) throw new TeamsRefused(p.reason);
+  if (!enabled) {
+    if (await endTeams(orgId, meetingId, p.hostId!, "turned_off", actorId)) await syncMeeting(orgId, meetingId, deps);
+    return;
+  }
+  // Atomic: of two people turning it on at once, one hosts it.
+  const claimed = await prisma.syncMeeting.updateMany({
+    where: { id: meetingId, orgId, teamsHostId: null },
+    data: { teamsHostId: actorId, teamsJoinUrl: null, teamsIssue: null },
+  });
+  if (!claimed.count) return;
+  await meetingActivity(orgId, actorId, meetingId, "teams_on", null, null, null);
+  await syncMeeting(orgId, meetingId, deps);
+}
+
+/**
+ * Teams is off for the meeting, if `hostId` still hosts it. The host's copy is
+ * replaced by the next write of it (or removed), which ends the Teams
+ * meeting. A real change to the meeting (its updatedAt moves).
+ */
+async function endTeams(orgId: string, meetingId: string, hostId: string, reason: TeamsEndReason, actorId: string): Promise<boolean> {
+  const ended = await prisma.syncMeeting.updateMany({ where: { id: meetingId, orgId, teamsHostId: hostId }, data: TEAMS_OFF });
+  if (!ended.count) return false;
+  await meetingActivity(orgId, actorId, meetingId, "teams_off", null, null, reason);
+  return true;
+}
+
+/**
  * Create or update one person's copy of a meeting and store the echo
  * changeKey. Skips the write when the body is what we last sent, unless
  * `force` (an Outlook edit we're overwriting changed it on their side).
  * The caller has already checked they may see it.
+ *
+ * The Teams host's write asks for the Teams meeting and keeps the join link
+ * Microsoft answers with. Asked only when making the event, or while no link
+ * is known: once it has one, an edit never asks again. If Graph refuses the
+ * Teams fields the event is written without them, and the meeting says why.
  */
-async function pushFor(
+function pushFor(
   orgId: string, userId: string, m: SyncMeeting, deps: GraphDeps,
   cls: ClassificationResolver, force = false, invitees?: Invitee[],
+): Promise<void> {
+  return underMeetingLock(m.id, () => pushCopy(orgId, userId, m, deps, cls, force, invitees));
+}
+
+async function pushCopy(
+  orgId: string, userId: string, m: SyncMeeting, deps: GraphDeps,
+  cls: ClassificationResolver, force: boolean, invitees?: Invitee[],
 ): Promise<void> {
   const conn = await calendarConnection(orgId, userId);
   if (!conn) return;
   let calendarId = await ensureCosmosCalendar(orgId, userId, deps);
   const restricted = cls.restricted(m.projectId, m.title, m.meetingUrl);
-  const base = meetingEvent(m, restricted, await meetingLink(orgId, conn.meta, m.id));
+  const link = await meetingLink(orgId, conn.meta, m.id);
+  let view = copyView(m, userId, restricted, link);
+  const hosting = view.hosting;
   // Invite mode (organizer only, never restricted): the attendees go on the
   // event, and Outlook sends the invitations and updates.
   const inviting = !!invitees && !restricted;
-  const body = inviting ? inviteBody(base, invitees!) : base;
-  const hash = inviting ? inviteHash(body as ReturnType<typeof inviteBody>) : bodyHash(body);
+  const hash = inviting ? invitationHash(view, invitees!) : mirrorHash(view);
   let existing = await prisma.externalEventLink.findUnique({ where: linkKey(orgId, userId, m.id) });
   if (existing && !force && existing.contentHash === hash && existing.externalCalendarId === calendarId) return;
   const wasInvite = !!existing?.contentHash?.startsWith(INVITE_PREFIX);
+  let knownJoinUrl = hosting ? m.teamsJoinUrl : null;
+  let replaced = false;
   if (wasInvite && !inviting) {
     // Never turn an invitation into a mirror copy: its attendees would stay on
     // an event nothing manages. Cancel it (scrubbed); a fresh copy follows.
@@ -778,12 +1114,52 @@ async function pushFor(
       metadata: { organizerId: userId, reason: restricted ? "classified" : "mirror_resumed" },
     });
     existing = null;
+    if (hosting && knownJoinUrl) {
+      // Its Teams meeting went with it: the fresh copy makes a new one.
+      await forgetTeamsLinks(orgId, userId, [m.id]);
+      knownJoinUrl = null;
+      view = copyView({ ...m, teamsJoinUrl: null, teamsIssue: null }, userId, restricted, link);
+    }
+  } else if (existing && !wasInvite && isTeamsHash(existing.contentHash) && !hosting) {
+    // Their copy was the Teams meeting and no longer is (Teams turned off,
+    // classified, someone else hosts). Outlook can't take a Teams meeting off
+    // an event: delete it, which ends that Teams meeting, and make a plain one.
+    try {
+      await graphRequest(orgId, userId, "DELETE", `/me/events/${encodeURIComponent(existing.externalEventId)}`, undefined, deps);
+    } catch (e) {
+      if (!(e instanceof GraphError && e.status === 404)) throw e;
+    }
+    await prisma.externalEventLink.delete({ where: { id: existing.id } });
+    existing = null;
+    replaced = true;
   }
+  if (!hosting && m.teamsHostId === userId) {
+    // Their copy can't hold the Teams meeting (it is classified now) but they
+    // still host it: whatever Teams meeting it had is gone with that copy, so
+    // Teams ends here, link and all, rather than leaving a dead link "ready".
+    // A sync of the meeting ends it before any write; this is the reconcile's
+    // path, which writes one person's copy and nothing else.
+    await endTeams(orgId, m.id, userId, "classified", userId);
+  }
+  const body = inviting ? inviteBody(view.base, invitees!) : view.base;
   if (inviting) chargeInviteOp(userId); // this write notifies people
+  let teamsRefused = false;
+  /** One write; one that asks for the Teams meeting and is refused (400) is made again without it. */
+  const write = async (method: "PATCH" | "POST", path: string, payload: object, askTeams: boolean) => {
+    if (!askTeams) return (await graphRequest<GraphEvent>(orgId, userId, method, path, payload, deps)).data;
+    try {
+      return (await graphRequest<GraphEvent>(orgId, userId, method, path, { ...payload, ...TEAMS_FIELDS }, deps)).data;
+    } catch (e) {
+      if (!(e instanceof GraphError && e.status === 400)) throw e;
+      teamsRefused = true;
+      return (await graphRequest<GraphEvent>(orgId, userId, method, path, payload, deps)).data;
+    }
+  };
   let ev: GraphEvent | null = null;
+  let made = false;
   if (existing && existing.externalCalendarId === calendarId) {
     try {
-      ev = (await graphRequest<GraphEvent>(orgId, userId, "PATCH", `/me/events/${encodeURIComponent(existing.externalEventId)}`, body, deps)).data;
+      ev = await write("PATCH", `/me/events/${encodeURIComponent(existing.externalEventId)}`, body, hosting && !knownJoinUrl);
     } catch (e) {
       if (!(e instanceof GraphError && e.status === 404)) throw e;
       // Deleted in Outlook. A copy is made again; an invitation deleted there
@@ -792,21 +1168,30 @@ async function pushFor(
     }
   }
   if (!ev) {
-    // transactionId lets Graph drop a retried create. It is per meeting version,
-    // so a copy someone deleted in Outlook comes back when the meeting next changes.
+    // transactionId lets Graph drop a retried create. A plain copy's is per
+    // meeting version, so a copy someone deleted in Outlook comes back when the
+    // meeting next changes; a plain copy replacing a Teams one is a different
+    // event from the one first made for this version, so it never shares that
+    // one's. The host's is per meeting and host only: an edit never changes
+    // it, so a create whose answer was lost and is made again after an edit
+    // is still one Teams meeting.
+    const transactionId = hosting ? `cosmos-${m.id}-${userId}-teams` : `cosmos-${m.id}-${userId}-${m.updatedAt.getTime()}${replaced ? "-plain" : ""}`;
     const create = (cal: string) =>
-      graphRequest<GraphEvent>(
-        orgId, userId, "POST", `/me/calendars/${encodeURIComponent(cal)}/events`,
-        { ...body, transactionId: `cosmos-${m.id}-${userId}-${m.updatedAt.getTime()}` }, deps,
-      );
+      write("POST", `/me/calendars/${encodeURIComponent(cal)}/events`, { ...body, transactionId }, hosting);
     try {
-      ev = (await create(calendarId)).data;
+      ev = await create(calendarId);
     } catch (e) {
       if (!(e instanceof GraphError && e.status === 404)) throw e;
       // Our calendar was deleted in Outlook: find or make it again, once.
       await forgetCalendar(orgId, userId);
       calendarId = await ensureCosmosCalendar(orgId, userId, deps);
-      ev = (await create(calendarId)).data;
+      ev = await create(calendarId);
+    }
+    made = true;
+    if (hosting && !sameEvent(ev, body)) {
+      // Graph matched the create to the event it made the first time, which
+      // has an older version of the meeting: bring it up to date.
+      ev = await write("PATCH", `/me/events/${encodeURIComponent(ev.id)}`, body, false);
     }
   }
   await prisma.externalEventLink.upsert({
@@ -820,6 +1205,12 @@ async function pushFor(
       contentHash: hash, lastSyncedAt: new Date(),
     },
   });
+  if (hosting) {
+    // A new event without a link, or a refused ask, means no Teams meeting; a
+    // PATCH answer without the link never loses one already kept.
+    const joinUrl = joinUrlFrom(ev.onlineMeeting?.joinUrl);
+    if (joinUrl || made || teamsRefused || !knownJoinUrl) await recordTeamsLink(orgId, m.id, userId, joinUrl);
+  }
   if (inviting) {
     await inviteAudit(orgId, userId, m.id, wasInvite ? "microsoft_calendar.invite_updated" : "microsoft_calendar.invite_sent", invitees!, conn.meta, {
       ...(wasInvite ? { fields: changedInviteParts(existing!.contentHash!, hash).join(", ") } : {}),
@@ -832,7 +1223,11 @@ async function pushFor(
  * gone (or never had it); on any other failure it stays, and the reconcile
  * pass in the pull job tries again.
  */
-async function removeFor(orgId: string, userId: string, meetingId: string, deps: GraphDeps) {
+function removeFor(orgId: string, userId: string, meetingId: string, deps: GraphDeps): Promise<void> {
+  return underMeetingLock(meetingId, () => removeCopy(orgId, userId, meetingId, deps));
+}
+
+async function removeCopy(orgId: string, userId: string, meetingId: string, deps: GraphDeps): Promise<void> {
   const link = await prisma.externalEventLink.findUnique({ where: linkKey(orgId, userId, meetingId) });
   if (!link) return;
   if (link.contentHash?.startsWith(INVITE_PREFIX)) {
@@ -840,6 +1235,7 @@ async function removeFor(orgId: string, userId: string, meetingId: string, deps:
     // attendees get a cancellation (a plain delete may not tell them).
     await cancelInviteEvent(orgId, userId, link, deps);
     await prisma.externalEventLink.delete({ where: { id: link.id } });
+    await forgetTeamsLinks(orgId, userId, [meetingId]); // a Teams invitation's meeting went with it
     await logAudit({
       orgId, userId, action: "microsoft_calendar.invite_cancelled", entity: "sync_meeting", entityId: meetingId,
       metadata: { organizerId: userId, reason: "meeting_gone" },
@@ -852,6 +1248,7 @@ async function removeFor(orgId: string, userId: string, meetingId: string, deps:
     if (!(e instanceof GraphError && e.status === 404)) throw e;
   }
   await prisma.externalEventLink.delete({ where: { id: link.id } });
+  await forgetTeamsLinks(orgId, userId, [meetingId]); // the host's: its Teams meeting went with it
 }
 
 /**
@@ -862,7 +1259,11 @@ async function removeFor(orgId: string, userId: string, meetingId: string, deps:
  * is already current. Returns why each copy that couldn't be written failed
  * (empty when every write landed); they are logged already.
  */
-export async function syncMeeting(orgId: string, meetingId: string, deps: GraphDeps = {}, skipUserId?: string): Promise<string[]> {
+export function syncMeeting(orgId: string, meetingId: string, deps: GraphDeps = {}, skipUserId?: string): Promise<string[]> {
+  return underMeetingLock(meetingId, () => syncMeetingCopies(orgId, meetingId, deps, skipUserId));
+}
+
+async function syncMeetingCopies(orgId: string, meetingId: string, deps: GraphDeps, skipUserId?: string): Promise<string[]> {
   const m = (await prisma.syncMeeting.findFirst({
     where: { id: meetingId, orgId },
     include: { attendees: { select: { userId: true } } },
@@ -872,6 +1273,8 @@ export async function syncMeeting(orgId: string, meetingId: string, deps: GraphD
     select: { userId: true },
   });
   const attending = m && m.status !== "CANCELLED" ? m.attendees.map((a) => a.userId) : [];
+  // The Teams host's Outlook holds the Teams meeting, attending or not.
+  if (m && m.status !== "CANCELLED" && m.teamsHostId && !attending.includes(m.teamsHostId)) attending.push(m.teamsHostId);
   const connected = attending.length
     ? (await prisma.connectorCredential.findMany({
         where: { orgId, provider: MS_CALENDAR, userId: { in: attending } },
@@ -879,6 +1282,21 @@ export async function syncMeeting(orgId: string, meetingId: string, deps: GraphD
       })).map((c) => c.userId as string)
     : [];
   const cls = await createClassificationResolver(orgId);
+  // A Teams meeting that can't go on ends, in invite mode too (which can
+  // return early, waiting for its organizer): a classified meeting never has
+  // one, and the host's Outlook copy goes once they can't see the meeting.
+  // Their copy (or invitation) is then replaced, removed or cancelled below,
+  // ending the Teams meeting in Outlook.
+  if (m && m.status !== "CANCELLED" && m.teamsHostId) {
+    const host = m.teamsHostId;
+    const ended: TeamsEndReason | null = cls.restricted(m.projectId, m.title, m.meetingUrl) ? "classified"
+      : !(await (await viewerFor(orgId, host)).canSee(m)) ? "host_lost_access"
+      : null;
+    if (ended) {
+      await endTeams(orgId, m.id, host, ended, host);
+      return syncMeeting(orgId, meetingId, deps, skipUserId);
+    }
+  }
   // Invite mode: the organizer's event carries the attendees; nobody else
   // gets a mirrored copy (the invitation is their copy). If it can't go on
   // (classified now, organizer can't edit or isn't connected, too many
@@ -920,10 +1338,19 @@ export async function syncMeeting(orgId: string, meetingId: string, deps: GraphD
   }
   const keep = new Set<string>();
   for (const userId of connected) if (await (await viewerFor(orgId, userId)).canSee(m!)) keep.add(userId);
+  const where = `org ${orgId} meeting ${meetingId}`;
+  // The host first: everyone else's copy carries the join link their write brings back.
+  const host = m?.teamsHostId && keep.has(m.teamsHostId) && m.teamsHostId !== skipUserId ? m.teamsHostId : null;
+  let current: SyncMeeting | null = m;
+  const failed: string[] = [];
+  if (host) {
+    failed.push(...(await pool([host], 1, (userId) => pushFor(orgId, userId, m!, deps, cls), where)));
+    current = (await prisma.syncMeeting.findFirst({ where: { id: meetingId, orgId } })) ?? m;
+  }
   const work: (() => Promise<void>)[] = [];
-  for (const userId of keep) if (userId !== skipUserId) work.push(() => pushFor(orgId, userId, m!, deps, cls));
+  for (const userId of keep) if (userId !== skipUserId && userId !== host) work.push(() => pushFor(orgId, userId, current!, deps, cls));
   for (const l of links) if (!keep.has(l.userId)) work.push(() => removeFor(orgId, l.userId, meetingId, deps));
-  return pool(work, CONCURRENCY, (w) => w(), `org ${orgId} meeting ${meetingId}`);
+  return [...failed, ...(await pool(work, CONCURRENCY, (w) => w(), where))];
 }
 
 /** The meeting fields that show in Outlook: only these changing needs a push. */
@@ -941,14 +1368,18 @@ export function syncMeetingSoon(orgId: string, meetingId: string) {
 
 /**
  * A classification changed (org-wide, or one project's): re-check live
- * invitations now, so one whose meeting became classified is cancelled at
- * once rather than at the next reconcile. Fire-and-forget, like any push.
+ * invitations and Teams meetings now, so one whose meeting became classified
+ * is cancelled (or ended) at once rather than at the next reconcile.
+ * Fire-and-forget, like any push.
  */
 export async function syncInvitesAfterClassification(
   orgId: string, projectId: string | null, run: (orgId: string, meetingId: string) => unknown = syncMeetingSoon,
 ): Promise<number> {
   const meetings = await prisma.syncMeeting.findMany({
-    where: { orgId, inviteOrganizerId: { not: null }, status: { not: "CANCELLED" }, ...(projectId ? { projectId } : {}) },
+    where: {
+      orgId, status: { not: "CANCELLED" }, ...(projectId ? { projectId } : {}),
+      OR: [{ inviteOrganizerId: { not: null } }, { teamsHostId: { not: null } }],
+    },
     select: { id: true },
   });
   for (const m of meetings) await run(orgId, m.id);
@@ -1042,6 +1473,7 @@ export async function pullChanges(orgId: string, userId: string, deps: SyncDeps 
         }
         await forgetCalendar(orgId, userId);
         await prisma.externalEventLink.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId } });
+        await forgetTeamsLinks(orgId, userId); // their Teams meetings went with the calendar
         noteUnsynced(out, await reconcileUser(orgId, userId, deps, cls, viewer));
         for (const id of stopped) noteUnsynced(out, await syncMeeting(orgId, id, deps));
         return out;
@@ -1095,10 +1527,16 @@ async function applyOne(
       await prisma.externalEventLink.delete({ where: { id: link.id } });
       await meetingActivity(orgId, userId, link.entityId, "outlook_detached", null, null, null);
       out.detached++;
+      // The host deleted the Teams meeting with it: the link no longer works.
+      // Their copy stays deleted like any other; everyone else's drops the link.
+      if (await forgetTeamsLinks(orgId, userId, [link.entityId])) noteUnsynced(out, await syncMeeting(orgId, link.entityId, deps, userId));
       return;
     }
     ev = current; // moved: handle it as the edit it is
   }
+  // The host's own event, carrying its join link: keep it (a write's answer may have lacked it).
+  const deltaJoinUrl = joinUrlFrom(ev.onlineMeeting?.joinUrl);
+  if (deltaJoinUrl) await recordTeamsLink(orgId, link.entityId, userId, deltaJoinUrl);
   if (ev.changeKey && ev.changeKey === link.changeKey) {
     out.echoes++;
     return;
@@ -1201,11 +1639,14 @@ async function applyOne(
   // the cancellation, and only an invitation's link is cancelled.
   const conn = await calendarConnection(orgId, userId);
   const restrictedNow = cls.restricted(updated.projectId, updated.title, updated.meetingUrl);
-  const view = conn ? meetingEvent(updated, restrictedNow, await meetingLink(orgId, conn.meta, m.id)) : null;
+  const view = conn ? copyView(updated, userId, restrictedNow, await meetingLink(orgId, conn.meta, m.id)) : null;
+  const asInvite = updated.inviteOrganizerId === userId && isSentInvite(link.contentHash);
   const hash = !view ? null
-    : updated.inviteOrganizerId === userId && isSentInvite(link.contentHash)
-      ? inviteHash(inviteBody(view, await inviteesFor(await withAttendees(updated))))
-      : bodyHash(view);
+    // The host's copy isn't the Teams meeting yet (the write that asks hasn't
+    // landed): never record it as one, or nothing would ask again.
+    : view.hosting && !isTeamsHash(link.contentHash) ? (asInvite ? STALE_INVITE : null)
+    : asInvite ? invitationHash(view, await inviteesFor(await withAttendees(updated)))
+    : mirrorHash(view);
   await prisma.externalEventLink.update({ where: { id: link.id }, data: { changeKey: ev.changeKey ?? null, contentHash: hash, lastSyncedAt: new Date() } });
   out.applied++;
   // Everyone else's copy follows; this person's is already the source.
@@ -1236,7 +1677,8 @@ async function reconcileUser(
       where: {
         orgId,
         status: { not: "CANCELLED" },
-        attendees: { some: { userId } },
+        // A Teams host keeps their copy (it holds the Teams meeting) attending or not.
+        OR: [{ attendees: { some: { userId } } }, { teamsHostId: userId }],
         meetingDate: { gte: new Date(now - PAST_DAYS * DAY), lte: new Date(now + FUTURE_DAYS * DAY) },
       },
     }),
@@ -1268,7 +1710,8 @@ async function reconcileUser(
       organizing.push(m.id);
     }
   }
-  for (const m of [...attended, ...extra.filter((x) => x.status !== "CANCELLED" && x.attendees.some((a) => a.userId === userId))]) {
+  const theirs = (x: (typeof extra)[number]) => x.attendees.some((a) => a.userId === userId) || x.teamsHostId === userId;
+  for (const m of [...attended, ...extra.filter((x) => x.status !== "CANCELLED" && theirs(x))]) {
     if (m.inviteOrganizerId) continue;
     if (!(await viewer.canSee(m))) continue;
     keepIds.add(m.id);

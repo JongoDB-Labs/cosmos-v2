@@ -419,6 +419,56 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
     expect(content).not.toContain("CUI detail");
   });
 
+  // A Teams join link admits anyone who holds it, so it is content: a withheld
+  // result keeps the meeting's id and drops the link.
+  const JOIN = "https://teams.microsoft.com/l/meetup-join/golden-room";
+  const MEETINGS_RESULT = {
+    count: 1,
+    meetings: [{ id: "m1", status: "SCHEDULED", title: "Standup", teamsJoinUrl: JOIN }],
+  };
+
+  it("case 15 — gov + list_meetings (CUI) → meeting id survives; the Teams join link never reaches the model", async () => {
+    const { toolUse, end } = turns("list_meetings");
+    callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
+    setCeiling("CUI");
+    executeTool.mockResolvedValue(MEETINGS_RESULT);
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("gov"));
+
+    const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
+    expect(content).toContain("m1");
+    expect(content).toContain("SCHEDULED");
+    expect(content).not.toContain("meetup-join");
+  });
+
+  it("case 15b — update_meeting (CUI) → the join link in the returned meeting is withheld too", async () => {
+    const { toolUse, end } = turns("update_meeting");
+    callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
+    setCeiling("CUI");
+    executeTool.mockResolvedValue({ updated: true, id: "m1", meeting: MEETINGS_RESULT.meetings[0] });
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("gov"));
+
+    const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
+    expect(content).not.toBe(""); // a tool result did reach the model
+    expect(content).not.toContain("meetup-join");
+  });
+
+  it("case 15c — commercial + list_meetings (UNCLASSIFIED) → the join link IS shown (positive control)", async () => {
+    const { toolUse, end } = turns("list_meetings");
+    callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
+    setCeiling("UNCLASSIFIED");
+    executeTool.mockResolvedValue(MEETINGS_RESULT);
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("commercial"));
+
+    const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
+    expect(content).toContain(JOIN);
+  });
+
   it("case 10 — clean prompt flows verbatim through runModelTurn (no false positive)", async () => {
     const end = { text: "Done.", toolUses: [], stopReason: "end_turn" };
     callModel.mockResolvedValueOnce(end);

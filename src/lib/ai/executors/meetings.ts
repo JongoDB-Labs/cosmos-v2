@@ -3,7 +3,8 @@ import { MeetingType, MeetingStatus, type Prisma } from "@prisma/client";
 import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
 import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
-import { getReadableProjectIds } from "@/lib/work-items/query/scope";
+import { canReadMeeting, readableMeetingsWhere } from "@/lib/meetings/meeting-reader";
+import { SYNCED_MEETING_FIELDS, syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
 
 /**
  * Meeting executors — the org's sync meetings (SyncMeeting model — there is no
@@ -18,6 +19,10 @@ function invalid(error: z.ZodError): { error: string } {
 const MEETING_SELECT = {
   id: true, projectId: true, sprintId: true, customTypeId: true, meetingType: true,
   status: true, meetingDate: true, createdById: true, title: true, createdAt: true, updatedAt: true,
+  // The Teams join link: the list is scoped like the REST list, so it reaches
+  // only people who can see the meeting. Not structural, so a withheld result
+  // drops it (egress projection), as it does the title.
+  teamsJoinUrl: true,
 } as const;
 
 // ── list_meetings ─────────────────────────────────────────────────────────
@@ -37,19 +42,17 @@ export async function listMeetings(input: Record<string, unknown>, ctx: ToolCont
   if (!parsed.success) return invalid(parsed.error);
   const { projectId, sprintId, meetingType, status, limit } = parsed.data;
 
-  const where: Prisma.SyncMeetingWhereInput = { orgId: ctx.orgId };
+  // The same rule as the REST list and a meeting by id (meeting-reader.ts):
+  // the project visible and MEETING_READ passing for it, policies included;
+  // a meeting under no project, MEETING_READ alone.
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
+  let where: Prisma.SyncMeetingWhereInput;
   if (projectId) {
-    const outOfScope = await assertProjectRead(ctx, projectId, "MEETING_READ");
-    if (outOfScope) return outOfScope;
-    where.projectId = projectId;
+    if (!(await canReadMeeting(auth, projectId))) return { error: "Project not found" };
+    where = { orgId: ctx.orgId, projectId };
   } else {
-    // No project named: without this the tool listed every meeting in the org,
-    // including those on projects the actor cannot open. Meetings with NO
-    // project are org-level and stay visible.
-    const auth = await loadAuthContext(ctx);
-    if (!auth) return { error: "Insufficient permissions" };
-    const readable = await getReadableProjectIds(auth);
-    where.OR = [{ projectId: null }, { projectId: { in: readable } }];
+    where = await readableMeetingsWhere(auth);
   }
   if (sprintId) where.sprintId = sprintId;
   if (meetingType) where.meetingType = meetingType;
@@ -134,12 +137,12 @@ export async function updateMeeting(input: Record<string, unknown>, ctx: ToolCon
     where: { id: data.meetingId, orgId: ctx.orgId },
     select: { id: true, projectId: true },
   });
-  if (!existing) return { error: "Meeting not found" };
-
-  // `projectId` is NULLABLE on this model — a row with no project is org-level
-  // and nothing narrows it. Gate only when it belongs to a project, which may
-  // be team-scoped and closed to this actor. Same message either way, so a
-  // refusal never confirms the row is real.
+  // A meeting the caller can't read answers as a missing one (the one
+  // meeting-read rule, as REST's by-id doors). Then the write's own gate, for
+  // a meeting under a project. Same message either way, so a refusal never
+  // confirms the row is real.
+  const auth = await loadAuthContext(ctx);
+  if (!existing || !auth || !(await canReadMeeting(auth, existing.projectId))) return { error: "Meeting not found" };
   if (existing.projectId) {
     const outOfScope = await assertProjectRead(ctx, existing.projectId, "MEETING_UPDATE");
     if (outOfScope) return { error: "Meeting not found" };
@@ -155,6 +158,9 @@ export async function updateMeeting(input: Record<string, unknown>, ctx: ToolCon
     },
     select: MEETING_SELECT,
   });
+  // Outlook copies follow, as a REST edit's do: a title that makes the meeting
+  // classified ends its Teams meeting there, and nothing keeps a dead link.
+  if (SYNCED_MEETING_FIELDS.some((f) => f in data)) syncMeetingSoon(ctx.orgId, updated.id);
   return { updated: true, id: updated.id, meeting: updated };
 }
 
@@ -172,17 +178,19 @@ export async function deleteMeeting(input: Record<string, unknown>, ctx: ToolCon
     where: { id: parsed.data.meetingId, orgId: ctx.orgId },
     select: { id: true, projectId: true },
   });
-  if (!existing) return { error: "Meeting not found" };
-
-  // `projectId` is NULLABLE on this model — a row with no project is org-level
-  // and nothing narrows it. Gate only when it belongs to a project, which may
-  // be team-scoped and closed to this actor. Same message either way, so a
-  // refusal never confirms the row is real.
+  // A meeting the caller can't read answers as a missing one (the one
+  // meeting-read rule, as REST's by-id doors). Then the write's own gate, for
+  // a meeting under a project. Same message either way, so a refusal never
+  // confirms the row is real.
+  const auth = await loadAuthContext(ctx);
+  if (!existing || !auth || !(await canReadMeeting(auth, existing.projectId))) return { error: "Meeting not found" };
   if (existing.projectId) {
     const outOfScope = await assertProjectRead(ctx, existing.projectId, "MEETING_DELETE");
     if (outOfScope) return { error: "Meeting not found" };
   }
 
   await prisma.syncMeeting.delete({ where: { id: existing.id } });
+  // The links outlive the meeting, so this removes everyone's Outlook copy (and its Teams meeting).
+  syncMeetingSoon(ctx.orgId, existing.id);
   return { deleted: true, id: existing.id };
 }

@@ -430,6 +430,12 @@ export interface SyncMeeting {
   meetSpaceName: string | null;
   meetConferenceName: string | null;
   artifacts: unknown;
+  /** A Teams meeting (through Outlook): whose Outlook holds it; null when it isn't one. */
+  teamsHostId?: string | null;
+  /** Its join link, once Microsoft has given one. */
+  teamsJoinUrl?: string | null;
+  /** "no_join_url": Microsoft made the event but no Teams meeting. */
+  teamsIssue?: string | null;
   createdById: string;
   createdAt: string;
   updatedAt: string;
