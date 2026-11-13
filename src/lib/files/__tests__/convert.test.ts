@@ -44,6 +44,7 @@ describe("convertBlockToWorkItem", () => {
     const { item, link } = await convertBlockToWorkItem({
       orgId: org!.id,
       projectId: project!.id,
+      docId: doc.id,
       blockId: block!.id,
       userId: user!.id,
     });
@@ -72,7 +73,7 @@ describe("convertBlockToWorkItem", () => {
     const block = await prisma.documentBlock.findFirst({ where: { documentId: doc.id }, select: { id: true } });
 
     const { milestone, link } = await convertBlockToMilestone({
-      orgId: org!.id, projectId: project!.id, blockId: block!.id, userId: user!.id, title: "Ship v3",
+      orgId: org!.id, projectId: project!.id, docId: doc.id, blockId: block!.id, userId: user!.id, title: "Ship v3",
     });
     expect(milestone.title).toBe("Ship v3");
     expect(link.itemType).toBe("MILESTONE");
@@ -100,7 +101,7 @@ describe("convertBlockToWorkItem", () => {
 
     // Sheet "Milestones": header + 2 data rows; title column 0 → 2 issues.
     const { count } = await convertTableToWorkItems({
-      orgId: org!.id, projectId: project!.id, blockId: tableBlock!.id, userId: user!.id,
+      orgId: org!.id, projectId: project!.id, docId: doc.id, blockId: tableBlock!.id, userId: user!.id,
       titleColumn: 0, headerRow: true,
     });
     expect(count).toBe(2);
@@ -141,7 +142,7 @@ describe("convertBlockToItem — marginal types (OKR / Goal / Sprint / Roadmap n
     const created: { id: string; del: (id: string) => Promise<unknown> }[] = [];
     for (const c of cases) {
       const res = await convertBlockToItem({
-        orgId: org!.id, projectId: project!.id, blockId: block!.id, userId: user!.id,
+        orgId: org!.id, projectId: project!.id, docId: doc.id, blockId: block!.id, userId: user!.id,
         itemType: c.itemType, title: `From doc — ${c.itemType}`,
       });
       expect(res.itemType).toBe(c.itemType);
@@ -171,10 +172,10 @@ describe("convertBlockToItem — marginal types (OKR / Goal / Sprint / Roadmap n
     const block = await prisma.documentBlock.findFirst({ where: { documentId: doc.id }, select: { id: true } });
 
     const a = await convertBlockToRoadmapNode({
-      orgId: org!.id, projectId: project!.id, blockId: block!.id, userId: user!.id, title: "Phase One",
+      orgId: org!.id, projectId: project!.id, docId: doc.id, blockId: block!.id, userId: user!.id, title: "Phase One",
     });
     const b = await convertBlockToRoadmapNode({
-      orgId: org!.id, projectId: project!.id, blockId: block!.id, userId: user!.id, title: "Phase One",
+      orgId: org!.id, projectId: project!.id, docId: doc.id, blockId: block!.id, userId: user!.id, title: "Phase One",
     });
     expect(a.node.anchor).not.toBe(b.node.anchor);
 

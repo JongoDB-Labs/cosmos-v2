@@ -4,7 +4,7 @@ import { OrgRole } from "@prisma/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
 
-const { prisma, resolveAuth, requireProjectRead, requireAccess, ingestDocument, logAudit } =
+const { prisma, resolveAuth, requireProjectRead, requireAccess, ingestDocument, logAudit, access } =
   vi.hoisted(() => ({
     prisma: {
       organization: { findUnique: vi.fn() },
@@ -17,6 +17,13 @@ const { prisma, resolveAuth, requireProjectRead, requireAccess, ingestDocument, 
     requireAccess: vi.fn(),
     ingestDocument: vi.fn(),
     logAudit: vi.fn(),
+    // The per-file rule itself runs against a real database in
+    // lib/files/__tests__/restricted-every-door.db.test.ts; here it is a marker
+    // so these specs can see the routes ASK it.
+    access: {
+      documentVisibilityWhere: vi.fn(() => ({ visibleTo: "this caller" })),
+      readableProjectDocument: vi.fn(),
+    },
   }));
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
@@ -26,6 +33,7 @@ vi.mock("@/lib/rbac/require-project-read", () => ({ requireProjectRead, requireP
 vi.mock("@/lib/abac/require-access", () => ({ requireAccess }));
 vi.mock("@/lib/files/ingest", () => ({ ingestDocument }));
 vi.mock("@/lib/audit", () => ({ logAudit }));
+vi.mock("@/lib/files/access", () => access);
 
 import { GET, POST } from "./route";
 import { DELETE } from "./[docId]/route";
@@ -156,7 +164,15 @@ describe("GET attachments", () => {
     expect(prisma.document.findMany.mock.calls[0][0].where).toEqual({
       orgId: ORG_ID,
       workItemId: ITEM,
+      visibleTo: "this caller",
     });
+  });
+
+  it("lists only the files this caller may see, by the Files list's own rule", async () => {
+    const caller = ctx("ITEM_READ");
+    resolveAuth.mockResolvedValue(caller);
+    await GET(get(), { params });
+    expect(access.documentVisibilityWhere).toHaveBeenCalledWith(caller, new Set([PROJECT]));
   });
 
   it("returns the uploader as a person and not as a uuid", async () => {
@@ -183,8 +199,17 @@ describe("GET attachments", () => {
 
 describe("DELETE — detaches, and must not destroy", () => {
   beforeEach(() => {
+    access.readableProjectDocument.mockResolvedValue({ id: DOC, projectId: PROJECT });
     prisma.document.findFirst.mockResolvedValue({ id: DOC, filename: "a.jpg" });
     prisma.document.update.mockResolvedValue({ id: DOC });
+  });
+
+  it("will not detach a file this caller may not see, and says only 'not found'", async () => {
+    access.readableProjectDocument.mockResolvedValue(null);
+    const res = await DELETE(new NextRequest(url), { params: docParams });
+    expect(res.status).toBe(404);
+    expect(prisma.document.update).not.toHaveBeenCalled();
+    expect(access.readableProjectDocument).toHaveBeenCalledWith(ORG_ID, PROJECT, DOC, expect.anything());
   });
 
   it("nulls the link and leaves the file in the project library", async () => {

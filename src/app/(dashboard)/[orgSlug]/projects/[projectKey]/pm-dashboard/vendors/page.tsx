@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
+import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { VendorTracker } from "@/components/pm-dashboard/vendor-tracker";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
@@ -14,9 +16,11 @@ export default async function VendorsPage({ params }: PageParams) {
     where: { orgId: ctx.orgId, key: { equals: projectKey, mode: "insensitive" }, archived: false },
     select: { id: true },
   });
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
 
-  const partners = await prisma.partner.findMany({
+  // The partner picker is the partners list, which needs CRM_READ; without it
+  // the page names none.
+  const partners = !hasPermission(ctx.permissions, Permission.CRM_READ) ? [] : await prisma.partner.findMany({
     where: { orgId: ctx.orgId },
     select: { id: true, name: true },
     orderBy: { name: "asc" },

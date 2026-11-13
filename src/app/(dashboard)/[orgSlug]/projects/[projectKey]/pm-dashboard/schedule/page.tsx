@@ -1,6 +1,8 @@
 import { IntervalKind } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
+import { canReadInProject } from "@/lib/rbac/require-project-read";
 import { redirect, notFound } from "next/navigation";
 import { ScheduleTracker } from "@/components/pm-dashboard/schedule-tracker";
 
@@ -15,12 +17,15 @@ export default async function SchedulePage({ params }: PageParams) {
     where: { orgId: ctx.orgId, key: { equals: projectKey, mode: "insensitive" }, archived: false },
     select: { id: true },
   });
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
 
   // Only Program Increments may hold a milestone, and only this project's —
   // the FK cannot express either rule, so the picker is narrowed at the source
   // and re-checked server-side on write (lib/pm/milestone-interval.ts).
-  const programIncrements = await prisma.interval.findMany({
+  //
+  // The picker names this project's timeboxes, which the intervals API gives
+  // only with SPRINT_READ on the project; without it the picker is empty.
+  const programIncrements = !(await canReadInProject(ctx, project.id, "SPRINT_READ")) ? [] : await prisma.interval.findMany({
     where: {
       orgId: ctx.orgId,
       projectId: project.id,

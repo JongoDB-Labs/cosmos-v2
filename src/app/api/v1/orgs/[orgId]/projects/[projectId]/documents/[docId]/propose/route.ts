@@ -7,6 +7,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { proposeItems } from "@/lib/files/propose";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
+import { readableProjectDocument } from "@/lib/files/access";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; docId: string }>;
@@ -29,11 +30,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
-    const doc = await prisma.document.findFirst({
-      where: { id: docId, orgId, projectId },
-      select: { id: true },
-    });
-    if (!doc) return new Response("Not found", { status: 404 });
+    // A proposal is the file's text, summarised: only somebody who may read
+    // the file may have it read for them.
+    if (!(await readableProjectDocument(orgId, projectId, docId, ctx)))
+      return new Response("Not found", { status: 404 });
 
     const proposals = await proposeItems({ orgId, projectId, userId: ctx.userId, docId });
     return success({ proposals });

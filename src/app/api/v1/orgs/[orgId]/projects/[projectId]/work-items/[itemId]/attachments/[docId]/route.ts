@@ -4,6 +4,7 @@ import { resolveAuth } from "@/lib/auth/api-key";
 import { requireAccess } from "@/lib/abac/require-access";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { readableProjectDocument } from "@/lib/files/access";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = {
@@ -42,6 +43,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     // Scoped on workItemId as well as id: a docId that belongs to another item (or
     // to no item) is not found here rather than silently detached.
+    // A file this caller may not see is not on their copy of the ticket, so it
+    // is not theirs to take off it either; the same 404 as a missing one.
+    if (!(await readableProjectDocument(orgId, projectId, docId, ctx)))
+      return new Response("Not found", { status: 404 });
     const doc = await prisma.document.findFirst({
       where: { id: docId, orgId, workItemId: itemId },
       select: { id: true, filename: true },

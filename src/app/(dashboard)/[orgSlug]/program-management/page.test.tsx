@@ -13,6 +13,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { isValidElement, type ReactElement } from "react";
 import { Permission } from "@/lib/rbac/permissions";
+import type { AbacRule } from "@/lib/abac/engine";
 
 const { prisma, getAuthContext, requestHeaders, getVisibleProjectIds, loaders } = vi.hoisted(() => {
   const rows = () => ({ findMany: vi.fn(async () => []) });
@@ -49,7 +50,12 @@ const { prisma, getAuthContext, requestHeaders, getVisibleProjectIds, loaders } 
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
-vi.mock("@/lib/rbac/project-access", () => ({ getVisibleProjectIds }));
+// Partial: getReadableProjectIds (the per-project allow/deny rules) runs for real
+// against the mocked project rows, and needs the module's other exports.
+vi.mock("@/lib/rbac/project-access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rbac/project-access")>()),
+  getVisibleProjectIds,
+}));
 vi.mock("@/lib/pm/schedule", () => ({ loadMilestonesWithDerived: loaders.milestones }));
 vi.mock("@/lib/pm/kpi-derive", () => ({ loadKpisWithDerived: loaders.kpis }));
 vi.mock("@/lib/pm/burn", () => ({ loadClinsWithBurn: loaders.clins }));
@@ -75,12 +81,27 @@ import { redirect } from "next/navigation";
 const params = Promise.resolve({ orgSlug: "acme" });
 const noQuery = Promise.resolve({});
 
-/** Everything the page needs EXCEPT the money permission. */
-const PROGRAM_ONLY = Permission.ANALYTICS_READ | Permission.PROJECT_READ;
+/** Everything the page needs EXCEPT the money permission: goals are OKR_READ's. */
+const PROGRAM_ONLY = Permission.ANALYTICS_READ | Permission.PROJECT_READ | Permission.OKR_READ;
 
-function signedInWith(permissions: bigint) {
-  getAuthContext.mockResolvedValue({ orgId: "o1", userId: "u1", permissions });
+function signedInWith(permissions: bigint, abacRules: AbacRule[] = []) {
+  getAuthContext.mockResolvedValue({
+    orgId: "o1", userId: "u1", orgRole: "MEMBER", permissions, basePermissions: permissions, abacRules,
+  });
 }
+
+/** The `projectId.in` list one model was queried with. */
+function idsFor(model: "goal" | "risk"): unknown {
+  const call = prisma[model].findMany.mock.calls[0] as unknown as [{ where: { projectId: { in: string[] } } }];
+  return call[0].where.projectId.in;
+}
+
+/** A member or work-role rule denying `action` on one project. */
+const denyOn = (action: AbacRule["actions"][number], projectId: string): AbacRule => ({
+  effect: "deny",
+  actions: [action],
+  conditions: [{ attr: "projectId", op: "eq", value: projectId }],
+});
 
 /** The `projectId.in` list every register was queried with. */
 function scopedIds(): unknown {
@@ -354,3 +375,38 @@ function findByDisplayName(node: unknown, name: string): ReactElement | null {
   }
   return null;
 }
+
+// The registers' own API routes ask requireProjectRead, which applies the org's
+// allow/deny rules per project: ANALYTICS_READ for the registers, OKR_READ for
+// goals. This page asked only whether the project is visible, so a rule that
+// refused one project's risks through the API still rolled them up here.
+describe("Program Management — the org's allow/deny rules", () => {
+  it("a rule denying ANALYTICS_READ on one project drops it from every register", async () => {
+    signedInWith(PROGRAM_ONLY, [denyOn("ANALYTICS_READ", "p-other")]);
+    await ProgramManagementContent({ params, searchParams: noQuery });
+    expect(scopedIds()).toEqual(["p-open"]);
+    expect(loaders.milestones).toHaveBeenCalledWith("o1", ["p-open"]);
+    expect(loaders.kpis).toHaveBeenCalledWith("o1", ["p-open"]);
+    expect(idsFor("goal")).toEqual(["p-open"]);
+  });
+
+  it("?project= naming that project falls back to what the viewer may read", async () => {
+    signedInWith(PROGRAM_ONLY, [denyOn("ANALYTICS_READ", "p-other")]);
+    await ProgramManagementContent({ params, searchParams: Promise.resolve({ project: "OTHER" }) });
+    expect(scopedIds()).toEqual(["p-open"]);
+  });
+
+  it("goals follow OKR_READ: without the bit, no goals load while the registers still do", async () => {
+    signedInWith(Permission.ANALYTICS_READ | Permission.PROJECT_READ);
+    await ProgramManagementContent({ params, searchParams: noQuery });
+    expect(idsFor("risk")).toEqual(["p-open", "p-other"]);
+    expect(idsFor("goal")).toEqual([]);
+  });
+
+  it("a rule denying OKR_READ on one project drops only that project's goals", async () => {
+    signedInWith(PROGRAM_ONLY, [denyOn("OKR_READ", "p-open")]);
+    await ProgramManagementContent({ params, searchParams: noQuery });
+    expect(idsFor("risk")).toEqual(["p-open", "p-other"]);
+    expect(idsFor("goal")).toEqual(["p-other"]);
+  });
+});

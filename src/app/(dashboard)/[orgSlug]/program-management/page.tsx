@@ -8,6 +8,7 @@ import { loadKpisWithDerived } from "@/lib/pm/kpi-derive";
 import { loadClinsWithBurn } from "@/lib/pm/burn";
 import { canViewPage } from "@/lib/nav/page-access";
 import { getVisibleProjectIds } from "@/lib/rbac/project-access";
+import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { hasAnyPermission, Permission } from "@/lib/rbac/permissions";
 import { NoPageAccess } from "@/components/ui/no-page-access";
 import { PageShell, pageShellBoxClassName, type PageShellProps } from "@/components/ui/page-shell";
@@ -141,8 +142,20 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
     orderBy: { name: "asc" },
     select: { id: true, key: true, name: true },
   });
-  const visibleIds = new Set(await getVisibleProjectIds(ctx, all.map((p) => p.id)));
-  const visibleProjects = all.filter((p) => visibleIds.has(p.id));
+  // Then the org's allow/deny rules, which the visibility check above does not
+  // read: each register's own API refuses a project where a rule denies the
+  // viewer ANALYTICS_READ, so this roll-up leaves that project out too, and
+  // goals and milestones follow their own actions (OKR_READ, PROJECT_READ) as
+  // their APIs do. Without this a rule that hid one project's risks from the
+  // API still rolled them into the portfolio here.
+  const [visibleIds, analyticsIds, okrIds, projectReadIds] = await Promise.all([
+    getVisibleProjectIds(ctx, all.map((p) => p.id)),
+    getReadableProjectIds(ctx, "ANALYTICS_READ"),
+    getReadableProjectIds(ctx, "OKR_READ"),
+    getReadableProjectIds(ctx, "PROJECT_READ"),
+  ]);
+  const analyticsReadable = new Set(analyticsIds);
+  const visibleProjects = all.filter((p) => visibleIds.has(p.id) && analyticsReadable.has(p.id));
 
   // An unknown or unreadable ?project= falls back to the whole portfolio
   // rather than erroring: the key is in a URL people paste, and a project can
@@ -154,6 +167,10 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
   const selectedKey = selected?.key ?? null;
 
   const scopeIds = selected ? [selected.id] : visibleProjects.map((p) => p.id);
+  const okrReadable = new Set(okrIds);
+  const goalScopeIds = scopeIds.filter((id) => okrReadable.has(id));
+  const projectReadable = new Set(projectReadIds);
+  const milestoneScopeIds = scopeIds.filter((id) => projectReadable.has(id));
 
   // Money is gated separately from the page. Reading that a program has
   // slipped is a different question from reading what it is worth, and the
@@ -169,11 +186,11 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
   const [milestones, kpis, goals, risks, deliverables, blockers, changes, clins] =
     await Promise.all([
       // Milestone status + completion derive from linked work items.
-      loadMilestonesWithDerived(ctx.orgId, scopeIds),
+      loadMilestonesWithDerived(ctx.orgId, milestoneScopeIds),
       // KPI currentValue derives from execution for auto-source KPIs.
       loadKpisWithDerived(ctx.orgId, scopeIds),
       prisma.goal.findMany({
-        where,
+        where: { orgId: ctx.orgId, projectId: { in: goalScopeIds } },
         orderBy: { sortOrder: "asc" },
         select: { id: true, title: true, status: true, progress: true },
       }),

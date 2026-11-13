@@ -1,6 +1,8 @@
 import { IntervalKind } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
+import { canReadInProject } from "@/lib/rbac/require-project-read";
 import { redirect, notFound } from "next/navigation";
 import { DeliverableTracker } from "@/components/pm-dashboard/deliverable-tracker";
 
@@ -15,7 +17,7 @@ export default async function DeliverablesPage({ params }: PageParams) {
     where: { orgId: ctx.orgId, key: { equals: projectKey, mode: "insensitive" }, archived: false },
     select: { id: true },
   });
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
 
   // A CDRL is planned into a SPRINT, so the picker offers this project's
   // sprints — the mirror of the Schedule tab, which offers Program Increments
@@ -25,7 +27,10 @@ export default async function DeliverablesPage({ params }: PageParams) {
   // (lib/pm/deliverable-scope.ts) and deliberately NOT the kind: unlike a
   // milestone, a CDRL tied to some other timebox is not a contradiction, and an
   // import resolving a sprint by name must not fail on how it was classified.
-  const sprints = await prisma.interval.findMany({
+  //
+  // The picker names this project's timeboxes, which the intervals API gives
+  // only with SPRINT_READ on the project; without it the picker is empty.
+  const sprints = !(await canReadInProject(ctx, project.id, "SPRINT_READ")) ? [] : await prisma.interval.findMany({
     where: {
       orgId: ctx.orgId,
       projectId: project.id,

@@ -36,9 +36,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     const hits = await searchEntities({
-      orgId: org.id,
+      ctx,
       orgSlug: org.slug,
-      userId: ctx.userId,
       query: q,
       types: PALETTE_TYPES,
       perType: PER_TYPE,

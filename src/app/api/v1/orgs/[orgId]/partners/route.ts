@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { readableContractsWhere } from "@/lib/crm/contract-scope";
 import { z } from "zod";
 
 const createPartnerSchema = z.object({
@@ -40,7 +41,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         ...(search ? { name: { contains: search, mode: "insensitive" } } : {}),
       },
       include: {
-        _count: { select: { contracts: true } },
+        // Counts only the contracts this caller may see, as the detail lists.
+        _count: { select: { contracts: { where: await readableContractsWhere(ctx) } } },
       },
       orderBy: { createdAt: "desc" },
     });

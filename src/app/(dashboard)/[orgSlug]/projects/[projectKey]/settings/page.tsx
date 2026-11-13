@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
+import { narrowBoards } from "@/lib/rbac/board-access";
 import { redirect, notFound } from "next/navigation";
 import { ProjectSettingsClient } from "./project-settings-client";
 import { MentionedIn } from "@/components/mentions/mentioned-in";
@@ -30,14 +32,23 @@ export default async function ProjectSettingsPage({ params }: PageParams) {
       // For the "Default boards" section. Ordered as the board strip orders
       // them so the settings list matches what people actually see.
       boards: {
-        select: { id: true, name: true, type: true },
+        select: { id: true, name: true, type: true, teamId: true },
         orderBy: { sortOrder: "asc" },
       },
       teamScopedAccess: true,
     },
   });
 
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
+
+  // Only the boards this person may see, as the board strip, the board page and
+  // the boards API already narrow them. Listing every board here named a team's
+  // boards to people outside that team.
+  const boards = (await narrowBoards(ctx, project.id, project.boards)).map(({ id, name, type }) => ({
+    id,
+    name,
+    type,
+  }));
 
   const disabledBoardTypes =
     ((project.settings as { disabledBoardTypes?: string[] } | null)?.disabledBoardTypes) ?? [];
@@ -68,7 +79,7 @@ export default async function ProjectSettingsPage({ params }: PageParams) {
         disabledBoardTypes={disabledBoardTypes}
         krLinkTypeId={project.krLinkTypeId}
         objectiveLinkTypeId={project.objectiveLinkTypeId}
-        boards={project.boards}
+        boards={boards}
         hiddenBoardIds={hiddenBoardIds}
         teamScopedAccess={project.teamScopedAccess}
         closingRule={closingRuleChoice}

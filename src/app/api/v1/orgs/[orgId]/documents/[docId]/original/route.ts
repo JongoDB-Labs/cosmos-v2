@@ -3,10 +3,10 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { getStorage } from "@/lib/storage";
 import { handleApiError } from "@/lib/api-helpers";
+import { readableDocument } from "@/lib/files/access";
 
 type RouteParams = { params: Promise<{ orgId: string; docId: string }> };
 
@@ -29,25 +29,23 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_READ);
 
+    // The file's own rule, which already asks the project: an INHERIT file as
+    // its project's document routes would (bit, rules, team scoping, a key's
+    // limit), a RESTRICTED one for the people it is for, a share included. The
+    // same rule GET /documents/:id, both lists and the project's download ask,
+    // so a second project check here could only make this door disagree.
+    if (!(await readableDocument(orgId, docId, ctx)))
+      return new Response("Not found", { status: 404 });
+
     const doc = await prisma.document.findFirst({
       where: { id: docId, orgId },
       select: {
         storageKey: true,
         contentType: true,
         filename: true,
-        projectId: true,
       },
     });
     if (!doc) return new Response("Not found", { status: 404 });
-
-    if (doc.projectId) {
-      requirePermission(ctx, Permission.PROJECT_READ);
-      // The AuthContext carries an API key's project scope; the user id alone
-      // would let a key scoped elsewhere download this project's files.
-      const visible = await getVisibleProjectIds(ctx, [doc.projectId]);
-      if (!visible.has(doc.projectId))
-        return new Response("Not found", { status: 404 });
-    }
 
     const stream = await getStorage().stream(doc.storageKey);
     if (!stream) return new Response("File not found", { status: 404 });

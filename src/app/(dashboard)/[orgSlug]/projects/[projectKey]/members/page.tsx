@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { canManageProject } from "@/lib/rbac/scope";
 import { ProjectMembersManager } from "@/components/projects/project-members-manager";
@@ -23,7 +24,7 @@ export default async function ProjectMembersPage({ params }: PageParams) {
     },
     select: { id: true, name: true },
   });
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
 
   // Inheriting check: org admins (PROJECT_MANAGE) or a MANAGER of this project
   // can edit; everyone else sees it read-only.

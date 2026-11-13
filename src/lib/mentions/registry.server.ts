@@ -7,9 +7,13 @@
  * additionally visibility-scoped; people via OrgMember). Project-scoped types
  * return `projectId`, and `finalize()` batch-resolves the project `key` for
  * deep-links + the `KEY-<n>` work-item label. Auth/permission gating happens at
- * the route layer (ORG_READ), matching the existing /search route.
+ * the route layer (ORG_READ), matching the existing /search route. Documents
+ * also follow the file rule (lib/files/access.ts), as the org library does: a
+ * title in a search result discloses a file as surely as opening it.
  */
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import type { AuthContext } from "@/lib/rbac/check";
+import { orgDocumentVisibilityWhere } from "@/lib/files/access";
 import { visibleProjectIdsForActor } from "@/lib/rbac/project-access";
 import {
   ENTITY_ORDER,
@@ -23,7 +27,7 @@ import { parseTicketQuery } from "./ticket-query";
 import { FEEDBACK_SUBJECT } from "@/lib/feedback/subject";
 import { feedbackItemUrl } from "@/lib/feedback/urls";
 import { chatDrawerHref } from "@/lib/chat/drawer-link";
-export type SearchScope = { orgId: string; userId: string };
+export type SearchScope = { orgId: string; userId: string; ctx: AuthContext };
 
 export type EntityHit = {
   type: EntityType;
@@ -70,6 +74,8 @@ function makeHandler(cfg: {
   hasCode?: boolean;
   hasTicket?: boolean;
   projectScoped?: boolean;
+  /** A further `where` the caller's rows must meet (the document rule). */
+  where?: (scope: SearchScope) => Promise<Record<string, unknown>>;
 }): Handler {
   const select: Record<string, boolean> = { id: true, [cfg.field]: true };
   if (cfg.hasCode) select.code = true;
@@ -85,28 +91,28 @@ function makeHandler(cfg: {
   });
 
   return {
-    async search(q, { orgId }, take) {
+    async search(q, scope, take) {
       // Entities with a ticket number are looked up BY that number at least as
       // often as by title — "TEST-123" is how people refer to them — but the
       // number was only ever selected for display, never searched.
       const ticket = cfg.hasTicket ? parseTicketQuery(q).ticketNumber : undefined;
-      const where =
+      const text =
         ticket === undefined
-          ? { orgId, [cfg.field]: ci(q) }
-          : { orgId, OR: [{ [cfg.field]: ci(q) }, { ticketNumber: ticket }] };
+          ? { [cfg.field]: ci(q) }
+          : { OR: [{ [cfg.field]: ci(q) }, { ticketNumber: ticket }] };
 
       const rows = await cfg.delegate.findMany({
-        where,
+        where: { orgId: scope.orgId, AND: [text, ...(cfg.where ? [await cfg.where(scope)] : [])] },
         select,
         take,
         orderBy: { [cfg.field]: "asc" },
       });
       return rows.map(toRaw);
     },
-    async resolve(ids, { orgId }) {
+    async resolve(ids, scope) {
       if (ids.length === 0) return [];
       const rows = await cfg.delegate.findMany({
-        where: { orgId, id: { in: ids } },
+        where: { orgId: scope.orgId, id: { in: ids }, ...(cfg.where && { AND: [await cfg.where(scope)] }) },
         select,
       });
       return rows.map(toRaw);
@@ -225,7 +231,14 @@ const HANDLERS: Record<EntityType, Handler> = {
   objective: makeHandler({ delegate: d(prisma.objective), field: "title", projectScoped: true }),
   goal: makeHandler({ delegate: d(prisma.goal), field: "title", projectScoped: true }),
   kpi: makeHandler({ delegate: d(prisma.kpi), field: "name", projectScoped: true }),
-  document: makeHandler({ delegate: d(prisma.document), field: "title", projectScoped: true }),
+  document: makeHandler({
+    delegate: d(prisma.document),
+    field: "title",
+    projectScoped: true,
+    // The org library's rule: a project's files as the project's own document
+    // routes allow, restricted ones only for the people they are for.
+    where: (scope) => orgDocumentVisibilityWhere(scope.ctx),
+  }),
   risk: makeHandler({ delegate: d(prisma.risk), field: "title", hasCode: true, projectScoped: true }),
   deliverable: makeHandler({ delegate: d(prisma.deliverable), field: "title", hasCode: true, projectScoped: true }),
   blocker: makeHandler({ delegate: d(prisma.blocker), field: "title", hasCode: true, projectScoped: true }),
@@ -271,9 +284,8 @@ async function finalize(hits: TypedRaw[], orgSlug: string): Promise<EntityHit[]>
 
 /** The shared entity search — used by ⌘K and the @ typeahead. */
 export async function searchEntities(opts: {
-  orgId: string;
+  ctx: AuthContext;
   orgSlug: string;
-  userId: string;
   query: string;
   types?: EntityType[];
   perType?: number;
@@ -283,7 +295,7 @@ export async function searchEntities(opts: {
   const types =
     opts.types && opts.types.length ? opts.types : ENTITY_ORDER;
   const perType = opts.perType ?? 6;
-  const scope: SearchScope = { orgId: opts.orgId, userId: opts.userId };
+  const scope: SearchScope = { orgId: opts.ctx.orgId, userId: opts.ctx.userId, ctx: opts.ctx };
 
   const grouped = await Promise.all(
     types.map(async (t): Promise<TypedRaw[]> => {
@@ -300,9 +312,8 @@ export async function searchEntities(opts: {
 
 /** Batch-resolve stored tokens to labels + deep-link urls (for chip render). */
 export async function resolveRefs(opts: {
-  orgId: string;
+  ctx: AuthContext;
   orgSlug: string;
-  userId: string;
   refs: EntityRef[];
 }): Promise<EntityHit[]> {
   if (opts.refs.length === 0) return [];
@@ -312,7 +323,7 @@ export async function resolveRefs(opts: {
     if (list) list.push(r.id);
     else byType.set(r.type, [r.id]);
   }
-  const scope: SearchScope = { orgId: opts.orgId, userId: opts.userId };
+  const scope: SearchScope = { orgId: opts.ctx.orgId, userId: opts.ctx.userId, ctx: opts.ctx };
   const grouped = await Promise.all(
     [...byType.entries()].map(async ([t, ids]): Promise<TypedRaw[]> => {
       try {
@@ -341,15 +352,14 @@ export type Backlink = {
  * are dropped.
  */
 export async function resolveBacklinks(opts: {
-  orgId: string;
+  ctx: AuthContext;
   orgSlug: string;
-  userId: string;
   targetType: EntityType;
   targetId: string;
   limit?: number;
 }): Promise<Backlink[]> {
   const rows = await prisma.reference.findMany({
-    where: { orgId: opts.orgId, targetType: opts.targetType, targetId: opts.targetId },
+    where: { orgId: opts.ctx.orgId, targetType: opts.targetType, targetId: opts.targetId },
     orderBy: { createdAt: "desc" },
     take: opts.limit ?? 50,
     select: { sourceType: true, sourceId: true, createdAt: true },
@@ -357,7 +367,7 @@ export async function resolveBacklinks(opts: {
   if (rows.length === 0) return [];
 
   const idsOf = (t: string) => rows.filter((r) => r.sourceType === t).map((r) => r.sourceId);
-  const scope = { orgId: opts.orgId, orgSlug: opts.orgSlug, userId: opts.userId };
+  const scope = { ctx: opts.ctx, orgSlug: opts.orgSlug };
 
   // note + workItem sources resolve directly (they are entity types).
   const direct = await resolveRefs({
@@ -375,7 +385,7 @@ export async function resolveBacklinks(opts: {
   const commentIds = idsOf("comment");
   const comments = commentIds.length
     ? await prisma.comment.findMany({
-        where: { id: { in: commentIds }, orgId: opts.orgId },
+        where: { id: { in: commentIds }, orgId: opts.ctx.orgId },
         select: { id: true, workItemId: true, subjectType: true, subjectId: true, visibility: true, deletedAt: true },
       })
     : [];
@@ -384,15 +394,15 @@ export async function resolveBacklinks(opts: {
   );
   const feedbackRows = feedbackComments.length
     ? await prisma.feedbackItem.findMany({
-        where: { id: { in: feedbackComments.map((c) => c.subjectId as string) }, orgId: opts.orgId },
+        where: { id: { in: feedbackComments.map((c) => c.subjectId as string) }, orgId: opts.ctx.orgId },
         select: { id: true, title: true, projectId: true },
       })
     : [];
   // A team-scoped project's feedback is dropped for anyone who can't see it,
   // as the feedback board itself drops it.
   const feedbackProjects = await visibleProjectIdsForActor(
-    opts.orgId,
-    opts.userId,
+    opts.ctx.orgId,
+    opts.ctx.userId,
     [...new Set(feedbackRows.map((f) => f.projectId).filter((id): id is string => !!id))],
   );
   const feedbackItems = feedbackRows.filter((f) => !f.projectId || feedbackProjects.has(f.projectId));
@@ -422,7 +432,7 @@ export async function resolveBacklinks(opts: {
   const channelIds = [...new Set(msgs.map((m) => m.channelId))];
   const channels = channelIds.length
     ? await prisma.chatChannel.findMany({
-        where: { id: { in: channelIds }, orgId: opts.orgId },
+        where: { id: { in: channelIds }, orgId: opts.ctx.orgId },
         select: { id: true, name: true },
       })
     : [];

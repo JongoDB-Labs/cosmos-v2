@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/db/client";
+import type { AuthContext } from "@/lib/rbac/check";
+import { documentVisibilityWhere } from "@/lib/files/access";
 import { workflowSettings } from "@/lib/workflow/settings";
 import { closingRuleOn } from "@/lib/workflow/closing-rule";
 import { problem } from "@/lib/openapi/problem";
@@ -13,9 +15,21 @@ export async function closingRuleForProject(orgId: string, projectId: string): P
   return closingRuleOn(workflowSettings(org?.settings).closingRule, project?.settings);
 }
 
-/** The supporting files on a deliverable or phase. */
-export function evidenceFiles(orgId: string, on: { deliverableId: string } | { phaseId: string }): Promise<number> {
-  return prisma.document.count({ where: { orgId, ...on } });
+/**
+ * The supporting files on a deliverable or phase that this caller may see.
+ *
+ * Counted by the file rule, not in full: whether the "why is there no file"
+ * question appears is itself an answer, so counting a restricted file the
+ * caller cannot open told them it exists. The caller is already working in
+ * `projectId` (the routes check it), which is the only project these files sit in.
+ */
+export function evidenceFiles(
+  orgId: string,
+  on: { deliverableId: string } | { phaseId: string },
+  ctx: AuthContext,
+  projectId: string,
+): Promise<number> {
+  return prisma.document.count({ where: { orgId, ...on, ...documentVisibilityWhere(ctx, new Set([projectId])) } });
 }
 
 /** A refusal as the response: 422, with a code a client can branch on. */

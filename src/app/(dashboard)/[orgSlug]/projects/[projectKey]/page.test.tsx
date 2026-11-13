@@ -13,7 +13,7 @@
 // real control flow — so we assert on which URL `redirect` was handed.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { prisma, getAuthContext, redirect, notFound } = vi.hoisted(() => ({
+const { prisma, getAuthContext, redirect, notFound, canReadProject } = vi.hoisted(() => ({
   prisma: {
     project: { findFirst: vi.fn() },
     userPreferences: { findUnique: vi.fn() },
@@ -25,11 +25,15 @@ const { prisma, getAuthContext, redirect, notFound } = vi.hoisted(() => ({
   notFound: vi.fn(() => {
     throw new Error("NOT_FOUND");
   }),
+  // The page's own visibility check; the parent layout's does not stop a page
+  // from rendering. Allowed unless a test says otherwise.
+  canReadProject: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("next/navigation", () => ({ redirect, notFound }));
+vi.mock("@/lib/rbac/project-access", () => ({ canReadProject }));
 // Only rendered in the no-boards empty state (never on the redirect paths here);
 // stub it so importing the page doesn't pull the UI tree into the node env.
 vi.mock("@/components/ui/page-shell", () => ({ PageShell: () => null }));
@@ -73,6 +77,7 @@ async function landUrl(): Promise<string | null> {
 beforeEach(() => {
   vi.clearAllMocks();
   getAuthContext.mockResolvedValue({ userId: USER_ID, orgId: ORG_ID });
+  canReadProject.mockResolvedValue(true);
   prisma.userPreferences.findUnique.mockResolvedValue(null);
 });
 
@@ -109,5 +114,14 @@ describe("ProjectPage default-view resolution (COSMOS-7)", () => {
     mockProject({ settings: { defaultTab: "board:deleted-board-id" } });
 
     expect(await landUrl()).toBe(`/acme/projects/PROJ/boards/${BOARD_1}`);
+  });
+
+  it("someone who may not read the project gets not-found, and no board's address", async () => {
+    mockProject({ settings: { defaultTab: `board:${BOARD_2}` } });
+    canReadProject.mockResolvedValue(false);
+
+    expect(await landUrl()).toBeNull();
+    expect(notFound).toHaveBeenCalled();
+    expect(canReadProject).toHaveBeenCalledWith(expect.objectContaining({ userId: USER_ID }), PROJECT_ID);
   });
 });

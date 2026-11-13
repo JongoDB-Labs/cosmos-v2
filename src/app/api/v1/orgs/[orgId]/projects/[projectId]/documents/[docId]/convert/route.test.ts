@@ -30,6 +30,10 @@ vi.mock("@/lib/rbac/require-project-read", async (importOriginal) => ({
 }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/files/convert", () => ({ convertBlockToItem, convertTableToWorkItems }));
+// The per-file rule runs against a real database in
+// lib/files/__tests__/restricted-every-door.db.test.ts.
+const readableProjectDocument = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/files/access", () => ({ readableProjectDocument }));
 
 import { POST } from "./route";
 
@@ -73,6 +77,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
   prisma.document.findFirst.mockResolvedValue({ id: DOC_ID });
+  readableProjectDocument.mockResolvedValue({ id: DOC_ID, projectId: PROJECT_ID });
   convertBlockToItem.mockResolvedValue({ itemType: "WORK_ITEM", itemId: "item-1" });
 });
 
@@ -94,11 +99,23 @@ describe("POST /documents/[docId]/convert — API-key bearer auth", () => {
       expect.objectContaining({
         orgId: ORG_ID,
         projectId: PROJECT_ID,
+        // The block is looked up inside the document that was authorised.
+        docId: DOC_ID,
         blockId: BLOCK_ID,
         userId: ACTOR_ID,
         itemType: "ISSUE",
       }),
     );
+  });
+
+  it("a document this caller may not read → 404, no convert", async () => {
+    resolveAuth.mockResolvedValue(ctx());
+    readableProjectDocument.mockResolvedValue(null);
+
+    const res = await POST(bearerRequest(), { params });
+
+    expect(res.status).toBe(404);
+    expect(convertBlockToItem).not.toHaveBeenCalled();
   });
 
   it("a bearer token that resolveAuth rejects → 401, no convert", async () => {

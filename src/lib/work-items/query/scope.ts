@@ -18,15 +18,23 @@ import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { isOrgAdministrator } from "@/lib/rbac/project-access";
 import { evaluateAccess } from "@/lib/abac/engine";
-import { Permission, hasPermission } from "@/lib/rbac/permissions";
+import { Permission, hasPermission, type PermissionKey } from "@/lib/rbac/permissions";
 
 /**
  * Resolve the set of Project.ids in `orgId` the actor may read work items from.
  * Returns an array (possibly empty). Archived projects are included — the list
  * view can choose to surface or hide them, but scoping shouldn't silently drop
  * them.
+ *
+ * `action` is what the caller is about to read in those projects. Work items by
+ * default; a page that rolls up another register across projects (risks, goals)
+ * passes that register's action, so a rule that denies it on one project drops
+ * that project exactly as the register's own API would refuse it.
  */
-export async function getReadableProjectIds(ctx: AuthContext): Promise<string[]> {
+export async function getReadableProjectIds(
+  ctx: AuthContext,
+  action: PermissionKey = "ITEM_READ",
+): Promise<string[]> {
   const projects = await prisma.project.findMany({
     where: { orgId: ctx.orgId },
     select: { id: true, teamScopedAccess: true },
@@ -42,8 +50,16 @@ export async function getReadableProjectIds(ctx: AuthContext): Promise<string[]>
     : projects;
   if (scoped.length === 0) return [];
 
+  // The action's own bit, before any role shortcut. For a key that is its
+  // scopes: an owner's key without this action reads none of its projects,
+  // exactly as evaluateAccess would refuse it on each one.
+  const bit = Permission[action];
+  if (bit === undefined || !hasPermission(ctx.permissions, bit)) return [];
+
   // OWNER break-glass — every project in scope, no policy evaluation needed.
-  if (ctx.orgRole === "OWNER") return scoped.map((p) => p.id);
+  // A person only: a key is held to its scopes and rules below, as in
+  // evaluateAccess, rather than inheriting the break-glass of whoever minted it.
+  if (ctx.orgRole === "OWNER" && !ctx.isApiKey) return scoped.map((p) => p.id);
 
   // Org-wide administration keeps access to every project, matching
   // isProjectVisible — a project must not be lockable away from the people who
@@ -52,12 +68,12 @@ export async function getReadableProjectIds(ctx: AuthContext): Promise<string[]>
   // Manager" read work items from every restricted project in the org.
   const adminEverywhere = isOrgAdministrator(ctx.orgRole);
 
-  // Does any rule the actor carries reference ITEM_READ with an in_project
+  // Does any rule the actor carries reference this action with an in_project
   // predicate? If not, no per-project resolution is needed — fast path.
-  const itemReadRules = ctx.abacRules.filter(
-    (r) => r.effect === "deny" && r.actions?.includes("ITEM_READ"),
+  const actionRules = ctx.abacRules.filter(
+    (r) => r.effect === "deny" && r.actions?.includes(action),
   );
-  const needsProjectMembership = itemReadRules.some((r) =>
+  const needsProjectMembership = actionRules.some((r) =>
     r.conditions?.some((c) => "rel" in c && c.rel === "in_project"),
   );
 
@@ -93,7 +109,7 @@ export async function getReadableProjectIds(ctx: AuthContext): Promise<string[]>
     .filter((p) =>
       evaluateAccess({
         effectivePermissions: ctx.permissions,
-        action: "ITEM_READ",
+        action,
         isOwner: false,
         actorUserId: ctx.userId,
         resource: { projectId: p.id, orgId: ctx.orgId },
@@ -104,4 +120,51 @@ export async function getReadableProjectIds(ctx: AuthContext): Promise<string[]>
       }),
     )
     .map((p) => p.id);
+}
+
+/**
+ * Of `projectIds`, the ones where a deny rule the caller carries refuses `action`.
+ *
+ * Deny rules only: not the action's bit, not team scoping. For a grant that
+ * stands on its own, such as a file shared with somebody by name, which opens
+ * the file whatever their role or team but must still yield to a rule that
+ * says this person may not read that project. With no rules (the common case)
+ * this answers without touching the database.
+ */
+export async function projectsDenyingAction(
+  ctx: AuthContext,
+  action: PermissionKey,
+  projectIds: readonly string[],
+): Promise<Set<string>> {
+  const denies = ctx.abacRules.filter((r) => r.effect === "deny" && r.actions?.includes(action));
+  if (denies.length === 0 || projectIds.length === 0) return new Set();
+  const needsMembership = denies.some((r) => r.conditions?.some((c) => "rel" in c && c.rel === "in_project"));
+  let memberOf = new Set<string>();
+  if (needsMembership) {
+    const member = await prisma.orgMember.findUnique({
+      where: { orgId_userId: { orgId: ctx.orgId, userId: ctx.userId } },
+      select: { id: true },
+    });
+    if (member) {
+      const pms = await prisma.projectMember.findMany({ where: { orgMemberId: member.id }, select: { projectId: true } });
+      memberOf = new Set(pms.map((pm) => pm.projectId));
+    }
+  }
+  const bit = Permission[action];
+  return new Set(
+    projectIds.filter(
+      (projectId) =>
+        !evaluateAccess({
+          // The bit is granted here on purpose: this asks only what the rules say.
+          effectivePermissions: bit,
+          action,
+          isOwner: ctx.orgRole === "OWNER",
+          isApiKey: ctx.isApiKey,
+          actorUserId: ctx.userId,
+          resource: { projectId, orgId: ctx.orgId },
+          relationships: needsMembership ? { in_project: memberOf.has(projectId) } : undefined,
+          rules: denies,
+        }),
+    ),
+  );
 }

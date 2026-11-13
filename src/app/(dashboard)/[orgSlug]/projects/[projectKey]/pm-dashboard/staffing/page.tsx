@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { StaffingTracker } from "@/components/pm-dashboard/staffing-tracker";
 
@@ -14,7 +15,7 @@ export default async function StaffingPage({ params }: PageParams) {
     where: { orgId: ctx.orgId, key: { equals: projectKey, mode: "insensitive" }, archived: false },
     select: { id: true },
   });
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
 
   return <StaffingTracker orgId={ctx.orgId} projectId={project.id} />;
 }

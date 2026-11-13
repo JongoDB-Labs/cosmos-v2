@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { IntervalsWorkspace } from "@/components/intervals/intervals-workspace";
 
@@ -20,7 +21,7 @@ export default async function IntervalsPage({ params }: PageParams) {
     select: { id: true, key: true, projectTemplate: { select: { sector: true } } },
   });
 
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
 
   // The project's sector picks the DEFAULT interval kind for the create form;
   // every kind stays available in the picker. Label is always "Intervals".

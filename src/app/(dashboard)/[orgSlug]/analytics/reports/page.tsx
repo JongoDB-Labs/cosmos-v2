@@ -5,6 +5,8 @@ import { prisma } from "@/lib/db/client";
 import { ReportsManager } from "@/components/analytics/reports-manager";
 import { PageShell } from "@/components/ui/page-shell";
 import { Skeleton } from "@/components/ui/skeleton";
+import { NoPageAccess } from "@/components/ui/no-page-access";
+import { canViewPage } from "@/lib/nav/page-access";
 import {
   makeServerQueryClient,
   dehydrate,
@@ -26,6 +28,17 @@ async function ReportsPageContent({ params }: PageParams) {
 
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
+
+  // Analytics' own requirement, the one the reports API applies. This page
+  // prefetches every saved report into what it sends, so it has to refuse
+  // before that, not leave the refusal to the client's later API call.
+  if (!canViewPage(ctx.permissions, "/analytics")) {
+    return (
+      <PageShell title="Reports" description="Saved analytics reports" maxWidth="7xl">
+        <NoPageAccess what="analytics reports" />
+      </PageShell>
+    );
+  }
 
   const qc = makeServerQueryClient();
   await qc.prefetchQuery({

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { resolveAuth } from "@/lib/auth/api-key";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { readableProjectDocument } from "@/lib/files/access";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; docId: string }>;
@@ -19,6 +20,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const ctx = await resolveAuth(req, org);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     await requireProjectRead(ctx, projectId, "PROJECT_READ");
+    // Which items a file produced says what is in it, so it is the file's to show.
+    if (!(await readableProjectDocument(orgId, projectId, docId, ctx)))
+      return new Response("Not found", { status: 404 });
 
     const links = await prisma.documentItemLink.findMany({
       where: { orgId, projectId, block: { documentId: docId } },

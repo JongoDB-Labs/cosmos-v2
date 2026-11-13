@@ -32,9 +32,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!isEntityType(type) || !id) return success([]);
 
     const backlinks = await resolveBacklinks({
-      orgId: org.id,
+      ctx,
       orgSlug: org.slug,
-      userId: ctx.userId,
       targetType: type,
       targetId: id,
     });

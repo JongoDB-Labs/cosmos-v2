@@ -20,8 +20,7 @@ import { isUuid } from "@/lib/ids";
 import { ForbiddenError, type AuthContext } from "@/lib/rbac/check";
 import { requireAccess } from "@/lib/abac/require-access";
 import { readableCommentsWhere } from "@/lib/work-items/read.server";
-import { documentVisibilityWhere } from "@/lib/files/access";
-import { getVisibleProjectIds } from "@/lib/rbac/project-access";
+import { orgDocumentVisibilityWhere } from "@/lib/files/access";
 import { loadTeamRosters } from "@/lib/teams/item-team.server";
 import {
   mentionsField,
@@ -644,15 +643,17 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
   // the documents list uses, never a second copy of the rule, and travels on the
   // env. Only when the query names the field — it costs a project read.
   //
-  // `readableIds` as the candidate set, so this is the intersection of "files
-  // you may see" with "projects you may read items from". Note the consequence:
-  // `getVisibleProjectIds` asks for PROJECT_READ, which a GUEST (ITEM_READ only)
-  // does not carry, so a GUEST sees no project-filed attachment. That is fail
-  // closed, which is the right direction for a disclosure channel.
+  // The org library's own fragment, so this asks what every other door onto a
+  // file asks: the projects readable under DOCUMENT_READ (the bit, any rule
+  // denying it there, team scoping, a key's limit) and restricted files only for
+  // the people they are for. The items are already within `readableIds`, so
+  // this is the intersection of "files you may see" with "projects you may read
+  // items from". A GUEST (ITEM_READ only) holds no PROJECT_READ and so sees no
+  // project-filed attachment: fail closed, the right direction for a
+  // disclosure channel.
   let documentVisibility: CompileEnv["documentVisibility"];
   if (mentionsField(a.query, "hasAttachments")) {
-    const visibleProjects = await getVisibleProjectIds(a.ctx, readableIds);
-    documentVisibility = documentVisibilityWhere(a.ctx, visibleProjects);
+    documentVisibility = await orgDocumentVisibilityWhere(a.ctx);
   }
 
   // ── 8. Readable projects, for `hasChildren` ───────────────────────────────

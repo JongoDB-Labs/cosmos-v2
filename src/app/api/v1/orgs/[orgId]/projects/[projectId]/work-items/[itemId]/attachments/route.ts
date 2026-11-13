@@ -8,6 +8,7 @@ import { success, handleApiError } from "@/lib/api-helpers";
 import { ingestDocument } from "@/lib/files/ingest";
 import { isExecutableUpload } from "@/lib/files/parsers";
 import { withUploaders } from "@/lib/files/uploader";
+import { documentVisibilityWhere } from "@/lib/files/access";
 import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; itemId: string }> };
@@ -53,7 +54,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     if (!item) return new Response("Not found", { status: 404 });
 
     const docs = await prisma.document.findMany({
-      where: { orgId, workItemId: itemId },
+      // Seeing the ticket is not seeing every file on it: a restricted file is
+      // hidden from the rest of its project, and its title and filename are
+      // often the very thing restricted. The same fragment the Files lists use.
+      where: { orgId, workItemId: itemId, ...documentVisibilityWhere(ctx, new Set([projectId])) },
       select: {
         id: true,
         title: true,

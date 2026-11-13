@@ -9,10 +9,12 @@ const { prisma, getAuthContext, getStorage, stream } = vi.hoisted(
     prisma: {
       organization: { findUnique: vi.fn() },
       document: { findFirst: vi.fn() },
-      // Read by the REAL getVisibleProjectIds.
-      project: { findMany: vi.fn() },
+      // Read by the REAL getVisibleProjectIds, and by the REAL readableDocument
+      // (lib/files/access.ts) through isProjectVisible.
+      project: { findMany: vi.fn(), findFirst: vi.fn() },
       orgMember: { findUnique: vi.fn() },
-      projectMember: { findMany: vi.fn() },
+      projectMember: { findMany: vi.fn(), findFirst: vi.fn() },
+      documentShare: { findFirst: vi.fn() },
     },
     getAuthContext: vi.fn(),
     getStorage: vi.fn(),
@@ -46,7 +48,12 @@ function ctx(...keys: PermissionKey[]): AuthContext {
   } as AuthContext;
 }
 
-const doc = (projectId: string | null) => ({
+const OTHER_UPLOADER = "66666666-6666-6666-6666-666666666666";
+const doc = (projectId: string | null, visibility: "INHERIT" | "RESTRICTED" = "INHERIT") => ({
+  id: DOC_ID,
+  orgId: ORG_ID,
+  uploadedById: OTHER_UPLOADER,
+  visibility,
   storageKey: "documents/org/x/y/standard-details.pdf",
   contentType: "application/pdf",
   filename: "standard-details.pdf",
@@ -67,9 +74,15 @@ beforeEach(() => {
   prisma.project.findMany.mockImplementation(async (a: { where: { id: { in: string[] } } }) =>
     projects.filter((p) => a.where.id.in.includes(p.id)),
   );
+  prisma.project.findFirst.mockImplementation(
+    async (a: { where: { id: string } }) => projects.find((p) => p.id === a.where.id) ?? null,
+  );
   prisma.orgMember.findUnique.mockResolvedValue({ id: "member-1" });
   // A member of neither project's team: only the open one is visible.
   prisma.projectMember.findMany.mockResolvedValue([]);
+  prisma.projectMember.findFirst.mockResolvedValue(null);
+  // Shared with nobody.
+  prisma.documentShare.findFirst.mockResolvedValue(null);
   getStorage.mockReturnValue({ stream });
   stream.mockResolvedValue(new ReadableStream());
 });
@@ -102,6 +115,23 @@ describe("GET a library document's original bytes", () => {
     prisma.document.findFirst.mockResolvedValue(doc(OPEN_PROJECT));
     expect((await GET(req(), { params })).status).toBe(404);
     expect(stream).not.toHaveBeenCalled();
+  });
+
+  it("will not serve a restricted file to a reader it was not shared with, org-wide or not", async () => {
+    // The project is open to this reader; the file is not.
+    prisma.document.findFirst.mockResolvedValue(doc(OPEN_PROJECT, "RESTRICTED"));
+    expect((await GET(req(), { params })).status).toBe(404);
+    prisma.document.findFirst.mockResolvedValue(doc(null, "RESTRICTED"));
+    expect((await GET(req(), { params })).status).toBe(404);
+    expect(stream).not.toHaveBeenCalled();
+  });
+
+  it("serves a restricted file to somebody it was shared with", async () => {
+    prisma.documentShare.findFirst.mockResolvedValue({ id: "share-1" });
+    prisma.document.findFirst.mockResolvedValue(doc(OPEN_PROJECT, "RESTRICTED"));
+    expect((await GET(req(), { params })).status).toBe(200);
+    prisma.document.findFirst.mockResolvedValue(doc(null, "RESTRICTED"));
+    expect((await GET(req(), { params })).status).toBe(200);
   });
 
   it("returns 404 for a document that is not in this org", async () => {
