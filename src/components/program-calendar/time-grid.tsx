@@ -37,7 +37,10 @@ export function TimeGrid({
   const from = days[0];
   const allDay = useMemo(() => events.filter((e) => e.allDay || spansDays(e)), [events]);
   const timed = useMemo(() => events.filter((e) => !e.allDay && !spansDays(e)), [events]);
-  const band = useMemo(() => packWeek(allDay, from, 3), [allDay, from]);
+  // Every lane, not the month view's three. The band had no "+N more", so a
+  // cap here dropped the fourth all-day item on a day without a trace -- and
+  // the month view's "+N more" opens THIS view, which then did not show them.
+  const band = useMemo(() => packWeek(allDay, from, Number.POSITIVE_INFINITY), [allDay, from]);
   const today = useUtcToday();
 
   // Open on the working day, not on midnight.
@@ -130,6 +133,9 @@ export function TimeGrid({
               allDay
               continuesBefore={p.continuesBefore}
               continuesAfter={p.continuesAfter}
+              kind={p.event.kind}
+              href={p.event.href}
+              description={p.event.description}
               onClick={() => onSelect?.(p.event.id)}
               style={{ gridColumn: `${p.startCol} / span ${p.span}`, gridRow: p.lane + 1 }}
             />
@@ -190,6 +196,9 @@ export function TimeGrid({
                   category={e.category}
                   startsAt={e.startsAt}
                   timeZone={e.timeZone}
+                  kind={e.kind}
+                  href={e.href}
+                  description={e.description}
                   onClick={() => onSelect?.(e.id)}
                   className="pointer-events-auto absolute left-1 right-1 items-start rounded py-1"
                   style={{ top: `${top}px`, height: `${height}px` }}

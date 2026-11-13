@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CATEGORIES } from "./categories";
+import { KIND_LABEL, OVERLAY_STYLES, type OverlayKind } from "./overlays";
 
 /**
  * Every default category's chip text must clear WCAG AA (4.5:1, the chips are
@@ -61,6 +62,18 @@ describe("default event categories: chip contrast on today's column", () => {
       const r = ratios(c);
       expect(r.light, `${c.name} light ${r.light.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
       expect(r.dark, `${c.name} dark ${r.dark.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+    });
+  }
+});
+
+// The overlays' chips sit on the same column with the same `.pc-chip` mix, so
+// they are held to the same line.
+describe("overlay chips: contrast on today's column", () => {
+  for (const kind of Object.keys(OVERLAY_STYLES) as OverlayKind[]) {
+    it(`${KIND_LABEL[kind]} clears 4.5:1 in light and dark`, () => {
+      const r = ratios(OVERLAY_STYLES[kind]);
+      expect(r.light, `${kind} light ${r.light.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+      expect(r.dark, `${kind} dark ${r.dark.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
     });
   }
 });

@@ -35,6 +35,8 @@ const { prisma, getAuthContext, requestHeaders, getVisibleProjectIds, loaders } 
       // financeScope's lookup for FINANCE_READ_PROJECT: which projects the
       // viewer is a member of.
       projectMember: rows(),
+      team: rows(),
+      orgMember: rows(),
     },
     getAuthContext: vi.fn(),
     // The request's host, as the reverse proxy forwards it. Same site as the
@@ -76,6 +78,11 @@ vi.mock("@/components/ui/page-shell", () => ({ PageShell: () => null }));
 vi.mock("@/components/ui/no-page-access", () => ({ NoPageAccess: () => null }));
 vi.mock("./project-picker", () => ({ ProjectPicker: () => null }));
 vi.mock("./embedded-dashboard", () => ({ EmbeddedDashboard: () => null }));
+vi.mock("./program-views", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./program-views")>()),
+  ProgramViews: () => null,
+}));
+vi.mock("@/components/program-calendar/program-calendar", () => ({ ProgramCalendar: () => null }));
 
 import { ProgramManagementContent } from "./page";
 import { PageShell } from "@/components/ui/page-shell";
@@ -402,8 +409,10 @@ function findByDisplayName(node: unknown, name: string): ReactElement | null {
   if (typeof type !== "string" && (type.displayName === name || type.name === name)) {
     return node;
   }
-  const kids = (node.props as { children?: unknown }).children;
-  for (const child of Array.isArray(kids) ? kids : [kids]) {
+  // `actions` too: the page's header controls (the picker, the views switch)
+  // are passed there, not as children.
+  const { children: kids, actions } = node.props as { children?: unknown; actions?: unknown };
+  for (const child of [...(Array.isArray(kids) ? kids : [kids]), actions]) {
     const hit = findByDisplayName(child, name);
     if (hit) return hit;
   }
@@ -442,5 +451,179 @@ describe("Program Management — the org's allow/deny rules", () => {
     await ProgramManagementContent({ params, searchParams: noQuery });
     expect(idsFor("risk")).toEqual(["p-open", "p-other"]);
     expect(idsFor("goal")).toEqual(["p-other"]);
+  });
+});
+
+// The calendar, at ?view=calendar: the program calendar brought here from each
+// project's PM Dashboard tab, org-wide. Program events and the Agile overlay
+// are read by the calendar through their own API routes, which have tests of
+// their own; what this page hands it is milestones and the event form's
+// pickers, and each follows the rule its own API applies.
+describe("Program Management — the calendar view", () => {
+  const calendar = Promise.resolve({ view: "calendar" });
+  const calendarFor = (project: string) => Promise.resolve({ view: "calendar", project });
+
+  type CalendarProps = {
+    projectId?: string;
+    canCreate: boolean;
+    deliverables: { id: string; name: string }[];
+    overlays: { storageKey: string; orgSlug: string; milestones: { id: string; projectKey: string; dueDate: string }[] };
+  };
+  async function calendarProps(searchParams: Promise<object>): Promise<CalendarProps> {
+    const el = (await ProgramManagementContent({ params, searchParams })) as ReactElement;
+    const found = findByDisplayName(el, "ProgramCalendar");
+    if (!found) throw new Error("ProgramCalendar was not rendered");
+    return found.props as CalendarProps;
+  }
+  const deliverableIds = () =>
+    (prisma.deliverable.findMany.mock.calls[0] as unknown as [{ where: { projectId: { in: string[] } } }])[0].where
+      .projectId.in;
+
+  it("shows the calendar across the portfolio, and reads none of the overview's registers", async () => {
+    signedInWith(PROGRAM_ONLY);
+    const el = (await ProgramManagementContent({ params, searchParams: calendar })) as ReactElement;
+    expect(findByDisplayName(el, "ProgramCalendar")).not.toBeNull();
+    expect(findByDisplayName(el, "PmDashboard")).toBeNull();
+    expect((findByDisplayName(el, "ProgramCalendar")!.props as CalendarProps).projectId).toBeUndefined();
+    expect(loaders.milestones).toHaveBeenCalledWith("o1", ["p-open", "p-other"]);
+    for (const model of ["risk", "blocker", "changeRequest", "goal"] as const) {
+      expect(prisma[model].findMany).not.toHaveBeenCalled();
+    }
+    expect(loaders.kpis).not.toHaveBeenCalled();
+    expect(loaders.clins).not.toHaveBeenCalled();
+  });
+
+  it("follows the page's project picker: a readable ?project= narrows the calendar and its milestones", async () => {
+    signedInWith(PROGRAM_ONLY);
+    const props = await calendarProps(calendarFor("OPEN"));
+    expect(props.projectId).toBe("p-open");
+    expect(loaders.milestones).toHaveBeenCalledWith("o1", ["p-open"]);
+  });
+
+  it("ignores ?project= naming a project the viewer may NOT see", async () => {
+    signedInWith(PROGRAM_ONLY);
+    const props = await calendarProps(calendarFor("SECRET"));
+    expect(props.projectId).toBeUndefined();
+    expect(loaders.milestones).toHaveBeenCalledWith("o1", ["p-open", "p-other"]);
+  });
+
+  it("milestones follow PROJECT_READ: a rule denying it on one project drops that project's", async () => {
+    signedInWith(PROGRAM_ONLY, [denyOn("PROJECT_READ", "p-other")]);
+    await calendarProps(calendar);
+    // The control is the first case above: without the rule, p-other is in.
+    expect(loaders.milestones).toHaveBeenCalledWith("o1", ["p-open"]);
+  });
+
+  it("milestones carry their project's key, for the link on the chip", async () => {
+    loaders.milestones.mockResolvedValueOnce([
+      { id: "m1", title: "Exercise A readiness", dueDate: new Date("2027-01-20T00:00:00.000Z"), projectId: "p-open" },
+    ] as never);
+    signedInWith(PROGRAM_ONLY);
+    const props = await calendarProps(calendar);
+    expect(props.overlays.milestones).toEqual([
+      { id: "m1", title: "Exercise A readiness", dueDate: "2027-01-20T00:00:00.000Z", projectKey: "OPEN" },
+    ]);
+  });
+
+  // The rule the project tab applies (and the deliverables API): the event
+  // form names deliverables only from projects readable under ANALYTICS_READ.
+  it("the event form's deliverables come only from projects readable under ANALYTICS_READ", async () => {
+    signedInWith(PROGRAM_ONLY, [denyOn("ANALYTICS_READ", "p-other")]);
+    await calendarProps(calendar);
+    expect(deliverableIds()).toContain("p-open");
+    expect(deliverableIds()).not.toContain("p-other");
+  });
+
+  it("control: without the rule, that project's deliverables are offered", async () => {
+    prisma.deliverable.findMany.mockResolvedValueOnce([{ id: "d1", title: "Program review deck" }] as never);
+    signedInWith(PROGRAM_ONLY);
+    const props = await calendarProps(calendar);
+    expect(deliverableIds()).toContain("p-other");
+    expect(props.deliverables).toEqual([{ id: "d1", name: "Program review deck" }]);
+  });
+
+  it("without ANALYTICS_READ at all, the form offers no deliverables", async () => {
+    // Still allowed in: the page itself asks for one of several permissions.
+    signedInWith(Permission.PROJECT_READ | Permission.OKR_READ | Permission.ANALYTICS_READ, [
+      { effect: "deny", actions: ["ANALYTICS_READ"], conditions: [] } as unknown as AbacRule,
+    ]);
+    await calendarProps(calendar);
+    expect(deliverableIds()).toEqual([]);
+  });
+
+  it("only members still in the org are offered as owners", async () => {
+    signedInWith(PROGRAM_ONLY);
+    await calendarProps(calendar);
+    const where = (prisma.orgMember.findMany.mock.calls[0] as unknown as [{ where: object }])[0].where;
+    expect(where).toEqual({ orgId: "o1", removedAt: null });
+  });
+
+  it("remembers the toggles per org and per person", async () => {
+    signedInWith(PROGRAM_ONLY);
+    const props = await calendarProps(calendar);
+    expect(props.overlays.storageKey).toBe("cosmos:pm-calendar-overlays:o1:u1");
+    expect(props.overlays.orgSlug).toBe("acme");
+  });
+
+  it("offers New event only with BOARD_UPDATE, which is what the events API asks to create one", async () => {
+    signedInWith(PROGRAM_ONLY);
+    expect((await calendarProps(calendar)).canCreate).toBe(false);
+    vi.clearAllMocks();
+    signedInWith(PROGRAM_ONLY | Permission.BOARD_UPDATE);
+    expect((await calendarProps(calendar)).canCreate).toBe(true);
+  });
+
+  it("the project picker and the views switch both stay on the calendar", async () => {
+    signedInWith(PROGRAM_ONLY);
+    const el = (await ProgramManagementContent({ params, searchParams: calendarFor("OPEN") })) as ReactElement;
+    expect(findByDisplayName(el, "ProjectPicker")?.props).toMatchObject({ view: "calendar", selectedKey: "OPEN" });
+    expect(findByDisplayName(el, "ProgramViews")?.props).toMatchObject({ view: "calendar", projectKey: "OPEN" });
+  });
+
+  it("without the page's permission: no-access, and nothing loaded", async () => {
+    signedInWith(Permission.PROJECT_READ);
+    const el = (await ProgramManagementContent({ params, searchParams: calendar })) as ReactElement;
+    expect(findByDisplayName(el, "NoPageAccess")).not.toBeNull();
+    expect(findByDisplayName(el, "ProgramCalendar")).toBeNull();
+    expect(prisma.project.findMany).not.toHaveBeenCalled();
+    expect(loaders.milestones).not.toHaveBeenCalled();
+  });
+
+  it("an unknown ?view= is the overview", async () => {
+    signedInWith(PROGRAM_ONLY);
+    const el = (await ProgramManagementContent({ params, searchParams: Promise.resolve({ view: "gantt" }) })) as ReactElement;
+    expect(findByDisplayName(el, "PmDashboard")).not.toBeNull();
+    expect(findByDisplayName(el, "ProgramCalendar")).toBeNull();
+  });
+
+  describe("on an instance that frames an outside dashboard", () => {
+    const URL_SET = "https://pm.example.com/";
+
+    it("is still the built-in calendar, and never moves the reader to another address", async () => {
+      process.env.PROGRAM_MANAGEMENT_EMBED_URL = URL_SET;
+      process.env.COSMOS_SITE_ADDRESS = "cosmos.example.net, cosmos.example.com";
+      requestHeaders.value = new Headers({ "x-forwarded-host": "cosmos.example.net", "x-forwarded-proto": "https" });
+      signedInWith(PROGRAM_ONLY);
+      const el = (await ProgramManagementContent({ params, searchParams: calendar })) as ReactElement;
+      expect(redirect).not.toHaveBeenCalled();
+      expect(findByDisplayName(el, "ProgramCalendar")).not.toBeNull();
+      expect(findByDisplayName(el, "EmbeddedDashboard")).toBeNull();
+    });
+
+    it("control: the same request for the overview is moved, and frames the dashboard", async () => {
+      process.env.PROGRAM_MANAGEMENT_EMBED_URL = URL_SET;
+      process.env.COSMOS_SITE_ADDRESS = "cosmos.example.net, cosmos.example.com";
+      requestHeaders.value = new Headers({ "x-forwarded-host": "cosmos.example.net", "x-forwarded-proto": "https" });
+      signedInWith(PROGRAM_ONLY);
+      await expect(ProgramManagementContent({ params, searchParams: noQuery })).rejects.toThrow("redirect");
+    });
+
+    it("the framed overview offers the way to the calendar", async () => {
+      process.env.PROGRAM_MANAGEMENT_EMBED_URL = URL_SET;
+      signedInWith(PROGRAM_ONLY);
+      const el = (await ProgramManagementContent({ params, searchParams: noQuery })) as ReactElement;
+      expect(findByDisplayName(el, "EmbeddedDashboard")).not.toBeNull();
+      expect(findByDisplayName(el, "ProgramViews")?.props).toMatchObject({ view: "overview" });
+    });
   });
 });

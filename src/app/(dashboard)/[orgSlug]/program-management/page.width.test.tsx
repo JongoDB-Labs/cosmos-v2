@@ -20,6 +20,8 @@ const { prisma, getAuthContext, connection, loaders } = vi.hoisted(() => {
       deliverable: rows(),
       blocker: rows(),
       changeRequest: rows(),
+      team: rows(),
+      orgMember: rows(),
     },
     getAuthContext: vi.fn(),
     connection: vi.fn(async () => {}),
@@ -33,7 +35,10 @@ const { prisma, getAuthContext, connection, loaders } = vi.hoisted(() => {
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
-vi.mock("@/lib/rbac/project-access", () => ({ getVisibleProjectIds: async () => new Set(["p1"]) }));
+vi.mock("@/lib/rbac/project-access", () => ({
+  getVisibleProjectIds: async () => new Set(["p1"]),
+  hiddenProjectIds: async () => [],
+}));
 // Which projects the allow/deny rules let through is page.test.tsx's subject; here
 // the one project is readable for every register.
 vi.mock("@/lib/work-items/query/scope", () => ({ getReadableProjectIds: async () => ["p1"] }));
@@ -63,6 +68,9 @@ vi.mock("./embedded-dashboard", () => ({
   EmbeddedDashboard: () => <div data-testid="embedded-dashboard" />,
 }));
 vi.mock("./project-picker", () => ({ ProjectPicker: () => null }));
+vi.mock("@/components/program-calendar/program-calendar", () => ({
+  ProgramCalendar: () => <div data-testid="program-calendar" />,
+}));
 vi.mock("@/components/ui/no-page-access", () => ({
   NoPageAccess: () => <div data-testid="no-page-access" />,
 }));
@@ -80,8 +88,8 @@ type Boundary = ReactElement<{ fallback: ReactElement | null; children: ReactEle
  *  Suspense boundary whose child reads the request, and that child returns the
  *  boundary holding the skeleton and the content. If the shape changes, say so
  *  here rather than failing obscurely below. */
-async function skeletonBoundary(): Promise<Boundary> {
-  const outer = ProgramManagementPage({ params, searchParams }) as Boundary;
+async function skeletonBoundary(sp: Promise<object> = searchParams): Promise<Boundary> {
+  const outer = ProgramManagementPage({ params, searchParams: sp }) as Boundary;
   expect(outer.type).toBe(Suspense);
   const child = outer.props.children;
   const inner = await (child.type as (props: object) => Promise<Boundary>)(child.props);
@@ -97,8 +105,8 @@ function outerBox(container: HTMLElement): HTMLElement {
 }
 
 /** The skeleton's box and the arrived page's box, both rendered for real. */
-async function boxes(): Promise<{ skeleton: HTMLElement; page: HTMLElement }> {
-  const boundary = await skeletonBoundary();
+async function boxes(sp?: Promise<object>): Promise<{ skeleton: HTMLElement; page: HTMLElement }> {
+  const boundary = await skeletonBoundary(sp);
   const content = boundary.props.children;
   const arrived = await (content.type as (props: object) => Promise<ReactElement>)(content.props);
   const page = outerBox(render(arrived).container);
@@ -160,6 +168,38 @@ describe("Program Management loads in the box it arrives in", () => {
     expect(connection).toHaveBeenCalledTimes(1);
     expect(within(page).getByTestId("embedded-dashboard")).toBeTruthy();
     expect(skeleton.classList.contains("max-w-full")).toBe(true);
+  });
+
+  // The calendar is built in on both kinds of instance, and keeps the
+  // instance's width so switching between it and the overview never jumps.
+  const calendar = Promise.resolve({ view: "calendar" });
+
+  it("the calendar, on a built-in instance: the default column, skeleton and page alike", async () => {
+    const { skeleton, page } = await boxes(calendar);
+    expect(within(page).getByTestId("program-calendar")).toBeTruthy();
+    expect(within(page).queryByTestId("pm-dashboard")).toBeNull();
+    expect(page.classList.contains("max-w-7xl")).toBe(true);
+    expect(classesOf(skeleton)).toEqual(classesOf(page));
+  });
+
+  it("the calendar, on an instance with a framed dashboard: full width, skeleton and page alike", async () => {
+    process.env.PROGRAM_MANAGEMENT_EMBED_URL = DASHBOARD;
+    const { skeleton, page } = await boxes(calendar);
+    expect(within(page).getByTestId("program-calendar")).toBeTruthy();
+    expect(within(page).queryByTestId("embedded-dashboard")).toBeNull();
+    expect(page.classList.contains("max-w-full")).toBe(true);
+    expect(classesOf(skeleton)).toEqual(classesOf(page));
+  });
+
+  it("the calendar's skeleton is shaped like the calendar, not the overview's panels", async () => {
+    const boundary = await skeletonBoundary(calendar);
+    const skeleton = render(boundary.props.fallback as ReactElement).container;
+    // One calendar-sized block where the overview has a notice and six panels.
+    expect(skeleton.querySelectorAll('[data-slot="skeleton"]').length).toBeLessThan(
+      render((await skeletonBoundary()).props.fallback as ReactElement).container.querySelectorAll(
+        '[data-slot="skeleton"]',
+      ).length,
+    );
   });
 
   it("a viewer without access gets the notice in the skeleton's box", async () => {

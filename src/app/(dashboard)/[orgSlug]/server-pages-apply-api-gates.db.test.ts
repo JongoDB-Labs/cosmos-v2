@@ -15,7 +15,8 @@
 //   their APIs answer only to people who manage members.
 // - Saved analytics reports and the template editor loaded with no check.
 // - The PM calendar sent deliverables from every project the viewer could see,
-//   whatever their analytics access; the schedule and deliverables tabs sent
+//   whatever their analytics access (and Program Management's calendar view,
+//   which carries that calendar org-wide, must keep the rule); the schedule and deliverables tabs sent
 //   timebox names the intervals API withholds; the vendors tab listed every
 //   partner to people without CRM access.
 //
@@ -78,6 +79,7 @@ import ImportPage from "@/app/(dashboard)/[orgSlug]/projects/[projectKey]/import
 import TeamPage from "@/app/(dashboard)/[orgSlug]/team/page";
 import ReportsPage from "@/app/(dashboard)/[orgSlug]/analytics/reports/page";
 import TemplateEditorPage from "@/app/(dashboard)/[orgSlug]/settings/templates/[templateId]/page";
+import { ProgramManagementContent } from "@/app/(dashboard)/[orgSlug]/program-management/page";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const S = {
@@ -97,6 +99,9 @@ const S = {
   increment: `increment-${stamp}`,
   sprint: `sprint-${stamp}`,
   partner: `partner-${stamp}`,
+  opnMilestone: `opn-milestone-${stamp}`,
+  secMilestone: `sec-milestone-${stamp}`,
+  secTeam: `sec-team-${stamp}`,
 };
 
 type Role = "ADMIN" | "MEMBER" | "VIEWER" | "GUEST" | "BILLING_ADMIN";
@@ -131,6 +136,9 @@ beforeAll(async () => {
   await prisma.interval.create({ data: { orgId, projectId: opn, number: 1, name: S.increment, intervalKind: "PROGRAM_INCREMENT", ...span } });
   await prisma.interval.create({ data: { orgId, projectId: opn, number: 2, name: S.sprint, intervalKind: "SPRINT", ...span } });
   await prisma.partner.create({ data: { orgId, name: S.partner } });
+  await prisma.milestone.create({ data: { orgId, projectId: opn, title: S.opnMilestone, dueDate: new Date("2026-02-15") } });
+  await prisma.milestone.create({ data: { orgId, projectId: sec, title: S.secMilestone, dueDate: new Date("2026-02-16") } });
+  await prisma.team.create({ data: { orgId, projectId: sec, name: S.secTeam } });
 
   // On the open project: one board for everyone, one for a team the insider is on.
   const team = await prisma.team.create({ data: { orgId, projectId: opn, name: `Team ${stamp}` } });
@@ -331,6 +339,69 @@ describe("the PM calendar asks what the deliverables API asks, for every project
     as("insider", { abacRules: denyOn("ANALYTICS_READ", opn) });
     const out = await render(CalendarPage(project("OPN")));
     expect(refuses(out)).toBe(true);
+    expect(sent(out)).not.toContain(S.opnDeliverable);
+  });
+});
+
+describe("Program Management's calendar sends only what each record's API would", () => {
+  const denyOn = (action: string, projectId: string): AbacRule[] =>
+    [{ effect: "deny", actions: [action], conditions: [{ attr: "projectId", op: "eq", value: projectId }] }] as AbacRule[];
+  const calendar = (project?: string) =>
+    ProgramManagementContent({
+      params: Promise.resolve({ orgSlug }),
+      searchParams: Promise.resolve({ view: "calendar", ...(project ? { project } : {}) }),
+    });
+
+  beforeAll(() => {
+    delete process.env.PROGRAM_MANAGEMENT_EMBED_URL;
+  });
+
+  it("a team-limited project's milestones, deliverables and teams stay out for someone not on it", async () => {
+    as("outsider");
+    const out = sent(await calendar());
+    // Positive control first: the page did load, and sent the open project's.
+    expect(out).toContain(S.opnMilestone);
+    expect(out).toContain(S.opnDeliverable);
+    expect(out).not.toContain(S.secMilestone);
+    expect(out).not.toContain(S.secDeliverable);
+    expect(out).not.toContain(S.secTeam);
+    expect(out).not.toContain(S.secProject);
+  });
+
+  it("control: a member of that project gets them", async () => {
+    as("insider");
+    const out = sent(await calendar());
+    expect(out).toContain(S.secMilestone);
+    expect(out).toContain(S.secDeliverable);
+    expect(out).toContain(S.secTeam);
+  });
+
+  it("naming the limited project in the URL does not open it", async () => {
+    as("outsider");
+    const out = sent(await calendar("SEC"));
+    expect(out).not.toContain(S.secMilestone);
+    expect(out).toContain(S.opnMilestone);
+  });
+
+  it("a rule denying ANALYTICS_READ on a project drops its deliverables from the event form", async () => {
+    as("insider", { abacRules: denyOn("ANALYTICS_READ", sec) });
+    const out = sent(await calendar());
+    expect(out).toContain(S.opnDeliverable);
+    expect(out).not.toContain(S.secDeliverable);
+  });
+
+  it("a rule denying PROJECT_READ on a project drops its milestones, as the milestones API does", async () => {
+    as("insider", { abacRules: denyOn("PROJECT_READ", sec) });
+    const out = sent(await calendar());
+    expect(out).toContain(S.opnMilestone);
+    expect(out).not.toContain(S.secMilestone);
+  });
+
+  it("a role without the page's permission is refused, and nothing is sent", async () => {
+    as("billing");
+    const out = await calendar();
+    expect(refuses(out)).toBe(true);
+    expect(sent(out)).not.toContain(S.opnMilestone);
     expect(sent(out)).not.toContain(S.opnDeliverable);
   });
 });

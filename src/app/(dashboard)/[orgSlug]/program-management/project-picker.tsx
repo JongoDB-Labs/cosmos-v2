@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
+import { programManagementHref, type ProgramView } from "./program-views";
 
 export interface PickerProject {
   /** Project key (PRJ-style), which is what goes in the URL. */
@@ -25,10 +26,14 @@ export function ProjectPicker({
   orgSlug,
   projects,
   selectedKey,
+  view = "overview",
 }: {
   orgSlug: string;
   projects: PickerProject[];
   selectedKey: string | null;
+  /** Kept when the project changes, so picking one on the calendar stays on
+   *  the calendar. */
+  view?: ProgramView;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -40,10 +45,7 @@ export function ProjectPicker({
         value={selectedKey ?? ""}
         disabled={pending}
         onChange={(e) => {
-          const next = e.target.value;
-          const href = next
-            ? `/${orgSlug}/program-management?project=${encodeURIComponent(next)}`
-            : `/${orgSlug}/program-management`;
+          const href = programManagementHref(orgSlug, view, e.target.value || null);
           startTransition(() => router.push(href));
         }}
         className="h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-60"

@@ -13,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
+import type { ReactNode } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ChipCategory } from "./event-chip";
@@ -35,10 +36,13 @@ export interface CustomFilters {
 /**
  * The calendar's controls.
  *
- * Categories and Owners are OVERLAYS, not a single-choice filter: each is a
- * checkbox with a live count, so the question the feature request asks —
- * "show me the agile cadence and the program events together, but not Outlook
- * today" — is answered by ticking boxes rather than by switching view.
+ * Categories and Owners are multi-select FILTERS over the calendar's own
+ * program events: each is a checkbox with a live count, so any combination of
+ * categories or owners can be shown together. They narrow program events and
+ * nothing else. They do not bring other records onto the calendar; that is
+ * what the overlay toggles are for (`overlay-toggles.tsx`, on Program
+ * Management's calendar), which add milestones, the agile cadence and due dates
+ * independently of these menus.
  *
  * The counts deliberately ignore the filter they sit next to. A category you
  * have switched off still reports how many events it would bring back, which
@@ -66,6 +70,8 @@ export function CalendarToolbar({
   onFilters,
   onNew,
   canCreate,
+  overlays,
+  eventFiltersOff = false,
 }: {
   label: string;
   view: CalendarViewMode;
@@ -87,16 +93,22 @@ export function CalendarToolbar({
   onFilters: (f: CustomFilters) => void;
   onNew: () => void;
   canCreate: boolean;
+  /** The overlay toggles, when the calendar has any. */
+  overlays?: ReactNode;
+  /** Program events are switched off, so the menus that filter them would
+   *  change nothing on screen; they are disabled rather than left to mislead. */
+  eventFiltersOff?: boolean;
 }) {
   // `DropdownMenuTrigger` renders its own button via className, as filter-bar
   // and the other board menus do. It must NOT be given `render={<Button/>}`:
   // that form compiles and renders a perfectly good-looking button which never
   // opens the menu, because the trigger's behaviour is not forwarded onto a
-  // composite component. All three overlay menus were dead that way, and
+  // composite component. All three filter menus were dead that way, and
   // nothing but opening the page would have shown it.
   const triggerClass = cn(
     "inline-flex h-8 items-center gap-1 rounded-md border border-input px-2.5 text-xs font-medium transition-colors",
     "hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+    "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent",
   );
 
   // No selection means "everything", which is what an empty filter should mean
@@ -121,8 +133,9 @@ export function CalendarToolbar({
       <h2 className="ml-1 text-lg font-semibold tracking-tight">{label}</h2>
 
       <div className="ml-auto flex flex-wrap items-center gap-2">
+        {overlays}
         <DropdownMenu>
-          <DropdownMenuTrigger className={triggerClass}>
+          <DropdownMenuTrigger className={triggerClass} disabled={eventFiltersOff}>
             Owners
             {selectedOwners.length ? ` (${selectedOwners.length})` : ""}
             <ChevronDown className="h-3 w-3" />
@@ -155,7 +168,7 @@ export function CalendarToolbar({
         </DropdownMenu>
 
         <DropdownMenu>
-          <DropdownMenuTrigger className={triggerClass}>
+          <DropdownMenuTrigger className={triggerClass} disabled={eventFiltersOff}>
             Categories
             <span className="text-muted-foreground">
               {allCats ? "All" : selectedCategories.length}
@@ -190,7 +203,7 @@ export function CalendarToolbar({
         </DropdownMenu>
 
         <DropdownMenu>
-          <DropdownMenuTrigger className={triggerClass}>
+          <DropdownMenuTrigger className={triggerClass} disabled={eventFiltersOff}>
             Filters{activeFilters ? ` (${activeFilters})` : ""}
             <ChevronDown className="h-3 w-3" />
           </DropdownMenuTrigger>
