@@ -16,6 +16,7 @@ import { logAudit } from "@/lib/audit";
 import { createNotification } from "@/lib/notifications/create";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
+import { channelPolicy } from "@/lib/integrations/channel-policy.server";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import type { Denial } from "@/lib/workflow/engine.server";
@@ -131,7 +132,7 @@ export async function runAfterCommit(
   // refresh. Best-effort — a broker error never breaks the change.
   try {
     if (bulk) {
-      publishToOrg(orgId, "work-item.updated", { ids: items.map((i) => i.id) });
+      publishToOrg(orgId, "work-item.updated", { projectId, ids: items.map((i) => i.id) });
     } else {
       for (const item of items) {
         publishToOrg(orgId, "work-item.updated", {
@@ -186,16 +187,20 @@ export async function runAfterCommit(
   const completed = items.filter((i) => i.after.completedAt && !i.before.completedAt);
   if (completed.length > 0) {
     void (async () => {
-      const project = await prisma.project.findUnique({ where: { id: projectId }, select: { key: true } });
-      const key = project?.key ?? "";
+      // The channel is read org-wide: nothing from a team-scoped or marked project, no marked title.
+      const policy = await channelPolicy(orgId);
+      const project = await policy.project(projectId);
+      if (!project) return;
+      const key = project.key;
+      const title = policy.text(projectId, completed[0].after.title);
       const message =
         completed.length === 1
-          ? `✅ <b>${key}-${completed[0].ticketNumber}</b> ${escapeHtmlBasic(completed[0].after.title)} completed`
+          ? `✅ <b>${key}-${completed[0].ticketNumber}</b>${title ? ` ${escapeHtmlBasic(title)}` : ""} completed`
           : `✅ ${completed.length} items completed in <b>${key}</b>: ${completed
               .slice(0, TEAMS_LISTED)
               .map((i) => `${key}-${i.ticketNumber}`)
               .join(", ")}${completed.length > TEAMS_LISTED ? ` and ${completed.length - TEAMS_LISTED} more` : ""}`;
-      await teamsNotify(orgId, "itemCompleted", message);
+      await teamsNotify(orgId, "itemCompleted", message, { projectIds: [projectId] });
     })().catch(() => {});
   }
 }

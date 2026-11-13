@@ -21,6 +21,9 @@ import {
 } from "./drawer-provider";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { ChatPanel } from "./panels/chat-panel";
+import { NoChatAccess } from "./panels/no-chat-access";
+import { usePermissions } from "@/components/providers/permissions-provider";
+import { Permission } from "@/lib/rbac/permissions";
 import { NotesPanel } from "./panels/notes-panel";
 import { FeedbackPanel } from "./panels/feedback-panel";
 import { MeetingsPanel } from "./panels/meetings-panel";
@@ -54,6 +57,11 @@ const WIDE_WIDTH = 720;
  */
 export function DockedDrawer({ orgId, orgSlug, userId }: DockedDrawerProps) {
   const { tool, close, open, isOpen, width, setWidth } = useDrawers();
+  // Chat follows the topbar's gate: every chat route requires CHAT_USE, so
+  // without it the tab would open onto a load that cannot succeed.
+  const { can } = usePermissions();
+  const chatAllowed = can(Permission.CHAT_USE);
+  const tools = chatAllowed ? TOOLS : TOOLS.filter((t) => t.id !== "chat");
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const resizing = useRef(false);
   /** Aborts the in-flight drag's listeners — one controller per drag. */
@@ -178,7 +186,7 @@ export function DockedDrawer({ orgId, orgSlug, userId }: DockedDrawerProps) {
       {/* Header: tool tabs + expand/close */}
       <div className="flex h-12 shrink-0 items-center justify-between gap-1 border-b border-[var(--border)] px-2">
         <div className="flex items-center gap-0.5">
-          {TOOLS.map((t) => {
+          {tools.map((t) => {
             const Icon = t.icon;
             const active = isOpen(t.id);
             return (
@@ -233,9 +241,13 @@ export function DockedDrawer({ orgId, orgSlug, userId }: DockedDrawerProps) {
       {/* Active tool body. Each panel mounts only while selected. */}
       <div className="min-h-0 flex-1 overflow-hidden">
         {tool === "assistant" && <AssistantPanel orgId={orgId} />}
-        {tool === "chat" && (
-          <ChatPanel orgId={orgId} orgSlug={orgSlug} userId={userId} />
-        )}
+        {tool === "chat" &&
+          (chatAllowed ? (
+            <ChatPanel orgId={orgId} orgSlug={orgSlug} userId={userId} />
+          ) : (
+            // Opened anyway, by a chat link: no request that would be refused.
+            <NoChatAccess />
+          ))}
         {tool === "notes" && <NotesPanel orgId={orgId} orgSlug={orgSlug} />}
         {tool === "meetings" && (
           <MeetingsPanel orgId={orgId} orgSlug={orgSlug} />

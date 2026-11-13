@@ -22,6 +22,7 @@ import { requireAccess } from "@/lib/abac/require-access";
 import { readableCommentsWhere } from "@/lib/work-items/read.server";
 import { orgDocumentVisibilityWhere } from "@/lib/files/access";
 import { loadTeamRosters } from "@/lib/teams/item-team.server";
+import { memberDisclosure } from "@/lib/members/scoped-roster.server";
 import {
   mentionsField,
   predValues,
@@ -202,6 +203,11 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
   const readableIds = [...readable];
   const nameOrIdOr = (names: Set<string>, column: "name" | "key" | "email" | "displayName" | "title") =>
     [...names].map((n) => ({ [column]: { equals: n, mode: "insensitive" as const } }));
+  // People, as every member list shows them (`memberDisclosure`): a
+  // project-scoped key names only the people in its roster, and typed text is
+  // matched against addresses only with members:read. Otherwise an address in,
+  // a person out says who is a member, one guess at a time.
+  const people = wanted.user.size ? await memberDisclosure(a.ctx) : null;
 
   const [projects, types, columns, intervals, teams, labels, members, milestones] = await Promise.all([
     wanted.project.size || wanted.item.size || a.contextProjectId
@@ -248,9 +254,10 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
       ? prismaUnfiltered.orgMember.findMany({
           where: {
             orgId,
+            ...(people?.roster && { userId: { in: people.roster } }),
             user: {
               OR: [
-                ...nameOrIdOr(wanted.user, "email"),
+                ...(people?.emails ? nameOrIdOr(wanted.user, "email") : []),
                 ...nameOrIdOr(wanted.user, "displayName"),
                 { id: { in: [...wanted.user].filter(isUuid) } },
               ],
@@ -339,7 +346,7 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
   }
   const userByName = new Map<string, { id: string; email: string; displayName: string }[]>();
   for (const { user: u } of members) {
-    for (const k of [u.email, u.displayName, u.id]) {
+    for (const k of people?.emails ? [u.email, u.displayName, u.id] : [u.displayName, u.id]) {
       const list = userByName.get(lc(k)) ?? [];
       if (!list.some((x) => x.id === u.id)) list.push(u);
       userByName.set(lc(k), list);
@@ -389,9 +396,14 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
       }
       if (hits.length > 1) {
         const span = at(v);
+        // The email reads better; the id resolves the same and discloses nothing.
+        const emails = people?.emails ?? false;
         diagnostics.push(
-          diag(text, "CQL_AMBIGUOUS_VALUE", `More than one person is called “${name}”. Pick one by email.`, span, {
-            fixes: hits.map((h) => ({ label: `${h.displayName} <${h.email}>`, replace: { from: span.from, to: span.to, insert: `"${h.email}"` } })),
+          diag(text, "CQL_AMBIGUOUS_VALUE", `More than one person is called “${name}”. Pick one by ${emails ? "email" : "id"}.`, span, {
+            fixes: hits.map((h) => ({
+              label: emails ? `${h.displayName} <${h.email}>` : `${h.displayName} (${h.id})`,
+              replace: { from: span.from, to: span.to, insert: `"${emails ? h.email : h.id}"` },
+            })),
           }),
         );
         return null;

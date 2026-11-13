@@ -32,6 +32,7 @@ import { validateAst } from "./normalize";
 import { printCql, type LabelFor } from "./print";
 import { loadSchemaCustomFields } from "./resolve.server";
 import { roleCountsFor } from "@/lib/rbac/key-role";
+import { memberDisclosure } from "@/lib/members/scoped-roster.server";
 
 export const RESTRICTED = "‹restricted›";
 
@@ -250,11 +251,17 @@ async function unambiguousNames(s: ViewerScope, refs: Extract<CqlValue, { t: "re
   }
   const users = ids("user");
   if (users.length) {
-    const members = await prisma.orgMember.findMany({ where: { orgId }, select: { user: { select: { id: true, displayName: true, email: true } } } });
+    // Within the caller's roster, as the resolver reads the printed text back.
+    const people = await memberDisclosure(s.ctx);
+    const members = await prisma.orgMember.findMany({
+      where: { orgId, ...(people.roster && { userId: { in: people.roster } }) },
+      select: { user: { select: { id: true, displayName: true, email: true } } },
+    });
     const all = members.map((m) => m.user);
     uniqueBy(all, (u) => u.displayName, users, "user");
-    // Two people with one name: their email.
-    for (const u of all) if (users.includes(u.id) && !out.has(`user:${u.id}`)) out.set(`user:${u.id}`, u.email);
+    // Two people with one name: their email, or without members:read the id,
+    // which resolves the same and discloses nothing.
+    for (const u of all) if (users.includes(u.id) && !out.has(`user:${u.id}`)) out.set(`user:${u.id}`, people.emails ? u.email : u.id);
   }
   const types = ids("type");
   if (types.length) {

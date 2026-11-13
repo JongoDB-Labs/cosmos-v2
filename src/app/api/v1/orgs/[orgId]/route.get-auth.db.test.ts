@@ -49,12 +49,15 @@ beforeAll(async () => {
   ownerId = (await prisma.user.create({ data: { email: `owner-${stamp}@oga.test`, displayName: "Owner" } })).id;
   memberId = (await prisma.user.create({ data: { email: `member-${stamp}@oga.test`, displayName: "Member" } })).id;
   await prisma.orgMember.create({ data: { orgId, userId: ownerId, role: "OWNER", permissions: "0" } });
-  await prisma.orgMember.create({ data: { orgId, userId: memberId, role: "MEMBER", permissions: "0" } });
+  const memberRow = await prisma.orgMember.create({ data: { orgId, userId: memberId, role: "MEMBER", permissions: "0" } });
   openProjectId = (await prisma.project.create({ data: { orgId, name: "Open", key: `O${stamp}`.slice(0, 6).toUpperCase() } })).id;
+  // The member works on the open project; the owner is on no project.
+  await prisma.projectMember.create({ data: { projectId: openProjectId, orgMemberId: memberRow.id } });
   teamProjectId = (await prisma.project.create({ data: { orgId, name: "Team only", key: `T${stamp}`.slice(0, 6).toUpperCase() } })).id;
 });
 
 afterAll(async () => {
+  await prisma.projectMember.deleteMany({ where: { project: { orgId } } });
   await prisma.project.deleteMany({ where: { orgId } });
   await prismaUnfiltered.orgMember.deleteMany({ where: { orgId } });
   await prisma.organization.deleteMany({ where: { id: orgId } });
@@ -105,6 +108,19 @@ describe("GET /api/v1/orgs/{orgId} authenticates", () => {
     const body = await read(await GET(req(), at()));
     expect(body.projects.map((p) => p.id)).toEqual([openProjectId]);
     expect(body.projects.map((p) => p.id)).not.toContain(teamProjectId);
+  });
+
+  it("lists only the members inside a project-scoped key's roster", async () => {
+    // The same roster ceiling the members endpoint applies: a key limited to
+    // some projects sees the people on those projects, not the whole org.
+    h.ctx = ctxFor(memberId, "MEMBER", { isApiKey: true, scopes: ["read", "members:read"], projectScope: [openProjectId] });
+    const body = await read(await GET(req(), at()));
+    expect(body.members.map((m) => m.user.id)).toEqual([memberId]);
+
+    // Positive control: the same key without a project ceiling sees everyone.
+    h.ctx = ctxFor(memberId, "MEMBER", { isApiKey: true, scopes: ["read", "members:read"] });
+    const orgWide = await read(await GET(req(), at()));
+    expect(orgWide.members.map((m) => m.user.id).sort()).toEqual([memberId, ownerId].sort());
   });
 
   it("refuses a caller without ORG_READ (403)", async () => {

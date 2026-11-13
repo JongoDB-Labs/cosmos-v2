@@ -11,6 +11,7 @@ import { IntervalKind } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
+import { memberDisclosure, type MemberDisclosure } from "@/lib/members/scoped-roster.server";
 import { lookupField, type ValueKind } from "./fields";
 import { FUNCTIONS } from "./functions";
 import { quote } from "./print";
@@ -108,9 +109,11 @@ export async function suggestValues(
     case "string":
       for (const o of options ?? []) if (o.toLowerCase().includes(p)) out.push({ label: o, insert: asValue(o), kind: "value" });
       break;
-    case "ref":
-      out.push(...(await refSuggestions(kind.entity, prefix, readable, orgId, limit, def?.id)));
+    case "ref": {
+      const people = kind.entity === "user" ? await memberDisclosure(ctx) : null;
+      out.push(...(await refSuggestions(kind.entity, prefix, readable, orgId, limit, def?.id, people)));
       break;
+    }
     default:
       break;
   }
@@ -129,14 +132,21 @@ async function refSuggestions(
    * different halves of it, so the entity alone cannot scope the list.
    */
   field?: string,
+  /** For people: the caller's roster ceiling, and whether it may read emails. */
+  people?: MemberDisclosure | null,
 ): Promise<Suggestion[]> {
   const where = prefix ? contains(prefix) : undefined;
   switch (entity) {
     case "user": {
+      // Matching a typed prefix against addresses answers "is there someone
+      // whose email starts with…", so without members:read only names match.
+      const emails = people?.emails ?? false;
+      const roster = people?.roster ?? null;
       const rows = await prisma.orgMember.findMany({
         where: {
           orgId,
-          ...(prefix ? { user: { OR: [{ displayName: where }, { email: where }] } } : {}),
+          ...(roster && { userId: { in: roster } }),
+          ...(prefix ? { user: emails ? { OR: [{ displayName: where }, { email: where }] } : { displayName: where } } : {}),
         },
         select: { user: { select: { id: true, displayName: true, email: true } } },
         take: limit,
@@ -146,9 +156,10 @@ async function refSuggestions(
       for (const r of rows) byName.set(r.user.displayName.toLowerCase(), (byName.get(r.user.displayName.toLowerCase()) ?? 0) + 1);
       return rows.map(({ user: u }) => ({
         label: u.displayName,
-        // Two people with one name: insert the email, which is unambiguous.
-        insert: asValue((byName.get(u.displayName.toLowerCase()) ?? 0) > 1 ? u.email : u.displayName),
-        detail: u.email,
+        // Two people with one name: insert something unambiguous. The email
+        // reads better; the id resolves the same and discloses nothing.
+        insert: asValue((byName.get(u.displayName.toLowerCase()) ?? 0) > 1 ? (emails ? u.email : u.id) : u.displayName),
+        ...(emails && { detail: u.email }),
         kind: "user" as const,
       }));
     }

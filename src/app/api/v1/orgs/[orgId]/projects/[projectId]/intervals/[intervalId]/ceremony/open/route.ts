@@ -78,7 +78,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       metadata: { boardId: data.boardId, intervalId, kind: data.kind },
       ipAddress: getIpAddress(request),
     });
-    publishCeremonyChanged(orgId, ceremony.id);
+    publishCeremonyChanged(orgId, projectId, ceremony.id);
 
     return success({
       id: ceremony.id,

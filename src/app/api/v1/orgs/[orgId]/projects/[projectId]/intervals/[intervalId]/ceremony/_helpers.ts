@@ -84,13 +84,14 @@ export async function loadCeremony(
 }
 
 /**
- * Tell every open client that a ceremony changed — by REFERENCE only.
+ * Tell every open client that a ceremony changed — by REFERENCE only. The
+ * project rides along so the stream sends it only to people who can read it.
  *
  * Note text must never ride the bus: the pg adapter caps payloads at 6 KB
  * (Postgres NOTIFY allows 8 KB, minus headroom) and a room full of people
  * typing is exactly the load that would truncate. Clients receive the ref and
  * refetch through their org-scoped query key.
  */
-export function publishCeremonyChanged(orgId: string, ceremonyId: string) {
-  publishToOrg(orgId, "ceremony.changed", { ceremonyId });
+export function publishCeremonyChanged(orgId: string, projectId: string, ceremonyId: string) {
+  publishToOrg(orgId, "ceremony.changed", { ceremonyId, projectId });
 }

@@ -7,8 +7,18 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { memberDisclosure, type MemberDisclosure } from "@/lib/members/scoped-roster.server";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; intervalId: string }> };
+
+type CapacityRow = { userId: string; user: { id: string; displayName: string; email: string; avatarUrl: string | null } };
+
+/** Each row's person only inside the caller's roster ceiling, with an email only for members:read. */
+function disclose<T extends CapacityRow>(rows: T[], people: MemberDisclosure) {
+  return rows
+    .filter((r) => people.inRoster(r.userId))
+    .map(({ user: { email, ...user }, ...row }) => ({ ...row, user: people.emails ? { ...user, email } : user }));
+}
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
@@ -20,15 +30,17 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     await requireProjectRead(ctx, projectId, "SPRINT_READ");
 
+    // The sprint must belong to the project the access check just passed:
+    // matching on the interval id alone answered for any sprint, in any project.
     const capacities = await prisma.intervalCapacity.findMany({
-      where: { intervalId },
+      where: { intervalId, interval: { projectId, orgId: ctx.orgId } },
       include: {
         user: { select: { id: true, displayName: true, email: true, avatarUrl: true } },
       },
       orderBy: { user: { displayName: "asc" } },
     });
 
-    return success(capacities);
+    return success(disclose(capacities, await memberDisclosure(ctx)));
   } catch (e) {
     return handleApiError(e);
   }
@@ -54,7 +66,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     await requireProjectManage(ctx, projectId, Permission.SPRINT_UPDATE);
 
     const interval = await prisma.interval.findFirst({
-      where: { id: intervalId, orgId: ctx.orgId },
+      where: { id: intervalId, orgId: ctx.orgId, projectId },
     });
     if (!interval) return new Response("Interval not found", { status: 404 });
 
@@ -84,7 +96,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       orderBy: { user: { displayName: "asc" } },
     });
 
-    return success(updated);
+    return success(disclose(updated, await memberDisclosure(ctx)));
   } catch (e) {
     return handleApiError(e);
   }

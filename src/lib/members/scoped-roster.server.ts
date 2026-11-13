@@ -50,3 +50,38 @@ export async function scopedRosterUserIds(ctx: AuthContext): Promise<string[] | 
     ]),
   ];
 }
+
+/**
+ * May this caller see members' email addresses? A browser session may; an API
+ * key only when it holds `members:read`. The rule `respond()` applies through a
+ * contract's `scopedFields`, for the routes that answer without a contract.
+ */
+export function mayReadMemberEmails(ctx: Pick<AuthContext, "isApiKey" | "scopes">): boolean {
+  return !ctx.isApiKey || (ctx.scopes ?? []).includes("members:read");
+}
+
+export interface MemberDisclosure {
+  /** Whether to include email addresses (`mayReadMemberEmails`). */
+  emails: boolean;
+  /** The roster ceiling as user ids for a query filter; null means no limit. */
+  roster: string[] | null;
+  /** Whether this person is inside the caller's roster ceiling (`scopedRosterUserIds`). */
+  inRoster(userId: string): boolean;
+}
+
+/**
+ * Both rules every response that lists org members applies: the roster
+ * ceiling (who), and email only with `members:read` (what). One call, so a
+ * route cannot adopt one and forget the other; `member-disclosure.arch.test.ts`
+ * checks every route that sends an email address goes through it or through
+ * a contract's `scopedFields`.
+ */
+export async function memberDisclosure(ctx: AuthContext): Promise<MemberDisclosure> {
+  const roster = await scopedRosterUserIds(ctx);
+  const allowed = roster ? new Set(roster) : null;
+  return {
+    emails: mayReadMemberEmails(ctx),
+    roster,
+    inRoster: (userId) => !allowed || allowed.has(userId),
+  };
+}

@@ -8,6 +8,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
+import { channelPolicy } from "@/lib/integrations/channel-policy.server";
 import {
   activationBlocker,
   isProgramIncrement,
@@ -146,20 +147,26 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
 
     // Teams notification (FR 8a162fe7): sprint lifecycle transitions.
-    if (data.status !== undefined && data.status !== existing.status) {
-      if (data.status === "ACTIVE") {
-        void teamsNotify(
+    // The channel is read org-wide: nothing from a team-scoped or marked
+    // project, and a marked sprint name is left out.
+    if (data.status !== undefined && data.status !== existing.status && (data.status === "ACTIVE" || data.status === "COMPLETED")) {
+      const status = data.status;
+      void (async () => {
+        const policy = await channelPolicy(orgId);
+        const project = await policy.project(projectId);
+        if (!project) return;
+        const name = policy.text(projectId, updated.name);
+        const sprint = name ? `Sprint <b>${escapeHtmlBasic(name)}</b>` : `A sprint in <b>${project.key}</b>`;
+        const count = updated._count.workItems;
+        await teamsNotify(
           orgId,
           "sprintStartEnd",
-          `\u{1F3C1} Sprint <b>${escapeHtmlBasic(updated.name)}</b> started (${updated._count.workItems} item${updated._count.workItems === 1 ? "" : "s"})`,
+          status === "ACTIVE"
+            ? `\u{1F3C1} ${sprint} started (${count} item${count === 1 ? "" : "s"})`
+            : `\u2705 ${sprint} completed`,
+          { projectIds: [projectId] },
         );
-      } else if (data.status === "COMPLETED") {
-        void teamsNotify(
-          orgId,
-          "sprintStartEnd",
-          `\u2705 Sprint <b>${escapeHtmlBasic(updated.name)}</b> completed`,
-        );
-      }
+      })().catch(() => {});
     }
 
     await logAudit({

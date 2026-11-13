@@ -14,6 +14,7 @@ import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify } from "@/lib/integrations/teams-notify";
+import { channelPolicy } from "@/lib/integrations/channel-policy.server";
 import { createNotification } from "@/lib/notifications/create";
 import { readAutomationConfig } from "@/lib/feedback/automation-config";
 import {
@@ -626,6 +627,8 @@ async function runFeedbackRemediationInner(
   const gatedItems: RemediationSummary["gatedItems"] = [];
   const duplicateItems: RemediationSummary["duplicateItems"] = [];
   const byProject = new Map<string, { key: string; count: number }>();
+  /** Delivered work item → its project, for the Teams summary's channel rule. */
+  const deliveredProject = new Map<string, string>();
   let skippedNoTarget = 0;
 
   // INTAKE DUPLICATE POOL (COSMOS-113, Phase 2) — build the candidate set the new
@@ -867,6 +870,7 @@ async function runFeedbackRemediationInner(
 
       const ticketKey = `${target.key}-${created.ticketNumber}`;
       delivered.push({ feedbackId: item.id, workItemId: created.id, ticketKey, triage });
+      deliveredProject.set(created.id, target.id);
       const bucket = byProject.get(target.id) ?? { key: target.key, count: 0 };
       bucket.count += 1;
       byProject.set(target.id, bucket);
@@ -894,10 +898,11 @@ async function runFeedbackRemediationInner(
         /* audit is best-effort post-commit */
       }
       try {
+        // Ids only: the ticket key names the project, which may be one the
+        // org's other members cannot read. The portal refetches.
         publishToOrg(orgId, "feedback.delivered", {
           feedbackId: item.id,
           workItemId: created.id,
-          ticketKey,
         });
       } catch {
         /* realtime is best-effort */
@@ -935,16 +940,27 @@ async function runFeedbackRemediationInner(
   // multi-project run reads as "3 items — TEST: 2, OPS: 1" rather than a flat
   // count; a project with zero delivered items just never appears (no divide,
   // no empty-bucket rendering to guard against).
+  //
+  // The channel is read org-wide, so a team-scoped or marked project's
+  // tickets are left out of the summary.
   if (delivered.length > 0) {
-    const lines = delivered
-      .map((d) => `<b>${d.ticketKey}</b> — ${d.triage.classification} · ${d.triage.severity}`)
-      .join("<br/>");
-    const perProject = [...byProject.values()].map((p) => `${p.key}: ${p.count}`).join(", ");
-    void teamsNotify(
-      orgId,
-      "feedbackDelivered",
-      `🛠️ <b>${delivered.length} feedback item${delivered.length === 1 ? "" : "s"}</b> triaged into the backlog (${perProject}):<br/>${lines}`,
-    );
+    void (async () => {
+      const policy = await channelPolicy(orgId);
+      const postable: string[] = [];
+      for (const projectId of byProject.keys()) if (await policy.project(projectId)) postable.push(projectId);
+      const shown = delivered.filter((d) => postable.includes(deliveredProject.get(d.workItemId) ?? ""));
+      if (shown.length === 0) return;
+      const lines = shown
+        .map((d) => `<b>${d.ticketKey}</b> — ${d.triage.classification} · ${d.triage.severity}`)
+        .join("<br/>");
+      const perProject = postable.map((id) => byProject.get(id)!).map((p) => `${p.key}: ${p.count}`).join(", ");
+      await teamsNotify(
+        orgId,
+        "feedbackDelivered",
+        `🛠️ <b>${shown.length} feedback item${shown.length === 1 ? "" : "s"}</b> triaged into the backlog (${perProject}):<br/>${lines}`,
+        { projectIds: postable },
+      );
+    })().catch(() => {});
   }
 
   return {

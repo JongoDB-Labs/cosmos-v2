@@ -3,6 +3,7 @@ import { createNotification } from "@/lib/notifications/create";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
+import { channelPolicy } from "@/lib/integrations/channel-policy.server";
 import { mentionsToPlainText, userMentionLabels } from "@/lib/mentions/plain-text";
 import { chatDrawerHref } from "@/lib/chat/drawer-link";
 
@@ -71,13 +72,20 @@ export async function fanOutChatMessage(input: FanOutInput): Promise<void> {
 
   // Teams notification (FR 8a162fe7): one channel post per message that carries
   // @mentions — OFF by default (chat noise); gated + best-effort in teamsNotify.
-  if (input.mentionedUserIds.length > 0) {
+  // Only from a public channel: the Teams channel is read org-wide, so a
+  // private channel's or a direct message's words never go there.
+  if (input.mentionedUserIds.length > 0 && input.channelKind === "CHANNEL") {
     void (async () => {
+      const policy = await channelPolicy(input.orgId);
+      const channel = await policy.chatChannel(input.channelId);
+      if (!channel) return;
+      const quoted = policy.text(channel.projectId, snippet);
       const names = mentionedUsers.map((u) => escapeHtmlBasic(u.displayName)).join(", ");
       await teamsNotify(
         input.orgId,
         "mentions",
-        `\u{1F4AC} <b>${escapeHtmlBasic(input.authorDisplayName)}</b> mentioned ${names} in chat: \u201C${escapeHtmlBasic(snippet)}\u201D`,
+        `\u{1F4AC} <b>${escapeHtmlBasic(input.authorDisplayName)}</b> mentioned ${names} in chat${quoted ? `: \u201C${escapeHtmlBasic(quoted)}\u201D` : ""}`,
+        { chatChannelId: input.channelId },
       );
     })().catch(() => {});
   }

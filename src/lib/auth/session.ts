@@ -4,7 +4,8 @@ import { prisma } from "@/lib/db/client";
 import { type AuthContext } from "@/lib/rbac/check";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { isInternalAdmin } from "@/lib/internal/access";
-import { ipAllowlistAdmits } from "@/lib/auth/ip-allowlist";
+import { admitsAddress, allowlistState } from "@/lib/auth/ip-allowlist";
+import { trustedClientIp } from "@/lib/auth/client-ip";
 import { SESSION_COOKIE } from "./client";
 import { verifyApiKeyHeader } from "./api-key";
 import { classifyBearer } from "./bearer";
@@ -106,6 +107,69 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
 });
 
 /**
+ * Whether a session that authenticated a request earlier still would: its row
+ * still exists (signing out and revocation delete it), it has not expired, and
+ * the org's floors still admit it from the address it connected from
+ * (`orgSessionFloors`, the same check `getAuthContext` makes). For a
+ * long-lived connection, the org event stream, which authenticates once and
+ * must not outlive its session. Reads only: holding a stream open is not
+ * activity, so it never slides the idle window.
+ */
+export async function sessionStillValid(sessionId: string, orgId: string, clientIp: string | null): Promise<boolean> {
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+    select: {
+      expiresAt: true,
+      lastActivityAt: true,
+      authMethod: true,
+      mfaSatisfied: true,
+      user: { select: { email: true } },
+    },
+  });
+  if (!session || session.expiresAt.getTime() <= Date.now()) return false;
+  const floors = await orgSessionFloors(orgId, { ...session, email: session.user.email }, clientIp);
+  return floors.ok;
+}
+
+type FloorVerdict =
+  | { ok: true; /** The idle timeout applies, so a live request slides its window. */ idleTimeout: boolean }
+  | { ok: false; why: "mfa" | "idle" | "ip" };
+
+/**
+ * The org's floors for a session: Require-MFA, the idle timeout and the IP
+ * allowlist. The ONE copy: `getAuthContext` applies it to every request and
+ * `sessionStillValid` to a stream that stays open, so the two cannot drift (a
+ * second copy for the stream once had only the idle timeout). System admins
+ * (INTERNAL_ADMINS) are break-glass exempt from all three, so a
+ * misconfiguration can't lock the operator out. Reads only; the idle decision
+ * uses `lastActivityAt` as read, so a request cannot revive its own session.
+ *
+ * `clientIp` is the request's trusted address (`trustedClientIp`, which reads
+ * only the header the deployment's edge writes); a stream passes the one it
+ * opened from. The allowlist itself is the one ip-allowlist.ts reads for every
+ * door (`allowlistState`, `admitsAddress`).
+ */
+async function orgSessionFloors(
+  orgId: string,
+  session: { email: string; authMethod: string | null; mfaSatisfied: boolean; lastActivityAt: Date },
+  clientIp: string | null,
+): Promise<FloorVerdict> {
+  const sec = await prisma.orgSecuritySettings.findUnique({
+    where: { orgId },
+    select: { mfaRequired: true, ipAllowlistEnabled: true, sessionTimeoutMins: true },
+  });
+  if (!sec || isInternalAdmin(session.email, process.env.INTERNAL_ADMINS)) return { ok: true, idleTimeout: false };
+  if (sec.mfaRequired && !sessionSatisfiesMfa(session)) return { ok: false, why: "mfa" };
+  // sessionTimeoutMins <= 0 disables the idle gate.
+  const idleTimeout = sec.sessionTimeoutMins > 0;
+  if (idleTimeout && Date.now() - session.lastActivityAt.getTime() > sec.sessionTimeoutMins * 60_000) {
+    return { ok: false, why: "idle" };
+  }
+  if (sec.ipAllowlistEnabled && !admitsAddress(clientIp, await allowlistState(orgId))) return { ok: false, why: "ip" };
+  return { ok: true, idleTimeout };
+}
+
+/**
  * Revoke (terminate) all sessions for every member of an org. Deletes the global
  * `Session` rows so they stop authenticating immediately, and marks the org's
  * `SessionRecord` rows REVOKED for the audit-view mirror.
@@ -201,50 +265,28 @@ export const getAuthContext = cache(
     const effective = await loadEffectivePermissions(org.id, user.id);
     if (!effective) return null;
 
-    // Request-time org security floors, enforced HERE so every org-scoped API
-    // route + SSR page inherits them. System admins (INTERNAL_ADMINS) are
-    // break-glass exempt from both, so a misconfiguration can't lock the
-    // operator out. The per-user MFA enroll endpoints use getCurrentUser (not
+    // Request-time org security floors (Require-MFA, idle timeout, IP
+    // allowlist), enforced HERE so every org-scoped API route + SSR page
+    // inherits them. The per-user MFA enroll endpoints use getCurrentUser (not
     // this), so a denied user can still reach enrollment.
-    const sec = await prisma.orgSecuritySettings.findUnique({
-      where: { orgId: org.id },
-      select: {
-        mfaRequired: true,
-        ipAllowlistEnabled: true,
-        sessionTimeoutMins: true,
-      },
-    });
-    if (sec && !isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)) {
-      // Require-MFA: deny a session that doesn't satisfy the org's MFA floor.
-      if (sec.mfaRequired && !sessionSatisfiesMfa(user)) return null;
-
-      // Idle timeout (sliding window): deny — and tear down — a session that
-      // has gone untouched longer than the org's session-timeout floor. The
-      // decision uses lastActivityAt AS READ (before this request's bump) so an
-      // expired request can't revive itself; a live request then refreshes the
-      // anchor (throttled) so the window slides forward. sessionTimeoutMins <= 0
-      // disables the gate.
-      if (sec.sessionTimeoutMins > 0) {
-        const idleMs = Date.now() - user.lastActivityAt.getTime();
-        if (idleMs > sec.sessionTimeoutMins * 60_000) {
-          await prisma.session
-            .delete({ where: { id: user.sessionId } })
-            .catch(() => undefined);
-          return null;
-        }
-        if (idleMs > ACTIVITY_WRITE_THROTTLE_MS) {
-          await prisma.session
-            .update({
-              where: { id: user.sessionId },
-              data: { lastActivityAt: new Date() },
-            })
-            .catch(() => undefined);
-        }
+    const floors = await orgSessionFloors(org.id, user, trustedClientIp(requestHeaders));
+    if (!floors.ok) {
+      // Idle past the timeout: tear the session down, not just this request.
+      if (floors.why === "idle") {
+        await prisma.session
+          .delete({ where: { id: user.sessionId } })
+          .catch(() => undefined);
       }
-
-      // IP allowlist: when enabled AND at least one CIDR is configured, the
-      // client IP must fall within it. An empty list never blocks (anti-lockout).
-      if (!(await ipAllowlistAdmits(org.id, requestHeaders, sec.ipAllowlistEnabled))) return null;
+      return null;
+    }
+    // A live request slides the idle window forward (throttled).
+    if (floors.idleTimeout && Date.now() - user.lastActivityAt.getTime() > ACTIVITY_WRITE_THROTTLE_MS) {
+      await prisma.session
+        .update({
+          where: { id: user.sessionId },
+          data: { lastActivityAt: new Date() },
+        })
+        .catch(() => undefined);
     }
 
     return {

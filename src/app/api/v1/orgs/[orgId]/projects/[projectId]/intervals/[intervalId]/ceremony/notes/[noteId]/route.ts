@@ -93,7 +93,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       data: { text: data.text },
     });
 
-    publishCeremonyChanged(orgId, note.ceremonyId);
+    publishCeremonyChanged(orgId, projectId, note.ceremonyId);
     return success({ id: updated.id, text: updated.text });
   } catch (e) {
     return handleApiError(e);
@@ -114,7 +114,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     }
 
     await prisma.retroNote.delete({ where: { id: note.id } });
-    publishCeremonyChanged(orgId, note.ceremonyId);
+    publishCeremonyChanged(orgId, projectId, note.ceremonyId);
     return success({ id: note.id });
   } catch (e) {
     return handleApiError(e);

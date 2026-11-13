@@ -8,6 +8,7 @@ import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
+import { channelPolicy } from "@/lib/integrations/channel-policy.server";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
 import { teamProjectError } from "@/lib/teams/item-team.server";
@@ -293,7 +294,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       publishToOrg(orgId, "work-item.created", {
         id: item.id,
         projectId,
-        title: item.title,
         workItemTypeId: item.workItemTypeId,
         columnKey: item.columnKey,
         ticketNumber: item.ticketNumber,
@@ -304,11 +304,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // Teams notification (FR 8a162fe7): new item — OFF by default (noisy);
     // gated + best-effort inside teamsNotify.
-    void teamsNotify(
-      orgId,
-      "itemCreated",
-      `\u{1F195} <b>${project.key}-${item.ticketNumber}</b> ${escapeHtmlBasic(item.title)} created (${item.priority})`,
-    );
+    // The channel is read org-wide: nothing from a team-scoped or marked project, no marked title.
+    void (async () => {
+      const policy = await channelPolicy(orgId);
+      if (!(await policy.project(projectId))) return;
+      const title = policy.text(projectId, item.title);
+      await teamsNotify(
+        orgId,
+        "itemCreated",
+        `\u{1F195} <b>${project.key}-${item.ticketNumber}</b>${title ? ` ${escapeHtmlBasic(title)}` : ""} created (${item.priority})`,
+        { projectIds: [projectId] },
+      );
+    })().catch(() => {});
 
     return respond(createWorkItem, 201, item);
   } catch (error) {

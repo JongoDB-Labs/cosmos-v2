@@ -2,7 +2,8 @@
 //
 // One rule decides who reads a meeting, at every door: the REST list, a
 // meeting by id, its attendees, its Outlook invitation and its Teams state,
-// and Cosmo's list_meetings and update_meeting. A meeting is readable when its
+// Cosmo's list_meetings and update_meeting, and search and @-mentions (by
+// title, and a stored mention resolved to its name). A meeting is readable when its
 // project is visible to the caller AND MEETING_READ passes for that project
 // (the bit and any policy on MEETING_READ); under no project, MEETING_READ
 // alone. Before, the list asked about ITEM_READ and the by-id doors asked about
@@ -16,6 +17,8 @@ import { Permission, maskToDb } from "@/lib/rbac/permissions";
 import { loadMemberAuthContext } from "@/lib/rbac/effective-permissions";
 import { listMeetings as cosmoList, updateMeeting as cosmoUpdate } from "@/lib/ai/executors/meetings";
 import { memberToolCtx } from "@/lib/testing/tool-auth";
+import { resolveRefs, searchEntities } from "@/lib/mentions/registry.server";
+import type { AuthContext } from "@/lib/rbac/check";
 
 const h = vi.hoisted(() => ({ ctx: null as unknown }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext: async () => h.ctx, getCurrentUser: async () => null }));
@@ -75,7 +78,9 @@ const sorted = (xs: string[]) => [...xs].sort();
 /** The meetings each door gives this person, by name. */
 async function doors(userId: string): Promise<Record<string, string[]>> {
   h.ctx = await loadMemberAuthContext(orgId, userId);
-  const out: Record<string, string[]> = { list: [], byId: [], attendees: [], invite: [], teams: [], cosmoList: [], cosmoNamed: [], cosmoUpdate: [] };
+  const out: Record<string, string[]> = {
+    list: [], byId: [], attendees: [], invite: [], teams: [], cosmoList: [], cosmoNamed: [], cosmoUpdate: [], search: [], mentionResolve: [],
+  };
   const list = await listMeetings(new NextRequest(`http://localhost/api/v1/orgs/${orgId}/meetings`), { params: Promise.resolve({ orgId }) });
   if (list.status === 200) out.list = ((await list.json()) as { id: string }[]).map((m) => nameOf(m.id)).filter((n) => n in ids);
   for (const name of Object.keys(ids) as (keyof typeof ids)[]) {
@@ -97,6 +102,11 @@ async function doors(userId: string): Promise<Record<string, string[]>> {
     const r = (await cosmoUpdate({ meetingId: ids[name] }, tc)) as { updated?: boolean };
     if (r.updated) out.cosmoUpdate.push(name);
   }
+  const ctx = h.ctx as AuthContext;
+  const found = await searchEntities({ ctx, orgSlug: `doors-${stamp}`, query: stamp, types: ["meeting"], perType: 15 });
+  out.search = found.map((m) => nameOf(m.id)).filter((n) => n in ids);
+  const named = await resolveRefs({ ctx, orgSlug: `doors-${stamp}`, refs: Object.values(ids).map((id) => ({ type: "meeting" as const, id })) });
+  out.mentionResolve = named.map((m) => nameOf(m.id));
   for (const k of Object.keys(out)) out[k] = sorted(out[k]);
   return out;
 }
@@ -111,6 +121,7 @@ function expectEveryDoor(seen: Record<string, string[]>, expected: string[], opt
     list: want, byId: want, attendees: want, invite: want, teams: want, cosmoList: want,
     cosmoNamed: want.filter((n) => n !== "orgLevel"),
     cosmoUpdate: opts.canUpdate ? want : [],
+    search: want, mentionResolve: want,
   });
 }
 

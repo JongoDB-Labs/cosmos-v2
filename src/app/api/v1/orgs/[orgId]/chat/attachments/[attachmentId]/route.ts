@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { handleApiError } from "@/lib/api-helpers";
-import { canSeeChannelGiven, loadChannelAndMembership } from "@/lib/chat/access";
+import { canSeeChannelGiven, loadChannelAndMembership, mayUseChat } from "@/lib/chat/access";
 import { getStorage } from "@/lib/storage";
 import { contentDisposition } from "@/lib/http/content-disposition";
 import { dispositionFor } from "@/lib/storage/upload-policy";
@@ -16,6 +16,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!mayUseChat(ctx)) return new Response("Forbidden", { status: 403 });
 
     const att = await prisma.chatMessageAttachment.findUnique({
       where: { id: attachmentId },

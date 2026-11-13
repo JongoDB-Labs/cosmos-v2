@@ -75,7 +75,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     );
     // Live board updates (COSMOS-129): an import creates work items — signal the board
     // views to refetch without a manual refresh.
-    publishToOrg(orgId, "work-item.created", {});
+    publishToOrg(orgId, "work-item.created", { projectId });
     return success(report);
   } catch (err) {
     return handleApiError(err);

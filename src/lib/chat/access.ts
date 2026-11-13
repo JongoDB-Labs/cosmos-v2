@@ -1,5 +1,17 @@
 import { OrgRole } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
+import type { AuthContext } from "@/lib/rbac/check";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
+
+/**
+ * Chat, read or write, needs CHAT_USE: the bit the Chat page itself is gated
+ * on. A VIEWER or GUEST session does not hold it, and no API key scope grants
+ * it, so no key reads or writes chat. Every handler under `/chat` checks it
+ * (`chat-use-gate.arch.test.ts`).
+ */
+export function mayUseChat(ctx: Pick<AuthContext, "permissions">): boolean {
+  return hasPermission(ctx.permissions, Permission.CHAT_USE);
+}
 
 type ChannelLite = {
   kind: "CHANNEL" | "DM" | "GROUP_DM";

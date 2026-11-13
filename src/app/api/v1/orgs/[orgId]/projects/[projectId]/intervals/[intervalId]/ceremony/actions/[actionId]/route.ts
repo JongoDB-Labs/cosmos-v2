@@ -83,7 +83,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    publishCeremonyChanged(orgId, action.ceremonyId);
+    publishCeremonyChanged(orgId, projectId, action.ceremonyId);
     return success(updated);
   } catch (e) {
     return handleApiError(e);
@@ -104,7 +104,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     // own terms.
     await prisma.retroActionItem.delete({ where: { id: action.id } });
 
-    publishCeremonyChanged(orgId, action.ceremonyId);
+    publishCeremonyChanged(orgId, projectId, action.ceremonyId);
     return success({ id: action.id, promotedWorkItemId: action.workItemId });
   } catch (e) {
     return handleApiError(e);

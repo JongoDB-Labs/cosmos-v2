@@ -2,8 +2,8 @@
 //
 // The channel list's `canManage` flag follows the same rule as the routes
 // (#1130): a channel ADMIN's or org admin's role counts only for a browser
-// session or a key whose scopes grant CHAT_USE, which none do. The routes
-// already refuse such a key; this keeps the flag from offering it the gear.
+// session or a key whose scopes grant CHAT_USE, which none do. The list itself
+// now refuses such a key, as every chat route does, so it never sees the flag.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { OrgRole } from "@prisma/client";
@@ -46,9 +46,10 @@ const list = async () => {
 beforeEach(() => vi.clearAllMocks());
 
 describe("channel list canManage", () => {
-  it("is false for a key, even its creator's (channel ADMIN) and an owner's", async () => {
+  it("is never offered to a key, even its creator's (channel ADMIN) and an owner's: the list refuses it", async () => {
     h.getAuthContext.mockResolvedValue(as({ isApiKey: true, scopes: ["read", "items:write"], permissions: Permission.ORG_READ }));
-    expect((await list())[0].canManage).toBe(false);
+    const res = await GET(new NextRequest("http://localhost/x"), { params: Promise.resolve({ orgId: ORG }) });
+    expect(res.status).toBe(403);
   });
 
   it("is true for the channel ADMIN's browser session", async () => {
