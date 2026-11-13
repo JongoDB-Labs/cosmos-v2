@@ -22,10 +22,11 @@
 //      A filter's email subscriptions (create, update, delete) are the same
 //      shape and the same rule; they are new, so no key loses them.
 //
-// And one class that no key reaches at all: the filter-email unsubscribe link
-// is authenticated by the MAC'd token in its URL, not by a session or a key.
-// Its contracts name no scopes, so every key is refused, and its handler
-// authenticates no caller.
+// And two classes that no key reaches at all. The filter-email unsubscribe
+// link is authenticated by the MAC'd token in its URL, not by a session or a
+// key: its contracts name no scopes, so every key is refused, and its handler
+// authenticates no caller. And the program calendar's overlay readers, which
+// are new and session-only by contract (NEW_SESSION_ONLY below).
 //
 // The manager/admin role path is not "reach": #1130 closed it as a bug.
 import { describe, it, expect } from "vitest";
@@ -83,6 +84,16 @@ const TOKEN_AUTHENTICATED = new Set(["confirmFilterUnsubscribe", "filterUnsubscr
  */
 const SESSION_ONLY_ADMIN = new Set(["listSsoProvisionedAccounts", "clearSsoProvisionedAccount"]);
 /**
+ * New operations that no key has ever reached, so none loses them. Their
+ * handlers check no bit because every row is gated inside the reader, per
+ * project and per kind (the Agile overlay reads intervals under SPRINT_READ and
+ * work items under ITEM_READ). Their contracts name no scopes, on purpose: the
+ * program calendar is a browser surface, and the same rows are open to keys
+ * through the intervals and work-item APIs. Pinned by name, so a new zero-bit
+ * handler still fails this test until someone lists it here and says why.
+ */
+const NEW_SESSION_ONLY = new Set(["listAgileOverlay"]);
+/**
  * Not an exception, a gap in what this test reads: these handlers gate a key
  * on COMMENT_CREATE (`{ key: "COMMENT_CREATE", session: "COMMENT_READ" }`) since
  * read-key-writes.test.ts closed read keys editing and erasing comments, before
@@ -130,6 +141,7 @@ describe("no pre-existing scope loses an operation its mask reached", () => {
   const all = contracts();
   const cases = all.flatMap(({ contract, src, file }) => {
     if (TOKEN_AUTHENTICATED.has(contract.operationId) || SESSION_ONLY_ADMIN.has(contract.operationId)) return [];
+    if (NEW_SESSION_ONLY.has(contract.operationId)) return [];
     const need = bitsChecked(src, contract.method, file);
     return Object.keys(BEFORE)
       .filter((s) => (BEFORE[s] & need) === need) // the old mask reached it
@@ -180,6 +192,17 @@ describe("the named exceptions are exactly what they say", () => {
     const gate = readFileSync(path.join(process.cwd(), "src/lib/internal/require-system-admin.ts"), "utf8");
     expect(gate).toMatch(/\bgetCurrentUser\(\)/);
     expect(gate).not.toMatch(/getAuthContext|verifyApiKey|classifyBearer|authorization|headers\(/i);
+  });
+
+  it.each([...NEW_SESSION_ONLY])("%s: internal, names no scopes, refuses every key and admits a session", (op) => {
+    const c = byId.get(op);
+    expect(c, `${op} is not a contract`).toBeDefined();
+    expect(c!.scopes).toEqual([]);
+    expect(c!.stability).toBe("internal");
+    for (const s of Object.keys(BEFORE)) expect(() => assertScopes(ctx([s]), c!)).toThrow();
+    // Positive control: a browser session is not refused.
+    const session = { userId: "u", orgId: "o", orgRole: "MEMBER", permissions: 0n, basePermissions: 0n, abacRules: [], isApiKey: false } as never;
+    expect(() => assertScopes(session, c!)).not.toThrow();
   });
 
   it.each([...KEY_ARM_WRITES])("%s needs items:write at the gate, as its key arm already did", (op) => {
