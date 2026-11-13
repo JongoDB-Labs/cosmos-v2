@@ -17,9 +17,12 @@
 import type { Prisma } from "@prisma/client";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { isUuid } from "@/lib/ids";
-import type { AuthContext } from "@/lib/rbac/check";
+import { ForbiddenError, type AuthContext } from "@/lib/rbac/check";
+import { requireAccess } from "@/lib/abac/require-access";
+import { readableCommentsWhere } from "@/lib/work-items/read.server";
 import { documentVisibilityWhere } from "@/lib/files/access";
 import { getVisibleProjectIds } from "@/lib/rbac/project-access";
+import { loadTeamRosters } from "@/lib/teams/item-team.server";
 import {
   mentionsField,
   predValues,
@@ -34,7 +37,7 @@ import {
 } from "./ast";
 import { fieldDef, type SystemFieldId } from "./fields";
 import { lookupFunction } from "./functions";
-import { HISTORY_BY_FIELD, fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
+import { COMMENT_TEXT_FIELDS, HISTORY_BY_FIELD, fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
 import { ID_SET_MAX, diag, tooBroad, type CqlDiagnostic, type Span } from "./errors";
 import { withStatementTimeout } from "./timeout.server";
 import type { CustomFieldType, SchemaCustomField } from "./typecheck";
@@ -658,6 +661,43 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
   // silently permissive default; see the throw in compile.ts.
   const readableProjectIds = mentionsField(a.query, "hasChildren") ? readableIds : undefined;
 
+  // ── 9. Team rosters, for `team` ────────────────────────────────────────────
+  // `team = X` takes the work of X's people that names no team (the rule in
+  // lib/teams/item-teams.ts). Every readable team, not only the named ones:
+  // `team IS EMPTY` needs all of them, and `myTeams()` or a variable can name
+  // teams the text does not. Only when the query names the field.
+  const teamRosters = mentionsField(a.query, "team") ? await loadTeamRosters(prisma, orgId, readableIds) : undefined;
+
+  // ── 10. Readable comments, for every field that reads comment text ────────
+  // `mentions`, `comment` and `text` (COMMENT_TEXT_FIELDS). The comment
+  // thread's own gate, per project (COMMENT_READ, as the comments route asks
+  // it), and the fragment every comment read applies. Only when the query names
+  // one of them.
+  //
+  // The permission half of requireProjectRead only. Its other half, project
+  // visibility, is already in `readableIds` (getReadableProjectIds applies the
+  // key scope and team scoping), and asking it again cost a project lookup per
+  // readable project on every comment search. requireAccess touches the
+  // database only when a COMMENT_READ rule names `in_project`.
+  let readableComments: CompileEnv["readableComments"];
+  if (COMMENT_TEXT_FIELDS.some((f) => mentionsField(a.query, f))) {
+    const allowed = await Promise.all(
+      readableIds.map((pid) =>
+        requireAccess(a.ctx, "COMMENT_READ", { orgId, projectId: pid }).then(
+          () => pid,
+          (e) => {
+            if (e instanceof ForbiddenError) return null;
+            throw e;
+          },
+        ),
+      ),
+    );
+    readableComments = {
+      projectIds: allowed.filter((pid): pid is string => pid !== null),
+      where: await readableCommentsWhere(orgId),
+    };
+  }
+
   const env: CompileEnv = {
     actorUserId: a.ctx.userId,
     now: a.now,
@@ -673,6 +713,8 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     history: new Map(),
     ...(documentVisibility ? { documentVisibility } : {}),
     ...(readableProjectIds ? { readableProjectIds } : {}),
+    ...(teamRosters ? { teamRosters } : {}),
+    ...(readableComments ? { readableComments } : {}),
     ...(contextProject ? { contextProjectId: contextProject } : {}),
     ...(a.sinceLastStandup ? { sinceLastStandup: a.sinceLastStandup } : {}),
   };

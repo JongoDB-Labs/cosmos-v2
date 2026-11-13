@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.549.0",
+    date: "2026-11-12",
+    title: "Team filters include your team's untagged work, and you can search for your @mentions",
+    highlights: [
+      {
+        kind: "fix",
+        text: "With the query language on, filtering by a team now shows the team's whole workload: items tagged with the team, plus items with no team that are assigned to someone on it, as the classic filter bar and the team swimlanes already did. It used to show only the tagged items. Dashboard charts grouped or filtered by team count the same way, so a team's bar matches what clicking it shows. An item tagged with a different team still belongs to that team, whoever it is assigned to, and \"team IS EMPTY\" now means work that no team claims.",
+      },
+      {
+        kind: "feature",
+        text: "New query field: mentions. \"mentions = me\" finds items that @mention you in their description or in a comment you can read. Name someone else instead of me, or list several people with \"mentions IN (…)\", to find their mentions. Internal, deleted and hidden comments never count.",
+      },
+      {
+        kind: "fix",
+        text: "A Program Increment can no longer be placed inside another Program Increment, or inside any other interval. Creating or moving one that way is refused with a message that says why, from the API, from Cosmo and from a spreadsheet import, where the import preview already flags the row before you commit. If older data already has a Program Increment inside another one, both the query language and the classic filter bar now treat it as a Program Increment of its own, so the two give the same answer.",
+      },
+      {
+        kind: "fix",
+        text: "Comment text search only matches comments you can read. This covers \"comment ~\", \"text ~\" and the search box.",
+      },
+    ],
+  },
+  {
     version: "2.548.1",
     date: "2026-11-12",
     title: "Typing a comment stays fast on long threads",

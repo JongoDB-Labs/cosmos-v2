@@ -11,6 +11,7 @@ import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import {
   activationBlocker,
   isProgramIncrement,
+  nestingRefusal,
   programIncrementBlockers,
   userMaySetStatus,
 } from "@/lib/intervals/pi-lifecycle";
@@ -62,7 +63,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!existing) return problem(404, "not_found", undefined, { request });
 
     // Validate a PI re-parent: target must be a PROGRAM_INCREMENT in this
-    // project, and an interval can't be its own parent (no 1-level self-nesting).
+    // project, an interval can't be its own parent, and the interval being
+    // moved must not be a PI itself (a PI is always top-level).
     if (data.parentId !== undefined && data.parentId !== null) {
       if (data.parentId === intervalId) {
         return problem(400, "invalid_request", "An interval can't be its own Program Increment", { request });
@@ -71,9 +73,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         where: { id: data.parentId, projectId },
         select: { intervalKind: true },
       });
-      if (!parent || parent.intervalKind !== "PROGRAM_INCREMENT") {
-        return problem(400, "invalid_request", "A sprint can only be nested under a Program Increment", { request });
-      }
+      const refusal = nestingRefusal(existing.intervalKind, parent);
+      if (refusal) return problem(400, "invalid_request", refusal, { request });
     }
 
     // A Program Increment is a container: it spans its sprints rather than

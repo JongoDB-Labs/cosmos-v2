@@ -43,6 +43,7 @@ import type {
 import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { computeRiskScore, riskLevelFromScore } from "@/lib/pm/risk";
+import { kindChangeRefusal } from "@/lib/intervals/pi-lifecycle";
 import {
   assertMayImportProgramEvents,
   createProgramEventRow,
@@ -857,6 +858,16 @@ async function updateEntityRow(
         ["name", "name"], ["goal", "goal"], ["startDate", "startDate"],
         ["endDate", "endDate"], ["intervalKind", "intervalKind"], ["status", "status"],
       ]);
+      // A new kind can break the one-level nesting rule (a sprint inside a PI
+      // becoming a PI). The thrown message becomes this row's error.
+      if (typeof data.intervalKind === "string") {
+        const current = await prisma.interval.findUniqueOrThrow({
+          where: { id },
+          select: { intervalKind: true, parentId: true, _count: { select: { children: true } } },
+        });
+        const refusal = kindChangeRefusal(current, data.intervalKind, current._count.children);
+        if (refusal) throw new Error(refusal);
+      }
       if (Object.keys(data).length) await prisma.interval.update({ where: { id }, data });
       return;
     }
@@ -909,6 +920,32 @@ async function updateEntityRow(
   }
 }
 
+/**
+ * The interval updates `kindChangeRefusal` would refuse, each with its reason.
+ * One query for every row that names a kind, rather than one per row. An
+ * import can't move an interval or its children, so the answer here is the
+ * one the commit gets.
+ */
+async function intervalKindRefusals(
+  orgId: string,
+  updates: Array<{ m: MappedRow; id: string }>,
+): Promise<Map<MappedRow, string>> {
+  const refused = new Map<MappedRow, string>();
+  const changing = updates.filter(({ m }) => typeof m.fields.intervalKind === "string");
+  if (!changing.length) return refused;
+  const rows = await prisma.interval.findMany({
+    where: { orgId, id: { in: changing.map(({ id }) => id) } },
+    select: { id: true, intervalKind: true, parentId: true, _count: { select: { children: true } } },
+  });
+  const current = new Map(rows.map((r) => [r.id, r]));
+  for (const { m, id } of changing) {
+    const row = current.get(id);
+    const refusal = row ? kindChangeRefusal(row, m.fields.intervalKind as string, row._count.children) : null;
+    if (refusal) refused.set(m, refusal);
+  }
+  return refused;
+}
+
 // ── Public entry point ───────────────────────────────────────────────────────
 
 export async function runEntityImport(
@@ -954,7 +991,7 @@ export async function runEntityImport(
   let willUpdate = 0;
   let skipped = 0;
   const creates: MappedRow[] = [];
-  const updates: Array<{ m: MappedRow; id: string }> = [];
+  let updates: Array<{ m: MappedRow; id: string }> = [];
   for (const m of mapped) {
     if (m.error) {
       errors.push({ row: m.rowNum, message: m.error });
@@ -975,6 +1012,19 @@ export async function runEntityImport(
       willCreate++;
       creates.push(m);
     }
+  }
+
+  // A kind change that would break one-level nesting is refused at commit
+  // (updateEntityRow). Ask it here too, so the preview reports the row instead
+  // of counting an update the commit will refuse.
+  if (def.key === "interval") {
+    const refused = await intervalKindRefusals(ctx.orgId, updates);
+    for (const [m, message] of refused) {
+      errors.push({ row: m.rowNum, message });
+      willUpdate--;
+      skipped++;
+    }
+    updates = updates.filter(({ m }) => !refused.has(m));
   }
 
   // Stable ordering: blocking errors won't be drowned by warnings in the cap.

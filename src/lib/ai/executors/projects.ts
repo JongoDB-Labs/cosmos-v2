@@ -10,6 +10,7 @@ import { DEFAULT_COLUMNS } from "@/lib/boards/default-columns";
 import { loadStatusCategories } from "@/lib/boards/status-categories.server";
 import { seedBoardColumns } from "@/lib/workflow/provision.server";
 import { buildIntervalReport } from "@/lib/intervals/interval-report";
+import { nestingRefusal } from "@/lib/intervals/pi-lifecycle";
 import { isDoneStatus } from "@/lib/work-items/done-state";
 import { updateWorkItems } from "@/lib/work-items/write.server";
 
@@ -334,7 +335,7 @@ export async function updateInterval(input: Record<string, unknown>, ctx: ToolCo
 
   const existing = await prisma.interval.findFirst({
     where: { id: data.intervalId, orgId: ctx.orgId, projectId: data.projectId },
-    select: { id: true, projectId: true },
+    select: { id: true, projectId: true, intervalKind: true },
   });
   if (!existing) return { error: "Interval not found" };
 
@@ -345,7 +346,8 @@ export async function updateInterval(input: Record<string, unknown>, ctx: ToolCo
   if (outOfScope) return { error: "Interval not found" };
 
   // Re-parent validation: target must be a PROGRAM_INCREMENT in this project,
-  // and an interval can't be its own parent (mirrors the PUT route).
+  // an interval can't be its own parent, and a PI is always top-level
+  // (mirrors the PUT route).
   if (data.parentId !== undefined && data.parentId !== null) {
     if (data.parentId === data.intervalId) {
       return { error: "An interval can't be its own Program Increment" };
@@ -354,9 +356,8 @@ export async function updateInterval(input: Record<string, unknown>, ctx: ToolCo
       where: { id: data.parentId, projectId: data.projectId },
       select: { intervalKind: true },
     });
-    if (!parent || parent.intervalKind !== "PROGRAM_INCREMENT") {
-      return { error: "A sprint can only be nested under a Program Increment" };
-    }
+    const refusal = nestingRefusal(existing.intervalKind, parent);
+    if (refusal) return { error: refusal };
   }
 
   // Only one ACTIVE interval per project.

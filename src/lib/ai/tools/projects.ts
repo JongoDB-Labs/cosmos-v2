@@ -84,7 +84,7 @@ export const projectTools: ToolDefinition[] = [
   {
     name: "update_interval",
     description:
-      "Update an interval's fields. To nest a sprint under a Program Increment, pass `parentId` (must be a PROGRAM_INCREMENT interval in the same project); pass null to detach. Setting status to ACTIVE fails if another interval is already active.",
+      "Update an interval's fields. To nest a sprint under a Program Increment, pass `parentId` (must be a PROGRAM_INCREMENT interval in the same project); pass null to detach. A Program Increment is always top-level and cannot be given a parent. Setting status to ACTIVE fails if another interval is already active.",
     input_schema: {
       type: "object",
       properties: {

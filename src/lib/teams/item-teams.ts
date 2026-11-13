@@ -109,3 +109,23 @@ export function teamWorkItemWhere(
   if (memberUserIds.length === 0) return own;
   return { OR: [own, { teamId: null, assigneeId: { in: memberUserIds } }] };
 }
+
+/**
+ * Every team an item counts as the work of, by `itemMatchesTeam`: its own team
+ * when it names one, otherwise each team in its project that its primary
+ * assignee is on. Sorted. `rosters` is the database form of the board's team
+ * list (`loadTeamRosters`). Dashboards group by this, so a bar for a team and
+ * the query `team = <that team>` count the same items.
+ */
+export function itemTeamIds(
+  item: TeamOwned & { projectId: string },
+  rosters: ReadonlyMap<string, { projectId: string; userIds: readonly string[] }>,
+): string[] {
+  if (item.teamId) return [item.teamId];
+  if (!item.assigneeId) return [];
+  const out: string[] = [];
+  for (const [teamId, r] of rosters) {
+    if (r.projectId === item.projectId && r.userIds.includes(item.assigneeId)) out.push(teamId);
+  }
+  return out.sort();
+}

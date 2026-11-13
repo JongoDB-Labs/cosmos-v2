@@ -81,3 +81,60 @@ export function userMaySetStatus(
   if (isProgramIncrement(kind) && status === "ACTIVE") return false;
   return true;
 }
+
+/**
+ * Nesting is one level deep: a Program Increment holds sprints (and the other
+ * iteration kinds), and a PI is always top-level.
+ *
+ * Every reader assumes that. The board's interval tree lists a PI found inside
+ * another PI as a PI of its own, and a PI's scope covers its direct children
+ * only, so a PI inside a PI would be counted one way by one screen and another
+ * way by the next. Each writer that sets `parentId` asks this first, and the
+ * refusal says which rule it broke.
+ */
+export const PI_INSIDE_PI =
+  "A Program Increment can't go inside another Program Increment. Only sprints and other iterations can be nested in one.";
+export const PI_IS_TOP_LEVEL =
+  "A Program Increment can't go inside another interval. It is always top-level.";
+export const PARENT_NOT_FOUND = "Program Increment not found in this project";
+export const PARENT_NOT_A_PI = "A sprint can only be nested under a Program Increment";
+
+/**
+ * Why an interval of `childKind` can't sit inside `parent`, or null when it can.
+ * `parent` is what the requested parent id resolved to in this project, or null
+ * when it resolved to nothing.
+ */
+export function nestingRefusal(
+  childKind: string,
+  parent: { intervalKind: string } | null,
+): string | null {
+  if (isProgramIncrement(childKind)) {
+    return parent && isProgramIncrement(parent.intervalKind) ? PI_INSIDE_PI : PI_IS_TOP_LEVEL;
+  }
+  if (!parent) return PARENT_NOT_FOUND;
+  if (!isProgramIncrement(parent.intervalKind)) return PARENT_NOT_A_PI;
+  return null;
+}
+
+/**
+ * Why an interval can't change kind to `nextKind`, or null when it can.
+ *
+ * Changing kind is a second way to break the nesting rule above: a sprint inside
+ * a PI that becomes a PI is a PI inside a PI, and a PI that becomes a sprint
+ * leaves its sprints inside something that is not a PI. Only the spreadsheet
+ * import changes an existing interval's kind today.
+ */
+export function kindChangeRefusal(
+  current: { intervalKind: string; parentId: string | null },
+  nextKind: string,
+  childCount: number,
+): string | null {
+  if (nextKind === current.intervalKind) return null;
+  if (isProgramIncrement(nextKind) && current.parentId) {
+    return "This interval is inside a Program Increment, so it can't become one. Take it out of its Program Increment first.";
+  }
+  if (isProgramIncrement(current.intervalKind) && childCount > 0) {
+    return "This Program Increment still has intervals inside it, so it can't change kind. Move them out first.";
+  }
+  return null;
+}

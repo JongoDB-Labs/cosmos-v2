@@ -12,6 +12,13 @@ import { stableStringify } from "./normalize";
 
 export type StatusCategory = "TODO" | "IN_PROGRESS" | "DONE" | "CANCELLED";
 
+/** One team, as the team rule needs it: where it lives and who is on it. */
+export interface TeamRoster {
+  projectId: string;
+  /** Sorted, distinct. */
+  userIds: string[];
+}
+
 export interface CompileEnv {
   actorUserId: string;
   now: Date;
@@ -60,9 +67,43 @@ export interface CompileEnv {
    * handled the same way: absent means refuse, never a bare relation filter.
    */
   readableProjectIds?: string[];
+  /**
+   * Every readable team by id: its project and the user ids on it. Set ONLY
+   * when the query names `team`.
+   *
+   * `team = X` follows the team rule the board's filter bar, its swimlanes and
+   * Cosmo's team filter already use (lib/teams/item-teams.ts): an item that
+   * names X, or one that names no team and whose primary assignee is on X, in
+   * X's project. The roster is the second half of that rule. Absent means the
+   * compiler refuses the field, because the only fallback is the item's own
+   * column, which leaves out every item nobody tagged with a team.
+   */
+  teamRosters?: ReadonlyMap<string, TeamRoster>;
+  /**
+   * The comments this actor may read, for every field that reads comment text
+   * (`mentions`, `comment`, `text`; see COMMENT_TEXT_FIELDS): the readable
+   * projects whose comments pass the comment thread's own gate (COMMENT_READ),
+   * and the fragment every comment read applies (`readableCommentsWhere`:
+   * public, neither deleted nor hidden, marked within the org's ceiling). Set
+   * ONLY when the query names one of those fields.
+   *
+   * Same shape as `readableProjectIds`: `comments.some` is a nested filter the
+   * scope envelope does not reach (it decides which items, not which of their
+   * comments), so a bare one would match an item through an internal, deleted
+   * or hidden comment the actor can't open. Absent means refuse.
+   */
+  readableComments?: { projectIds: string[]; where: Prisma.CommentWhereInput };
   contextProjectId?: string;
   sinceLastStandup?: Date;
 }
+
+/**
+ * Every field that reads comment text. Each compiles to a `comments.some` the
+ * scope envelope does not reach, so each needs `readableComments`: the
+ * resolver loads it when a query names any of them, the compiler refuses any
+ * of them without it.
+ */
+export const COMMENT_TEXT_FIELDS = ["mentions", "comment", "text"] as const;
 
 export function fnKey(v: Extract<CqlValue, { t: "fn" }>): string {
   return stableStringify({ name: v.name, args: v.args });

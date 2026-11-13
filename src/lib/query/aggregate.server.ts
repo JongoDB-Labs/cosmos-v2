@@ -11,7 +11,9 @@ import { buildScopedWhere } from "@/lib/work-items/query/build-where";
 import type { FieldRef } from "./ast";
 import { CqlError, diag } from "./errors";
 import { prepareCql, withStatementTimeout, type CqlInput, type CqlRunOptions } from "./execute.server";
-import type { StatusCategory } from "./env";
+import type { StatusCategory, TeamRoster } from "./env";
+import { itemTeamIds } from "@/lib/teams/item-teams";
+import { loadTeamRosters } from "@/lib/teams/item-team.server";
 import type { CustomFieldType } from "./typecheck";
 import {
   OTHER_ID,
@@ -115,7 +117,11 @@ export async function aggregateCql(
     }
 
     const columns = await statusColumns(tx, prepared.readable);
-    const dimKeys = req.dims.map((d) => keysOf(d, cfTypes, columns, tz));
+    // A team bar counts what `team = <that team>` matches (itemTeamIds), so the
+    // rosters load whenever a dimension is the team.
+    const byTeam = req.dims.some((d) => d.field.kind === "sys" && d.field.id === "team");
+    const rosters = byTeam ? await loadTeamRosters(tx, prepared.orgId, prepared.readable) : new Map<string, TeamRoster>();
+    const dimKeys = req.dims.map((d) => keysOf(d, cfTypes, columns, tz, rosters));
     const value = measureOf(req.measure);
     const facts: AggFact[] = items.map((it) => ({ keys: dimKeys.map((k) => k(it)), value: value(it) }));
 
@@ -176,7 +182,13 @@ function categoryOf(it: Item, columns: Columns): StatusCategory {
 }
 
 /** A dimension's key ids for one item: none (the empty group), one, or several (multi-valued fields). */
-function keysOf(d: AggDim, cfTypes: ReadonlyMap<string, CustomFieldType>, columns: Columns, tz: string): (it: Item) => string[] {
+function keysOf(
+  d: AggDim,
+  cfTypes: ReadonlyMap<string, CustomFieldType>,
+  columns: Columns,
+  tz: string,
+  rosters: ReadonlyMap<string, TeamRoster>,
+): (it: Item) => string[] {
   const one = (v: string | null | undefined) => (v === null || v === undefined || v === "" ? [] : [v]);
   const day = (v: Date | string | null | undefined) => (v ? [bucketOf(new Date(v), d.bucket!, tz)] : []);
   const f = d.field;
@@ -214,7 +226,9 @@ function keysOf(d: AggDim, cfTypes: ReadonlyMap<string, CustomFieldType>, column
     case "sprint":
       return (it) => one(it.intervalId);
     case "team":
-      return (it) => one(it.teamId);
+      // Its own team, or every team in its project its primary assignee is
+      // on, as `team =` matches. Multi-valued like `assignee`.
+      return (it) => itemTeamIds(it, rosters);
     case "workCategory":
       return (it) => one(it.workCategory);
     case "highlight":
