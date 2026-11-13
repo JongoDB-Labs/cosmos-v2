@@ -142,6 +142,9 @@ export const Board = z.object({
   orgId: Uuid,
   projectId: Uuid,
   teamId: NullableUuid,
+  ownerId: NullableUuid.describe(
+    "The user who created this board. They may rename it, change its layout and delete it. Null for boards made before boards had owners.",
+  ),
   name: z.string(),
   slug: z.string().nullable(),
   type: z.enum(E.BoardType),

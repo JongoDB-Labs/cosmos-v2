@@ -3,10 +3,11 @@
 import { useBoardQuery } from "@/components/boards/shared/use-board-query";
 import { BoardQueryBar } from "@/components/boards/shared/board-query-bar";
 import { useMemo, useState } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { GridLayout, verticalCompactor } from "react-grid-layout";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -39,18 +40,26 @@ import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-
 import { projectStatusColumns } from "@/lib/boards/project-statuses";
 import { teamsByUser, type TeamLike } from "@/lib/teams/item-teams";
 import { matchesFilters } from "@/lib/work-items/board-filters";
-import { burndown } from "@/lib/intervals/burndown";
-import { defaultCeremonyInterval } from "@/lib/intervals/ceremony-intervals";
 import { cn } from "@/lib/utils";
 import { assigneeLabel, workloadBuckets } from "./workload";
-import { workTypeMix } from "@/lib/dashboard/delivery-metrics";
 import { WidgetGrid } from "./widget-grid";
+import { FitWidth } from "./fit-width";
+import {
+  activeBurndown,
+  categoryMapOf,
+  dashboardMetrics,
+  deriveBoardWidgetData,
+  memberNamesOf,
+  prioritySeries,
+  statusSeries,
+} from "./dashboard-derive";
 import {
   readBuilderWidgets,
   EMPTY_WIDGET_DATA,
   type BoardWidgetData,
 } from "@/lib/boards/widget-data";
 import type { WorkItem, Board, BoardColumn, OrgMember, Interval } from "@/types/models";
+import type { PersonalLayoutResponse } from "@/lib/boards/personal-layout";
 
 import "react-grid-layout/css/styles.css";
 import { intervalChildrenById } from "@/lib/intervals/interval-tree";
@@ -61,20 +70,6 @@ interface DashboardViewProps {
   projectKey: string;
   boardId: string;
 }
-
-const categoryColorMap: Record<string, string> = {
-  TODO: "#6b7280",
-  IN_PROGRESS: "#3b82f6",
-  DONE: "#22c55e",
-  CANCELLED: "#ef4444",
-};
-
-const priorityColorMap: Record<string, string> = {
-  CRITICAL: "#ef4444",
-  HIGH: "#f97316",
-  MEDIUM: "#3b82f6",
-  LOW: "#6b7280",
-};
 
 /**
  * Grid positions for the desktop layout.
@@ -125,6 +120,7 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
   const boardKey = useOrgQueryKey("board", boardId);
+  const myLayoutKey = useOrgQueryKey("board-layout", boardId);
   // Sprint Health answered only "how is the sprint in flight?". These add the
   // two questions a team asks between ceremonies. Current stays the default so
   // the board opens exactly as it did.
@@ -270,67 +266,24 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     );
   }, [items, filters, boardQuery, intervalChildren, teamsByUserId]);
 
-  const columnCategoryMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const c of columns) {
-      map.set(c.key, c.category);
-    }
-    return map;
-  }, [columns]);
+  // Every number below comes from `dashboard-derive.ts`, which the saved
+  // widgets' bag is built from too — one derivation, so a stock panel and a
+  // widget showing the same thing cannot disagree.
+  const columnCategoryMap = useMemo(() => categoryMapOf(columns), [columns]);
 
-  const memberMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const m of members) {
-      map.set(m.userId, m.user?.displayName ?? m.user?.email ?? "Unknown");
-    }
-    return map;
-  }, [members]);
+  const memberMap = useMemo(() => memberNamesOf(members), [members]);
 
-  // Compute metrics
-  const metrics = useMemo(() => {
-    const total = filteredItems.length;
-    const completed = filteredItems.filter((i) => {
-      const cat = columnCategoryMap.get(i.columnKey);
-      return cat === "DONE";
-    }).length;
-    const inProgress = filteredItems.filter((i) => {
-      const cat = columnCategoryMap.get(i.columnKey);
-      return cat === "IN_PROGRESS";
-    }).length;
-    const overdue = filteredItems.filter((i) => {
-      if (!i.dueDate || i.completedAt) return false;
-      return new Date(i.dueDate) < new Date();
-    }).length;
+  const metrics = useMemo(
+    () => dashboardMetrics(filteredItems, columnCategoryMap, new Date()),
+    [filteredItems, columnCategoryMap],
+  );
 
-    return { total, completed, inProgress, overdue };
-  }, [filteredItems, columnCategoryMap]);
+  const statusData = useMemo(
+    () => statusSeries(filteredItems, columnCategoryMap),
+    [filteredItems, columnCategoryMap],
+  );
 
-  // Status distribution
-  const statusData = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const item of filteredItems) {
-      const cat = columnCategoryMap.get(item.columnKey) ?? "TODO";
-      counts[cat] = (counts[cat] ?? 0) + 1;
-    }
-    return Object.entries(counts).map(([name, value]) => ({
-      name: name.replace("_", " "),
-      value,
-      color: categoryColorMap[name] ?? "#6b7280",
-    }));
-  }, [filteredItems, columnCategoryMap]);
-
-  // Priority distribution
-  const priorityData = useMemo(() => {
-    const counts: Record<string, number> = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
-    for (const item of filteredItems) {
-      counts[item.priority] = (counts[item.priority] ?? 0) + 1;
-    }
-    return Object.entries(counts).map(([name, value]) => ({
-      name: name.charAt(0) + name.slice(1).toLowerCase(),
-      value,
-      color: priorityColorMap[name] ?? "#6b7280",
-    }));
-  }, [filteredItems]);
+  const priorityData = useMemo(() => prioritySeries(filteredItems), [filteredItems]);
 
   // Drill-down (FR 81918e0e): clicking a metric or chart segment opens a list
   // of the matching tickets.
@@ -353,57 +306,13 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     [filteredItems, memberMap],
   );
 
-  // Burndown for the active interval, via the SHARED computation.
-  //
-  // This was computed inline here, and got four things wrong that the module
-  // fixes: it summed `storyPoints ?? 1`, mixing points and item counts into a
-  // unit that is neither; it burned the ideal line down across weekends; it
-  // compared completion timestamps against a date still carrying the sprint
-  // start's time-of-day, so a day boundary landed mid-afternoon; and it trusted
-  // `completedAt` alone, so an item reopened after completion stayed burned
-  // down. One implementation, tested once — see lib/intervals/burndown.ts.
-  const burndownData = useMemo(() => {
-    // NOT `.find(s => s.status === "ACTIVE")`. A Program Increment is ACTIVE for
-    // as long as any sprint inside it runs, and the API orders by number DESC
-    // with a PI numbered above its sprints — so that find returns the PI, which
-    // holds no work items of its own, and the widget renders "no active sprint
-    // data" while a sprint is plainly running. Same picker as the ceremony
-    // boards, which already solved this.
-    const activeInterval = defaultCeremonyInterval(intervals);
-    if (!activeInterval) return [];
-
-    const series = burndown({
-      start: new Date(activeInterval.startDate),
-      end: new Date(activeInterval.endDate),
-      today: new Date(),
-      unit: "count",
-      items: filteredItems
-        .filter((i) => i.intervalId === activeInterval.id)
-        .map((i) => ({
-          id: i.id,
-          storyPoints: i.storyPoints ?? null,
-          completedAt: i.completedAt ?? null,
-          done: columnCategoryMap.get(i.columnKey) === "DONE",
-        })),
-    });
-
-    // An interval with nothing in it has no burndown to draw — empty so the
-    // widget shows its "no data" state rather than a misleading flat zero line.
-    if (series.scope === 0) return [];
-
-    // The widget draws only observed days; the module returns nulls past today
-    // precisely so no caller can accidentally chart the future.
-    return series.points
-      .filter((p) => !p.isFuture)
-      .map((p) => ({
-        date: new Date(`${p.date}T00:00:00`).toLocaleDateString("default", {
-          month: "short",
-          day: "numeric",
-        }),
-        ideal: Math.round(p.ideal),
-        actual: p.remaining ?? 0,
-      }));
-  }, [filteredItems, intervals, columnCategoryMap]);
+  // Burndown for the active interval, via the SHARED computation
+  // (lib/intervals/burndown.ts — points vs counts, weekends, day boundaries and
+  // reopened items are all handled there, once).
+  const burndownData = useMemo(
+    () => activeBurndown(filteredItems, intervals, columnCategoryMap, new Date()),
+    [filteredItems, intervals, columnCategoryMap],
+  );
 
   // One adaptation of the filtered set, shared by all three delivery panels, so
   // "done" and "type" cannot come to mean different things on the same screen.
@@ -425,66 +334,54 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     [board?.config],
   );
 
+  // ── This viewer's own arrangement of it, if they made one ──────────────────
+  //
+  // A personal layout changes what THIS person sees and nothing else: the
+  // shared layout above stays the board's, for everyone who has not made their
+  // own. It is read from its own route, which gates it exactly as the board is
+  // gated, and a failure falls back to the shared layout rather than blanking
+  // the board — the personal view is a preference, not the board.
+  const myLayoutQ = useQuery({
+    queryKey: myLayoutKey,
+    queryFn: () =>
+      jsonFetch<PersonalLayoutResponse>(`${basePath}/boards/${boardId}/my-layout`),
+  });
+  const personalWidgets = useMemo(
+    () =>
+      myLayoutQ.data?.layout
+        ? readBuilderWidgets({ widgets: myLayoutQ.data.layout.widgets })
+        : null,
+    [myLayoutQ.data],
+  );
+  const usingPersonal = personalWidgets !== null;
+  const activeWidgets = personalWidgets ?? savedWidgets;
+  const resetLayout = useOrgMutation({
+    mutationFn: () =>
+      jsonFetch<void>(`${basePath}/boards/${boardId}/my-layout`, { method: "DELETE" }),
+    invalidate: [["board-layout", boardId]],
+  });
+
   // Everything a saved widget may read, derived from the SAME filtered set the
   // stock panels use — so the filter bar above narrows a custom layout exactly
   // as it narrows the default one.
   const widgetData: BoardWidgetData = useMemo(() => {
-    // Short-circuit on the default board, which is every board today. This
-    // derives a SECOND work-type mix (the stock panel computes one already) and
-    // a row per filtered item; doing that on a board that renders none of it
-    // would be a cost paid by every dashboard in the product for nothing.
-    if (savedWidgets.length === 0) return EMPTY_WIDGET_DATA;
+    // Short-circuit on a board with no saved widgets: it renders the stock
+    // panels and never reads the bag, so deriving a row per filtered item there
+    // would be a cost paid by every default dashboard for nothing.
+    if (activeWidgets.length === 0) return EMPTY_WIDGET_DATA;
+    return deriveBoardWidgetData({
+      items: filteredItems,
+      columns,
+      members,
+      intervals,
+      projectKey,
+      now: new Date(),
+    });
+  }, [activeWidgets, filteredItems, columns, members, intervals, projectKey]);
 
-    const columnNameByKey = new Map(columns.map((c) => [c.key, c.name]));
-    return {
-      metrics: {
-        total: metrics.total,
-        completed: metrics.completed,
-        inProgress: metrics.inProgress,
-        overdue: metrics.overdue,
-      },
-      series: {
-        status: statusData,
-        priority: priorityData,
-        assignee: workloadData.map((w) => ({ name: w.name, value: w.items })),
-        // The SHARED work-type aggregation (lib/dashboard/delivery-metrics),
-        // the one the stock "Work Type Mix" panel uses — not a second count,
-        // which is how two numbers on one screen come to disagree.
-        type: workTypeMix(deliveryItems).byType.map((t) => ({
-          name: t.name,
-          value: t.count,
-          color: t.color ?? undefined,
-        })),
-      },
-      burndown: burndownData,
-      rows: filteredItems.map((i) => ({
-        id: i.id,
-        key: `${projectKey}-${i.ticketNumber}`,
-        title: i.title,
-        // The column's display NAME, not its category: "In Review" is what the
-        // project calls it, and the category would collapse three columns into
-        // one word.
-        status: columnNameByKey.get(i.columnKey) ?? i.columnKey,
-        priority: i.priority.charAt(0) + i.priority.slice(1).toLowerCase(),
-        assignee: assigneeLabel(i, memberMap) ?? "Unassigned",
-        dueDate: i.dueDate,
-      })),
-    };
-  }, [
-    savedWidgets,
-    columns,
-    metrics,
-    statusData,
-    priorityData,
-    workloadData,
-    deliveryItems,
-    burndownData,
-    filteredItems,
-    memberMap,
-    projectKey,
-  ]);
-
-  if (loading) return <DashboardSkeleton />;
+  // Wait for the personal layout too, or a person with one would watch the
+  // shared layout paint and then be swapped out from under them.
+  if (loading || myLayoutQ.isLoading) return <DashboardSkeleton />;
 
   if (error) {
     return (
@@ -651,6 +548,27 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
         ))}
       </div>
 
+      {/* Says so when the grid below is this viewer's own arrangement, not the
+          one everyone else sees — otherwise two people looking at "the same"
+          board would be describing different screens. A sibling of the
+          tablist, not a child: a tablist may hold only tabs. */}
+      {usingPersonal && (
+        <div
+          data-testid="personal-layout-notice"
+          className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] bg-[var(--primary-tint)] px-4 py-1.5 text-xs text-[var(--text)]"
+        >
+          <span>You are viewing your own layout of this dashboard. Others see the shared layout.</span>
+          <button
+            type="button"
+            onClick={() => resetLayout.mutate()}
+            disabled={resetLayout.isPending}
+            className="ml-auto rounded-[calc(var(--radius)-2px)] px-2 py-0.5 font-medium text-[var(--primary)] underline-offset-2 hover:underline disabled:opacity-60"
+          >
+            Use the shared layout
+          </button>
+        </div>
+      )}
+
       {/* Filters apply to EVERY view, including the ones that read intervals —
           the burndown charts filtered items, so "my team's burndown" is the same
           question asked once. */}
@@ -738,13 +656,13 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
             </div>
           )}
         </div>
-      ) : savedWidgets.length > 0 ? (
+      ) : activeWidgets.length > 0 ? (
         /* A board someone laid out in the builder shows THAT, not the stock
            panels. Only the Current-sprint BODY is replaced: the view tablist
            above and the filter band stay, so Burndown and Across-time remain
            reachable and the saved widgets are filtered by the same control. */
         <WidgetGrid
-          widgets={savedWidgets}
+          widgets={activeWidgets}
           data={widgetData}
           orgId={orgId}
           projectId={projectId}
@@ -772,34 +690,38 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
 
       {/* Desktop: react-grid-layout. Hidden via CSS below md. */}
       <div className="hidden md:block flex-1 overflow-auto p-4">
-        <GridLayout
-          layout={DEFAULT_LAYOUTS.lg}
-          gridConfig={{ cols: 12, rowHeight: 30, margin: [12, 12] as [number, number] }}
-          width={1200}
-          compactor={verticalCompactor}
-        >
-          {widgetDefs.map((w) => (
-            <div
-              key={w.key}
-              className="rounded-lg border bg-background p-4 flex flex-col"
+        <FitWidth>
+          {(width) => (
+            <GridLayout
+              layout={DEFAULT_LAYOUTS.lg}
+              gridConfig={{ cols: 12, rowHeight: 30, margin: [12, 12] as [number, number] }}
+              width={width}
+              compactor={verticalCompactor}
             >
-              <h3 className="text-xs font-medium text-muted-foreground mb-2">
-                {w.title}
-              </h3>
-              <div
-                className={
-                  w.key === "metrics"
-                    ? ""
-                    : w.key === "activity"
-                    ? "flex-1 min-h-0 overflow-hidden"
-                    : "flex-1 min-h-0"
-                }
-              >
-                {w.body}
-              </div>
-            </div>
-          ))}
-        </GridLayout>
+              {widgetDefs.map((w) => (
+                <div
+                  key={w.key}
+                  className="rounded-lg border bg-background p-4 flex flex-col"
+                >
+                  <h3 className="text-xs font-medium text-muted-foreground mb-2">
+                    {w.title}
+                  </h3>
+                  <div
+                    className={
+                      w.key === "metrics"
+                        ? ""
+                        : w.key === "activity"
+                        ? "flex-1 min-h-0 overflow-hidden"
+                        : "flex-1 min-h-0"
+                    }
+                  >
+                    {w.body}
+                  </div>
+                </div>
+              ))}
+            </GridLayout>
+          )}
+        </FitWidth>
       </div>
       </>
       )}

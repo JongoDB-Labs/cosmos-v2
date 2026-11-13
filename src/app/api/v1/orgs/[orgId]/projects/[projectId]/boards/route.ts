@@ -106,6 +106,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           name: data.name,
           slug,
           type: data.type,
+          // The creator owns it, so they can keep changing what they made —
+          // its name and its layout — without managing the project
+          // (`canManageOwnBoard`). Nothing else about the board changes: it is
+          // still the project's board, visible to everyone who could see it.
+          ownerId: ctx.userId,
           config: (data.config ?? {}) as Prisma.InputJsonValue,
           sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
           // Types whose columns ARE their structure get them at creation. A retro

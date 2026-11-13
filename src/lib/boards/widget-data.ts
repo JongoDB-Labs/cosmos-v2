@@ -42,11 +42,54 @@ export interface WidgetItemRow {
   title: string;
   /** The status COLUMN's display name, not its category. */
   status: string;
+  /**
+   * The status's workflow category — TODO, IN_PROGRESS, DONE or CANCELLED —
+   * read from the same column map the Completed and In Progress counters use,
+   * so a checklist tick and the Completed number cannot disagree.
+   */
+  statusCategory: string;
   priority: string;
   /** Display name, or "Unassigned". Never a bare user id. */
   assignee: string;
   /** ISO, or null. Formatting belongs to the widget. */
   dueDate: string | null;
+  startDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  /** The work type's catalogue key (`bug`, `ops.incident`), when it has one. */
+  typeKey: string | null;
+  typeName: string | null;
+  /**
+   * The item's custom field values, keyed by field key, exactly as the
+   * work-items route returned them. Only the AEC skins read it.
+   */
+  customFields: Record<string, unknown>;
+}
+
+/** Done or cancelled: no longer work anyone has to do. */
+export function isClosedRow(row: Pick<WidgetItemRow, "statusCategory">): boolean {
+  return row.statusCategory === "DONE" || row.statusCategory === "CANCELLED";
+}
+
+/** One finished sprint, as its report recorded it at close. */
+export interface WidgetVelocityPoint {
+  id: string;
+  name: string;
+  /** Story points finished. */
+  completed: number;
+  /** Story points the sprint held at close, or null on a report that predates it. */
+  committed: number | null;
+}
+
+/** A sprint or other interval, for the timeline. */
+export interface WidgetIntervalSpan {
+  id: string;
+  name: string;
+  /** ISO. */
+  startDate: string;
+  endDate: string;
+  status: "PLANNED" | "ACTIVE" | "COMPLETED";
 }
 
 /** The metrics a `counter` / `kpi-card` may point at. Order is palette order. */
@@ -71,12 +114,23 @@ export type WidgetGroupKey = (typeof WIDGET_GROUPS)[number]["key"];
 
 /** Everything a widget on this board can read. Computed once, per render pass. */
 export interface BoardWidgetData {
+  /** `PROJ` — for links and the New work item form. */
+  projectKey: string;
   metrics: Record<WidgetMetricKey, number>;
   series: Record<WidgetGroupKey, WidgetSeriesPoint[]>;
   /** The active interval's burndown. Empty when there is no active interval. */
   burndown: WidgetTimePoint[];
   /** The filtered items, flattened. Already in the board's own order. */
   rows: WidgetItemRow[];
+  /**
+   * Finished sprints, oldest first, from the reports written when each one
+   * closed. NOT narrowed by the filter bar: a closed sprint's report is a
+   * record of what that sprint held, not a view of today's items, which is
+   * also how the board's own "Across time" view reads it.
+   */
+  velocity: WidgetVelocityPoint[];
+  /** The project's sprints — not the increments that contain them. */
+  intervals: WidgetIntervalSpan[];
 }
 
 /**
@@ -90,10 +144,13 @@ export interface BoardWidgetData {
  * is handed a reason to write.
  */
 export const EMPTY_WIDGET_DATA: BoardWidgetData = {
+  projectKey: "",
   metrics: { total: 0, completed: 0, inProgress: 0, overdue: 0 },
   series: { status: [], priority: [], assignee: [], type: [] },
   burndown: [],
   rows: [],
+  velocity: [],
+  intervals: [],
 };
 
 const METRIC_KEYS = WIDGET_METRICS.map((m) => m.key) as readonly string[];
@@ -163,6 +220,117 @@ export function widgetConfigText(
 ): string {
   const raw = config[key];
   return typeof raw === "string" && raw.trim().length > 0 ? raw : fallback;
+}
+
+/** The shares a gauge can show: the metric over the board's total. */
+export const WIDGET_RATIOS = [
+  { key: "completed", label: "Completed" },
+  { key: "inProgress", label: "In progress" },
+  { key: "overdue", label: "Overdue" },
+] as const;
+
+export type WidgetRatioKey = (typeof WIDGET_RATIOS)[number]["key"];
+
+const RATIO_KEYS = WIDGET_RATIOS.map((r) => r.key) as readonly string[];
+
+/** Which share a gauge shows, defaulting to `completed`. */
+export function widgetRatioKey(config: Record<string, unknown>): WidgetRatioKey {
+  const raw = config.metric;
+  return typeof raw === "string" && RATIO_KEYS.includes(raw)
+    ? (raw as WidgetRatioKey)
+    : "completed";
+}
+
+/** A day count from config, clamped to 7–365. Used for the area chart's window. */
+export function widgetDays(config: Record<string, unknown>, fallback = 30): number {
+  const raw = config.days;
+  const n = typeof raw === "number" ? raw : Number.parseInt(String(raw), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(365, Math.max(7, Math.trunc(n)));
+}
+
+/** One entry of a Link List. */
+export interface WidgetLink {
+  label: string;
+  href: string;
+  /** Leaves the app: opens in a new tab, with no opener and no referrer. */
+  external: boolean;
+}
+
+/**
+ * The links a Link List holds, parsed from the builder's `Label|URL` lines.
+ *
+ * Only `https:`/`http:` URLs and in-app paths (`/…`, never `//…`) survive.
+ * The value is free text an author typed onto a board other people open, so a
+ * `javascript:` or `data:` URL here would run in every viewer's session the
+ * moment they click it. A line with no `|` is taken as a bare URL and labelled
+ * with itself. Anything unusable is dropped rather than drawn as a dead link.
+ */
+export function widgetLinks(config: Record<string, unknown>): WidgetLink[] {
+  const raw = config.links;
+  if (typeof raw !== "string") return [];
+  const out: WidgetLink[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    const bar = trimmed.indexOf("|");
+    const label = (bar === -1 ? trimmed : trimmed.slice(0, bar)).trim();
+    const target = (bar === -1 ? trimmed : trimmed.slice(bar + 1)).trim();
+    const link = safeHref(target);
+    if (!link) continue;
+    out.push({ label: label.length > 0 ? label : target, ...link });
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+
+function safeHref(target: string): Omit<WidgetLink, "label"> | null {
+  if (target.startsWith("/") && !target.startsWith("//")) {
+    return { href: target, external: false };
+  }
+  let url: URL;
+  try {
+    url = new URL(target);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  return { href: url.toString(), external: true };
+}
+
+/**
+ * The rows grouped by one of the board's groupings, in a stable order: the
+ * order the series already uses (so a grouped list and a bar chart of the same
+ * grouping list their buckets alike), then any group the series did not name.
+ */
+export function groupRows(
+  rows: WidgetItemRow[],
+  group: WidgetGroupKey,
+  order: readonly string[] = [],
+): Array<{ name: string; rows: WidgetItemRow[] }> {
+  const pick = (r: WidgetItemRow): string => {
+    switch (group) {
+      case "status":
+        return r.status;
+      case "priority":
+        return r.priority;
+      case "assignee":
+        return r.assignee;
+      case "type":
+        return r.typeName ?? "No type";
+    }
+  };
+  const buckets = new Map<string, WidgetItemRow[]>();
+  for (const name of order) buckets.set(name, []);
+  for (const r of rows) {
+    const name = pick(r);
+    const bucket = buckets.get(name);
+    if (bucket) bucket.push(r);
+    else buckets.set(name, [r]);
+  }
+  return [...buckets.entries()]
+    .filter(([, list]) => list.length > 0)
+    .map(([name, list]) => ({ name, rows: list }));
 }
 
 /**

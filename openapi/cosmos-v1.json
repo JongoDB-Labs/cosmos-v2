@@ -707,6 +707,14 @@
             ],
             "format": "uuid"
           },
+          "ownerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The user who created this board. They may rename it, change its layout and delete it. Null for boards made before boards had owners."
+          },
           "name": {
             "type": "string"
           },
@@ -758,6 +766,7 @@
           "orgId",
           "projectId",
           "teamId",
+          "ownerId",
           "name",
           "slug",
           "type",

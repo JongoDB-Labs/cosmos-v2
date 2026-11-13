@@ -12,7 +12,7 @@
 // the board SHOWS, and that a board with nothing saved still shows the
 // hard-coded default panels it always did.
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DashboardView } from "./dashboard-view";
 
@@ -59,12 +59,12 @@ const SAVED_WIDGETS = [
     layout: { x: 3, y: 0, w: 6, h: 3 },
   },
   {
-    // Deliberately NOT implemented. A widget type the builder can save but the
-    // board cannot draw must say so by name — a blank tile reads as a broken
+    // RETIRED: the palette no longer offers it, but a board saved before then
+    // still holds one. It must say so and why — a blank tile reads as a broken
     // board, and a crash takes the whole dashboard with it.
-    id: "w-pie",
-    type: "pie-chart",
-    config: { title: "A pie" },
+    id: "w-embed",
+    type: "embed-iframe",
+    config: { title: "An embed" },
     layout: { x: 0, y: 2, w: 4, h: 4 },
   },
 ];
@@ -109,11 +109,31 @@ const ITEMS = [
   mkItem({ id: "5", ticketNumber: 5, title: "Nav spacing", columnKey: "done" }),
 ];
 
-function stubFetch(board: ReturnType<typeof mkBoard>) {
+/** Every request the board made, for asserting on the ones that write. */
+let calls: Array<{ url: string; method: string }> = [];
+
+function stubFetch(
+  board: ReturnType<typeof mkBoard>,
+  myLayout: unknown[] | null = null,
+) {
+  calls = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string | URL | Request) => {
+    vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const u = String(url);
+      calls.push({ url: u, method: init?.method ?? "GET" });
+      if (u.includes("/my-layout")) {
+        if ((init?.method ?? "GET") === "DELETE") {
+          myLayout = null;
+          return new Response(null, { status: 204 });
+        }
+        return new Response(
+          JSON.stringify({
+            layout: myLayout ? { widgets: myLayout, updatedAt: "2026-11-12T00:00:00.000Z" } : null,
+          }),
+          { status: 200 },
+        );
+      }
       const body = u.includes("/interval-changes")
         ? { changes: [], truncated: false }
         : u.includes("/boards/")
@@ -126,8 +146,8 @@ function stubFetch(board: ReturnType<typeof mkBoard>) {
   );
 }
 
-function renderBoard(config: Record<string, unknown>) {
-  stubFetch(mkBoard(config));
+function renderBoard(config: Record<string, unknown>, myLayout: unknown[] | null = null) {
+  stubFetch(mkBoard(config), myLayout);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
@@ -212,8 +232,8 @@ describe("a board with saved widgets renders them", () => {
   });
 });
 
-describe("an unimplemented widget type", () => {
-  it("renders a labelled tile naming the type, and does not crash the board", async () => {
+describe("a widget type the board cannot draw", () => {
+  it("a retired type says it was removed and why, and does not crash the board", async () => {
     renderBoard({ widgets: SAVED_WIDGETS });
 
     // Positive control: the board rendered at all. Without it, "no crash" is
@@ -222,12 +242,12 @@ describe("an unimplemented widget type", () => {
       expect(screen.getAllByText("Open work").length).toBeGreaterThan(0),
     );
 
-    const tiles = screen.getAllByTestId("widget-unavailable-w-pie");
+    const tiles = screen.getAllByTestId("widget-unavailable-w-embed");
     expect(tiles.length).toBeGreaterThan(0);
     tiles.forEach((t) => {
-      expect(t).toHaveTextContent(/not available/i);
-      // The raw type, so the message is actionable rather than decorative.
-      expect(t).toHaveTextContent("pie-chart");
+      expect(t).toHaveTextContent(/removed from the widget picker/i);
+      // The reason, so the message is actionable rather than decorative.
+      expect(t).toHaveTextContent(/Link List/);
     });
   });
 
@@ -274,3 +294,51 @@ describe("a board with NO saved widgets", () => {
     );
   });
 });
+
+describe("a viewer's own layout of the dashboard", () => {
+  const MINE = [
+    {
+      id: "m-text",
+      type: "text-block",
+      config: { title: "My notes", content: "Ask about the release" },
+      layout: { x: 0, y: 0, w: 6, h: 3 },
+    },
+  ];
+
+  it("is drawn instead of the shared one, and says so", async () => {
+    renderBoard({ widgets: SAVED_WIDGETS }, MINE);
+    await waitFor(() =>
+      expect(screen.getAllByText("Ask about the release").length).toBeGreaterThan(0),
+    );
+    // The shared layout is NOT drawn alongside it.
+    expect(screen.queryAllByText("Open work")).toHaveLength(0);
+    expect(screen.getByTestId("personal-layout-notice")).toHaveTextContent(
+      /your own layout of this dashboard/i,
+    );
+  });
+
+  it("can be dropped, which brings back the shared layout", async () => {
+    renderBoard({ widgets: SAVED_WIDGETS }, MINE);
+    await waitFor(() =>
+      expect(screen.getAllByText("Ask about the release").length).toBeGreaterThan(0),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Use the shared layout" }));
+    await waitFor(() =>
+      expect(screen.getAllByText("Open work").length).toBeGreaterThan(0),
+    );
+    expect(calls).toContainEqual({
+      url: "/api/v1/orgs/o1/projects/p1/boards/b1/my-layout",
+      method: "DELETE",
+    });
+    expect(screen.queryByTestId("personal-layout-notice")).toBeNull();
+  });
+
+  it("is not mentioned when the viewer has none (positive control for the notice)", async () => {
+    renderBoard({ widgets: SAVED_WIDGETS });
+    await waitFor(() =>
+      expect(screen.getAllByText("Open work").length).toBeGreaterThan(0),
+    );
+    expect(screen.queryByTestId("personal-layout-notice")).toBeNull();
+  });
+});
+

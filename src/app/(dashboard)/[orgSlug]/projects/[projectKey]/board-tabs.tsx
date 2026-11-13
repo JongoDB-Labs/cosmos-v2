@@ -52,6 +52,13 @@ interface ProjectBoardTabsProps {
   canManageBoards?: boolean;
   /** Whether the actor may create boards (org BOARD_CREATE or project MANAGER). */
   canCreateBoards?: boolean;
+  /**
+   * Boards this person CREATED and may still change (`canManageOwnBoard`): on
+   * these they get Rename, Edit layout and Delete even without managing the
+   * project's boards. Computed in `layout.tsx` with the same helper the board
+   * routes enforce, so the menu never offers what the server would refuse.
+   */
+  ownedBoardIds?: string[];
   /** Whether the actor may set the PROJECT-WIDE default view — the tab everyone
    *  without a personal override lands on (org PROJECT_UPDATE or project
    *  MANAGER). Unlocks the "Set as default for everyone" tab action. */
@@ -116,6 +123,7 @@ export function ProjectBoardTabs({
   enabledFeatures = [],
   canManageBoards = false,
   canCreateBoards = false,
+  ownedBoardIds = [],
   canSetProjectDefault = false,
   defaultBoardId = null,
   defaultTab = null,
@@ -581,8 +589,12 @@ export function ProjectBoardTabs({
     // Group 1: rename + set-default. A board rename is manager-gated; a feature
     // rename (per-user label) is open to everyone.
     const renameItems = [];
+    // Managing THIS board: the project's board managers, or the person who
+    // made it. Everything below that changes the shared board row asks this.
+    const mayChangeBoard =
+      isBoard && (canManageBoards || ownedBoardIds.includes(tab.board!.id));
     if (isBoard) {
-      if (canManageBoards) {
+      if (mayChangeBoard) {
         renameItems.push({
           label: "Rename board",
           icon: Pencil,
@@ -593,13 +605,15 @@ export function ProjectBoardTabs({
         });
         // The widget builder's only way in. Three conditions, each load-bearing:
         //
-        //  - `canManageBoards` — the SAME flag Rename/Delete use, derived once
-        //    in `layout.tsx` (BOARD_DELETE && canManageBoardsInProject ||
-        //    canManageProject) and passed down. Deriving it a second time here
-        //    is how a board hidden in one place reappears in another; the
-        //    layout's own comment says so. Restructuring a shared board row is
-        //    the same authority as renaming one, and the builder's Save goes to
-        //    the board PUT, which gates on BOARD_UPDATE-or-project-manager.
+        //  - `mayChangeBoard` — the SAME flag Rename/Delete use: the board
+        //    managers flag derived once in `layout.tsx` (BOARD_DELETE &&
+        //    canManageBoardsInProject || canManageProject), or this person
+        //    made the board (`ownedBoardIds`, from `canManageOwnBoard`).
+        //    Deriving it a second time here is how a board hidden in one place
+        //    reappears in another; the layout's own comment says so.
+        //    Restructuring a shared board row is the same authority as
+        //    renaming one, and the builder's Save goes to the board PUT, which
+        //    gates on BOARD_UPDATE, a project manager, or the board's creator.
         //  - `rendersSavedWidgets(type)` — only DASHBOARD/PORTFOLIO/PROGRAM
         //    draw `config.widgets`. The builder would happily SAVE a layout
         //    onto a Kanban board that no view would ever show, and a one-click
@@ -622,6 +636,19 @@ export function ProjectBoardTabs({
               ),
           });
         }
+      }
+      // Everyone who can see a dashboard may arrange it for THEMSELVES. Saved
+      // to their own row (`…/my-layout`), so it changes nothing anyone else
+      // sees — which is why it needs no board-management right at all.
+      if (rendersSavedWidgets(tab.board!.type)) {
+        renameItems.push({
+          label: `Edit my layout: ${tab.label}`,
+          icon: LayoutDashboard,
+          onClick: () =>
+            router.push(
+              `/${orgSlug}/projects/${projectKey}/boards/${tab.board!.id}/builder?view=mine`,
+            ),
+        });
       }
     } else {
       renameItems.push({
@@ -663,7 +690,7 @@ export function ProjectBoardTabs({
         onClick: () => handleHide(tab),
       },
     ];
-    if (isBoard && canManageBoards) {
+    if (mayChangeBoard) {
       hideItems.push({
         label: "Delete board",
         icon: Trash2,

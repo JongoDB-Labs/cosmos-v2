@@ -16,6 +16,12 @@ import {
   WIDGET_GROUPS,
   widgetMetricLabel,
   widgetGroupLabel,
+  widgetLinks,
+  widgetRatioKey,
+  widgetDays,
+  groupRows,
+  isClosedRow,
+  type WidgetItemRow,
 } from "./widget-data";
 
 const w = (over: Record<string, unknown> = {}) => ({
@@ -221,5 +227,107 @@ describe("config readers", () => {
     expect(widgetConfigText({ title: "" }, "title", "x")).toBe("x");
     expect(widgetConfigText({}, "title", "x")).toBe("x");
     expect(widgetConfigText({ title: 7 }, "title", "x")).toBe("x");
+  });
+});
+
+describe("widgetLinks", () => {
+  it("reads Label|URL lines, and a bare URL as its own label", () => {
+    expect(
+      widgetLinks({
+        links: "Docs|https://example.com/docs\n\nhttps://example.com/x\n  Board | /acme/projects  ",
+      }),
+    ).toEqual([
+      { label: "Docs", href: "https://example.com/docs", external: true },
+      { label: "https://example.com/x", href: "https://example.com/x", external: true },
+      { label: "Board", href: "/acme/projects", external: false },
+    ]);
+  });
+
+  it("drops every URL that is not http(s) or an in-app path", () => {
+    // Free text one person types onto a board everyone opens: a script URL
+    // would run in each viewer's session on click.
+    const links = widgetLinks({
+      links: [
+        "A|javascript:alert(1)",
+        "B|JavaScript:alert(1)",
+        "C|data:text/html,<script>alert(1)</script>",
+        "D|vbscript:x",
+        "E|//evil.example.com/path",
+        "F|not a url",
+        "G|https://example.com/ok",
+      ].join("\n"),
+    });
+    // Positive control: the one good line survives, so the empties above are
+    // the filter talking and not a parser that returns nothing.
+    expect(links.map((l) => l.label)).toEqual(["G"]);
+  });
+
+  it("returns nothing for a value that is not text, and caps the list", () => {
+    expect(widgetLinks({})).toEqual([]);
+    expect(widgetLinks({ links: ["https://example.com"] })).toEqual([]);
+    const many = Array.from({ length: 80 }, (_, i) => `L${i}|https://example.com/${i}`).join("\n");
+    expect(widgetLinks({ links: many })).toHaveLength(50);
+  });
+});
+
+describe("widgetRatioKey and widgetDays", () => {
+  it("defaults an unknown share to completed", () => {
+    expect(widgetRatioKey({ metric: "overdue" })).toBe("overdue");
+    expect(widgetRatioKey({ metric: "total" })).toBe("completed");
+    expect(widgetRatioKey({})).toBe("completed");
+  });
+
+  it("clamps the day window to 7-365", () => {
+    expect(widgetDays({ days: 14 })).toBe(14);
+    expect(widgetDays({ days: "60" })).toBe(60);
+    expect(widgetDays({ days: 1 })).toBe(7);
+    expect(widgetDays({ days: 9000 })).toBe(365);
+    expect(widgetDays({ days: "x" }, 21)).toBe(21);
+  });
+});
+
+describe("groupRows", () => {
+  const r = (id: string, over: Partial<WidgetItemRow>): WidgetItemRow => ({
+    id,
+    key: id,
+    title: id,
+    status: "To Do",
+    statusCategory: "TODO",
+    priority: "Medium",
+    assignee: "Unassigned",
+    dueDate: null,
+    startDate: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    completedAt: null,
+    typeKey: null,
+    typeName: null,
+    customFields: {},
+    ...over,
+  });
+
+  it("orders named groups first, drops empty ones, and appends the rest", () => {
+    const groups = groupRows(
+      [r("a", { priority: "Low" }), r("b", { priority: "Critical" }), r("c", { priority: "Weird" })],
+      "priority",
+      ["Critical", "High", "Medium", "Low"],
+    );
+    expect(groups.map((g) => [g.name, g.rows.map((x) => x.id)])).toEqual([
+      ["Critical", ["b"]],
+      ["Low", ["a"]],
+      ["Weird", ["c"]],
+    ]);
+  });
+
+  it("groups an item with no type under No type", () => {
+    const groups = groupRows([r("a", { typeName: "Bug" }), r("b", {})], "type");
+    expect(groups.map((g) => g.name)).toEqual(["Bug", "No type"]);
+  });
+
+  it("calls done and cancelled items closed, and nothing else", () => {
+    expect(isClosedRow({ statusCategory: "DONE" })).toBe(true);
+    expect(isClosedRow({ statusCategory: "CANCELLED" })).toBe(true);
+    expect(isClosedRow({ statusCategory: "IN_PROGRESS" })).toBe(false);
+    expect(isClosedRow({ statusCategory: "TODO" })).toBe(false);
   });
 });

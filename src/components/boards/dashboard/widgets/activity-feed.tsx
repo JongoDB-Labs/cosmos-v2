@@ -9,7 +9,7 @@ interface ActivityFeedProps {
   projectKey: string;
 }
 
-function timeAgo(dateStr: string): string {
+export function timeAgo(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();

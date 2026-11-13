@@ -19,6 +19,7 @@
 // what we decide about the builder's future.
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 if (!("ResizeObserver" in globalThis)) {
   globalThis.ResizeObserver = class {
@@ -47,6 +48,9 @@ const EXISTING_CONFIG = {
 
 function renderBuilder() {
   return render(
+    // The builder invalidates the board's cached copy after a Save, so it
+    // lives under a query client, as it always does in the app.
+    <QueryClientProvider client={new QueryClient()}>
     <BoardBuilder
       orgId="o1"
       projectId="p1"
@@ -59,7 +63,8 @@ function renderBuilder() {
         columns: [],
       } as never}
       sector={undefined}
-    />,
+    />
+    </QueryClientProvider>,
   );
 }
 
