@@ -827,6 +827,31 @@ describe("where the org requires single sign-on, a member's key works only if ma
     expect((await standingIn(adminSso, gov.id))[earlier.id]).toBeNull();
   });
 
+  it("an owner whose API_KEY_MANAGE an org restriction removes is held to it too: the exemption reads the key's own standing", async () => {
+    // The exemption must come from what the owner's KEYS may do (no break-glass),
+    // not from their session, whose break-glass passes every restriction.
+    const gov = await prisma.organization.create({ data: { name: `mk ssox ${stamp}`, slug: `mk-ssox-${stamp}` }, select: { id: true, tenantClass: true } });
+    expect(gov.tenantClass).toBe("GOV");
+    orgIds.push(gov.id);
+    await prisma.idpConnection.create({
+      data: { orgId: gov.id, issuerUrl: ISSUER, clientId: "c", clientSecretEnc: "not-opened-by-these-tests", enabled: true, enforced: true },
+    });
+    const owner = await person("ssoxowner", "OWNER", { org: gov.id });
+    const earlier = await fixtureKeyRow(owner, ["read"], { org: gov.id, expiresAt: new Date(Date.now() + 30 * DAY) });
+    const status = async () => {
+      asKey(earlier.token);
+      return (await listProjects(req("GET"), { params: Promise.resolve({ orgId: gov.id }) })).status;
+    };
+    // Positive control: an owner manages keys, so their key made outside SSO works.
+    expect(await status()).toBe(200);
+    await prisma.orgSecuritySettings.create({
+      data: { orgId: gov.id, actionRestrictions: { rules: [{ effect: "deny", actions: ["API_KEY_MANAGE"], conditions: [] }] } },
+    });
+    expect(await status()).toBe(401);
+    await prisma.orgSecuritySettings.update({ where: { orgId: gov.id }, data: { actionRestrictions: {} } });
+    expect(await status()).toBe(200);
+  });
+
   it("re-admitting a removed member through SSO deletes the keys they made before the removal", async () => {
     const org = await prisma.organization.create({ data: { name: `mk ssor ${stamp}`, slug: `mk-ssor-${stamp}` }, select: { id: true, slug: true } });
     orgIds.push(org.id);
