@@ -89,10 +89,12 @@ const SESSION_ONLY_ADMIN = new Set(["listSsoProvisionedAccounts", "clearSsoProvi
  * project and per kind (the Agile overlay reads intervals under SPRINT_READ and
  * work items under ITEM_READ). Their contracts name no scopes, on purpose: the
  * program calendar is a browser surface, and the same rows are open to keys
- * through the intervals and work-item APIs. Pinned by name, so a new zero-bit
- * handler still fails this test until someone lists it here and says why.
+ * through the intervals and work-item APIs. The Outlook overlay reads the
+ * caller's own mailbox through their own Outlook connection, which no key in
+ * Cosmos is given. Pinned by name, so a new zero-bit handler still fails this
+ * test until someone lists it here and says why.
  */
-const NEW_SESSION_ONLY = new Set(["listAgileOverlay"]);
+const NEW_SESSION_ONLY = new Set(["listAgileOverlay", "listOutlookOverlay"]);
 /**
  * Not an exception, a gap in what this test reads: these handlers gate a key
  * on COMMENT_CREATE (`{ key: "COMMENT_CREATE", session: "COMMENT_READ" }`) since

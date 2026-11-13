@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarClock, Diamond, Layers, Repeat, Rocket, type LucideIcon } from "lucide-react";
+import { CalendarClock, CalendarDays, Diamond, Layers, Repeat, Rocket, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CSSProperties } from "react";
 import { KIND_LABEL, type OverlayKind } from "@/lib/program-calendar/overlays";
@@ -21,6 +21,7 @@ export const KIND_ICON: Record<OverlayKind, LucideIcon> = {
   sprint: Repeat,
   release: Rocket,
   due: CalendarClock,
+  outlook: CalendarDays,
 };
 
 /**
@@ -68,7 +69,8 @@ export function EventChip({
    *  and announced with its kind ("Sprint: ..."). */
   kind?: OverlayKind;
   /** Where the chip leads. A chip with a link is a link, not a button: an
-   *  overlay record is edited on its own page, never here. */
+   *  overlay record is edited on its own page, never here. An absolute https
+   *  link (an Outlook event) opens in a new tab and says so. */
   href?: string;
   /** The tooltip, when it should say more than the title. */
   description?: string;
@@ -124,6 +126,21 @@ export function EventChip({
     </>
   );
 
+  if (href?.startsWith("https://")) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={description ?? title}
+        aria-label={`${description ?? title} (opens in a new tab)`}
+        style={chipStyle}
+        className={classes}
+      >
+        {body}
+      </a>
+    );
+  }
   if (href) {
     return (
       // Named outright: built from the sr-only kind and the title, the name
@@ -131,6 +148,15 @@ export function EventChip({
       <Link href={href} title={description ?? title} aria-label={description} style={chipStyle} className={classes}>
         {body}
       </Link>
+    );
+  }
+  if (kind) {
+    // An overlay record with nowhere to go: text, not a button that does
+    // nothing when pressed.
+    return (
+      <div title={description ?? title} style={chipStyle} className={classes}>
+        {body}
+      </div>
     );
   }
   return (

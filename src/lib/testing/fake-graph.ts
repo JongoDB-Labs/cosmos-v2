@@ -4,6 +4,12 @@
  * one calendar. Pass `fetch` as GraphDeps.fetch. `outlookEdit` plays a person
  * changing an event in Outlook; `throttleNext` makes the next calls 429.
  *
+ * `/me/calendarView` reads the bearer's DEFAULT calendar (the one added with
+ * `isDefault`), as Graph does: events overlapping [startDateTime,
+ * endDateTime), in start order, `$top` to a page, the next page linked by
+ * `@odata.nextLink`. Graph's real paging token is opaque; this one is `$skip`.
+ * It does not expand recurring series: every event here is a single instance.
+ *
  * Teams: an event written with `isOnlineMeeting: true` and
  * `onlineMeetingProvider: "teamsForBusiness"` gets a Teams meeting and an
  * `onlineMeeting.joinUrl`, as Graph does. Once an event is online it stays
@@ -29,6 +35,8 @@ export interface FakeEvent {
   isOnlineMeeting?: boolean;
   onlineMeetingProvider?: string;
   onlineMeeting?: { joinUrl: string } | null;
+  isAllDay?: boolean;
+  webLink?: string;
 }
 
 export function fakeGraph(origin = "https://graph.microsoft.com") {
@@ -42,6 +50,8 @@ export function fakeGraph(origin = "https://graph.microsoft.com") {
     sharedWith?: string[];
     canEdit?: boolean;
     props?: { id: string; value: string }[];
+    /** The mailbox's main calendar: what `/me/calendarView` reads. */
+    isDefault?: boolean;
   }
   const calendars = new Map<string, FakeCalendar>();
   const addresses = new Map<string, string>();
@@ -114,6 +124,28 @@ export function fakeGraph(origin = "https://graph.microsoft.com") {
       return reply(429, { error: { code: "TooManyRequests" } }, { "Retry-After": throttle.retryAfter });
     }
     let m: RegExpMatchArray | null;
+    if (method === "GET" && path === "/me/calendarView") {
+      const start = url.searchParams.get("startDateTime");
+      const end = url.searchParams.get("endDateTime");
+      if (!start || !end) return reply(400, { error: { code: "ErrorInvalidParameter" } });
+      const main = [...calendars.values()].find((c) => c.owner === owner && c.isDefault);
+      if (!main) return reply(404, { error: { code: "ErrorItemNotFound" } });
+      const t = (dt: string) => Date.parse(/Z$|[+-]\d\d:\d\d$/.test(dt) ? dt : dt.slice(0, 23) + "Z");
+      const from = Date.parse(start);
+      const to = Date.parse(end);
+      const all = [...events.values()]
+        .filter((e) => e.calendarId === main.id && !e.removed && t(e.start.dateTime) < to && t(e.end.dateTime) > from)
+        .sort((a, b) => t(a.start.dateTime) - t(b.start.dateTime));
+      const top = Number(url.searchParams.get("$top") ?? 10);
+      const skip = Number(url.searchParams.get("$skip") ?? 0);
+      const more = skip + top < all.length;
+      const next = new URLSearchParams(url.searchParams);
+      next.set("$skip", String(skip + top));
+      return reply(200, {
+        value: all.slice(skip, skip + top).map(view),
+        ...(more ? { "@odata.nextLink": `${origin}/v1.0${path}?${next}` } : {}),
+      });
+    }
     if (method === "GET" && path === "/me/calendars") {
       return reply(200, { value: [...calendars.values()].filter(visible).map(calView) });
     }
@@ -213,6 +245,13 @@ export function fakeGraph(origin = "https://graph.microsoft.com") {
       const id = c.id ?? `cal-${++n}`;
       calendars.set(id, { ...c, id });
       return id;
+    },
+    /** An event at a given time (Graph's UTC `dateTime` form, no offset). */
+    addEventAt(calendarId: string, subject: string, start: string, end: string, extra: Partial<FakeEvent> = {}) {
+      const e = { id: `ev-${++n}`, calendarId, subject, start: { dateTime: start, timeZone: "UTC" }, end: { dateTime: end, timeZone: "UTC" }, ...extra } as FakeEvent;
+      bump(e);
+      events.set(e.id, e);
+      return e.id;
     },
     /** An event someone put in a calendar themselves. */
     addEvent(calendarId: string, subject: string) {
