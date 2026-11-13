@@ -125,13 +125,25 @@ function walk(dir, out = []) {
   return out;
 }
 
+/** The file's text, or null when it doesn't exist. One read and no existsSync
+ *  first, so nothing can change the file between a check and its use. */
+function readIfExists(p) {
+  try {
+    return readFileSync(p, "utf8");
+  } catch (e) {
+    if (e.code === "ENOENT") return null;
+    throw e;
+  }
+}
+
 /** Read the previously-composed paths (real, unescaped) from the state file and
  *  drop our .git/info/exclude block + the state file. */
 function removeManagedExclude() {
-  if (existsSync(EXCLUDE)) {
+  const excludeText = readIfExists(EXCLUDE);
+  if (excludeText !== null) {
     // Only THIS worktree's block. A bare MARK is an older script's block, and
     // another worktree's tagged block is theirs: neither is ours to remove.
-    const lines = readFileSync(EXCLUDE, "utf8").split("\n");
+    const lines = excludeText.split("\n");
     const start = lines.indexOf(OWN_START);
     if (start !== -1) {
       let end = lines.indexOf(OWN_END, start);
@@ -352,7 +364,7 @@ const block = [OWN_START, ...[...written].sort().map(excludeEntry), OWN_END].joi
 {
   // AHEAD of any bare MARK: an older sync.mjs (a worktree on an older core)
   // truncates the file at the first bare MARK, and would take our block with it.
-  const text = existsSync(EXCLUDE) ? readFileSync(EXCLUDE, "utf8") : "";
+  const text = readIfExists(EXCLUDE) ?? "";
   const lines = text.split("\n");
   const legacy = lines.indexOf(MARK);
   if (legacy === -1) {
