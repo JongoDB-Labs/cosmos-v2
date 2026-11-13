@@ -67,7 +67,20 @@ interface ChangeRequest {
 interface ChangeTrackerProps {
   orgId: string;
   projectId: string;
+  /**
+   * False without finance access on the project: the API leaves `costImpact`
+   * out (src/lib/rbac/money-fields.ts) and the screen says "Restricted".
+   */
+  moneyVisible?: boolean;
 }
+
+/** Replaces the Cost column for a viewer who may not see money. */
+const RESTRICTED_COST_COLUMN: ColumnDef<ChangeRequest> = {
+  id: "costImpact",
+  header: "Cost ($)",
+  enableSorting: false,
+  cell: () => <span className="text-[var(--text-muted)]">Restricted</span>,
+};
 
 const STATUS_OPTIONS: ChangeRequestStatus[] = [
   "SUBMITTED",
@@ -229,7 +242,12 @@ function formToBody(f: ChangeForm) {
   };
 }
 
-export function ChangeTracker({ orgId, projectId }: ChangeTrackerProps) {
+export function ChangeTracker({ orgId, projectId, moneyVisible = true }: ChangeTrackerProps) {
+  const columns = moneyVisible
+    ? CHANGE_COLUMNS
+    : CHANGE_COLUMNS.map((c) =>
+        "accessorKey" in c && c.accessorKey === "costImpact" ? RESTRICTED_COST_COLUMN : c,
+      );
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/changes`;
   const queryKey = useOrgQueryKey("changes", projectId);
   const { data: changes = [], isLoading, isError, refetch } = useQuery({
@@ -343,13 +361,15 @@ export function ChangeTracker({ orgId, projectId }: ChangeTrackerProps) {
         editable: canEdit,
       },
       { key: "approvedBy", label: "Approved by", type: "text", value: c.approvedBy, editable: canEdit },
-      {
-        key: "costImpact",
-        label: "Cost impact ($)",
-        type: "number",
-        value: c.costImpact,
-        editable: canEdit,
-      },
+      moneyVisible
+        ? {
+            key: "costImpact",
+            label: "Cost impact ($)",
+            type: "number",
+            value: c.costImpact,
+            editable: canEdit,
+          }
+        : { key: "costImpact", label: "Cost impact ($)", type: "number", value: null, editable: false, restricted: true },
       {
         key: "scheduleDaysImpact",
         label: "Schedule impact (days)",
@@ -405,7 +425,7 @@ export function ChangeTracker({ orgId, projectId }: ChangeTrackerProps) {
         title="Change Log"
         subtitle={`${changes.length} change request${changes.length === 1 ? "" : "s"}`}
         rows={changes}
-        columns={CHANGE_COLUMNS}
+        columns={columns}
         search={filter}
         onSearchChange={setFilter}
         searchText={(c) => [c.code, c.title, c.initiatedBy ?? ""].join(" ")}
@@ -467,6 +487,7 @@ export function ChangeTracker({ orgId, projectId }: ChangeTrackerProps) {
         pending={createMutation.isPending}
         onSubmit={() => createMutation.mutate(form)}
         submitLabel="Create"
+        moneyVisible={moneyVisible}
       />
       {/* Detail drawer — issue-style: inline-editable fields + Comments + Activity.
           Replaces the old edit dialog as the primary row-detail view. */}
@@ -526,7 +547,9 @@ function ChangeDialog({
   pending,
   onSubmit,
   submitLabel,
+  moneyVisible = true,
 }: {
+  moneyVisible?: boolean;
   open: boolean;
   onOpenChange: (o: boolean) => void;
   title: string;
@@ -619,6 +642,7 @@ function ChangeDialog({
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {moneyVisible ? (
             <FormField label="Cost impact ($)">
               {(p) => (
                 <Input
@@ -630,6 +654,9 @@ function ChangeDialog({
                 />
               )}
             </FormField>
+            ) : (
+              <p className="self-end text-sm text-[var(--text-muted)]">Cost impact needs Finance access.</p>
+            )}
             <FormField label="Schedule impact (days)">
               {(p) => (
                 <Input

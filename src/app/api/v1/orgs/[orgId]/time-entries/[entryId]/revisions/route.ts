@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
+import { readableTimeUserIds, timeProjectCeiling, timeUserIdFilter } from "@/lib/time/scope";
 import { canSeeRate } from "@/lib/time/visibility";
 import { success, handleApiError } from "@/lib/api-helpers";
 
@@ -39,6 +39,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         id: entryId,
         orgId,
         userId: timeUserIdFilter(await readableTimeUserIds(ctx)),
+        // Same ceiling as reading the entry itself: a project-scoped key does
+        // not read another project's entry through its history either.
+        projectId: timeProjectCeiling(ctx),
       },
       select: { id: true, userId: true },
     });

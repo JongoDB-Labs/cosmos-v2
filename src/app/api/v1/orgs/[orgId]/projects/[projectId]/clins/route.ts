@@ -2,13 +2,13 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { loadClinsWithBurn } from "@/lib/pm/burn";
 import { logPmActivity } from "@/lib/pm/activity-log";
+import { canSeeProjectMoney, projectMoney, projectMoneyRows } from "@/lib/rbac/money-fields";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -24,8 +24,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });
 
+    // The CLIN list itself (codes, titles, periods) is program information and
+    // stays on ANALYTICS_READ -- the time tracker's CLIN picker reads it. The
+    // money on each row is finance data.
     const rows = await loadClinsWithBurn(orgId, projectId);
-    return success(rows);
+    return success(projectMoneyRows("clin", rows, await canSeeProjectMoney(ctx, projectId)));
   } catch (e) {
     return handleApiError(e);
   }
@@ -78,7 +81,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       action: "created",
     });
 
-    return success(created);
+    return success(projectMoney("clin", created, await canSeeProjectMoney(ctx, projectId)));
   } catch (e) {
     return handleApiError(e);
   }

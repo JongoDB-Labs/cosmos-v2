@@ -3,12 +3,12 @@ import { z } from "zod";
 import { ChangeRequestStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { logPmActivity } from "@/lib/pm/activity-log";
+import { canSeeProjectMoney, projectMoney, projectMoneyRows } from "@/lib/rbac/money-fields";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -29,7 +29,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       where: { orgId, projectId },
       orderBy: { createdAt: "desc" },
     });
-    return success(changes);
+    return success(projectMoneyRows("change", changes, await canSeeProjectMoney(ctx, projectId)));
   } catch (e) {
     return handleApiError(e);
   }
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       action: "created",
     });
 
-    return success(created);
+    return success(projectMoney("change", created, await canSeeProjectMoney(ctx, projectId)));
   } catch (e) {
     return handleApiError(e);
   }

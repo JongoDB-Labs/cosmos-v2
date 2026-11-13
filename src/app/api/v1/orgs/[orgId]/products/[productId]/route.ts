@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { readableContractsWhere } from "@/lib/crm/contract-scope";
+import { moneyGate, projectMoneyEach } from "@/lib/rbac/money-fields";
 import { z } from "zod";
 import { withoutForeign } from "@/lib/rbac/foreign-refs";
 
@@ -36,7 +37,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       include: {
         // Only the contracts this caller may see: this org's own (the foreign
         // key is single-column, so another org's contract could point here),
-        // and none on a project they cannot open, value and terms included.
+        // and none on a project they cannot open, terms included. Their money
+        // then needs finance access (projectMoneyEach below).
         contracts: {
           where: await readableContractsWhere(ctx),
           include: { partner: true },
@@ -47,7 +49,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     if (!product) return new Response("Not found", { status: 404 });
 
-    return success({ ...product, contracts: product.contracts.map((c) => withoutForeign(c, orgId, ["partner"])) });
+    return success({
+      ...product,
+      contracts: projectMoneyEach(
+        "vendor",
+        product.contracts.map((c) => withoutForeign(c, orgId, ["partner"])),
+        await moneyGate(ctx),
+      ),
+    });
   } catch (error) {
     return handleApiError(error);
   }

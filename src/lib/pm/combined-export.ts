@@ -341,6 +341,7 @@ export async function buildCombinedWorkbook(
   projectId: string,
   projectKey: string,
   trackers: Tracker[],
+  opts: { includeMoney: boolean },
 ): Promise<Buffer> {
   const out = new ExcelJS.Workbook();
   out.creator = "Cosmos";
@@ -358,6 +359,7 @@ export async function buildCombinedWorkbook(
       orgId,
       projectId,
       projectKey,
+      opts,
     );
 
     const src = new ExcelJS.Workbook();

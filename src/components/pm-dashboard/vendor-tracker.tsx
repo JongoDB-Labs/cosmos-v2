@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -76,7 +76,25 @@ interface VendorTrackerProps {
   orgId: string;
   projectId: string;
   partners: PartnerLite[];
+  /**
+   * False without finance access on the project: the API leaves the contract
+   * values out (src/lib/rbac/money-fields.ts) and the screen says "Restricted".
+   */
+  moneyVisible?: boolean;
 }
+
+/** The columns and drawer fields whose every value is money. */
+const MONEY_KEYS: ReadonlySet<string> = new Set([
+  "value", "fundedValue", "invoicedValue", "pctBurnedFunded", "remainingFunded",
+]);
+
+/** Stands in for the money columns, so a viewer sees "Restricted", not blanks. */
+const RESTRICTED_MONEY_COLUMN: ColumnDef<Vendor> = {
+  id: "money",
+  header: "Value & burn",
+  enableSorting: false,
+  cell: () => <span className="text-[var(--text-muted)]">Restricted</span>,
+};
 
 const STATUS_OPTIONS = [
   { value: "draft", label: "Draft" },
@@ -293,7 +311,14 @@ const VENDOR_COLUMNS: ColumnDef<Vendor>[] = [
   },
 ];
 
-export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps) {
+export function VendorTracker({ orgId, projectId, partners, moneyVisible = true }: VendorTrackerProps) {
+  const columns = useMemo(() => {
+    if (moneyVisible) return VENDOR_COLUMNS;
+    // The restricted column takes the place of the first money column.
+    const at = VENDOR_COLUMNS.findIndex((c) => MONEY_KEYS.has(c.id ?? ""));
+    const rest = VENDOR_COLUMNS.filter((c) => !MONEY_KEYS.has(c.id ?? ""));
+    return [...rest.slice(0, at), RESTRICTED_MONEY_COLUMN, ...rest.slice(at)];
+  }, [moneyVisible]);
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/vendors`;
   const queryKey = useOrgQueryKey("vendors", projectId);
   const { data: vendors = [], isLoading, isError, refetch } = useQuery({
@@ -375,6 +400,13 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
   // vendors endpoint by key; the burn signal (% burned, remaining) is derived
   // server-side and shown read-only.
   function vendorFields(v: Vendor): PmField[] {
+    const fields = allVendorFields(v);
+    if (moneyVisible) return fields;
+    return fields.map((f) =>
+      MONEY_KEYS.has(f.key) ? { ...f, value: null, editable: false, restricted: true } : f,
+    );
+  }
+  function allVendorFields(v: Vendor): PmField[] {
     return [
       { key: "title", label: "Contract title", type: "text", value: v.title, editable: canEdit },
       {
@@ -485,12 +517,17 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
     <>
       <PmDataTable
         title="Vendor Register"
-        subtitle={`${vendors.length} contract${vendors.length === 1 ? "" : "s"} · ${totalCommitted.toLocaleString(
-          undefined,
-          { style: "currency", currency: "USD", maximumFractionDigits: 0 },
-        )} total committed`}
+        subtitle={`${vendors.length} contract${vendors.length === 1 ? "" : "s"}${
+          moneyVisible
+            ? ` · ${totalCommitted.toLocaleString(undefined, {
+                style: "currency",
+                currency: "USD",
+                maximumFractionDigits: 0,
+              })} total committed`
+            : ""
+        }`}
         rows={vendors}
-        columns={VENDOR_COLUMNS}
+        columns={columns}
         search={filter}
         onSearchChange={setFilter}
         searchText={(v) => [v.title, v.partner?.name ?? "", v.partner?.socioEconomic ?? ""].join(" ")}
@@ -553,6 +590,7 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
         pending={createMutation.isPending}
         onSubmit={() => createMutation.mutate(form)}
         submitLabel="Create"
+        moneyVisible={moneyVisible}
       />
 
       {/* Detail drawer — issue-style: inline-editable fields + Comments + Activity.
@@ -620,7 +658,9 @@ function VendorDialog({
   pending,
   onSubmit,
   submitLabel,
+  moneyVisible = true,
 }: {
+  moneyVisible?: boolean;
   open: boolean;
   onOpenChange: (o: boolean) => void;
   title: string;
@@ -678,6 +718,7 @@ function VendorDialog({
 
           {/* Value + Currency */}
           <div className="grid grid-cols-2 gap-4">
+            {moneyVisible ? (
             <FormField label="Committed value ($)">
               {(p) => (
                 <Input
@@ -691,6 +732,11 @@ function VendorDialog({
                 />
               )}
             </FormField>
+            ) : (
+              <p className="self-end text-sm text-[var(--text-muted)]">
+                Contract values need Finance access to set or see.
+              </p>
+            )}
             <FormField label="Currency">
               {(p) => (
                 <Input
@@ -704,6 +750,7 @@ function VendorDialog({
           </div>
 
           {/* Funded + Invoiced (drives % burned) */}
+          {moneyVisible && (
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Funded to date ($)">
               {(p) => (
@@ -732,6 +779,7 @@ function VendorDialog({
               )}
             </FormField>
           </div>
+          )}
 
           {/* Agreement + payment terms */}
           <div className="grid grid-cols-3 gap-4">

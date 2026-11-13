@@ -2,7 +2,10 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
+import { roleCountsFor } from "@/lib/rbac/key-role";
+import { approvalAuthority } from "@/lib/time/approval";
+import { isManagerOf, hasManager } from "@/lib/time/timesheet-actions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
@@ -29,6 +32,25 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       where: { id: entryId, orgId, ...NOT_VOIDED },
     });
     if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
+
+    // Authority first, action second -- the timesheet's rule, not a second
+    // copy of it. TIME_APPROVE alone let a supervised approver sign their own
+    // hours here, which the timesheet route had refused all along.
+    const authority = approvalAuthority({
+      actorUserId: ctx.userId,
+      subjectUserId: existing.userId,
+      hasTimeApprove: hasPermission(ctx.permissions, Permission.TIME_APPROVE),
+      isManagerOfSubject:
+        roleCountsFor(ctx, Permission.TIME_APPROVE) && (await isManagerOf(orgId, ctx.userId, existing.userId)),
+      subjectHasManager: await hasManager(orgId, existing.userId),
+      noun: "time entry",
+    });
+    if (!authority.allowed) {
+      return new Response(
+        JSON.stringify({ error: authority.reason ?? "You cannot approve this time entry" }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
 
     if (existing.status !== "SUBMITTED") {
       return new Response(

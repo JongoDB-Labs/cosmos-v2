@@ -2,13 +2,13 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { partnerSelect, mapVendorContract } from "@/lib/pm/vendor";
 import { logPmActivity } from "@/lib/pm/activity-log";
+import { canSeeProjectMoney, projectMoney, projectMoneyRows } from "@/lib/rbac/money-fields";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -24,13 +24,16 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });
 
+    // Largest-first is itself a statement about value, so a reader who may not
+    // see the money gets the register in title order instead.
+    const money = await canSeeProjectMoney(ctx, projectId);
     const contracts = await prisma.contract.findMany({
       where: { orgId, projectId },
       include: { partner: { select: partnerSelect } },
-      orderBy: { value: "desc" },
+      orderBy: money ? { value: "desc" } : { title: "asc" },
     });
 
-    return success(contracts.map(mapVendorContract));
+    return success(projectMoneyRows("vendor", contracts.map(mapVendorContract), money));
   } catch (e) {
     return handleApiError(e);
   }
@@ -98,7 +101,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       action: "created",
     });
 
-    return success(mapVendorContract(created));
+    return success(projectMoney("vendor", mapVendorContract(created), await canSeeProjectMoney(ctx, projectId)));
   } catch (e) {
     return handleApiError(e);
   }

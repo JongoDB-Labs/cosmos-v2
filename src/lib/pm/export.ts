@@ -25,12 +25,19 @@ const num = (d: { toString(): string } | number | null | undefined): number | ""
  * No default value, deliberately: a default is how it drifts back. A new call
  * site that omits the option would silently take the permissive branch, whereas
  * a required argument forces whoever adds it to have asked the question.
+ *
+ * `includeMoney` is the same idea for the registers' money (a change's cost
+ * impact, a vendor's ceiling, funding and invoicing, every CLIN figure), which
+ * follows FINANCE_READ or FINANCE_READ_PROJECT on this project -- see
+ * src/lib/rbac/money-fields.ts. Without it those COLUMNS are left out, not
+ * blanked: a blank cost impact reads as "none".
  */
 export async function buildProjectWorkbook(
   orgId: string,
   projectId: string,
-  opts: { includeCost: boolean },
+  opts: { includeCost: boolean; includeMoney: boolean },
 ): Promise<Buffer> {
+  const money = opts.includeMoney;
   const where = { orgId, projectId };
   const [risks, changes, blockers, deliverables, milestones, vendors, staffing, clins] =
     await Promise.all([
@@ -58,10 +65,11 @@ export async function buildProjectWorkbook(
             },
           },
         },
-        orderBy: { value: "desc" },
+        // Largest-first is a statement about value; without money, title order.
+        orderBy: money ? { value: "desc" } : { title: "asc" },
       }),
       loadStaffing(orgId, projectId, { includeCost: opts.includeCost }),
-      loadClinsWithBurn(orgId, projectId),
+      money ? loadClinsWithBurn(orgId, projectId) : Promise.resolve([]),
     ]);
 
   const wb = XLSX.utils.book_new();
@@ -77,7 +85,9 @@ export async function buildProjectWorkbook(
   })));
   addSheet("Change Log", changes.map((c) => ({
     ID: c.code, Title: c.title, Type: c.type,
-    Submitted: fmtDate(c.submittedDate), "Cost Impact": num(c.costImpact), "Schedule Days": c.scheduleDaysImpact ?? "",
+    Submitted: fmtDate(c.submittedDate),
+    ...(money ? { "Cost Impact": num(c.costImpact) } : {}),
+    "Schedule Days": c.scheduleDaysImpact ?? "",
     "Scope Impact": c.scopeImpact ?? "", "Initiated By": c.initiatedBy ?? "",
     "Decision Authority": c.decisionAuthority ?? "", Status: c.status, Notes: c.notes ?? "",
   })));
@@ -110,8 +120,9 @@ export async function buildProjectWorkbook(
     return {
       Vendor: v.partner?.name ?? "", "Socio-Economic": v.partner?.socioEconomic ?? "",
       CAGE: v.partner?.cageCode ?? "", Title: v.title, "Agmt Type": v.agmtType ?? "",
-      "Agmt #": v.agmtNumber ?? "", Ceiling: num(v.value), Funded: funded, Invoiced: invoiced,
-      "% Burned": pctBurned, "Payment Terms": v.paymentTerms ?? "",
+      "Agmt #": v.agmtNumber ?? "",
+      ...(money ? { Ceiling: num(v.value), Funded: funded, Invoiced: invoiced, "% Burned": pctBurned } : {}),
+      "Payment Terms": v.paymentTerms ?? "",
       NDA: v.partner?.ndaOnFile ? "On file" : "", "NDA Expiry": fmtDate(v.partner?.ndaExpiry),
       POC: v.partner?.pocName ?? "", Currency: v.currency, Status: v.status,
       "PoP Start": fmtDate(v.startDate), "PoP End": fmtDate(v.endDate),
@@ -124,10 +135,13 @@ export async function buildProjectWorkbook(
     Training: s.trainingStatus ?? "", "System Access": s.accessStatus ?? "", NDA: s.ndaStatus ?? "",
     Compliant: s.compliant ? "Yes" : "No",
   })));
-  addSheet("CLIN Burn", clins.map((c) => ({
-    CLIN: c.code, Title: c.title, Funded: c.fundedValue, Ceiling: c.value, Burned: c.burned,
-    Remaining: c.remaining, "% Consumed": c.percentConsumed ?? "",
-  })));
+  // Every column but the CLIN's name is money, so without it there is no sheet.
+  if (money) {
+    addSheet("CLIN Burn", clins.map((c) => ({
+      CLIN: c.code, Title: c.title, Funded: c.fundedValue, Ceiling: c.value, Burned: c.burned,
+      Remaining: c.remaining, "% Consumed": c.percentConsumed ?? "",
+    })));
+  }
 
   return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }

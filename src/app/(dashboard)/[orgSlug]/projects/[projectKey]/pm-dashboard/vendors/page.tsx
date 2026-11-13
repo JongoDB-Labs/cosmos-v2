@@ -3,6 +3,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
+import { canSeeProjectMoney } from "@/lib/rbac/money-fields";
 import { VendorTracker } from "@/components/pm-dashboard/vendor-tracker";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
@@ -26,7 +27,11 @@ export default async function VendorsPage({ params }: PageParams) {
     orderBy: { name: "asc" },
   });
 
+  // Contract values are finance data (src/lib/rbac/money-fields.ts); the API
+  // leaves them out, and this tells the screen to say "Restricted".
+  const moneyVisible = await canSeeProjectMoney(ctx, project.id);
+
   return (
-    <VendorTracker orgId={ctx.orgId} projectId={project.id} partners={partners} />
+    <VendorTracker orgId={ctx.orgId} projectId={project.id} partners={partners} moneyVisible={moneyVisible} />
   );
 }

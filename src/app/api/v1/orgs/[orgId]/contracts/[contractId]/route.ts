@@ -9,6 +9,7 @@ import { z } from "zod";
 import { mayReadContract } from "@/lib/crm/contract-scope";
 import { clashingCodesOnContractDetach } from "@/lib/pm/deliverable-scope";
 import { assertRefsInScope, withoutForeign } from "@/lib/rbac/foreign-refs";
+import { moneyGate, projectMoney } from "@/lib/rbac/money-fields";
 
 const updateContractSchema = z.object({
   title: z.string().min(1).max(500).optional(),
@@ -53,7 +54,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return new Response("Not found", { status: 404 });
     }
 
-    return success(withoutForeign(contract, orgId, ["partner", "product"]));
+    // A partner or product from another org reads as none, and the money is
+    // finance data, as on the vendor register (src/lib/rbac/money-fields.ts).
+    return success(
+      projectMoney("vendor", withoutForeign(contract, orgId, ["partner", "product"]), (await moneyGate(ctx))(contract.projectId)),
+    );
   } catch (error) {
     return handleApiError(error);
   }
@@ -112,7 +117,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
-    return success(withoutForeign(updated, orgId, ["partner", "product"]));
+    return success(
+      projectMoney("vendor", withoutForeign(updated, orgId, ["partner", "product"]), (await moneyGate(ctx))(updated.projectId)),
+    );
   } catch (error) {
     return handleApiError(error);
   }
@@ -130,6 +137,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const existing = await prisma.contract.findFirst({
       where: { id: contractId, orgId },
+      select: { projectId: true, title: true },
     });
     if (!existing || !(await mayReadContract(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
 

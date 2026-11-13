@@ -3,6 +3,8 @@ import JSZip from "jszip";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { ForbiddenError } from "@/lib/rbac/check";
+import { canSeeProjectMoney } from "@/lib/rbac/money-fields";
 import { handleApiError } from "@/lib/api-helpers";
 import { buildCombinedWorkbook } from "@/lib/pm/combined-export";
 import {
@@ -27,6 +29,11 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
  *
  * Selection comes from `trackers` (comma list on GET, array on POST) and `mode`.
  * Omitting `trackers` selects all eight.
+ *
+ * Money follows the reader, not the file: without finance access on this
+ * project the change and vendor registers carry "Restricted" where the money
+ * was, and the burn workbook (all money) is left out. Asking for burn alone is
+ * a 403 rather than an empty file.
  */
 
 const XLSX_MIME =
@@ -53,18 +60,29 @@ async function resolveContext(orgId: string, projectId: string) {
     select: { key: true },
   });
   if (!project) return { error: new Response("Not found", { status: 404 }) } as const;
-  return { project } as const;
+  return { project, includeMoney: await canSeeProjectMoney(ctx, projectId) } as const;
+}
+
+/** The selection this reader may have: burn only with money. */
+function allowedTrackers(trackers: Tracker[], includeMoney: boolean): Tracker[] {
+  if (includeMoney) return trackers;
+  const kept = trackers.filter((t) => t !== "burn");
+  if (kept.length === 0) throw new ForbiddenError("CLIN burn needs Finance access");
+  return kept;
 }
 
 async function buildResponse(
   orgId: string,
   projectId: string,
   projectKey: string,
-  trackers: Tracker[],
+  requested: Tracker[],
   mode: string,
+  includeMoney: boolean,
 ): Promise<Response> {
+  const trackers = allowedTrackers(requested, includeMoney);
+  const opts = { includeMoney };
   if (mode === "combined") {
-    const buf = await buildCombinedWorkbook(orgId, projectId, projectKey, trackers);
+    const buf = await buildCombinedWorkbook(orgId, projectId, projectKey, trackers, opts);
     return new Response(new Uint8Array(buf), {
       headers: {
         "Content-Type": XLSX_MIME,
@@ -77,7 +95,7 @@ async function buildResponse(
   if (trackers.length === 1) {
     // A single tracker needs no zip — return the .xlsx directly.
     const { buffer, filename } = await buildPopulatedTemplate(
-      trackers[0], orgId, projectId, projectKey,
+      trackers[0], orgId, projectId, projectKey, opts,
     );
     return new Response(new Uint8Array(buffer), {
       headers: {
@@ -90,7 +108,7 @@ async function buildResponse(
   const zip = new JSZip();
   for (const tracker of trackers) {
     const { buffer, filename } = await buildPopulatedTemplate(
-      tracker, orgId, projectId, projectKey,
+      tracker, orgId, projectId, projectKey, opts,
     );
     zip.file(filename, buffer);
   }
@@ -111,7 +129,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const url = new URL(request.url);
     const trackers = parseTrackers(url.searchParams.get("trackers"));
     const mode = url.searchParams.get("mode") ?? "separate";
-    return await buildResponse(orgId, projectId, ctx.project.key, trackers, mode);
+    return await buildResponse(orgId, projectId, ctx.project.key, trackers, mode, ctx.includeMoney);
   } catch (e) {
     return handleApiError(e);
   }
@@ -128,7 +146,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     };
     const trackers = parseTrackers(body.trackers);
     const mode = body.mode ?? "separate";
-    return await buildResponse(orgId, projectId, ctx.project.key, trackers, mode);
+    return await buildResponse(orgId, projectId, ctx.project.key, trackers, mode, ctx.includeMoney);
   } catch (e) {
     return handleApiError(e);
   }

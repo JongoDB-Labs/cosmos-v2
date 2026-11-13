@@ -9,6 +9,8 @@ import { loadMilestonesWithDerived } from "./schedule";
 import { loadStaffing } from "./staffing";
 import { loadClinsWithBurn } from "./burn";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
+import { ForbiddenError } from "@/lib/rbac/check";
+import { projectMoneyRows } from "@/lib/rbac/money-fields";
 
 /**
  * Template-based PM export. Unlike the flat `buildProjectWorkbook` (export.ts),
@@ -74,7 +76,17 @@ interface RegisterSpec {
   /** 1-based first row that holds data/example content (also first write row). */
   firstDataRow: number;
   columns: ColumnSpec[];
+  /**
+   * Header fragments of the columns that hold money (literal or formula).
+   * Exported without finance access, each of these cells reads "Restricted",
+   * and so does every formula on another sheet that totals them -- a summary
+   * that silently sums nothing would read as a real $0.
+   */
+  moneyHeaders?: string[];
 }
+
+/** What a money cell says to a reader who may not see money. */
+const RESTRICTED = "Restricted";
 
 // ── data loading (mirrors export.ts buildProjectWorkbook) ────────────────────
 
@@ -83,6 +95,7 @@ async function loadRegisterRows(
   tracker: Exclude<Tracker, "burn">,
   orgId: string,
   projectId: string,
+  includeMoney: boolean,
 ): Promise<Record<string, unknown>[]> {
   const where = { orgId, projectId };
   // The loaders return concrete typed rows (Risk, StaffRow, …). The populator
@@ -92,7 +105,11 @@ async function loadRegisterRows(
       case "risks":
         return prisma.risk.findMany({ where, orderBy: { code: "asc" } });
       case "changes":
-        return prisma.changeRequest.findMany({ where, orderBy: { code: "asc" } });
+        return projectMoneyRows(
+          "change",
+          await prisma.changeRequest.findMany({ where, orderBy: { code: "asc" } }),
+          includeMoney,
+        );
       case "blockers":
         return prisma.blocker.findMany({ where, orderBy: { code: "asc" } });
       case "deliverables":
@@ -110,19 +127,24 @@ async function loadRegisterRows(
         // `buildProjectWorkbook` now does.
         return loadStaffing(orgId, projectId, { includeCost: false });
       case "vendors":
-        return prisma.contract.findMany({
-          where,
-          include: {
-            partner: {
-              select: {
-                name: true, socioEconomic: true, cageCode: true, perfRating: true,
-                ndaOnFile: true, ndaExpiry: true, pocName: true, pocEmail: true,
-                type: true,
+        // Largest-first is a statement about value; without money, title order.
+        return projectMoneyRows(
+          "vendor",
+          await prisma.contract.findMany({
+            where,
+            include: {
+              partner: {
+                select: {
+                  name: true, socioEconomic: true, cageCode: true, perfRating: true,
+                  ndaOnFile: true, ndaExpiry: true, pocName: true, pocEmail: true,
+                  type: true,
+                },
               },
             },
-          },
-          orderBy: { value: "desc" },
-        });
+            orderBy: includeMoney ? { value: "desc" } : { title: "asc" },
+          }),
+          includeMoney,
+        );
     }
   })();
   return rows as unknown as Record<string, unknown>[];
@@ -159,6 +181,7 @@ const REGISTERS: Record<Exclude<Tracker, "burn">, RegisterSpec> = {
     sheet: "Change Log",
     headerRow: 3,
     firstDataRow: 4,
+    moneyHeaders: ["cost impact"],
     columns: [
       { headerMatch: "change id", value: (x) => str(x.code) },
       { headerMatch: "date submitted", value: (x) => fmtDate(x.submittedDate as Date) },
@@ -258,6 +281,12 @@ const REGISTERS: Record<Exclude<Tracker, "burn">, RegisterSpec> = {
     sheet: "Vendor Register",
     headerRow: 3,
     firstDataRow: 5, // R4 annotation, R5 "▶ TEMPLATE" row, R6+ examples.
+    // Ceiling, funded and invoiced, and everything derived from them: what is
+    // left, the burn percentages, and the health flag those percentages set.
+    moneyHeaders: [
+      "current ceiling", "current funded", "invoiced approved", "remaining funded",
+      "% burned", "funding health",
+    ],
     columns: [
       // Vendor ID generated below (V-001…) to key the Mod Log / Invoice Log seeds.
       { headerMatch: "company name", value: (x) => partnerName(x) },
@@ -397,6 +426,7 @@ async function populateRegister(
   rows: Record<string, unknown>[],
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   wb: any,
+  includeMoney: boolean,
 ): Promise<void> {
   const sheet = wb.sheet(spec.sheet);
   if (!sheet) throw new Error(`sheet "${spec.sheet}" not found`);
@@ -455,7 +485,76 @@ async function populateRegister(
   }
   if (spec.template === "vendors.xlsx") {
     writeIdColumn(sheet, spec, rows.length, "V");
-    seedVendorLogs(wb, rows);
+    // Without money the logs carry ids and names, and "Restricted" where the
+    // figures would be.
+    seedVendorLogs(wb, rows, includeMoney);
+  }
+
+  if (!includeMoney && spec.moneyHeaders?.length) {
+    restrictMoneyColumns(wb, sheet, spec, headers, rows.length);
+  }
+}
+
+/** Excel column letters for a 1-based index (1 → A, 27 → AA). */
+function columnLetter(n: number): string {
+  let s = "";
+  for (let x = n; x > 0; x = Math.floor((x - 1) / 26)) s = String.fromCharCode(65 + ((x - 1) % 26)) + s;
+  return s;
+}
+
+/**
+ * Mark a register's money as withheld, not absent. Each data row's money
+ * cells read "Restricted" instead of a figure or a formula that would compute
+ * one, and any formula on ANOTHER sheet that reads those columns (the summary
+ * rollups) is replaced the same way, so no total of nothing reads as $0.
+ */
+function restrictMoneyColumns(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  wb: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sheet: any,
+  spec: RegisterSpec,
+  headers: { norm: string; col: number }[],
+  rowCount: number,
+): void {
+  const fragments = spec.moneyHeaders ?? [];
+  const cols = headers.filter((h) => fragments.some((f) => h.norm.startsWith(f))).map((h) => h.col);
+  if (cols.length === 0) return;
+
+  for (let i = 0; i < rowCount; i++) {
+    for (const c of cols) {
+      const cell = sheet.cell(spec.firstDataRow + i, c);
+      if (cell.formula()) cell.clear();
+      cell.value(RESTRICTED);
+    }
+  }
+
+  // References to this register from elsewhere: 'Sheet Name'!$O:$O, 'Sheet Name'!O5 …
+  const quoted = `'${spec.sheet.replace(/'/g, "''")}'!`;
+  const letters = new Set(cols.map(columnLetter));
+  const refersToMoney = (formula: string): boolean => {
+    for (let at = formula.indexOf(quoted); at !== -1; at = formula.indexOf(quoted, at + 1)) {
+      const col = /^\$?([A-Z]{1,3})/.exec(formula.slice(at + quoted.length));
+      if (col && letters.has(col[1])) return true;
+    }
+    return false;
+  };
+  for (const other of wb.sheets()) {
+    if (other.name() === spec.sheet) continue;
+    const used = other.usedRange();
+    if (!used) continue;
+    const lastRow = used.endCell().rowNumber();
+    const lastCol = used.endCell().columnNumber();
+    for (let r = 1; r <= lastRow; r++) {
+      for (let c = 1; c <= lastCol; c++) {
+        const cell = other.cell(r, c);
+        const f = cell.formula();
+        if (f && refersToMoney(f)) {
+          cell.clear();
+          cell.value(RESTRICTED);
+        }
+      }
+    }
   }
 }
 
@@ -506,6 +605,7 @@ function seedVendorLogs(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   wb: any,
   rows: Record<string, unknown>[],
+  includeMoney: boolean,
 ): void {
   const modSheet = wb.sheet("Mod Log");
   const invSheet = wb.sheet("Invoice Log");
@@ -536,6 +636,12 @@ function seedVendorLogs(
     modSheet.cell(rownum, modCol.eff).value(fmtDate(row.startDate as Date));
     modSheet.cell(rownum, modCol.cat).value("Award");
     modSheet.cell(rownum, modCol.desc).value("Initial award (synthesized from Cosmos contract).");
+    if (!includeMoney) {
+      // Blank would read as "no ceiling", and the register's MAXIFS as a $0.
+      modSheet.cell(rownum, modCol.ceilTo).value(RESTRICTED);
+      modSheet.cell(rownum, modCol.fundTo).value(RESTRICTED);
+      return;
+    }
     const ceil = numOrBlank(row.value);
     const fund = numOrBlank(row.fundedValue);
     if (ceil !== "") modSheet.cell(rownum, modCol.ceilTo).value(ceil);
@@ -551,6 +657,12 @@ function seedVendorLogs(
     status: resolveColumn(invHeaders, "status") ?? resolveColumn(invHeaders, "approval") ?? 7,
   };
   clearDataRows(invSheet, 4, 20);
+  if (!includeMoney) {
+    // Which vendors invoiced, and how much, is the restricted part. One row
+    // says so, rather than an empty log that reads as "nothing invoiced".
+    if (rows.length > 0) invSheet.cell(4, invCol.amount).value(RESTRICTED);
+    return;
+  }
   let invRow = 4;
   rows.forEach((row, i) => {
     const invoiced = numOrBlank(row.invoicedValue);
@@ -767,7 +879,15 @@ export async function buildPopulatedTemplate(
   orgId: string,
   projectId: string,
   projectKey: string,
+  // Required, like buildProjectWorkbook's includeCost: a default is how the
+  // permissive branch comes back. Decide it with `moneyGate` / `canSeeProjectMoney`.
+  opts: { includeMoney: boolean },
 ): Promise<PopulateResult> {
+  // The burn workbook is money from end to end; there is no version of it
+  // without. Callers drop it from the selection -- this is the backstop.
+  if (tracker === "burn" && !opts.includeMoney) {
+    throw new ForbiddenError("CLIN burn needs Finance access");
+  }
   const templateName = tracker === "burn" ? "burn.xlsx" : REGISTERS[tracker].template;
   const wb = await XlsxPopulate.fromFileAsync(path.join(TEMPLATE_DIR, templateName));
 
@@ -775,8 +895,8 @@ export async function buildPopulatedTemplate(
     await populateBurn(wb, orgId, projectId);
   } else {
     const spec = REGISTERS[tracker];
-    const rows = await loadRegisterRows(tracker, orgId, projectId);
-    await populateRegister(spec, rows, wb);
+    const rows = await loadRegisterRows(tracker, orgId, projectId, opts.includeMoney);
+    await populateRegister(spec, rows, wb, opts.includeMoney);
   }
 
   const out = (await wb.outputAsync()) as Buffer;

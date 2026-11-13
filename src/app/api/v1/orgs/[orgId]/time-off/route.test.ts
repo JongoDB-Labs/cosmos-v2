@@ -4,7 +4,7 @@ import { OrgRole } from "@prisma/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
 
-const { prisma, getAuthContext, readableTimeUserIds, logAudit } = vi.hoisted(() => ({
+const { prisma, getAuthContext, readableTimeUserIds, logAudit, supervisors } = vi.hoisted(() => ({
   prisma: {
     organization: { findUnique: vi.fn() },
     timeOffRequest: { findMany: vi.fn(), create: vi.fn() },
@@ -14,11 +14,18 @@ const { prisma, getAuthContext, readableTimeUserIds, logAudit } = vi.hoisted(() 
   getAuthContext: vi.fn(),
   readableTimeUserIds: vi.fn(),
   logAudit: vi.fn(),
+  // The org chart, as the approval rule asks it.
+  supervisors: { hasSupervisor: vi.fn(), isSupervisorOf: vi.fn() },
 }));
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/audit", () => ({ logAudit }));
+vi.mock("@/lib/org/supervisors", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/org/supervisors")>()),
+  hasSupervisor: (...a: unknown[]) => supervisors.hasSupervisor(...a),
+  isSupervisorOf: (...a: unknown[]) => supervisors.isSupervisorOf(...a),
+}));
 vi.mock("@/lib/time/scope", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/time/scope")>();
   return { ...actual, readableTimeUserIds: (...a: unknown[]) => readableTimeUserIds(...a) };
@@ -81,6 +88,9 @@ beforeEach(() => {
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "o" });
   getAuthContext.mockResolvedValue(ctx("TIME_READ", "TIME_CREATE"));
   readableTimeUserIds.mockResolvedValue([ME, MY_REPORT]);
+  // By default I report to somebody; the top-of-chart case says otherwise.
+  supervisors.hasSupervisor.mockResolvedValue(true);
+  supervisors.isSupervisorOf.mockResolvedValue(false);
   prisma.timeOffRequest.findMany.mockResolvedValue([]);
   prisma.orgMember.count.mockResolvedValue(1);
 });
@@ -176,9 +186,25 @@ describe("POST /orgs/[orgId]/time-off", () => {
   });
 
   it("still makes a holiday I file for MYSELF wait for a decision", async () => {
+    // As an APPROVER. Without TIME_APPROVE nothing is ever pre-approved, so
+    // the case that matters is the one where I could decide it -- for anyone
+    // but myself, while somebody supervises me.
+    getAuthContext.mockResolvedValue(ctx("TIME_READ", "TIME_CREATE", "TIME_APPROVE"));
     prisma.timeOffRequest.create.mockResolvedValue(row());
     await POST(post({ ...ask, kind: "HOLIDAY" }), { params });
-    expect(prisma.timeOffRequest.create.mock.calls[0][0].data.status).toBe("PENDING");
+    const data = prisma.timeOffRequest.create.mock.calls[0][0].data;
+    expect(data.status).toBe("PENDING");
+    expect(data.decidedById ?? null).toBeNull();
+  });
+
+  it("control: at the top of the chart, an approver's own holiday needs no one else", async () => {
+    // The timesheet rule: with no supervisor nobody else is designated, and
+    // refusing would only deadlock the request.
+    supervisors.hasSupervisor.mockResolvedValue(false);
+    getAuthContext.mockResolvedValue(ctx("TIME_READ", "TIME_CREATE", "TIME_APPROVE"));
+    prisma.timeOffRequest.create.mockResolvedValue(row({ kind: "HOLIDAY", status: "APPROVED" }));
+    await POST(post({ ...ask, kind: "HOLIDAY" }), { params });
+    expect(prisma.timeOffRequest.create.mock.calls[0][0].data).toMatchObject({ status: "APPROVED", decidedById: ME });
   });
 
   it("rejects a range that ends before it starts", async () => {

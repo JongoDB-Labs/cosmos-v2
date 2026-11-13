@@ -74,7 +74,7 @@ describe("buildProjectWorkbook — cost rate", () => {
     // so the workbook carried every pay rate regardless of who asked.
     loadStaffing.mockResolvedValue([staffRow(null)]);
 
-    return buildProjectWorkbook(ORG, PROJ, { includeCost: false }).then(() => {
+    return buildProjectWorkbook(ORG, PROJ, { includeCost: false, includeMoney: true }).then(() => {
       expect(loadStaffing).toHaveBeenCalledWith(ORG, PROJ, {
         includeCost: false,
       });
@@ -84,7 +84,7 @@ describe("buildProjectWorkbook — cost rate", () => {
   it("passes the permission THROUGH rather than deciding for itself", async () => {
     loadStaffing.mockResolvedValue([staffRow(125)]);
 
-    await buildProjectWorkbook(ORG, PROJ, { includeCost: true });
+    await buildProjectWorkbook(ORG, PROJ, { includeCost: true, includeMoney: true });
 
     expect(loadStaffing).toHaveBeenCalledWith(ORG, PROJ, { includeCost: true });
   });
@@ -96,7 +96,7 @@ describe("buildProjectWorkbook — cost rate", () => {
     loadStaffing.mockResolvedValue([staffRow(null)]);
 
     const rows = staffingSheet(
-      await buildProjectWorkbook(ORG, PROJ, { includeCost: false }),
+      await buildProjectWorkbook(ORG, PROJ, { includeCost: false, includeMoney: true }),
     );
 
     expect(rows).toHaveLength(1);
@@ -111,7 +111,7 @@ describe("buildProjectWorkbook — cost rate", () => {
     loadStaffing.mockResolvedValue([staffRow(125)]);
 
     const rows = staffingSheet(
-      await buildProjectWorkbook(ORG, PROJ, { includeCost: true }),
+      await buildProjectWorkbook(ORG, PROJ, { includeCost: true, includeMoney: true }),
     );
 
     expect(rows[0]["Cost Rate"]).toBe(125);

@@ -12,9 +12,22 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { hiddenProjectIds } from "@/lib/rbac/project-access";
-import { handleApiError } from "@/lib/api-helpers";
+import { readableContractsWhere } from "@/lib/crm/contract-scope";
+import { getIpAddress, handleApiError } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
+import {
+  EXPORT_MEMBER_SELECT,
+  EXPORT_ORG_SELECT,
+  auditExport,
+  exportEntity,
+  exportableContracts,
+  exportableMember,
+  exportableNotesWhere,
+  exportableTime,
+  mayExportFinance,
+  mayExportSettings,
+} from "@/lib/export/org-export-scope";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -57,33 +70,75 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const hidden = await hiddenProjectIds(ctx);
     const inVisible = hidden.length ? { projectId: { notIn: hidden } } : {};
     const noneOrVisible = hidden.length ? { OR: [{ projectId: null }, { projectId: { notIn: hidden } }] } : {};
+    // What each entity may carry is decided in lib/export/org-export-scope.ts,
+    // shared with the CSV export. Revenues and expenses are left OUT for an
+    // exporter without finance access, not exported as empty lists: an empty
+    // list reads as "this org has none".
+    const finance = mayExportFinance(ctx);
+    const where = { orgId: ctx.orgId };
     const data = {
       version: 1,
       exportedAt: new Date().toISOString(),
-      organization: await prisma.organization.findUnique({ where: { id: ctx.orgId } }),
+      organization: await exportEntity(
+        "the organization",
+        prisma.organization.findUnique({
+          where: { id: ctx.orgId },
+          select: { ...EXPORT_ORG_SELECT, settings: mayExportSettings(ctx) },
+        }),
+      ),
       // Unfiltered on purpose: this is a whole-org archive, so it carries people who
       // have since been removed as well as current members. `removedAt` tells them
       // apart — dropping them would make the export disagree with the history it is
       // exported alongside.
       //
-      // The user record is selected column by column: loaded whole it carried
-      // each person's password hash and sealed MFA secret into the archive.
-      members: await prismaUnfiltered.orgMember.findMany({ where: { orgId: ctx.orgId }, include: { user: { select: EXPORTED_USER } } }),
-      projects: await prisma.project.findMany({ where: { orgId: ctx.orgId, ...(hidden.length ? { id: { notIn: hidden } } : {}) } }),
-      workItems: await prisma.workItem.findMany({ where: { orgId: ctx.orgId, ...inVisible } }).catch(() => []),
-      intervals: await prisma.interval.findMany({ where: { orgId: ctx.orgId, ...inVisible } }).catch(() => []),
-      crmContacts: await prisma.crmContact.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
-      partners: await prisma.partner.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
-      products: await prisma.product.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
-      contracts: await prisma.contract.findMany({ where: { orgId: ctx.orgId, ...noneOrVisible } }).catch(() => []),
-      notes: await prisma.note.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
-      meetings: await prisma.syncMeeting.findMany({ where: { orgId: ctx.orgId, ...noneOrVisible } }).catch(() => []),
-      timeEntries: await prisma.timeEntry
-        .findMany({ where: { orgId: ctx.orgId, ...NOT_VOIDED, ...noneOrVisible } })
-        .catch(() => []),
-      revenues: await prisma.revenue.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
-      expenses: await prisma.expense.findMany({ where: { orgId: ctx.orgId, ...noneOrVisible } }).catch(() => []),
+      // The user record is selected column by column (EXPORTED_USER, above):
+      // loaded whole it carried each person's password hash and sealed MFA
+      // secret into the archive.
+      members: (
+        await exportEntity(
+          "members",
+          prismaUnfiltered.orgMember.findMany({ where, select: { ...EXPORT_MEMBER_SELECT, user: { select: EXPORTED_USER } } }),
+        )
+      ).map(exportableMember),
+      // Narrowed: `hidden` is hiddenProjectIds(ctx), above.
+      projects: await exportEntity(
+        "projects",
+        prisma.project.findMany({ where: { ...where, ...(hidden.length ? { id: { notIn: hidden } } : {}) } }),
+      ),
+      workItems: await exportEntity("work items", prisma.workItem.findMany({ where: { ...where, ...inVisible } })),
+      intervals: await exportEntity("intervals", prisma.interval.findMany({ where: { ...where, ...inVisible } })),
+      crmContacts: await exportEntity("CRM contacts", prisma.crmContact.findMany({ where })),
+      partners: await exportEntity("partners", prisma.partner.findMany({ where })),
+      products: await exportEntity("products", prisma.product.findMany({ where })),
+      // The contract list's rule (lib/crm/contract-scope.ts), not only project
+      // visibility: a rule denying CRM data on a project keeps its contracts out.
+      contracts: await exportableContracts(
+        ctx,
+        await exportEntity("contracts", readableContractsWhere(ctx).then((where) => prisma.contract.findMany({ where }))),
+      ),
+      notes: await exportEntity(
+        "notes",
+        prisma.note.findMany({ where: { ...where, ...exportableNotesWhere(ctx.userId) } }),
+      ),
+      meetings: await exportEntity("meetings", prisma.syncMeeting.findMany({ where: { ...where, ...noneOrVisible } })),
+      timeEntries: exportableTime(
+        ctx,
+        await exportEntity(
+          "time entries",
+          prisma.timeEntry.findMany({ where: { ...where, ...NOT_VOIDED, ...noneOrVisible } }),
+        ),
+      ),
+      ...(finance && {
+        revenues: await exportEntity("revenues", prisma.revenue.findMany({ where })),
+        expenses: await exportEntity("expenses", prisma.expense.findMany({ where: { ...where, ...noneOrVisible } })),
+      }),
     };
+
+    await auditExport(ctx, {
+      format: "json",
+      entities: Object.keys(data).filter((k) => Array.isArray((data as Record<string, unknown>)[k])),
+      ipAddress: getIpAddress(request),
+    });
 
     return new NextResponse(jsonStringifySafe(data), {
       status: 200,

@@ -11,7 +11,8 @@ import { Permission } from "@/lib/rbac/permissions";
 import { computeRiskScore, riskLevelFromScore } from "@/lib/pm/risk";
 import { logPmActivity, logPmFieldChanges } from "@/lib/pm/activity-log";
 import { resolvePmSubject, isPmSubjectType } from "@/lib/pm/subjects";
-import { assertPermission, assertProjectManage, assertProjectRead, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectManage, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
+import { canSeeProjectMoney, projectMoney, projectMoneyRows } from "@/lib/rbac/money-fields";
 
 // `projectInOrg` lived here and asked whether a project EXISTS in the org. That
 // is not the question these tools needed: a project with `teamScopedAccess` is
@@ -23,6 +24,18 @@ import { assertPermission, assertProjectManage, assertProjectRead, type ToolCont
 function invalid(error: z.ZodError): { error: string } {
   return { error: `Invalid input: ${error.issues.map((i) => i.message).join("; ")}` };
 }
+
+/**
+ * May this actor see money on this project? The register routes' rule
+ * (src/lib/rbac/money-fields.ts), asked with the caller's own AuthContext.
+ * When it says no, results carry `costImpactWithheld` so the assistant reports
+ * the figure as restricted instead of reading its absence as "no cost impact".
+ */
+async function seesMoney(ctx: ToolContext, projectId: string): Promise<boolean> {
+  const auth = await loadAuthContext(ctx);
+  return auth ? canSeeProjectMoney(auth, projectId) : false;
+}
+const WITHHELD = { costImpactWithheld: "Cost impact needs Finance access" } as const;
 
 // ── list_risks ────────────────────────────────────────────────────────────
 const listRisksSchema = z.object({
@@ -419,7 +432,12 @@ export async function listChanges(input: Record<string, unknown>, ctx: ToolConte
       scheduleDaysImpact: true,
     },
   });
-  return { count: changes.length, changes };
+  const money = await seesMoney(ctx, projectId);
+  return {
+    count: changes.length,
+    changes: projectMoneyRows("change", changes, money),
+    ...(money ? {} : WITHHELD),
+  };
 }
 
 // ── create_blocker / update_blocker ────────────────────────────────────────
@@ -784,7 +802,13 @@ export async function createChangeRequest(input: Record<string, unknown>, ctx: T
   await logPmActivity({
     orgId: ctx.orgId, subjectType: "change", subjectId: created.id, userId: ctx.userId, action: "created",
   });
-  return { created: true, id: created.id, changeRequest: created };
+  const money = await seesMoney(ctx, data.projectId);
+  return {
+    created: true,
+    id: created.id,
+    changeRequest: projectMoney("change", created, money),
+    ...(money ? {} : WITHHELD),
+  };
 }
 
 const updateChangeSchema = z.object({
@@ -850,5 +874,11 @@ export async function updateChangeRequest(input: Record<string, unknown>, ctx: T
     { title: existing.title, status: existing.status, type: existing.type, scheduleDaysImpact: existing.scheduleDaysImpact },
     { title: updated.title, status: updated.status, type: updated.type, scheduleDaysImpact: updated.scheduleDaysImpact },
   );
-  return { updated: true, id: updated.id, changeRequest: updated };
+  const money = await seesMoney(ctx, existing.projectId);
+  return {
+    updated: true,
+    id: updated.id,
+    changeRequest: projectMoney("change", updated, money),
+    ...(money ? {} : WITHHELD),
+  };
 }

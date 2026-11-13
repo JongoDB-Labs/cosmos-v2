@@ -33,6 +33,11 @@
   "DELETE v1/orgs/[orgId]/feedback/[feedbackId]/comments/[commentId]": [
     "isStaff"
   ],
+  "DELETE v1/orgs/[orgId]/finance/expenses/[expenseId]": [
+    "approvalAuthority",
+    "isManagerOf",
+    "roleCountsFor"
+  ],
   "DELETE v1/orgs/[orgId]/members/[memberId]": [
     "role literal"
   ],
@@ -263,6 +268,16 @@
   "POST v1/orgs/[orgId]/feedback/[feedbackId]/comments": [
     "isStaff"
   ],
+  "POST v1/orgs/[orgId]/finance/expenses/[expenseId]/approve": [
+    "approvalAuthority",
+    "isManagerOf",
+    "roleCountsFor"
+  ],
+  "POST v1/orgs/[orgId]/finance/expenses/bulk-approve": [
+    "approvalAuthority",
+    "isManagerOf",
+    "roleCountsFor"
+  ],
   "POST v1/orgs/[orgId]/members": [
     "OrgRole.OWNER|ADMIN"
   ],
@@ -389,6 +404,16 @@
   "POST v1/orgs/[orgId]/saved-views/[viewId]/subscriptions": [
     "viewerScope"
   ],
+  "POST v1/orgs/[orgId]/time-entries/[entryId]/approve": [
+    "approvalAuthority",
+    "isManagerOf",
+    "roleCountsFor"
+  ],
+  "POST v1/orgs/[orgId]/time-off": [
+    "approvalAuthority",
+    "isManagerOf",
+    "roleCountsFor"
+  ],
   "POST v1/orgs/[orgId]/timesheets/[timesheetId]": [
     "approvalAuthority",
     "isManagerOf",
@@ -400,6 +425,11 @@
   ],
   "PUT v1/orgs/[orgId]/feedback/[feedbackId]": [
     "isStaff"
+  ],
+  "PUT v1/orgs/[orgId]/finance/expenses/[expenseId]": [
+    "approvalAuthority",
+    "isManagerOf",
+    "roleCountsFor"
   ],
   "PUT v1/orgs/[orgId]/members/[memberId]": [
     "orgRole",

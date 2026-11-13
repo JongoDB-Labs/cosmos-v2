@@ -9,13 +9,22 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
+import { ForbiddenError, requirePermission, type AuthContext } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { hiddenProjectIds } from "@/lib/rbac/project-access";
-import { handleApiError } from "@/lib/api-helpers";
+import { readableContractsWhere } from "@/lib/crm/contract-scope";
+import { getIpAddress, handleApiError } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { toCSV } from "@/lib/export/csv";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
+import {
+  auditExport,
+  exportEntity,
+  exportableContracts,
+  exportableNotesWhere,
+  exportableTime,
+  mayExportFinance,
+} from "@/lib/export/org-export-scope";
 
 type RouteParams = { params: Promise<{ orgId: string; entity: string }> };
 
@@ -26,21 +35,42 @@ const noneOrVisible = (hidden: string[]) =>
   hidden.length ? { OR: [{ projectId: null }, { projectId: { notIn: hidden } }] } : {};
 
 
-// Allowlist of entity slugs → Prisma model accessor
-const FETCHERS: Record<string, (orgId: string, hidden: string[]) => Promise<unknown[]>> = {
-  projects: (orgId, hidden) => prisma.project.findMany({ where: { orgId, ...(hidden.length ? { id: { notIn: hidden } } : {}) } }),
-  "work-items": (orgId, hidden) => prisma.workItem.findMany({ where: { orgId, ...inVisible(hidden) } }).catch(() => []),
-  intervals: (orgId, hidden) => prisma.interval.findMany({ where: { orgId, ...inVisible(hidden) } }).catch(() => []),
-  "crm-contacts": (orgId) => prisma.crmContact.findMany({ where: { orgId } }).catch(() => []),
-  partners: (orgId) => prisma.partner.findMany({ where: { orgId } }).catch(() => []),
-  products: (orgId) => prisma.product.findMany({ where: { orgId } }).catch(() => []),
-  contracts: (orgId, hidden) => prisma.contract.findMany({ where: { orgId, ...noneOrVisible(hidden) } }).catch(() => []),
-  notes: (orgId) => prisma.note.findMany({ where: { orgId } }).catch(() => []),
-  meetings: (orgId, hidden) => prisma.syncMeeting.findMany({ where: { orgId, ...noneOrVisible(hidden) } }).catch(() => []),
-  "time-entries": (orgId, hidden) =>
-    prisma.timeEntry.findMany({ where: { orgId, ...NOT_VOIDED, ...noneOrVisible(hidden) } }).catch(() => []),
-  revenues: (orgId) => prisma.revenue.findMany({ where: { orgId } }).catch(() => []),
-  expenses: (orgId, hidden) => prisma.expense.findMany({ where: { orgId, ...noneOrVisible(hidden) } }).catch(() => []),
+/** Refused outright, like the list it comes from, rather than exported empty. */
+const needFinance = (ctx: AuthContext) => {
+  if (!mayExportFinance(ctx)) throw new ForbiddenError("Exporting this needs Finance access");
+};
+
+// Allowlist of entity slugs → Prisma model accessor. What each may carry is
+// decided in lib/export/org-export-scope.ts, shared with the JSON archive.
+const FETCHERS: Record<string, (orgId: string, hidden: string[], ctx: AuthContext) => Promise<unknown[]>> = {
+  // SCOPING NOTE — `hidden` is hiddenProjectIds(ctx), which GET passes in.
+  projects: (orgId, hidden) =>
+    exportEntity("projects", prisma.project.findMany({ where: { orgId, ...(hidden.length ? { id: { notIn: hidden } } : {}) } })),
+  "work-items": (orgId, hidden) => exportEntity("work items", prisma.workItem.findMany({ where: { orgId, ...inVisible(hidden) } })),
+  intervals: (orgId, hidden) => exportEntity("intervals", prisma.interval.findMany({ where: { orgId, ...inVisible(hidden) } })),
+  "crm-contacts": (orgId) => exportEntity("CRM contacts", prisma.crmContact.findMany({ where: { orgId } })),
+  partners: (orgId) => exportEntity("partners", prisma.partner.findMany({ where: { orgId } })),
+  products: (orgId) => exportEntity("products", prisma.product.findMany({ where: { orgId } })),
+  // The contract list's rule, not just project visibility: CRM_READ on each
+  // contract's project, so a rule denying CRM data there keeps it out too.
+  contracts: async (_orgId, _hidden, ctx) =>
+    exportableContracts(ctx, await exportEntity("contracts", readableContractsWhere(ctx).then((where) => prisma.contract.findMany({ where })))),
+  notes: (orgId, _hidden, ctx) =>
+    exportEntity("notes", prisma.note.findMany({ where: { orgId, ...exportableNotesWhere(ctx.userId) } })),
+  meetings: (orgId, hidden) => exportEntity("meetings", prisma.syncMeeting.findMany({ where: { orgId, ...noneOrVisible(hidden) } })),
+  "time-entries": async (orgId, hidden, ctx) =>
+    exportableTime(
+      ctx,
+      await exportEntity("time entries", prisma.timeEntry.findMany({ where: { orgId, ...NOT_VOIDED, ...noneOrVisible(hidden) } })),
+    ),
+  revenues: (orgId, _hidden, ctx) => {
+    needFinance(ctx);
+    return exportEntity("revenues", prisma.revenue.findMany({ where: { orgId } }));
+  },
+  expenses: (orgId, hidden, ctx) => {
+    needFinance(ctx);
+    return exportEntity("expenses", prisma.expense.findMany({ where: { orgId, ...noneOrVisible(hidden) } }));
+  },
 };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
@@ -63,8 +93,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
     if (limited) return limited;
 
-    const rows = await fetcher(ctx.orgId, await hiddenProjectIds(ctx));
+    const rows = await fetcher(ctx.orgId, await hiddenProjectIds(ctx), ctx);
     const csv = toCSV(rows as Record<string, unknown>[]);
+    await auditExport(ctx, { format: "csv", entities: [entity], ipAddress: getIpAddress(request) });
 
     return new NextResponse(csv, {
       status: 200,

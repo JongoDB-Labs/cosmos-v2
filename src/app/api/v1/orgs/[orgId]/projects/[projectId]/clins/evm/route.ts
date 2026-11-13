@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { ForbiddenError } from "@/lib/rbac/check";
+import { canSeeProjectMoney } from "@/lib/rbac/money-fields";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { loadClinBurnTimePhased } from "@/lib/pm/burn";
 
@@ -18,6 +20,12 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });
+
+    // Every figure here is money (ceiling, funding, burn, the curve), so there
+    // is nothing left to return without it.
+    if (!(await canSeeProjectMoney(ctx, projectId))) {
+      throw new ForbiddenError("CLIN burn needs Finance access");
+    }
 
     const evm = await loadClinBurnTimePhased(orgId, projectId);
     return success(evm);

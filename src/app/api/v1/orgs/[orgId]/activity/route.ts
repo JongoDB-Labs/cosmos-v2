@@ -4,7 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
-import { readableTimeUserIds } from "@/lib/time/scope";
+import { readableTimeUserIds, timeProjectCeiling } from "@/lib/time/scope";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
 import { redactRates } from "@/lib/time/visibility";
 import { mergePage, decodeCursor, type FeedItem } from "@/lib/activity/merge";
@@ -188,6 +188,9 @@ async function timeEvents(
   // A type filter is a work-item notion; asking for one excludes time entirely
   // rather than quietly ignoring the filter.
   if (sp.get("type")) return [];
+  // A project-scoped key reads time on its projects only, as on /time-entries.
+  const ceiling = timeProjectCeiling(ctx);
+  if (projectFilter && ceiling && !ceiling.in.includes(projectFilter)) return [];
 
   const entries = await prisma.timeEntry.findMany({
     where: {
@@ -196,7 +199,7 @@ async function timeEvents(
       status: { not: "DRAFT" },
       ...(allowed !== null ? { userId: { in: allowed } } : {}),
       ...(userFilter ? { userId: userFilter } : {}),
-      ...(projectFilter ? { projectId: projectFilter } : {}),
+      ...(projectFilter ? { projectId: projectFilter } : ceiling ? { projectId: ceiling } : {}),
     },
     select: {
       id: true,

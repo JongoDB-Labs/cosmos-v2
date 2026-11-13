@@ -32,6 +32,9 @@ const { prisma, getAuthContext, requestHeaders, getVisibleProjectIds, loaders } 
       deliverable: rows(),
       blocker: rows(),
       changeRequest: rows(),
+      // financeScope's lookup for FINANCE_READ_PROJECT: which projects the
+      // viewer is a member of.
+      projectMember: rows(),
     },
     getAuthContext: vi.fn(),
     // The request's host, as the reverse proxy forwards it. Same site as the
@@ -198,6 +201,7 @@ describe("Program Management — contract money is gated separately from the pag
         status: "APPROVED",
         costImpact: 125000,
         scheduleDaysImpact: 14,
+        projectId: "p-open",
       },
     ] as never);
     signedInWith(PROGRAM_ONLY);
@@ -207,7 +211,8 @@ describe("Program Management — contract money is gated separately from the pag
     })) as ReactElement;
 
     const change = dashboardData(el).changes[0];
-    expect(change.costImpact).toBeNull();
+    // Left OUT, not nulled: null reads as "no cost impact on file".
+    expect("costImpact" in change).toBe(false);
     // Positive control: the row itself is still there, and the part of it that
     // is NOT money still arrives. A test that only asserted the null would
     // pass just as happily against a page that dropped the row entirely.
@@ -225,6 +230,7 @@ describe("Program Management — contract money is gated separately from the pag
         status: "APPROVED",
         costImpact: 125000,
         scheduleDaysImpact: 14,
+        projectId: "p-open",
       },
     ] as never);
     signedInWith(PROGRAM_ONLY | Permission.FINANCE_READ);
@@ -237,10 +243,34 @@ describe("Program Management — contract money is gated separately from the pag
     expect(dashboardData(el).changes[0].costImpact).toBe(125000);
   });
 
-  it("ACCOUNTING_READ opens it too, as it does on the Accounting pages", async () => {
+  it("ACCOUNTING_READ alone does not open it: register money follows the finance bits", async () => {
+    // The ledger is a different question from a contract's value. Every
+    // built-in role that holds ACCOUNTING_READ also holds FINANCE_READ, so
+    // this changes nothing for them; it closes a custom role that granted
+    // the ledger alone.
     signedInWith(PROGRAM_ONLY | Permission.ACCOUNTING_READ);
-    await ProgramManagementContent({ params, searchParams: noQuery });
-    expect(loaders.clins).toHaveBeenCalledWith("o1", ["p-open", "p-other"]);
+    const el = (await ProgramManagementContent({ params, searchParams: noQuery })) as ReactElement;
+    expect(loaders.clins).not.toHaveBeenCalled();
+    expect(dashboardProps(el).moneyWithheld).toBe(true);
+  });
+
+  it("FINANCE_READ_PROJECT opens money on the viewer's own projects only, and says so", async () => {
+    prisma.projectMember.findMany.mockResolvedValueOnce([{ projectId: "p-open" }] as never);
+    prisma.changeRequest.findMany.mockResolvedValueOnce([
+      { id: "c1", code: "CR-1", title: "Mine", type: null, status: "APPROVED", costImpact: 500, scheduleDaysImpact: 1, projectId: "p-open" },
+      { id: "c2", code: "CR-2", title: "Theirs", type: null, status: "APPROVED", costImpact: 900, scheduleDaysImpact: 2, projectId: "p-other" },
+    ] as never);
+    signedInWith(PROGRAM_ONLY | Permission.FINANCE_READ_PROJECT);
+    const el = (await ProgramManagementContent({ params, searchParams: noQuery })) as ReactElement;
+
+    // CLINs are loaded for the member project, never for the other one.
+    expect(loaders.clins).toHaveBeenCalledWith("o1", ["p-open"]);
+    const [mine, theirs] = dashboardData(el).changes;
+    expect(mine.costImpact).toBe(500);
+    expect("costImpact" in theirs).toBe(false);
+    expect(theirs.scheduleDaysImpact).toBe(2);
+    // A partial total must say it is partial.
+    expect(dashboardProps(el)).toMatchObject({ moneyWithheld: false, moneyPartial: true });
   });
 });
 
@@ -355,11 +385,15 @@ describe("Program Management — an outside dashboard, when the instance sets on
  * the dashboard rather than assuming a position.
  */
 function dashboardData(el: ReactElement): {
-  changes: { code: string; costImpact: number | null; scheduleDaysImpact: number }[];
+  changes: { code: string; costImpact?: number | null; scheduleDaysImpact: number }[];
 } {
+  return (dashboardProps(el) as { data: ReturnType<typeof dashboardData> }).data;
+}
+
+function dashboardProps(el: ReactElement): Record<string, unknown> {
   const found = findByDisplayName(el, "PmDashboard");
   if (!found) throw new Error("PmDashboard was not rendered");
-  return (found.props as { data: ReturnType<typeof dashboardData> }).data;
+  return found.props as Record<string, unknown>;
 }
 
 function findByDisplayName(node: unknown, name: string): ReactElement | null {

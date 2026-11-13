@@ -99,6 +99,27 @@ export function timeUserIdFilter(
   return allowed ? { in: allowed } : undefined;
 }
 
+/**
+ * A project-scoped key's ceiling, as a `projectId` filter for time entries, or
+ * `undefined` -- no filter -- when there is none.
+ *
+ * Time is scoped by PERSON (above), and for a signed-in member that is the
+ * whole rule: bounding a session by project would hide hours an approver is
+ * asked to sign (see the PERSON_SCOPED note in the executors' project-scope
+ * arch test). A key limited to projects is different. Whoever minted it said
+ * "this token is for these projects", and that narrows on top of the person
+ * rule rather than replacing it.
+ *
+ * Time on NO project (internal categories, leave) is outside the ceiling, the
+ * same way `inKeyProjectScope` treats a record whose project can't be named:
+ * it fails closed. `in` already does that -- SQL's IN never matches a NULL.
+ */
+export function timeProjectCeiling(
+  ctx: Pick<AuthContext, "projectScope">,
+): { in: string[] } | undefined {
+  return ctx.projectScope ? { in: [...ctx.projectScope] } : undefined;
+}
+
 export type TimePerson = {
   userId: string;
   displayName: string | null;
