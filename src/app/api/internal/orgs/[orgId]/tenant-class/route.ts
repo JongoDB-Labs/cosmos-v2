@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isInternalAdmin } from "@/lib/internal/access";
+import { isSystemAdmin } from "@/lib/internal/access";
 import { applyGovGuardrails } from "@/lib/runtime-config/guardrails";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { sweepMarkedComments } from "@/lib/feedback/comments.server";
 
 // The GOV designation is a PLATFORM-OWNER decision (design §8): only an internal admin
-// (isInternalAdmin against INTERNAL_ADMINS) may flip an org's tenantClass. A tenant-admin
+// (isSystemAdmin: INTERNAL_ADMINS, first-party sign-in) may flip an org's tenantClass. A tenant-admin
 // can NEVER reach this route (it lives under /api/internal, gated below). On a flip TO gov
 // we ATOMICALLY apply the gov guardrails (breadth/mcp off + strip commercial-only providers)
 // in the SAME transaction as the class change, so the org is never momentarily gov-with-breadth.
@@ -24,7 +24,7 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 async function requirePlatformOwner() {
   const user = await getCurrentUser();
   if (!user) return null;
-  if (!isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)) return null;
+  if (!isSystemAdmin(user)) return null;
   return user;
 }
 

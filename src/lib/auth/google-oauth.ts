@@ -45,3 +45,28 @@ export async function googleLoginConfigured(): Promise<boolean> {
   if (stored) return stored.enabled;
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
+
+/** The Google authorization URL for sign-in, and for connecting Google to a
+ *  signed-in account (same scopes: the callback seals the refresh token either
+ *  way). */
+export async function googleSignInUrl(request: NextRequest, state: string): Promise<string> {
+  const googleClient = await getGoogleLoginClient(googleRedirectUri(request));
+  return googleClient.generateAuthUrl({
+    scope: [
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/calendar",
+      "https://www.googleapis.com/auth/drive",
+      "https://www.googleapis.com/auth/gmail.readonly",
+      // Required to send invitation emails from the inviter's mailbox.
+      "https://www.googleapis.com/auth/gmail.send",
+      // Google Meet REST API — create spaces + read conference artifacts.
+      "https://www.googleapis.com/auth/meetings.space.created",
+      "https://www.googleapis.com/auth/meetings.space.readonly",
+    ],
+    state,
+    access_type: "offline",
+    prompt: "consent",
+  });
+}

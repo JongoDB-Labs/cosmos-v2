@@ -17,7 +17,7 @@ import type { Prisma } from "@prisma/client";
  *   - it belongs to no organisation        (never accepted anywhere)
  *   - it has never been used               (lastActiveAt null)
  *   - its password is still the issued one (mustChangePassword still true)
- *   - no external identity is linked       (no googleId / auth0UserId)
+ *   - no external identity is linked       (Google, Auth0, Microsoft or SSO)
  *   - no OTHER invitation is pending       (another org may be relying on it)
  *
  * Any one of those failing means a real person may be behind the account, and we
@@ -51,7 +51,8 @@ export async function revokeProvisionedAccount(
       mustChangePassword: true,
       googleId: true,
       auth0UserId: true,
-      _count: { select: { memberships: true } },
+      microsoftIdentity: { select: { id: true } },
+      _count: { select: { memberships: true, federatedIdentities: true } },
     },
   });
   if (!user) return { deleted: false, reason: "no account for this address" };
@@ -59,7 +60,9 @@ export async function revokeProvisionedAccount(
   if (user._count.memberships > 0) return { deleted: false, reason: "account belongs to an organisation" };
   if (user.lastActiveAt !== null) return { deleted: false, reason: "account has been used" };
   if (!user.mustChangePassword) return { deleted: false, reason: "account has its own password" };
-  if (user.googleId || user.auth0UserId) return { deleted: false, reason: "account has a linked identity" };
+  if (user.googleId || user.auth0UserId || user.microsoftIdentity || user._count.federatedIdentities > 0) {
+    return { deleted: false, reason: "account has a linked identity" };
+  }
 
   // Another org's pending invite would be relying on this account existing.
   const otherPending = await tx.invitation.count({

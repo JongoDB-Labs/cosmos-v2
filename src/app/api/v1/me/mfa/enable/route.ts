@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
+import { isSsoSession } from "@/lib/auth/org-session-scope";
 import { verifyTotp, generateRecoveryCodes, hashRecoveryCode } from "@/lib/auth/totp";
 import { openSecret } from "@/lib/crypto/vault";
 import { SESSION_COOKIE } from "@/lib/auth/client";
@@ -15,6 +16,14 @@ const schema = z.object({ code: z.string().min(1).max(20) });
 export async function POST(request: NextRequest) {
   const me = await getCurrentUser();
   if (!me) return new Response("Unauthorized", { status: 401 });
+  // An org's single sign-on opens that org only; it doesn't change the account's
+  // own sign-in, which would follow the person into every other org.
+  if (isSsoSession(me)) {
+    return NextResponse.json(
+      { error: "Two-factor protects password sign-in. Sign in with your password to set it up." },
+      { status: 403 },
+    );
+  }
 
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {

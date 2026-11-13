@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { redirect, notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isInternalAdmin } from "@/lib/internal/access";
+import { isSystemAdmin } from "@/lib/internal/access";
 
 /**
  * Cache Components requires cookie/header reads to live inside a <Suspense>
@@ -32,6 +32,6 @@ export default function InternalLayout({
 async function InternalGate({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)) notFound();
+  if (!isSystemAdmin(user)) notFound();
   return <>{children}</>;
 }

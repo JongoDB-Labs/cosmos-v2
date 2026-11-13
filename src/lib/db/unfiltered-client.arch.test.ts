@@ -33,6 +33,12 @@ const ALLOWED: Record<string, string> = {
     "person away — a silent lockout. It also keeps a removed OWNER recognisable as " +
     "OWNER, so reinstating cannot downgrade them.",
 
+  "src/lib/auth/sso-provisioned-admin.ts":
+    "HISTORICAL ATTRIBUTION. Clearing the made-by-single-sign-on mark is an " +
+    "account-wide change, so it is audited in every org the account has belonged " +
+    "to, including one it was later removed from: that org's admins saw it as an " +
+    "IdP-made account and should see the mark cleared. It only reads org ids.",
+
   "src/lib/ai/executors/work-items.ts":
     "HISTORICAL ATTRIBUTION. `assigneeNames` puts a name to the ids already stored " +
     "on work items, so it must answer for people since removed — otherwise every " +

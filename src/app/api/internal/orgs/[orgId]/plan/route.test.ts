@@ -9,9 +9,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const { getCurrentUser, isInternalAdmin, prisma, logAudit } = vi.hoisted(() => ({
+const { getCurrentUser, isSystemAdmin, prisma, logAudit } = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
-  isInternalAdmin: vi.fn(),
+  isSystemAdmin: vi.fn(),
   prisma: {
     organization: { findUnique: vi.fn(), update: vi.fn() },
   },
@@ -19,7 +19,7 @@ const { getCurrentUser, isInternalAdmin, prisma, logAudit } = vi.hoisted(() => (
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser }));
-vi.mock("@/lib/internal/access", () => ({ isInternalAdmin }));
+vi.mock("@/lib/internal/access", () => ({ isSystemAdmin }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/audit", () => ({ logAudit }));
 
@@ -51,7 +51,7 @@ describe("PATCH plan — platform-owner RBAC", () => {
 
   it("403 for a tenant-admin (signed in but NOT an internal admin) — cannot change plan", async () => {
     getCurrentUser.mockResolvedValue({ id: "u1", email: "admin@tenant.com" });
-    isInternalAdmin.mockReturnValue(false);
+    isSystemAdmin.mockReturnValue(false);
     const res = await PATCH(patch({ plan: "ENTERPRISE" }), { params });
     expect(res.status).toBe(403);
     expect(prisma.organization.update).not.toHaveBeenCalled();
@@ -62,7 +62,7 @@ describe("PATCH plan — platform-owner RBAC", () => {
 describe("PATCH plan — platform-owner can change the plan", () => {
   beforeEach(() => {
     getCurrentUser.mockResolvedValue({ id: "owner-1", email: "owner@platform.com" });
-    isInternalAdmin.mockReturnValue(true);
+    isSystemAdmin.mockReturnValue(true);
   });
 
   it("sets a valid plan ⇒ organization.update + plan.changed audited with from/to", async () => {

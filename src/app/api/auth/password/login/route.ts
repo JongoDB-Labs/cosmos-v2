@@ -16,7 +16,6 @@ import {
 import { sealSecret } from "@/lib/crypto/vault";
 import { rateLimit } from "@/lib/rate-limit/bucket";
 import { getIpAddress } from "@/lib/api-helpers";
-import { googleLoginBlockedByGovSso } from "@/lib/auth/sso-enforcement";
 
 const MFA_PENDING_TTL = 300; // 5 minutes to complete the second factor
 
@@ -81,16 +80,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
   }
 
-  // SSO-enforcement parity with the Google callback: a member/invitee of a GOV
-  // org whose IdP is enabled+enforced MUST authenticate via the IdP (which
-  // asserts the AAL/MFA floor), not via local password. Closes the symmetric
-  // bypass the Google path already guards.
-  if (await googleLoginBlockedByGovSso({ email, userId: user.id })) {
-    return NextResponse.json(
-      { error: "This organization requires single sign-on." },
-      { status: 403 },
-    );
-  }
+  // An org that requires single sign-on refuses a password session where the
+  // org is opened (lib/auth/org-session-scope), so the password still opens the
+  // person's other orgs.
 
   // Forced first-login onboarding (email/password invites): rotate the temporary
   // password and/or enroll MFA BEFORE any session is minted. We hand back a

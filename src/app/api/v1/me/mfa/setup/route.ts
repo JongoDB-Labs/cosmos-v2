@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
+import { isSsoSession } from "@/lib/auth/org-session-scope";
 import { generateTotpSecret, totpUri } from "@/lib/auth/totp";
 import { sealSecret } from "@/lib/crypto/vault";
 
@@ -10,6 +11,14 @@ import { sealSecret } from "@/lib/crypto/vault";
 export async function POST() {
   const me = await getCurrentUser();
   if (!me) return new Response("Unauthorized", { status: 401 });
+  // An org's single sign-on opens that org only; it doesn't change the account's
+  // own sign-in, which would follow the person into every other org.
+  if (isSsoSession(me)) {
+    return NextResponse.json(
+      { error: "Two-factor protects password sign-in. Sign in with your password to set it up." },
+      { status: 403 },
+    );
+  }
 
   const existing = await prisma.user.findUnique({
     where: { id: me.id },

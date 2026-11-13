@@ -77,6 +77,9 @@ export async function POST(request: NextRequest) {
       passwordSetAt: new Date(),
       // A completed reset satisfies any pending forced rotation.
       mustChangePassword: false,
+      // The reset link went to the account's address, so the new password
+      // vouches for it (see lib/internal/access).
+      passwordUntrusted: false,
     },
   });
   await endOtherSessions(user.id);

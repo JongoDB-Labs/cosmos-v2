@@ -1,74 +1,41 @@
 // @vitest-environment node
 //
-// googleLoginBlockedByGovSso — the gov SSO-enforcement guard for the Google
-// (non-SSO) login path. Locks the bypass fix: a GOV member of an enabled+
-// enforced IdpConnection org must NOT be allowed to mint a session via Google,
-// EXCEPT platform owners on INTERNAL_ADMINS (break-glass).
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+// orgRequiresSso — whether an org opens only to its own IdP's sessions. A
+// property of the ORG, checked where the org is opened (getAuthContext, via
+// org-session-scope), never at sign-in: the person's other orgs keep working.
+// Only a GOV org whose connection is both enabled and enforced requires it.
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { prisma } = vi.hoisted(() => ({
-  prisma: {
-    orgMember: { findFirst: vi.fn() },
-    invitation: { findFirst: vi.fn() },
-  },
+  prisma: { idpConnection: { findUnique: vi.fn() } },
 }));
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
 
-import { googleLoginBlockedByGovSso } from "./sso-enforcement";
+import { orgRequiresSso } from "./sso-enforcement";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  prisma.orgMember.findFirst.mockResolvedValue(null);
-  prisma.invitation.findFirst.mockResolvedValue(null);
-  delete process.env.INTERNAL_ADMINS;
+  prisma.idpConnection.findUnique.mockResolvedValue(null);
 });
 
-afterEach(() => {
-  delete process.env.INTERNAL_ADMINS;
-});
-
-describe("googleLoginBlockedByGovSso", () => {
-  it("blocks a member of a GOV enabled+enforced SSO org", async () => {
-    prisma.orgMember.findFirst.mockResolvedValue({ id: "m1" });
-    const blocked = await googleLoginBlockedByGovSso({
-      email: "alice@agency.gov",
-      userId: "u1",
-    });
-    expect(blocked).toBe(true);
-    // The org filter must require GOV + enabled + enforced.
-    const where = prisma.orgMember.findFirst.mock.calls[0][0].where;
-    expect(where.org.tenantClass).toBe("GOV");
-    expect(where.org.idpConnection.is).toEqual({ enabled: true, enforced: true });
+describe("orgRequiresSso", () => {
+  it("requires SSO for a GOV org whose connection is enabled and enforced", async () => {
+    prisma.idpConnection.findUnique.mockResolvedValue({ enabled: true, enforced: true });
+    expect(await orgRequiresSso({ id: "o1", tenantClass: "GOV" })).toBe(true);
+    expect(prisma.idpConnection.findUnique.mock.calls[0][0].where).toEqual({ orgId: "o1" });
   });
 
-  it("blocks an invited (not-yet-member) user of a GOV enforced org", async () => {
-    prisma.invitation.findFirst.mockResolvedValue({ id: "i1" });
-    const blocked = await googleLoginBlockedByGovSso({
-      email: "bob@agency.gov",
-      userId: null,
-    });
-    expect(blocked).toBe(true);
-    expect(prisma.orgMember.findFirst).not.toHaveBeenCalled(); // no userId
+  it("does not for a GOV org whose connection is disabled, or not enforced, or missing", async () => {
+    for (const conn of [{ enabled: false, enforced: true }, { enabled: true, enforced: false }, null]) {
+      prisma.idpConnection.findUnique.mockResolvedValue(conn);
+      expect(await orgRequiresSso({ id: "o1", tenantClass: "GOV" })).toBe(false);
+    }
   });
 
-  it("allows a user with no gov-enforced membership or invite", async () => {
-    const blocked = await googleLoginBlockedByGovSso({
-      email: "carol@commercial.com",
-      userId: "u2",
-    });
-    expect(blocked).toBe(false);
-  });
-
-  it("exempts INTERNAL_ADMINS platform owners (break-glass) without any DB hit", async () => {
-    process.env.INTERNAL_ADMINS = "owner@cosmos.dev, admin@cosmos.dev";
-    prisma.orgMember.findFirst.mockResolvedValue({ id: "m1" }); // would otherwise block
-    const blocked = await googleLoginBlockedByGovSso({
-      email: "Owner@Cosmos.dev", // case-insensitive
-      userId: "u3",
-    });
-    expect(blocked).toBe(false);
-    expect(prisma.orgMember.findFirst).not.toHaveBeenCalled();
-    expect(prisma.invitation.findFirst).not.toHaveBeenCalled();
+  it("never for a commercial org, even with an enforced connection, and without asking the database", async () => {
+    prisma.idpConnection.findUnique.mockResolvedValue({ enabled: true, enforced: true });
+    expect(await orgRequiresSso({ id: "o2", tenantClass: "COMMERCIAL" })).toBe(false);
+    expect(prisma.idpConnection.findUnique).not.toHaveBeenCalled();
   });
 });

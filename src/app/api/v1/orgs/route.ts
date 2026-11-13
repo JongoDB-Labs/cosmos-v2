@@ -12,7 +12,7 @@ import { provisionPlugins } from "@/lib/plugins/enablement";
 import "@/lib/plugins/registry/server";
 import { seedBuiltinWorkRoles } from "@/lib/rbac/builtin-work-roles-seed";
 import { isReservedSlug } from "@/lib/org/reserved-slugs";
-import { isInternalAdmin } from "@/lib/internal/access";
+import { isSystemAdmin } from "@/lib/internal/access";
 
 // NOTE: `plan` is intentionally NOT accepted here. New orgs take the schema
 // default (ENTERPRISE); changing a plan is a PLATFORM-ADMIN action only, via
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
     // itself grant the ability to bootstrap an org and self-assign OWNER. Only
     // a SYSTEM admin or an EXISTING org member may create an org — everyone else
     // must be invited/provisioned by an admin.
-    if (!isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)) {
+    if (!isSystemAdmin(currentUser)) {
       const existingMembership = await prisma.orgMember.findFirst({
         where: { userId: user.id },
         select: { id: true },

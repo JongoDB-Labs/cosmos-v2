@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
-import { isInternalAdmin } from "@/lib/internal/access";
+import { isSystemAdmin } from "@/lib/internal/access";
 import { PageShell } from "@/components/ui/page-shell";
 import { PageSkeleton } from "@/components/ui/page-skeleton";
 import { RuntimeConfigPanel } from "@/components/settings/runtime-config-panel";
@@ -15,10 +15,10 @@ type PageParams = { params: Promise<{ orgSlug: string }> };
  * Nango breadth toggle, and the platform-owner tenantClass designation.
  *
  * Cache Components: `await params` + the cookie reads (getAuthContext / getCurrentUser via
- * isInternalAdmin) live INSIDE the <Suspense> boundary (<Gate>), so the static shell ships
+ * isSystemAdmin) live INSIDE the <Suspense> boundary (<Gate>), so the static shell ships
  * immediately and the dynamic auth read is suspended. THIN: the API is the source of truth;
  * the panel just GET/PATCHes the runtime-config route. The platform-owner flip control is
- * rendered only when the viewer isInternalAdmin.
+ * rendered only when the viewer isSystemAdmin.
  */
 export default function RuntimeConfigPage({ params }: PageParams) {
   return (
@@ -45,7 +45,7 @@ async function Gate({ params }: PageParams) {
 
   // Platform-owner check — only an internal admin sees the tenantClass FLIP control.
   const user = await getCurrentUser();
-  const platformOwner = !!user && isInternalAdmin(user.email, process.env.INTERNAL_ADMINS);
+  const platformOwner = isSystemAdmin(user);
 
   return (
     <PageShell

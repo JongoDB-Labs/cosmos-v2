@@ -377,7 +377,17 @@ describe("comment markings (e2e DB)", () => {
 
       const admins = process.env.INTERNAL_ADMINS;
       process.env.INTERNAL_ADMINS = "alice@test.local";
-      getCurrentUser.mockResolvedValue({ id: alice, email: "alice@test.local" });
+      // A system admin's session: a Google sign-in through the bound Google identity.
+      getCurrentUser.mockResolvedValue({
+        id: alice,
+        email: "alice@test.local",
+        ssoProvisioned: false,
+        authMethod: "google",
+        idpConnId: null,
+        googleBound: true,
+        microsoftBound: false,
+        passwordUntrusted: false,
+      });
       logAudit.mockClear();
       try {
         const res = await SET_TENANT_CLASS(req("PATCH", { tenantClass: "COMMERCIAL" }), {

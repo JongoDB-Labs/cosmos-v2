@@ -110,17 +110,27 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   if (!result.ok) {
     // aal_floor_unmet is the gov-relevant rejection; surface it distinctly.
-    const error =
-      result.reason === "aal_floor_unmet"
-        ? "sso_aal_required"
-        : result.reason === "jit_disabled"
-          ? "sso_no_account"
-          : "auth_failed";
+    const errors: Partial<Record<typeof result.reason, string>> = {
+      aal_floor_unmet: "sso_aal_required",
+      jit_disabled: "sso_no_account",
+      account_exists: "sso_account_exists",
+      email_untrusted: "sso_email_untrusted",
+      issuer_mismatch: "sso_misconfigured",
+    };
+    const error = errors[result.reason] ?? "auth_failed";
+    if (
+      result.reason === "issuer_mismatch" ||
+      result.reason === "account_exists" ||
+      result.reason === "email_untrusted"
+    ) {
+      console.warn("[sso] sign-in refused", { orgSlug, reason: result.reason });
+    }
     return redirectToLogin(origin, error);
   }
 
   // 5. Set the session cookie (identical to the Google path) + clear the tx.
-  const response = NextResponse.redirect(new URL("/", origin));
+  //    Straight to the org: an SSO session opens this org and no other.
+  const response = NextResponse.redirect(new URL(`/${encodeURIComponent(orgSlug)}`, origin));
   response.cookies.set(SESSION_COOKIE, result.sessionId, {
     httpOnly: true,
     sameSite: "lax",

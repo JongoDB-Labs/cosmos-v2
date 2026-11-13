@@ -17,9 +17,12 @@ import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { generateRecoveryCodes, hashRecoveryCode } from "@/lib/auth/totp";
 
 const h = vi.hoisted(() => ({ userId: "", sessionId: "" }));
-vi.mock("@/lib/auth/session", () => ({
-  getCurrentUser: async () => ({ id: h.userId, sessionId: h.sessionId }),
-}));
+// The real session lookup, for the session this test says is current: whether a
+// first password may be set depends on how that session signed in.
+vi.mock("@/lib/auth/session", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/auth/session")>();
+  return { ...real, getCurrentUser: async () => real.getSessionUser(h.sessionId) };
+});
 
 import { POST as changePassword } from "./route";
 import { POST as disableMfa } from "../mfa/disable/route";
@@ -41,7 +44,12 @@ const post = (handler: (r: NextRequest) => Promise<Response>, body: unknown) =>
   );
 
 /** A user in the org with a current session (the caller) and another one. */
-async function userWithTwoSessions(tag: string, data: Record<string, unknown>, currentAgeMs = 0) {
+async function userWithTwoSessions(
+  tag: string,
+  data: Record<string, unknown>,
+  currentAgeMs = 0,
+  authMethod: string | null = null,
+) {
   const u = await prisma.user.create({
     data: { email: `cc-${tag}-${stamp}@example.com`, displayName: tag, ...data },
   });
@@ -51,7 +59,7 @@ async function userWithTwoSessions(tag: string, data: Record<string, unknown>, c
   const other = `cc-${tag}-other-${stamp}`;
   const expiresAt = new Date(Date.now() + DAY);
   await prisma.session.create({
-    data: { id: current, userId: u.id, expiresAt, createdAt: new Date(Date.now() - currentAgeMs) },
+    data: { id: current, userId: u.id, expiresAt, createdAt: new Date(Date.now() - currentAgeMs), authMethod },
   });
   await prisma.session.create({ data: { id: other, userId: u.id, expiresAt } });
   // The org's Sessions view had recorded the other one.
@@ -106,7 +114,7 @@ describe("changing your password", () => {
 
 describe("setting a first password on a Google or SSO account", () => {
   it("is refused from a session that signed in a while ago", async () => {
-    const u = await userWithTwoSessions("stale", { googleId: `cc-gid-stale-${stamp}` }, 60 * 60_000);
+    const u = await userWithTwoSessions("stale", { googleId: `cc-gid-stale-${stamp}` }, 60 * 60_000, "google");
     const res = await post(changePassword, { newPassword: NEW });
     expect(res.status).toBe(403);
     expect((await res.json()).error).toMatch(/sign in again/i);
@@ -116,7 +124,7 @@ describe("setting a first password on a Google or SSO account", () => {
   });
 
   it("works right after signing in, and ends your other sessions", async () => {
-    const u = await userWithTwoSessions("fresh", { googleId: `cc-gid-fresh-${stamp}` }, 60_000);
+    const u = await userWithTwoSessions("fresh", { googleId: `cc-gid-fresh-${stamp}` }, 60_000, "google");
     const res = await post(changePassword, { newPassword: NEW });
     expect(res.status).toBe(200);
     const row = await prisma.user.findUniqueOrThrow({ where: { id: u.id } });

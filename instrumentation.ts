@@ -41,6 +41,17 @@ export async function register(): Promise<void> {
     } catch (err) {
       console.error("[boot] plugin server-hooks registration failed (intake AI degrades):", err);
     }
+    // Tell the operator when Microsoft sign-in can't link existing accounts yet
+    // (any tenant accepted, or no way to vouch for an address). Read-only, and
+    // skipped at `next build` and without a database.
+    if (process.env.NEXT_PHASE !== "phase-production-build" && process.env.DATABASE_URL) {
+      try {
+        const { warnMicrosoftSetup } = await import("./src/lib/auth/microsoft-setup-check");
+        await warnMicrosoftSetup();
+      } catch (err) {
+        console.error("[boot] Microsoft sign-in setup check failed:", err);
+      }
+    }
     // Periodic jobs (src/lib/jobs). Off with JOBS_DISABLED=1 and during
     // `next build`; a failure here must never break boot either.
     try {

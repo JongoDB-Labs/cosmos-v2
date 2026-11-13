@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { PageShell } from "@/components/ui/page-shell";
 import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 import { SignInProvidersManager } from "./sign-in-providers-manager";
+import { SsoProvisionedAccounts } from "./sso-provisioned-accounts";
 
 // cacheComponents enabled: `dynamic` segment config not supported (routes are
 // dynamic by default).
@@ -15,7 +16,10 @@ export default async function SignInProvidersAdminPage() {
       title="Sign-in providers"
       description="OAuth apps for Microsoft / Google login. Credentials are stored encrypted (vault-sealed) and managed here — never in env files."
     >
-      <SignInProvidersManager />
+      <div className="space-y-4">
+        <SignInProvidersManager />
+        <SsoProvisionedAccounts />
+      </div>
     </PageShell>
   );
 }

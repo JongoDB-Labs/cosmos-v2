@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import crypto from "node:crypto";
 import { OAUTH_STATE_COOKIE } from "@/lib/auth/client";
-import { getGoogleLoginClient, googleRedirectUri } from "@/lib/auth/google-oauth";
+import { googleSignInUrl } from "@/lib/auth/google-oauth";
+import { CONNECT_COOKIE } from "@/lib/auth/connect-sign-in";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 
@@ -18,25 +19,7 @@ export async function GET(request: NextRequest) {
 
   const state = crypto.randomBytes(16).toString("hex");
 
-  const googleClient = await getGoogleLoginClient(googleRedirectUri(request));
-  const authUrl = googleClient.generateAuthUrl({
-    scope: [
-      "openid",
-      "email",
-      "profile",
-      "https://www.googleapis.com/auth/calendar",
-      "https://www.googleapis.com/auth/drive",
-      "https://www.googleapis.com/auth/gmail.readonly",
-      // Required to send invitation emails from the inviter's mailbox.
-      "https://www.googleapis.com/auth/gmail.send",
-      // Google Meet REST API — create spaces + read conference artifacts.
-      "https://www.googleapis.com/auth/meetings.space.created",
-      "https://www.googleapis.com/auth/meetings.space.readonly",
-    ],
-    state,
-    access_type: "offline",
-    prompt: "consent",
-  });
+  const authUrl = await googleSignInUrl(request, state);
 
   const response = NextResponse.redirect(authUrl);
   response.cookies.set(OAUTH_STATE_COOKIE, state, {
@@ -46,5 +29,8 @@ export async function GET(request: NextRequest) {
     maxAge: 5 * 60,
     secure: process.env.NODE_ENV === "production",
   });
+  // A sign-in, not a connect: drop any connect request left from an abandoned
+  // round trip (its state would not match anyway).
+  response.cookies.delete(CONNECT_COOKIE);
   return response;
 }

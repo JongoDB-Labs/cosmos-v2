@@ -21,9 +21,25 @@ const ERROR_MESSAGES: Record<string, string> = {
   sso_aal_required:
     "Your identity provider must assert a stronger authentication method (MFA / phishing-resistant) for this organization.",
   sso_no_account: "No account found. Ask an admin to invite you first.",
-  // Returned by the Google callback when a gov org enforces SSO-only.
-  sso_enforced: "This organization requires single sign-on. Google is disabled.",
   ms_not_configured: "Microsoft sign-in isn't configured yet.",
+  // Account binding (Google / Microsoft / SSO). An account is tied to the
+  // sign-in that first reached it; email only links a first sign-in.
+  email_unverified:
+    "Your sign-in provider hasn't verified this email address, so it can't be used to find your account.",
+  identity_conflict:
+    "This account is already linked to a different sign-in. Use the one you linked before, or ask an admin.",
+  account_ambiguous: "More than one account uses this email address. Ask an admin to sort it out.",
+  sso_account: "This account signs in through your organization's single sign-on.",
+  ms_wrong_tenant: "This Microsoft account isn't from the organization this site accepts.",
+  ms_setup_incomplete:
+    "Your administrator needs to finish setting up Microsoft sign-in. If you can sign in another way, you can connect Microsoft from your profile.",
+  link_from_profile:
+    "This account already signs in another way. Sign in that way, then connect Microsoft from your profile, under Sign-in methods.",
+  sso_account_exists:
+    "An account with this email address already exists, and this organization hasn't invited it. Ask an administrator of this organization to invite you, then sign in with single sign-on again.",
+  sso_email_untrusted:
+    "Single sign-on couldn't confirm this email address, so it can't open the account that has it. Ask your administrator to finish setting up single sign-on.",
+  sso_misconfigured: "Your organization's sign-in isn't set up correctly. Ask your administrator.",
 };
 
 type SsoStatus = { enabled: boolean; enforced: boolean; accountRequests?: boolean };
@@ -65,7 +81,8 @@ function LoginInner() {
   const anySubmitting = submitting !== null;
 
   // SSO discovery: when an org slug is present, ask whether that org offers SSO
-  // and whether it's enforced (gov SSO-only → hide Google). null = unknown/loading.
+  // and whether it's enforced (gov SSO-only → the other sign-ins fold away).
+  // null = unknown/loading.
   const [sso, setSso] = useState<SsoStatus | null>(null);
   useEffect(() => {
     // No org context → nothing to discover; leave `sso` null (Google-only).
@@ -133,10 +150,14 @@ function LoginInner() {
   }, [orgSlug]);
 
   const ssoEnabled = sso?.enabled ?? false;
-  // Hide Google only once we KNOW the org enforces SSO. While discovery is in
-  // flight we keep Google visible (fail-open for usability; the callback guard
-  // is the real enforcement boundary).
-  const hideGoogle = sso?.enforced === true;
+  // An org that requires SSO opens only to an SSO session (getAuthContext, via
+  // orgSessionRefusal, is the boundary). The other sign-ins still work for the
+  // person's other organizations, and for a platform admin, so they fold behind
+  // "Use another sign-in method" instead of disappearing. While discovery is in
+  // flight they stay visible.
+  const ssoEnforced = sso?.enforced === true;
+  const [showOthers, setShowOthers] = useState(false);
+  const hideOthers = ssoEnforced && !showOthers;
 
   const brandName = orgBrand?.brandName ?? brand.name;
   const brandTagline = orgBrand?.tagline ?? brand.tagline;
@@ -451,7 +472,26 @@ function LoginInner() {
           </Button>
         )}
 
-        {!hideGoogle && (
+        {ssoEnforced && (
+          <div className="mt-3 text-center text-xs text-[var(--text-muted)]">
+            <p>This organization requires single sign-on.</p>
+            {showOthers ? (
+              <p className="mt-1">
+                Other sign-in methods open your other organizations, not this one.
+              </p>
+            ) : (
+              <button
+                type="button"
+                className="mt-1 text-[var(--text)] underline underline-offset-2"
+                onClick={() => setShowOthers(true)}
+              >
+                Use another sign-in method
+              </button>
+            )}
+          </div>
+        )}
+
+        {!hideOthers && (
           <Button
             size="lg"
             // When SSO is also offered, the Google button is the secondary option.
@@ -468,7 +508,7 @@ function LoginInner() {
           </Button>
         )}
 
-        {!hideGoogle && msEnabled && (
+        {!hideOthers && msEnabled && (
           <Button
             size="lg"
             variant="secondary"
@@ -484,7 +524,7 @@ function LoginInner() {
           </Button>
         )}
 
-        {!hideGoogle && (
+        {!hideOthers && (
           <div className="mt-4">
             <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
               <span className="h-px flex-1 bg-[var(--border)]" />
@@ -835,11 +875,6 @@ function LoginInner() {
           </div>
         )}
 
-        {hideGoogle && (
-          <p className="mt-3 text-center text-xs text-[var(--text-muted)]">
-            This organization requires single sign-on.
-          </p>
-        )}
       </div>
     </div>
   );

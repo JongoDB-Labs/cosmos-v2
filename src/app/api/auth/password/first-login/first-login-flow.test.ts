@@ -17,9 +17,6 @@ import { createHmac } from "node:crypto";
 // Vault key for sealing the first-login / MFA-pending cookies + the TOTP secret.
 process.env.SSO_VAULT_KEY = Buffer.alloc(32, 11).toString("base64");
 
-vi.mock("@/lib/auth/sso-enforcement", () => ({
-  googleLoginBlockedByGovSso: vi.fn().mockResolvedValue(false),
-}));
 vi.mock("@/lib/rate-limit/bucket", () => ({
   rateLimit: () => ({ allowed: true }),
 }));

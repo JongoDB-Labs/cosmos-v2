@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/client";
 import { readNavLayout } from "@/lib/nav/nav-layout";
 import { DashboardShell } from "@/components/layouts/dashboard-shell";
-import { isInternalAdmin } from "@/lib/internal/access";
+import { isSystemAdmin } from "@/lib/internal/access";
 import { getEnabledModulesByOrg } from "@/lib/entitlements";
 import { getEnabledPluginsByOrg } from "@/lib/plugins/enablement";
 import { PluginEnablementProvider } from "@/components/plugins/plugin-slot";
@@ -115,7 +115,7 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
               avatarUrl: user.avatarUrl,
             }}
             orgs={orgs}
-            isSystemAdmin={isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)}
+            isSystemAdmin={isSystemAdmin(currentUser)}
           >
             <PageTransition>{children}</PageTransition>
             <CommandPalette orgs={orgs} />

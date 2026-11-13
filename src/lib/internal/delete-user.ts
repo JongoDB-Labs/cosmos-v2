@@ -67,6 +67,9 @@ export async function deleteUserAccount(params: {
     const federatedIdentities = await tx.federatedIdentity.deleteMany({
       where: { userId },
     });
+    // The Microsoft binding is the Microsoft sign-in path, as googleId is
+    // Google's: a tombstone must not stay reachable through it.
+    await tx.microsoftIdentity.deleteMany({ where: { userId } });
     const pushSubscriptions = await tx.pushSubscription.deleteMany({
       where: { userId },
     });

@@ -45,3 +45,19 @@ export function emailDomainAllowed(
   if (!domain) return false;
   return list.includes(domain);
 }
+
+/**
+ * True only when the org has LISTED `email`'s domain. Unlike
+ * `emailDomainAllowed`, an empty list allows nothing: it is the test for
+ * whether an org's own identity provider may vouch for an address, and an org
+ * that has named no domains has not claimed any address.
+ */
+export function emailDomainListed(
+  email: string,
+  allowedDomains: string[] | null | undefined,
+): boolean {
+  const list = (allowedDomains ?? []).map(normalizeDomain).filter(Boolean);
+  if (list.length === 0) return false;
+  const domain = emailDomain(email);
+  return !!domain && list.includes(domain);
+}

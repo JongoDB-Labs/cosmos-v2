@@ -232,7 +232,19 @@ is permission-gated; the groups below mirror the in-app navigation.
 - A separate `/admin` surface, restricted to platform operators (the
   `INTERNAL_ADMINS` allowlist), configures the instance **sign-in allowlist** and
   **sign-in providers** (OAuth apps for Google / Microsoft, with credentials
-  stored vault-sealed — never in env files).
+  stored vault-sealed — never in env files). An account is tied to the Google or
+  Microsoft identity that first signs in to it; an email address only finds the
+  account on that first sign-in, and only when the provider vouches for it
+  (Microsoft: the `xms_edov` optional claim, or a member's sign-in name on a
+  domain in `MICROSOFT_TRUSTED_DOMAINS`). Anyone can also connect Google or
+  Microsoft from **Profile → Sign-in methods**. A deployment for a single
+  organization should set the Microsoft **tenant** (its directory ID or domain)
+  rather than `common`. A session from an organization's single sign-on opens
+  that organization only. Platform admin needs a session signed in with Google,
+  Microsoft or a password that vouches for the listed address: never an account
+  an organization's SSO created, a session that signed in through SSO, or a
+  password that may have been set from one. See
+  [docs/runbooks/sign-in-identity.md](docs/runbooks/sign-in-identity.md).
 
 ---
 
