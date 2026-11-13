@@ -2,7 +2,10 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -41,6 +44,10 @@ import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { notifyError } from "@/lib/errors/notify";
 import type { SyncMeeting } from "@/types/models";
+import { jsonFetch } from "@/lib/query/json-fetcher";
+import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
+import { cn } from "@/lib/utils";
+import { TeamsJoinLink } from "./teams-meeting";
 
 interface MeetingsListProps {
   orgId: string;
@@ -116,6 +123,8 @@ interface MeetingFormData {
   meetingDate: string;
   projectId: string;
   notes: string;
+  /** Make it a Teams meeting, in the creator's own Outlook. Off unless they ask. */
+  teamsMeeting: boolean;
 }
 
 const emptyForm: MeetingFormData = {
@@ -125,7 +134,14 @@ const emptyForm: MeetingFormData = {
   meetingDate: new Date().toISOString().slice(0, 16),
   projectId: "",
   notes: "",
+  teamsMeeting: false,
 };
+
+/** The slice of the Outlook Calendar status the Teams toggle needs. */
+interface OutlookStatus {
+  enabled: boolean;
+  connection: { status: "connected" | "reconnect" } | null;
+}
 
 interface CustomMeetingType {
   id: string;
@@ -173,6 +189,15 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
   const [customTypes, setCustomTypes] = useState<CustomMeetingType[]>([]);
   const [newTypeLabel, setNewTypeLabel] = useState("");
   const [addingType, setAddingType] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const slug = useOrgSlug();
+  // Teams meetings are made through Outlook: offered only where it's on.
+  const { data: outlook } = useQuery({
+    queryKey: useOrgQueryKey("outlook-calendar"),
+    queryFn: () => jsonFetch<OutlookStatus>(`/api/v1/orgs/${orgId}/microsoft/calendar`),
+    enabled: dialogOpen,
+  });
+  const outlookConnected = outlook?.connection?.status === "connected";
 
   useEffect(() => {
     (async () => {
@@ -270,13 +295,24 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
         meetingDate: new Date(form.meetingDate).toISOString(),
         projectId: form.projectId || null,
         notes: form.notes,
+        ...(form.teamsMeeting && outlookConnected && { teamsMeeting: true }),
       };
+      setCreateError(null);
       const res = await fetch(`/api/v1/orgs/${orgId}/meetings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("Failed to create meeting");
+      if (!res.ok) {
+        // A Teams meeting refused (classified, not connected): nothing was
+        // saved, and the dialog says why so they can change it and save.
+        const refused = (await res.json().catch(() => null)) as { error?: string; reason?: string } | null;
+        if (refused?.reason && refused.error) {
+          setCreateError(refused.error);
+          return;
+        }
+        throw new Error("Failed to create meeting");
+      }
       setDialogOpen(false);
       setForm(emptyForm);
       setRefreshKey((k) => k + 1);
@@ -320,7 +356,13 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
             <Filter className="size-4" />
             Filters
           </Button>
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog
+            open={dialogOpen}
+            onOpenChange={(o) => {
+              setDialogOpen(o);
+              if (!o) setCreateError(null);
+            }}
+          >
             <DialogTrigger
               render={
                 <Button>
@@ -370,7 +412,7 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
                       }
                     }}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger aria-label="Meeting type" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -429,7 +471,7 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
                       setForm({ ...form, projectId: !val || val === "none" ? "" : val })
                     }
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger aria-label="Project" className="w-full">
                       <SelectValue placeholder="Select a project" />
                     </SelectTrigger>
                     <SelectContent>
@@ -442,6 +484,36 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
                     </SelectContent>
                   </Select>
                 </div>
+                {outlook?.enabled && (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <Label>Teams meeting</Label>
+                      <ToggleSwitch
+                        aria-label="Teams meeting"
+                        checked={form.teamsMeeting && outlookConnected}
+                        disabled={!outlookConnected}
+                        onCheckedChange={(v) => setForm({ ...form, teamsMeeting: v })}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {outlookConnected ? (
+                        "Made in your Outlook. Everyone who can see this meeting gets the join link."
+                      ) : (
+                        <>
+                          Connect your Outlook Calendar to add a Teams meeting.
+                          {slug && (
+                            <>
+                              {" "}
+                              <Link href={`/${slug}/settings/preferences`} className="underline">
+                                Outlook Calendar settings
+                              </Link>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </p>
+                  </div>
+                )}
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="mt-notes">Notes</Label>
                   <Textarea
@@ -452,6 +524,11 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
                   />
                 </div>
               </div>
+              {createError && (
+                <p role="alert" className="text-sm text-[var(--status-critical-text)]">
+                  {createError}
+                </p>
+              )}
               <DialogFooter>
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>
                   Cancel
@@ -470,7 +547,7 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
           <div className="flex items-center gap-2">
             <Label className="text-xs text-muted-foreground">Type</Label>
             <Select value={filterType} onValueChange={(v) => setFilterType(v ?? "ALL")}>
-              <SelectTrigger size="sm">
+              <SelectTrigger aria-label="Filter by type" size="sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -486,7 +563,7 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
           <div className="flex items-center gap-2">
             <Label className="text-xs text-muted-foreground">Status</Label>
             <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v ?? "ALL")}>
-              <SelectTrigger size="sm">
+              <SelectTrigger aria-label="Filter by status" size="sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -611,6 +688,8 @@ function MeetingCard({
   const statusConfig = STATUS_CONFIG[meeting.status];
   const date = new Date(meeting.meetingDate);
   const attendeeCount = meeting.attendees?.length || 0;
+  // A link with no host is a dead one: nothing in Outlook holds its Teams meeting.
+  const joinUrl = meeting.status !== "CANCELLED" && meeting.teamsHostId ? meeting.teamsJoinUrl : null;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -659,53 +738,57 @@ function MeetingCard({
   return (
     <>
     <ActionMenu groups={groups}>
-      <button
-        onClick={onClick}
-        className="group/action flex items-start gap-4 rounded-lg border bg-background p-4 text-left transition-colors hover:bg-muted/50"
-      >
-        <div className="flex flex-1 flex-col gap-2">
-          {meeting.title && (
-            <span className="text-sm font-semibold">{meeting.title}</span>
-          )}
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${typeConfig.color}`}
-            >
-              {typeConfig.icon}
-              {typeLabel}
-            </span>
-            <span
-              className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statusConfig.color}`}
-            >
-              {statusConfig.label}
-            </span>
-          </div>
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <Calendar className="size-3.5" />
-              {date.toLocaleDateString("en-US", {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-              })}
-              {" at "}
-              {date.toLocaleTimeString("en-US", {
-                hour: "numeric",
-                minute: "2-digit",
-              })}
-            </span>
-            {attendeeCount > 0 && (
-              <span className="flex items-center gap-1">
-                <Users className="size-3.5" />
-                {attendeeCount} attendee{attendeeCount !== 1 ? "s" : ""}
+      {/* The join link sits beside the card's button, never inside it. */}
+      <div className="group/action relative rounded-lg border bg-background transition-colors hover:bg-muted/50">
+        <button
+          onClick={onClick}
+          className={cn("flex w-full items-start gap-4 rounded-lg p-4 text-left", joinUrl && "pb-12")}
+        >
+          <div className="flex flex-1 flex-col gap-2">
+            {meeting.title && (
+              <span className="text-sm font-semibold">{meeting.title}</span>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${typeConfig.color}`}
+              >
+                {typeConfig.icon}
+                {typeLabel}
               </span>
+              <span
+                className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statusConfig.color}`}
+              >
+                {statusConfig.label}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <Calendar className="size-3.5" />
+                {date.toLocaleDateString("en-US", {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })}
+                {" at "}
+                {date.toLocaleTimeString("en-US", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </span>
+              {attendeeCount > 0 && (
+                <span className="flex items-center gap-1">
+                  <Users className="size-3.5" />
+                  {attendeeCount} attendee{attendeeCount !== 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
+            {meeting.notes && (
+              <p className="line-clamp-1 text-sm text-muted-foreground">{meeting.notes}</p>
             )}
           </div>
-          {meeting.notes && (
-            <p className="line-clamp-1 text-sm text-muted-foreground">{meeting.notes}</p>
-          )}
-        </div>
-      </button>
+        </button>
+        {joinUrl && <TeamsJoinLink url={joinUrl} size="xs" className="absolute bottom-3 left-4" />}
+      </div>
     </ActionMenu>
 
     <Dialog open={confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(false)}>

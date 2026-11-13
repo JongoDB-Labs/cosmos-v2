@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.551.0",
+    date: "2026-11-12",
+    title: "Teams meetings with a join link for everyone",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A meeting can now be a Teams meeting. Turn on Teams meeting when you schedule it, or on the meeting's page. It's off unless you turn it on, and it needs your Outlook Calendar connected. The Teams meeting is made in your Outlook, and everyone who can see the meeting gets a Join Teams meeting link on its page and in the meetings list. Edits keep the same link. Turning it off deletes the Teams meeting, so Cosmos asks first. If Microsoft makes the event without a Teams meeting, the meeting still saves and its page says there is no join link.",
+      },
+      {
+        kind: "feature",
+        text: "A Teams meeting ends, and its link goes, when its host disconnects Outlook Calendar or leaves the organization, or when the meeting becomes classified. While someone else hosts a meeting's Teams link, you can't turn on Outlook invitations for it, and Cosmos tells you who to ask.",
+      },
+      {
+        kind: "fix",
+        text: "Who can see a meeting is now decided the same way everywhere: the meetings list, the meeting's page, its attendees, its Teams link, its invitations, Cosmo and your calendar feed. A meeting you can't see answers as if it doesn't exist.",
+      },
+    ],
+  },
+  {
     version: "2.550.2",
     date: "2026-11-12",
     title: "Restricted files, contracts and project pages follow the same read rules as their APIs",

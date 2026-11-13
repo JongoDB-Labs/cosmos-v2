@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { it, expect, vi, beforeEach } from "vitest";
+import { Permission } from "@/lib/rbac/permissions";
 import { NextRequest } from "next/server";
 
 const { getAuthContext, prisma, requireAccess } = vi.hoisted(() => ({
@@ -20,11 +21,17 @@ vi.mock("@/lib/ai/agent-loop", () => ({
 import { POST } from "./route";
 import { runAgentLoop } from "@/lib/ai/agent-loop";
 const params = Promise.resolve({ orgId: "o", meetingId: "m" });
+/** A member who may read and edit meetings (the routes look a meeting up through the meeting-read rule first). */
+const caller = () => ({
+  userId: "u", orgId: "o", orgRole: "MEMBER", abacRules: [],
+  permissions: Permission.MEETING_READ | Permission.MEETING_UPDATE, basePermissions: Permission.MEETING_READ | Permission.MEETING_UPDATE,
+});
+
 
 beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findUnique.mockResolvedValue({ id: "o", slug: "acme" });
-  getAuthContext.mockResolvedValue({ userId: "u", orgId: "o" });
+  getAuthContext.mockResolvedValue(caller());
   prisma.syncMeeting.update.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
     Promise.resolve({ id: "m", attendees: [], ...data }));
 });
@@ -48,7 +55,7 @@ it("400s when there's nothing to summarize", async () => {
 // it must run under the caller's own context — an API key's narrowed one when
 // that is who called — never one rebuilt from the user id.
 it("runs the agent loop with the caller's own AuthContext", async () => {
-  const keyCtx = { userId: "u", orgId: "o", orgRole: "OWNER", permissions: 1n, isApiKey: true, projectScope: ["p"] };
+  const keyCtx = { ...caller(), orgRole: "OWNER", isApiKey: true, projectScope: ["p"] };
   getAuthContext.mockResolvedValue(keyCtx);
   prisma.syncMeeting.findFirst.mockResolvedValue({ id: "m", createdById: "u", projectId: null, notes: "n", transcript: null, attendees: [] });
   await POST(new NextRequest("http://localhost/x", { method: "POST" }), { params });

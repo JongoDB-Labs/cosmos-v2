@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Permission } from "@/lib/rbac/permissions";
 import { NextRequest } from "next/server";
 
 const { getAuthContext, prisma, getMeetClient, requireAccess } = vi.hoisted(() => ({
@@ -16,11 +17,17 @@ vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));
 
 import { POST } from "./route";
 const params = Promise.resolve({ orgId: "o", meetingId: "m" });
+/** A member who may read and edit meetings (the routes look a meeting up through the meeting-read rule first). */
+const caller = () => ({
+  userId: "u", orgId: "o", orgRole: "MEMBER", abacRules: [],
+  permissions: Permission.MEETING_READ | Permission.MEETING_UPDATE, basePermissions: Permission.MEETING_READ | Permission.MEETING_UPDATE,
+});
+
 
 beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findUnique.mockResolvedValue({ id: "o", slug: "acme" });
-  getAuthContext.mockResolvedValue({ userId: "u", orgId: "o" });
+  getAuthContext.mockResolvedValue(caller());
   prisma.syncMeeting.findFirst.mockResolvedValue({ id: "m", createdById: "u", projectId: null });
   prisma.syncMeeting.update.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
     Promise.resolve({ id: "m", attendees: [], ...data }));

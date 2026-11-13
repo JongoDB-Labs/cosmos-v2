@@ -7,7 +7,7 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { z } from "zod";
-import { inVisibleProject } from "@/lib/rbac/require-project-read";
+import { canReadMeeting } from "@/lib/meetings/meeting-reader";
 
 const updateAttendeeSchema = z.object({
   doneSinceLast: z.string().nullish(),
@@ -33,7 +33,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const meeting = await prisma.syncMeeting.findFirst({
       where: { id: meetingId, orgId },
     });
-    if (!meeting || !(await inVisibleProject(ctx, meeting.projectId))) return new Response("Not found", { status: 404 });
+    if (!meeting || !(await canReadMeeting(ctx, meeting.projectId))) return new Response("Not found", { status: 404 });
 
     const existing = await prisma.meetingAttendee.findFirst({
       where: { id: attendeeId, meetingId },
@@ -82,7 +82,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const meeting = await prisma.syncMeeting.findFirst({
       where: { id: meetingId, orgId },
     });
-    if (!meeting || !(await inVisibleProject(ctx, meeting.projectId))) return new Response("Not found", { status: 404 });
+    if (!meeting || !(await canReadMeeting(ctx, meeting.projectId))) return new Response("Not found", { status: 404 });
 
     const existing = await prisma.meetingAttendee.findFirst({
       where: { id: attendeeId, meetingId },

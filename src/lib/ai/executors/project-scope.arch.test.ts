@@ -169,8 +169,11 @@ describe("agent tools cannot read past project scoping", () => {
   // guard never looked at the project. That is the same shape as the bare
   // `projectInOrg` check this file was written to outlaw — a check that answers
   // a different question than the one being asked — and the test blessed it.
+  // `canReadMeeting` / `readableMeetingsWhere` (lib/meetings/meeting-reader)
+  // are the one meeting-read rule: the project visible AND MEETING_READ passing
+  // for it. Pinned in project-read-gate.arch.test.ts.
   const HAS_GATE =
-    /assertProjectRead|assertProjectManage|getReadableProjectIds|visibleProjectIdsForActor|visibleProjectRecordsWhere/;
+    /assertProjectRead|assertProjectManage|getReadableProjectIds|visibleProjectIdsForActor|visibleProjectRecordsWhere|canReadMeeting|readableMeetingsWhere/;
 
   /**
    * Writes that touch a project-scoped MODEL but never a project.

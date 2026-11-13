@@ -2,11 +2,12 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { getReadableProjectIds } from "@/lib/work-items/query/scope";
+import { canReadMeeting, readableMeetingsWhere } from "@/lib/meetings/meeting-reader";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { pullSoonIfStale, syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { pullSoonIfStale, syncMeetingSoon, teamsRefusalForNew } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { TEAMS_REFUSED } from "@/lib/meetings/teams-messages";
 import { z } from "zod";
 import { MeetingType } from "@prisma/client";
 import { allOrgMembers, attendeesNotMembers } from "@/lib/meetings/attendee-members";
@@ -24,6 +25,8 @@ const createMeetingSchema = z.object({
   attendeeIds: z.array(z.string().uuid()).optional(),
   // COSMOS-202: how long the meeting runs, for calendars it is mirrored into.
   durationMinutes: z.number().int().min(5).max(24 * 60).optional(),
+  // Make it a Teams meeting, held in the creator's own Outlook (connected).
+  teamsMeeting: z.boolean().optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -47,31 +50,24 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const status = sp.get("status");
 
     // MEETING_READ is held by MEMBER and VIEWER, so it authorises reading SOME
-    // meetings and says nothing about WHICH. `SyncMeeting.projectId` is real
-    // (and nullable), so without narrowing this listed every meeting in the org
-    // — including those on projects with `teamScopedAccess` that the caller is
-    // not a member of, whose records carry notes and transcripts.
-    //
-    // The agent was fixed first (2.265.3), which left the UI looser than the
-    // assistant: a user could see a meeting on screen that Cosmo refused to
-    // discuss. This closes that from the other end.
-    const readable = await getReadableProjectIds(ctx);
-
-    const where: Record<string, unknown> = { orgId };
+    // meetings and says nothing about WHICH: the one meeting-read rule does
+    // (meeting-reader.ts), as it does for a meeting by id and for Cosmo. A
+    // meeting's project must be visible to the caller and MEETING_READ must
+    // pass for it, policies included; a meeting under no project needs
+    // MEETING_READ alone.
+    let where: Record<string, unknown>;
     if (projectId) {
-      // Naming a project outside the readable set is a denial, matching the
-      // contract of every other project-scoped route.
-      if (!readable.includes(projectId)) {
+      // Naming a project whose meetings the caller can't read is a denial,
+      // matching the contract of every other project-scoped route.
+      if (!(await canReadMeeting(ctx, projectId))) {
         return new Response(JSON.stringify({ error: "Access denied by policy" }), {
           status: 403,
           headers: { "Content-Type": "application/json" },
         });
       }
-      where.projectId = projectId;
+      where = { orgId, projectId };
     } else {
-      // Meetings with NO project are org-level and stay visible to everyone who
-      // may read meetings at all.
-      where.OR = [{ projectId: null }, { projectId: { in: readable } }];
+      where = { ...(await readableMeetingsWhere(ctx)) };
     }
     if (sprintId) where.sprintId = sprintId;
     if (meetingType) where.meetingType = meetingType;
@@ -113,6 +109,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Filing it under a project is writing to that project.
     await requireProjectVisibleIf(ctx, data.projectId);
     if (data.attendeeIds && !(await allOrgMembers(orgId, data.attendeeIds))) return attendeesNotMembers();
+    if (data.teamsMeeting) {
+      // A Teams meeting is made in a person's own mailbox: never on an API key.
+      if (ctx.isApiKey) return new Response("Forbidden", { status: 403 });
+      // Refused before anything is saved, so nobody gets a meeting they didn't ask for.
+      const refused = await teamsRefusalForNew(orgId, ctx.userId, { projectId: data.projectId ?? null, title: data.title });
+      if (refused) {
+        const [status, error] = TEAMS_REFUSED[refused];
+        return new Response(JSON.stringify({ error, reason: refused }), { status, headers: { "Content-Type": "application/json" } });
+      }
+    }
 
     // Validate a custom type belongs to this org (defense-in-depth); when set,
     // the built-in enum is OTHER and the label comes from the custom type.
@@ -141,6 +147,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         customTypeId: data.customTypeId ?? null,
         notes: data.notes ?? "",
         createdById: ctx.userId,
+        ...(data.teamsMeeting && { teamsHostId: ctx.userId }),
         ...(data.attendeeIds && data.attendeeIds.length > 0
           ? {
               attendees: {
@@ -163,6 +170,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       metadata: {
         meetingType: meeting.meetingType,
         attendeeCount: String(meeting.attendees.length),
+        ...(meeting.teamsHostId && { teamsMeeting: "on" }),
       } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });

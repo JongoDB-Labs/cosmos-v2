@@ -26,12 +26,18 @@ const TERNARY = /\?\s*(?:Permission\.|")([A-Z_]+)"?\s*:\s*(?:Permission\.|")([A-
 
 /** cqlGate (lib/query/route.server) refuses a caller without the raw ITEM_READ bit. */
 const CQL_GATE = /\bcqlGate\(/;
+/**
+ * lib/meetings/meeting-reader: meetingReader runs requirePermission(MEETING_READ),
+ * and canReadMeeting / readableMeetingsWhere refuse a caller without the bit.
+ */
+const MEETING_READER = /\b(?:meetingReader|canReadMeeting|readableMeetingsWhere)\(/;
 
 /** Bits named by the gates in `code`. For a ternary gate both arms count. */
 export function gateKeys(code: string): Set<string> {
   const keys = new Set<string>();
   for (const re of [GATE_WITH_BIT, NEGATED_HAS, GATE_WITH_ACTION]) for (const m of code.matchAll(re)) keys.add(m[1]);
   if (CQL_GATE.test(code)) keys.add("ITEM_READ");
+  if (MEETING_READER.test(code)) keys.add("MEETING_READ");
   for (const gate of code.matchAll(/\b(?:requirePermission|requireProjectRead|requireAccess)\([^;]*?\?[^;]*?:[^;]*?\)/g)) {
     for (const m of gate[0].matchAll(TERNARY)) { keys.add(m[1]); keys.add(m[2]); }
   }

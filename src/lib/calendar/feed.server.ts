@@ -3,6 +3,7 @@ import { getBrand } from "@/lib/brand";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { isProjectVisible } from "@/lib/rbac/project-access";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
+import { readableMeetingsWhere } from "@/lib/meetings/meeting-reader";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { createClassificationResolver } from "@/lib/classification/resolver";
 import type { AuthContext } from "@/lib/rbac/check";
@@ -95,6 +96,9 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
     options.meetings && can(Permission.MEETING_READ)
       ? await prisma.syncMeeting.findMany({
           where: {
+            // The one meeting-read rule every meeting door uses: MEETING_READ
+            // (bit and policy) and, under a project, that project visible.
+            AND: [await readableMeetingsWhere(ctx)],
             orgId,
             status: { not: "CANCELLED" },
             meetingDate: { gte: from, lte: to },
@@ -124,10 +128,10 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
         })
       : [];
 
-  // Meetings and sprints: the project must still be one this person can see
-  // (team-scoped projects), checked once per project.
+  // Sprints: the project must still be one this person can see (team-scoped
+  // projects), checked once per project. Meetings were read by their own rule.
   const otherProjects = [
-    ...new Set([...meetings, ...intervals].map((r) => r.projectId).filter((p): p is string => !!p)),
+    ...new Set(intervals.map((r) => r.projectId).filter((p): p is string => !!p)),
   ];
   const seen = new Set<string>();
   for (const pid of otherProjects) if (await isProjectVisible(ctx, pid)) seen.add(pid);
@@ -152,7 +156,7 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
       startDate: w.startDate, dueDate: w.dueDate, updatedAt: w.updatedAt,
       restricted: restricted(w.projectId, w.title, w.description),
     })),
-    meetings: meetings.filter(visible).map((m) => ({
+    meetings: meetings.map((m) => ({
       id: m.id, title: m.title, meetingDate: m.meetingDate, updatedAt: m.updatedAt,
       restricted: restricted(m.projectId, m.title),
     })),

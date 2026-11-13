@@ -5,6 +5,7 @@ import { getProviderConfig } from "@/lib/auth/provider-config";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { microsoftGraphOrigin, microsoftLoginOrigin } from "./hosts";
 import { MS_CALENDAR, MS_CALENDAR_SCOPES, idTokenClaims, type IdClaims } from "./calendar-connect";
+import { TEAMS_OFF, forgetTeamsLinks, type TeamsEndReason } from "./teams-link.server";
 
 /**
  * COSMOS-202 (B1): a connected person's Microsoft Graph access token.
@@ -196,6 +197,8 @@ export async function completeCalendarConnect(
     await prisma.connectorCredential.update({ where: { id: existing.id }, data: { secretEnc, meta: meta as Prisma.InputJsonValue } });
     if (!sameAccount) {
       await prisma.externalEventLink.deleteMany({ where: { orgId: a.orgId, provider: MS_CALENDAR, userId: a.userId } });
+      // Their Teams meetings are in the old mailbox: the next sync makes new ones in this one.
+      await forgetTeamsLinks(a.orgId, a.userId);
     }
   } else {
     await prisma.connectorCredential.create({
@@ -231,16 +234,36 @@ export async function calendarConnection(orgId: string, userId: string) {
   return row ? { id: row.id, meta: row.meta as unknown as CalendarMeta, updatedAt: row.updatedAt } : null;
 }
 
+/**
+ * Teams meetings hosted in Outlook connections that are going: Teams ends for
+ * those meetings (nothing could keep their links working), and each says why.
+ */
+async function endTeamsHosting(where: Prisma.SyncMeetingWhereInput, reason: TeamsEndReason) {
+  const hosted = await prisma.syncMeeting.findMany({
+    where: { AND: [where, { teamsHostId: { not: null } }] },
+    select: { id: true, orgId: true, teamsHostId: true },
+  });
+  return [
+    prisma.syncMeeting.updateMany({ where: { AND: [where, { id: { in: hosted.map((m) => m.id) } }] }, data: TEAMS_OFF }),
+    prisma.activity.createMany({
+      data: hosted.map((m) => ({
+        orgId: m.orgId, userId: m.teamsHostId as string, subjectType: "meeting", subjectId: m.id, action: "teams_off", newValue: reason,
+      })),
+    }),
+  ];
+}
+
 /** Delete one person's connection. Idempotent. */
 export async function disconnectCalendar(orgId: string, userId: string): Promise<boolean> {
   cache.delete(key(orgId, userId));
   // The event links go with the token: nothing is left to sync against. So
   // does their Teams chat with the bot (COSMOS-202 T2): it was theirs only
-  // through this link.
+  // through this link. And so do the Teams meetings their Outlook held.
   const [r] = await prisma.$transaction([
     prisma.connectorCredential.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId } }),
     prisma.externalEventLink.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId } }),
     prisma.teamsConversation.deleteMany({ where: { orgId, userId } }),
+    ...(await endTeamsHosting({ orgId, teamsHostId: userId }, "host_disconnected")),
   ]);
   return r.count > 0;
 }
@@ -253,6 +276,7 @@ export async function purgeOrgCalendarConnections(orgId: string): Promise<number
     prisma.connectorCredential.deleteMany({ where: { orgId, provider: MS_CALENDAR, userId: { not: null } } }),
     prisma.externalEventLink.deleteMany({ where: { orgId, provider: MS_CALENDAR } }),
     prisma.teamsConversation.deleteMany({ where: { orgId } }),
+    ...(await endTeamsHosting({ orgId }, "integration_disabled")),
   ]);
   return r.count;
 }

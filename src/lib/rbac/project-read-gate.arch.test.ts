@@ -103,7 +103,7 @@ describe("project-scoped reads go through the team-aware gate", () => {
  * runs a visibility check, whatever bit it gates on. Org owners and admins lose
  * nothing by it, because `isProjectVisible` lets them see every project.
  */
-const VISIBLE = /\b(?:requireProjectRead|requireProjectVisible|requireProjectVisibleIf|inVisibleProject|isProjectVisible|canReadProject|readableItemProjectId|assertProjectRead|canManageProject|getManagedProjectIds|readableDocument|canReadInProject|mayReadContract)\(/;
+const VISIBLE = /\b(?:requireProjectRead|requireProjectVisible|requireProjectVisibleIf|inVisibleProject|isProjectVisible|canReadProject|readableItemProjectId|assertProjectRead|canManageProject|getManagedProjectIds|readableDocument|canReadInProject|mayReadContract|canReadMeeting|meetingReader)\(/;
 const WRITES = ["POST", "PUT", "PATCH", "DELETE"];
 
 describe("project-scoped writes go through the team-aware gate", () => {
@@ -254,6 +254,13 @@ describe("writes outside projects/[projectId] that touch a project are gated too
   it("every one checks visibility, or is listed with its reason", () => {
     const ungated = flagged.filter((h) => !h.gated).map((h) => h.at);
     expect(ungated.filter((at) => !NOT_TEAM_SCOPED.has(at) && !(at in NOT_A_PROJECT_WRITE))).toEqual([]);
+  });
+
+  it("canReadMeeting and meetingReader, which the rule trusts, still check the project is visible", () => {
+    const src = readFileSync("src/lib/meetings/meeting-reader.ts", "utf8");
+    // getReadableProjectIds applies team scope and a key's project scope.
+    expect(src).toMatch(/return \(await getReadableProjectIds\(ctx, "MEETING_READ"\)\)\.includes\(projectId\)/);
+    expect(src).toMatch(/!\(await canReadMeeting\(ctx, meeting\.projectId\)\)/);
   });
 
   it("loadFeedbackRoute, which the rule trusts, still refuses an item under a hidden project", () => {

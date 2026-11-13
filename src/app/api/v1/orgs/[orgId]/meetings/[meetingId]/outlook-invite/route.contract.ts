@@ -8,7 +8,11 @@ const InviteState = z.object({
   organizerId: NullableUuid,
   organizerName: z.string().nullable().describe("The organizer's display name, or email when they have none."),
   canChange: z.boolean(),
-  reason: z.enum(["classified", "not_connected", "reconnect", "cannot_edit", "too_many_attendees", "cancelled"]).nullable(),
+  reason: z
+    .enum(["classified", "not_connected", "reconnect", "cannot_edit", "too_many_attendees", "cancelled", "teams_hosted_by_someone_else"])
+    .nullable(),
+  teamsHostId: NullableUuid.describe("Who hosts the meeting's Teams meeting. Invitations can't go on while it is someone else."),
+  teamsHostName: z.string().nullable().describe("The Teams host's display name, or email when they have none."),
   recipients: z.array(z.object({ name: z.string(), email: z.string(), outside: z.boolean() })),
   domains: z.array(z.string()),
   pendingCancel: z.boolean().describe("The invitation's cancellation is waiting for the organizer to reconnect Outlook."),
@@ -46,7 +50,7 @@ export const setMeetingOutlookInvite = defineRoute({
   description:
     "On: invitations go out from the caller's own Outlook calendar (they become the organizer). Off: attendees get a " +
     "cancellation and their mirrored copies come back. Refused for classified meetings, without edit rights, when not " +
-    "connected, over 100 attendees, or over 10 changes an hour. Not for API keys.",
+    "connected, over 100 attendees, while someone else hosts its Teams meeting, or over 10 changes an hour. Not for API keys.",
   tags: ["Meetings"],
   stability: "internal",
   scopes: [],

@@ -16,18 +16,21 @@ import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
 
-const { getAuthContext, prisma, getReadableProjectIds } = vi.hoisted(() => ({
+const { getAuthContext, prisma } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   prisma: {
     organization: { findUnique: vi.fn() },
     syncMeeting: { findMany: vi.fn() },
+    // The real meeting-read rule (meeting-reader.ts) runs: the org's projects,
+    // and the caller's project memberships for a team-scoped one.
+    project: { findMany: vi.fn() },
+    orgMember: { findUnique: vi.fn() },
+    projectMember: { findMany: vi.fn() },
   },
-  getReadableProjectIds: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
-vi.mock("@/lib/work-items/query/scope", () => ({ getReadableProjectIds }));
 
 import { GET } from "./route";
 
@@ -51,6 +54,13 @@ const params = Promise.resolve({ orgId: ORG_ID });
 const req = (qs = "") =>
   new NextRequest(`http://localhost/api/v1/orgs/o/meetings${qs}`);
 
+/** The org's projects, filtered by the `id: { in }` a single-project question asks with. */
+function projectsInOrg(rows: { id: string; teamScopedAccess: boolean }[]) {
+  prisma.project.findMany.mockImplementation(async (args: { where?: { id?: { in?: string[] } } }) =>
+    args?.where?.id?.in ? rows.filter((r) => args.where!.id!.in!.includes(r.id)) : rows,
+  );
+}
+
 const lastWhere = () =>
   prisma.syncMeeting.findMany.mock.calls.at(-1)?.[0]?.where as Record<
     string,
@@ -61,7 +71,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
   getAuthContext.mockResolvedValue(ctx);
-  getReadableProjectIds.mockResolvedValue([OPEN_PROJECT]);
+  // OPEN_PROJECT is anyone's; HIDDEN_PROJECT is team-scoped, and the caller isn't on its team.
+  projectsInOrg([
+    { id: OPEN_PROJECT, teamScopedAccess: false },
+    { id: HIDDEN_PROJECT, teamScopedAccess: true },
+  ]);
+  prisma.orgMember.findUnique.mockResolvedValue({ id: "member-1" });
+  prisma.projectMember.findMany.mockResolvedValue([]);
   prisma.syncMeeting.findMany.mockResolvedValue([]);
 });
 
@@ -72,7 +88,7 @@ describe("GET /meetings — project scope", () => {
     // filter to a nullable column.
     await GET(req(), { params });
 
-    expect(getReadableProjectIds).toHaveBeenCalled();
+    expect(prisma.project.findMany).toHaveBeenCalled();
     expect(lastWhere().OR).toEqual([
       { projectId: null },
       { projectId: { in: [OPEN_PROJECT] } },
@@ -95,7 +111,7 @@ describe("GET /meetings — project scope", () => {
 
   it("returns only org-level meetings when no project is readable", async () => {
     // An empty readable set must mean "org-level only", never "no filter".
-    getReadableProjectIds.mockResolvedValue([]);
+    projectsInOrg([{ id: HIDDEN_PROJECT, teamScopedAccess: true }]);
 
     await GET(req(), { params });
 

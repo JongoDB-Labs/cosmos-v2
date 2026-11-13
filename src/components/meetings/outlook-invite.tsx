@@ -12,6 +12,7 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { notifyError } from "@/lib/errors/notify";
+import { teamsHostedMessage } from "@/lib/meetings/teams-messages";
 
 /**
  * COSMOS-202 B2 invite mode: the meeting's organizer sends real Outlook
@@ -33,7 +34,11 @@ interface InviteState {
     | "cannot_edit"
     | "too_many_attendees"
     | "cancelled"
+    | "teams_hosted_by_someone_else"
     | null;
+  /** Who hosts the meeting's Teams meeting: invitations can't take it from someone else. */
+  teamsHostId: string | null;
+  teamsHostName: string | null;
   recipients: { name: string; email: string; outside: boolean }[];
   /** Its cancellation is waiting for the organizer to reconnect Outlook. */
   pendingCancel: boolean;
@@ -54,7 +59,7 @@ interface InviteState {
   } | null;
 }
 
-const WHY_NOT: Record<NonNullable<InviteState["reason"]>, string> = {
+const WHY_NOT: Record<Exclude<NonNullable<InviteState["reason"]>, "teams_hosted_by_someone_else">, string> = {
   classified:
     "Classified meetings can't send Outlook invitations; they appear in Outlook only as busy.",
   not_connected: "Connect your Outlook Calendar to send invitations.",
@@ -127,7 +132,8 @@ export function OutlookInvitePanel({
         method: "PUT",
         body: JSON.stringify({ enabled }),
       }),
-    invalidate: [["outlook-invite", meetingId]],
+    // The Teams panel's answer depends on who sends invitations, and the other way round.
+    invalidate: [["outlook-invite", meetingId], ["meeting-teams", meetingId]],
     onSuccess: (d, enabled) => {
       setConfirming(null);
       setFocusTo("heading");
@@ -276,7 +282,9 @@ export function OutlookInvitePanel({
             </p>
             {data.reason ? (
               <p className="text-sm text-muted-foreground">
-                {WHY_NOT[data.reason]}
+                {data.reason === "teams_hosted_by_someone_else"
+                  ? teamsHostedMessage(data.teamsHostName)
+                  : WHY_NOT[data.reason]}
                 {(data.reason === "not_connected" ||
                   data.reason === "reconnect") &&
                   slug && (

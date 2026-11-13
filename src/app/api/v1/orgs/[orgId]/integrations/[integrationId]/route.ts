@@ -13,7 +13,7 @@ import { splitConfigSecrets } from "@/lib/integrations/config-secrets";
 import { setOrgCredential, deleteOrgCredential } from "@/lib/integrations/credentials";
 import { MS_CALENDAR } from "@/lib/integrations/microsoft/calendar-connect";
 import { purgeOrgCalendarConnections } from "@/lib/integrations/microsoft/calendar-token.server";
-import { offboardOrgInvites } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { offboardOrgInvites, offboardOrgTeams } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { MS_TEAMS_APP } from "@/lib/integrations/microsoft/teams-app/identity.server";
 import { forgetOrgConversations } from "@/lib/integrations/microsoft/teams-app/conversations.server";
 
@@ -165,6 +165,8 @@ async function purgeCalendarConnections(request: NextRequest, orgId: string, use
   // First cancel the meeting invitations people send through it (attendees
   // are told, admins notified), while their tokens still work.
   await offboardOrgInvites(orgId).catch((e) => console.error("outlook invite cancel failed:", e instanceof Error ? e.message : "unknown"));
+  // And end the Teams meetings people's Outlook holds, which nobody could end later.
+  await offboardOrgTeams(orgId);
   const removed = await purgeOrgCalendarConnections(orgId);
   await logAudit({
     orgId,
