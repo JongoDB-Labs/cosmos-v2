@@ -176,6 +176,18 @@ export interface OrgMember {
   };
 }
 
+/** An objective another one depends on, as the board shows it. */
+export interface ObjectiveDependsOn {
+  id: string;
+  title: string;
+  projectId: string;
+  status: Objective["status"];
+  targetDate: string | null;
+  progress: number;
+  health: NonNullable<Objective["health"]>;
+  overdue: boolean;
+}
+
 /** @deprecated OKRs are now managed as WorkItems with an objective/key-result work-item type. */
 export interface Objective {
   id: string;
@@ -191,6 +203,10 @@ export interface Objective {
   targetDate?: string | null;
   /** Server-derived stoplight: progress vs. time toward targetDate. */
   health?: "done" | "on_track" | "at_risk" | "behind" | "no_date";
+  /** Past the end of its target day and neither completed nor cancelled. */
+  overdue?: boolean;
+  /** What this objective needs done first; only those the reader can see. */
+  dependsOn?: ObjectiveDependsOn[];
   /** Manual display order within the project (drag-to-reorder). */
   sortOrder: number;
   /** Alignment: the objective this one ladders up to (null = top-level). */

@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.556.0",
+    date: "2026-11-13",
+    title: "Search finds labels and custom fields, and objectives get due dates and dependencies",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The search box (⌘K) now finds a work item by a label it carries, or by text, a link, an email or a choice in one of its custom fields, not only by its title or number. Each of these results says what matched, such as \"Label: Security\". It finds only items you could already open, and searches a project's own fields only if you can see that project. It looks at labels and fields once you've typed three characters, and only where the organization has the query language switched on. If that part of a search runs slow, you still get the title matches.",
+      },
+      {
+        kind: "feature",
+        text: "You can set an objective's due date when you add it or in Edit. Once its due day has passed, an objective that isn't completed or cancelled shows as Overdue.",
+      },
+      {
+        kind: "feature",
+        text: "An objective can depend on other objectives, in its own project or another project you can see. Choose Dependencies from its menu. Its card lists what it depends on and how each one is doing. An objective can't depend on itself, and a dependency that would create a loop is refused. Cosmo can add and remove dependencies too, and lists them with each objective.",
+      },
+      {
+        kind: "fix",
+        text: "On the OKR board, the selected view tab is readable in dark mode, the progress figure on each objective is easier to read, and its expand and menu buttons are named for screen readers. An objective is no longer counted as behind on its due day itself.",
+      },
+    ],
+  },
+  {
     version: "2.553.1",
     date: "2026-11-13",
     title: "Tighter API keys, outbound connections, sessions and webhooks",

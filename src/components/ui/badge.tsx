@@ -68,7 +68,8 @@ export function Badge({
     >
       {showDot && (
         <fm.span
-          className="h-1.5 w-1.5 rounded-full"
+          // Never squeezed: a badge whose text truncates keeps a round dot.
+          className="h-1.5 w-1.5 shrink-0 rounded-full"
           initial={{ backgroundColor: tint }}
           animate={{ backgroundColor: tint }}
           transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}

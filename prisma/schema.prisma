@@ -322,6 +322,7 @@ model Organization {
   notes               Note[]
   notifications       Notification[]
   objectiveLinks      ObjectiveLink[]
+  objectiveDependencies ObjectiveDependency[]
   partners            Partner[]
   payRuns             PayRun[]
   payments            Payment[]
@@ -3807,11 +3808,40 @@ model Objective {
   children   Objective[]     @relation("ObjectiveAlignment")
   interval   Interval?       @relation(fields: [intervalId], references: [id], onDelete: SetNull)
   links      ObjectiveLink[]
+  /// The objectives this one waits on, and those waiting on it.
+  dependsOn    ObjectiveDependency[] @relation("ObjectiveDependsOn")
+  dependedOnBy ObjectiveDependency[] @relation("ObjectiveDependedOnBy")
 
   @@index([orgId, projectId])
   @@index([parentId])
   @@index([intervalId])
   @@map("objectives")
+}
+
+// One objective waiting on another: `objective` can't be met
+// until `dependsOn` is. A different relationship from `parentId`, which is
+// alignment (this objective ladders up to that one); a dependency is about
+// order, so it can cross projects — a team's PI objective often waits on
+// another team's. It cannot cross orgs: both ends are checked on every write
+// (lib/okr/dependencies.server.ts, through rbac/foreign-refs), because a
+// single-column foreign key accepts another tenant's row. Cycles are refused
+// on write, under a per-org lock so two writers can't close one between them.
+// Deleting either objective deletes the dependency.
+model ObjectiveDependency {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  objectiveId String       @map("objective_id") @db.Uuid
+  dependsOnId String       @map("depends_on_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  objective Objective @relation("ObjectiveDependsOn", fields: [objectiveId], references: [id], onDelete: Cascade)
+  dependsOn Objective @relation("ObjectiveDependedOnBy", fields: [dependsOnId], references: [id], onDelete: Cascade)
+
+  @@unique([objectiveId, dependsOnId])
+  @@index([dependsOnId])
+  @@index([orgId])
+  @@map("objective_dependencies")
 }
 
 model KeyResult {

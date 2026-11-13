@@ -9,7 +9,12 @@
  *   - on_track : progress keeps up with (or leads) the elapsed time
  *
  * Pace uses the window from `startDate` (the objective's creation, as a proxy)
- * to `targetDate`. Without a usable window it stays on_track while time remains.
+ * to the end of the due day. Without a usable window it stays on_track while
+ * time remains.
+ *
+ * A target date is a CALENDAR DAY. The board sets it as UTC midnight and shows
+ * it pinned to UTC, so an objective due Nov 13 is due until Nov 13 ends (UTC),
+ * not from the first minute of it.
  */
 export type ObjectiveHealth = "done" | "on_track" | "at_risk" | "behind" | "no_date";
 
@@ -23,8 +28,8 @@ export function objectiveHealth(
   if (status === "COMPLETED" || progress >= 100) return "done";
   if (!targetDate) return "no_date";
 
-  const target = new Date(targetDate).getTime();
-  if (Number.isNaN(target)) return "no_date";
+  const target = dueEndsAt(targetDate);
+  if (target === null) return "no_date";
   if (now >= target) return "behind"; // past due, not complete
 
   const start = startDate ? new Date(startDate).getTime() : NaN;
@@ -38,6 +43,31 @@ export function objectiveHealth(
 
   // No usable start window — time still remains, so treat as on track.
   return "on_track";
+}
+
+const DAY_MS = 86_400_000;
+
+/** The instant a target date has passed: the end of its calendar day (UTC). Null for no usable date. */
+export function dueEndsAt(targetDate: Date | string | number | null | undefined): number | null {
+  if (targetDate === null || targetDate === undefined || targetDate === "") return null;
+  const t = new Date(targetDate).getTime();
+  if (Number.isNaN(t)) return null;
+  return Math.floor(t / DAY_MS) * DAY_MS + DAY_MS;
+}
+
+/**
+ * Past its target date and not finished. A completed or cancelled objective is
+ * never overdue; a draft or active one is once its due day has ended.
+ */
+export function isOverdue(
+  progress: number,
+  targetDate: Date | string | number | null | undefined,
+  status: string,
+  now: number = Date.now(),
+): boolean {
+  if (status === "COMPLETED" || status === "CANCELLED" || progress >= 100) return false;
+  const end = dueEndsAt(targetDate);
+  return end !== null && now >= end;
 }
 
 export const HEALTH_LABEL: Record<ObjectiveHealth, string> = {

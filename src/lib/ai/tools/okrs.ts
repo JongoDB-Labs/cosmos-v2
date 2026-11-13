@@ -11,7 +11,7 @@ export const okrTools: ToolDefinition[] = [
   {
     name: "list_objectives",
     description:
-      "List objectives with their key results, rolled-up progress (0-100), and health (on-track / at-risk / behind). A key result with linked work items counts the done ones as its current value and all of them as its target, unless a target was set. Optionally scope to one project.",
+      "List objectives with their key results, rolled-up progress (0-100), health (on-track / at-risk / behind), whether each is overdue (its target day has passed and it isn't completed or cancelled), and what each depends on. A key result with linked work items counts the done ones as its current value and all of them as its target, unless a target was set. Optionally scope to one project.",
     input_schema: {
       type: "object",
       properties: {
@@ -127,6 +127,31 @@ export const okrTools: ToolDefinition[] = [
         workItemId: { type: "string", description: "Work item ID to link (same project as the KR)" },
       },
       required: ["keyResultId", "workItemId"],
+    },
+  },
+  {
+    name: "add_objective_dependency",
+    description:
+      "Record that one objective needs another done first (idempotent). The other objective may be in another project the user can see, never another organization's. Refused if it would make a loop or point at itself.",
+    input_schema: {
+      type: "object",
+      properties: {
+        objectiveId: { type: "string", description: "The objective that waits" },
+        dependsOnId: { type: "string", description: "The objective it needs first" },
+      },
+      required: ["objectiveId", "dependsOnId"],
+    },
+  },
+  {
+    name: "remove_objective_dependency",
+    description: "Remove a dependency between two objectives.",
+    input_schema: {
+      type: "object",
+      properties: {
+        objectiveId: { type: "string", description: "The objective that waits" },
+        dependsOnId: { type: "string", description: "The objective it no longer needs first" },
+      },
+      required: ["objectiveId", "dependsOnId"],
     },
   },
 ];

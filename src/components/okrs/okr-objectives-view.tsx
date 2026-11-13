@@ -34,6 +34,7 @@ interface OkrObjectivesViewProps {
   objectives: Objective[];
   onEdit: (objective: Objective) => void;
   onLinkItems: (objective: Objective) => void;
+  onEditDependencies?: (objective: Objective) => void;
   onDelete: (objectiveId: string) => void;
   onAddKeyResult: (objectiveId: string, title: string) => void | Promise<void>;
   onUpdateKeyResult: (krId: string, currentValue: number) => void;
@@ -79,6 +80,7 @@ export function OkrObjectivesView({
   objectives,
   onEdit,
   onLinkItems,
+  onEditDependencies,
   onDelete,
   onAddKeyResult,
   onUpdateKeyResult,
@@ -240,6 +242,7 @@ export function OkrObjectivesView({
     projectId,
     onEdit,
     onLinkItems,
+    onEditDependencies,
     onDelete,
     onAddKeyResult,
     onUpdateKeyResult,

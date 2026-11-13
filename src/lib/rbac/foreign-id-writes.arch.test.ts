@@ -133,6 +133,7 @@ const VIA: Record<string, string> = {
   createSavedView: "src/lib/query/saved-view-service.server.ts",
   updateSavedView: "src/lib/query/saved-view-service.server.ts",
   deleteSavedView: "src/lib/query/saved-view-service.server.ts",
+  createObjectiveDependency: "src/lib/okr/dependencies.server.ts",
 };
 
 const READ = "a read: it filters a query run within the caller's own visibility, and stores nothing";

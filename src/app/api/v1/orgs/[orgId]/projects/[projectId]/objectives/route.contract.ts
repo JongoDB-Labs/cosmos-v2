@@ -11,7 +11,7 @@ export const listObjectives = defineRoute({
   path: "/orgs/{orgId}/projects/{projectId}/objectives",
   operationId: "listObjectives",
   summary: "List objectives",
-  description: "The project's objectives in their manual order, with key results, progress and health.",
+  description: "The project's objectives in their manual order, with key results, progress, health, whether each is overdue, and what each depends on.",
   tags: ["OKRs"],
   stability: "stable",
   scopes: ["read"],
@@ -42,6 +42,8 @@ export const createObjective = defineRoute({
       intervalId: z.string().uuid().nullish(),
       // SAFe committed vs uncommitted (stretch). Defaults to committed.
       committed: z.boolean().default(true),
+      // The day it is due. The board sends UTC midnight of the chosen day.
+      targetDate: z.string().datetime().nullish(),
     }),
   },
   responses: { 200: Objective },

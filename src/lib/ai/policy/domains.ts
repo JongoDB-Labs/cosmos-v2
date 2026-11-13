@@ -150,6 +150,8 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   update_key_result: "projects",
   add_kr_checkin: "projects",
   link_key_result_item: "projects",
+  add_objective_dependency: "projects",
+  remove_objective_dependency: "projects",
   list_milestones: "projects",
   list_teams: "projects",
   create_milestone: "projects",

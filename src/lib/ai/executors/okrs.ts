@@ -5,7 +5,14 @@ import { Permission } from "@/lib/rbac/permissions";
 import { measureKeyResult, rollUpObjective } from "@/lib/okr/progress";
 // Persists an objective's progress by the same rule the routes and the board use.
 import { recomputeObjectiveProgress } from "@/lib/okr/rollup.server";
-import { objectiveHealth } from "@/lib/okr/health";
+import { isOverdue, objectiveHealth } from "@/lib/okr/health";
+import {
+  createObjectiveDependency,
+  dependenciesOf,
+  deleteObjectiveDependency,
+  type DependsOnSummary,
+} from "@/lib/okr/dependencies.server";
+import { ProblemError } from "@/lib/openapi/problem";
 import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 
@@ -91,6 +98,9 @@ export async function listObjectives(input: Record<string, unknown>, ctx: ToolCo
   // # of linked items done, target = # linked unless one was set); objective
   // progress rolls up from the KRs, or from its own links when it has none;
   // health is progress vs. time toward the target date.
+  // What each objective needs first, as on the board: only those the actor can read.
+  const auth = await loadAuthContext(ctx);
+  const dependsOn: Map<string, DependsOnSummary[]> = auth ? await dependenciesOf(auth, objectives.map((o) => o.id)) : new Map();
   const shaped = objectives.map((o) => {
     const keyResults = o.keyResults.map((kr) => {
       const m = measureKeyResult(kr, kr.links.map((l) => l.workItem));
@@ -130,6 +140,8 @@ export async function listObjectives(input: Record<string, unknown>, ctx: ToolCo
       sortOrder: o.sortOrder,
       progress,
       health: objectiveHealth(progress, o.targetDate, o.status, o.createdAt),
+      overdue: isOverdue(progress, o.targetDate, o.status),
+      dependsOn: (dependsOn.get(o.id) ?? []).map((d) => ({ id: d.id, projectId: d.projectId, title: d.title, health: d.health, overdue: d.overdue })),
       keyResults,
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,
@@ -251,6 +263,57 @@ export async function deleteObjective(input: Record<string, unknown>, ctx: ToolC
 
   await prisma.objective.delete({ where: { id: existing.id } });
   return { deleted: true, id: existing.id };
+}
+
+// ── add/remove_objective_dependency ─────────────────────────────────────────
+// The same service as the REST route (lib/okr/dependencies.server): same org,
+// a project the actor can see and read OKRs in, never itself, never a loop.
+const dependencySchema = z.object({ objectiveId: z.string().uuid(), dependsOnId: z.string().uuid() });
+
+/** The objective that will wait, if the actor may edit it; else the refusal. */
+async function editableObjective(ctx: ToolContext, objectiveId: string) {
+  const existing = await prisma.objective.findFirst({
+    where: { id: objectiveId, orgId: ctx.orgId },
+    select: { id: true, projectId: true },
+  });
+  // Same message for a missing row and a closed project, as update_objective.
+  if (!existing || (await assertProjectRead(ctx, existing.projectId, "OKR_UPDATE"))) return null;
+  return existing;
+}
+
+export async function addObjectiveDependency(input: Record<string, unknown>, ctx: ToolContext) {
+  const denied = await assertPermission(ctx, Permission.OKR_UPDATE);
+  if (denied) return denied;
+  const parsed = dependencySchema.safeParse(input);
+  if (!parsed.success) return invalid(parsed.error);
+  const { objectiveId, dependsOnId } = parsed.data;
+
+  if (!(await editableObjective(ctx, objectiveId))) return { error: "Objective not found" };
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
+  try {
+    const dependency = await createObjectiveDependency(auth, objectiveId, dependsOnId);
+    return { added: true, id: dependency.id, dependency };
+  } catch (e) {
+    if (e instanceof ProblemError) return { error: e.message };
+    throw e;
+  }
+}
+
+export async function removeObjectiveDependency(input: Record<string, unknown>, ctx: ToolContext) {
+  const denied = await assertPermission(ctx, Permission.OKR_UPDATE);
+  if (denied) return denied;
+  const parsed = dependencySchema.safeParse(input);
+  if (!parsed.success) return invalid(parsed.error);
+  const { objectiveId, dependsOnId } = parsed.data;
+
+  if (!(await editableObjective(ctx, objectiveId))) return { error: "Objective not found" };
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
+  if (!(await deleteObjectiveDependency(auth, objectiveId, dependsOnId))) {
+    return { error: "That objective doesn't depend on the other one." };
+  }
+  return { removed: true, objectiveId, dependsOnId };
 }
 
 // ── create_key_result ─────────────────────────────────────────────────────────

@@ -312,6 +312,25 @@ export async function predicateCql(ctx: AuthContext, input: CqlInput, opts: CqlR
   return { where: portableWhere(where), query: prepared.query, cql: prepared.cql, diagnostics: prepared.diagnostics };
 }
 
+/**
+ * A query's full scoped where (envelope + predicate) as a Prisma where, for a
+ * caller that runs it inside its own work-item query: ⌘K ORs it with a title
+ * match (lib/mentions/item-attributes.server.ts). The same envelope as
+ * `executeCql`, so the rows it admits are rows the caller could list on the
+ * Issues page. Null when the caller can read no project, so that a caller
+ * cannot mistake "nothing readable" for "no condition".
+ */
+export async function scopedWhereCql(ctx: AuthContext, input: CqlInput, opts: CqlRunOptions = {}): Promise<Prisma.WorkItemWhereInput | null> {
+  const prepared = await prepareCql(ctx, input, opts);
+  if (prepared.readable.length === 0) return null;
+  return buildScopedWhere({
+    orgId: prepared.orgId,
+    allowedProjectIds: prepared.readable,
+    archived: prepared.compiled.archived,
+    user: prepared.compiled.where,
+  });
+}
+
 export function portableWhere(where: unknown): unknown {
   const nulls = new Map<unknown, string>([
     [Prisma.AnyNull, "AnyNull"],

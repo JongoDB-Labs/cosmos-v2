@@ -13,13 +13,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2, Link2} from "lucide-react";
+import { ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2, Link2, Waypoints } from "lucide-react";
 import { KeyResultRow } from "./key-result-row";
 import { krProgressPercent, objectiveProgressPercent } from "@/lib/okr/progress";
 import { HEALTH_LABEL, type ObjectiveHealth } from "@/lib/okr/health";
+import { formatDateShortStable } from "@/lib/format/stable-date";
 import type { BadgeVariant } from "@/components/ui/badge";
 
-const HEALTH_VARIANT: Record<ObjectiveHealth, BadgeVariant> = {
+export const HEALTH_VARIANT: Record<ObjectiveHealth, BadgeVariant> = {
   done: "done",
   on_track: "done",
   at_risk: "review",
@@ -35,6 +36,8 @@ interface ObjectiveCardProps {
   onEdit: (objective: Objective) => void;
   /** #52 — link the work items this objective is delivered by. */
   onLinkItems: (objective: Objective) => void;
+  /** Edit what this objective needs done first. Omitted: no menu entry. */
+  onEditDependencies?: (objective: Objective) => void;
   onDelete: (objectiveId: string) => void;
   orgId: string;
   projectId: string;
@@ -65,10 +68,12 @@ function computeProgress(objective: Objective): number {
   );
 }
 
+// The AA-safe text variants of the status colours: the -500 shades this used
+// failed contrast on the card in both themes.
 function getProgressColor(percent: number): string {
-  if (percent < 30) return "text-red-500";
-  if (percent <= 70) return "text-yellow-500";
-  return "text-green-500";
+  if (percent < 30) return "text-[var(--status-critical-text)]";
+  if (percent <= 70) return "text-[var(--status-blocked-text)]";
+  return "text-[var(--status-done-text)]";
 }
 
 function getProgressBgColor(percent: number): string {
@@ -90,6 +95,7 @@ export function ObjectiveCard({
   onAddKeyResult,
   onEdit,
   onLinkItems,
+  onEditDependencies,
   onDelete,
   orgId,
   projectId,
@@ -190,7 +196,11 @@ export function ObjectiveCard({
         onClick={() => setExpanded(!expanded)}
       >
         {dragHandle}
-        <button className="shrink-0 text-muted-foreground">
+        <button
+          className="shrink-0 text-muted-foreground"
+          aria-label={expanded ? "Collapse objective" : "Expand objective"}
+          aria-expanded={expanded}
+        >
           {expanded ? (
             <ChevronDown className="h-4 w-4" />
           ) : (
@@ -202,14 +212,21 @@ export function ObjectiveCard({
           <div className="flex items-center gap-2">
             <h3 className="font-medium text-sm truncate">{objective.title}</h3>
             <Badge variant="neutral">{statusLabels[objective.status]}</Badge>
-            {objective.health && objective.health !== "no_date" && (
-              <Badge variant={HEALTH_VARIANT[objective.health]} className="shrink-0">
-                {HEALTH_LABEL[objective.health]}
-              </Badge>
+            {/* Past its due day says so outright; otherwise the pacing stoplight. */}
+            {objective.overdue ? (
+              <Badge variant="critical" className="shrink-0">Overdue</Badge>
+            ) : (
+              objective.health && objective.health !== "no_date" && (
+                <Badge variant={HEALTH_VARIANT[objective.health]} className="shrink-0">
+                  {HEALTH_LABEL[objective.health]}
+                </Badge>
+              )
             )}
             {objective.targetDate && (
+              // A due DAY, stored at UTC midnight: formatted in UTC so no one
+              // west of it sees the day before (lib/time/date-only).
               <span className="shrink-0 text-[11px] text-muted-foreground">
-                due {new Date(objective.targetDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                due {formatDateShortStable(objective.targetDate)}
               </span>
             )}
           </div>
@@ -245,6 +262,27 @@ export function ObjectiveCard({
               </span>
             )}
           </div>
+          {(objective.dependsOn?.length ?? 0) > 0 && (
+            <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Waypoints className="h-3 w-3" aria-hidden />
+              <span>Depends on</span>
+              {objective.dependsOn!.map((d) => (
+                <Badge
+                  key={d.id}
+                  variant={d.overdue ? "critical" : d.health === "no_date" ? "neutral" : HEALTH_VARIANT[d.health]}
+                  // One line: a long title truncates, its state never wraps below it.
+                  className="max-w-[16rem] whitespace-nowrap"
+                >
+                  <span className="min-w-0 truncate" title={d.title}>
+                    {d.title}
+                  </span>
+                  {(d.overdue || d.health !== "no_date") && (
+                    <span className="shrink-0">· {d.overdue ? "Overdue" : HEALTH_LABEL[d.health]}</span>
+                  )}
+                </Badge>
+              ))}
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -261,6 +299,7 @@ export function ObjectiveCard({
                 <Button
                   variant="ghost"
                   size="icon-xs"
+                  aria-label="Objective actions"
                   onClick={(e) => e.stopPropagation()}
                 />
               }
@@ -286,6 +325,17 @@ export function ObjectiveCard({
                 <Link2 className="mr-2 h-4 w-4" />
                 Link work items
               </DropdownMenuItem>
+              {onEditDependencies && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEditDependencies(objective);
+                  }}
+                >
+                  <Waypoints className="mr-2 h-4 w-4" />
+                  Dependencies
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"

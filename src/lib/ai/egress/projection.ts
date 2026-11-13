@@ -99,7 +99,7 @@ const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // + `health`(stoplight) are structural.
   objective: [
     "id", "projectId", "ownerId", "parentId", "status", "health", "progress",
-    "targetDate", "sortOrder", "createdAt", "updatedAt",
+    "targetDate", "sortOrder", "createdAt", "updatedAt", "overdue",
   ],
   // create/update/listKeyResult return id/objectiveId/ownerId/status/rag/confidence/
   // lowerIsBetter/sortOrder + title + start/current/targetValue + unit. `title`/`unit`
@@ -114,6 +114,8 @@ const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   kr_checkin: ["id", "keyResultId", "confidence", "rag", "checkedInById", "createdAt"],
   // linkKeyResultItem returns id/keyResultId/workItemId/createdAt — all structural FKs.
   key_result_link: ["id", "keyResultId", "workItemId", "createdAt"],
+  // add/remove_objective_dependency return id + the dependency's two objective ids — all structural FKs.
+  objective_dependency: ["id", "objectiveId", "dependsOnId", "createdAt"],
   // listMilestones/create/update return id/projectId/ownerId/intervalId/status/dueDate/
   // autoStatus/completedAt/scheduleEscalate/actualDate/sortOrder(+title).
   // `title`/`description` are content → dropped.
@@ -339,6 +341,7 @@ const NATIVE_TOOL_ENTITY: Record<string, string> = {
   update_objective: "objective", delete_objective: "objective",
   create_key_result: "key_result", update_key_result: "key_result",
   add_kr_checkin: "kr_checkin", link_key_result_item: "key_result_link",
+  add_objective_dependency: "objective_dependency", remove_objective_dependency: "objective_dependency",
   // Milestones.
   list_teams: "team",
   list_milestones: "milestone", create_milestone: "milestone",

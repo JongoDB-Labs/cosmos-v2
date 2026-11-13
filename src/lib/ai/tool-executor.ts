@@ -70,6 +70,8 @@ import {
   updateKeyResult,
   addKrCheckin,
   linkKeyResultItem,
+  addObjectiveDependency,
+  removeObjectiveDependency,
 } from "./executors/okrs";
 import {
   listMilestones,
@@ -564,6 +566,10 @@ async function dispatchTool(
       return addKrCheckin(input, ctx);
     case "link_key_result_item":
       return linkKeyResultItem(input, ctx);
+    case "add_objective_dependency":
+      return addObjectiveDependency(input, ctx);
+    case "remove_objective_dependency":
+      return removeObjectiveDependency(input, ctx);
 
     // Teams
     case "list_teams":
@@ -692,6 +698,8 @@ const ASSISTANT_AUDIT_ACTIONS: Record<string, { action: string; entity: string }
   update_key_result: { action: "assistant.key_result.updated", entity: "key_result" },
   add_kr_checkin: { action: "assistant.kr_checkin.created", entity: "kr_checkin" },
   link_key_result_item: { action: "assistant.key_result_link.created", entity: "key_result_link" },
+  add_objective_dependency: { action: "assistant.objective_dependency.created", entity: "objective_dependency" },
+  remove_objective_dependency: { action: "assistant.objective_dependency.deleted", entity: "objective_dependency" },
   create_milestone: { action: "assistant.milestone.created", entity: "milestone" },
   update_milestone: { action: "assistant.milestone.updated", entity: "milestone" },
   delete_milestone: { action: "assistant.milestone.deleted", entity: "milestone" },

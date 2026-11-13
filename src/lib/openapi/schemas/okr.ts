@@ -55,6 +55,29 @@ const Tracking = {
   linkedDone: z.number().int(),
 };
 
+const ObjectiveHealth = z.enum(["done", "on_track", "at_risk", "behind", "no_date"]);
+const Overdue = z.boolean().describe("Past the end of its target day, and neither completed nor cancelled.");
+
+/** "This objective needs that one first." May cross projects, never orgs. */
+export const ObjectiveDependency = z.object({
+  id: Uuid,
+  orgId: Uuid,
+  objectiveId: Uuid.describe("The objective that waits."),
+  dependsOnId: Uuid.describe("The objective it needs first."),
+  createdAt: IsoDateTime,
+}).meta({ id: "ObjectiveDependency" });
+
+const DependsOn = z.object({
+  id: Uuid,
+  title: z.string(),
+  projectId: Uuid,
+  status: z.enum(E.ObjectiveStatus),
+  targetDate: NullableDateTime,
+  progress: z.number().int().describe("0–100."),
+  health: ObjectiveHealth,
+  overdue: Overdue,
+}).meta({ id: "ObjectiveDependsOn", description: "An objective this one depends on. Only those in projects the caller can read OKRs in are listed." });
+
 export const ObjectiveWithProgress = Objective.extend({
   keyResults: z.array(KeyResult.extend({
     ...Tracking,
@@ -64,8 +87,10 @@ export const ObjectiveWithProgress = Objective.extend({
   })),
   ...Tracking,
   linkedItems: z.array(LinkedItem.extend({ workItemTypeId: Uuid })),
-  health: z.enum(["done", "on_track", "at_risk", "behind", "no_date"])
+  health: ObjectiveHealth
     .describe("Progress against the time elapsed toward `targetDate`."),
+  overdue: Overdue,
+  dependsOn: z.array(DependsOn),
 }).meta({
   id: "ObjectiveWithProgress",
   description: "A key result with linked work items counts done items as its current value, and the linked items as its target unless one was set; the objective rolls up from its key results (or, with none, from its own linked items).",
@@ -88,4 +113,5 @@ export const entities = {
   KeyResult: { schema: KeyResult, model: "KeyResult", omitted: {} },
   Objective: { schema: Objective, model: "Objective", omitted: {} },
   KeyResultCheckin: { schema: KeyResultCheckin, model: "KeyResultCheckin", omitted: {} },
+  ObjectiveDependency: { schema: ObjectiveDependency, model: "ObjectiveDependency", omitted: {} },
 };
