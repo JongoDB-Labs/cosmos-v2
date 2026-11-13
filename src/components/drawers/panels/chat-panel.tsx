@@ -7,10 +7,12 @@ import {
   useChatChannels,
   type ChatChannelSummary,
 } from "@/hooks/use-chat-channels";
+import { ChatForbiddenError } from "@/lib/chat/chat-forbidden";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { ChatSidebar } from "@/components/chat/chat-sidebar";
 import { ChannelView } from "@/components/chat/channel-view";
 import { useDrawers, type DrawerSeed } from "../drawer-provider";
+import { NoChatAccess } from "./no-chat-access";
 
 interface ChatPanelProps {
   orgId: string;
@@ -46,7 +48,7 @@ function conversationFrom(seed: DrawerSeed | null): OpenConversation | null {
  */
 export function ChatPanel({ orgId, userId }: ChatPanelProps) {
   const { seed } = useDrawers();
-  const { data } = useChatChannels(orgId);
+  const { data, error } = useChatChannels(orgId);
   const qc = useQueryClient();
   const channelsKey = useOrgQueryKey("chat-channels");
 
@@ -117,6 +119,10 @@ export function ChatPanel({ orgId, userId }: ChatPanelProps) {
       else setDmError(problem);
     })();
   }, [dmWith, orgId, qc, channelsKey]);
+
+  // Refused by the server (the role says chat, the member's own access does
+  // not): say so, rather than the sidebar's "check your connection".
+  if (error instanceof ChatForbiddenError) return <NoChatAccess />;
 
   const selected = open ? (data ?? []).find((c) => c.id === open.channelId) ?? null : null;
   // Asked for a conversation the list does not hold: gone, or not yours. Worded

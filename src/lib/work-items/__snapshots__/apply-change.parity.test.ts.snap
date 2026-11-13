@@ -898,6 +898,11 @@ exports[`parity: PUT /work-items/[itemId] > move in_progress → done stamps com
         "org",
         "itemCompleted",
         "✅ <b>PROJ-1</b> A completed",
+        {
+          "projectIds": [
+            "project",
+          ],
+        },
       ],
     ],
   },
@@ -992,6 +997,11 @@ exports[`parity: PUT /work-items/[itemId] > move into done with a manual complet
         "org",
         "itemCompleted",
         "✅ <b>PROJ-1</b> A completed",
+        {
+          "projectIds": [
+            "project",
+          ],
+        },
       ],
     ],
   },
@@ -1316,6 +1326,11 @@ exports[`parity: PUT /work-items/[itemId] > move todo → custom done lane stamp
         "org",
         "itemCompleted",
         "✅ <b>PROJ-1</b> A completed",
+        {
+          "projectIds": [
+            "project",
+          ],
+        },
       ],
     ],
   },
@@ -2332,6 +2347,11 @@ exports[`parity: PUT /work-items/[itemId], every remaining field and edge > a st
         "org",
         "itemCompleted",
         "✅ <b>PROJ-1</b> A done completed",
+        {
+          "projectIds": [
+            "project",
+          ],
+        },
       ],
     ],
   },
@@ -3546,6 +3566,11 @@ exports[`parity: assistant updateWorkItem > assistant move into a custom Done co
         "org",
         "itemCompleted",
         "✅ <b>PROJ-1</b> A completed",
+        {
+          "projectIds": [
+            "project",
+          ],
+        },
       ],
     ],
   },
@@ -3991,6 +4016,7 @@ exports[`parity: bulk > bulk assignee change 1`] = `
             "item:A",
             "item:B",
           ],
+          "projectId": "project",
         },
       ],
     ],
@@ -4123,6 +4149,7 @@ exports[`parity: bulk > bulk move into Done 1`] = `
             "item:A",
             "item:B",
           ],
+          "projectId": "project",
         },
       ],
     ],
@@ -4131,6 +4158,11 @@ exports[`parity: bulk > bulk move into Done 1`] = `
         "org",
         "itemCompleted",
         "✅ 2 items completed in <b>PROJ</b>: PROJ-1, PROJ-2",
+        {
+          "projectIds": [
+            "project",
+          ],
+        },
       ],
     ],
   },
@@ -4232,6 +4264,7 @@ exports[`parity: bulk > bulk tags 1`] = `
             "item:A",
             "item:B",
           ],
+          "projectId": "project",
         },
       ],
     ],
@@ -4280,7 +4313,6 @@ exports[`parity: create > POST creates with assignees, labels and history 1`] = 
           "id": "item:created",
           "projectId": "project",
           "ticketNumber": 1,
-          "title": "Created",
           "workItemTypeId": "type:task",
         },
       ],
@@ -4290,6 +4322,11 @@ exports[`parity: create > POST creates with assignees, labels and history 1`] = 
         "org",
         "itemCreated",
         "🆕 <b>PROJ-1</b> Created created (LOW)",
+        {
+          "projectIds": [
+            "project",
+          ],
+        },
       ],
     ],
   },

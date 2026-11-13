@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { mayUseChat } from "@/lib/chat/access";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { ensureOrgBots } from "@/lib/chat/ensure-bots";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
@@ -28,6 +29,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!mayUseChat(ctx)) return new Response("Forbidden", { status: 403 });
 
     const bots = await ensureOrgBots(orgId);
     const list = Object.values(bots).map((b) => ({

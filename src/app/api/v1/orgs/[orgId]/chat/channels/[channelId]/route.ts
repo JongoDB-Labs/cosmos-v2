@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { success, noContent, handleApiError } from "@/lib/api-helpers";
-import { canSeeChannelGiven, canManageChannelGiven, loadChannelAndMembership } from "@/lib/chat/access";
+import { canSeeChannelGiven, canManageChannelGiven, loadChannelAndMembership, mayUseChat } from "@/lib/chat/access";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { roleCountsFor } from "@/lib/rbac/key-role";
@@ -18,6 +18,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!mayUseChat(ctx)) return new Response("Forbidden", { status: 403 });
 
     const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
     if (!channel) return new Response("Not found", { status: 404 });
@@ -69,6 +70,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!mayUseChat(ctx)) return new Response("Forbidden", { status: 403 });
 
     const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
     if (!channel) return new Response("Not found", { status: 404 });
@@ -120,6 +122,7 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!mayUseChat(ctx)) return new Response("Forbidden", { status: 403 });
 
     // A key never deletes a channel by role: no scope grants CHAT_USE (lib/rbac/key-role.ts).
     if (!roleCountsFor(ctx, Permission.CHAT_USE) || (ctx.orgRole !== "OWNER" && ctx.orgRole !== "ADMIN")) {

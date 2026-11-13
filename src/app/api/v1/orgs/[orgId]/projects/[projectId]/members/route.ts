@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { memberDisclosure } from "@/lib/members/scoped-roster.server";
 import { canManageProject } from "@/lib/rbac/scope";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -38,6 +39,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const r = await resolve(orgId, projectId);
     if (r.error) return r.error;
     await requireProjectRead(r.ctx, projectId, "PROJECT_READ");
+    const people = await memberDisclosure(r.ctx);
 
     // Explicit select throughout — OrgMember.permissions is a permission mask
     // and must never ride out in a response payload.
@@ -60,13 +62,13 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       },
     });
     return success(
-      members.map((m) => ({
+      members.filter((m) => people.inRoster(m.orgMember.userId)).map((m) => ({
         id: m.id,
         orgMemberId: m.orgMemberId,
         role: m.role,
         userId: m.orgMember.userId,
         displayName: m.orgMember.user.displayName,
-        email: m.orgMember.user.email,
+        ...(people.emails && { email: m.orgMember.user.email }),
         avatarUrl: m.orgMember.user.avatarUrl,
         isBot: m.orgMember.user.isBot,
         teamIds: m.teamMembers.map((tm) => tm.teamId),

@@ -204,7 +204,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       metadata: { workItemId: created.id, intervalId: nextInterval?.id ?? null },
       ipAddress: getIpAddress(request),
     });
-    publishCeremonyChanged(orgId, action.ceremonyId);
+    publishCeremonyChanged(orgId, projectId, action.ceremonyId);
 
     return success({ workItem: created, created: true });
   } catch (e) {

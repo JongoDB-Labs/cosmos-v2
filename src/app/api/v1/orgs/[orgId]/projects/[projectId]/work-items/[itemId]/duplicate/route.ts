@@ -182,7 +182,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       publishToOrg(orgId, "work-item.created", {
         id: item.id,
         projectId,
-        title: item.title,
         workItemTypeId: item.workItemTypeId,
         columnKey: item.columnKey,
         ticketNumber: item.ticketNumber,

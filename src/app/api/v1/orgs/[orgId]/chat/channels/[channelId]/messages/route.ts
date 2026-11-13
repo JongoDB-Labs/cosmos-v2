@@ -2,11 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { success, created, handleApiError } from "@/lib/api-helpers";
-import {
-  canSeeChannelGiven,
-  canPostToChannelGiven,
-  loadChannelAndMembership,
-} from "@/lib/chat/access";
+import { canSeeChannelGiven, canPostToChannelGiven, loadChannelAndMembership, mayUseChat } from "@/lib/chat/access";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { createUserMessage } from "@/lib/chat/messages";
 import { runChatBot, resolveBotMention } from "@/lib/chat/bot-runner";
@@ -24,6 +20,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!mayUseChat(ctx)) return new Response("Forbidden", { status: 403 });
 
     const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
     if (!channel) return new Response("Not found", { status: 404 });

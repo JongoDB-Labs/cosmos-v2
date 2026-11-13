@@ -24,6 +24,10 @@ const h = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/auth/api-key", async (orig) => ({ ...(await orig<typeof import("@/lib/auth/api-key")>()), resolveAuth: h.resolveAuth }));
 vi.mock("@/lib/integrations/teams-notify", () => ({ teamsEventEnabled: async () => true }));
+// Every project may be posted about here; channel-policy.db.test.ts drives the real rule.
+vi.mock("@/lib/integrations/channel-policy.server", () => ({
+  channelPolicy: async () => ({ project: async (id: string) => ({ id }) }),
+}));
 vi.mock("@/lib/integrations/teams", () => ({
   postTeamsChannelMessage: async (orgId: string) => {
     if (h.outcome === "throw") throw new Error("network down");

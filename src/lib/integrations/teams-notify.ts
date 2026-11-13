@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { postTeamsChannelMessage } from "@/lib/integrations/teams";
+import { channelPolicy } from "@/lib/integrations/channel-policy.server";
 import {
   TEAMS_NOTIFY_DEFAULTS,
   type TeamsEvent,
@@ -43,10 +44,30 @@ export async function teamsEventEnabled(orgId: string, event: TeamsEvent): Promi
   return notify[event] ?? TEAMS_NOTIFY_DEFAULTS[event];
 }
 
-/** Post `html` to the org's Teams channel for `event`, if enabled. Never throws. */
-export async function teamsNotify(orgId: string, event: TeamsEvent, html: string): Promise<void> {
+/**
+ * What a post is about, so the channel rule (`channel-policy.server.ts`) is
+ * checked here as well as where the text is built: every project it names may
+ * be posted about, or the chat channel it quotes is a public one.
+ */
+export type TeamsSubject = { projectIds: string[] } | { chatChannelId: string };
+
+/**
+ * Post `html` to the org's Teams channel for `event`, if enabled and if the
+ * channel rule allows what it is about. The caller builds `html` with
+ * `channelPolicy(orgId).text(...)`, so a marked title is left out rather than
+ * the whole post dropped; a marking that still reaches here drops the post.
+ * Never throws.
+ */
+export async function teamsNotify(orgId: string, event: TeamsEvent, html: string, about: TeamsSubject): Promise<void> {
   try {
     if (!(await teamsEventEnabled(orgId, event))) return;
+    const policy = await channelPolicy(orgId);
+    if ("projectIds" in about) {
+      for (const projectId of about.projectIds) if (!(await policy.project(projectId))) return;
+    } else if (!(await policy.chatChannel(about.chatChannelId))) {
+      return;
+    }
+    if (policy.text(null, html) === undefined) return;
     await postTeamsChannelMessage(orgId, { html });
   } catch {
     /* notifications are strictly best-effort */

@@ -76,7 +76,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    publishCeremonyChanged(orgId, ceremony.id);
+    publishCeremonyChanged(orgId, projectId, ceremony.id);
     return success(action);
   } catch (e) {
     return handleApiError(e);

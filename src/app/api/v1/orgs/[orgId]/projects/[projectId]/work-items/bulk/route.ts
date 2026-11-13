@@ -159,7 +159,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
-    publishToOrg(orgId, "work-item.deleted", { ids });
+    publishToOrg(orgId, "work-item.deleted", { projectId, ids });
     return respond(bulkDeleteWorkItems, 204, undefined);
   } catch (error) {
     return handleApiError(error, request);

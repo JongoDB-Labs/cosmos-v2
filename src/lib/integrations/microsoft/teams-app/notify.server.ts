@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/client";
+import { channelProjectOk } from "@/lib/integrations/channel-policy.server";
 import { logAudit } from "@/lib/audit";
 import { createClassificationResolver } from "@/lib/classification/resolver";
 import { entityUrl } from "@/lib/mentions/urls";
@@ -97,13 +98,6 @@ export async function queueDueDigests(now = new Date()): Promise<number> {
 
 const CHANNEL_EVENTS = ["work_item.created", "work_item.transitioned"] as const;
 
-/** Can this project still post to a channel? Not once it's restricted, team-scoped or archived. */
-async function channelProjectOk(projectId: string) {
-  const p = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true, orgId: true, key: true, name: true, archived: true, teamScopedAccess: true } });
-  if (!p || p.archived || p.teamScopedAccess) return null;
-  const cls = await createClassificationResolver(p.orgId);
-  return cls.restricted(p.id, p.name) ? null : p;
-}
 
 async function stopChannel(conv: { id: string; orgId: string; projectId: string | null }, reason: string) {
   await prisma.teamsConversation.deleteMany({ where: { id: conv.id } });

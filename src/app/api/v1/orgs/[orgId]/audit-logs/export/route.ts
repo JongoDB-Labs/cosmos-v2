@@ -7,6 +7,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
 import { Prisma } from "@prisma/client";
 import { generateAuditLogPdf } from "@/lib/pdf/audit-log";
+import { memberDisclosure } from "@/lib/members/scoped-roster.server";
 import { loadPdfLogo } from "@/lib/pdf/org-logo";
 import { pickOrgBrand } from "@/lib/brand/resolve";
 import { toCSV } from "@/lib/export/csv";
@@ -93,8 +94,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       const rendered = logs.slice(0, PDF_ROW_CAP);
 
       // Resolve userIds → display names (audit keeps userId as data, no FK).
+      // Names only for people inside the caller's roster ceiling, and an email
+      // as the fallback label only for a caller who may read emails; anyone
+      // else is shown by id, as the CSV and JSON exports show everyone.
+      const people = await memberDisclosure(ctx);
       const userIds = [
-        ...new Set(rendered.map((l) => l.userId).filter((v): v is string => !!v)),
+        ...new Set(rendered.map((l) => l.userId).filter((v): v is string => !!v && people.inRoster(v))),
       ];
       const users = userIds.length
         ? await prisma.user.findMany({
@@ -103,7 +108,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           })
         : [];
       const userLabel = new Map(
-        users.map((u) => [u.id, u.displayName || u.email || u.id]),
+        users.map((u) => [u.id, u.displayName || (people.emails ? u.email : "") || u.id]),
       );
 
       // Canonical JSON of the RENDERED rows (fixed key order; BigInt→string,
@@ -146,7 +151,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         where: { id: ctx.userId },
         select: { displayName: true, email: true },
       });
-      const exportedBy = exporter?.email || exporter?.displayName || ctx.userId;
+      const exportedBy = (people.emails ? exporter?.email : null) || exporter?.displayName || ctx.userId;
       const filters = { action, entity, userId, startDate, endDate };
 
       // HMAC-SHA256 over the canonical manifest — re-verifiable by this instance

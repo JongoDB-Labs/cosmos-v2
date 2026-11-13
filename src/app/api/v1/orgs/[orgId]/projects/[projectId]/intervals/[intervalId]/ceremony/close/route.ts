@@ -57,7 +57,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       metadata: { intervalId, kind: ceremony.kind },
       ipAddress: getIpAddress(request),
     });
-    publishCeremonyChanged(orgId, ceremony.id);
+    publishCeremonyChanged(orgId, projectId, ceremony.id);
 
     return success({
       id: updated.id,

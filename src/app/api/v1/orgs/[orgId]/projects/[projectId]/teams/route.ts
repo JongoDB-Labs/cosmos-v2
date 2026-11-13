@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { canManageProject } from "@/lib/rbac/scope";
 import { canReadProject } from "@/lib/rbac/project-access";
+import { memberDisclosure } from "@/lib/members/scoped-roster.server";
 import { ForbiddenError } from "@/lib/rbac/check";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -47,6 +48,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams): Promi
     // Project-scoped: honours teamScopedAccess, so a member of a restricted
     // project cannot enumerate its teams from outside.
     if (!(await canReadProject(r.ctx, projectId))) throw new ForbiddenError();
+    const people = await memberDisclosure(r.ctx);
 
     const teams = await prisma.team.findMany({
       where: { projectId },
@@ -82,13 +84,13 @@ export async function GET(_request: NextRequest, { params }: RouteParams): Promi
         id: t.id,
         name: t.name,
         key: t.key,
-        members: t.members.map((m) => ({
+        members: t.members.filter((m) => people.inRoster(m.projectMember.orgMember.userId)).map((m) => ({
           id: m.id,
           projectMemberId: m.projectMemberId,
           isLead: m.isLead,
           userId: m.projectMember.orgMember.userId,
           displayName: m.projectMember.orgMember.user.displayName,
-          email: m.projectMember.orgMember.user.email,
+          ...(people.emails && { email: m.projectMember.orgMember.user.email }),
           avatarUrl: m.projectMember.orgMember.user.avatarUrl,
         })),
       })),

@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { getVisibleProjectIds } from "@/lib/rbac/project-access";
+import { memberDisclosure } from "@/lib/members/scoped-roster.server";
 import { success, handleApiError, getIpAddress, noContent } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -80,18 +81,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
 
     // The same cuts the dedicated endpoints make: projects the caller can see
-    // (team scoping and a key's project ceiling), emails only to a session or a
-    // key holding members:read, and settings only to whoever may change them.
+    // (team scoping and a key's project ceiling), members inside a key's roster
+    // ceiling, emails only to a session or a key holding members:read, and
+    // settings only to whoever may change them.
     const visible = await getVisibleProjectIds(ctx, org.projects.map((p) => p.id));
-    const showEmail = !ctx.isApiKey || (ctx.scopes ?? []).includes("members:read");
+    const people = await memberDisclosure(ctx);
     const { settings, dbConnectionId, members, projects, ...rest } = org;
     return success({
       ...rest,
       ...(hasPermission(ctx.permissions, Permission.ORG_UPDATE) && { settings, dbConnectionId }),
-      members: members.map((m) => ({
-        ...m,
-        user: showEmail ? m.user : { id: m.user.id, displayName: m.user.displayName, avatarUrl: m.user.avatarUrl },
-      })),
+      members: members
+        .filter((m) => people.inRoster(m.user.id))
+        .map((m) => ({
+          ...m,
+          user: people.emails ? m.user : { id: m.user.id, displayName: m.user.displayName, avatarUrl: m.user.avatarUrl },
+        })),
       projects: projects.filter((p) => visible.has(p.id)),
     });
   } catch (error) {

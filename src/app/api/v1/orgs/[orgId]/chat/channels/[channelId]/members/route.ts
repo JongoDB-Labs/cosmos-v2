@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { success, handleApiError } from "@/lib/api-helpers";
-import { canManageChannelGiven, loadChannelAndMembership } from "@/lib/chat/access";
+import { canManageChannelGiven, loadChannelAndMembership, mayUseChat } from "@/lib/chat/access";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { z } from "zod";
@@ -21,11 +21,14 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!mayUseChat(ctx)) return new Response("Forbidden", { status: 403 });
 
     const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
     if (!channel || channel.orgId !== orgId) return new Response("Not found", { status: 404 });
-    // Only members (or org owners/admins) can see the roster.
-    const isOrgAdmin = ctx.orgRole === "OWNER" || ctx.orgRole === "ADMIN";
+    // Only members (or org owners/admins) can see the roster. The org role
+    // counts only where it would for any chat action (`roleCountsFor`), so a
+    // key an admin minted does not list a private channel's members.
+    const isOrgAdmin = roleCountsFor(ctx, Permission.CHAT_USE) && (ctx.orgRole === "OWNER" || ctx.orgRole === "ADMIN");
     if (!member && !isOrgAdmin) return new Response("Forbidden", { status: 403 });
 
     // ChatChannelMember has no `user` relation (userId is a raw column), so
@@ -65,6 +68,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!mayUseChat(ctx)) return new Response("Forbidden", { status: 403 });
 
     const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
     if (!channel || channel.orgId !== orgId) return new Response("Not found", { status: 404 });

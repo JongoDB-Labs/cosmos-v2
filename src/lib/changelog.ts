@@ -49,6 +49,33 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.552.3",
+    date: "2026-11-12",
+    title: "Search, chat and live updates show only what you can see",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Live updates on boards and lists now reach only people who can read that project, and no longer carry item titles. Someone removed from a private channel stops receiving its messages at once, and PI planning updates go only to people who can open PI planning. A live connection now ends when you sign out, your session times out, your organization starts requiring MFA you haven't completed, or its IP allowlist no longer includes your address. API keys can no longer open one.",
+      },
+      {
+        kind: "fix",
+        text: "Search, @-mention suggestions, mention links and \"Mentioned in\" now show only what you can open. Team-only projects, restricted files, private channels and direct messages stay hidden from people outside them.",
+      },
+      {
+        kind: "fix",
+        text: "Reading chat now needs the Chat permission, as posting already did. Roles without it (Viewer, Guest, Billing admin) and API keys no longer read channels, search messages or see who is online. Those roles no longer see a Chat tab in the side drawer, and a refused chat says \"You don't have access to chat\" instead of a connection error.",
+      },
+      {
+        kind: "fix",
+        text: "Teams channel notifications and the daily Teams digest now skip team-only and classified projects, and notifications leave out titles that carry a marking. They never quote a private channel or direct message.",
+      },
+      {
+        kind: "fix",
+        text: "Member lists, sprint capacity, people suggestions and people named in queries and saved filters show email addresses to an API key only with the members:read scope, and only then can a key find a person by email. A key limited to some projects now sees only the people on those projects. The organization export now includes only the account fields it needs.",
+      },
+    ],
+  },
+  {
     version: "2.552.2",
     date: "2026-11-13",
     title: "Every API endpoint checks who is asking first, and the IP allowlist can't lock you out",

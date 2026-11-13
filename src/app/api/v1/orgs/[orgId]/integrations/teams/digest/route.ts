@@ -7,6 +7,7 @@ import { rateLimit, refundRateLimit } from "@/lib/rate-limit/bucket";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { teamsEventEnabled } from "@/lib/integrations/teams-notify";
 import { postTeamsChannelMessage } from "@/lib/integrations/teams";
+import { channelPolicy } from "@/lib/integrations/channel-policy.server";
 
 const DIGEST_LIMIT = { capacity: 1, refillPerSecond: 1 / 3600 };
 
@@ -22,7 +23,10 @@ type RouteParams = { params: Promise<{ orgId: string }> };
  * It POSTS to the org's Teams channel, so it is a write: a session needs
  * INTEGRATION_MANAGE, a key needs RULES_RUN (the `rules:run` scheduler scope)
  * plus ITEM_READ (`read`) to count; a read-only key is refused. At most one post
- * per org per hour, and the counts cover only the projects the caller can read.
+ * per org per hour, and the counts cover only the projects the caller can read
+ * AND the channel may hear about (`channel-policy.server.ts`): everyone in the
+ * Teams channel reads the post, so team-scoped, archived and classified
+ * projects stay out of it, as they do from every other Teams post.
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
@@ -62,14 +66,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // Counted over what the caller can read (a key's projectScope, team
-    // scoping); feedback filed against no project is org-level and counts.
+    // scoping) and the channel may hear about; feedback filed against no
+    // project is org-level and counts.
     const readable = await getReadableProjectIds(ctx);
+    const policy = await channelPolicy(org.id);
+    const postable = (await Promise.all(readable.map(async (id) => ((await policy.project(id)) ? id : null)))).filter(
+      (id): id is string => id !== null,
+    );
     const since = new Date(Date.now() - 24 * 3600 * 1000);
     const [completed, createdCount, feedbackDelivered] = await Promise.all([
-      prisma.workItem.count({ where: { orgId: org.id, projectId: { in: readable }, completedAt: { gte: since } } }),
-      prisma.workItem.count({ where: { orgId: org.id, projectId: { in: readable }, createdAt: { gte: since } } }),
+      prisma.workItem.count({ where: { orgId: org.id, projectId: { in: postable }, completedAt: { gte: since } } }),
+      prisma.workItem.count({ where: { orgId: org.id, projectId: { in: postable }, createdAt: { gte: since } } }),
       prisma.feedbackItem.count({
-        where: { orgId: org.id, deliveredAt: { gte: since }, OR: [{ projectId: null }, { projectId: { in: readable } }] },
+        where: { orgId: org.id, deliveredAt: { gte: since }, OR: [{ projectId: null }, { projectId: { in: postable } }] },
       }),
     ]);
 

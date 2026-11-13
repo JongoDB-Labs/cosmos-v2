@@ -18,6 +18,19 @@ import { NOT_VOIDED } from "@/lib/time/not-voided";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
+/** Who a member is, never how they sign in. A new User column stays out until listed here. */
+const EXPORTED_USER = {
+  id: true,
+  email: true,
+  displayName: true,
+  avatarUrl: true,
+  isBot: true,
+  mfaEnabled: true,
+  createdAt: true,
+  deactivatedAt: true,
+  lastActiveAt: true,
+} as const;
+
 // JSON.stringify can't serialize BigInt — convert to string
 function jsonStringifySafe(v: unknown): string {
   return JSON.stringify(v, (_k, val) => (typeof val === "bigint" ? val.toString() : val));
@@ -52,7 +65,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       // have since been removed as well as current members. `removedAt` tells them
       // apart — dropping them would make the export disagree with the history it is
       // exported alongside.
-      members: await prismaUnfiltered.orgMember.findMany({ where: { orgId: ctx.orgId }, include: { user: true } }),
+      //
+      // The user record is selected column by column: loaded whole it carried
+      // each person's password hash and sealed MFA secret into the archive.
+      members: await prismaUnfiltered.orgMember.findMany({ where: { orgId: ctx.orgId }, include: { user: { select: EXPORTED_USER } } }),
       projects: await prisma.project.findMany({ where: { orgId: ctx.orgId, ...(hidden.length ? { id: { notIn: hidden } } : {}) } }),
       workItems: await prisma.workItem.findMany({ where: { orgId: ctx.orgId, ...inVisible } }).catch(() => []),
       intervals: await prisma.interval.findMany({ where: { orgId: ctx.orgId, ...inVisible } }).catch(() => []),

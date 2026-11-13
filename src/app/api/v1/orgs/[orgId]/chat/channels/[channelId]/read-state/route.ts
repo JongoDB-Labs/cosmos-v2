@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { success, handleApiError } from "@/lib/api-helpers";
-import { canSeeChannelGiven, loadChannelAndMembership } from "@/lib/chat/access";
+import { canSeeChannelGiven, loadChannelAndMembership, mayUseChat } from "@/lib/chat/access";
 
 type RouteParams = { params: Promise<{ orgId: string; channelId: string }> };
 
@@ -17,6 +17,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    if (!mayUseChat(ctx)) return new Response("Forbidden", { status: 403 });
 
     const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
     if (!channel) return new Response("Not found", { status: 404 });

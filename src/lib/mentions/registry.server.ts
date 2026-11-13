@@ -3,18 +3,27 @@
  * command palette and the `@` mention typeahead (`searchEntities`), plus the
  * batch label/url resolver for rendering stored tokens (`resolveRefs`).
  *
- * Per-type handlers do a case-insensitive `contains` search (org-scoped; notes
- * additionally visibility-scoped; people via OrgMember). Project-scoped types
- * return `projectId`, and `finalize()` batch-resolves the project `key` for
- * deep-links + the `KEY-<n>` work-item label. Auth/permission gating happens at
- * the route layer (ORG_READ), matching the existing /search route. Documents
- * also follow the file rule (lib/files/access.ts), as the org library does: a
- * title in a search result discloses a file as surely as opening it.
+ * Per-type handlers do a case-insensitive `contains` search, and answer only
+ * what the caller could open on that type's own pages: the type's read bit
+ * (`READS`), and for a project's records only the projects readable under it
+ * (team scoping and ABAC denies, via `getReadableProjectIds`). Documents follow
+ * the file rule (lib/files/access.ts) as the org library does, boards their
+ * team, people the roster ceiling. A search that returned a title the page
+ * would refuse disclosed it already. Project-scoped
+ * types return `projectId`, and `finalize()` batch-resolves the project `key`
+ * for deep-links + the `KEY-<n>` work-item label. The routes gate ORG_READ.
  */
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
+import { getVisibleProjectIds, hiddenProjectIds } from "@/lib/rbac/project-access";
+import { getReadableProjectIds } from "@/lib/work-items/query/scope";
+import { narrowBoards } from "@/lib/rbac/board-access";
+import type { BoardLike } from "@/lib/rbac/board-visibility";
 import { orgDocumentVisibilityWhere } from "@/lib/files/access";
-import { visibleProjectIdsForActor } from "@/lib/rbac/project-access";
+import { readableMeetingsWhere } from "@/lib/meetings/meeting-reader";
+import { memberDisclosure, type MemberDisclosure } from "@/lib/members/scoped-roster.server";
+import { mayUseChat, canSeeChannelGiven } from "@/lib/chat/access";
 import {
   ENTITY_ORDER,
   type EntityRef,
@@ -27,7 +36,76 @@ import { parseTicketQuery } from "./ticket-query";
 import { FEEDBACK_SUBJECT } from "@/lib/feedback/subject";
 import { feedbackItemUrl } from "@/lib/feedback/urls";
 import { chatDrawerHref } from "@/lib/chat/drawer-link";
-export type SearchScope = { orgId: string; userId: string; ctx: AuthContext };
+type ReadBit = keyof typeof Permission;
+
+export type SearchScope = {
+  orgId: string;
+  userId: string;
+  ctx: AuthContext;
+  /** Projects whose records the caller may read under `action`. Memoized per call. */
+  readable(action: ReadBit): Promise<string[]>;
+  /** Projects the caller can see at all (PROJECT_READ, team scoping). */
+  visible(): Promise<Set<string>>;
+  /** Who among the members the caller may see, and whether with emails. */
+  people(): Promise<MemberDisclosure>;
+};
+
+/**
+ * The read each type's own pages require: the bit, and for a project's records
+ * the action whose readable projects bound the search. A type the caller's role
+ * cannot open is not searched at all.
+ */
+const READS: Record<EntityType, { bit: ReadBit; projects?: ReadBit }> = {
+  user: { bit: "ORG_READ" },
+  project: { bit: "PROJECT_READ" },
+  note: { bit: "NOTE_READ" },
+  workItem: { bit: "ITEM_READ", projects: "ITEM_READ" },
+  // The meeting rule every meeting door asks (`readableMeetingsWhere`).
+  meeting: { bit: "MEETING_READ" },
+  board: { bit: "BOARD_READ", projects: "BOARD_READ" },
+  milestone: { bit: "PROJECT_READ", projects: "PROJECT_READ" },
+  objective: { bit: "OKR_READ", projects: "OKR_READ" },
+  goal: { bit: "OKR_READ", projects: "OKR_READ" },
+  kpi: { bit: "ANALYTICS_READ", projects: "ANALYTICS_READ" },
+  // The org library's own rule (`orgDocumentVisibilityWhere`), which the routes gate on ORG_READ.
+  document: { bit: "ORG_READ" },
+  risk: { bit: "ANALYTICS_READ", projects: "ANALYTICS_READ" },
+  deliverable: { bit: "ANALYTICS_READ", projects: "ANALYTICS_READ" },
+  blocker: { bit: "ANALYTICS_READ", projects: "ANALYTICS_READ" },
+  changeRequest: { bit: "ANALYTICS_READ", projects: "ANALYTICS_READ" },
+  clin: { bit: "ANALYTICS_READ", projects: "ANALYTICS_READ" },
+  crmContact: { bit: "CRM_READ" },
+  partner: { bit: "CRM_READ" },
+  product: { bit: "CRM_READ" },
+};
+
+function scopeFor(ctx: AuthContext): SearchScope {
+  const readable = new Map<ReadBit, Promise<string[]>>();
+  let visible: Promise<Set<string>> | null = null;
+  let people: Promise<MemberDisclosure> | null = null;
+  return {
+    orgId: ctx.orgId,
+    userId: ctx.userId,
+    ctx,
+    readable(action) {
+      if (!readable.has(action)) readable.set(action, getReadableProjectIds(ctx, action));
+      return readable.get(action)!;
+    },
+    visible() {
+      visible ??= prisma.project
+        .findMany({ where: { orgId: ctx.orgId }, select: { id: true } })
+        .then((all) => getVisibleProjectIds(ctx, all.map((p) => p.id)));
+      return visible;
+    },
+    people() {
+      people ??= memberDisclosure(ctx);
+      return people;
+    },
+  };
+}
+
+/** Whether the caller's role opens this type at all. */
+const mayRead = (type: EntityType, scope: SearchScope) => hasPermission(scope.ctx.permissions, Permission[READS[type].bit]);
 
 export type EntityHit = {
   type: EntityType;
@@ -74,13 +152,31 @@ function makeHandler(cfg: {
   hasCode?: boolean;
   hasTicket?: boolean;
   projectScoped?: boolean;
-  /** A further `where` the caller's rows must meet (the document rule). */
+  /** `READS[type].projects` bounds the rows. */
+  read?: { projects?: ReadBit };
+  /** A further `where` (the document rule). */
   where?: (scope: SearchScope) => Promise<Record<string, unknown>>;
+  /** Extra columns `keep` needs. */
+  extraSelect?: Record<string, boolean>;
+  /** A last per-row narrowing that a `where` cannot express (a board's team). */
+  keep?: (rows: Record<string, unknown>[], scope: SearchScope) => Promise<Record<string, unknown>[]>;
 }): Handler {
-  const select: Record<string, boolean> = { id: true, [cfg.field]: true };
+  const select: Record<string, boolean> = { id: true, [cfg.field]: true, ...cfg.extraSelect };
   if (cfg.hasCode) select.code = true;
   if (cfg.hasTicket) select.ticketNumber = true;
   if (cfg.projectScoped) select.projectId = true;
+
+  /** Everything but the text match: the projects and rule this caller may read. */
+  const bounds = async (scope: SearchScope): Promise<Record<string, unknown>[]> => {
+    const out: Record<string, unknown>[] = [];
+    if (cfg.read?.projects) {
+      const ids = await scope.readable(cfg.read.projects);
+      out.push({ projectId: { in: ids } });
+    }
+    if (cfg.where) out.push(await cfg.where(scope));
+    return out;
+  };
+  const narrow = async (rows: Record<string, unknown>[], scope: SearchScope) => (cfg.keep ? cfg.keep(rows, scope) : rows);
 
   const toRaw = (r: Record<string, unknown>): Raw => ({
     id: r.id as string,
@@ -96,49 +192,55 @@ function makeHandler(cfg: {
       // often as by title — "TEST-123" is how people refer to them — but the
       // number was only ever selected for display, never searched.
       const ticket = cfg.hasTicket ? parseTicketQuery(q).ticketNumber : undefined;
-      const text =
-        ticket === undefined
-          ? { [cfg.field]: ci(q) }
-          : { OR: [{ [cfg.field]: ci(q) }, { ticketNumber: ticket }] };
+      const text = ticket === undefined ? { [cfg.field]: ci(q) } : { OR: [{ [cfg.field]: ci(q) }, { ticketNumber: ticket }] };
 
       const rows = await cfg.delegate.findMany({
-        where: { orgId: scope.orgId, AND: [text, ...(cfg.where ? [await cfg.where(scope)] : [])] },
+        where: { orgId: scope.orgId, AND: [text, ...(await bounds(scope))] },
         select,
         take,
         orderBy: { [cfg.field]: "asc" },
       });
-      return rows.map(toRaw);
+      return (await narrow(rows, scope)).map(toRaw);
     },
     async resolve(ids, scope) {
       if (ids.length === 0) return [];
       const rows = await cfg.delegate.findMany({
-        where: { orgId: scope.orgId, id: { in: ids }, ...(cfg.where && { AND: [await cfg.where(scope)] }) },
+        where: { orgId: scope.orgId, id: { in: ids }, AND: await bounds(scope) },
         select,
       });
-      return rows.map(toRaw);
+      return (await narrow(rows, scope)).map(toRaw);
     },
   };
 }
 
 const d = (m: unknown) => m as unknown as Delegate;
 
+/** A member as a hit: the email only for a caller who may read emails. */
+function person(u: { id: string; displayName: string | null; email: string }, people: MemberDisclosure): Raw {
+  return {
+    id: u.id,
+    title: u.displayName || (people.emails ? u.email : "") || u.id,
+    ...(people.emails && { sublabel: u.email }),
+  };
+}
+
 const HANDLERS: Record<EntityType, Handler> = {
   user: {
-    async search(q, { orgId }, take) {
+    // The roster ceiling and the email rule, as every member list applies them:
+    // without members:read an address is neither shown nor matched.
+    async search(q, scope, take) {
+      const people = await scope.people();
       const rows = await prisma.orgMember.findMany({
         where: {
-          orgId,
-          user: { OR: [{ displayName: ci(q) }, { email: ci(q) }] },
+          orgId: scope.orgId,
+          ...(people.roster && { userId: { in: people.roster } }),
+          user: people.emails ? { OR: [{ displayName: ci(q) }, { email: ci(q) }] } : { displayName: ci(q) },
         },
         select: { user: { select: { id: true, displayName: true, email: true } } },
         take,
         orderBy: { user: { displayName: "asc" } },
       });
-      return rows.map((r) => ({
-        id: r.user.id,
-        title: r.user.displayName ?? r.user.email,
-        sublabel: r.user.email,
-      }));
+      return rows.map((r) => person(r.user, people));
     },
     // `search` above feeds the @-mention PICKER, so it stays on the default-filtered
     // client: a removed person must not be mentionable in new content.
@@ -148,45 +250,38 @@ const HANDLERS: Record<EntityType, Handler> = {
     // since been removed, or their past mentions decay into raw ids. Reading the
     // retained membership row keeps this scoped to `orgId`, so resolution cannot be
     // used to put a name to a user id from another org.
-    async resolve(ids, { orgId }) {
+    async resolve(ids, scope) {
       if (ids.length === 0) return [];
+      const people = await scope.people();
       const rows = await prismaUnfiltered.orgMember.findMany({
-        where: { orgId, userId: { in: ids } },
+        where: { orgId: scope.orgId, userId: { in: ids.filter((id) => people.inRoster(id)) } },
         select: { user: { select: { id: true, displayName: true, email: true } } },
       });
-      return rows.map((r) => ({
-        id: r.user.id,
-        title: r.user.displayName ?? r.user.email,
-        sublabel: r.user.email,
-      }));
+      return rows.map((r) => person(r.user, people));
     },
   },
   project: {
     // Both paths narrow to the projects this actor may SEE. Without it, a
     // project limited to its members stayed discoverable by name through
     // @-mention search — the pages and the Issues list were gated, this was not.
-    async search(q, { orgId, userId }, take) {
+    async search(q, scope, take) {
+      const visible = await scope.visible();
       const rows = await prisma.project.findMany({
-        where: { orgId, name: ci(q), archived: false },
+        where: { orgId: scope.orgId, name: ci(q), archived: false, id: { in: [...visible] } },
         select: { id: true, name: true, key: true },
         take,
         orderBy: { name: "asc" },
       });
-      const visible = await visibleProjectIdsForActor(orgId, userId, rows.map((r) => r.id));
-      return rows
-        .filter((r) => visible.has(r.id))
-        .map((r) => ({ id: r.id, title: r.name, projectKey: r.key, sublabel: r.key }));
+      return rows.map((r) => ({ id: r.id, title: r.name, projectKey: r.key, sublabel: r.key }));
     },
-    async resolve(ids, { orgId, userId }) {
+    async resolve(ids, scope) {
       if (ids.length === 0) return [];
+      const visible = await scope.visible();
       const rows = await prisma.project.findMany({
-        where: { orgId, id: { in: ids } },
+        where: { orgId: scope.orgId, id: { in: ids.filter((id) => visible.has(id)) } },
         select: { id: true, name: true, key: true },
       });
-      const visible = await visibleProjectIdsForActor(orgId, userId, rows.map((r) => r.id));
-      return rows
-        .filter((r) => visible.has(r.id))
-        .map((r) => ({ id: r.id, title: r.name, projectKey: r.key, sublabel: r.key }));
+      return rows.map((r) => ({ id: r.id, title: r.name, projectKey: r.key, sublabel: r.key }));
     },
   },
   note: {
@@ -224,26 +319,46 @@ const HANDLERS: Record<EntityType, Handler> = {
       return rows.map((r) => ({ id: r.id, title: r.title }));
     },
   },
-  workItem: makeHandler({ delegate: d(prisma.workItem), field: "title", hasTicket: true, projectScoped: true }),
-  meeting: makeHandler({ delegate: d(prisma.syncMeeting), field: "title" }),
-  board: makeHandler({ delegate: d(prisma.board), field: "name", projectScoped: true }),
-  milestone: makeHandler({ delegate: d(prisma.milestone), field: "title", projectScoped: true }),
-  objective: makeHandler({ delegate: d(prisma.objective), field: "title", projectScoped: true }),
-  goal: makeHandler({ delegate: d(prisma.goal), field: "title", projectScoped: true }),
-  kpi: makeHandler({ delegate: d(prisma.kpi), field: "name", projectScoped: true }),
+  workItem: makeHandler({ delegate: d(prisma.workItem), field: "title", hasTicket: true, projectScoped: true, read: READS.workItem }),
+  // The one meeting-read rule: MEETING_READ and any policy on it, per project
+  // and for meetings under none, and the project's visibility.
+  meeting: makeHandler({ delegate: d(prisma.syncMeeting), field: "title", where: (scope) => readableMeetingsWhere(scope.ctx) }),
+  board: makeHandler({
+    delegate: d(prisma.board),
+    field: "name",
+    projectScoped: true,
+    read: READS.board,
+    // A board given to a team is that team's, as the board list narrows it.
+    extraSelect: { teamId: true },
+    async keep(rows, scope) {
+      const byProject = new Map<string, Record<string, unknown>[]>();
+      for (const r of rows) byProject.set(r.projectId as string, [...(byProject.get(r.projectId as string) ?? []), r]);
+      const kept = new Set<unknown>();
+      for (const [projectId, boards] of byProject) {
+        const shown = await narrowBoards(scope.ctx, projectId, boards as Array<Record<string, unknown> & BoardLike>);
+        for (const b of shown) kept.add(b.id);
+      }
+      return rows.filter((r) => kept.has(r.id));
+    },
+  }),
+  milestone: makeHandler({ delegate: d(prisma.milestone), field: "title", projectScoped: true, read: READS.milestone }),
+  objective: makeHandler({ delegate: d(prisma.objective), field: "title", projectScoped: true, read: READS.objective }),
+  goal: makeHandler({ delegate: d(prisma.goal), field: "title", projectScoped: true, read: READS.goal }),
+  kpi: makeHandler({ delegate: d(prisma.kpi), field: "name", projectScoped: true, read: READS.kpi }),
   document: makeHandler({
     delegate: d(prisma.document),
     field: "title",
     projectScoped: true,
     // The org library's rule: a project's files as the project's own document
-    // routes allow, restricted ones only for the people they are for.
+    // routes allow (DOCUMENT_READ, any rule denying it, team scoping, a key's
+    // limit), restricted ones only for the people they are for.
     where: (scope) => orgDocumentVisibilityWhere(scope.ctx),
   }),
-  risk: makeHandler({ delegate: d(prisma.risk), field: "title", hasCode: true, projectScoped: true }),
-  deliverable: makeHandler({ delegate: d(prisma.deliverable), field: "title", hasCode: true, projectScoped: true }),
-  blocker: makeHandler({ delegate: d(prisma.blocker), field: "title", hasCode: true, projectScoped: true }),
-  changeRequest: makeHandler({ delegate: d(prisma.changeRequest), field: "title", hasCode: true, projectScoped: true }),
-  clin: makeHandler({ delegate: d(prisma.clin), field: "title", hasCode: true, projectScoped: true }),
+  risk: makeHandler({ delegate: d(prisma.risk), field: "title", hasCode: true, projectScoped: true, read: READS.risk }),
+  deliverable: makeHandler({ delegate: d(prisma.deliverable), field: "title", hasCode: true, projectScoped: true, read: READS.deliverable }),
+  blocker: makeHandler({ delegate: d(prisma.blocker), field: "title", hasCode: true, projectScoped: true, read: READS.blocker }),
+  changeRequest: makeHandler({ delegate: d(prisma.changeRequest), field: "title", hasCode: true, projectScoped: true, read: READS.changeRequest }),
+  clin: makeHandler({ delegate: d(prisma.clin), field: "title", hasCode: true, projectScoped: true, read: READS.clin }),
   crmContact: makeHandler({ delegate: d(prisma.crmContact), field: "name" }),
   partner: makeHandler({ delegate: d(prisma.partner), field: "name" }),
   product: makeHandler({ delegate: d(prisma.product), field: "name" }),
@@ -295,10 +410,11 @@ export async function searchEntities(opts: {
   const types =
     opts.types && opts.types.length ? opts.types : ENTITY_ORDER;
   const perType = opts.perType ?? 6;
-  const scope: SearchScope = { orgId: opts.ctx.orgId, userId: opts.ctx.userId, ctx: opts.ctx };
+  const scope = scopeFor(opts.ctx);
 
   const grouped = await Promise.all(
     types.map(async (t): Promise<TypedRaw[]> => {
+      if (!mayRead(t, scope)) return [];
       try {
         const rows = await HANDLERS[t].search(q, scope, perType);
         return rows.map((r) => ({ ...r, type: t }));
@@ -315,6 +431,8 @@ export async function resolveRefs(opts: {
   ctx: AuthContext;
   orgSlug: string;
   refs: EntityRef[];
+  /** Reuse a scope already built for this request. */
+  scope?: SearchScope;
 }): Promise<EntityHit[]> {
   if (opts.refs.length === 0) return [];
   const byType = new Map<EntityType, string[]>();
@@ -323,9 +441,10 @@ export async function resolveRefs(opts: {
     if (list) list.push(r.id);
     else byType.set(r.type, [r.id]);
   }
-  const scope: SearchScope = { orgId: opts.ctx.orgId, userId: opts.ctx.userId, ctx: opts.ctx };
+  const scope = opts.scope ?? scopeFor(opts.ctx);
   const grouped = await Promise.all(
     [...byType.entries()].map(async ([t, ids]): Promise<TypedRaw[]> => {
+      if (!mayRead(t, scope)) return [];
       try {
         const rows = await HANDLERS[t].resolve([...new Set(ids)], scope);
         return rows.map((r) => ({ ...r, type: t }));
@@ -358,8 +477,9 @@ export async function resolveBacklinks(opts: {
   targetId: string;
   limit?: number;
 }): Promise<Backlink[]> {
+  const orgId = opts.ctx.orgId;
   const rows = await prisma.reference.findMany({
-    where: { orgId: opts.ctx.orgId, targetType: opts.targetType, targetId: opts.targetId },
+    where: { orgId, targetType: opts.targetType, targetId: opts.targetId },
     orderBy: { createdAt: "desc" },
     take: opts.limit ?? 50,
     select: { sourceType: true, sourceId: true, createdAt: true },
@@ -367,7 +487,8 @@ export async function resolveBacklinks(opts: {
   if (rows.length === 0) return [];
 
   const idsOf = (t: string) => rows.filter((r) => r.sourceType === t).map((r) => r.sourceId);
-  const scope = { ctx: opts.ctx, orgSlug: opts.orgSlug };
+  const searchScope = scopeFor(opts.ctx);
+  const scope = { ctx: opts.ctx, orgSlug: opts.orgSlug, scope: searchScope };
 
   // note + workItem sources resolve directly (they are entity types).
   const direct = await resolveRefs({
@@ -385,7 +506,7 @@ export async function resolveBacklinks(opts: {
   const commentIds = idsOf("comment");
   const comments = commentIds.length
     ? await prisma.comment.findMany({
-        where: { id: { in: commentIds }, orgId: opts.ctx.orgId },
+        where: { id: { in: commentIds }, orgId },
         select: { id: true, workItemId: true, subjectType: true, subjectId: true, visibility: true, deletedAt: true },
       })
     : [];
@@ -394,18 +515,14 @@ export async function resolveBacklinks(opts: {
   );
   const feedbackRows = feedbackComments.length
     ? await prisma.feedbackItem.findMany({
-        where: { id: { in: feedbackComments.map((c) => c.subjectId as string) }, orgId: opts.ctx.orgId },
+        where: { id: { in: feedbackComments.map((c) => c.subjectId as string) }, orgId },
         select: { id: true, title: true, projectId: true },
       })
     : [];
   // A team-scoped project's feedback is dropped for anyone who can't see it,
   // as the feedback board itself drops it.
-  const feedbackProjects = await visibleProjectIdsForActor(
-    opts.ctx.orgId,
-    opts.ctx.userId,
-    [...new Set(feedbackRows.map((f) => f.projectId).filter((id): id is string => !!id))],
-  );
-  const feedbackItems = feedbackRows.filter((f) => !f.projectId || feedbackProjects.has(f.projectId));
+  const hidden = feedbackRows.some((f) => f.projectId) ? new Set(await hiddenProjectIds(opts.ctx)) : new Set<string>();
+  const feedbackItems = feedbackRows.filter((f) => !f.projectId || !hidden.has(f.projectId));
   const feedbackById = new Map(feedbackItems.map((f) => [f.id, f]));
   const commentToFeedback = new Map(
     feedbackComments.map((c) => [c.id, feedbackById.get(c.subjectId as string)]),
@@ -421,21 +538,33 @@ export async function resolveBacklinks(opts: {
     comments.map((c) => [c.id, c.workItemId ? wiById.get(c.workItemId) : undefined]),
   );
 
-  // chatMessage sources → their channel.
-  const msgIds = idsOf("chatMessage");
+  // chatMessage sources → their channel, for a reader who may use chat and
+  // see that channel (a public one, or one they are in), as the chat routes
+  // decide. A private channel's name or a DM is not shown to anyone else.
+  const msgIds = mayUseChat(opts.ctx) ? idsOf("chatMessage") : [];
   const msgs = msgIds.length
     ? await prisma.chatMessage.findMany({
-        where: { id: { in: msgIds } },
+        where: { id: { in: msgIds }, deletedAt: null },
         select: { id: true, channelId: true },
       })
     : [];
   const channelIds = [...new Set(msgs.map((m) => m.channelId))];
-  const channels = channelIds.length
-    ? await prisma.chatChannel.findMany({
-        where: { id: { in: channelIds }, orgId: opts.ctx.orgId },
-        select: { id: true, name: true },
-      })
-    : [];
+  const [channelRows, memberOf] = channelIds.length
+    ? await Promise.all([
+        prisma.chatChannel.findMany({
+          where: { id: { in: channelIds }, orgId },
+          select: { id: true, name: true, kind: true, isPrivate: true, isGeneral: true, orgId: true },
+        }),
+        prisma.chatChannelMember.findMany({
+          where: { channelId: { in: channelIds }, userId: opts.ctx.userId },
+          select: { channelId: true, role: true },
+        }),
+      ])
+    : [[], []];
+  const membership = new Map(memberOf.map((m) => [m.channelId, m]));
+  const channels = channelRows.filter((c) =>
+    canSeeChannelGiven({ channel: c, member: membership.get(c.id) ?? null, viewerOrgId: orgId, orgRole: opts.ctx.orgRole }),
+  );
   const chanById = new Map(channels.map((c) => [c.id, c]));
   const msgToChan = new Map(msgs.map((m) => [m.id, chanById.get(m.channelId)]));
 
