@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { notifyError } from "@/lib/errors/notify";
+import { FetchError } from "@/lib/query/json-fetcher";
 
 interface Status {
   email: string | null;
@@ -68,7 +69,7 @@ export function AccountSecurityPanel() {
       });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Couldn't save your password.");
+        throw new FetchError(r.status, j, j.error ?? "Couldn't save your password.");
       }
       toast.success(status?.hasPassword ? "Password updated." : "Password set.");
       setCurPw("");
@@ -87,7 +88,7 @@ export function AccountSecurityPanel() {
       const r = await fetch("/api/v1/me/mfa/setup", { method: "POST" });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Couldn't start setup.");
+        throw new FetchError(r.status, j, j.error ?? "Couldn't start setup.");
       }
       const { otpauthUri, secret } = (await r.json()) as {
         otpauthUri: string;
@@ -114,7 +115,7 @@ export function AccountSecurityPanel() {
       });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Couldn't enable two-factor.");
+        throw new FetchError(r.status, j, j.error ?? "Couldn't enable two-factor.");
       }
       const { recoveryCodes: codes } = (await r.json()) as { recoveryCodes: string[] };
       setRecoveryCodes(codes);
@@ -139,7 +140,7 @@ export function AccountSecurityPanel() {
       });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Couldn't disable two-factor.");
+        throw new FetchError(r.status, j, j.error ?? "Couldn't disable two-factor.");
       }
       toast.success("Two-factor disabled.");
       setShowDisable(false);
@@ -202,6 +203,11 @@ export function AccountSecurityPanel() {
               required
             />
           </div>
+          <p className="text-xs text-[var(--text-muted)]">
+            {status && !status.hasPassword
+              ? "For your security, you can set a password only within 10 minutes of signing in. Your other devices will be signed out."
+              : "Your other devices will be signed out."}
+          </p>
           <Button type="submit" className="w-fit" disabled={pwBusy || newPw.length < 12}>
             {pwBusy ? "Saving…" : status?.hasPassword ? "Update password" : "Set password"}
           </Button>
@@ -268,6 +274,7 @@ export function AccountSecurityPanel() {
                 onChange={(e) => setDisableCode(e.target.value)}
                 required
               />
+              <p className="text-xs text-[var(--text-muted)]">Your other devices will be signed out.</p>
               <div className="flex gap-2">
                 <Button type="button" variant="ghost" onClick={() => setShowDisable(false)}>
                   Cancel

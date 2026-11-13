@@ -3,8 +3,8 @@
 // member's PRIMARY TIER (the 5-tier org role) AND their ADDITIONAL WORK-ROLES.
 // These tests lock its contract:
 //   (a) renders the tier select + the additional-roles multi-select
-//   (b) an ungrantable role is disabled — UNLESS the member already holds it
-//       (de-escalation: an already-assigned role stays enabled/removable)
+//   (b) an ungrantable role is disabled, including one the member already
+//       holds: the actor can't take it away either (ceiling on current role)
 //   (c) an OWNER's tier is static text and never PUTs the tier on save
 //   (d) a changed tier + changed roles save as two PUTs, in order, right bodies
 //   (e) a roles-PUT 403 after a successful tier save shows the exact partial-
@@ -128,10 +128,10 @@ describe("TeamRoleDialog — unified tier + work-role assignment", () => {
     ).toBeInTheDocument();
   });
 
-  it("disables an ungrantable role but keeps an already-assigned ungrantable role removable (b)", async () => {
+  it("disables an ungrantable role, including one the member already holds (b)", async () => {
     mockFetch();
     const user = userEvent.setup();
-    // The member already HOLDS the ungrantable "Superuser" → must stay enabled.
+    // The member already HOLDS the ungrantable "Superuser" → locked, still selected.
     renderDialog({ id: "m1", name: "Ada", role: "MEMBER", workRoleIds: ["wr-super"] });
 
     await user.click(screen.getByLabelText("Additional roles"));
@@ -141,9 +141,11 @@ describe("TeamRoleDialog — unified tier + work-role assignment", () => {
     expect(analyst).not.toHaveAttribute("aria-disabled", "true");
     expect(analyst).toHaveTextContent("Built-in");
 
-    // Ungrantable but ALREADY ASSIGNED → enabled (removable, de-escalation).
+    // Ungrantable but ALREADY ASSIGNED → disabled (the server refuses taking it
+    // away), and still shown as selected.
     const superuser = screen.getByRole("option", { name: /Superuser/ });
-    expect(superuser).not.toHaveAttribute("aria-disabled", "true");
+    expect(superuser).toHaveAttribute("aria-disabled", "true");
+    expect(superuser).toHaveAttribute("aria-selected", "true");
 
     // Ungrantable AND not assigned → disabled.
     const root = screen.getByRole("option", { name: /Root Access/ });

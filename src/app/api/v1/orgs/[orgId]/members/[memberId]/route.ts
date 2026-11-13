@@ -3,6 +3,12 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
+import {
+  HELD_WORK_ROLES,
+  currentAccessRefusal,
+  heldBeyondRole,
+  orgRoleGrantRefusal,
+} from "@/lib/rbac/grant-ceiling";
 import { success, handleApiError, noContent, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -13,6 +19,12 @@ import { ProblemError } from "@/lib/openapi/problem";
 const updateMemberSchema = z.object({
   role: z.nativeEnum(OrgRole),
 });
+
+const forbidden = (error: string) =>
+  new Response(JSON.stringify({ error }), {
+    status: 403,
+    headers: { "Content-Type": "application/json" },
+  });
 
 type RouteParams = { params: Promise<{ orgId: string; memberId: string }> };
 
@@ -28,6 +40,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const member = await prisma.orgMember.findUnique({
       where: { id: memberId },
+      include: { workRoles: HELD_WORK_ROLES },
     });
     if (!member || member.orgId !== orgId) {
       return new Response("Not found", { status: 404 });
@@ -39,17 +52,26 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         { status: 403, headers: { "Content-Type": "application/json" } }
       );
     }
+    // The ceiling on current role: the caller may change only a member whose
+    // current access (role, stored override and work roles) they could have
+    // granted. Otherwise a member who manages members through a work role could
+    // demote an admin. The new role is checked below. See grant-ceiling.ts.
+    const current = currentAccessRefusal(ctx, member.role, heldBeyondRole(member));
+    if (current) return forbidden(current);
 
     const body = await request.json();
     const data = updateMemberSchema.parse(body);
 
-    // Only an OWNER may grant the OWNER role. Without this, an ADMIN holding
-    // ORG_MANAGE_MEMBERS could promote anyone (incl. themselves) to OWNER and
-    // gain the OWNER-only bits (ORG_DELETE, ORG_MANAGE_BILLING) — which also
-    // breaks the assumption that bounds the work-role escalation model.
-    if (data.role === "OWNER" && ctx.orgRole !== "OWNER") {
+    // Only an OWNER may grant the OWNER role, and nobody may grant a role with
+    // permissions beyond their own base permissions. Without the first, an ADMIN
+    // holding ORG_MANAGE_MEMBERS could promote anyone (incl. themselves) to OWNER
+    // and gain the OWNER-only bits (ORG_DELETE, ORG_MANAGE_BILLING). Without the
+    // second, a member given ORG_MANAGE_MEMBERS by a work role could make
+    // someone an ADMIN. One rule for every path; see grant-ceiling.ts.
+    const refusal = orgRoleGrantRefusal(ctx, data.role);
+    if (refusal) {
       return new Response(
-        JSON.stringify({ error: "Only an owner can grant the owner role" }),
+        JSON.stringify({ error: refusal }),
         { status: 403, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -129,6 +151,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const member = await prisma.orgMember.findUnique({
       where: { id: memberId },
+      include: { workRoles: HELD_WORK_ROLES },
     });
     if (!member || member.orgId !== orgId) {
       return new Response("Not found", { status: 404 });
@@ -149,6 +172,12 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         { status: 403, headers: { "Content-Type": "application/json" } }
       );
     }
+    // The ceiling on current role, as in PUT: remove only a member whose access
+    // the caller could have granted. Removing them ends their work roles too, so
+    // those count; otherwise removal would strip a work role the caller is
+    // refused when taking it away directly.
+    const current = currentAccessRefusal(ctx, member.role, heldBeyondRole(member));
+    if (current) return forbidden(current);
 
     // Soft delete: the row is RETAINED so this person's comments, assignments and
     // audit trail stay attributable to a name instead of decaying to a bare id, and

@@ -18,6 +18,7 @@ import {
 import { sealSecret } from "@/lib/crypto/vault";
 import { rateLimit } from "@/lib/rate-limit/bucket";
 import { getIpAddress } from "@/lib/api-helpers";
+import { endOtherSessions } from "@/lib/auth/credential-change";
 
 const MFA_PENDING_TTL = 300;
 
@@ -75,6 +76,9 @@ export async function POST(request: NextRequest) {
       mustChangePassword: false,
     },
   });
+  // A password change ends every sign-in made under the old one. There is no
+  // session here yet; the one minted below is new.
+  await endOtherSessions(user.id);
 
   // Re-evaluate with mustChangePassword now cleared.
   const next = nextFirstLoginStep({

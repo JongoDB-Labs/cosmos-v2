@@ -66,7 +66,7 @@ export function OrgGeneralSettings({ orgId, canUpdate, initial }: OrgGeneralSett
         const detail = await res.json().catch(() => null);
         throw new Error(
           detail?.error === "too_large" ? "That image is over the 2MB limit."
-          : detail?.error === "unsupported_mime" ? "Use a PNG, JPEG, WebP or SVG image."
+          : detail?.error === "unsupported_mime" ? "Use a PNG, JPEG or WebP image."
           : "Upload failed.",
         );
       }
@@ -190,7 +190,7 @@ export function OrgGeneralSettings({ orgId, canUpdate, initial }: OrgGeneralSett
             <input
               id="org-logo-file"
               type="file"
-              accept="image/png,image/jpeg,image/webp,image/svg+xml"
+              accept="image/png,image/jpeg,image/webp"
               disabled={!canUpdate || uploading}
               onChange={(e) => {
                 const f = e.target.files?.[0];
@@ -205,7 +205,7 @@ export function OrgGeneralSettings({ orgId, canUpdate, initial }: OrgGeneralSett
           </div>
           {uploadError && <p className="text-[11px] text-[var(--status-critical)]">{uploadError}</p>}
           <p className="text-[11px] text-[var(--text-muted)]">
-            PNG, JPEG, WebP or SVG, up to 2MB — or paste a URL below.
+            PNG, JPEG or WebP, up to 2MB — or paste a URL below.
           </p>
           <Label htmlFor="org-logo">Logo URL</Label>
           <Input

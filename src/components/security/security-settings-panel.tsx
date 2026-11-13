@@ -79,11 +79,23 @@ interface ScimToken {
   id: string;
   prefix: string;
   label: string;
-  lastUsedAt: string | null;
+  // What GET /security/scim-tokens returns. This read `lastUsedAt`, which no
+  // response carries, so every token showed "Never".
+  lastUsed: string | null;
   createdAt: string;
 }
 
-export function SecuritySettingsPanel({ orgId }: { orgId: string }) {
+export function SecuritySettingsPanel({
+  orgId,
+  canManageSessions = true,
+  canManageScim = true,
+}: {
+  orgId: string;
+  /** SESSION_MANAGE: the Active Sessions list and its revoke actions. */
+  canManageSessions?: boolean;
+  /** SCIM_MANAGE: the SCIM token list and token generation. */
+  canManageScim?: boolean;
+}) {
   const orgSlug = useOrgSlug();
   const qc = useQueryClient();
 
@@ -121,6 +133,9 @@ export function SecuritySettingsPanel({ orgId }: { orgId: string }) {
 
   const sessionsQ = useQuery({
     queryKey: sessionsKey,
+    // Each list is gated by its own bit, as its route is; a caller without it
+    // would get a 403 that turned the whole page into an error.
+    enabled: canManageSessions,
     queryFn: async () => {
       const data = await jsonFetch<
         SessionRecord[] | { sessions: SessionRecord[] }
@@ -141,6 +156,7 @@ export function SecuritySettingsPanel({ orgId }: { orgId: string }) {
 
   const tokensQ = useQuery({
     queryKey: tokensKey,
+    enabled: canManageScim,
     queryFn: async () => {
       const data = await jsonFetch<
         ScimToken[] | { tokens: ScimToken[] }
@@ -498,6 +514,8 @@ export function SecuritySettingsPanel({ orgId }: { orgId: string }) {
             />
           </div>
 
+          {canManageSessions ? (
+          <>
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-medium">Active Sessions</h4>
             <Button variant="destructive" size="sm" onClick={revokeAllSessions}>
@@ -594,6 +612,12 @@ export function SecuritySettingsPanel({ orgId }: { orgId: string }) {
               </table>
             </div>
           </div>
+          </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              You don&apos;t have permission to view or revoke active sessions.
+            </p>
+          )}
         </div>
       </SectionCard>
 
@@ -669,6 +693,7 @@ export function SecuritySettingsPanel({ orgId }: { orgId: string }) {
                             <Button
                               variant="ghost"
                               size="icon-xs"
+                              aria-label={`Remove ${entry.cidr}`}
                               onClick={() => setDeleteIpTarget(entry)}
                             >
                               <Trash2 className="size-3 text-destructive" />
@@ -707,7 +732,12 @@ export function SecuritySettingsPanel({ orgId }: { orgId: string }) {
             />
           </div>
 
-          {form.scimEnabled && (
+          {form.scimEnabled && !canManageScim && (
+            <p className="text-xs text-muted-foreground">
+              You don&apos;t have permission to view or generate SCIM tokens.
+            </p>
+          )}
+          {form.scimEnabled && canManageScim && (
             <>
               <div className="flex justify-end">
                 <Button
@@ -758,8 +788,8 @@ export function SecuritySettingsPanel({ orgId }: { orgId: string }) {
                           </td>
                           <td className="px-3 py-2 text-sm">{token.label}</td>
                           <td className="px-3 py-2 text-xs text-muted-foreground">
-                            {token.lastUsedAt
-                              ? new Date(token.lastUsedAt).toLocaleString()
+                            {token.lastUsed
+                              ? new Date(token.lastUsed).toLocaleString()
                               : "Never"}
                           </td>
                           <td className="px-3 py-2 text-xs text-muted-foreground">
@@ -769,6 +799,7 @@ export function SecuritySettingsPanel({ orgId }: { orgId: string }) {
                             <Button
                               variant="ghost"
                               size="icon-xs"
+                              aria-label={`Revoke token ${token.prefix}`}
                               onClick={() => setDeleteTokenTarget(token)}
                             >
                               <Trash2 className="size-3 text-destructive" />
@@ -903,7 +934,7 @@ export function SecuritySettingsPanel({ orgId }: { orgId: string }) {
                 <code className="flex-1 break-all text-xs font-mono">
                   {newToken}
                 </code>
-                <Button variant="ghost" size="icon-xs" onClick={copyToken}>
+                <Button variant="ghost" size="icon-xs" aria-label="Copy token" onClick={copyToken}>
                   {copied ? (
                     <Check className="size-3 text-emerald-600" />
                   ) : (

@@ -105,6 +105,28 @@ describe("self-service password reset", () => {
     expect(replay.status).toBe(400);
   });
 
+  // A reset is what you do when someone else may have your password, so it
+  // must end every sign-in the account had, not just change the password.
+  it("ends every session the account had, and no one else's", async () => {
+    const user = await prisma.user.findFirstOrThrow({ where: { email: E_PW } });
+    const sso = await prisma.user.findFirstOrThrow({ where: { email: E_SSO } });
+    const expiresAt = new Date(Date.now() + 86_400_000);
+    await prisma.session.create({ data: { id: `zz-reset-a-${user.id}`, userId: user.id, expiresAt } });
+    await prisma.session.create({ data: { id: `zz-reset-b-${user.id}`, userId: user.id, expiresAt } });
+    await prisma.session.create({ data: { id: `zz-reset-c-${sso.id}`, userId: sso.id, expiresAt } });
+
+    sentEmails.length = 0;
+    await requestReset(req({ email: E_PW }));
+    const token = tokenFrom(sentEmails[0].resetUrl);
+    // Positive control: the sessions are really there before the reset.
+    expect(await prisma.session.count({ where: { userId: user.id } })).toBe(2);
+
+    const done = await confirmReset(req({ token, newPassword: "third-passphrase-42" }));
+    expect(done.status).toBe(200);
+    expect(await prisma.session.count({ where: { userId: user.id } })).toBe(0);
+    expect(await prisma.session.count({ where: { userId: sso.id } })).toBe(1);
+  });
+
   it("sends NO mail for an SSO/Google-only account (nothing to reset)", async () => {
     sentEmails.length = 0;
     const res = await requestReset(req({ email: E_SSO }));

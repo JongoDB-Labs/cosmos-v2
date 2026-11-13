@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import type { ReadableStream as NodeWebReadableStream } from "node:stream/web";
 import type { StorageAdapter } from "./index";
+import { assertSafeStorageKey, UnsafeStorageKeyError } from "./keys";
 
 const ROOT = path.resolve(process.cwd(), "uploads", "chat");
 const URL_BASE = "/api/v1/storage/local";
@@ -16,12 +17,21 @@ const URL_BASE = "/api/v1/storage/local";
  * is enforced at the route layer, not here.
  *
  * `storageKey` is whatever the caller provides — the route layer is expected
- * to namespace by org and uuid to avoid collisions.
+ * to namespace by org and uuid to avoid collisions. It must be a safe relative
+ * key (see keys.ts), and the path it resolves to must stay under ROOT: a key
+ * read back from user-editable data once reached any file on the server.
  */
+function pathOf(key: string): string {
+  assertSafeStorageKey(key);
+  const full = path.resolve(ROOT, key);
+  if (!full.startsWith(ROOT + path.sep)) throw new UnsafeStorageKeyError();
+  return full;
+}
+
 export function createLocalAdapter(): StorageAdapter {
   return {
     async put(key, body, _meta) {
-      const fullPath = path.join(ROOT, key);
+      const fullPath = pathOf(key);
       await fsp.mkdir(path.dirname(fullPath), { recursive: true });
 
       if (Buffer.isBuffer(body)) {
@@ -39,14 +49,14 @@ export function createLocalAdapter(): StorageAdapter {
     },
 
     async delete(key) {
-      const fullPath = path.join(ROOT, key);
+      const fullPath = pathOf(key);
       await fsp.unlink(fullPath).catch(() => {
         /* already gone — idempotent */
       });
     },
 
     async stream(key) {
-      const fullPath = path.join(ROOT, key);
+      const fullPath = pathOf(key);
       try {
         await fsp.access(fullPath);
       } catch {

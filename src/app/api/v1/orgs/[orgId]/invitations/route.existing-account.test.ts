@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { OrgRole } from "@prisma/client";
 import type { AuthContext } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, RolePermissions } from "@/lib/rbac/permissions";
 
 const { getAuthContext, getCurrentUser, prisma, logAudit, provisionEmailPasswordInvite, getPublicOrigin } =
   vi.hoisted(() => ({
@@ -86,7 +86,8 @@ beforeEach(() => {
     orgId: ORG_ID,
     orgRole: OrgRole.OWNER,
     permissions: Permission.ORG_MANAGE_MEMBERS | Permission.ORG_READ,
-    basePermissions: Permission.ORG_MANAGE_MEMBERS | Permission.ORG_READ,
+    // An owner's real base: the grant ceiling compares the invited role to it.
+    basePermissions: RolePermissions.OWNER,
     abacRules: [],
   };
   getAuthContext.mockResolvedValue(ctx);

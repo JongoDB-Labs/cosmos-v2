@@ -56,6 +56,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       mfaRequired: body.mfaRequired,
       actorUserId: ctx.userId,
       actorOrgRole: ctx.orgRole,
+      actorBasePermissions: ctx.basePermissions,
       actorDisplayName: actor ? actor.displayName : null,
       origin: getPublicOrigin(request),
       ipAddress: getIpAddress(request),

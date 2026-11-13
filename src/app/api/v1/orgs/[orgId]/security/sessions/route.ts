@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
+import { HELD_WORK_ROLES, assertCanChangeCurrentAccess, heldBeyondRole } from "@/lib/rbac/grant-ceiling";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { SESSION_COOKIE } from "@/lib/auth/client";
 import { logAudit } from "@/lib/audit";
@@ -68,11 +69,30 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         ...(userId ? { userId } : {}),
         ...(status ? { status: status as SessionStatus } : {}),
       },
+      select: {
+        id: true,
+        orgId: true,
+        userId: true,
+        ipAddress: true,
+        userAgent: true,
+        status: true,
+        lastActiveAt: true,
+        expiresAt: true,
+        revokedAt: true,
+        createdAt: true,
+        // Read only to mark the caller's own row; never sent. It is the value
+        // of that person's sign-in cookie, so anyone who could read it could
+        // be them, in every org they belong to. Revoking takes the record id.
+        sessionToken: true,
+      },
       orderBy: { lastActiveAt: "desc" },
     });
 
     return success(
-      sessions.map((s) => ({ ...s, isCurrent: s.sessionToken === currentToken })),
+      sessions.map(({ sessionToken, ...s }) => ({
+        ...s,
+        isCurrent: currentToken !== null && sessionToken === currentToken,
+      })),
     );
   } catch (error) {
     return handleApiError(error);
@@ -111,9 +131,31 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // revoked sessions stop authenticating (the record was only a status flag).
     const targets = await prisma.sessionRecord.findMany({
       where,
-      select: { sessionToken: true },
+      select: { sessionToken: true, userId: true },
     });
-    const tokens = targets.map((t) => t.sessionToken);
+
+    // The ceiling on current role: deleting a Session signs that person out of
+    // every org, so the caller may revoke only the sessions of someone whose
+    // access here (role, stored override and work roles) they could have
+    // granted. Otherwise a member given SESSION_MANAGE by a work role could
+    // sign an owner out everywhere. One refusal refuses the whole request,
+    // before anything is deleted. See grant-ceiling.ts.
+    const others = [...new Set(targets.map((t) => t.userId))].filter((id) => id !== ctx.userId);
+    const members =
+      others.length > 0
+        ? await prisma.orgMember.findMany({
+            where: { orgId, userId: { in: others }, removedAt: null },
+            select: { userId: true, role: true, permissions: true, workRoles: HELD_WORK_ROLES },
+          })
+        : [];
+    for (const m of members) assertCanChangeCurrentAccess(ctx, m.role, heldBeyondRole(m));
+
+    // Only a current member's sign-in is ended everywhere. Someone removed from
+    // this org, or never in it, may still belong to others, and nobody here
+    // holds a role over them, so their session is only marked revoked here
+    // (below). Without a membership they get no access here in any case.
+    const membersHere = new Set([ctx.userId, ...members.map((m) => m.userId)]);
+    const tokens = targets.filter((t) => membersHere.has(t.userId)).map((t) => t.sessionToken);
     if (tokens.length > 0) {
       await prisma.session.deleteMany({ where: { id: { in: tokens } } });
     }

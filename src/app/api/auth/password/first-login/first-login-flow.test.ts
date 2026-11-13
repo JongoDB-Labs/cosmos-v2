@@ -98,16 +98,27 @@ describe("forced first-login: password change (no MFA)", () => {
     const flCookie = loginRes.cookies.get(FIRST_LOGIN_COOKIE)?.value;
     expect(flCookie).toBeTruthy();
 
+    // A sign-in made before this change (say, under an earlier password).
+    const before = await prisma.user.findFirstOrThrow({ where: { email: E_SIMPLE } });
+    const older = `zz-fl-older-${before.id}`;
+    await prisma.session.create({
+      data: { id: older, userId: before.id, expiresAt: new Date(Date.now() + 86_400_000) },
+    });
+
     // Step 2: set a new password → session minted.
     const changeRes = await changePassword(
       req({ newPassword: NEW_PASSWORD }, { [FIRST_LOGIN_COOKIE]: flCookie as string }),
     );
     expect(changeRes.status).toBe(200);
     expect(await changeRes.json()).toMatchObject({ ok: true });
-    expect(changeRes.cookies.get(SESSION_COOKIE)?.value).toBeTruthy();
+    const minted = changeRes.cookies.get(SESSION_COOKIE)?.value;
+    expect(minted).toBeTruthy();
 
     const user = await prisma.user.findFirstOrThrow({ where: { email: E_SIMPLE } });
     expect(user.mustChangePassword).toBe(false);
+    // The change ended the older sign-in, and only that one.
+    expect(await prisma.session.findUnique({ where: { id: older } })).toBeNull();
+    expect(await prisma.session.findUnique({ where: { id: minted! } })).not.toBeNull();
   });
 
   it("rejects a new password equal to the temporary one", async () => {

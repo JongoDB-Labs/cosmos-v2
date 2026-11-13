@@ -95,6 +95,27 @@ export function applySecurityHeaders(headers: Headers): void {
 }
 
 /**
+ * Routes that serve a stored file and set its Content-Security-Policy
+ * themselves: the tiers in src/lib/files/serve.ts (HTML, SVG and XML are
+ * sandboxed) and the org logo, which is always sandboxed.
+ *
+ * A header the proxy sets replaces the route's, so on these paths the proxy
+ * must not set the page CSP: it allows inline script, and in place of the
+ * route's sandbox it let an uploaded HTML file run script on this origin. The
+ * other security headers still apply. A guard test fails when a route that
+ * sets its own CSP is missing here.
+ */
+const OWN_CSP_PATHS = [
+  /^\/api\/v1\/orgs\/[^/]+\/logo$/,
+  /^\/api\/v1\/orgs\/[^/]+\/documents\/[^/]+\/original$/,
+  /^\/api\/v1\/orgs\/[^/]+\/projects\/[^/]+\/documents\/[^/]+\/original$/,
+];
+
+export function routeSetsOwnCsp(pathname: string): boolean {
+  return OWN_CSP_PATHS.some((re) => re.test(pathname));
+}
+
+/**
  * Microsoft's hosts that frame Teams tabs: Teams and the new *.cloud.microsoft
  * Teams. Teams only, matching the sign-in, which takes tokens from the Teams
  * clients alone.

@@ -49,6 +49,37 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.550.1",
+    date: "2026-11-12",
+    title: "Safer roles, sign-ins and uploaded files",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Only an owner can make someone an owner, and nobody can give a role with more access than their own. This holds when adding a member, inviting, re-sending an invitation, approving an account request or changing a role. In the same way, nobody can change or remove a member, an invitation or a work role whose access is beyond their own, counting the work roles a member holds, and the Org page now says why when that is refused.",
+      },
+      {
+        kind: "fix",
+        text: "Changing or resetting your password, or turning off two-factor, now signs you out on your other devices. Setting a first password on an account that signs in with Google or SSO needs a sign-in in the last 10 minutes, and Account security now says why a change was refused.",
+      },
+      {
+        kind: "fix",
+        text: "Session lists no longer include sign-in tokens. On the Security page, active sessions and SCIM tokens show only to people who can manage them, and a SCIM token's last-used time now shows. Signing someone else out is limited the same way as changing their role: only people whose access is within your own. Signing out someone who has left the organization ends their session here only, not in their other organizations.",
+      },
+      {
+        kind: "fix",
+        text: "Organization logos must be PNG, JPEG or WebP. SVG logos uploaded earlier still display. Logos, and library files that can contain script such as HTML and SVG, now open sandboxed, so they can't run script or load anything from another site.",
+      },
+      {
+        kind: "fix",
+        text: "A file named \u201c.\u201d or \u201c..\u201d now uploads to the library, chat or feedback instead of failing.",
+      },
+      {
+        kind: "improvement",
+        text: "The organization update API no longer accepts a settings object. Each settings section has its own endpoint.",
+      },
+    ],
+  },
+  {
     version: "2.550.0",
     date: "2026-11-12",
     title: "Assignments and mentions in Slack",

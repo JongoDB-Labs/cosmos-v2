@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { created, handleApiError } from "@/lib/api-helpers";
 import { getStorage } from "@/lib/storage";
+import { storageSafeName } from "@/lib/storage/keys";
 import { fileTypeFromBuffer } from "file-type";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -77,8 +78,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const kind = contentType.startsWith("image/") ? "image" : "file";
     const attachmentId = crypto.randomUUID();
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "file";
-    const storageKey = `${orgId}/${attachmentId}/${safeName}`;
+    const storageKey = `${orgId}/${attachmentId}/${storageSafeName(file.name)}`;
 
     // Write to disk via the storage adapter
     await getStorage().put(storageKey, buffer, { contentType, filename: file.name });

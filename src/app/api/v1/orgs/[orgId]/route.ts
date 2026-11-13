@@ -25,8 +25,18 @@ export const updateOrgSchema = z.object({
   logoUrl: logoUrlSchema,
   themePrimary: z.string().nullable().optional(),
   themeMode: z.string().nullable().optional(),
-  settings: z.record(z.string(), z.any()).optional(),
 });
+
+/**
+ * Org settings are not written here. Each settings section has its own route,
+ * gated by the permission for that section (finance, workflow, integrations and
+ * so on), and the logo's storage location is written only by the logo upload
+ * route. A `settings` object here replaced all of them at once under
+ * ORG_UPDATE, so it is refused rather than ignored: a caller that sends it
+ * learns it was not saved.
+ */
+const SETTINGS_REFUSED =
+  "Organization settings can't be changed here. Use the settings page for that section.";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -100,6 +110,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     requirePermission(ctx, Permission.ORG_UPDATE);
 
     const body = await request.json();
+    if (body && typeof body === "object" && "settings" in body) {
+      return Response.json({ error: SETTINGS_REFUSED }, { status: 400 });
+    }
     const data = updateOrgSchema.parse(body);
 
     // Slug rename: validate it's free and not a reserved route segment before
@@ -133,7 +146,6 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         logoUrl: data.logoUrl,
         themePrimary: data.themePrimary,
         themeMode: data.themeMode,
-        settings: data.settings as Record<string, string> | undefined,
       },
     });
 

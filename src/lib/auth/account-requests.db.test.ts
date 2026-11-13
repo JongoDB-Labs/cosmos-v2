@@ -18,6 +18,7 @@ vi.mock("@/lib/integrations/invitation-email", () => ({
 }));
 
 import { prisma } from "@/lib/db/client";
+import { RolePermissions } from "@/lib/rbac/permissions";
 import {
   submitAccountRequest,
   approveAccountRequest,
@@ -51,6 +52,7 @@ async function approveAs(requestId: string, signInMethod: "oauth" | "email_passw
     mfaRequired: false,
     actorUserId: adminId,
     actorOrgRole: OrgRole.OWNER,
+    actorBasePermissions: RolePermissions.OWNER,
     actorDisplayName: "Admin",
     origin: "http://localhost",
   });

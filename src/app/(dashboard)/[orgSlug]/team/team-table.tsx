@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
 import { notifyError } from "@/lib/errors/notify";
+import { FetchError } from "@/lib/query/json-fetcher";
 import {
   Dialog,
   DialogContent,
@@ -64,6 +65,17 @@ const ROLE_VARIANT = {
   VIEWER: "neutral",
 } as const;
 
+/**
+ * A failed response as a FetchError, so notifyError shows the server's reason
+ * (for example, that the member's access is beyond the caller's own) instead
+ * of a generic message. A body without one falls back to the generic message.
+ */
+async function failure(res: Response): Promise<FetchError> {
+  const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+  const message = typeof body?.error === "string" ? body.error : "";
+  return new FetchError(res.status, body, message);
+}
+
 export function TeamTable({
   rows,
   workRoleOptions,
@@ -106,7 +118,7 @@ export function TeamTable({
         const res = await fetch(`/api/v1/orgs/${orgId}/members/${memberId}`, {
           method: "DELETE",
         });
-        if (!res.ok) throw new Error(`Failed to remove member (HTTP ${res.status})`);
+        if (!res.ok) throw await failure(res);
         router.refresh();
       } catch (err) {
         console.error("Failed to remove member", err);
@@ -125,14 +137,7 @@ export function TeamTable({
         const res = await fetch(`/api/internal/users/${userId}`, {
           method: "DELETE",
         });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => null)) as
-            | { error?: string }
-            | null;
-          throw new Error(
-            data?.error ?? `Failed to delete account (HTTP ${res.status})`,
-          );
-        }
+        if (!res.ok) throw await failure(res);
         toast.success("Account deleted — their email is free to invite again.");
         router.refresh();
       } catch (err) {
@@ -182,7 +187,7 @@ export function TeamTable({
           `/api/v1/orgs/${orgId}/invitations/${invitationId}`,
           { method: "DELETE" },
         );
-        if (!res.ok) throw new Error(`Failed to revoke (HTTP ${res.status})`);
+        if (!res.ok) throw await failure(res);
         toast.success("Invitation revoked");
         router.refresh();
       } catch (err) {
@@ -199,7 +204,7 @@ export function TeamTable({
           `/api/v1/orgs/${orgId}/invitations/${invitationId}`,
           { method: "POST" },
         );
-        if (!res.ok) throw new Error(`Failed to resend (HTTP ${res.status})`);
+        if (!res.ok) throw await failure(res);
         const data = (await res.json().catch(() => null)) as
           | { emailSent?: boolean }
           | null;

@@ -90,8 +90,8 @@ async function readError(res: Response, fallback: string): Promise<string> {
  * the server component, and closes.
  *
  * The grant ceiling is advisory in the UI (the server enforces it): a role the
- * actor can't grant is disabled — UNLESS the member already holds it, in which
- * case it stays enabled so it can be REMOVED (de-escalation is always allowed).
+ * actor can't grant is disabled, and so is one the member already holds, since
+ * the actor can't take it away either (the ceiling on current role).
  */
 export function TeamRoleDialog({
   orgId,
@@ -113,18 +113,17 @@ export function TeamRoleDialog({
   const [error, setError] = useState<string | null>(null);
 
   const grantable = useMemo(() => new Set(grantableRoleIds), [grantableRoleIds]);
-  const assigned = useMemo(() => new Set(member.workRoleIds), [member.workRoleIds]);
 
   const options = useMemo(
     () =>
       workRoleOptions.map((wr) => ({
         value: wr.id,
         label: wr.isBuiltIn ? `${wr.name} · Built-in` : wr.name,
-        // Ungrantable AND not already held → can't be added, so disable it.
-        // Ungrantable but already held stays enabled so the actor can remove it.
-        disabled: !grantable.has(wr.id) && !assigned.has(wr.id),
+        // Ungrantable → can't be added, and if held can't be taken away: the
+        // server refuses both, so lock it either way.
+        disabled: !grantable.has(wr.id),
       })),
-    [workRoleOptions, grantable, assigned],
+    [workRoleOptions, grantable],
   );
 
   const tierChanged = !isOwner && tier !== member.role;

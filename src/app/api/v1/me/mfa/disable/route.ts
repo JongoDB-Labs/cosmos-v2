@@ -4,13 +4,16 @@ import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
 import { verifyTotp, consumeRecoveryCode } from "@/lib/auth/totp";
 import { openSecret } from "@/lib/crypto/vault";
+import { getIpAddress } from "@/lib/api-helpers";
+import { auditCredentialChange, endOtherSessions } from "@/lib/auth/credential-change";
 
 const schema = z.object({ code: z.string().min(1).max(20) });
 
 /** Turn off TOTP. Requires a POSSESSION factor — a current TOTP code or a
  *  recovery code. Deliberately NOT the password alone: a session-hijack /
  *  stolen-cookie attacker who also knows the password (credential stuffing)
- *  must not be able to strip the second factor without the device. */
+ *  must not be able to strip the second factor without the device. Turning it
+ *  off ends the user's other sessions and is audited. */
 export async function POST(request: NextRequest) {
   const me = await getCurrentUser();
   if (!me) return new Response("Unauthorized", { status: 401 });
@@ -52,5 +55,7 @@ export async function POST(request: NextRequest) {
       mfaEnrolledAt: null,
     },
   });
+  await endOtherSessions(me.id, me.sessionId);
+  await auditCredentialChange(me.id, "auth.mfa.disabled", getIpAddress(request));
   return NextResponse.json({ ok: true });
 }

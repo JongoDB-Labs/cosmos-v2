@@ -17,11 +17,12 @@
  *                      renders as characters and not as markup. A .js served as
  *                      text/plain cannot be loaded as a script either, because of
  *                      nosniff below.
- *   sandboxed          html, svg, xml. Served with `Content-Security-Policy:
- *                      sandbox`, which puts the response in an opaque origin with
+ *   sandboxed          html, svg, xml. Served with SANDBOXED_FILE_CSP below, whose
+ *                      `sandbox` puts the response in an opaque origin with
  *                      scripting disabled — it cannot reach cookies, storage or the
- *                      parent page even when embedded. So a drawing or a saved page
- *                      can be LOOKED AT without being trusted.
+ *                      parent page even when embedded — and whose other directives
+ *                      stop it loading anything from elsewhere. So a drawing or a
+ *                      saved page can be LOOKED AT without being trusted.
  *   attachment         everything else. Downloaded as a byte stream, never rendered.
  *
  * `X-Content-Type-Options: nosniff` on all of them, so a browser cannot decide a
@@ -126,6 +127,26 @@ function classify(contentType: string | null, filename: string): { tier: Tier; t
   return { tier: "download", type: "application/octet-stream" };
 }
 
+/**
+ * The policy for the sandboxed tier, and the only one these responses get: the
+ * proxy drops the page CSP on stored-file routes (routeSetsOwnCsp), because it
+ * would otherwise replace this one. `sandbox` alone stops scripts but still lets
+ * the file load remote images, styles and fonts and submit forms off-site, which
+ * tells another site who opened it and when. So nothing loads from anywhere
+ * except inline styles and data: images, which is what a saved page or a
+ * drawing needs to render. form-action, base-uri and frame-ancestors do not
+ * fall back to default-src, so they are stated.
+ */
+export const SANDBOXED_FILE_CSP = [
+  "sandbox",
+  "default-src 'none'",
+  "style-src 'unsafe-inline'",
+  "img-src data:",
+  "form-action 'none'",
+  "base-uri 'none'",
+  "frame-ancestors 'none'",
+].join("; ");
+
 export function serveHeaders(contentType: string | null, filename: string): Headers {
   const { tier, type } = classify(contentType, filename);
   const safeName = filename.replace(/[\r\n"]/g, "");
@@ -145,7 +166,7 @@ export function serveHeaders(contentType: string | null, filename: string): Head
   } else if (tier === "sandbox") {
     h.set("Content-Type", type);
     h.set("Content-Disposition", `inline; filename="${safeName}"`);
-    h.set("Content-Security-Policy", "sandbox");
+    h.set("Content-Security-Policy", SANDBOXED_FILE_CSP);
   } else {
     h.set("Content-Type", "application/octet-stream");
     h.set("Content-Disposition", `attachment; filename="${safeName}"`);

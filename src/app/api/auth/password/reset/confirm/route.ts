@@ -10,6 +10,7 @@ import {
   fingerprintMatches,
 } from "@/lib/auth/password-reset";
 import { logAudit } from "@/lib/audit";
+import { endOtherSessions } from "@/lib/auth/credential-change";
 
 const schema = z.object({
   token: z.string().min(1).max(4096),
@@ -24,7 +25,9 @@ const INVALID = "This reset link is invalid or has expired. Request a new one.";
  * the user's CURRENT state and compares — a mismatch means the token was already
  * used (the password changed) or the credential otherwise moved on, enforcing
  * single-use. On success sets a policy-compliant new password and clears
- * mustChangePassword. The user then signs in normally with the new password.
+ * mustChangePassword, and ends every session the account had: a reset is what
+ * someone does when another person may have their password. The user then
+ * signs in normally with the new password.
  */
 export async function POST(request: NextRequest) {
   const ip = getIpAddress(request) ?? "unknown";
@@ -76,6 +79,7 @@ export async function POST(request: NextRequest) {
       mustChangePassword: false,
     },
   });
+  await endOtherSessions(user.id);
 
   // A credential actually changed, so this is the half of the flow that most
   // needs a durable trail. Paired with auth.password_reset.requested, the two
