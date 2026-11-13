@@ -2,7 +2,8 @@
  * The single place that normalizes an org's `Organization.settings` JSON
  * (an untrusted, unknown shape) into the automation config the feedback
  * pipeline runs on, prunes project ids that no longer belong to the org
- * (moved/deleted), and gates "enabled without a valid project scope."
+ * (moved/deleted), gates "enabled without a valid project scope," and decides
+ * whether a change widens what the automation reaches.
  *
  * Pure — no DB, no imports. Shared by the config route, triage, and Foreman,
  * so every consumer reads/validates the same normalized shape rather than
@@ -124,6 +125,83 @@ export function pruneToProjects(config: AutomationConfig, validProjectIds: Set<s
       notify: config.autonomousDelivery.notify,
       workers: config.autonomousDelivery.workers,
     },
+  };
+}
+
+/** Shown to anyone who tries to widen automation without being the instance
+ *  operator. Shared by the server's refusal and the settings form. */
+export const OPERATOR_ONLY_MESSAGE = "Only the instance operator can turn on automated delivery or add build workers.";
+
+/** How far `after` reaches beyond `before`, as flags and counts (never which
+ *  projects): either automation turning on, projects joining either list, and
+ *  the parallel build workers before and after. */
+export interface AutomationWidening {
+  turnsOnAutoTriage: boolean;
+  turnsOnDelivery: boolean;
+  autoTriageProjectsAdded: number;
+  deliveryProjectsAdded: number;
+  workersBefore: number;
+  workersAfter: number;
+}
+
+export function automationWidening(before: AutomationConfig, after: AutomationConfig): AutomationWidening {
+  const added = (from: string[], to: string[]) => new Set(to.filter((id) => !from.includes(id))).size;
+  return {
+    turnsOnAutoTriage: after.autoRemediation.enabled && !before.autoRemediation.enabled,
+    turnsOnDelivery: after.autonomousDelivery.enabled && !before.autonomousDelivery.enabled,
+    autoTriageProjectsAdded: added(before.autoRemediation.projectIds, after.autoRemediation.projectIds),
+    deliveryProjectsAdded: added(before.autonomousDelivery.projectIds, after.autonomousDelivery.projectIds),
+    workersBefore: before.autonomousDelivery.workers,
+    workersAfter: after.autonomousDelivery.workers,
+  };
+}
+
+/** True when `after` reaches further than `before`: either automation turns on,
+ *  either project list gains a project, or the parallel build workers go up.
+ *  Turning off, removing projects, fewer workers, notify and the default
+ *  project never widen.
+ *
+ *  Widening puts more of an org's work into the deployment's shared build pool
+ *  (the pool runs the highest worker count any enabled org asks for), so it is
+ *  the instance operator's call; callers compare against the STORED config,
+ *  never against what the client last saw. */
+export function widensAutomation(before: AutomationConfig, after: AutomationConfig): boolean {
+  const w = automationWidening(before, after);
+  return (
+    w.turnsOnAutoTriage ||
+    w.turnsOnDelivery ||
+    w.autoTriageProjectsAdded > 0 ||
+    w.deliveryProjectsAdded > 0 ||
+    w.workersAfter > w.workersBefore
+  );
+}
+
+/** Audit metadata for a change to either enabled flag, either project list or
+ *  the worker count, or null when none of those moved. Counts only, never
+ *  which projects. */
+export function automationAuditDelta(
+  before: AutomationConfig,
+  after: AutomationConfig,
+): Record<string, boolean | number> | null {
+  const sameIds = (a: string[], b: string[]) => a.length === b.length && a.every((id) => b.includes(id));
+  const moved =
+    before.autoRemediation.enabled !== after.autoRemediation.enabled ||
+    before.autonomousDelivery.enabled !== after.autonomousDelivery.enabled ||
+    !sameIds(before.autoRemediation.projectIds, after.autoRemediation.projectIds) ||
+    !sameIds(before.autonomousDelivery.projectIds, after.autonomousDelivery.projectIds) ||
+    before.autonomousDelivery.workers !== after.autonomousDelivery.workers;
+  if (!moved) return null;
+  return {
+    autoTriageEnabledBefore: before.autoRemediation.enabled,
+    autoTriageEnabledAfter: after.autoRemediation.enabled,
+    autoTriageProjectsBefore: new Set(before.autoRemediation.projectIds).size,
+    autoTriageProjectsAfter: new Set(after.autoRemediation.projectIds).size,
+    deliveryEnabledBefore: before.autonomousDelivery.enabled,
+    deliveryEnabledAfter: after.autonomousDelivery.enabled,
+    deliveryProjectsBefore: new Set(before.autonomousDelivery.projectIds).size,
+    deliveryProjectsAfter: new Set(after.autonomousDelivery.projectIds).size,
+    workersBefore: before.autonomousDelivery.workers,
+    workersAfter: after.autonomousDelivery.workers,
   };
 }
 

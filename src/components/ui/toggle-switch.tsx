@@ -13,12 +13,14 @@ export function ToggleSwitch({
   disabled,
   className,
   "aria-label": ariaLabel,
+  "aria-describedby": ariaDescribedBy,
 }: {
   checked: boolean;
   onCheckedChange: (v: boolean) => void;
   disabled?: boolean;
   className?: string;
   "aria-label"?: string;
+  "aria-describedby"?: string;
 }) {
   return (
     <button
@@ -26,6 +28,7 @@ export function ToggleSwitch({
       role="switch"
       aria-checked={checked}
       aria-label={ariaLabel}
+      aria-describedby={ariaDescribedBy}
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(

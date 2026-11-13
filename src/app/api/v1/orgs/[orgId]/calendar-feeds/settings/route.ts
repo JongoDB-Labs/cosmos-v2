@@ -6,7 +6,8 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { calendarFeedsEnabled, withCalendarFeedsEnabled } from "@/lib/calendar/feed-settings";
+import { calendarFeedsEnabled } from "@/lib/calendar/feed-settings";
+import { patchOrgSettings } from "@/lib/org/patch-settings.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -25,11 +26,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     requirePermission(ctx, Permission.INTEGRATION_MANAGE);
 
     const { enabled } = z.object({ enabled: z.boolean() }).parse(await request.json());
-    const before = calendarFeedsEnabled(org.settings);
-    await prisma.organization.update({
-      where: { id: org.id },
-      data: { settings: withCalendarFeedsEnabled(org.settings, enabled) as object },
-    });
+    // Only `calendarFeeds.enabled` is written, against the row as it is now;
+    // writing back the whole settings object read above would undo any other
+    // setting changed since.
+    const settingsBefore = await patchOrgSettings(org.id, { merge: { key: "calendarFeeds", fields: { enabled } } });
+    if (!settingsBefore) return new Response("Not found", { status: 404 });
+    const before = calendarFeedsEnabled(settingsBefore);
     if (before !== enabled) {
       await logAudit({
         orgId: org.id, userId: ctx.userId, action: enabled ? "calendar_feeds.enabled" : "calendar_feeds.disabled",

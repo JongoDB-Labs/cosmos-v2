@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.552.5",
+    date: "2026-11-13",
+    title: "Turning on automated delivery is the instance operator's call",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Turning on autonomous delivery or auto-triage for an organization, adding a project to either, or raising parallel builds now needs the instance operator (the person who runs this Cosmos installation) as well as organization-admin permission. Builds run on the installation's shared workers, so that choice belongs to the operator. Organization admins can still turn either one off, remove projects, run fewer parallel builds, and change notifications and the intake policy. On Settings, Feedback Automation, controls you can't use are disabled with a note that says why. Every change to these switches, project lists and parallel builds is recorded in the audit log, and so is every refused attempt. Organizations that already have them on stay on.",
+      },
+      {
+        kind: "fix",
+        text: "Saving the sidebar layout, the calendar feed switch or the organization logo no longer puts back other organization settings that someone changed while the save was in progress.",
+      },
+    ],
+  },
+  {
     version: "2.552.4",
     date: "2026-11-13",
     title: "Contract money needs finance access everywhere, and nobody approves their own expenses",

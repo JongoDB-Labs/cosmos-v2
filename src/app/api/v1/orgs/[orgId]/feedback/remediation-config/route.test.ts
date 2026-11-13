@@ -11,25 +11,33 @@
 //   - a valid PUT merges into Organization.settings (without clobbering other
 //     keys) and a subsequent GET round-trips the normalized shape + never
 //     leaks OrgMember.permissions.
-import { describe, it, expect, vi, beforeEach } from "vitest";
+//
+// The actor here is the instance operator by default, so these cases are about
+// shape and validation. Who may turn automation on is covered against a real
+// database in operator-gate.db.test.ts.
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
 
-const { getAuthContext, prisma, getAiProviderStatus, resolveModelCredential } = vi.hoisted(() => ({
+const { getAuthContext, getCurrentUser, prisma, getAiProviderStatus, resolveModelCredential } = vi.hoisted(() => ({
   resolveModelCredential: vi.fn(),
   getAuthContext: vi.fn(),
+  getCurrentUser: vi.fn(),
   prisma: {
     organization: { findUnique: vi.fn(), update: vi.fn() },
     project: { findMany: vi.fn() },
+    $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
   },
   getAiProviderStatus: vi.fn(),
 }));
 
 const { publishToOrg } = vi.hoisted(() => ({ publishToOrg: vi.fn() }));
 
-vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
+vi.mock("@/lib/auth/session", () => ({ getAuthContext, getCurrentUser }));
+vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/ai/ai-credentials", () => ({ getAiProviderStatus }));
 vi.mock("@/lib/ai/model-credential-provider", () => ({ resolveModelCredential }));
@@ -71,9 +79,16 @@ const VALID_BODY = {
 // Organization.settings rather than just asserting the upsert call shape.
 let orgSettings: Record<string, unknown>;
 
+const OPERATOR_EMAIL = "operator@example.com";
+
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("INTERNAL_ADMINS", OPERATOR_EMAIL);
+  getCurrentUser.mockResolvedValue({ id: "44444444-4444-4444-4444-444444444444", email: OPERATOR_EMAIL });
   orgSettings = { unrelatedKey: { keep: "me" } };
+  // The PUT reads the stored settings under a row lock inside a transaction.
+  prisma.$transaction.mockImplementation(async (fn: (tx: typeof prisma) => unknown) => fn(prisma));
+  prisma.$queryRaw.mockImplementation(async () => [{ settings: orgSettings }]);
   prisma.organization.findUnique.mockImplementation(async () => ({
     slug: "acme",
     settings: orgSettings,
@@ -96,6 +111,10 @@ beforeEach(() => {
     claudeOAuth: { connected: false },
   });
   getAuthContext.mockResolvedValue(ctx(Permission.ORG_UPDATE));
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("remediation-config — RBAC", () => {

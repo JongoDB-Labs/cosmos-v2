@@ -15,8 +15,20 @@ import { hiddenProjectIds } from "@/lib/rbac/project-access";
 import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
 import { resolveModelCredential } from "@/lib/ai/model-credential-provider";
 import { publishToOrg } from "@/lib/realtime/broker";
-import { success, handleApiError } from "@/lib/api-helpers";
-import { pruneToProjects, readAutomationConfig, validateEnableGate } from "@/lib/feedback/automation-config";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import {
+  pruneToProjects,
+  readAutomationConfig,
+  validateEnableGate,
+  widensAutomation,
+} from "@/lib/feedback/automation-config";
+import {
+  auditAutomationChange,
+  auditAutomationRefusal,
+  isInstanceOperator,
+  lockOrgSettings,
+  operatorOnlyResponse,
+} from "@/lib/feedback/automation-operator.server";
 import {
   normalizeIntakePolicyInput,
   readIntakePolicy,
@@ -127,6 +139,10 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       foremanConnected,
       aiProvider: ai.provider,
       claudeSubscription: ai.claudeOAuth,
+      // Whether THIS viewer may turn automation on or add projects, so the form
+      // can disable those controls up front. A boolean about the viewer only;
+      // the operator allowlist itself never leaves the server.
+      viewerIsOperator: await isInstanceOperator(ctx),
     });
   } catch (error) {
     return handleApiError(error);
@@ -134,7 +150,14 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 }
 
 /** Update the config — merges `autoRemediation` + `autonomousDelivery` into
- *  `Organization.settings` without touching other settings keys. */
+ *  `Organization.settings` without touching other settings keys.
+ *
+ *  Turning either automation on, adding a project to either list, or raising
+ *  the parallel build workers also needs the instance operator (see
+ *  automation-operator.server.ts). Turning off, removing projects, fewer
+ *  workers, and the notify and intake-policy fields need only ORG_UPDATE.
+ *  Every change to a flag, a project list or the worker count is audited in
+ *  the same transaction; every refused widen is audited too. */
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
@@ -182,27 +205,47 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const existing = (org.settings as Record<string, unknown>) ?? {};
-    const nextSettings: Record<string, unknown> = {
-      ...existing,
-      autoRemediation: data.autoRemediation,
-      autonomousDelivery: data.autonomousDelivery,
-    };
+    const byOperator = await isInstanceOperator(ctx);
+    const audit = { orgId, userId: ctx.userId, after: data, ipAddress: getIpAddress(request) };
 
-    // Merge the intake policy only when the caller sent one — the console's
-    // pause/resume omits it, and absent must never reset it to defaults. Stored
-    // under the same keys the remediation loop reads, so the change takes effect
-    // on the next run.
-    let savedPolicy = readIntakePolicy(org.settings);
-    if (data.intakePolicy !== undefined) {
-      savedPolicy = normalizeIntakePolicyInput(data.intakePolicy);
-      Object.assign(nextSettings, serializeIntakePolicy(savedPolicy));
-    }
+    // Decide against the STORED config, under a row lock, so the comparison and
+    // the write see the same row (a stale form can't re-enable what the operator
+    // just turned off).
+    const outcome = await prisma.$transaction(async (tx) => {
+      const stored = await lockOrgSettings(tx, orgId);
+      const before = readAutomationConfig(stored);
+      if (!byOperator && widensAutomation(before, data)) return { refused: true as const, before };
 
-    await prisma.organization.update({
-      where: { id: orgId },
-      data: { settings: nextSettings as never },
+      const existing = stored && typeof stored === "object" && !Array.isArray(stored) ? (stored as Record<string, unknown>) : {};
+      const nextSettings: Record<string, unknown> = {
+        ...existing,
+        autoRemediation: data.autoRemediation,
+        autonomousDelivery: data.autonomousDelivery,
+      };
+
+      // Merge the intake policy only when the caller sent one — the console's
+      // pause/resume omits it, and absent must never reset it to defaults. Stored
+      // under the same keys the remediation loop reads, so the change takes effect
+      // on the next run.
+      let policy = readIntakePolicy(stored);
+      if (data.intakePolicy !== undefined) {
+        policy = normalizeIntakePolicyInput(data.intakePolicy);
+        Object.assign(nextSettings, serializeIntakePolicy(policy));
+      }
+
+      await tx.organization.update({
+        where: { id: orgId },
+        data: { settings: nextSettings as never },
+      });
+      // Last, so the audit log's own lock is held only briefly.
+      await auditAutomationChange(tx, { ...audit, before, byOperator });
+      return { refused: false as const, policy };
     });
+    if (outcome.refused) {
+      await auditAutomationRefusal({ ...audit, before: outcome.before });
+      return operatorOnlyResponse();
+    }
+    const savedPolicy = outcome.policy;
 
     // Live-update every open settings view in this org (COSMOS-130). Best-effort;
     // org-scoped by the topic so it never leaks across tenants.
