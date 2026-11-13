@@ -44,15 +44,16 @@ export default async function ProjectLayout({
 
   if (!project) notFound();
 
-  // Visibility gate for the WHOLE project subtree.
+  // Visibility gate for the project HEADER: its name, its board strip and its
+  // settings link. It is NOT the gate for the pages beneath it.
   //
-  // The API routes under projects/[projectId] all go through requireProjectRead,
-  // but server components read Prisma DIRECTLY and never touch those routes —
-  // so with teamScopedAccess on, a non-member could still open the project and
-  // have every page render server-side. That was the reported bug.
+  // A layout and its page render in parallel, and a layout that calls notFound()
+  // does not stop the page's own output from being streamed in the same
+  // response. So a page that loaded a restricted project's risks, goals or
+  // members still sent them to a non-member, under a "not found" screen. Every
+  // page under projects/[projectKey] therefore makes this same check itself
+  // before it reads anything, and layout.test.tsx holds each one to it.
   //
-  // This layout is the single ancestor of all 29 pages beneath it, which makes
-  // it the one place the check belongs; refusing here means none of them render.
   // notFound() rather than a forbidden screen: whether a restricted project
   // exists is not something a non-member should be able to confirm.
   if (!(await canReadProject(ctx, project.id))) notFound();

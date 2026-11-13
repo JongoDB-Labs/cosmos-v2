@@ -9,8 +9,12 @@
 // 29 server components under projects/[projectKey] queried a project and checked
 // only `if (!project) notFound()`.
 //
-// This layout is the single ancestor of all of them, so it is the choke point:
-// if it refuses, nothing beneath it renders.
+// The first fix put one check in this layout, on the reasoning that it is the
+// ancestor of all of them and "if it refuses, nothing beneath it renders". That
+// is not how it renders: a layout and its page run in parallel, and the page's
+// output is streamed even when the layout calls notFound(). A non-member who
+// opened a restricted project's PM dashboard got its risks and goals in the
+// response, under a "not found" screen. So every page checks for itself.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -129,17 +133,13 @@ describe("the layout wires the guard up", () => {
 });
 
 /**
- * Guards the CLASS.
+ * Inside projects/[projectKey], every server file refuses before it reads: that
+ * guard reads the syntax and lives in server-files-check-before-reading.arch.test.ts.
  *
- * The layout protects everything BENEATH it. A project-scoped page added
- * somewhere else in the dashboard tree would not inherit that, and would
- * reintroduce exactly the reported bug — server-rendered project data with no
- * visibility check. This fails on such a page rather than trusting the next
- * person to know the layout is load-bearing.
+ * Outside it: a page that reads a project by key does its own check too.
  */
-describe("no project-scoped page escapes the guarded subtree", () => {
-  const GUARDED = "src/app/(dashboard)/[orgSlug]/projects/[projectKey]";
-
+describe("a project-reading page outside projects/[projectKey] checks visibility itself", () => {
+  const SUBTREE = "src/app/(dashboard)/[orgSlug]/projects/[projectKey]";
   function walk(dir: string, out: string[] = []): string[] {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const p = join(dir, e.name);
@@ -148,28 +148,20 @@ describe("no project-scoped page escapes the guarded subtree", () => {
     }
     return out;
   }
+  /** Source with comments stripped, so a comment about the check cannot pass. */
+  const code = (f: string) =>
+    readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 
-  it("finds dashboard pages at all (guards the scan itself)", () => {
-    expect(walk("src/app/(dashboard)").length).toBeGreaterThan(20);
-  });
-
-  it("keeps every project-reading server component under the guarded layout", () => {
-    const offenders = walk("src/app/(dashboard)")
-      .filter((f) => !f.startsWith(GUARDED))
-      .filter((f) => /prisma\.project\.(findFirst|findUnique)/.test(readFileSync(f, "utf8")))
-      // A file that does its own visibility check is fine wherever it lives.
-      .filter(
-        (f) =>
-          !/canReadProject|isProjectVisible|getVisibleProjectIds/.test(
-            readFileSync(f, "utf8"),
-          ),
-      );
-
-    expect(
-      offenders,
-      "these server-render project data outside the guarded layout and do not " +
-        "check visibility themselves — call canReadProject, or move them under " +
-        "projects/[projectKey]",
-    ).toEqual([]);
+  it("each one calls a visibility check", () => {
+    const outside = walk("src/app/(dashboard)").filter((f) => !f.startsWith(SUBTREE));
+    // By key or as a list: a page that lists projects shows their names too.
+    const reading = outside.filter((f) => /prisma\.project\.(findFirst|findUnique|findMany)\s*\(/.test(code(f)));
+    // Guards the scan itself. Before this line it matched only by-key reads,
+    // of which none remain outside the folder, so it checked nothing.
+    expect(reading).toContain("src/app/(dashboard)/[orgSlug]/program-management/page.tsx");
+    const offenders = reading.filter(
+      (f) => !/\b(?:canReadProject|canReadInProject|isProjectVisible|getVisibleProjectIds|getReadableProjectIds)\s*\(/.test(code(f)),
+    );
+    expect(offenders, "these server-render project data and do not check visibility themselves").toEqual([]);
   });
 });

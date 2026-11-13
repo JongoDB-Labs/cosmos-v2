@@ -83,7 +83,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         willBeClosed,
         // Anything but the status is an edit; so is moving between the two accepted statuses.
         edits: Object.entries(data).some(([k, v]) => v !== undefined && (k !== "status" || v !== existing.status)),
-        files: willBeClosed && !wasClosed ? await evidenceFiles(orgId, { deliverableId }) : 0,
+        files: willBeClosed && !wasClosed ? await evidenceFiles(orgId, { deliverableId }, ctx, projectId) : 0,
         note: data.closeEvidenceNote !== undefined ? data.closeEvidenceNote : existing.closeEvidenceNote,
       });
       if (refusal) return closingProblem(refusal, request);

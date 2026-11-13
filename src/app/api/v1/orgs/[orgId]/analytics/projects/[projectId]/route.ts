@@ -1,8 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { success, handleApiError } from "@/lib/api-helpers";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -15,7 +14,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.ANALYTICS_READ);
+    // The bit says the caller may read SOME analytics; which project is a
+    // separate question, and the portfolio roll-up already asks it. Asked
+    // before the lookup, so a hidden project and a missing one answer alike.
+    await requireProjectRead(ctx, projectId, "ANALYTICS_READ");
 
     const project = await prisma.project.findFirst({
       where: { id: projectId, orgId },

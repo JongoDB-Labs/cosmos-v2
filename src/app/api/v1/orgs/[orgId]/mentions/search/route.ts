@@ -36,9 +36,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const perType = Math.min(Math.max(Number(sp.get("perType")) || 6, 1), 15);
 
     const hits = await searchEntities({
-      orgId: org.id,
+      ctx,
       orgSlug: org.slug,
-      userId: ctx.userId,
       query: q,
       types,
       perType,

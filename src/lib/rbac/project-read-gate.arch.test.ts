@@ -103,7 +103,7 @@ describe("project-scoped reads go through the team-aware gate", () => {
  * runs a visibility check, whatever bit it gates on. Org owners and admins lose
  * nothing by it, because `isProjectVisible` lets them see every project.
  */
-const VISIBLE = /\b(?:requireProjectRead|requireProjectVisible|requireProjectVisibleIf|inVisibleProject|isProjectVisible|canReadProject|readableItemProjectId|assertProjectRead|canManageProject|getManagedProjectIds|readableDocument)\(/;
+const VISIBLE = /\b(?:requireProjectRead|requireProjectVisible|requireProjectVisibleIf|inVisibleProject|isProjectVisible|canReadProject|readableItemProjectId|assertProjectRead|canManageProject|getManagedProjectIds|readableDocument|canReadInProject|mayReadContract)\(/;
 const WRITES = ["POST", "PUT", "PATCH", "DELETE"];
 
 describe("project-scoped writes go through the team-aware gate", () => {

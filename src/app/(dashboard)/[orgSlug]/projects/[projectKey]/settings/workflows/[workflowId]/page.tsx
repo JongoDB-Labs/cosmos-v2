@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
 import { canAdministerProject } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,7 +32,7 @@ async function Content({ params }: PageParams) {
     where: { orgId: ctx.orgId, key: { equals: projectKey, mode: "insensitive" } },
     select: { id: true, key: true },
   });
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
   const workflow = await prisma.workflow.findFirst({ where: { id: workflowId, projectId: project.id }, select: { id: true } });
   if (!workflow) notFound();
   return (

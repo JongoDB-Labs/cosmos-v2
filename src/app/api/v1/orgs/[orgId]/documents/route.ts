@@ -4,12 +4,11 @@ import { isExecutableUpload } from "@/lib/files/parsers";
 import { prisma } from "@/lib/db/client";
 import { resolveAuth } from "@/lib/auth/api-key";
 import { requirePermission } from "@/lib/rbac/check";
-import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { ingestDocument } from "@/lib/files/ingest";
 import { withUploaders } from "@/lib/files/uploader";
-import { withManageFlags, documentVisibilityWhere } from "@/lib/files/access";
+import { withManageFlags, orgDocumentVisibilityWhere } from "@/lib/files/access";
 import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -50,22 +49,16 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const scope = req.nextUrl.searchParams.get("scope");
     const orgOnly = scope === "org" || scope === "firm";
 
-    const all = await prisma.project.findMany({ where: { orgId }, select: { id: true } });
-    // From the AuthContext, not just the user id: an API key's project scope is
-    // a ceiling here as on GET /projects, so a key scoped to one project lists
-    // that project's documents and no other's.
-    const visible = await getVisibleProjectIds(
-      ctx,
-      all.map((p) => p.id),
-    );
-
     const docs = await prisma.document.findMany({
       where: {
         orgId,
-        // Project narrowing AND per-file visibility, from the one fragment the
-        // by-id policy also uses. A restricted file has to be absent here, not
-        // merely refused on download: a filename is often the secret.
-        ...documentVisibilityWhere(ctx, orgOnly ? null : visible),
+        // Project narrowing AND per-file visibility, from the one rule the by-id
+        // routes also ask: the projects this caller may read files in (bit,
+        // allow/deny rules, team scoping, an API key's limit), and restricted
+        // files only for the people they are for. A restricted file has to be
+        // absent here, not merely refused on download: a filename is often the
+        // secret.
+        ...(await orgDocumentVisibilityWhere(ctx, { orgOnly })),
       },
       select: {
         id: true,

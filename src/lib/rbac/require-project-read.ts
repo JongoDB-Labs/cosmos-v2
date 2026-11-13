@@ -40,9 +40,16 @@ export async function requireProjectRead(
 
 /**
  * `requireProjectRead` as a yes or no, for deciding on someone else's behalf
- * (the person a notification would go to). Only a denial is a no; anything
- * else that goes wrong is thrown, so a broken check can't read as "allowed"
- * or pass silently as "denied".
+ * (the person a notification would go to), and for a server page.
+ *
+ * A page reads the database directly rather than calling the API, so it has to
+ * make the API's decision itself: one that checked only a permission bit (or
+ * nothing) showed what the API refused, such as an action a rule denies on this
+ * project, or a register its role lacks. This is the same call, not a second
+ * spelling of it, so the page and the API cannot disagree.
+ *
+ * Only a denial is a no; anything else that goes wrong is thrown, so a broken
+ * check can't read as "allowed" or pass silently as "denied".
  */
 export async function canReadInProject(ctx: AuthContext, projectId: string, action: PermissionKey): Promise<boolean> {
   try {

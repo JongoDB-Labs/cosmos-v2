@@ -34,6 +34,9 @@ const { prisma, getAuthContext, connection, loaders } = vi.hoisted(() => {
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/rbac/project-access", () => ({ getVisibleProjectIds: async () => new Set(["p1"]) }));
+// Which projects the allow/deny rules let through is page.test.tsx's subject; here
+// the one project is readable for every register.
+vi.mock("@/lib/work-items/query/scope", () => ({ getReadableProjectIds: async () => ["p1"] }));
 vi.mock("@/lib/pm/schedule", () => ({ loadMilestonesWithDerived: loaders.milestones }));
 vi.mock("@/lib/pm/kpi-derive", () => ({ loadKpisWithDerived: loaders.kpis }));
 vi.mock("@/lib/pm/burn", () => ({ loadClinsWithBurn: loaders.clins }));

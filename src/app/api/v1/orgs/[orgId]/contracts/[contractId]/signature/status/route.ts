@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { getEnvelopeStatus } from "@/lib/integrations/docusign";
+import { mayReadContract } from "@/lib/crm/contract-scope";
 
 type RouteParams = { params: Promise<{ orgId: string; contractId: string }> };
 
@@ -20,9 +21,12 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     const contract = await prisma.contract.findFirst({
       where: { id: contractId, orgId: ctx.orgId },
-      select: { id: true, docusignEnvelopeId: true, docusignStatus: true, signedAt: true },
+      select: { id: true, projectId: true, docusignEnvelopeId: true, docusignStatus: true, signedAt: true },
     });
-    if (!contract) return new Response("Contract not found", { status: 404 });
+    // Asked before DocuSign is polled and the row written: somebody who cannot
+    // see the contract can neither read its status nor make this GET touch it.
+    if (!contract || !(await mayReadContract(ctx, contract.projectId)))
+      return new Response("Contract not found", { status: 404 });
     if (!contract.docusignEnvelopeId) {
       return success({ status: null, signedAt: null });
     }

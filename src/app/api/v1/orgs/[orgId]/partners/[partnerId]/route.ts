@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { readableContractsWhere } from "@/lib/crm/contract-scope";
 import { z } from "zod";
 
 const updatePartnerSchema = z.object({
@@ -33,7 +34,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const partner = await prisma.partner.findFirst({
       where: { id: partnerId, orgId },
       include: {
+        // Only the contracts this caller may see: one on a project they cannot
+        // open is not theirs to read here either, value and terms included.
         contracts: {
+          where: await readableContractsWhere(ctx),
           include: { product: true },
           orderBy: { createdAt: "desc" },
         },

@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
 import { canAdministerProject } from "@/lib/rbac/require-project-manage";
 import { isProjectVisible } from "@/lib/rbac/project-access";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
@@ -37,7 +38,7 @@ async function Content({ params }: PageParams) {
     where: { orgId: ctx.orgId, key: { equals: projectKey, mode: "insensitive" } },
     select: { id: true },
   });
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
   // The routes' own gate: the project visible to them, and the automation-manage permission or this project's manager.
   const allowed = (await isProjectVisible(ctx, project.id)) && (await canAdministerProject(ctx, project.id, Permission.AUTOMATION_MANAGE));
   if (!allowed) return <NoPageAccess what="this project's automations" />;

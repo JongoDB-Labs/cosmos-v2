@@ -38,26 +38,41 @@ async function TeamPageContent({ params }: PageParams) {
   const platformAdmin = await requireSystemAdmin();
   const isPlatformAdmin = Boolean(platformAdmin);
 
+  const canInvite = hasPermission(ctx.permissions, Permission.ORG_MANAGE_MEMBERS);
+
+  // The member list is everyone's to see, as it is through the members API. The
+  // pending invitations, the work-role catalogue and who holds which work role
+  // are not: their APIs answer only to ORG_MANAGE_MEMBERS. This page used to
+  // load them for every member and hand them to the client table, so a viewer
+  // or guest received every invitee's email and intended role. Not loaded at
+  // all without the permission, rather than loaded and hidden, because whatever
+  // a server page loads is in the page it sends.
   const [members, invitations, workRoles, memberWorkRoles] = await Promise.all([
     prisma.orgMember.findMany({
       where: { orgId: ctx.orgId },
       include: { user: true },
       orderBy: { joinedAt: "asc" },
     }),
-    prisma.invitation.findMany({
-      where: { orgId: ctx.orgId, expiresAt: { gt: new Date() } },
-    }),
+    canInvite
+      ? prisma.invitation.findMany({
+          where: { orgId: ctx.orgId, expiresAt: { gt: new Date() } },
+        })
+      : [],
     // Grants are used ONLY for the server-side grantableRoleIds computation
     // below — stripped before workRoleOptions goes to the client.
-    prisma.workRole.findMany({
-      where: { orgId: ctx.orgId },
-      select: { id: true, name: true, isBuiltIn: true, grants: true },
-    }),
-    prisma.orgMemberWorkRole.findMany({
-      where: { orgMember: { orgId: ctx.orgId } },
-      select: { orgMemberId: true, workRole: { select: { id: true, name: true } } },
-      orderBy: { createdAt: "asc" },
-    }),
+    canInvite
+      ? prisma.workRole.findMany({
+          where: { orgId: ctx.orgId },
+          select: { id: true, name: true, isBuiltIn: true, grants: true },
+        })
+      : [],
+    canInvite
+      ? prisma.orgMemberWorkRole.findMany({
+          where: { orgMember: { orgId: ctx.orgId } },
+          select: { orgMemberId: true, workRole: { select: { id: true, name: true } } },
+          orderBy: { createdAt: "asc" },
+        })
+      : [],
   ]);
 
   const workRolesByMember = new Map<string, { id: string; name: string }[]>();
@@ -107,8 +122,6 @@ async function TeamPageContent({ params }: PageParams) {
     name,
     isBuiltIn,
   }));
-
-  const canInvite = hasPermission(ctx.permissions, Permission.ORG_MANAGE_MEMBERS);
 
   // Pending account requests, for the same permission that governs inviting.
   // Read only when the viewer can act on them — there is no point fetching a

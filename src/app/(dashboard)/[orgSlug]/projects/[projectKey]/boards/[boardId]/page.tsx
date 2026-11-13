@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { isBoardVisible } from "@/lib/rbac/board-access";
 import { BoardRenderer } from "./board-renderer";
@@ -27,7 +28,7 @@ export default async function BoardPage({ params }: PageParams) {
     select: { id: true, key: true },
   });
 
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
 
   // The [boardId] segment is the human-readable slug for new boards, but old
   // links (and boards created before slugs existed) use the UUID — resolve either.

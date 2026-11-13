@@ -36,7 +36,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       wasClosed: false,
       willBeClosed: true,
       edits: false,
-      files: await evidenceFiles(orgId, { phaseId }),
+      files: await evidenceFiles(orgId, { phaseId }, ctx, projectId),
       note: note ?? phase.closeEvidenceNote,
     });
     if (refusal) return closingProblem(refusal, request);

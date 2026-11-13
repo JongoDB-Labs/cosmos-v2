@@ -1,10 +1,12 @@
 import { prisma } from "@/lib/db/client";
 import { inKeyProjectScope, type AuthContext } from "@/lib/rbac/check";
 import type { DocumentVisibility } from "@prisma/client";
-import { Permission, hasPermission } from "@/lib/rbac/permissions";
-import { isProjectVisible, isOrgAdministrator } from "@/lib/rbac/project-access";
+import { Permission, hasPermission, type PermissionKey } from "@/lib/rbac/permissions";
+import { isOrgAdministrator } from "@/lib/rbac/project-access";
 import { canAdministerProject } from "@/lib/rbac/require-project-manage";
+import { canReadInProject } from "@/lib/rbac/require-project-read";
 import { roleCountsFor } from "@/lib/rbac/key-role";
+import { getReadableProjectIds, projectsDenyingAction } from "@/lib/work-items/query/scope";
 
 /**
  * Who may see and who may change a stored file.
@@ -16,6 +18,29 @@ import { roleCountsFor } from "@/lib/rbac/key-role";
  * means per-user and per-team visibility, when it lands, is a change HERE and
  * not an audit of every route.
  */
+
+/**
+ * What reading a project's file asks of the project: the question the routes
+ * under projects/[projectId]/documents put to it. Every other door onto the
+ * same file (the org library, its download, search, @-mentions) asks it too, so
+ * a rule that closes the project to somebody closes its files on all of them.
+ */
+export const DOCUMENT_READ: PermissionKey = "PROJECT_READ";
+
+/**
+ * Whether this caller's effective permissions include reading files at all.
+ *
+ * Asked before any of the grants on a restricted file (the uploader, an org
+ * administrator, a share), because those are facts about the PERSON and an API
+ * key carries its minter's person: the same user id and the same org role, with
+ * only its permissions narrowed to its scopes. Without this an administrator's
+ * key scoped away from files still opened every restricted file on the role
+ * alone. Every role that reaches the file routes holds the bit, so for a person
+ * signed in this changes nothing.
+ */
+function readsFiles(ctx: AuthContext): boolean {
+  return hasPermission(ctx.permissions, Permission[DOCUMENT_READ]);
+}
 
 /** Everything the policy needs, and nothing else, so callers select narrowly. */
 export interface DocumentForPolicy {
@@ -33,6 +58,16 @@ export interface DocumentForPolicy {
  * document in another org, and a document on a project this actor cannot see —
  * because distinguishing them tells an outsider whether an id exists. Callers
  * answer 404 for all three.
+ *
+ * The rule, which every door asks:
+ * - An INHERIT file is exactly as readable as its project under DOCUMENT_READ:
+ *   the bit, any allow/deny rule on that project, and team scoping.
+ * - A RESTRICTED file is for its uploader, the people it was shared with and
+ *   org administrators, and only once the caller's permissions include reading
+ *   files: an API key's scopes bind before its minter's role. That grant opens
+ *   it on every door, from outside a team-scoped project too, unless a rule
+ *   denies this person the project.
+ * - An API key never reaches a file filed outside its projects.
  */
 export async function readableDocument(
   orgId: string,
@@ -56,27 +91,51 @@ export async function readableDocument(
     // of sharing: naming somebody outside the project is the "share" half of
     // limit-or-share, and it is recorded with who granted it so the question
     // "why can she see this" has an answer.
-    if (doc.uploadedById === ctx.userId) return doc;
     // Stated plainly rather than implied: restricting a file hides it from the
     // rest of the project, not from the people who run the organization. Somebody
     // has to be able to reach a file after its uploader leaves, and the same
     // exemption already exists for team-scoped projects in isProjectVisible.
-    if (isOrgAdministrator(ctx.orgRole)) return doc;
-    const granted = await prisma.documentShare.findFirst({
-      where: { documentId: docId, userId: ctx.userId },
-      select: { id: true },
-    });
-    return granted ? doc : null;
+    if (!readsFiles(ctx)) return null;
+    const granted =
+      doc.uploadedById === ctx.userId ||
+      isOrgAdministrator(ctx.orgRole) ||
+      (await prisma.documentShare.findFirst({ where: { documentId: docId, userId: ctx.userId }, select: { id: true } })) !== null;
+    if (!granted) return null;
+    // The grant does not need the project's team or the role's bit (sharing
+    // with somebody outside the project is what it is for), but a rule that
+    // denies this person the project still holds, as it does on every door.
+    if (doc.projectId && (await projectsDenyingAction(ctx, DOCUMENT_READ, [doc.projectId])).size > 0) return null;
+    return doc;
   }
 
   // An org-wide document belongs to nobody in particular, so any org reader may
   // see it. The route has already required ORG_READ to get this far.
   if (doc.projectId === null) return doc;
 
-  // A project document is exactly as visible as its project — the same rule the
-  // library list applies in its query, so a file cannot be fetched by id after
-  // being filtered out of the list.
-  return (await isProjectVisible(ctx, doc.projectId)) ? doc : null;
+  // A project document is exactly as readable as its project, by the question
+  // the project's own document routes ask, and the one the list asks in its
+  // query: so a file cannot be fetched here after being filtered out there.
+  return (await canReadInProject(ctx, doc.projectId, DOCUMENT_READ)) ? doc : null;
+}
+
+/**
+ * `readableDocument` for a route that names the project in its path.
+ *
+ * The routes under projects/[projectId]/documents/[docId] gated on the PROJECT
+ * alone and then fetched the file by id, so a restricted file was hidden from
+ * its project's list and still opened, downloaded, converted and summarised for
+ * every reader of that project. Those doors ask this now. A file filed under a
+ * different project than the path names is the same miss as one that does not
+ * exist.
+ */
+export async function readableProjectDocument(
+  orgId: string,
+  projectId: string,
+  docId: string,
+  ctx: AuthContext,
+): Promise<DocumentForPolicy | null> {
+  const doc = await readableDocument(orgId, docId, ctx);
+  return doc && doc.projectId === projectId ? doc : null;
 }
 
 /**
@@ -151,16 +210,41 @@ export async function withManageFlags<T extends { projectId: string | null; uplo
  * the failure is silent in the direction that matters.
  *
  * `visibleProjectIds` is the already-narrowed set for INHERIT files, or null to
- * mean "org-wide files only" (the ?scope=org case).
+ * mean "org-wide files only" (the ?scope=org case). `deniedProjectIds` are the
+ * projects a rule denies this caller, which close even a file shared with them
+ * (`projectsDenyingAction`). A route under one project has already asked the
+ * project, so only the org-wide doors need it: see orgDocumentVisibilityWhere.
  */
 export function documentVisibilityWhere(
   ctx: AuthContext,
   visibleProjectIds: ReadonlySet<string> | null,
+  deniedProjectIds: ReadonlySet<string> = new Set(),
 ) {
   const inherit =
     visibleProjectIds === null
       ? { projectId: null }
       : { OR: [{ projectId: null }, { projectId: { in: [...visibleProjectIds] } }] };
+
+  // A project-scoped key sees no restricted file filed in another project, not
+  // even one its minter uploaded or was shared: readableDocument applies the
+  // key's ceiling before any grant, so the list must too, or it names files the
+  // by-id route then refuses. (INHERIT files are already narrowed: the caller's
+  // visibleProjectIds carries the key's ceiling.) Absent for a session, so the
+  // fragment is unchanged for everybody who is not using a scoped key.
+  const keyCeiling = ctx.projectScope
+    ? { OR: [{ projectId: null }, { projectId: { in: [...ctx.projectScope] } }] }
+    : null;
+  // The null arm is spelled out: NOT IN is unknown for a null column, which
+  // would drop every org-wide file along with the denied projects' ones.
+  const notDenied = deniedProjectIds.size
+    ? { OR: [{ projectId: null }, { projectId: { notIn: [...deniedProjectIds] } }] }
+    : null;
+  const restrictedBounds = [keyCeiling, notDenied].filter((c) => c !== null);
+
+  // No grant on a restricted file counts without the bit for reading files, as
+  // readableDocument decides: a key's scopes bind before its minter's role, its
+  // upload or a share with its minter. So such a caller lists INHERIT files only.
+  if (!readsFiles(ctx)) return { visibility: "INHERIT" as DocumentVisibility, ...inherit };
 
   // An administrator sees restricted files too, which is the decision recorded in
   // readableDocument. Their INHERIT clause is unchanged: isProjectVisible already
@@ -169,7 +253,7 @@ export function documentVisibilityWhere(
     return {
       OR: [
         { visibility: "INHERIT" as DocumentVisibility, ...inherit },
-        { visibility: "RESTRICTED" as DocumentVisibility },
+        { visibility: "RESTRICTED" as DocumentVisibility, ...(restrictedBounds.length && { AND: restrictedBounds }) },
       ],
     };
   }
@@ -179,6 +263,7 @@ export function documentVisibilityWhere(
       { visibility: "INHERIT" as DocumentVisibility, ...inherit },
       {
         visibility: "RESTRICTED" as DocumentVisibility,
+        ...(restrictedBounds.length && { AND: restrictedBounds }),
         OR: [
           { uploadedById: ctx.userId },
           { shares: { some: { userId: ctx.userId } } },
@@ -186,4 +271,26 @@ export function documentVisibilityWhere(
       },
     ],
   };
+}
+
+/**
+ * `documentVisibilityWhere` for a door with no project in its path: the org
+ * library, its count of supporting files, search and @-mentions.
+ *
+ * INHERIT files come from the projects readable under DOCUMENT_READ, which is
+ * the bit, any rule, team scoping and an API key's limit at once; restricted
+ * ones from wherever they are filed, minus the projects a rule denies the
+ * caller. `orgOnly` keeps INHERIT files to the ones filed under no project.
+ */
+export async function orgDocumentVisibilityWhere(ctx: AuthContext, opts: { orgOnly?: boolean } = {}) {
+  const denies = ctx.abacRules.some((r) => r.effect === "deny" && r.actions?.includes(DOCUMENT_READ));
+  const [readable, denied] = await Promise.all([
+    opts.orgOnly ? null : getReadableProjectIds(ctx, DOCUMENT_READ).then((ids) => new Set(ids)),
+    denies
+      ? prisma.project
+          .findMany({ where: { orgId: ctx.orgId }, select: { id: true } })
+          .then((all) => projectsDenyingAction(ctx, DOCUMENT_READ, all.map((p) => p.id)))
+      : new Set<string>(),
+  ]);
+  return documentVisibilityWhere(ctx, readable, denied);
 }

@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -31,6 +32,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         headers: { "Content-Type": "application/json" },
       });
     }
+    // ANALYTICS_READ says the caller may read SOME analytics; this asks about
+    // THIS project, as the portfolio roll-up does for every project it lists.
+    await requireProjectRead(ctx, projectId, "ANALYTICS_READ");
 
     const limit = Math.min(
       parseInt(request.nextUrl.searchParams.get("limit") ?? "10", 10),

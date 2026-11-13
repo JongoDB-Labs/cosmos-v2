@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
+import { narrowBoards } from "@/lib/rbac/board-access";
 import { redirect, notFound } from "next/navigation";
 import { PageShell } from "@/components/ui/page-shell";
 import { ImportWizard } from "@/components/import/import-wizard";
@@ -21,6 +23,8 @@ export default async function ProjectImportPage({ params }: PageParams) {
       boards: {
         orderBy: { sortOrder: "asc" },
         select: {
+          id: true,
+          teamId: true,
           columns: {
             orderBy: { sortOrder: "asc" },
             select: { key: true, name: true },
@@ -29,12 +33,14 @@ export default async function ProjectImportPage({ params }: PageParams) {
       },
     },
   });
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
 
   // Distinct board columns across the project (status → columnKey targets).
   const seen = new Set<string>();
   const columns: { key: string; name: string }[] = [];
-  for (const b of project.boards) {
+  // Only from the boards this person may see, as everywhere else a board is
+  // listed: a team's board is not there for people outside the team.
+  for (const b of await narrowBoards(ctx, project.id, project.boards)) {
     for (const c of b.columns) {
       if (!seen.has(c.key)) {
         seen.add(c.key);

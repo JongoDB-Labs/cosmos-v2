@@ -22,6 +22,7 @@
 import type { ColumnCategory, Prisma, WorkItem } from "@prisma/client";
 import { NotFoundError, type AuthContext } from "@/lib/rbac/check";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
+import { documentVisibilityWhere } from "@/lib/files/access";
 import type { WorkItemPatch } from "@/lib/work-items/apply-change.server";
 import { boardShowsStatuses, loadStatuses } from "@/lib/workflow/statuses.server";
 import { buildOpenDefinition, compiledVersion, compileWorkflow, openTransitionId, resolveTransition, type CompiledWorkflow } from "@/lib/workflow/compile";
@@ -717,8 +718,16 @@ export async function gateChange(
     ) {
       // No file: ask for the reason. A reason the item already holds (closed
       // before, then reopened) satisfies it through the required-input check
-      // below, which reads the item's current value.
-      const files = await tx.document.count({ where: { orgId: args.orgId, workItemId: item.id } });
+      // below, which reads the item's current value. Only the files this person
+      // may see count: whether the question appears would otherwise tell them a
+      // restricted file is attached.
+      const files = await tx.document.count({
+        where: {
+          orgId: args.orgId,
+          workItemId: item.id,
+          ...(args.actor && documentVisibilityWhere(args.actor, new Set([args.projectId]))),
+        },
+      });
       if (files === 0) {
         asked.push({ field: { system: "closeEvidenceNote" }, required: true, label: CLOSE_EVIDENCE_LABEL });
       }

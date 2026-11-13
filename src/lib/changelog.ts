@@ -49,6 +49,33 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.550.2",
+    date: "2026-11-12",
+    title: "Restricted files, contracts and project pages follow the same read rules as their APIs",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A restricted file is shown only to its uploader, the people it is shared with and organization admins. That now holds in the Files lists, search, @-mentions, the query language's attachment filter, downloads, links, conversions and proposals, a work item's attachments and the assistant's file list. A file shared with you opens and downloads from every link to it. Your organization's deny rules and an API key's scopes and project limit still apply.",
+      },
+      {
+        kind: "fix",
+        text: "Contracts need CRM read access on the contract's project, including your organization's allow and deny rules: the contract list, a contract, its PDF and signature status, and the contracts shown on a partner or product.",
+      },
+      {
+        kind: "fix",
+        text: "Every page inside a project checks access itself. The program calendar needs Analytics access and shows deliverables only from projects you can analyse. The schedule and deliverables pages list Program Increments and sprints only with sprint access, and the vendors page lists partners only with CRM access. Program Management, project analytics and sprint velocity follow your organization's allow and deny rules.",
+      },
+      {
+        kind: "fix",
+        text: "The Org page shows pending invitations and work roles only to people who manage members. Project settings and import list only the boards you can see. Saved reports and the template editor show a no-access message to people without their permission.",
+      },
+      {
+        kind: "fix",
+        text: "An API key created by an organization owner or admin is held to its own scopes and project limit. Closing a phase or deliverable that needs a supporting file counts only files you can open.",
+      },
+    ],
+  },
+  {
     version: "2.550.1",
     date: "2026-11-12",
     title: "Safer roles, sign-ins and uploaded files",

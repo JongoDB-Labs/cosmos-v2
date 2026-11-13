@@ -41,9 +41,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       .slice(0, 200);
 
     const hits = await resolveRefs({
-      orgId: org.id,
+      ctx,
       orgSlug: org.slug,
-      userId: ctx.userId,
       refs,
     });
     return success(hits);

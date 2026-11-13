@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { DependencyMap } from "@/components/boards/dependencies/dependency-map";
 
@@ -27,7 +28,7 @@ export default async function DependenciesPage({ params }: PageParams) {
     select: { id: true, key: true },
   });
 
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
 
   return (
     <DependencyMap orgId={ctx.orgId} projectId={project.id} projectKey={project.key} />

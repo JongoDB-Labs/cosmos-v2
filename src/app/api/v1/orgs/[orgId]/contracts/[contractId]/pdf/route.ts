@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
+import { mayReadContract } from "@/lib/crm/contract-scope";
 import { generateContractPdf } from "@/lib/pdf/contract";
 import { loadPdfLogo } from "@/lib/pdf/org-logo";
 import { pickOrgBrand } from "@/lib/brand/resolve";
@@ -26,7 +27,10 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       where: { id: contractId, orgId: ctx.orgId },
       include: { partner: true },
     });
-    if (!contract) return new Response("Contract not found", { status: 404 });
+    // The same answer GET /contracts/:id gives: a contract on a project the
+    // caller cannot open is not found, and its PDF is the contract in full.
+    if (!contract || !(await mayReadContract(ctx, contract.projectId)))
+      return new Response("Contract not found", { status: 404 });
 
     const pdfBuffer = await generateContractPdf({
       title: contract.title ?? "Contract",

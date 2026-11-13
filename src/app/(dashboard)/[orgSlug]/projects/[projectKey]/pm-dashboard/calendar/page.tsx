@@ -1,9 +1,13 @@
 import { Suspense } from "react";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { hiddenProjectIds } from "@/lib/rbac/project-access";
+import { canReadInProject } from "@/lib/rbac/require-project-read";
+import { getReadableProjectIds } from "@/lib/work-items/query/scope";
+import { NoPageAccess } from "@/components/ui/no-page-access";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProgramCalendar } from "@/components/program-calendar/program-calendar";
 
@@ -46,9 +50,17 @@ async function ProgramCalendarContent({ params }: PageParams) {
     where: { orgId: ctx.orgId, key: { equals: projectKey, mode: "insensitive" }, archived: false },
     select: { id: true },
   });
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
 
-  const hidden = await hiddenProjectIds(ctx);
+  // The deliverable picker is the deliverables register rolled up across
+  // projects, so it asks what the deliverables API asks: ANALYTICS_READ on this
+  // project to open at all, and on each project whose deliverables it names.
+  const [mayAnalytics, analyticsProjects, hidden] = await Promise.all([
+    canReadInProject(ctx, project.id, "ANALYTICS_READ"),
+    getReadableProjectIds(ctx, "ANALYTICS_READ"),
+    hiddenProjectIds(ctx),
+  ]);
+  if (!mayAnalytics) return <NoPageAccess what="this project's program calendar" />;
 
   // Owner lanes: teams first, then people. Both, because a real program assigns
   // an event to a function ("Contracts", "PM Team") as readily as to a person.
@@ -67,11 +79,10 @@ async function ProgramCalendarContent({ params }: PageParams) {
       orderBy: { joinedAt: "asc" },
     }),
     prisma.deliverable.findMany({
-      // `hiddenProjectIds` rather than `visibleProjectRecordsWhere`: that
-      // helper's first arm is `{ projectId: null }`, for records that may be
-      // org-level. `Deliverable.projectId` is NOT nullable, so that arm does
-      // not apply here.
-      where: { orgId: ctx.orgId, ...(hidden.length ? { projectId: { notIn: hidden } } : {}) },
+      // The projects readable under ANALYTICS_READ: team scoping, the bit and
+      // any rule denying it on a project, as the deliverables API applies them.
+      // `Deliverable.projectId` is not nullable, so there is no org-level arm.
+      where: { orgId: ctx.orgId, projectId: { in: analyticsProjects } },
       select: { id: true, title: true },
       orderBy: { title: "asc" },
       take: 500,

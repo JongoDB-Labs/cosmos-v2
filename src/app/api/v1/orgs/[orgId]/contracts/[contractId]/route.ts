@@ -2,12 +2,11 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { isProjectVisible } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
-import { inVisibleProject } from "@/lib/rbac/require-project-read";
+import { mayReadContract } from "@/lib/crm/contract-scope";
 import { clashingCodesOnContractDetach } from "@/lib/pm/deliverable-scope";
 
 const updateContractSchema = z.object({
@@ -46,10 +45,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!contract) return new Response("Not found", { status: 404 });
 
     // The org check above only proves the contract EXISTS. If it belongs to a
-    // project, that project decides — a team-scoped one is closed to
-    // non-members. Reported as 404, the same as a genuine miss, so a refusal
-    // never confirms the contract is real.
-    if (contract.projectId && !(await isProjectVisible(ctx, contract.projectId))) {
+    // project, CRM_READ on that project decides, as in the list: a team-scoped
+    // one is closed to non-members, and a rule can deny it. Reported as 404, the
+    // same as a genuine miss, so a refusal never confirms the contract is real.
+    if (!(await mayReadContract(ctx, contract.projectId))) {
       return new Response("Not found", { status: 404 });
     }
 
@@ -72,7 +71,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.contract.findFirst({
       where: { id: contractId, orgId },
     });
-    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
+    if (!existing || !(await mayReadContract(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
 
     const body = await request.json();
     const data = updateContractSchema.parse(body);
@@ -130,7 +129,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.contract.findFirst({
       where: { id: contractId, orgId },
     });
-    if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
+    if (!existing || !(await mayReadContract(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
 
     // Deleting a contract DETACHES its deliverables rather than removing them
     // (ON DELETE SET NULL). That can collide with the partial unique index on

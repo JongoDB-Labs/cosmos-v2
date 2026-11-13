@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
+import { canReadInProject } from "@/lib/rbac/require-project-read";
+import { NoPageAccess } from "@/components/ui/no-page-access";
 import { redirect, notFound } from "next/navigation";
 import { PmDashboard } from "@/components/pm-dashboard/pm-dashboard";
 import { loadMilestonesWithDerived } from "@/lib/pm/schedule";
@@ -23,20 +26,35 @@ export default async function ProjectPmDashboardPage({ params }: PageParams) {
     },
     select: { id: true, key: true, name: true },
   });
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
+
+  // The registers' own API routes gate each one on a bit AND the org's
+  // allow/deny rules for this project: ANALYTICS_READ for the registers and
+  // KPIs, OKR_READ for goals, PROJECT_READ for milestones. This page reads the
+  // same rows directly, so it asks the same questions; otherwise a role without
+  // the bit, or a member denied it on this project, read here what the API
+  // refuses them.
+  const [mayAnalytics, mayGoals, mayMilestones] = await Promise.all([
+    canReadInProject(ctx, project.id, "ANALYTICS_READ"),
+    canReadInProject(ctx, project.id, "OKR_READ"),
+    canReadInProject(ctx, project.id, "PROJECT_READ"),
+  ]);
+  if (!mayAnalytics) return <NoPageAccess what="this project's PM dashboard" />;
 
   const where = { orgId: ctx.orgId, projectId: project.id };
   const [milestones, kpis, goals, risks, deliverables, blockers, changes, clins, staffing] =
     await Promise.all([
     // Milestone status + completion derive from linked work items.
-    loadMilestonesWithDerived(ctx.orgId, project.id),
+    mayMilestones ? loadMilestonesWithDerived(ctx.orgId, project.id) : [],
     // KPI currentValue derives from execution for auto-source KPIs.
     loadKpisWithDerived(ctx.orgId, project.id),
-    prisma.goal.findMany({
-      where,
-      orderBy: { sortOrder: "asc" },
-      select: { id: true, title: true, status: true, progress: true },
-    }),
+    mayGoals
+      ? prisma.goal.findMany({
+          where,
+          orderBy: { sortOrder: "asc" },
+          select: { id: true, title: true, status: true, progress: true },
+        })
+      : [],
     prisma.risk.findMany({
       where: { ...where, status: { not: "CLOSED" } },
       orderBy: { score: "desc" },

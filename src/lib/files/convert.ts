@@ -13,10 +13,25 @@ export type ConvertItemType =
   | "INTERVAL"
   | "ROADMAP_NODE";
 
-/** A block's text, scoped to org + project (shared by the single-block creators). */
-async function loadBlockText(orgId: string, projectId: string, blockId: string) {
+/**
+ * Where a block may be read from: the org, the project AND the document the
+ * caller named. The route authorises that document (lib/files/access.ts), so a
+ * block from any OTHER document, a restricted one in the same project included,
+ * must not be reachable by quoting its id beside a document the caller can see.
+ */
+function blockWhere(input: { orgId: string; projectId: string; docId: string; blockId: string }) {
+  return {
+    id: input.blockId,
+    orgId: input.orgId,
+    documentId: input.docId,
+    document: { projectId: input.projectId },
+  };
+}
+
+/** A block's text, scoped to org + project + document (shared by the single-block creators). */
+async function loadBlockText(input: { orgId: string; projectId: string; docId: string; blockId: string }) {
   const block = await prisma.documentBlock.findFirst({
-    where: { id: blockId, orgId, document: { projectId } },
+    where: blockWhere(input),
     select: { id: true, text: true },
   });
   if (!block) throw new Error("Block not found");
@@ -75,13 +90,15 @@ export async function resolveTypeAndColumn(projectId: string, columnKey?: string
 export async function convertBlockToWorkItem(input: {
   orgId: string;
   projectId: string;
+  /** The document the caller was authorised for; the block must belong to it. */
+  docId: string;
   blockId: string;
   userId: string;
   title?: string;
   columnKey?: string;
 }) {
   const block = await prisma.documentBlock.findFirst({
-    where: { id: input.blockId, orgId: input.orgId, document: { projectId: input.projectId } },
+    where: blockWhere(input),
     select: { id: true, text: true },
   });
   if (!block) throw new Error("Block not found");
@@ -145,13 +162,15 @@ export async function convertBlockToWorkItem(input: {
 export async function convertBlockToMilestone(input: {
   orgId: string;
   projectId: string;
+  /** The document the caller was authorised for; the block must belong to it. */
+  docId: string;
   blockId: string;
   userId: string;
   title?: string;
   dueDate?: string;
 }) {
   const block = await prisma.documentBlock.findFirst({
-    where: { id: input.blockId, orgId: input.orgId, document: { projectId: input.projectId } },
+    where: blockWhere(input),
     select: { id: true, text: true },
   });
   if (!block) throw new Error("Block not found");
@@ -198,6 +217,8 @@ export async function convertBlockToMilestone(input: {
 export async function convertTableToWorkItems(input: {
   orgId: string;
   projectId: string;
+  /** The document the caller was authorised for; the block must belong to it. */
+  docId: string;
   blockId: string;
   userId: string;
   titleColumn: number;
@@ -205,7 +226,7 @@ export async function convertTableToWorkItems(input: {
   columnKey?: string;
 }): Promise<{ count: number }> {
   const block = await prisma.documentBlock.findFirst({
-    where: { id: input.blockId, orgId: input.orgId, document: { projectId: input.projectId } },
+    where: blockWhere(input),
     select: { id: true, kind: true, data: true },
   });
   if (!block || block.kind !== "TABLE") throw new Error("Not a table block");
@@ -288,11 +309,13 @@ export async function convertTableToWorkItems(input: {
 export async function convertBlockToObjective(input: {
   orgId: string;
   projectId: string;
+  /** The document the caller was authorised for; the block must belong to it. */
+  docId: string;
   blockId: string;
   userId: string;
   title?: string;
 }) {
-  const block = await loadBlockText(input.orgId, input.projectId, input.blockId);
+  const block = await loadBlockText(input);
   const title = (input.title?.trim() || block.text.split("\n")[0] || "Untitled objective").slice(0, 500);
 
   return prisma.$transaction(async (tx) => {
@@ -326,11 +349,13 @@ export async function convertBlockToObjective(input: {
 export async function convertBlockToGoal(input: {
   orgId: string;
   projectId: string;
+  /** The document the caller was authorised for; the block must belong to it. */
+  docId: string;
   blockId: string;
   userId: string;
   title?: string;
 }) {
-  const block = await loadBlockText(input.orgId, input.projectId, input.blockId);
+  const block = await loadBlockText(input);
   const title = (input.title?.trim() || block.text.split("\n")[0] || "Untitled goal").slice(0, 500);
 
   return prisma.$transaction(async (tx) => {
@@ -370,11 +395,13 @@ export async function convertBlockToGoal(input: {
 export async function convertBlockToInterval(input: {
   orgId: string;
   projectId: string;
+  /** The document the caller was authorised for; the block must belong to it. */
+  docId: string;
   blockId: string;
   userId: string;
   title?: string;
 }) {
-  const block = await loadBlockText(input.orgId, input.projectId, input.blockId);
+  const block = await loadBlockText(input);
   const name = (input.title?.trim() || block.text.split("\n")[0] || "Untitled sprint").slice(0, 200);
   const startDate = new Date();
   const endDate = new Date(Date.now() + 14 * 86_400_000);
@@ -418,11 +445,13 @@ export async function convertBlockToInterval(input: {
 export async function convertBlockToRoadmapNode(input: {
   orgId: string;
   projectId: string;
+  /** The document the caller was authorised for; the block must belong to it. */
+  docId: string;
   blockId: string;
   userId: string;
   title?: string;
 }) {
-  const block = await loadBlockText(input.orgId, input.projectId, input.blockId);
+  const block = await loadBlockText(input);
   const title = (input.title?.trim() || block.text.split("\n")[0] || "Untitled section").slice(0, 500);
   const base = roadmapSlug(title) || "section";
 
@@ -483,6 +512,8 @@ export interface ConvertResult {
 export async function convertBlockToItem(input: {
   orgId: string;
   projectId: string;
+  /** The document the caller was authorised for; the block must belong to it. */
+  docId: string;
   blockId: string;
   userId: string;
   itemType: ConvertItemType;

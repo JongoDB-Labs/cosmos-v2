@@ -8,6 +8,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { convertBlockToItem, convertTableToWorkItems } from "@/lib/files/convert";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
+import { readableProjectDocument } from "@/lib/files/access";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; docId: string }>;
@@ -37,17 +38,17 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.ITEM_CREATE);
 
-    const doc = await prisma.document.findFirst({
-      where: { id: docId, orgId, projectId },
-      select: { id: true },
-    });
-    if (!doc) return new Response("Not found", { status: 404 });
+    // Converting copies a block's text into a new item, so it is a read of the
+    // file before it is a write to the project.
+    if (!(await readableProjectDocument(orgId, projectId, docId, ctx)))
+      return new Response("Not found", { status: 404 });
 
     const { blockId, title, columnKey, itemType, table } = schema.parse(await req.json());
     if (table) {
       const result = await convertTableToWorkItems({
         orgId,
         projectId,
+        docId,
         blockId,
         userId: ctx.userId,
         titleColumn: table.titleColumn,
@@ -59,6 +60,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const result = await convertBlockToItem({
       orgId,
       projectId,
+      docId,
       blockId,
       userId: ctx.userId,
       itemType,

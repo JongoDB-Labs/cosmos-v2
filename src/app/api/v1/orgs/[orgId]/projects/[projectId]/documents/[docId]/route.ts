@@ -8,7 +8,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { getStorage } from "@/lib/storage";
 import { logAudit } from "@/lib/audit";
-import { readableDocument, canManageDocument } from "@/lib/files/access";
+import { readableDocument, readableProjectDocument, canManageDocument, DOCUMENT_READ } from "@/lib/files/access";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; docId: string }>;
@@ -21,7 +21,16 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await resolveAuth(req, org);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    await requireProjectRead(ctx, projectId, "PROJECT_READ");
+    // The file's own rule decides, and it asks the project too: a restricted
+    // file is hidden from the rest of its project, and one shared with somebody
+    // opens for them here as on the org library, even from outside a
+    // team-scoped project. When it does not open, somebody who cannot read the
+    // project gets the project's refusal, as before; a reader of the project
+    // gets the same 404 as for a file that does not exist.
+    if (!(await readableProjectDocument(orgId, projectId, docId, ctx))) {
+      await requireProjectRead(ctx, projectId, DOCUMENT_READ);
+      return new Response("Not found", { status: 404 });
+    }
 
     const doc = await prisma.document.findFirst({
       where: { id: docId, orgId, projectId },

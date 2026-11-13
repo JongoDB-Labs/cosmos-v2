@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { isBoardVisible } from "@/lib/rbac/board-access";
 import { BoardBuilder } from "@/components/boards/builder/board-builder";
@@ -28,7 +29,7 @@ export default async function BuilderPage({ params }: PageParams) {
     select: { id: true, key: true, projectTemplateId: true },
   });
 
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
 
   // Resolve slug OR uuid, exactly as the board page beside it does.
   //

@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { getReadableProjectIds } from "@/lib/work-items/query/scope";
+import { readableContractsWhere } from "@/lib/crm/contract-scope";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -41,19 +41,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // contracts and says nothing about WHICH. `Contract.projectId` is real (and
     // nullable, with an index), so an org-only filter listed contracts on
     // projects with `teamScopedAccess` that the caller cannot open — along with
-    // their terms and values.
-    //
-    // A contract with NO project is org-level CRM data and stays visible to
-    // anyone with CRM_READ, which is how contracts are used today.
-    const readable = await getReadableProjectIds(ctx);
-
+    // their terms and values. The rule lives in one place because partner and
+    // product detail list the same rows (lib/crm/contract-scope.ts).
     const contracts = await prisma.contract.findMany({
       where: {
-        orgId,
+        ...(await readableContractsWhere(ctx)),
         ...(status ? { status } : {}),
         ...(partnerId ? { partnerId } : {}),
         ...(productId ? { productId } : {}),
-        OR: [{ projectId: null }, { projectId: { in: readable } }],
       },
       include: {
         partner: true,

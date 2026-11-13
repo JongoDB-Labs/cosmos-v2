@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { PmDashboardNav } from "./pm-nav";
 
@@ -23,9 +24,9 @@ export default async function PmDashboardLayout({ params, children }: LayoutPara
       key: { equals: projectKey, mode: "insensitive" },
       archived: false,
     },
-    select: { enabledFeatures: true },
+    select: { id: true, enabledFeatures: true },
   });
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
 
   return (
     <div className="flex h-full min-h-0 flex-col">

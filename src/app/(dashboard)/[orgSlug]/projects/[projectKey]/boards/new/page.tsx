@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
@@ -24,7 +25,7 @@ export default async function NewBoardPage({ params }: PageParams) {
     select: { id: true, key: true, enabledFeatures: true, settings: true },
   });
 
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
 
   const disabledBoardTypes =
     ((project.settings as { disabledBoardTypes?: string[] } | null)?.disabledBoardTypes) ?? [];

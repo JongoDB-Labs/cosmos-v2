@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { FilesWorkspace } from "@/components/files/files-workspace";
 
@@ -22,7 +23,7 @@ export default async function FilesPage({ params }: PageParams) {
     select: { id: true },
   });
 
-  if (!project) notFound();
+  if (!project || !(await canReadProject(ctx, project.id))) notFound();
 
   return (
     <FilesWorkspace

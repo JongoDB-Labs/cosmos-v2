@@ -3,13 +3,13 @@ import { OrgRole } from "@prisma/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
 
-const { prisma, isProjectVisible, canAdministerProject } = vi.hoisted(() => ({
+const { prisma, canReadInProject, canAdministerProject } = vi.hoisted(() => ({
   prisma: { document: { findFirst: vi.fn() } },
-  isProjectVisible: vi.fn(),
+  canReadInProject: vi.fn(),
   canAdministerProject: vi.fn(),
 }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
-vi.mock("@/lib/rbac/project-access", () => ({ isProjectVisible }));
+vi.mock("@/lib/rbac/require-project-read", () => ({ canReadInProject }));
 vi.mock("@/lib/rbac/require-project-manage", () => ({ canAdministerProject }));
 
 import { readableDocument, canManageDocument } from "../access";
@@ -33,7 +33,7 @@ const orgDoc = { id: DOC, orgId: ORG, projectId: null, uploadedById: SOMEONE };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  isProjectVisible.mockResolvedValue(true);
+  canReadInProject.mockResolvedValue(true);
   canAdministerProject.mockResolvedValue(false);
 });
 
@@ -53,16 +53,17 @@ describe("readableDocument", () => {
     prisma.document.findFirst.mockResolvedValue(orgDoc);
     expect(await readableDocument(ORG, DOC, ctx("ORG_READ"))).toEqual(orgDoc);
     // No project to consult, so it must not ask.
-    expect(isProjectVisible).not.toHaveBeenCalled();
+    expect(canReadInProject).not.toHaveBeenCalled();
   });
 
   it("makes a project document exactly as visible as its project", async () => {
     prisma.document.findFirst.mockResolvedValue(projectDoc);
-    isProjectVisible.mockResolvedValue(false);
+    canReadInProject.mockResolvedValue(false);
     // The assertion that matters: fetching by id must not be a way round the
-    // narrowing the library list applies in its query.
+    // narrowing the library list applies in its query. It asks what the
+    // project's document routes ask: PROJECT_READ, with rules and team scoping.
     expect(await readableDocument(ORG, DOC, ctx("ORG_READ"))).toBeNull();
-    expect(isProjectVisible).toHaveBeenCalledWith(expect.anything(), PROJECT);
+    expect(canReadInProject).toHaveBeenCalledWith(expect.anything(), PROJECT, "PROJECT_READ");
   });
 
   it("returns it when the project is visible", async () => {

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { cqlEnabled } from "@/lib/query/flag";
 import { canManageBoardsInProject } from "@/lib/rbac/project-role";
@@ -28,7 +29,7 @@ export default async function ProjectFiltersPage({ params }: PageParams) {
     }),
     prisma.organization.findUnique({ where: { id: ctx.orgId }, select: { settings: true } }),
   ]);
-  if (!project || !cqlEnabled(org?.settings)) notFound();
+  if (!project || !cqlEnabled(org?.settings) || !(await canReadProject(ctx, project.id))) notFound();
 
   // Whether this tab may offer "Save as board". The SAME derivation the project
   // layout uses for its create affordance and the POST uses to allow it — the
