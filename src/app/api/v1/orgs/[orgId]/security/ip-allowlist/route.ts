@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { normalizeCidr } from "@/lib/auth/cidr";
+import { allowlistState, lockoutRefusal, lockoutResponse } from "@/lib/auth/ip-allowlist";
 import { z } from "zod";
 
 const createEntrySchema = z.object({
@@ -59,6 +60,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         422,
       );
     }
+
+    const before = await allowlistState(orgId);
+    const lockout = lockoutRefusal(request.headers, before, { ...before, cidrs: [...before.cidrs, cidr] });
+    if (lockout) return lockoutResponse(lockout);
 
     const entry = await prisma.ipAllowlist.create({
       data: {

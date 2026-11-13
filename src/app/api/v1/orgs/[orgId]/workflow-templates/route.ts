@@ -15,8 +15,8 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId, listWorkflowTemplates);
     const { params: p } = await parseRequest(listWorkflowTemplates, request, params);
-    const { ctx } = await orgContext(p.orgId, listWorkflowTemplates);
     requirePermission(ctx, Permission.ITEM_READ);
     return success(await prisma.$transaction((tx) => listTemplates(tx, p.orgId)));
   } catch (error) {
@@ -26,8 +26,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId, createWorkflowTemplate);
     const { params: p, body } = await parseRequest(createWorkflowTemplate, request, params);
-    const { ctx } = await orgContext(p.orgId, createWorkflowTemplate);
     requirePermission(ctx, Permission.WORKFLOW_MANAGE);
     // The source is a project's workflow: the caller must be able to see that
     // project (a key's project scope, team-scoped access), or it is not found.

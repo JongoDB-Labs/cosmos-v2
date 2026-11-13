@@ -15,12 +15,16 @@ import type { AuthContext } from "@/lib/rbac/check";
 import type { RouteContract } from "@/lib/openapi/contract";
 import { orgContext } from "@/lib/openapi/org-context";
 import { ProblemError } from "@/lib/openapi/problem";
+import { Uuid } from "@/lib/openapi/schemas/common";
 
 export async function workflowProjectContext(
   ids: { orgId: string; projectId: string },
   contract: Pick<RouteContract, "scopes">,
 ): Promise<AuthContext> {
   const { ctx } = await orgContext(ids.orgId, contract);
+  // Called with the raw path, before the route validates it (so an
+  // unidentified caller gets a 401, not a 400): check the id it queries by.
+  if (!Uuid.safeParse(ids.projectId).success) throw new ProblemError(400, "invalid_request", "projectId must be a UUID");
   const project = await prisma.project.findFirst({ where: { id: ids.projectId, orgId: ids.orgId }, select: { id: true } });
   if (!project) throw new ProblemError(404, "not_found", "Project not found");
   return ctx;

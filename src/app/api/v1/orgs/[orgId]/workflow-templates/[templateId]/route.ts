@@ -13,8 +13,8 @@ type RouteParams = { params: Promise<{ orgId: string; templateId: string }> };
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId, deleteWorkflowTemplate);
     const { params: p } = await parseRequest(deleteWorkflowTemplate, request, params);
-    const { ctx } = await orgContext(p.orgId, deleteWorkflowTemplate);
     requirePermission(ctx, Permission.WORKFLOW_MANAGE);
     await prisma.$transaction((tx) => deleteWorkflow(tx, { orgId: p.orgId, projectId: null }, p.templateId));
     await logAudit({

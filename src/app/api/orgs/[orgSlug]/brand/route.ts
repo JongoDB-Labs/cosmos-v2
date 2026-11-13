@@ -45,9 +45,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   return NextResponse.json({
     brandName: org?.brandName ?? null,
-    logoUrl: org?.logoUrl ?? null,
+    logoUrl: publicLogoUrl(org?.logoUrl ?? null),
     tagline: org?.tagline ?? null,
     agentName: org?.agentName ?? null,
     defaultSkinId: org?.defaultSkinId ?? null,
   });
+}
+
+/**
+ * The logo address a signed-out visitor can use, or null. An uploaded logo
+ * lives at this app's members-only `/api/v1/orgs/<orgId>/logo`, which a
+ * signed-out page can't load and which would hand out the org's id; only an
+ * address outside the app (a logo the org linked to) is passed on.
+ */
+function publicLogoUrl(logoUrl: string | null): string | null {
+  if (!logoUrl || !/^https?:\/\//i.test(logoUrl)) return null;
+  // Even written out in full, this app's own logo route is members-only.
+  return /\/api\/v1\/orgs\//.test(new URL(logoUrl, "http://x").pathname) ? null : logoUrl;
 }

@@ -14,8 +14,11 @@ const schema = z.object({
   }),
 });
 
+/** The deployment's push public key, for a signed-in browser about to subscribe. */
 export async function GET() {
   try {
+    const user = await getCurrentUser();
+    if (!user) return new Response("Unauthorized", { status: 401 });
     return success({ publicKey: getVapidPublicKey() });
   } catch (e) {
     if (e instanceof Error && e.message.includes("VAPID_PUBLIC_KEY")) {

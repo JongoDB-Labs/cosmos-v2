@@ -14,8 +14,8 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string; workflo
 // Autosave: not audited per keystroke. The publish is the audited act.
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
+    const ctx = await workflowProjectContext(await params, saveWorkflowDraft);
     const { params: p, body } = await parseRequest(saveWorkflowDraft, request, params);
-    const ctx = await workflowProjectContext(p, saveWorkflowDraft);
     await requireProjectVisible(ctx, p.projectId);
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     const saved = await prisma.$transaction((tx) =>
@@ -32,8 +32,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
+    const ctx = await workflowProjectContext(await params, discardWorkflowDraft);
     const { params: p } = await parseRequest(discardWorkflowDraft, request, params);
-    const ctx = await workflowProjectContext(p, discardWorkflowDraft);
     await requireProjectVisible(ctx, p.projectId);
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     await prisma.$transaction((tx) => discardDraft(tx, { orgId: p.orgId, projectId: p.projectId }, p.workflowId));

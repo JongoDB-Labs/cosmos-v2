@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.552.2",
+    date: "2026-11-13",
+    title: "Every API endpoint checks who is asking first, and the IP allowlist can't lock you out",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Every API endpoint now refuses a request it can't identify before doing anything else. A few used to check the request's details first and answer with an error describing them, and two answered without asking at all. A request carrying a Cosmos token is judged by that token alone, even when the browser also sends a session cookie, and a malformed token is refused outright.",
+      },
+      {
+        kind: "fix",
+        text: "The IP allowlist (Settings → Security) now reads a visitor's address only from what your own proxy writes, so a request can't claim an allowed address, and it now applies to API keys on every endpoint. If another proxy sits in front of the bundled one, set TRUSTED_CLIENT_IP_HEADER or TRUSTED_PROXY_HOPS (see .env.example) before turning the allowlist on.",
+      },
+      {
+        kind: "fix",
+        text: "Settings → Security shows the address Cosmos sees you at, and refuses an allowlist change that would lock you out, such as turning it on, adding a range or removing one, when the result no longer includes your address. A range typed in IPv6 form for IPv4 addresses (::ffff:10.0.0.0/120) is now saved as the IPv4 range it means (10.0.0.0/24).",
+      },
+      {
+        kind: "fix",
+        text: "Requests for an account from the sign-in page now reach your admins. Before this, they were lost. If a request can't be sent, the page now says so instead of showing it as sent. The sign-in page also shows your organization's name, tagline and colour scheme to visitors who aren't signed in.",
+      },
+    ],
+  },
+  {
     version: "2.552.1",
     date: "2026-11-13",
     title: "Links between records stay inside your organization",

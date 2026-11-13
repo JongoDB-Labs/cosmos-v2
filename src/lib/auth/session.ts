@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { type AuthContext } from "@/lib/rbac/check";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { isInternalAdmin } from "@/lib/internal/access";
-import { ipMatchesAny } from "@/lib/auth/cidr";
+import { ipAllowlistAdmits } from "@/lib/auth/ip-allowlist";
 import { SESSION_COOKIE } from "./client";
 import { verifyApiKeyHeader } from "./api-key";
 import { classifyBearer } from "./bearer";
@@ -52,10 +52,18 @@ type SessionUser = {
  * Look up the current session via the session cookie. Returns null if no
  * session cookie is set, the session row is missing, or the session is expired.
  *
+ * Also null whenever the request presents a Cosmos bearer (`Bearer cosmos_…`,
+ * valid or not), the rule getAuthContext follows too: such a request is judged
+ * by its bearer alone, never by a cookie riding along. The proxy skips its
+ * same-origin check for a key-shaped bearer, checking only the shape, so a
+ * cookie fallback would let another site's page act as whoever's browser it
+ * runs in by sending any key-shaped string.
+ *
  * Wrapped in React's `cache` so multiple callers in the same request share a
  * single DB lookup.
  */
 export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
+  if (classifyBearer((await headers()).get("authorization")) !== null) return null;
   const cookieStore = await cookies();
   const sessionId = cookieStore.get(SESSION_COOKIE)?.value;
   if (!sessionId) return null;
@@ -149,37 +157,6 @@ export async function revokeOrgSessions(orgId: string): Promise<number> {
  * Shape preserved from the previous Auth0 implementation so existing route
  * handlers can keep destructuring `{ userId, orgId, orgRole, permissions }`.
  */
-/**
- * The org's IP allowlist floor, as a pure gate both auth paths go through.
- *
- * Extracted because an API key must not be a way around it: an org that has
- * restricted access to its own network would not expect a bearer token minted
- * inside that network to work from anywhere. Returns true when the request is
- * allowed (including when the feature is off, or the list is empty — an empty
- * list never blocks, which is the anti-lockout rule).
- */
-async function ipAllowed(orgId: string): Promise<boolean> {
-  const rules = await prisma.ipAllowlist.findMany({
-    where: { orgId },
-    select: { cidr: true },
-  });
-  if (rules.length === 0) return true;
-  const h = await headers();
-  // Trusted client IP for an ACCESS-CONTROL decision (not just audit).
-  // Behind Cloudflare Tunnel → nginx, `cf-connecting-ip` is stamped by
-  // Cloudflare at the edge and can't be spoofed by the client (the tunnel is
-  // the only ingress), so it's preferred. `x-real-ip` is nginx's view of its
-  // immediate peer. The leftmost `x-forwarded-for` hop is client-controlled,
-  // so it's the LAST resort and never wins over the trusted sources.
-  const ip = (
-    h.get("cf-connecting-ip") ??
-    h.get("x-real-ip") ??
-    h.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    ""
-  ).trim();
-  return !!ip && ipMatchesAny(ip, rules.map((r) => r.cidr));
-}
-
 export const getAuthContext = cache(
   async (orgSlug: string): Promise<AuthContext | null> => {
     const org = await prisma.organization.findUnique({
@@ -201,24 +178,19 @@ export const getAuthContext = cache(
     // (see verifyApiKeyHeader), so it can never widen what that user could do.
     // Session-shaped floors (Require-MFA, idle timeout) are deliberately not
     // applied: they are properties of an interactive login, and a key has its own
-    // expiry and revocation. The IP allowlist IS applied — that one is about
-    // where a request comes from, which is just as true of a key.
+    // expiry and revocation. The IP allowlist IS applied (inside
+    // verifyApiKeyHeader, which resolveAuth's key path shares): that one is
+    // about where a request comes from, which is just as true of a key.
     //
     // Any Cosmos bearer (classifyBearer non-null) decides the request on its
     // own: one that is not a valid API key returns null here and never falls
     // through to the cookie below.
-    const authorization = (await headers()).get("authorization");
+    const requestHeaders = await headers();
+    const authorization = requestHeaders.get("authorization");
     const bearer = classifyBearer(authorization);
     if (bearer !== null) {
       if (bearer !== "api_key") return null;
-      const keyCtx = await verifyApiKeyHeader(authorization, org.id);
-      if (!keyCtx) return null;
-      const sec = await prisma.orgSecuritySettings.findUnique({
-        where: { orgId: org.id },
-        select: { ipAllowlistEnabled: true },
-      });
-      if (sec?.ipAllowlistEnabled && !(await ipAllowed(org.id))) return null;
-      return keyCtx;
+      return verifyApiKeyHeader(authorization, org.id, requestHeaders);
     }
 
     const user = await getCurrentUser();
@@ -272,7 +244,7 @@ export const getAuthContext = cache(
 
       // IP allowlist: when enabled AND at least one CIDR is configured, the
       // client IP must fall within it. An empty list never blocks (anti-lockout).
-      if (sec.ipAllowlistEnabled && !(await ipAllowed(org.id))) return null;
+      if (!(await ipAllowlistAdmits(org.id, requestHeaders, sec.ipAllowlistEnabled))) return null;
     }
 
     return {

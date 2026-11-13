@@ -3,7 +3,8 @@ import { prisma } from "@/lib/db/client";
 import { SESSION_COOKIE } from "@/lib/auth/client";
 import { applySecurityHeaders, applyTeamsTabFraming, routeSetsOwnCsp } from "@/lib/security/headers";
 import { isTabPath } from "@/lib/integrations/microsoft/teams-app/tab-paths";
-import { classifyBearer } from "@/lib/auth/bearer";
+import { classifyBearer, parseKeyToken } from "@/lib/auth/bearer";
+import { signedOutMayReach } from "@/lib/auth/signed-out-api";
 import { REQUEST_ID_HEADER, requestIdFor } from "@/lib/openapi/request-id";
 import { problem } from "@/lib/openapi/problem";
 import { isMutatingMethod, isPathOrgFrozen } from "@/lib/cutover/freeze";
@@ -72,60 +73,28 @@ function isSameOrigin(request: NextRequest): boolean {
   }
 }
 
-// Paths that should bypass the session check entirely.
-const PUBLIC_PATH_PREFIXES = [
+// Pages a visitor with no session may open. Which API handlers a caller with
+// no session reaches is not decided here: it is the one list in
+// lib/auth/signed-out-api.ts, which the route sweep tests read as well, so the
+// two can't disagree about what is public.
+const PUBLIC_PAGE_PREFIXES = [
   "/login",
-  "/api/auth/google",
-  "/api/auth/google/callback",
-  // Microsoft (Entra ID) sign-in: initiate + callback + the config probe are
-  // all pre-auth (they're how a user GETS a session).
-  "/api/auth/microsoft",
-  // SSO (OIDC RP) — login initiation, IdP callback, and the pre-auth SSO-status
-  // probe are all unauthenticated by definition (they're how a user GETS a
-  // session). Covers /api/auth/sso/<orgSlug>/{login,callback,status}.
-  "/api/auth/sso",
-  // Local email/password sign-in + the TOTP challenge are how a user GETS a
-  // session, so they're unauthenticated by definition. Covers
-  // /api/auth/password/{login,mfa}. (CSRF is still enforced — these are
-  // same-origin POSTs from /login — only the session check is bypassed.)
-  "/api/auth/password",
-  "/api/auth/logout",
-  "/api/health",
-  "/api/theme",
-  "/api/v1/metrics", // client telemetry sinks (errors, vitals)
-  // Calendar subscription feeds (COSMOS-202): fetched by Outlook / Google /
-  // Apple Calendar servers, which have no session. The path token is the
-  // credential; the route checks it, the org switch and the person's access.
-  "/api/v1/calendar/feeds",
-  // Filter-email unsubscribe links (query design §11.2): opened from a mail
-  // client, often signed out. The path token, MAC'd per subscription, is the
-  // credential; GET only shows a confirmation, and the same-origin form POST
-  // it sends is what unsubscribes.
-  "/api/v1/unsubscribe/filter",
-  // Watchdog down-alert — no browser session by definition (the daemon is
-  // down); the route enforces its own bearer token.
-  "/api/foreman/alert",
-  // Cosmos for Teams bot (COSMOS-202 T1): the Bot Connector has no session;
-  // the route verifies its signed token before anything else.
-  "/api/teams/bot",
-  // Teams tabs (T1 d): framed by Teams with no Cosmos session; the pages and
-  // the sign-in route do their own auth (the tab session).
-  "/api/teams/tab/session",
+  // Teams tabs (T1 d): framed by Teams with no Cosmos session; the pages do
+  // their own auth (the tab session).
   "/teams/tab",
   "/manifest.webmanifest",
-  // Test-only routes — only active when E2E_TEST_AUTH=1; session check is
-  // moot because these routes create/look up sessions themselves.
-  "/api/testenv",
 ];
 
 // Static asset extensions served from /public — bypass auth so Next.js's
 // image optimizer (which does internal HTTP fetches) and unauth'd pages
-// like /login can load their images.
+// like /login can load their images. Never under /api: there a final segment
+// is often an id, and `…/documents/x.png` is a route, not a file.
 const STATIC_ASSET_EXT = /\.(?:png|svg|ico|jpe?g|webp|gif|woff2?|ttf|otf|js)$/i;
 
-function isPublic(pathname: string): boolean {
+function isPublic(method: string, pathname: string): boolean {
+  if (pathname.startsWith("/api/")) return signedOutMayReach(method, pathname);
   if (STATIC_ASSET_EXT.test(pathname)) return true;
-  return PUBLIC_PATH_PREFIXES.some(
+  return PUBLIC_PAGE_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
 }
@@ -185,14 +154,17 @@ async function gate(request: NextRequest, next: () => NextResponse): Promise<Nex
   // explicit, non-ambient credential (the caller sets the Authorization header
   // deliberately — it isn't attached by the browser like a cookie), so it
   // can't be CSRF-forged by a cross-origin page. We only skip the Origin check
-  // for a `cosmos_` bearer (`classifyBearer` in lib/auth/bearer.ts); a
-  // non-cosmos `Bearer …` falls back to cookie auth, so it must stay guarded.
-  // Cookie (no-Authorization) requests are still fully guarded too.
+  // for a header shaped like an API key (`parseKeyToken` in lib/auth/bearer.ts);
+  // any other `Bearer …` is no credential and falls back to cookie auth, so it
+  // must stay guarded. Cookie (no-Authorization) requests are still fully
+  // guarded too.
+  const authorization = request.headers.get("authorization");
+  const keyBearer = parseKeyToken(authorization) !== null;
   if (
     MUTATING_METHODS.has(request.method) &&
     pathname.startsWith("/api/") &&
     !isCsrfExempt(pathname) &&
-    classifyBearer(request.headers.get("authorization")) === null &&
+    !keyBearer &&
     !isSameOrigin(request)
   ) {
     return withSecurityHeaders(
@@ -217,7 +189,7 @@ async function gate(request: NextRequest, next: () => NextResponse): Promise<Nex
     );
   }
 
-  if (isPublic(pathname)) {
+  if (isPublic(request.method, pathname)) {
     return withSecurityHeaders(next());
   }
 
@@ -236,6 +208,14 @@ async function gate(request: NextRequest, next: () => NextResponse): Promise<Nex
     return withSecurityHeaders(NextResponse.redirect(new URL(toDrawer, request.url), 307));
   }
 
+  // A `cosmos_` bearer that isn't shaped like an API key is no credential:
+  // nothing issues the OAuth shapes yet, and a malformed one never verifies.
+  // Refuse it here, whatever cookie comes with it, rather than leave every
+  // route to. (When OAuth tokens are issued, let `oauth_access` through here.)
+  if (pathname.startsWith("/api/") && classifyBearer(authorization) !== null && !keyBearer) {
+    return withSecurityHeaders(problem(401, "unauthorized"));
+  }
+
   const sessionId = request.cookies.get(SESSION_COOKIE)?.value;
 
   if (sessionId) {
@@ -250,14 +230,11 @@ async function gate(request: NextRequest, next: () => NextResponse): Promise<Nex
   }
 
   // API-key (bearer) requests carry no session cookie — they authenticate at the
-  // route via resolveAuth()/verifyApiKey(). Let a `cosmos_` bearer through the
+  // route via resolveAuth()/verifyApiKey(). Let a key-shaped bearer through the
   // session gate so the route can enforce the key; a bad/expired key is rejected
-  // there (401). Only /api routes, and only the cosmos token shape — a non-cosmos
+  // there (401). Only /api routes, and only the key shape — a non-cosmos
   // `Bearer …` is NOT a session and stays blocked here.
-  if (
-    pathname.startsWith("/api/") &&
-    classifyBearer(request.headers.get("authorization")) !== null
-  ) {
+  if (pathname.startsWith("/api/") && keyBearer) {
     return withSecurityHeaders(next());
   }
 

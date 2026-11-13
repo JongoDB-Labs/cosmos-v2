@@ -56,6 +56,27 @@ terminates TLS and **must** forward `X-Forwarded-Host: <public hostname>` and
 `redirect_uri` mismatch). Bind the port loopback-only in `docker-compose.override.yml`
 if the upstream runs on the same host.
 
+If any org uses an IP allowlist, tell Cosmos where the client's address is
+**before** that org turns the allowlist on: with the upstream in front, Caddy's
+`X-Forwarded-For` holds the upstream's address, not the client's. Set
+`TRUSTED_CLIENT_IP_HEADER` to the header the upstream sets, or configure Caddy's
+`trusted_proxies` and set `TRUSTED_PROXY_HOPS`. See `.env.example`. Only name a
+header that clients can't send straight to Caddy: the upstream must be the only
+way in, which binding Caddy loopback-only ensures. If Caddy also answers on a
+public address, leave both unset; a header clients can reach lets them choose
+their address.
+
+Then check: Settings > Security shows "Cosmos sees you as <address>". It must
+be your real address before anyone enables the allowlist. Cosmos refuses an
+allowlist change that would lock out the admin making it, and that check uses
+the same address. A bad value logs a `[boot] TRUSTED_...` line at startup.
+
+The org IP allowlist applies to signed-in sessions and API keys. Calendar feed
+links (`/api/v1/calendar/feeds/<token>.ics`) deliberately ignore it: calendar
+apps fetch them from their own servers, whose addresses no allowlist could
+list, so the token in the link is the credential. To cut a calendar app off,
+revoke its link, or turn calendar feeds off for the org.
+
 ## OAuth redirect URIs (both modes)
 Register these exact callback paths in the Google and Entra apps:
 - Google:  `https://<public-hostname>/api/auth/google/callback`

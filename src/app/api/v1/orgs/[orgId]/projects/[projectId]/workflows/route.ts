@@ -14,8 +14,8 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const ctx = await workflowProjectContext(await params, listContract);
     const { params: p } = await parseRequest(listContract, request, params);
-    const ctx = await workflowProjectContext(p, listContract);
     await requireProjectRead(ctx, p.projectId, "ITEM_READ");
     return success(await prisma.$transaction((tx) => listProjectWorkflows(tx, p.projectId)));
   } catch (error) {
@@ -25,8 +25,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const ctx = await workflowProjectContext(await params, createProjectWorkflow);
     const { params: p, body } = await parseRequest(createProjectWorkflow, request, params);
-    const ctx = await workflowProjectContext(p, createProjectWorkflow);
     await requireProjectVisible(ctx, p.projectId);
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     const id = await prisma.$transaction((tx) =>

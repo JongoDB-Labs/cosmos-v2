@@ -21,6 +21,9 @@ const { prisma, loadEffectivePermissions } = vi.hoisted(() => ({
       findUnique: vi.fn(),
       update: vi.fn(),
     },
+    // The org's IP allowlist, off: ip-allowlist.db.test.ts covers it on.
+    orgSecuritySettings: { findUnique: vi.fn(async () => null) },
+    ipAllowlist: { findMany: vi.fn(async () => []) },
   },
   loadEffectivePermissions: vi.fn(),
 }));

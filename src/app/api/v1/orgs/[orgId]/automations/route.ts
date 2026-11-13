@@ -16,8 +16,8 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId, listAutomationRules);
     const { params: p, query } = await parseRequest(listAutomationRules, request, params);
-    const { ctx } = await orgContext(p.orgId, listAutomationRules);
     await projectInOrg(ctx, query.projectId ?? null);
     // A team-scoped project is its team's and the org admins' alone, whatever bit the caller holds.
     if (query.projectId) await requireProjectVisible(ctx, query.projectId);
@@ -36,8 +36,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId, createAutomationRule);
     const { params: p, body } = await parseRequest(createAutomationRule, request, params);
-    const { ctx } = await orgContext(p.orgId, createAutomationRule);
     await projectInOrg(ctx, body.projectId);
     if (body.projectId) await requireProjectVisible(ctx, body.projectId);
     if (body.projectId) await requireProjectManage(ctx, body.projectId, Permission.AUTOMATION_MANAGE);

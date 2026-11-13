@@ -19,6 +19,14 @@ export async function register(): Promise<void> {
   // trace wiring (no-op when no endpoint is configured).
   if (process.env.NEXT_RUNTIME === "nodejs") {
     await import("./instrumentation.node");
+    // A typo in the client-address settings would otherwise show only as an IP
+    // allowlist that refuses everyone; say so in the log at boot instead.
+    try {
+      const { clientIpConfigProblems } = await import("./src/lib/auth/client-ip");
+      for (const problem of clientIpConfigProblems()) console.error(`[boot] ${problem}`);
+    } catch (err) {
+      console.error("[boot] could not check the client-address settings:", err);
+    }
     // Load server-side plugin contributions once at boot, through the neutral
     // composition seam (registry/server.ts). This registers every COMPOSED
     // plugin's PluginServerHooks + integration providers + any process-global

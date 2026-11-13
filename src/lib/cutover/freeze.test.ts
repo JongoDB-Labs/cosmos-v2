@@ -71,6 +71,16 @@ describe("isPathOrgFrozen + isOrgFrozen", () => {
     expect(findUnique).not.toHaveBeenCalled();
   });
 
+  it("an API path whose org id isn't a UUID ⇒ false WITHOUT hitting the DB", async () => {
+    // No org has such an id, and the uuid column would make the query throw:
+    // the proxy would answer anyone's write to such a path with a 500.
+    const { isPathOrgFrozen } = await import("./freeze");
+    for (const odd of ["/api/v1/orgs/x.png", "/api/v1/orgs/not-a-uuid/projects", "/api/v1/orgs/%20/notes"]) {
+      expect(await isPathOrgFrozen(odd), odd).toBe(false);
+    }
+    expect(findUnique).not.toHaveBeenCalled();
+  });
+
   it("isOrgFrozen(slug) reflects table presence", async () => {
     const { isOrgFrozen } = await import("./freeze");
     findUnique.mockResolvedValueOnce({ id: "x" });

@@ -1,3 +1,5 @@
+import { clientIpForRecords } from "@/lib/auth/client-ip";
+
 /**
  * In-memory token-bucket rate limiter. Keyed by an arbitrary string (usually
  * `${ip}|${routeId}`); each key gets its own bucket that refills at a steady
@@ -92,9 +94,6 @@ export function getRateLimitKey(
   userId?: string,
 ): string {
   if (userId) return `u:${userId}|${routeId}`;
-  const fwd =
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    request.headers.get("x-real-ip");
-  const ip = fwd ?? "anon";
+  const ip = clientIpForRecords(request.headers) ?? "anon";
   return `ip:${ip}|${routeId}`;
 }

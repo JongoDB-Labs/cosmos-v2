@@ -14,8 +14,8 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string; workflo
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const ctx = await workflowProjectContext(await params, restoreWorkflowVersion);
     const { params: p } = await parseRequest(restoreWorkflowVersion, request, params);
-    const ctx = await workflowProjectContext(p, restoreWorkflowVersion);
     await requireProjectVisible(ctx, p.projectId);
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     const draft = await prisma.$transaction((tx) =>

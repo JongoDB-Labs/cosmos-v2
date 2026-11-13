@@ -47,11 +47,15 @@ describe("the API-key path is wired into the auth entrypoint", () => {
     );
   });
 
-  it("still applies the IP allowlist to a key", () => {
-    // A key must not be a way around an org's network restriction.
+  it("still applies the IP allowlist to a key, in the step every key path shares", () => {
+    // A key must not be a way around an org's network restriction, whichever
+    // entry point verifies it (getAuthContext, or resolveAuth via verifyApiKey).
+    // ip-allowlist.db.test.ts drives both; this pins where the check lives.
+    const keySrc = readFileSync(join(process.cwd(), "src/lib/auth/api-key.ts"), "utf8");
+    const verifier = keySrc.slice(keySrc.indexOf("export async function verifyApiKeyHeader"));
+    expect(verifier.slice(0, verifier.indexOf("\n}\n"))).toContain("ipAllowlistAdmits(");
     const body = SESSION_SRC.slice(SESSION_SRC.indexOf("export const getAuthContext"));
-    const keyBranch = body.slice(0, body.indexOf("await getCurrentUser()"));
-    expect(keyBranch).toContain("ipAllowed");
+    expect(body).toContain("verifyApiKeyHeader(authorization, org.id, requestHeaders)");
   });
 });
 
