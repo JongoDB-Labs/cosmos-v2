@@ -10,6 +10,7 @@ import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
 import { createObjective, listObjectives, reorderObjectives } from "./route.contract";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -130,6 +131,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         return problem(400, "invalid_request", "intervalId must be an interval of this project", { request });
       }
     }
+
+    // A parent objective is this project's, as on PUT.
+    await assertRefsInScope({ orgId, projectId }, { objective: data.parentId });
 
     // Append to the end of the project's manual order.
     const last = await prisma.objective.findFirst({

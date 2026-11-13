@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
 import { crmStageSchema, DEFAULT_CRM_STAGE } from "@/lib/crm/stages";
 import { assertPermission, type ToolContext } from "./_ctx";
+import { refsError } from "@/lib/rbac/foreign-refs";
 
 /**
  * CRM write executors (contacts) + partner/product reads. Contact READS keep
@@ -39,6 +40,10 @@ export async function createCrmContact(input: Record<string, unknown>, ctx: Tool
   const parsed = createContactSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
+
+  // The owner is a current member of this org (the column takes any user).
+  const notMember = await refsError({ orgId: ctx.orgId }, { member: data.ownerId });
+  if (notMember) return { error: notMember };
 
   const created = await prisma.crmContact.create({
     data: {
@@ -79,6 +84,10 @@ export async function updateCrmContact(input: Record<string, unknown>, ctx: Tool
   const parsed = updateContactSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
+
+  // The owner is a current member of this org (the column takes any user).
+  const notMember = await refsError({ orgId: ctx.orgId }, { member: data.ownerId });
+  if (notMember) return { error: notMember };
 
   const existing = await prisma.crmContact.findFirst({
     where: { id: data.contactId, orgId: ctx.orgId },

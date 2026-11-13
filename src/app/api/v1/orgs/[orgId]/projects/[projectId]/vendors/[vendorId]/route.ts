@@ -3,13 +3,13 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { partnerSelect, mapVendorContract } from "@/lib/pm/vendor";
 import { logPmFieldChanges } from "@/lib/pm/activity-log";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; vendorId: string }>;
@@ -51,10 +51,13 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (!existing) return new Response("Not found", { status: 404 });
 
     const data = updateSchema.parse(await request.json());
+    // The partner named must be one of this org's: the foreign key alone would
+    // accept another tenant's, then edit it and read it back.
+    await assertRefsInScope({ orgId }, { partner: data.partnerId });
 
     // Partner-level NDA / POC fields update the linked Partner first, so the
     // contract re-read below reflects them.
-    const partnerUpdate: Prisma.PartnerUncheckedUpdateInput = {};
+    const partnerUpdate: Prisma.PartnerUncheckedUpdateManyInput = {};
     if (data.ndaOnFile !== undefined) partnerUpdate.ndaOnFile = data.ndaOnFile;
     if (data.ndaExpiry !== undefined) {
       partnerUpdate.ndaExpiry = data.ndaExpiry ? new Date(data.ndaExpiry) : null;
@@ -63,7 +66,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (data.pocEmail !== undefined) partnerUpdate.pocEmail = data.pocEmail ?? null;
     const targetPartnerId = data.partnerId ?? existing.partnerId;
     if (Object.keys(partnerUpdate).length > 0 && targetPartnerId) {
-      await prisma.partner.update({ where: { id: targetPartnerId }, data: partnerUpdate });
+      // Scoped to the org as well: a contract linked to a foreign partner before
+      // the check above existed must not become a way to edit that partner.
+      await prisma.partner.updateMany({ where: { id: targetPartnerId, orgId }, data: partnerUpdate });
     }
 
     const update: Prisma.ContractUncheckedUpdateInput = {};

@@ -12,6 +12,8 @@ import { storeEmbedding } from "@/lib/rag/embed";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
 import { teamProjectError } from "@/lib/teams/item-team.server";
 import { intervalRequirementError } from "@/lib/work-items/interval-required.server";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
+import { scopeItemLinks } from "@/lib/work-items/linked-scope.server";
 import {
   allocateTicketNumber,
   allocateSortOrder,
@@ -95,7 +97,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
     });
 
-    return respond(listProjectWorkItems, 200, items);
+    // A parent or child linked across orgs or into a hidden project before
+    // writes were checked reads as no link.
+    return respond(listProjectWorkItems, 200, await scopeItemLinks(ctx, orgId, projectId, items));
   } catch (error) {
     return handleApiError(error, request);
   }
@@ -119,6 +123,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       assigneeId: data.assigneeId ?? null,
       projectId,
     });
+
+    // Every row the body names must be this project's (a type: this org's or
+    // built in). The foreign keys alone accept another tenant's ids, and the
+    // board then prints the parent's title and the sprint's name.
+    await assertRefsInScope(
+      { orgId, projectId },
+      { workItem: data.parentId, interval: data.intervalId, team: data.teamId, workItemType: data.workItemTypeId },
+    );
 
     let resolvedTypeId = data.workItemTypeId;
     if (!resolvedTypeId) {

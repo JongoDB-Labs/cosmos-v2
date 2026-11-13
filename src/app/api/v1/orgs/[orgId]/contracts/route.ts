@@ -7,6 +7,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
+import { assertRefsInScope, withoutForeign } from "@/lib/rbac/foreign-refs";
 
 const createContractSchema = z.object({
   title: z.string().min(1).max(500),
@@ -57,7 +58,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       orderBy: { createdAt: "desc" },
     });
 
-    return success(contracts);
+    // A partner or product from another org, linked before writes were
+    // checked, reads as none.
+    return success(contracts.map((c) => withoutForeign(c, orgId, ["partner", "product"])));
   } catch (error) {
     return handleApiError(error);
   }
@@ -75,6 +78,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = createContractSchema.parse(body);
+    // The foreign keys are single-column: without this a contract could link
+    // another org's partner or product and the response would carry it back.
+    await assertRefsInScope({ orgId }, { partner: data.partnerId, product: data.productId });
 
     const contract = await prisma.contract.create({
       data: {

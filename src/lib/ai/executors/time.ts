@@ -11,6 +11,7 @@ import {
 import { NOT_VOIDED } from "@/lib/time/not-voided";
 import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
 import { redactRates } from "@/lib/time/visibility";
+import { refsError } from "@/lib/rbac/foreign-refs";
 
 const logTimeSchema = z.object({
   date: z.string().min(1),
@@ -55,6 +56,13 @@ export async function logTime(
     const outOfScope = await assertProjectRead(ctx, data.projectId, "TIME_CREATE");
     if (outOfScope) return outOfScope;
   }
+  // As the time-entry API: the item has no foreign key, so it must be the
+  // entry's project's, or with no project, in one the caller can see.
+  const foreignRow = await refsError(
+    { orgId: ctx.orgId, projectId: data.projectId, viewer: ctx.auth },
+    { workItem: data.workItemId },
+  );
+  if (foreignRow) return { error: foreignRow };
 
   const entry = await prisma.timeEntry.create({
     data: {

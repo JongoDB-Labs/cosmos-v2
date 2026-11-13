@@ -5,6 +5,7 @@ import { fanOutChatMessage } from "@/lib/chat/notifications";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import type { ChatMessage } from "@prisma/client";
+import { ProblemError } from "@/lib/openapi/problem";
 
 type ChannelLite = {
   id: string;
@@ -43,6 +44,14 @@ export async function createUserMessage(input: CreateUserMessageInput): Promise<
       })
     : [];
   const validMentions = mentionedInOrg.map((m) => m.userId);
+
+  // A reply's parent must be a message of THIS channel. The column is a plain
+  // self-reference, so without this a reply could hang under a message in any
+  // channel of any org, and show in that thread.
+  if (input.parentMessageId) {
+    const parent = await prisma.chatMessage.count({ where: { id: input.parentMessageId, channelId: channel.id } });
+    if (parent === 0) throw new ProblemError(400, "invalid_request", "That message isn't in this channel.");
+  }
 
   const message = await prisma.$transaction(async (tx) => {
     const m = await tx.chatMessage.create({

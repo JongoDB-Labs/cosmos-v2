@@ -9,6 +9,7 @@ import { topics } from "@/lib/realtime/topics";
 import { z } from "zod";
 import { roleCountsFor } from "@/lib/rbac/key-role";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
+import { foreignRef } from "@/lib/rbac/foreign-refs";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -175,10 +176,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // Verify projectId belongs to org
+    // The project must be one of this org's that the creator can see: a
+    // channel tied to a team-scoped project is that project's conversation.
     if (data.projectId) {
-      const proj = await prisma.project.findFirst({ where: { id: data.projectId, orgId } });
-      if (!proj) {
+      if (await foreignRef(prisma, { orgId, viewer: ctx }, { project: data.projectId })) {
         return new Response(JSON.stringify({ error: "invalid_project" }), {
           status: 400,
           headers: { "content-type": "application/json" },

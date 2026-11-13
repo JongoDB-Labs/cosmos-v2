@@ -3,11 +3,11 @@ import { z } from "zod";
 import { GoalLinkKind } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; goalId: string }>;
@@ -44,6 +44,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!goal) return new Response("Not found", { status: 404 });
 
     const data = createLinkSchema.parse(await request.json());
+    // What a goal counts toward its progress is this project's own work.
+    await assertRefsInScope(
+      { orgId, projectId },
+      data.kind === GoalLinkKind.WORK_ITEM ? { workItem: data.workItemId } : { objective: data.objectiveId },
+    );
 
     // Idempotent (mirrors the milestone-links route): a duplicate link would be
     // double-counted by the AUTO progress rollup, so return the existing one

@@ -6,6 +6,7 @@ import { canManageProject } from "@/lib/rbac/scope";
 import { Permission } from "@/lib/rbac/permissions";
 import { markingCeiling } from "@/lib/feedback/comments.server";
 import { levelsReadableUnder } from "@/lib/feedback/marking";
+import { scopeItemLinks } from "@/lib/work-items/linked-scope.server";
 
 /**
  * The work-item reads behind both addresses of an item: the project-scoped
@@ -76,7 +77,10 @@ export async function loadWorkItemDetail(ctx: AuthContext, orgId: string, projec
     },
   });
   if (!item) return null;
-  return { ...item, comments: item.comments ?? [], activities: projectActivityValues(item.activities) };
+  // A parent, child or sprint linked across orgs or into a hidden project
+  // before writes were checked reads as no link.
+  const [scoped] = await scopeItemLinks(ctx, orgId, projectId, [item]);
+  return { ...scoped, comments: item.comments ?? [], activities: projectActivityValues(item.activities) };
 }
 
 /**

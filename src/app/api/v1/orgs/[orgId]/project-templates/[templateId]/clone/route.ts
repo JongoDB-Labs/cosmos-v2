@@ -7,6 +7,7 @@ import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { cloneProjectTemplate } from "@/lib/templates/clone";
 import { z } from "zod";
+import { boardTemplatesFor } from "@/lib/templates/board-template-scope";
 
 const cloneSchema = z.object({
   name: z.string().min(1).max(100),
@@ -41,6 +42,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       where: { id: newTemplateId },
       include: {
         boardTemplates: {
+          where: boardTemplatesFor(orgId),
           select: { id: true, name: true, boardType: true, sortOrder: true },
         },
         _count: { select: { workItemTypes: true } },

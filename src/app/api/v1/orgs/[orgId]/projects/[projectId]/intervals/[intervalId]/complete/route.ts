@@ -13,6 +13,7 @@ import { buildIntervalReport } from "@/lib/intervals/interval-report";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
 const completeSchema = z.object({
   moveIncompleteToIntervalId: z.string().uuid().nullable().optional(),
@@ -33,7 +34,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const interval = await prisma.interval.findFirst({
       where: { id: intervalId, projectId, orgId },
-      include: { workItems: true },
+      // Only the org's own items: an older, unchecked write may have left
+      // another org's item pointing at this sprint, and completing must not
+      // move it.
+      include: { workItems: { where: { orgId } } },
     });
 
     if (!interval) return new Response("Not found", { status: 404 });
@@ -47,6 +51,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json().catch(() => ({}));
     const data = completeSchema.parse(body);
+    // The sprint the unfinished items move into is one of this project's.
+    await assertRefsInScope({ orgId, projectId }, { interval: data.moveIncompleteToIntervalId });
 
     const completed = await prisma.$transaction(async (tx) => {
       const items = interval.workItems;

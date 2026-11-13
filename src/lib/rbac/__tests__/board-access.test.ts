@@ -20,12 +20,14 @@ import type { AuthContext } from "@/lib/rbac/check";
 import { NotFoundError } from "@/lib/rbac/check";
 import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
 
-const { teamIdsForActor, canManageProject } = vi.hoisted(() => ({
+const { teamIdsForActor, canManageProject, isProjectVisible } = vi.hoisted(() => ({
   teamIdsForActor: vi.fn(),
   canManageProject: vi.fn(),
+  isProjectVisible: vi.fn(),
 }));
 vi.mock("@/lib/rbac/team-membership", () => ({ teamIdsForActor }));
 vi.mock("@/lib/rbac/scope", () => ({ canManageProject }));
+vi.mock("@/lib/rbac/project-access", () => ({ isProjectVisible }));
 
 import {
   narrowBoards,
@@ -63,6 +65,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   teamIdsForActor.mockResolvedValue([TEAM_MINE]);
   canManageProject.mockResolvedValue(false);
+  isProjectVisible.mockResolvedValue(true);
 });
 
 describe("narrowBoards — list surfaces", () => {
@@ -144,6 +147,15 @@ describe("requireBoardRead — detail surfaces reached by URL", () => {
 
   it("passes a board the actor may open", async () => {
     await expect(requireBoardRead(ctxWith(), PROJECT, mine)).resolves.toBeUndefined();
+  });
+
+  it("throws NotFound for a board with no team in a project the actor can't see", async () => {
+    // The project axis: a write route that gates on an org-wide bit reaches
+    // here for every project, so the project's own visibility is asked too.
+    isProjectVisible.mockResolvedValue(false);
+    const err = await requireBoardRead(ctxWith(), PROJECT, shared).catch((e) => e);
+    expect(err).toBeInstanceOf(NotFoundError);
+    expect(isProjectVisible).toHaveBeenCalledWith(expect.objectContaining({ userId: ME }), PROJECT);
   });
 });
 

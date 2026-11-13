@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.552.1",
+    date: "2026-11-13",
+    title: "Links between records stay inside your organization",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When you save something that points at another record, such as a vendor's partner, a work item's sprint or parent, a bill's vendor, an expense's CLIN or a meeting's sprint, Cosmos now checks that the record is in your organization, and in the same project when it belongs to one. A link to a record you can't reach is refused with a clear message instead of being saved.",
+      },
+      {
+        kind: "fix",
+        text: "Editing a project's settings, importing into a project, changing someone's project role, and deleting or editing work items in bulk now need the same permission as the single action. Project role changes are recorded in the audit log, and API keys can no longer change roles.",
+      },
+      {
+        kind: "fix",
+        text: "Board columns, dashboard widgets and sprint ceremonies now follow project visibility, so a board in a project hidden from you can't be opened or changed by its address.",
+      },
+      {
+        kind: "fix",
+        text: "The owner of a goal, milestone or CRM contact, and the person time off is filed for, must now be a current member of your organization. Filing time off for someone else is recorded in the audit log. Completing a sprint moves its unfinished items only into another sprint of the same project.",
+      },
+    ],
+  },
+  {
     version: "2.552.0",
     date: "2026-11-13",
     title: "Every dashboard widget works, and members can lay out their own dashboards",

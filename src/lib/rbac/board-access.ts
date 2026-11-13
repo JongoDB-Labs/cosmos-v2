@@ -3,6 +3,7 @@ import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { teamIdsForActor } from "@/lib/rbac/team-membership";
 import { canManageProject } from "@/lib/rbac/scope";
 import { visibleBoards, type BoardLike, type BoardViewer } from "@/lib/rbac/board-visibility";
+import { isProjectVisible } from "@/lib/rbac/project-access";
 
 /**
  * The TEAM half of board access, in one place, for every surface that reaches a
@@ -91,6 +92,16 @@ export async function isBoardVisible(
 /**
  * The gate for DETAIL surfaces — a board reached by id, from a URL.
  *
+ * BOTH axes, unlike `narrowBoards`. The board's project must be visible to the
+ * actor (team scoping, and an API key's project ceiling) as well as the board
+ * itself. The read routes ask the project question first anyway, through
+ * `requireProjectRead`; the WRITE routes (columns, widgets, and the board
+ * service the board and Cosmo board tools share) gate on BOARD_UPDATE or
+ * project management, which an org-wide holder passes for every project — so
+ * without the project check here a team-scoped project's boards could be
+ * restructured by someone who cannot open the project. Asking it here makes
+ * one call the whole answer for any surface that reaches a board by id.
+ *
  * Throws NotFoundError, NOT ForbiddenError, and the difference is deliberate.
  * `requireProjectRead` refuses with "Access denied by policy" because at that
  * point the actor cannot even see the project. Here they CAN see the project;
@@ -104,7 +115,11 @@ export async function requireBoardRead(
   projectId: string,
   board: BoardLike | null,
 ): Promise<void> {
-  if (!board || !(await isBoardVisible(ctx, projectId, board))) {
+  if (
+    !board ||
+    !(await isProjectVisible(ctx, projectId)) ||
+    !(await isBoardVisible(ctx, projectId, board))
+  ) {
     throw new NotFoundError("Board not found");
   }
 }

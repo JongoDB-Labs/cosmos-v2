@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
 import { requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
 const createExpenseSchema = z.object({
   amount: z.number().positive(),
@@ -101,6 +102,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const data = createExpenseSchema.parse(body);
     // Filing it under a project is writing to that project.
     await requireProjectVisibleIf(ctx, data.projectId);
+    // The CLIN column has no foreign key: it must be the expense's project's,
+    // or with no project, one the caller can see.
+    await assertRefsInScope({ orgId, projectId: data.projectId, viewer: ctx }, { clin: data.clinId });
     if (data.reimbursable && !data.projectId) return reimbursableNeedsProject();
 
     const expense = await prisma.expense.create({

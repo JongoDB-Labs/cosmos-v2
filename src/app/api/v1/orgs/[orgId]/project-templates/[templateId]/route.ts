@@ -7,6 +7,7 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
+import { boardTemplatesFor } from "@/lib/templates/board-template-scope";
 
 const patchTemplateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -30,7 +31,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const template = await prisma.projectTemplate.findUnique({
       where: { id: templateId },
       include: {
-        boardTemplates: true,
+        boardTemplates: { where: boardTemplatesFor(orgId) },
         workItemTypes: true,
       },
     });
@@ -81,7 +82,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ...(data.defaultConfig !== undefined ? { defaultConfig: data.defaultConfig as Prisma.InputJsonValue } : {}),
       },
       include: {
-        boardTemplates: true,
+        boardTemplates: { where: boardTemplatesFor(orgId) },
         workItemTypes: true,
       },
     });

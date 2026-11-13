@@ -35,6 +35,8 @@ import {
   type WriteMeta,
   type WriteMetaOrCaller,
 } from "@/lib/work-items/events.server";
+import { foreignRef, refMessage } from "@/lib/rbac/foreign-refs";
+import { ProblemError } from "@/lib/openapi/problem";
 
 /** The root client or an interactive-transaction client. */
 export type WorkItemDb = Prisma.TransactionClient | PrismaClient;
@@ -98,8 +100,24 @@ export function createWorkItemRow<T extends Prisma.WorkItemCreateArgs>(
     const row = await tx.workItem.create<T>({ ...args, data: { ...args.data, id } } as Prisma.SelectSubset<T, Prisma.WorkItemCreateArgs>);
     const created = await tx.workItem.findUniqueOrThrow({
       where: { id },
-      select: { orgId: true, projectId: true, ticketNumber: true, columnKey: true, workItemTypeId: true, parentId: true },
+      select: {
+        orgId: true, projectId: true, ticketNumber: true, columnKey: true, workItemTypeId: true, parentId: true,
+        intervalId: true, teamId: true,
+      },
     });
+    // The rows the new item points at must be its own project's (its type: its
+    // org's or built in), whichever caller built `data`. Checked on the row as
+    // written, so the `connect` form is held to it too, and a refusal rolls
+    // the create back. Callers that take these ids from a request also check
+    // them first, for a friendlier answer; this is the backstop.
+    const scope = { orgId: created.orgId, projectId: created.projectId };
+    const foreign = await foreignRef(tx, scope, {
+      workItem: created.parentId,
+      interval: created.intervalId,
+      team: created.teamId,
+      workItemType: created.workItemTypeId,
+    });
+    if (foreign) throw new ProblemError(400, "invalid_request", refMessage(foreign, scope));
     await recordEvents(tx, meta, [
       {
         orgId: created.orgId,

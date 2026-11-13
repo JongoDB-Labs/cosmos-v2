@@ -78,6 +78,30 @@ export async function requireAccess(
   if (!ok) throw new ForbiddenError("Access denied by policy");
 }
 
+/**
+ * `requireAccess` for every row of a bulk action, so acting on many items is
+ * never wider than acting on each one alone: the same bit, and any deny policy
+ * evaluated against each row's own attributes ("only what you created", "not
+ * in this project"). Throws on the first refusal, before the caller writes
+ * anything, so a bulk action is all or nothing.
+ *
+ * Rows with identical attributes get the same answer, so each distinct set is
+ * evaluated once: a 10,000-row selection by three creators is three checks.
+ */
+export async function requireAccessForEach(
+  ctx: AuthContext,
+  action: PermissionKey,
+  rows: readonly ResourceAttributes[],
+): Promise<void> {
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const key = JSON.stringify(Object.entries(row).sort(([a], [b]) => a.localeCompare(b)));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    await requireAccess(ctx, action, row);
+  }
+}
+
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 
 /** ProjectMember.orgMemberId is an OrgMember.id, NOT a User.id — resolve

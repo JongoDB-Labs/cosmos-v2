@@ -3,6 +3,7 @@ import { GoalStatus, GoalProgressMode, KpiDirection } from "@prisma/client";
 import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
 import { assertPermission, assertProjectManage, assertProjectRead, type ToolContext } from "./_ctx";
+import { refsError } from "@/lib/rbac/foreign-refs";
 
 /**
  * Goals + KPIs executors. Every query is org+project scoped. Mirrors the routes
@@ -95,6 +96,10 @@ export async function createGoal(input: Record<string, unknown>, ctx: ToolContex
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
+  // The owner is a current member of this org (the column takes any user).
+  const notMember = await refsError({ orgId: ctx.orgId }, { member: data.ownerId });
+  if (notMember) return { error: notMember };
+
   const outOfScope = await assertProjectManage(ctx, data.projectId, Permission.OKR_CREATE);
   if (outOfScope) return outOfScope;
 
@@ -155,6 +160,10 @@ export async function updateGoal(input: Record<string, unknown>, ctx: ToolContex
   const parsed = updateGoalSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
+
+  // The owner is a current member of this org (the column takes any user).
+  const notMember = await refsError({ orgId: ctx.orgId }, { member: data.ownerId });
+  if (notMember) return { error: notMember };
 
   const existing = await prisma.goal.findFirst({
     where: { id: data.goalId, orgId: ctx.orgId, projectId: data.projectId },

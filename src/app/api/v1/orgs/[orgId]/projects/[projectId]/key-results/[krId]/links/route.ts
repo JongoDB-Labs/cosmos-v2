@@ -33,7 +33,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (!(await loadKr(orgId, projectId, krId))) return new Response("Not found", { status: 404 });
 
     const links = await prisma.keyResultLink.findMany({
-      where: { keyResultId: krId },
+      // Links to the org's own items only.
+      where: { keyResultId: krId, workItem: { orgId } },
       select: {
         id: true,
         workItem: {

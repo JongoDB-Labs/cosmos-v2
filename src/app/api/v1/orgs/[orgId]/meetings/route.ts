@@ -12,6 +12,7 @@ import { z } from "zod";
 import { MeetingType } from "@prisma/client";
 import { allOrgMembers, attendeesNotMembers } from "@/lib/meetings/attendee-members";
 import { requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
 const createMeetingSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -109,6 +110,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Filing it under a project is writing to that project.
     await requireProjectVisibleIf(ctx, data.projectId);
     if (data.attendeeIds && !(await allOrgMembers(orgId, data.attendeeIds))) return attendeesNotMembers();
+    // The sprint has no foreign key, so nothing else stops another org's id:
+    // it must be the meeting's project's, or one the caller can see.
+    await assertRefsInScope({ orgId, projectId: data.projectId, viewer: ctx }, { interval: data.sprintId });
+
     if (data.teamsMeeting) {
       // A Teams meeting is made in a person's own mailbox: never on an API key.
       if (ctx.isApiKey) return new Response("Forbidden", { status: 403 });

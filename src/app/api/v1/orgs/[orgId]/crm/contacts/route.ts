@@ -12,6 +12,7 @@ import {
   canonicalizeStageFilter,
   DEFAULT_CRM_STAGE,
 } from "@/lib/crm/stages";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
 const createContactSchema = z.object({
   name: z.string().min(1).max(200),
@@ -70,6 +71,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = createContactSchema.parse(body);
+    // The owner is a current member of this org (the column takes any user).
+    await assertRefsInScope({ orgId }, { member: data.ownerId });
 
     const contact = await prisma.crmContact.create({
       data: {

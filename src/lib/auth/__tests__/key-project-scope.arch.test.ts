@@ -14,10 +14,15 @@ import { describe, it, expect } from "vitest";
 import { globSync, readFileSync } from "node:fs";
 import { handlerCode } from "./gate-bits";
 
-/** Gates that refuse a key outside its project scope. */
+/**
+ * Gates that refuse a key outside its project scope. `requireProjectVisible`
+ * throws exactly when `isProjectVisible` is false, and that asks
+ * `inKeyProjectScope` first. `requireProjectVisibleIf` is NOT one: it checks
+ * nothing when no project is named.
+ */
 const SCOPE_GATE = new RegExp(
   String.raw`\b(?:requireProjectRead|assertProjectRead|requireProjectManage|canAdministerProject|canManageProject|` +
-    String.raw`canWriteInProject|canManageBoardsInProject|isProjectVisible|readableDocument|inKeyProjectScope|` +
+    String.raw`canWriteInProject|canManageBoardsInProject|isProjectVisible|requireProjectVisible|readableDocument|inKeyProjectScope|` +
     String.raw`getReadableProjectIds|readableItemProjectId|getManagedProjectIds)\(` +
     String.raw`|\brequireAccess\([^;]*\bprojectId\b`,
 );
@@ -76,5 +81,7 @@ async function removeAll(projectId: string) {
     expect(SCOPE_GATE.test(`requirePermission(ctx, Permission.ITEM_DELETE); await prisma.workItem.delete(...)`)).toBe(false);
     expect(SCOPE_GATE.test(`await requireAccess(ctx, "ITEM_DELETE");`)).toBe(false);
     expect(SCOPE_GATE.test(`await requireAccess(ctx, "ITEM_DELETE", { projectId, createdById });`)).toBe(true);
+    expect(SCOPE_GATE.test(`await requireProjectVisible(ctx, projectId);`)).toBe(true);
+    expect(SCOPE_GATE.test(`await requireProjectVisibleIf(ctx, body.projectId);`)).toBe(false);
   });
 });

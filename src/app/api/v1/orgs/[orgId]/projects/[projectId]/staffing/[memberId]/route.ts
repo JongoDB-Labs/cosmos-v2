@@ -3,10 +3,11 @@ import { z } from "zod";
 import { ProjectRole, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { logAudit } from "@/lib/audit";
+import { canManageProject } from "@/lib/rbac/scope";
 import { logPmFieldChanges } from "@/lib/pm/activity-log";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
@@ -44,6 +45,20 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (!member) return new Response("Not found", { status: 404 });
 
     const data = updateSchema.parse(await request.json());
+
+    // A project role is access control, not a staffing detail: MANAGER runs the
+    // project's members, teams, boards and registers. So changing one takes
+    // what the Members page takes (an org admin, or a MANAGER of this project;
+    // see members/route.ts), never PROJECT_UPDATE alone, and never an API key,
+    // whatever its scopes. The PM fields below keep the register's own gate.
+    const roleChange = data.role !== undefined && data.role !== member.role;
+    if (roleChange && (ctx.isApiKey || !(await canManageProject(ctx, projectId, Permission.PROJECT_MANAGE)))) {
+      return Response.json(
+        { error: "You must be a project manager or an org admin to change someone's project role." },
+        { status: 403 },
+      );
+    }
+
     const update: Prisma.ProjectMemberUncheckedUpdateInput = {};
     if (data.allocationPercent !== undefined)
       update.allocationPercent = data.allocationPercent ?? null;
@@ -59,6 +74,20 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       update.complianceNotes = data.complianceNotes ?? null;
 
     const updated = await prisma.projectMember.update({ where: { id: memberId }, data: update });
+
+    // Recorded as the Members page records it, so every role change is in the
+    // audit log whichever screen made it.
+    if (roleChange) {
+      await logAudit({
+        orgId,
+        userId: ctx.userId,
+        action: "project_member.set",
+        entity: "project",
+        entityId: projectId,
+        metadata: { orgMemberId: member.orgMemberId, role: updated.role, from: member.role } as Record<string, string>,
+        ipAddress: getIpAddress(request),
+      });
+    }
 
     // Audit field changes (best-effort). `logPmFieldChanges` skips keys whose
     // before === after, so an unchanged PATCH writes no activity rows.

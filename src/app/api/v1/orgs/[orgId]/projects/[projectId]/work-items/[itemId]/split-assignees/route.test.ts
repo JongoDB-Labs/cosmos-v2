@@ -22,8 +22,17 @@ const COPY_BO = "a3000000-0000-4000-8000-000000000009";
 const COPY_CY = "a4000000-0000-4000-8000-00000000000a";
 
 const { prisma, tx, getAuthContext, requireAccess } = vi.hoisted(() => {
+  // The single writer checks that a new row's parent, interval, team and type
+  // are its own project's and org's (lib/rbac/foreign-refs.ts). Every id this
+  // test names is, so each lookup finds all it asked for; the refusals are
+  // covered against a real database (lib/rbac/foreign-ids.db.test.ts).
+  const allFound = () => vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.length);
   const tx = {
+    interval: { count: allFound() },
+    team: { count: allFound() },
+    workItemType: { count: allFound() },
     workItem: {
+      count: allFound(),
       aggregate: vi.fn(),
       updateMany: vi.fn(async () => ({ count: 1 })),
       create: vi.fn(),

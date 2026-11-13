@@ -3,6 +3,9 @@ import { Prisma } from "@prisma/client";
 /** Partner fields surfaced on a vendor row (the sub/vendor behind the contract). */
 export const partnerSelect = {
   id: true,
+  // Read so a partner from another org (linked before writes were checked)
+  // can be dropped below; never sent.
+  orgId: true,
   name: true,
   type: true,
   status: true,
@@ -33,7 +36,9 @@ export function mapVendorContract(c: VendorContract) {
     funded && funded > 0 && invoiced != null ? Math.round((invoiced / funded) * 100) : null;
   const remainingFunded =
     funded != null && invoiced != null ? Math.round((funded - invoiced) * 100) / 100 : null;
-  const p = c.partner;
+  // A partner outside the contract's own org reads as none: the foreign key is
+  // single-column, so an older row could point anywhere.
+  const p = c.partner && c.partner.orgId === c.orgId ? c.partner : null;
   return {
     id: c.id,
     partnerId: c.partnerId,

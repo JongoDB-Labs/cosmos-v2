@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
+import { requireAccessForEach } from "@/lib/abac/require-access";
+import { requirePermission, type AuthContext } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -30,6 +32,42 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+/**
+ * The selected items of this project, with what a per-item policy looks at.
+ * Ids outside the project are not returned, so they are skipped, as before.
+ */
+async function selectedRows(orgId: string, projectId: string, ids: string[]) {
+  const rows: { id: string; createdById: string | null; assigneeId: string | null }[] = [];
+  for (const batch of chunk(ids, BULK_CHUNK)) {
+    rows.push(
+      ...(await prisma.workItem.findMany({
+        where: { id: { in: batch }, orgId, projectId },
+        select: { id: true, createdById: true, assigneeId: true },
+      })),
+    );
+  }
+  return rows;
+}
+
+/**
+ * Every selected row through the gate editing or deleting it alone would meet
+ * (`[itemId]/route.ts`): the action's bit and any deny policy, evaluated
+ * against that row. A bulk action used to check the project once, so a
+ * creator-only policy held for one item and not for a selection of them.
+ */
+async function requireEachRow(
+  ctx: AuthContext,
+  action: "ITEM_UPDATE" | "ITEM_DELETE",
+  projectId: string,
+  rows: { createdById: string | null; assigneeId: string | null }[],
+) {
+  await requireAccessForEach(
+    ctx,
+    action,
+    rows.map((r) => ({ createdById: r.createdById, assigneeId: r.assigneeId, projectId })),
+  );
+}
+
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
@@ -39,6 +77,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       await parseRequest(bulkUpdateWorkItems, request, params);
     await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.ITEM_BULK_EDIT);
+    // Bulk edit is a right of its own, and each row must also be one this
+    // caller could edit alone. Checked for the whole selection first, so a
+    // refusal changes nothing.
+    await requireEachRow(ctx, "ITEM_UPDATE", projectId, await selectedRows(orgId, projectId, ids));
 
     // Each batch is one transaction through the same writer as a single edit,
     // so a bulk move stamps dates, clears a cancel reason, records history and
@@ -91,10 +133,16 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const { ctx } = await orgContext((await params).orgId, bulkDeleteWorkItems);
     const { params: { orgId, projectId }, body: { ids } } = await parseRequest(bulkDeleteWorkItems, request, params);
     await requireProjectVisible(ctx, projectId);
-    await requireProjectManage(ctx, projectId, Permission.ITEM_DELETE);
+    // The gate deleting one item meets, and nothing wider: the ITEM_DELETE bit
+    // (managing the project is not a way around it, as it isn't for a single
+    // delete), then each row against any deny policy. All before the first
+    // delete, so a refusal deletes nothing.
+    requirePermission(ctx, Permission.ITEM_DELETE);
+    const rows = await selectedRows(orgId, projectId, ids);
+    await requireEachRow(ctx, "ITEM_DELETE", projectId, rows);
 
     let deletedCount = 0;
-    for (const batch of chunk(ids, BULK_CHUNK)) {
+    for (const batch of chunk(rows.map((r) => r.id), BULK_CHUNK)) {
       const r = await prisma.workItem.deleteMany({
         where: { id: { in: batch }, orgId, projectId },
       });

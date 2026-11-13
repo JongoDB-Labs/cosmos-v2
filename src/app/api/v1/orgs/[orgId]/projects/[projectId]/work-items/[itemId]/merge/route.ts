@@ -75,7 +75,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           // An internal search index, not part of the item.
           omit: { searchVector: true },
           include: {
-            children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true, completedAt: true }, orderBy: { sortOrder: "asc" } },
+            // The org's own children: an older, unchecked write may have
+            // parented another org's item under this one.
+            children: { where: { orgId }, select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true, completedAt: true }, orderBy: { sortOrder: "asc" } },
             workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
             assignees: {
               orderBy: { sortOrder: "asc" },

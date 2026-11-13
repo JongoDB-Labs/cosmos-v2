@@ -4,17 +4,21 @@ import { OrgRole } from "@prisma/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
 
-const { prisma, getAuthContext, readableTimeUserIds } = vi.hoisted(() => ({
+const { prisma, getAuthContext, readableTimeUserIds, logAudit } = vi.hoisted(() => ({
   prisma: {
     organization: { findUnique: vi.fn() },
     timeOffRequest: { findMany: vi.fn(), create: vi.fn() },
+    // Filing for someone else checks they are a current member of the org.
+    orgMember: { count: vi.fn() },
   },
   getAuthContext: vi.fn(),
   readableTimeUserIds: vi.fn(),
+  logAudit: vi.fn(),
 }));
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
+vi.mock("@/lib/audit", () => ({ logAudit }));
 vi.mock("@/lib/time/scope", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/time/scope")>();
   return { ...actual, readableTimeUserIds: (...a: unknown[]) => readableTimeUserIds(...a) };
@@ -78,6 +82,7 @@ beforeEach(() => {
   getAuthContext.mockResolvedValue(ctx("TIME_READ", "TIME_CREATE"));
   readableTimeUserIds.mockResolvedValue([ME, MY_REPORT]);
   prisma.timeOffRequest.findMany.mockResolvedValue([]);
+  prisma.orgMember.count.mockResolvedValue(1);
 });
 
 describe("GET /orgs/[orgId]/time-off", () => {
@@ -167,6 +172,7 @@ describe("POST /orgs/[orgId]/time-off", () => {
     await POST(post({ ...ask, kind: "HOLIDAY", userId: MY_REPORT }), { params });
     const data = prisma.timeOffRequest.create.mock.calls[0][0].data;
     expect(data).toMatchObject({ userId: MY_REPORT, status: "APPROVED", decidedById: ME });
+    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "time_off.filed_for", metadata: expect.objectContaining({ userId: MY_REPORT }) }));
   });
 
   it("still makes a holiday I file for MYSELF wait for a decision", async () => {

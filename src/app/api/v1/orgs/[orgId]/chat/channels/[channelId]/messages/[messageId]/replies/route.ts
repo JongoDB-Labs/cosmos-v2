@@ -31,7 +31,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "100", 10), 200);
 
     const replies = await prisma.chatMessage.findMany({
-      where: { parentMessageId: messageId },
+      // channelId too: a reply belongs to its parent's channel, and a row
+      // written before that was checked could sit in another one.
+      where: { parentMessageId: messageId, channelId },
       orderBy: { createdAt: "asc" },
       take: limit,
       include: {
@@ -48,7 +50,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             height: true,
           },
         },
-        _count: { select: { replies: true } },
+        _count: { select: { replies: { where: { channelId } } } },
       },
     });
 

@@ -9,6 +9,7 @@ import {
   reverseInvoiceLedger,
 } from "./posting";
 import { reconcileReimbursableLines, type LineTag } from "./reimbursables.server";
+import { assertRefsInScope, type Refs } from "@/lib/rbac/foreign-refs";
 
 const D = (v: number | string) => new Prisma.Decimal(v);
 
@@ -82,6 +83,15 @@ async function assertContactInOrg(orgId: string, contactId: string) {
   if (!c) throw new NotFoundError("Contact not found");
 }
 
+/**
+ * The contract and the line products an invoice names. Neither column has a
+ * foreign key, so these are the only thing keeping another org's ids out of
+ * the invoice and the journal lines posted from it.
+ */
+function invoiceRefs(input: InvoiceInput): Refs {
+  return { contract: input.contractId, product: input.lines.map((l) => l.productId) };
+}
+
 async function assertProjectInOrg(orgId: string, projectId: string) {
   const p = await prisma.project.findFirst({ where: { id: projectId, orgId }, select: { id: true } });
   if (!p) throw new NotFoundError("Project not found");
@@ -94,6 +104,7 @@ export async function createInvoice(
 ) {
   if (input.contactId) await assertContactInOrg(orgId, input.contactId);
   if (input.projectId) await assertProjectInOrg(orgId, input.projectId);
+  await assertRefsInScope({ orgId }, invoiceRefs(input));
   // A new invoice has re-billed nothing yet: those lines come only from
   // addReimbursables, which stamps the cost as it adds them.
   if (input.lines.some(hasTag)) {
@@ -153,6 +164,7 @@ export async function updateInvoice(
   }
   if (input.contactId) await assertContactInOrg(orgId, input.contactId);
   if (input.projectId) await assertProjectInOrg(orgId, input.projectId);
+  await assertRefsInScope({ orgId }, invoiceRefs(input));
   const plain = computeLines(input.lines);
 
   return prisma.$transaction(async (tx) => {

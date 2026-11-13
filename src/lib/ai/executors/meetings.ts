@@ -5,6 +5,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
 import { canReadMeeting, readableMeetingsWhere } from "@/lib/meetings/meeting-reader";
 import { SYNCED_MEETING_FIELDS, syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { refsError } from "@/lib/rbac/foreign-refs";
 
 /**
  * Meeting executors — the org's sync meetings (SyncMeeting model — there is no
@@ -90,15 +91,14 @@ export async function createMeeting(input: Record<string, unknown>, ctx: ToolCon
     const outOfScope = await assertProjectRead(ctx, data.projectId, "MEETING_CREATE");
     if (outOfScope) return outOfScope;
   }
-  // SyncMeeting.sprintId has no FK relation (bare id) — require it to be one of
-  // this org's intervals so an untrusted id can't plant a cross-org pointer.
-  if (data.sprintId) {
-    const sprint = await prisma.interval.findFirst({
-      where: { id: data.sprintId, orgId: ctx.orgId },
-      select: { id: true },
-    });
-    if (!sprint) return { error: "sprintId is not an interval in this organization" };
-  }
+  // SyncMeeting.sprintId has no FK relation (bare id). As the REST route: a
+  // sprint of the meeting's project, or with no project, of one the caller
+  // can see.
+  const foreignSprint = await refsError(
+    { orgId: ctx.orgId, projectId: data.projectId, viewer: ctx.auth },
+    { interval: data.sprintId },
+  );
+  if (foreignSprint) return { error: foreignSprint };
 
   const created = await prisma.syncMeeting.create({
     data: {

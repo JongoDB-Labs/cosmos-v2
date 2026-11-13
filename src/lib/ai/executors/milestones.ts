@@ -3,6 +3,7 @@ import { MilestoneStatus } from "@prisma/client";
 import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
 import { assertPermission, assertProjectManage, assertProjectRead, type ToolContext } from "./_ctx";
+import { refsError } from "@/lib/rbac/foreign-refs";
 
 /**
  * Milestone executors — project delivery milestones. Every query is org+project
@@ -84,6 +85,10 @@ export async function createMilestone(input: Record<string, unknown>, ctx: ToolC
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
+  // The owner is a current member of this org (the column takes any user).
+  const notMember = await refsError({ orgId: ctx.orgId }, { member: data.ownerId });
+  if (notMember) return { error: notMember };
+
   const outOfScope = await assertProjectManage(ctx, data.projectId, Permission.PROJECT_UPDATE);
   if (outOfScope) return outOfScope;
 
@@ -142,6 +147,10 @@ export async function updateMilestone(input: Record<string, unknown>, ctx: ToolC
   const parsed = updateSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
+
+  // The owner is a current member of this org (the column takes any user).
+  const notMember = await refsError({ orgId: ctx.orgId }, { member: data.ownerId });
+  if (notMember) return { error: notMember };
 
   const existing = await prisma.milestone.findFirst({
     where: { id: data.milestoneId, orgId: ctx.orgId, projectId: data.projectId },
