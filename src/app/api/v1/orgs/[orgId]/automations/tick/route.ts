@@ -16,8 +16,8 @@ type RouteParams = { params: Promise<{ orgId: string }> };
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId, tickAutomations);
     const { params: p } = await parseRequest(tickAutomations, request, params);
-    const { ctx } = await orgContext(p.orgId, tickAutomations);
     requirePermission(ctx, Permission.RULES_RUN);
     return success({ ran: await runDueSchedules({ orgId: p.orgId }) });
   } catch (error) {

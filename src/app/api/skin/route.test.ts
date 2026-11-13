@@ -79,11 +79,13 @@ describe("POST /api/skin", () => {
       expect(prisma.userPreferences.upsert).not.toHaveBeenCalled();
     });
 
-    it("falls back to cookie-only when there is no authenticated user", async () => {
+    it("refuses a caller who isn't signed in: 401, no cookie, nothing saved", async () => {
       getCurrentUser.mockResolvedValue(null);
-      const res = await POST(req({ skin: "atelier" }));
-      expect(res.status).toBe(200);
-      expect(res.cookies.get(SKIN_COOKIE)?.value).toBe("atelier");
+      for (const skin of ["atelier", null]) {
+        const res = await POST(req({ skin }));
+        expect(res.status).toBe(401);
+        expect(res.cookies.get(SKIN_COOKIE)).toBeUndefined();
+      }
       expect(prisma.userPreferences.upsert).not.toHaveBeenCalled();
     });
   });

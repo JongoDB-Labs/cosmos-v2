@@ -17,8 +17,8 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const ctx = await workflowProjectContext(await params, simulateWorkflow);
     const { params: p, body } = await parseRequest(simulateWorkflow, request, params);
-    const ctx = await workflowProjectContext(p, simulateWorkflow);
     await requireProjectVisible(ctx, p.projectId);
     // A workflow manager's debugging tool: it shows another member's view of an item.
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);

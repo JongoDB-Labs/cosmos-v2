@@ -14,8 +14,8 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string; workflo
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const ctx = await workflowProjectContext(await params, getProjectWorkflow);
     const { params: p } = await parseRequest(getProjectWorkflow, request, params);
-    const ctx = await workflowProjectContext(p, getProjectWorkflow);
     await requireProjectRead(ctx, p.projectId, "ITEM_READ");
     return success(await prisma.$transaction((tx) => getWorkflow(tx, { orgId: p.orgId, projectId: p.projectId }, p.workflowId)));
   } catch (error) {
@@ -25,8 +25,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
+    const ctx = await workflowProjectContext(await params, updateProjectWorkflow);
     const { params: p, body } = await parseRequest(updateProjectWorkflow, request, params);
-    const ctx = await workflowProjectContext(p, updateProjectWorkflow);
     await requireProjectVisible(ctx, p.projectId);
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     await prisma.$transaction((tx) => updateWorkflowMeta(tx, { orgId: p.orgId, projectId: p.projectId }, p.workflowId, body));
@@ -47,8 +47,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
+    const ctx = await workflowProjectContext(await params, deleteProjectWorkflow);
     const { params: p } = await parseRequest(deleteProjectWorkflow, request, params);
-    const ctx = await workflowProjectContext(p, deleteProjectWorkflow);
     await requireProjectVisible(ctx, p.projectId);
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     await prisma.$transaction((tx) => deleteWorkflow(tx, { orgId: p.orgId, projectId: p.projectId }, p.workflowId));

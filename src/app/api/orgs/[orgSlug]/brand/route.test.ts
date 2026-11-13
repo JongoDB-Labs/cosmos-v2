@@ -48,6 +48,28 @@ describe("public brand endpoint", () => {
     });
   });
 
+  it("leaves out an uploaded logo: its address is members-only and names the org's id", async () => {
+    const orgId = "0b9d1f3e-6c2a-4f5e-9a7b-1c2d3e4f5a6b";
+    prisma.organization.findUnique.mockResolvedValue({
+      brandName: "Acme Studio",
+      logoUrl: `/api/v1/orgs/${orgId}/logo?v=3`,
+      tagline: null,
+      agentName: null,
+      defaultSkinId: null,
+    });
+    const res = await GET(req("acme"), { params: Promise.resolve({ orgSlug: "acme" }) });
+    const text = await res.text();
+    expect(JSON.parse(text)).toMatchObject({ brandName: "Acme Studio", logoUrl: null });
+    expect(text).not.toContain(orgId);
+
+    // Written out in full, it is still the members-only route.
+    prisma.organization.findUnique.mockResolvedValue({
+      brandName: null, logoUrl: `https://cosmos.example.com/api/v1/orgs/${orgId}/logo?v=3`, tagline: null, agentName: null, defaultSkinId: null,
+    });
+    const full = await (await GET(req("acme"), { params: Promise.resolve({ orgSlug: "acme" }) })).text();
+    expect(full).not.toContain(orgId);
+  });
+
   it("unknown slug ⇒ all-null branding (200)", async () => {
     prisma.organization.findUnique.mockResolvedValue(null);
     const res = await GET(req("nope"), { params: Promise.resolve({ orgSlug: "nope" }) });

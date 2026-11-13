@@ -5,6 +5,7 @@ import { ForbiddenError, NotFoundError, ConflictError } from "./rbac/check";
 import { serverReportError } from "./telemetry/server";
 import { problem, problemBody, ProblemError, PROBLEM_CONTENT_TYPE } from "./openapi/problem";
 import { isNoModelCredentialError } from "./ai/egress/types";
+import { clientIpForRecords } from "./auth/client-ip";
 import { TransitionError, WorkflowEditError } from "@/lib/workflow/contract";
 
 export function success<T>(data: T, status = 200) {
@@ -102,9 +103,5 @@ export function handleApiError(error: unknown, request?: Request) {
 }
 
 export function getIpAddress(request: Request): string | undefined {
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    request.headers.get("x-real-ip") ??
-    undefined
-  );
+  return clientIpForRecords(request.headers);
 }

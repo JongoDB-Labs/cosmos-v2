@@ -51,6 +51,8 @@ interface OrgSecuritySettings {
   auditRetentionDays: number;
   createdAt: string;
   updatedAt: string;
+  /** The address the IP allowlist judges this person by; null when Cosmos can't read it. */
+  clientIp?: string | null;
 }
 
 interface SessionRecord {
@@ -642,6 +644,22 @@ export function SecuritySettingsPanel({
               }
             />
           </div>
+          {/* Only once the address is known: a missing one is not "can't read". */}
+          {settings && settings.clientIp !== undefined && (
+            <p className="text-xs text-muted-foreground" data-testid="allowlist-client-ip">
+              {settings.clientIp ? (
+                <>
+                  Cosmos sees you as <span className="font-mono text-foreground">{settings.clientIp}</span>.
+                  Keep a range that includes it, or the change that would lock you out is refused.
+                </>
+              ) : (
+                <>
+                  Cosmos can&apos;t read your address, so no range can include it and any change that
+                  would lock you out is refused. Ask whoever runs Cosmos to set TRUSTED_CLIENT_IP_HEADER.
+                </>
+              )}
+            </p>
+          )}
 
           {form.ipAllowlistEnabled && (
             <>

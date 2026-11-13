@@ -5,6 +5,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { API_KEY_SCOPES, type ApiKeyScope } from "./api-key-scopes";
 import { classifyBearer, parseKeyToken } from "./bearer";
+import { ipAllowlistAdmits } from "./ip-allowlist";
 
 // Re-exported so existing server importers of `@/lib/auth/api-key` keep working.
 // Client components MUST import these from `./api-key-scopes` directly — this
@@ -122,12 +123,13 @@ export function hasBearer(req: Request): boolean {
  * Verify a bearer API key against `orgId`, returning the SAME AuthContext the
  * session path produces (so downstream routes are unchanged). Returns null for:
  * a malformed/absent token, an unknown prefix, a hash mismatch, an expired key,
- * a key whose minting user was removed (createdById null), or a user who no
- * longer has a membership in the org. The acting principal is `createdById`, and
+ * a key whose minting user was removed (createdById null), a user who no
+ * longer has a membership in the org, or a request from outside the org's IP
+ * allowlist. The acting principal is `createdById`, and
  * the returned permissions are that user's effective permissions ∩ scope mask.
  */
 export async function verifyApiKey(req: Request, orgId: string): Promise<AuthContext | null> {
-  return verifyApiKeyHeader(req.headers.get("authorization"), orgId);
+  return verifyApiKeyHeader(req.headers.get("authorization"), orgId, req.headers);
 }
 
 /**
@@ -170,6 +172,8 @@ export async function verifiedApiKeyId(authorization: string | null, orgId: stri
 export async function verifyApiKeyHeader(
   authorization: string | null,
   orgId: string,
+  /** The request's headers: where the org's IP allowlist reads the client's address. */
+  requestHeaders: Headers,
 ): Promise<AuthContext | null> {
   const key = await matchedKey(authorization, orgId);
   if (!key || !key.createdById) return null;
@@ -177,6 +181,9 @@ export async function verifyApiKeyHeader(
     createdById: key.createdById, scopes: key.scopes, projectIds: key.projectIds,
   });
   if (!ctx) return null;
+  // Here, not in each caller, so every way a key is verified (getAuthContext,
+  // and resolveAuth through verifyApiKey) meets the same allowlist.
+  if (!(await ipAllowlistAdmits(orgId, requestHeaders))) return null;
   void prisma.apiKey.update({ where: { id: key.id }, data: { lastUsed: new Date() } }).catch(() => {});
   return ctx;
 }

@@ -1,4 +1,6 @@
 import { getAuthContext } from "@/lib/auth/session";
+import { securitySettingsFor } from "@/lib/auth/ip-allowlist";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/client";
 import { canViewSettings } from "@/lib/rbac/settings-access";
@@ -40,10 +42,11 @@ export default async function SecurityPage({ params }: PageParams) {
   // useOrgQueryKey(...) in security-settings-panel.tsx exactly.
   const qc = makeServerQueryClient();
   await Promise.all([
+    // The same answer as GET /security/settings, address included: the panel
+    // renders from this and doesn't refetch.
     qc.prefetchQuery({
       queryKey: ["org", orgSlug, "security-settings"],
-      queryFn: () =>
-        prisma.orgSecuritySettings.findUnique({ where: { orgId: ctx.orgId } }),
+      queryFn: async () => securitySettingsFor(ctx.orgId, await headers()),
     }),
     // NOTE: sessions are intentionally NOT prefetched. The client GET records
     // the caller's current session on view (sessions are created globally at

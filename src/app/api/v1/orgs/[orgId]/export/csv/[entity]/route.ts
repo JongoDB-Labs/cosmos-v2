@@ -46,15 +46,16 @@ const FETCHERS: Record<string, (orgId: string, hidden: string[]) => Promise<unkn
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, entity } = await params;
-    const fetcher = FETCHERS[entity];
-    if (!fetcher) return new Response("Unknown entity", { status: 400 });
-
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return new Response("Not found", { status: 404 });
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_EXPORT);
+
+    // After authenticating: only a caller who may export learns which entities exist.
+    const fetcher = Object.hasOwn(FETCHERS, entity) ? FETCHERS[entity] : undefined;
+    if (!fetcher) return new Response("Unknown entity", { status: 400 });
 
     const limited = checkRateLimit(request, "export.csv", ctx.userId, {
       capacity: 10,

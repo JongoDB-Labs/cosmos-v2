@@ -11,8 +11,8 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const ctx = await workflowProjectContext(await params, getWorkflowMigration);
     const { params: p } = await parseRequest(getWorkflowMigration, request, params);
-    const ctx = await workflowProjectContext(p, getWorkflowMigration);
     await requireProjectRead(ctx, p.projectId, "ITEM_READ");
     return success(await pendingMigrations(prisma, p.projectId));
   } catch (error) {

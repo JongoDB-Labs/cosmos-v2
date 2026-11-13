@@ -12,22 +12,21 @@ import { prisma } from "@/lib/db/client";
  * only lived in this browser's cookie: it wouldn't follow the user across
  * devices, and — worse — a stale cookie left behind by a previous account in
  * the same browser could outlive any of *this* user's own preferences.
- * Unauthenticated calls (no session) fall back to cookie-only, unchanged
- * from prior behavior.
+ * Only a signed-in user can set one (the settings page is the only caller):
+ * anyone else gets a 401, like every other API route.
  */
 export async function POST(request: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const body = (await request.json().catch(() => ({}))) as { skin?: unknown };
   const skin = body.skin;
-  const user = await getCurrentUser();
 
   if (skin === null || skin === undefined) {
-    if (user) {
-      await prisma.userPreferences.upsert({
-        where: { userId: user.id },
-        create: { userId: user.id, skinId: null },
-        update: { skinId: null },
-      });
-    }
+    await prisma.userPreferences.upsert({
+      where: { userId: user.id },
+      create: { userId: user.id, skinId: null },
+      update: { skinId: null },
+    });
     const response = NextResponse.json({ ok: true });
     response.cookies.delete(SKIN_COOKIE);
     return response;
@@ -35,13 +34,11 @@ export async function POST(request: NextRequest) {
   if (!isValidSkinId(skin)) {
     return NextResponse.json({ error: "invalid skin" }, { status: 400 });
   }
-  if (user) {
-    await prisma.userPreferences.upsert({
-      where: { userId: user.id },
-      create: { userId: user.id, skinId: skin },
-      update: { skinId: skin },
-    });
-  }
+  await prisma.userPreferences.upsert({
+    where: { userId: user.id },
+    create: { userId: user.id, skinId: skin },
+    update: { skinId: skin },
+  });
   const response = NextResponse.json({ ok: true });
   response.cookies.set(SKIN_COOKIE, skin, {
     httpOnly: false, sameSite: "lax", path: "/",

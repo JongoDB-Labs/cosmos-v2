@@ -14,8 +14,8 @@ type RouteParams = { params: Promise<{ orgId: string; ruleId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId, listAutomationRuns);
     const { params: p, query } = await parseRequest(listAutomationRuns, request, params);
-    const { ctx } = await orgContext(p.orgId, listAutomationRuns);
     const rule = await ruleInOrg(ctx, p.ruleId);
     if (rule.projectId) await requireProjectVisible(ctx, rule.projectId);
     if (rule.projectId) await requireProjectManage(ctx, rule.projectId, Permission.AUTOMATION_MANAGE);

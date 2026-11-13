@@ -72,3 +72,22 @@ describe("ipMatchesAny", () => {
     expect(ipMatchesAny("10.1.2.3", [])).toBe(false);
   });
 });
+
+describe("IPv4-mapped IPv6 ranges", () => {
+  it("match the IPv4 clients inside them, and only those", () => {
+    const mapped = ["::ffff:203.0.113.0/120"];
+    expect(ipMatchesAny("203.0.113.9", mapped)).toBe(true);
+    expect(ipMatchesAny("::ffff:203.0.113.9", mapped)).toBe(true);
+    expect(ipMatchesAny("203.0.114.9", mapped)).toBe(false);
+    expect(ipMatchesAny("10.1.1.1", ["::ffff:10.0.0.0/104"])).toBe(true);
+    expect(ipMatchesAny("11.1.1.1", ["::ffff:10.0.0.0/104"])).toBe(false);
+  });
+
+  it("are stored as the IPv4 range they mean", () => {
+    expect(normalizeCidr("::ffff:203.0.113.0/120")).toBe("203.0.113.0/24");
+    expect(normalizeCidr("::ffff:203.0.113.9")).toBe("203.0.113.9/32");
+    // Wider than the mapped block: it is an IPv6 range, kept as one.
+    expect(normalizeCidr("::ffff:0:0/80")).toMatch(/\/80$/);
+  });
+});
+

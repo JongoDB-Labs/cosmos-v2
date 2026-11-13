@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { allowlistState, lockoutRefusal, lockoutResponse } from "@/lib/auth/ip-allowlist";
 import { z } from "zod";
 
 const updateEntrySchema = z.object({
@@ -30,6 +31,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = updateEntrySchema.parse(body);
+
+    // Only the label changes, so who the list lets in can't. Checked anyway, so
+    // an edit that one day changes the range can't skip the lockout guard.
+    const state = await allowlistState(orgId);
+    const lockout = lockoutRefusal(request.headers, state, state);
+    if (lockout) return lockoutResponse(lockout);
 
     const updated = await prisma.ipAllowlist.update({
       where: { id: entryId },
@@ -66,6 +73,12 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       where: { id: entryId, orgId },
     });
     if (!existing) return new Response("Not found", { status: 404 });
+
+    const before = await allowlistState(orgId);
+    const without = [...before.cidrs];
+    without.splice(without.indexOf(existing.cidr), 1);
+    const lockout = lockoutRefusal(request.headers, before, { ...before, cidrs: without });
+    if (lockout) return lockoutResponse(lockout);
 
     await prisma.ipAllowlist.delete({ where: { id: entryId } });
 

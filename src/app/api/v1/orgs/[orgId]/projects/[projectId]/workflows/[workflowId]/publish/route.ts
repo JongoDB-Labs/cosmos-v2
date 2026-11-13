@@ -15,8 +15,8 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string; workflo
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const ctx = await workflowProjectContext(await params, previewWorkflowPublish);
     const { params: p } = await parseRequest(previewWorkflowPublish, request, params);
-    const ctx = await workflowProjectContext(p, previewWorkflowPublish);
     await requireProjectRead(ctx, p.projectId, "ITEM_READ");
     const { draft, issues, diff } = await prisma.$transaction((tx) =>
       previewPublish(tx, { orgId: p.orgId, projectId: p.projectId }, p.workflowId),
@@ -29,8 +29,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const ctx = await workflowProjectContext(await params, publishWorkflow);
     const { params: p, body } = await parseRequest(publishWorkflow, request, params);
-    const ctx = await workflowProjectContext(p, publishWorkflow);
     await requireProjectVisible(ctx, p.projectId);
     await requireProjectManage(ctx, p.projectId, Permission.WORKFLOW_MANAGE);
     const result = await prisma.$transaction((tx) =>

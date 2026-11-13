@@ -16,8 +16,8 @@ type RouteParams = { params: Promise<{ orgId: string; ruleId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId, getAutomationRule);
     const { params: p } = await parseRequest(getAutomationRule, request, params);
-    const { ctx } = await orgContext(p.orgId, getAutomationRule);
     const rule = await ruleInOrg(ctx, p.ruleId);
     if (rule.projectId) await requireProjectVisible(ctx, rule.projectId);
     if (rule.projectId) await requireProjectManage(ctx, rule.projectId, Permission.AUTOMATION_MANAGE);
@@ -30,8 +30,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId, updateAutomationRule);
     const { params: p, body } = await parseRequest(updateAutomationRule, request, params);
-    const { ctx } = await orgContext(p.orgId, updateAutomationRule);
     const rule = await ruleInOrg(ctx, p.ruleId);
     if (rule.projectId) await requireProjectVisible(ctx, rule.projectId);
     if (rule.projectId) await requireProjectManage(ctx, rule.projectId, Permission.AUTOMATION_MANAGE);
@@ -55,8 +55,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId, deleteAutomationRule);
     const { params: p } = await parseRequest(deleteAutomationRule, request, params);
-    const { ctx } = await orgContext(p.orgId, deleteAutomationRule);
     const rule = await ruleInOrg(ctx, p.ruleId);
     if (rule.projectId) await requireProjectVisible(ctx, rule.projectId);
     if (rule.projectId) await requireProjectManage(ctx, rule.projectId, Permission.AUTOMATION_MANAGE);

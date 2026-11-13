@@ -17,7 +17,7 @@ export function normalizeCidr(input: string): string | null {
   // Proper CIDR first.
   if (raw.includes("/")) {
     try {
-      const [net, bits] = ipaddr.parseCIDR(raw);
+      const [net, bits] = asIPv4IfMapped(ipaddr.parseCIDR(raw));
       return `${net.toNormalizedString()}/${bits}`;
     } catch {
       return null;
@@ -48,13 +48,9 @@ export function ipMatchesAny(ip: string, cidrs: string[]): boolean {
   }
   for (const cidr of cidrs) {
     try {
-      const [rawNet, bits] = ipaddr.parseCIDR(cidr.trim());
-      let net: ipaddr.IPv4 | ipaddr.IPv6 = rawNet;
-      // Normalize an IPv4-mapped IPv6 network to plain IPv4 so it can match an
-      // IPv4 client (ipaddr requires both operands be the same kind).
-      if (net instanceof ipaddr.IPv6 && net.isIPv4MappedAddress()) {
-        net = net.toIPv4Address();
-      }
+      // An IPv4-mapped IPv6 network becomes the IPv4 range it stands for, so it
+      // can match an IPv4 client (ipaddr requires both operands be the same kind).
+      const [net, bits] = asIPv4IfMapped(ipaddr.parseCIDR(cidr.trim()));
       // Narrow with instanceof so each `match` call resolves to a single
       // concrete overload — TypeScript can't call the IPv4|IPv6 union of the
       // overloaded `match` method, and a runtime kind() check doesn't narrow.
@@ -62,10 +58,23 @@ export function ipMatchesAny(ip: string, cidrs: string[]): boolean {
         if (addr.match([net, bits])) return true;
       } else if (addr instanceof ipaddr.IPv6 && net instanceof ipaddr.IPv6) {
         if (addr.match([net, bits])) return true;
+      } else if (addr instanceof ipaddr.IPv4 && net instanceof ipaddr.IPv6) {
+        // A range wider than the mapped block can still hold an IPv4 client's mapped form.
+        if (addr.toIPv4MappedAddress().match([net, bits])) return true;
       }
     } catch {
       // skip malformed CIDR entries
     }
   }
   return false;
+}
+
+/**
+ * An IPv4-mapped IPv6 network (`::ffff:a.b.c.d/n`, n >= 96) as the IPv4 range
+ * it means (`a.b.c.d/(n-96)`). Keeping the IPv6 prefix length on an IPv4
+ * address would ask for a /120 of a 32-bit address, which matches nothing.
+ */
+function asIPv4IfMapped([net, bits]: [ipaddr.IPv4 | ipaddr.IPv6, number]): [ipaddr.IPv4 | ipaddr.IPv6, number] {
+  if (net instanceof ipaddr.IPv6 && net.isIPv4MappedAddress() && bits >= 96) return [net.toIPv4Address(), bits - 96];
+  return [net, bits];
 }

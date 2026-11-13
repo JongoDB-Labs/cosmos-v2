@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getIpAddress } from "@/lib/api-helpers";
+import { trustedClientIp } from "@/lib/auth/client-ip";
 import { rateLimit } from "@/lib/rate-limit/bucket";
 import { submitAccountRequest, recordSubmitOutcome } from "@/lib/auth/account-requests";
 
@@ -27,7 +28,10 @@ const schema = z.object({
  * account-minting path (see createOrgInvitation).
  */
 export async function POST(request: NextRequest) {
-  const ip = getIpAddress(request) ?? "unknown";
+  // Keyed by the address the edge proxy wrote (client-ip.ts), which a client
+  // can't choose; the left-most X-Forwarded-For entry it can, which would buy
+  // it a fresh limit per request.
+  const ip = trustedClientIp(request.headers) ?? getIpAddress(request) ?? "unknown";
   const rl = rateLimit(`acctreq:${ip}`, { capacity: 5, refillPerSecond: 0.05 });
   if (!rl.allowed) {
     return NextResponse.json(

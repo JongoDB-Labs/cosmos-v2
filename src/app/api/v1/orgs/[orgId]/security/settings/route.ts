@@ -7,6 +7,7 @@ import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { AccountRequestMode } from "@prisma/client";
+import { allowlistState, lockoutRefusal, lockoutResponse, securitySettingsFor } from "@/lib/auth/ip-allowlist";
 
 const updateSettingsSchema = z.object({
   mfaRequired: z.boolean().optional(),
@@ -53,13 +54,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.SECURITY_MANAGE);
 
-    const settings = await prisma.orgSecuritySettings.upsert({
-      where: { orgId },
-      create: { orgId },
-      update: {},
-    });
-
-    return success(settings);
+    // With the address the IP allowlist will judge this person by, so the
+    // settings screen can say what to add before turning it on.
+    return success(await securitySettingsFor(orgId, request.headers));
   } catch (error) {
     return handleApiError(error);
   }
@@ -124,6 +121,13 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         }),
         { status: 400, headers: { "Content-Type": "application/json" } },
       );
+    }
+
+    // Turning the IP allowlist on must not shut out the person turning it on.
+    if (data.ipAllowlistEnabled !== undefined) {
+      const before = await allowlistState(orgId);
+      const lockout = lockoutRefusal(request.headers, before, { ...before, enabled: data.ipAllowlistEnabled });
+      if (lockout) return lockoutResponse(lockout);
     }
 
     const settings = await prisma.orgSecuritySettings.upsert({

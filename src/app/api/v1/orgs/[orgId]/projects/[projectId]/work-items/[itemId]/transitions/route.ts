@@ -13,8 +13,8 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string; itemId:
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const { ctx } = await orgContext((await params).orgId, listItemTransitions);
     const { params: p } = await parseRequest(listItemTransitions, request, params);
-    const { ctx } = await orgContext(p.orgId, listItemTransitions);
     // The project first (a key's project scope, team-scoped access), so a
     // caller who can't see the project can't learn what's in it, or whether an
     // item id exists there.

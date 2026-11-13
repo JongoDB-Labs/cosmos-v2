@@ -2,14 +2,16 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 
 /**
- * Test-only email → userId lookup. Disabled unless E2E_TEST_AUTH === "1".
- * Used by Playwright fixtures to construct <@uuid> mention tokens.
+ * Test-only email → userId lookup. Disabled unless E2E_TEST_AUTH === "1", and
+ * always in production, like testenv/sign-in: the NODE_ENV check sits above
+ * the switch, so a production image that inherits E2E_TEST_AUTH still answers
+ * 404. Used by Playwright fixtures to construct <@uuid> mention tokens.
  *
- * GET /api/__test__/user-id?email=alice%40test.local
+ * GET /api/testenv/user-id?email=alice%40test.local
  * Returns: { userId: string }
  */
 export async function GET(req: NextRequest) {
-  if (process.env.E2E_TEST_AUTH !== "1") {
+  if (process.env.NODE_ENV === "production" || process.env.E2E_TEST_AUTH !== "1") {
     return new Response("Disabled", { status: 404 });
   }
   const url = new URL(req.url);

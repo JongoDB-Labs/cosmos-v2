@@ -28,6 +28,9 @@ const ERROR_MESSAGES: Record<string, string> = {
 
 type SsoStatus = { enabled: boolean; enforced: boolean; accountRequests?: boolean };
 
+/** Every way an account request can fail to be taken reads the same. */
+const REQUEST_NOT_SENT = "We couldn't send your request. Try again in a minute.";
+
 function LoginInner() {
   const brand = useBrand();
   const params = useSearchParams();
@@ -282,15 +285,18 @@ function LoginInner() {
     }
   }
 
-  // Ask this org for an account. Like the reset endpoint, the answer is the
-  // same whatever happened — it never says whether the org accepts the address
-  // — so any non-error response shows the same neutral confirmation.
+  // Ask this org for an account. The route answers 200 whatever it decided,
+  // so the confirmation says nothing about whether the org accepts the
+  // address. Anything else means the request was never taken (an outage, a
+  // throttle, a refusal in front of the route), and the visitor is told so
+  // with one message for every such case, which says nothing about the org or
+  // the address either.
   async function submitRequest(e?: React.FormEvent) {
     e?.preventDefault();
     setPwBusy(true);
     setPwError(null);
     try {
-      await fetch("/api/auth/account-request", {
+      const res = await fetch("/api/auth/account-request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -299,10 +305,10 @@ function LoginInner() {
           ...(requestNote.trim() ? { note: requestNote.trim() } : {}),
         }),
       });
-      setPhase("request_sent");
+      if (res.ok) setPhase("request_sent");
+      else setPwError(REQUEST_NOT_SENT);
     } catch {
-      // Even on a network error, don't leak anything — neutral screen.
-      setPhase("request_sent");
+      setPwError(REQUEST_NOT_SENT);
     } finally {
       setPwBusy(false);
     }
@@ -424,7 +430,7 @@ function LoginInner() {
         </div>
 
         {message && (
-          <div className="mt-6 rounded-md border border-[var(--status-critical)]/30 bg-[var(--status-critical)]/10 px-3 py-2 text-sm text-[var(--status-critical)]">
+          <div className="mt-6 rounded-md border border-[var(--status-critical)]/30 bg-[var(--status-critical)]/10 px-3 py-2 text-sm text-[var(--status-critical-text)]">
             {message}
           </div>
         )}
@@ -518,7 +524,7 @@ function LoginInner() {
                   required
                 />
                 {pwError && (
-                  <p className="text-xs text-[var(--status-critical)]">{pwError}</p>
+                  <p className="text-xs text-[var(--status-critical-text)]">{pwError}</p>
                 )}
                 <Button
                   type="button"
@@ -575,7 +581,7 @@ function LoginInner() {
                   required
                 />
                 {pwError && (
-                  <p className="text-xs text-[var(--status-critical)]">{pwError}</p>
+                  <p className="text-xs text-[var(--status-critical-text)]">{pwError}</p>
                 )}
                 <Button
                   type="button"
@@ -650,7 +656,7 @@ function LoginInner() {
                   onKeyDown={(e) => e.key === "Enter" && void submitRequest()}
                 />
                 {pwError && (
-                  <p className="text-xs text-[var(--status-critical)]">{pwError}</p>
+                  <p role="alert" className="text-xs text-[var(--status-critical-text)]">{pwError}</p>
                 )}
                 <Button
                   type="button"
@@ -721,7 +727,7 @@ function LoginInner() {
                   required
                 />
                 {pwError && (
-                  <p className="text-xs text-[var(--status-critical)]">{pwError}</p>
+                  <p className="text-xs text-[var(--status-critical-text)]">{pwError}</p>
                 )}
                 <Button
                   type="button"
@@ -765,7 +771,7 @@ function LoginInner() {
                   required
                 />
                 {pwError && (
-                  <p className="text-xs text-[var(--status-critical)]">{pwError}</p>
+                  <p className="text-xs text-[var(--status-critical-text)]">{pwError}</p>
                 )}
                 <Button
                   type="button"
@@ -814,7 +820,7 @@ function LoginInner() {
                   required
                 />
                 {pwError && (
-                  <p className="text-xs text-[var(--status-critical)]">{pwError}</p>
+                  <p className="text-xs text-[var(--status-critical-text)]">{pwError}</p>
                 )}
                 <Button
                   type="button"

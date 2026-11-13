@@ -60,12 +60,16 @@ export async function isOrgFrozen(orgSlug: string): Promise<boolean> {
   return row !== null;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Is the org targeted by this path frozen? Resolves by id OR slug as the path dictates.
  *  Returns false for non-org paths. This is the predicate the proxy calls. */
 export async function isPathOrgFrozen(pathname: string): Promise<boolean> {
   const ref = orgRefFromPath(pathname);
   if (!ref) return false;
   if (ref.kind === "id") {
+    // Not a UUID: no org has that id, and the query would throw (a 500 for anyone's write).
+    if (!UUID.test(ref.value)) return false;
     const row = await prisma.frozenOrg.findUnique({ where: { orgId: ref.value }, select: { id: true } });
     return row !== null;
   }
