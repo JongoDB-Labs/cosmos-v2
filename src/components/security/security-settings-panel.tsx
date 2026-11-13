@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey, useOrgSlug, orgQueryKey } from "@/lib/query/keys";
@@ -59,6 +60,8 @@ interface OrgSecuritySettings {
   idleTimeoutMins: number;
   maxConcurrentSessions: number;
   actionRestrictions: unknown;
+  /** "Members can create their own API keys". Off: only admins' keys work. */
+  memberApiKeysEnabled: boolean;
   createdAt: string;
   updatedAt: string;
   /** The address the IP allowlist judges this person by; null when Cosmos can't read it. */
@@ -153,6 +156,7 @@ export function SecuritySettingsPanel({
     idleTimeoutMins: 0,
     maxConcurrentSessions: 0,
     actionRestrictions: [] as Restriction[],
+    memberApiKeysEnabled: true,
   });
 
   const settingsKey = useOrgQueryKey("security-settings");
@@ -231,6 +235,8 @@ export function SecuritySettingsPanel({
         idleTimeoutMins: settings.idleTimeoutMins ?? 0,
         maxConcurrentSessions: settings.maxConcurrentSessions ?? 0,
         actionRestrictions: toRestrictions(settings.actionRestrictions),
+        // A row written before this setting existed reads as the default, on.
+        memberApiKeysEnabled: settings.memberApiKeysEnabled ?? true,
       });
     }
   }, [settings]);
@@ -242,7 +248,7 @@ export function SecuritySettingsPanel({
     qc.invalidateQueries({ queryKey: orgQueryKey(orgSlug, "security", "scim-tokens") });
   }
 
-  const saveSettings = useOrgMutation<unknown, Error, void>({
+  const saveSettings = useOrgMutation<{ apiKeysRevoked?: number }, Error, void>({
     mutationFn: () =>
       jsonFetch(`/api/v1/orgs/${orgId}/security/settings`, {
         method: "PUT",
@@ -259,6 +265,7 @@ export function SecuritySettingsPanel({
           idleTimeoutMins: form.idleTimeoutMins,
           maxConcurrentSessions: form.maxConcurrentSessions,
           actionRestrictions: form.actionRestrictions,
+          memberApiKeysEnabled: form.memberApiKeysEnabled,
         }),
       }),
     invalidate: [["security-settings"]],
@@ -363,7 +370,15 @@ export function SecuritySettingsPanel({
       notifyError(null, `Restriction ${empty + 1} has no actions ticked. Tick at least one, or remove it.`);
       return;
     }
-    saveSettings.mutate(undefined, { onSuccess: () => invalidateAll() });
+    saveSettings.mutate(undefined, {
+      onSuccess: (saved) => {
+        invalidateAll();
+        // Turning on Require MFA revokes the keys of people who can't manage
+        // keys; say how many, since nothing else on this page shows it.
+        const n = saved?.apiKeysRevoked ?? 0;
+        if (n > 0) toast.success(`Saved. ${n} API ${n === 1 ? "key was" : "keys were"} revoked.`);
+      },
+    });
   }
 
   function addDomain() {
@@ -465,7 +480,8 @@ export function SecuritySettingsPanel({
             <div>
               <p className="text-sm font-medium">Require MFA</p>
               <p className="text-xs text-muted-foreground">
-                All users must enable multi-factor authentication
+                All users must enable multi-factor authentication. Turning it on revokes the API keys of people who
+                can&apos;t manage keys.
               </p>
             </div>
             <Toggle
@@ -922,6 +938,29 @@ export function SecuritySettingsPanel({
           value={form.actionRestrictions}
           onChange={(next) => setForm((p) => ({ ...p, actionRestrictions: next }))}
         />
+      </SectionCard>
+
+      <SectionCard
+        icon={Key}
+        title="API keys"
+        description="Who can use the Cosmos API with their own key"
+      >
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium">Members can create their own API keys</p>
+            <p className="text-xs text-muted-foreground">
+              Each key acts as the person who made it. Turn this off and only admins can create keys.
+              Keys that other members already made stop working until you turn it back on. When your
+              organization requires single sign-on, a member&apos;s key works only if they made it while
+              signed in through it; admins&apos; keys keep working.
+            </p>
+          </div>
+          <Toggle
+            aria-label="Members can create their own API keys"
+            checked={form.memberApiKeysEnabled}
+            onCheckedChange={(v) => setForm((p) => ({ ...p, memberApiKeysEnabled: v }))}
+          />
+        </div>
       </SectionCard>
 
       <SectionCard

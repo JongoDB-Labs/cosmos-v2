@@ -69,10 +69,11 @@ export async function requireCeremonyViewer(ctx: AuthContext, projectId: string)
  * Every contributor action is a write (add, edit or delete a note or action
  * item). A session needs only SPRINT_READ, so any project member can type into
  * a retro; a key also needs SPRINT_CREATE (items:write or planning:write), so a
- * read key can't rewrite or delete the room's notes and actions.
+ * read key can't rewrite or delete the room's notes and actions, and its creator
+ * needs the SPRINT_READ their session would (keyMay).
  */
 export async function requireCeremonyContributor(ctx: AuthContext, projectId: string): Promise<void> {
-  await requireProjectRead(ctx, projectId, ctx.isApiKey ? "SPRINT_CREATE" : "SPRINT_READ");
+  await requireProjectRead(ctx, projectId, { key: "SPRINT_CREATE", session: "SPRINT_READ" });
 }
 
 /** As above, plus the facilitator permission that opening/closing requires. */

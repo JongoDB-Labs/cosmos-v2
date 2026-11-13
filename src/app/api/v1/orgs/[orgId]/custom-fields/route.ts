@@ -14,6 +14,7 @@ import { FieldType } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
+import { requireKeyMay } from "@/lib/rbac/key-role";
 
 const createFieldSchema = z.object({
   name: z.string().min(1).max(100),
@@ -32,8 +33,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { ctx } = await orgContext((await params).orgId, listCustomFields);
     const { params: { orgId }, query: { projectId } } = await parseRequest(listCustomFields, request, params);
     // ORG_READ for a session; a key's `read` scope deliberately lacks it (see
-    // SCOPE_MASK in lib/auth/api-key.ts), so a key reads this with PROJECT_READ.
-    requirePermission(ctx, ctx.isApiKey ? Permission.PROJECT_READ : Permission.ORG_READ);
+    // SCOPE_MASK in lib/auth/api-key.ts), so a key reads this with PROJECT_READ,
+    // and only while its creator holds ORG_READ (keyMay).
+    requireKeyMay(ctx, "PROJECT_READ", "ORG_READ");
 
     // A key sees org-wide fields and those of projects it can read (its
     // projectScope and team scoping); a session sees the org's, as before.

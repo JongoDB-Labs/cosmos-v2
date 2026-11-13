@@ -31,6 +31,14 @@ export interface AuthContext {
   /** A token's scopes, as minted. Absent for a browser session. */
   scopes?: string[];
   /**
+   * An API key's creator's own effective permissions, without the scope mask:
+   * what that person's browser session would be gated on. Set only on a key's
+   * context (apiKeyAuthContext). Read it only through `keyMay`
+   * (rbac/key-role.ts), which a route uses where it asks a key for a different
+   * bit than a session; never as a grant on its own.
+   */
+  ownerPermissions?: bigint;
+  /**
    * A hard ceiling on which projects this actor may touch, independent of role.
    *
    * `undefined` means unrestricted — every session has this, and nothing about

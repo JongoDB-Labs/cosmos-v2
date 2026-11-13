@@ -62,6 +62,12 @@ export const BITLESS_ROUTES: Record<string, KeyAccess> = {
   //    read or file feedback at all (ORG_READ is in no scope).
   "DELETE v1/orgs/[orgId]/feedback/attachments/[attachmentId]": { key: "refused" },
 
+  // ── Creating, listing and revoking API keys is for a person: a leaked key
+  //    must never mint its own successor or revoke the others.
+  "GET v1/orgs/[orgId]/api-keys": { key: "refused" },
+  "POST v1/orgs/[orgId]/api-keys": { key: "refused" },
+  "DELETE v1/orgs/[orgId]/api-keys/[keyId]": { key: "refused" },
+
   // ── Read-only org facts a script may reasonably want.
   "GET v1/orgs/[orgId]/logo": { key: "scope", scopes: ["read"] },
   "GET v1/orgs/[orgId]/query-language": { key: "scope", scopes: ["read"] },

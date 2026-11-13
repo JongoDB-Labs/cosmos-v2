@@ -12,6 +12,7 @@ import { logAudit } from "@/lib/audit";
 import { resolveLabels } from "@/lib/work-items/labels";
 import { z } from "zod";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
+import { requireKeyMay } from "@/lib/rbac/key-role";
 
 const createLabelSchema = z.object({
   name: z.string().min(1).max(60),
@@ -33,8 +34,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { ctx } = await orgContext((await params).orgId, listLabels);
     const { params: { orgId }, query: { projectId } } = await parseRequest(listLabels, request, params);
     // ORG_READ for a session; a key's `read` scope deliberately lacks it (see
-    // SCOPE_MASK in lib/auth/api-key.ts), so a key reads this with PROJECT_READ.
-    requirePermission(ctx, ctx.isApiKey ? Permission.PROJECT_READ : Permission.ORG_READ);
+    // SCOPE_MASK in lib/auth/api-key.ts), so a key reads this with PROJECT_READ,
+    // and only while its creator holds ORG_READ (keyMay).
+    requireKeyMay(ctx, "PROJECT_READ", "ORG_READ");
 
     const labels = await prisma.label.findMany({
       where: { orgId },

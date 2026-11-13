@@ -84,7 +84,7 @@ const TOKEN_AUTHENTICATED = new Set(["confirmFilterUnsubscribe", "filterUnsubscr
 const SESSION_ONLY_ADMIN = new Set(["listSsoProvisionedAccounts", "clearSsoProvisionedAccount"]);
 /**
  * Not an exception, a gap in what this test reads: these handlers gate a key
- * on COMMENT_CREATE (`ctx.isApiKey ? "COMMENT_CREATE" : "COMMENT_READ"`) since
+ * on COMMENT_CREATE (`{ key: "COMMENT_CREATE", session: "COMMENT_READ" }`) since
  * read-key-writes.test.ts closed read keys editing and erasing comments, before
  * they had contracts. `bitsChecked` reads the session arm, so it credits `read`
  * with them; no read key has reached them since that fix.
@@ -189,7 +189,7 @@ describe("the named exceptions are exactly what they say", () => {
     expect(() => assertScopes(ctx(["items:write"]), c)).not.toThrow();
     // The handler still gates a key on COMMENT_CREATE, which only items:write carries.
     const src = readFileSync(path.join(process.cwd(), "src/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/[commentId]/route.ts"), "utf8");
-    expect(src).toMatch(/ctx\.isApiKey \? "COMMENT_CREATE" : "COMMENT_READ"/);
+    expect(src).toMatch(/\{ key: "COMMENT_CREATE", session: "COMMENT_READ" \}/);
   });
 
   it.each(Object.entries(LOST_WITHOUT_READ))("%s: each listed scope is refused", (op, scopes) => {

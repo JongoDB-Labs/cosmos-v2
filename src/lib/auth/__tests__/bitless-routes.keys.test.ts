@@ -27,6 +27,17 @@ vi.mock("@/lib/auth/api-key", async (orig) => ({
   resolveAuth: async () => h.ctx,
 }));
 vi.mock("@/lib/audit", () => ({ logAudit: async () => { h.touched.push("audit"); } }));
+// The caller's membership, as the request's context holds it. Minting a key
+// judges its creator by this (api-key-manage.server mintStanding); the empty
+// database below would otherwise say they are no member at all.
+vi.mock("@/lib/rbac/effective-permissions", async (orig) => ({
+  ...(await orig<typeof import("@/lib/rbac/effective-permissions")>()),
+  loadEffectivePermissions: async () => {
+    h.touched.push("orgMember.findUnique");
+    const c = h.ctx as AuthContext | null;
+    return c && { orgRole: c.orgRole, permissions: c.permissions, basePermissions: c.permissions, abacRules: [] };
+  },
+}));
 vi.mock("@/lib/storage", () => ({
   getStorage: () => new Proxy({}, { get: (_t, op: string) => async () => { h.touched.push(`storage.${op}`); return null; } }),
 }));
@@ -52,7 +63,11 @@ vi.mock("@/lib/db/client", () => {
 
 type Handler = (req: NextRequest, ctx: { params: Promise<Record<string, string>> }) => Promise<Response>;
 
-const IDS = { orgId: ORG, feedId: "f1", feedbackId: "fb1", attachmentId: "a1", projectId: "p1", docId: "d1" };
+// keyId is a uuid because the key routes 404 any other id before looking.
+const IDS = {
+  orgId: ORG, feedId: "f1", feedbackId: "fb1", attachmentId: "a1", projectId: "p1", docId: "d1",
+  keyId: "99999999-9999-4999-8999-999999999999",
+};
 
 /** The route module for a table key. */
 async function load(entry: string): Promise<Handler> {

@@ -2,6 +2,7 @@ import { ForbiddenError, type AuthContext } from "@/lib/rbac/check";
 import { type PermissionKey } from "@/lib/rbac/permissions";
 import { requireAccess } from "@/lib/abac/require-access";
 import { isProjectVisible } from "@/lib/rbac/project-access";
+import { requireKeyMayAccess, type KeyOrSessionBits } from "@/lib/rbac/key-role";
 
 /**
  * The gate for reading anything that belongs to a project.
@@ -28,13 +29,19 @@ import { isProjectVisible } from "@/lib/rbac/project-access";
  *
  * Throws ForbiddenError on denial, mirroring requirePermission's contract, so
  * call sites need no error handling of their own.
+ *
+ * `{ key, session }` instead of one action: a key is asked for `key` and its
+ * creator for `session`, a session for `session` (keyMay, rbac/key-role.ts).
+ * For a route where no key scope carries the session's bit.
  */
 export async function requireProjectRead(
   ctx: AuthContext,
   projectId: string,
-  action: PermissionKey,
+  action: PermissionKey | KeyOrSessionBits,
 ): Promise<void> {
-  await requireAccess(ctx, action, { orgId: ctx.orgId, projectId });
+  const resource = { orgId: ctx.orgId, projectId };
+  if (typeof action === "string") await requireAccess(ctx, action, resource);
+  else await requireKeyMayAccess(ctx, action, resource);
   await requireProjectVisible(ctx, projectId);
 }
 

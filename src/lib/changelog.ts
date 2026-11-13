@@ -49,6 +49,41 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.557.0",
+    date: "2026-11-13",
+    title: "Every member can create their own API keys",
+    highlights: [
+      {
+        kind: "feature",
+        text: "You can now create your own API keys under Settings → API keys, whatever your role, unless you are a guest. A key acts as you: it can only do what you can do, and only what its scopes allow. Scopes your role can't use are greyed out, with the reason. A key must expire within 366 days unless an admin makes it. You can have up to 20 working keys at a time.",
+      },
+      {
+        kind: "feature",
+        text: "Admins see every key in the organization and who made it, and can revoke any of them. A new switch in Security settings, \"Members can create their own API keys\", lets an admin turn this off. While it is off, only admins can create keys, and keys other members made stop working until it is turned back on.",
+      },
+      {
+        kind: "improvement",
+        text: "A key now stops working as soon as the person who made it can no longer have keys, for example when they become a guest. The key list marks such a key as not active and says why, instead of showing an expiry date it will never reach. Creating and revoking keys is recorded in the audit log.",
+      },
+      {
+        kind: "improvement",
+        text: "Removing someone from the organization deletes their API keys, and adding them back deletes any keys left from before, so old keys never return. Turning on Require MFA revokes the keys of everyone who can't manage keys, and tells you how many. A key that never expires, made by someone who later loses the right to manage keys, stops working 366 days after it was made, and the key list shows that date.",
+      },
+      {
+        kind: "improvement",
+        text: "When an organization requires single sign-on, a member's API key works only if they made it while signed in through that sign-on. Keys made any other way, including ones made before the requirement, stop working while it is on and work again if it is turned off. Admins' keys keep working, as before.",
+      },
+      {
+        kind: "fix",
+        text: "A few API endpoints ask a key for a different permission than a browser session. They now also check that the key's owner has the session's permission, so a key can never read something its owner can't, such as project KPIs. The time:write scope is offered only to people who can log time.",
+      },
+      {
+        kind: "fix",
+        text: "When the server is too busy to start or finish a database transaction in time, the API now answers 503 \"Server busy\" with a Retry-After header, instead of a generic error. Other transaction errors are still reported as server errors.",
+      },
+    ],
+  },
+  {
     version: "2.556.2",
     date: "2026-11-13",
     title: "Action restrictions hold for organization admins",

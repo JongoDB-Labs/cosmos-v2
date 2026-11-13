@@ -31,7 +31,16 @@ import {
   AlertTriangle,
   KeyRound,
 } from "lucide-react";
-import { API_KEY_SCOPES, type ApiKeyScope } from "@/lib/auth/api-key-scopes";
+import type { ApiKeyScope } from "@/lib/auth/api-key-scopes";
+import {
+  API_KEY_LIMITS,
+  KEY_INACTIVE_TEXT,
+  defaultExpiryDate,
+  expiryRefusal,
+  latestExpiryWithoutManage,
+  utcDateInput,
+  type KeyInactiveReason,
+} from "@/lib/auth/api-key-policy";
 import { formatDateStable } from "@/lib/format/stable-date";
 import { LocalTimestamp } from "@/components/ui/local-timestamp";
 
@@ -43,8 +52,14 @@ interface ApiKeyRow {
   /** Projects the key is limited to. Empty = org-wide. */
   projectIds?: string[];
   expiresAt: string | null;
+  /** When it really stops: `expiresAt`, or sooner once its creator can't manage keys. */
+  effectiveExpiresAt?: string | null;
+  /** Why it authenticates nobody right now (the verifier's rule), or null when it works. */
+  inactiveReason?: KeyInactiveReason | null;
   lastUsed: string | null;
   createdAt: string;
+  /** Who made the key. Null when their account was deleted. */
+  createdBy?: { id: string; name: string } | null;
 }
 
 type MintedKey = ApiKeyRow & { token: string };
@@ -65,6 +80,25 @@ const SCOPE_LABELS: Record<ApiKeyScope, string> = {
 
 interface ApiKeysManagerProps {
   orgId: string;
+  /** The signed-in person: their keys are the ones under "Your API keys". */
+  currentUserId: string;
+  /** Holds API_KEY_MANAGE in their session: sees and revokes every key. */
+  managesAll: boolean;
+  /** May make a key that never expires: API_KEY_MANAGE as a key sees it (no owner break-glass). */
+  mintsWithoutLimit: boolean;
+  /** Why they can't create a key right now (switch, role, single sign-on), or null when they can. */
+  createRefusal: string | null;
+  /** The org has turned off "Members can create their own API keys". */
+  memberKeysOff: boolean;
+  /** Every scope, with why this person can't use it (null when they can).
+   *  From scopeVerdicts, the function the mint route checks with. */
+  scopes: { scope: ApiKeyScope; refusal: string | null }[];
+}
+
+/** The expiry bounds the create form works within, taken when it opens. */
+interface ExpiryBounds {
+  min: string;
+  max: string | undefined;
 }
 
 /** A project, as the picker needs it. */
@@ -74,7 +108,21 @@ interface PickerProject {
   name: string;
 }
 
-export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
+/** The date input holds a day; a key made for that day lasts to its end, in UTC. */
+function expiryInstant(day: string): Date | null {
+  return day ? new Date(`${day}T23:59:59.000Z`) : null;
+}
+
+export function ApiKeysManager({
+  orgId,
+  currentUserId,
+  managesAll,
+  mintsWithoutLimit,
+  createRefusal,
+  memberKeysOff,
+  scopes,
+}: ApiKeysManagerProps) {
+  const canCreate = createRefusal === null;
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [tokenDialogOpen, setTokenDialogOpen] = useState(false);
   const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
@@ -89,6 +137,7 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
   const [formAllProjects, setFormAllProjects] = useState(true);
   const [formProjectIds, setFormProjectIds] = useState<string[]>([]);
   const [formExpiry, setFormExpiry] = useState("");
+  const [expiryBounds, setExpiryBounds] = useState<ExpiryBounds>({ min: "", max: undefined });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const apiBase = `/api/v1/orgs/${orgId}/api-keys`;
@@ -120,7 +169,14 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
     setFormScopes([]);
     setFormAllProjects(true);
     setFormProjectIds([]);
-    setFormExpiry("");
+    // Taken now, in the browser, rather than while rendering: "today" on the
+    // server and in the browser can differ, and a date in the markup would.
+    const now = new Date();
+    setFormExpiry(defaultExpiryDate(now));
+    setExpiryBounds({
+      min: utcDateInput(now),
+      max: mintsWithoutLimit ? undefined : utcDateInput(latestExpiryWithoutManage(now)),
+    });
     setErrors({});
     setCreateDialogOpen(true);
   }
@@ -150,6 +206,9 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
     if (!formAllProjects && formProjectIds.length === 0) {
       next.projects = "Select at least one project, or choose All projects";
     }
+    // The server's own rule, so the form says what the server would.
+    const expiry = expiryRefusal(expiryInstant(formExpiry), mintsWithoutLimit, new Date());
+    if (expiry) next.expiresAt = expiry;
     return next;
   }
 
@@ -193,11 +252,7 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
     const next = validateForm();
     setErrors(next);
     if (Object.keys(next).length > 0) return;
-    // The expiry input is a date (no time); send it as an end-of-day ISO
-    // instant so `z.string().datetime()` on the server accepts it.
-    const expiresAt = formExpiry
-      ? new Date(`${formExpiry}T23:59:59.000Z`).toISOString()
-      : null;
+    const expiresAt = expiryInstant(formExpiry)?.toISOString() ?? null;
     createMutation.mutate({
       name: formName.trim(),
       scopes: formScopes,
@@ -247,73 +302,73 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
     );
   }
 
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="flex justify-end">
-        <Button onClick={openCreateDialog}>
-          <Plus className="mr-1 h-4 w-4" />
-          Create key
-        </Button>
-      </div>
+  const ownKeys = keys.filter((k) => k.createdBy?.id === currentUserId);
 
-      {keys.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-3 rounded-[var(--radius)] border border-dashed border-[var(--border)] py-12">
-          <KeyRound className="h-10 w-10 text-[var(--text-muted)]/40" />
-          <div className="text-center">
-            <p className="text-sm font-medium text-[var(--text-muted)]">
-              No API keys yet
-            </p>
+  return (
+    <div className="flex flex-col gap-8">
+      <section className="flex flex-col gap-3" aria-labelledby="own-keys-heading">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 id="own-keys-heading" className="text-sm font-semibold text-[var(--text)]">
+              Your API keys
+            </h2>
             <p className="mt-1 text-xs text-[var(--text-muted)]">
-              Create a key to call the Cosmos API with a bearer token.
+              A key acts as you. It can only do what you can do, and only what its scopes allow.
             </p>
           </div>
+          {canCreate && (
+            <Button onClick={openCreateDialog}>
+              <Plus className="mr-1 h-4 w-4" />
+              Create key
+            </Button>
+          )}
         </div>
-      ) : (
-        <div className="divide-y divide-[var(--border)] rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)]">
-          {keys.map((key) => (
-            <div
-              key={key.id}
-              className="flex flex-wrap items-center gap-4 px-4 py-3"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-sm font-medium text-[var(--text)]">
-                    {key.name}
-                  </span>
-                  <code className="rounded bg-[var(--bg-muted,var(--surface))] px-1.5 py-0.5 font-mono text-[11px] text-[var(--text-muted)]">
-                    cosmos_{key.prefix}_…
-                  </code>
-                </div>
-                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                  {key.scopes.map((scope) => (
-                    <Badge key={scope} variant="neutral" className="text-[10px]">
-                      {SCOPE_LABELS[scope as ApiKeyScope] ?? scope}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-              <div className="flex flex-col items-end gap-0.5 text-xs text-[var(--text-muted)]">
-                <span>
-                  Last used:{" "}
-                  <LocalTimestamp value={key.lastUsed} fallback="never" />
-                </span>
-                <span>
-                  {key.expiresAt
-                    ? `Expires ${formatDateStable(key.expiresAt)}`
-                    : "No expiry"}
-                </span>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => openRevokeDialog(key)}
-                title="Revoke"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+
+        {createRefusal && (
+          <p className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--text)]">
+            {memberKeysOff && !mintsWithoutLimit
+              ? "An admin has turned off API keys for members, so you can't create keys and your existing keys don't work."
+              : createRefusal}
+          </p>
+        )}
+
+        {ownKeys.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-3 rounded-[var(--radius)] border border-dashed border-[var(--border)] py-12">
+            <KeyRound className="h-10 w-10 text-[var(--text-muted)]/40" />
+            <div className="text-center">
+              <p className="text-sm font-medium text-[var(--text-muted)]">
+                You have no API keys
+              </p>
+              {canCreate && (
+                <p className="mt-1 text-xs text-[var(--text-muted)]">
+                  Create a key to use the Cosmos API as yourself.
+                </p>
+              )}
             </div>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <KeyList rows={ownKeys} onRevoke={openRevokeDialog} />
+        )}
+      </section>
+
+      {managesAll && (
+        <section className="flex flex-col gap-3" aria-labelledby="all-keys-heading">
+          <div>
+            <h2 id="all-keys-heading" className="text-sm font-semibold text-[var(--text)]">
+              All keys in this organization
+            </h2>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">
+              {memberKeysOff
+                ? "Only admins can create keys right now, and keys made by other members don't work. You can change this in Security settings."
+                : "Everyone's keys, including yours. Revoke any key you don't trust."}
+            </p>
+          </div>
+          {keys.length === 0 ? (
+            <p className="text-xs text-[var(--text-muted)]">No one has created a key yet.</p>
+          ) : (
+            <KeyList rows={keys} showCreator onRevoke={openRevokeDialog} />
+          )}
+        </section>
       )}
 
       {/* Create dialog */}
@@ -322,7 +377,7 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
           <DialogHeader>
             <DialogTitle>Create API key</DialogTitle>
             <DialogDescription>
-              Grant a bearer token scoped to this organization.
+              The key acts as you in this organization. Choose what it may do.
             </DialogDescription>
           </DialogHeader>
 
@@ -358,23 +413,34 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
                 aria-labelledby="create-scopes-label"
                 aria-describedby={errors.scopes ? "create-scopes-error" : undefined}
               >
-                {API_KEY_SCOPES.map((scope) => (
+                {scopes.map(({ scope, refusal }) => (
                   <label
                     key={scope}
                     className={cn(
-                      "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-xs transition-colors",
-                      formScopes.includes(scope)
-                        ? "border-[var(--primary)] bg-[var(--primary)]/5"
-                        : "border-[var(--border)] hover:bg-[var(--surface)]",
+                      "flex items-center gap-2 rounded-md border px-3 py-2 text-xs transition-colors",
+                      refusal
+                        ? "cursor-not-allowed border-[var(--border)] opacity-60"
+                        : formScopes.includes(scope)
+                          ? "cursor-pointer border-[var(--primary)] bg-[var(--primary)]/5"
+                          : "cursor-pointer border-[var(--border)] hover:bg-[var(--surface)]",
                     )}
                   >
                     <input
                       type="checkbox"
                       checked={formScopes.includes(scope)}
                       onChange={() => toggleScope(scope)}
+                      disabled={refusal !== null}
+                      aria-describedby={refusal ? `scope-refusal-${scope}` : undefined}
                       className="rounded border-[var(--border)]"
                     />
-                    <span className="font-medium">{SCOPE_LABELS[scope]}</span>
+                    <span className="flex min-w-0 flex-col">
+                      <span className="font-medium">{SCOPE_LABELS[scope]}</span>
+                      {refusal && (
+                        <span id={`scope-refusal-${scope}`} className="text-[10px] text-[var(--text-muted)]">
+                          {refusal}
+                        </span>
+                      )}
+                    </span>
                     <code className="ml-auto font-mono text-[10px] text-[var(--text-muted)]">
                       {scope}
                     </code>
@@ -404,7 +470,7 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
                   />
                   <span className="font-medium">All projects</span>
                   <span className="ml-auto text-[10px] text-[var(--text-muted)]">
-                    everything the key&apos;s owner can reach
+                    every project you can see
                   </span>
                 </label>
                 <label className="flex cursor-pointer items-center gap-2 rounded-md border border-[var(--border)] px-3 py-2 text-xs hover:bg-[var(--surface)]">
@@ -471,12 +537,24 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
               </p>
             )}
 
-            <FormField label="Expires (optional)" error={errors.expiresAt}>
+            <FormField
+              label={mintsWithoutLimit ? "Expires (optional)" : "Expires"}
+              required={!mintsWithoutLimit}
+              error={errors.expiresAt}
+              hint={
+                mintsWithoutLimit
+                  ? "Leave it empty for a key that never expires."
+                  : `A key can last up to ${API_KEY_LIMITS.maxDaysWithoutManage} days.`
+              }
+            >
               {(p) => (
                 <Input
                   {...p}
                   type="date"
                   value={formExpiry}
+                  min={expiryBounds.min}
+                  max={expiryBounds.max}
+                  required={!mintsWithoutLimit}
                   onChange={(e) => {
                     setFormExpiry(e.target.value);
                     clearError("expiresAt");
@@ -550,7 +628,11 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
             </DialogTitle>
             <DialogDescription>
               {revokingKey
-                ? `Revoke "${revokingKey.name}"? Any client using this key will immediately lose access. This can't be undone.`
+                ? `Revoke "${revokingKey.name}"${
+                    revokingKey.createdBy && revokingKey.createdBy.id !== currentUserId
+                      ? `, made by ${revokingKey.createdBy.name}`
+                      : ""
+                  }? Anything using it stops working at once. You can't undo this.`
                 : "Revoke this key?"}
             </DialogDescription>
           </DialogHeader>
@@ -571,6 +653,95 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/** A list of keys with a revoke button on each; `showCreator` adds who made it. */
+/** A date as a timestamp, from the server's Date or the API's ISO string. */
+const instant = (v: string | Date | null | undefined) => (v ? new Date(v).getTime() : null);
+
+/**
+ * Whether a key works, and until when. A key that authenticates nobody right
+ * now says so, with the reason, rather than showing a date it will never
+ * reach. Once its creator can't manage keys, a key stops 366 days after it was
+ * made, even one set never to expire, so the row shows that date and says why
+ * rather than "No expiry".
+ */
+function KeyExpiry({ row }: { row: ApiKeyRow }) {
+  if (row.inactiveReason) {
+    // Wraps rather than squeezing the key's name: a reason is longer than a date.
+    return (
+      <span className="max-w-64 text-right font-medium text-[var(--status-critical-text,var(--status-critical))]">
+        {KEY_INACTIVE_TEXT[row.inactiveReason]}
+      </span>
+    );
+  }
+  const effective = row.effectiveExpiresAt === undefined ? row.expiresAt : row.effectiveExpiresAt;
+  const limited = effective !== null && instant(effective) !== instant(row.expiresAt);
+  return (
+    <>
+      <span>{effective ? `Expires ${formatDateStable(effective)}` : "No expiry"}</span>
+      {limited && <span>366-day limit: its creator can&apos;t manage keys</span>}
+    </>
+  );
+}
+
+function KeyList({
+  rows,
+  showCreator = false,
+  onRevoke,
+}: {
+  rows: ApiKeyRow[];
+  showCreator?: boolean;
+  onRevoke: (key: ApiKeyRow) => void;
+}) {
+  return (
+    <div className="divide-y divide-[var(--border)] rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)]">
+      {rows.map((key) => (
+        <div key={key.id} className="flex flex-wrap items-center gap-4 px-4 py-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="truncate text-sm font-medium text-[var(--text)]">
+                {key.name}
+              </span>
+              <code className="rounded bg-[var(--bg-muted,var(--surface))] px-1.5 py-0.5 font-mono text-[11px] text-[var(--text-muted)]">
+                cosmos_{key.prefix}_…
+              </code>
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {key.scopes.map((scope) => (
+                <Badge key={scope} variant="neutral" className="text-[10px]">
+                  {SCOPE_LABELS[scope as ApiKeyScope] ?? scope}
+                </Badge>
+              ))}
+            </div>
+          </div>
+          {showCreator && (
+            <div className="w-40 min-w-0 text-xs text-[var(--text-muted)]">
+              <span className="block truncate" title={key.createdBy?.name}>
+                {key.createdBy ? `Made by ${key.createdBy.name}` : "Made by a deleted account"}
+              </span>
+            </div>
+          )}
+          <div className="flex flex-col items-end gap-0.5 text-xs text-[var(--text-muted)]">
+            <span>
+              Last used:{" "}
+              <LocalTimestamp value={key.lastUsed} fallback="never" />
+            </span>
+            <KeyExpiry row={key} />
+          </div>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onRevoke(key)}
+            title="Revoke"
+            aria-label={`Revoke ${key.name}`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      ))}
     </div>
   );
 }

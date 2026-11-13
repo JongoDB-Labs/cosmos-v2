@@ -24,6 +24,8 @@ const { getAuthContext, prisma, logAudit, publishToOrg } = vi.hoisted(() => {
     // `count` answers the last-owner check: another owner exists unless a test says not.
     orgMember: { findUnique: vi.fn(), update: vi.fn(), count: vi.fn(async () => 1) },
     teamsConversation: { deleteMany: vi.fn() },
+    // A removal deletes the member's keys in its transaction (member-keys.db.test.ts drives it for real).
+    apiKey: { findMany: vi.fn(async () => [] as { id: string; prefix: string }[]), deleteMany: vi.fn() },
     $queryRaw: vi.fn(async () => []),
     // The role change runs in a transaction; the mock runs it on this same client.
     $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
@@ -208,5 +210,9 @@ describe("DELETE /members/[memberId]: Teams chat forgotten", () => {
     });
     expect(res.status).toBe(204);
     expect(prisma.teamsConversation.deleteMany).toHaveBeenCalledWith({ where: { orgId: ORG_ID, userId: TARGET_USER_ID } });
+    // Their keys in this org are looked up for deletion, scoped to them and the org.
+    expect(prisma.apiKey.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { orgId: ORG_ID, createdById: TARGET_USER_ID } }),
+    );
   });
 });

@@ -36,10 +36,10 @@ import { GET as listLabels } from "./route";
 import { GET as listCustomFields } from "../custom-fields/route";
 
 const READ = Permission.PROJECT_READ | Permission.ITEM_READ;
-/** A key limited to P1, as apiKeyAuthContext builds it. */
+/** A key limited to P1, as apiKeyAuthContext builds it: a member's, who holds ORG_READ. */
 const key = (): AuthContext => ({
   userId: "u1", orgId: ORG, orgRole: OrgRole.MEMBER, permissions: READ, basePermissions: READ,
-  abacRules: [], isApiKey: true, scopes: ["read"], projectScope: [P1],
+  abacRules: [], isApiKey: true, scopes: ["read"], projectScope: [P1], ownerPermissions: READ | Permission.ORG_READ,
 });
 const session = (): AuthContext => ({
   userId: "u1", orgId: ORG, orgRole: OrgRole.MEMBER,

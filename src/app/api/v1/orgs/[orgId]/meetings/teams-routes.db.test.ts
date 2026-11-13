@@ -60,7 +60,7 @@ const json = (method: string, body?: unknown) =>
 const at = (meetingId?: string) => ({ params: Promise.resolve({ orgId, ...(meetingId ? { meetingId } : {}) }) as never });
 const titled = (title: string) => prisma.syncMeeting.count({ where: { orgId, title } });
 /** A real key with every scope, minted by the insider: no scope carries a meeting permission. */
-const widestKey = async () => (await apiKeyAuthContext(orgId, { createdById: insider, scopes: [...API_KEY_SCOPES], projectIds: null }))!;
+const widestKey = async () => (await apiKeyAuthContext(orgId, { createdById: insider, scopes: [...API_KEY_SCOPES], projectIds: null, createdAt: new Date() }))!;
 
 async function outlookOn() {
   if (await prisma.integration.count({ where: { orgId, provider: MS_CALENDAR } })) return;

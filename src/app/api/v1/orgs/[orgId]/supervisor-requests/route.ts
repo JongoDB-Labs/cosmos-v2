@@ -2,12 +2,11 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
 import { requestSupervisors } from "@/lib/org/supervisor-requests";
 import { notifySupervisorRequested } from "@/lib/org/notify";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { requireKeyMay } from "@/lib/rbac/key-role";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -41,7 +40,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     // Asking for a supervisor is a time WRITE. A session needs TIME_READ, as
     // ever; a key needs TIME_CREATE (time:write), so time:read stays read-only.
-    requirePermission(ctx, ctx.isApiKey ? Permission.TIME_CREATE : Permission.TIME_READ);
+    requireKeyMay(ctx, "TIME_CREATE", "TIME_READ");
 
     const body = bodySchema.parse(await request.json());
 

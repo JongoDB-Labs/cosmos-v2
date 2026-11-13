@@ -26,7 +26,8 @@ import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { requirePermission, NotFoundError, type AuthContext } from "@/lib/rbac/check";
-import { Permission, hasPermission } from "@/lib/rbac/permissions";
+import { Permission } from "@/lib/rbac/permissions";
+import { keyMay, requireKeyMay } from "@/lib/rbac/key-role";
 import { logAudit } from "@/lib/audit";
 import { ProblemError } from "@/lib/openapi/problem";
 import type { ProblemCode } from "@/lib/openapi/problem-codes";
@@ -198,8 +199,8 @@ export async function createSavedView(ctx: AuthContext, org: SavedViewOrg, readB
   const orgId = org.id;
   // A saved view is the caller's own, but creating, deleting or starring one
   // is still a write: a key needs ITEM_UPDATE (items:write), as the contracted
-  // saved-view writes do. A session keeps ITEM_READ.
-  requirePermission(ctx, ctx.isApiKey ? Permission.ITEM_UPDATE : Permission.ITEM_READ);
+  // saved-view writes do, and its creator the ITEM_READ a session needs (keyMay).
+  requireKeyMay(ctx, "ITEM_UPDATE", "ITEM_READ");
 
   const data = createSavedViewSchema.parse(await readBody());
   if ((data.cql !== undefined || data.query !== undefined) && !cqlEnabled(org.settings)) {
@@ -308,8 +309,9 @@ export async function updateSavedView(
   const orgId = org.id;
   const { s, view } = await loadSavedView(ctx, orgId, viewId);
   // Editing is a write: a key needs ITEM_UPDATE (items:write) on top of the
-  // ITEM_READ the load checks, like DELETE below and the contracted writes.
-  if (!hasPermission(s.ctx.permissions, s.ctx.isApiKey ? Permission.ITEM_UPDATE : Permission.ITEM_READ)) {
+  // ITEM_READ the load checks, like DELETE below and the contracted writes, and
+  // its creator ITEM_READ (keyMay).
+  if (!keyMay(s.ctx, "ITEM_UPDATE", "ITEM_READ")) {
     throw new SavedViewRefusal(403, "Changing a saved filter needs the items:write scope.");
   }
   const data = patchSavedViewSchema.parse(await readBody());
@@ -413,8 +415,9 @@ export async function updateSavedView(
 export async function deleteSavedView(ctx: AuthContext, org: SavedViewOrg, viewId: string): Promise<{ id: string; name: string }> {
   const { s, view } = await loadSavedView(ctx, org.id, viewId);
   // Deleting is a write: a key needs ITEM_UPDATE (items:write) on top of the
-  // ITEM_READ the load checks, as the contracted saved-view writes do.
-  if (!hasPermission(s.ctx.permissions, s.ctx.isApiKey ? Permission.ITEM_UPDATE : Permission.ITEM_READ)) {
+  // ITEM_READ the load checks, as the contracted saved-view writes do, and its
+  // creator ITEM_READ (keyMay).
+  if (!keyMay(s.ctx, "ITEM_UPDATE", "ITEM_READ")) {
     throw new SavedViewRefusal(403, "Deleting a saved filter needs the items:write scope.");
   }
   if (!canDelete(s, view)) throw new SavedViewRefusal(403, "Only the owner or an administrator can delete this filter.");

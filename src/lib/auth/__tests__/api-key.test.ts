@@ -11,7 +11,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createHash } from "node:crypto";
 import { OrgRole } from "@prisma/client";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, RolePermissions } from "@/lib/rbac/permissions";
 
 // --- I/O boundary mocks ------------------------------------------------------
 const { prisma, loadEffectivePermissions } = vi.hoisted(() => ({
@@ -21,9 +21,13 @@ const { prisma, loadEffectivePermissions } = vi.hoisted(() => ({
       findUnique: vi.fn(),
       update: vi.fn(),
     },
-    // The org's IP allowlist, off: ip-allowlist.db.test.ts covers it on.
-    orgSecuritySettings: { findUnique: vi.fn(async () => null) },
+    // The org's settings row: the IP allowlist, off (ip-allowlist.db.test.ts
+    // covers it on), and the "Members can create their own API keys" switch,
+    // which apiKeyAuthContext reads for itself unless a caller passes it in.
+    orgSecuritySettings: { findUnique: vi.fn(async (): Promise<{ memberApiKeysEnabled: boolean } | null> => null) },
     ipAllowlist: { findMany: vi.fn(async () => []) },
+    // The org's IdP connection: whether it requires single sign-on (no row: it doesn't).
+    idpConnection: { findUnique: vi.fn() },
   },
   loadEffectivePermissions: vi.fn(),
 }));
@@ -60,6 +64,8 @@ function bearer(token: string): Request {
 beforeEach(() => {
   vi.clearAllMocks();
   prisma.apiKey.update.mockResolvedValue({});
+  prisma.orgSecuritySettings.findUnique.mockResolvedValue(null); // no row: the switch's default, on
+  prisma.idpConnection.findUnique.mockResolvedValue(null);
 });
 
 describe("mintApiKey", () => {
@@ -130,6 +136,8 @@ describe("verifyApiKey", () => {
     projectIds?: string[];
     expiresAt?: Date | null;
     createdById?: string | null;
+    createdAt?: Date;
+    idpConnId?: string | null;
   }) {
     const prefix = opts.prefix ?? "abcdef";
     const secret = opts.secret ?? "s3cr3t-token-value";
@@ -143,6 +151,8 @@ describe("verifyApiKey", () => {
       projectIds: opts.projectIds ?? [],
       expiresAt: opts.expiresAt ?? null,
       createdById: "createdById" in opts ? opts.createdById : USER_ID,
+      createdAt: opts.createdAt ?? new Date(),
+      idpConnId: opts.idpConnId ?? null,
     });
     return { token, prefix, secret };
   }
@@ -160,6 +170,8 @@ describe("verifyApiKey", () => {
     expect(ctx!.orgRole).toBe(OrgRole.OWNER);
     expect(ctx!.permissions).toBe(ALL_BITS & scopeMask(scopes));
     expect(ctx!.basePermissions).toBe(ALL_BITS & scopeMask(scopes));
+    // The creator's own bits ride along, unmasked, for keyMay (and only keyMay).
+    expect(ctx!.ownerPermissions).toBe(ALL_BITS);
     // lastUsed is bumped (best-effort).
     expect(prisma.apiKey.update).toHaveBeenCalledWith({
       where: { id: KEY_ID },
@@ -258,6 +270,55 @@ describe("verifyApiKey", () => {
     const ctx = await verifyApiKey(bearer(token), ORG_ID);
 
     expect(ctx).toBeNull();
+  });
+
+  it("a creator who may no longer hold keys → null: a guest holds neither API_KEY bit", async () => {
+    const { token } = setupKey({});
+    loadEffectivePermissions.mockResolvedValue(effFor(RolePermissions.GUEST));
+    expect(await verifyApiKey(bearer(token), ORG_ID)).toBeNull();
+    // Positive control: the same key for a member works.
+    loadEffectivePermissions.mockResolvedValue(effFor(RolePermissions.MEMBER));
+    expect(await verifyApiKey(bearer(token), ORG_ID)).not.toBeNull();
+  });
+
+  it("a key older than 366 days → null for a creator who can't manage keys; an admin's verifies", async () => {
+    const { token } = setupKey({ createdAt: new Date(Date.now() - 400 * 86_400_000), expiresAt: null });
+    loadEffectivePermissions.mockResolvedValue(effFor(RolePermissions.MEMBER));
+    expect(await verifyApiKey(bearer(token), ORG_ID)).toBeNull();
+    loadEffectivePermissions.mockResolvedValue(effFor(RolePermissions.ADMIN));
+    expect(await verifyApiKey(bearer(token), ORG_ID)).not.toBeNull();
+  });
+
+  it("with member keys turned off, a member's key → null and an admin's still verifies", async () => {
+    prisma.orgSecuritySettings.findUnique.mockResolvedValue({ memberApiKeysEnabled: false });
+    const { token } = setupKey({});
+    loadEffectivePermissions.mockResolvedValue(effFor(RolePermissions.MEMBER));
+    expect(await verifyApiKey(bearer(token), ORG_ID)).toBeNull();
+    loadEffectivePermissions.mockResolvedValue(effFor(RolePermissions.ADMIN));
+    expect(await verifyApiKey(bearer(token), ORG_ID)).not.toBeNull();
+    expect(prisma.orgSecuritySettings.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { orgId: ORG_ID } }),
+    );
+  });
+
+  it("where the org requires single sign-on, a member's key verifies only if made through its IdP; an admin's always does", async () => {
+    const CONN = "66666666-6666-6666-6666-666666666666";
+    prisma.idpConnection.findUnique.mockResolvedValue({ id: CONN, enabled: true, enforced: true, org: { tenantClass: "GOV" } });
+    loadEffectivePermissions.mockResolvedValue(effFor(RolePermissions.MEMBER));
+    setupKey({ idpConnId: null });
+    expect(await verifyApiKey(bearer("cosmos_abcdef_s3cr3t-token-value"), ORG_ID)).toBeNull();
+    setupKey({ idpConnId: "77777777-7777-7777-7777-777777777777" });
+    expect(await verifyApiKey(bearer("cosmos_abcdef_s3cr3t-token-value"), ORG_ID)).toBeNull();
+    const { token } = setupKey({ idpConnId: CONN });
+    expect(await verifyApiKey(bearer(token), ORG_ID)).not.toBeNull();
+    // An admin's key with no IdP recorded still verifies, as every key did.
+    setupKey({ idpConnId: null });
+    loadEffectivePermissions.mockResolvedValue(effFor(RolePermissions.ADMIN));
+    expect(await verifyApiKey(bearer(token), ORG_ID)).not.toBeNull();
+    // Control: not GOV, so nothing is required, and the member's key verifies.
+    prisma.idpConnection.findUnique.mockResolvedValue({ id: CONN, enabled: true, enforced: true, org: { tenantClass: "COMMERCIAL" } });
+    loadEffectivePermissions.mockResolvedValue(effFor(RolePermissions.MEMBER));
+    expect(await verifyApiKey(bearer(token), ORG_ID)).not.toBeNull();
   });
 
   it("malformed / non-bearer header → null without a DB call", async () => {

@@ -13,6 +13,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { HELD_WORK_ROLES, assertCanGrantOrgRole, heldBeyondRole } from "@/lib/rbac/grant-ceiling";
 import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { deleteMemberKeysIn } from "@/lib/auth/api-key-manage.server";
 import { autoJoinGeneral } from "@/lib/chat/seed-general";
 import { z } from "zod";
 import { OrgRole } from "@prisma/client";
@@ -130,11 +131,25 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // come back with them, which is what the common case — a removal being undone —
     // calls for, and what keeps their history on one membership id. The role is taken
     // from this request, so reinstating is never a silent re-grant of the old one.
+    // Their API keys are NOT among what comes back: any left on the row are deleted
+    // in the same transaction (deleteMemberKeysIn), so a key never outlives the
+    // removal it was made before.
     const member = existing
-      ? await prismaUnfiltered.orgMember.update({
-          where: { id: existing.id },
-          data: { removedAt: null, role: data.role },
-          select: memberSelect,
+      ? await prismaUnfiltered.$transaction(async (tx) => {
+          const reinstated = await tx.orgMember.update({
+            where: { id: existing.id },
+            data: { removedAt: null, role: data.role },
+            select: memberSelect,
+          });
+          await deleteMemberKeysIn(tx, {
+            orgId,
+            userId: data.userId,
+            memberId: existing.id,
+            actorUserId: ctx.userId,
+            reason: "reinstated",
+            ipAddress: getIpAddress(request),
+          });
+          return reinstated;
         })
       : await prisma.orgMember.create({
           data: {

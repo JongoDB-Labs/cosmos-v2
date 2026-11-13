@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { approvalAuthority } from "@/lib/time/approval";
 import { isManagerOf, hasManager } from "@/lib/time/timesheet-actions";
@@ -10,6 +9,7 @@ import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { totalHours } from "@/lib/time/time-off";
 import { roleCountsFor } from "@/lib/rbac/key-role";
+import { requireKeyMay } from "@/lib/rbac/key-role";
 
 type RouteParams = { params: Promise<{ orgId: string; requestId: string }> };
 
@@ -58,7 +58,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     // A write to the caller's own time. A session needs TIME_READ, as ever; a
     // key needs TIME_CREATE (time:write), so time:read stays read-only.
-    requirePermission(ctx, ctx.isApiKey ? Permission.TIME_CREATE : Permission.TIME_READ);
+    requireKeyMay(ctx, "TIME_CREATE", "TIME_READ");
 
     const body = patchSchema.parse(await req.json());
 

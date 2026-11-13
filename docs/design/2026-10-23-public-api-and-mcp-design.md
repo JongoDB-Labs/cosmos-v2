@@ -149,6 +149,7 @@ Patterns Cosmos adopts:
 - Scopes (`src/lib/auth/api-key-scopes.ts`): `read`, `items:write`, `documents:write`, `rules:run`. Deletion is deliberately excluded from `items:write`.
 - **Single choke point:** `getAuthContext` (`src/lib/auth/session.ts:182-215`) handles `Bearer cosmos_` first. It applies the **IP allowlist** to keys too and skips MFA and idle timeout. 308 of 365 routes use `getAuthContext`, 18 use `resolveAuth`, and ~20 use `getCurrentUser` only.
 - Key management requires `Permission.API_KEY_MANAGE` (bit 76, `src/lib/rbac/permissions.ts:78`). So **only admins can mint keys today, and there is no self-service personal token.**
+  - *Update (2.548.0):* every role but GUEST now holds `API_KEY_CREATE` (bit 129) and can create, list and revoke its own keys; `API_KEY_MANAGE` still sees and revokes every key. A key authenticates only while its creator holds one of the two, and the org switch `OrgSecuritySettings.memberApiKeysEnabled` can limit keys to `API_KEY_MANAGE` holders. Rules: `src/lib/auth/api-key-policy.ts`. Removing a member deletes their keys, and turning on Require MFA or Enforce SSO deletes the keys of creators without `API_KEY_MANAGE`. Where a route asks a key for a stand-in bit, `keyMay` (`src/lib/rbac/key-role.ts`) also asks the key's creator for the session's bit.
 - `src/proxy.ts`:
   - CSRF Origin check is skipped only for `Bearer cosmos_` (lines 121-130).
   - The session gate lets `Bearer cosmos_` through on `/api/*` (lines 172-178).

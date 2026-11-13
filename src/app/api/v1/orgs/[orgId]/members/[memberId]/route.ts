@@ -11,6 +11,7 @@ import {
 } from "@/lib/rbac/grant-ceiling";
 import { success, handleApiError, noContent, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { deleteMemberKeysIn } from "@/lib/auth/api-key-manage.server";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { z } from "zod";
 import { OrgRole } from "@prisma/client";
@@ -184,9 +185,25 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // so their project_members / org_member_work_roles rows (which cascade from this
     // one) are not destroyed. Reads filter `removedAt: null` by default in
     // src/lib/db/client.ts, so they stop counting as a member everywhere at once.
-    await prisma.orgMember.update({
-      where: { id: memberId },
-      data: { removedAt: new Date() },
+    //
+    // Their API keys in this org are DELETED with it, in one transaction. A
+    // removed member's keys already stop working, but only because the
+    // membership is hidden: re-adding them, or an SSO sign-in the identity
+    // provider still vouches for, clears `removedAt` on this same row, and every
+    // key they ever made would work again.
+    await prisma.$transaction(async (tx) => {
+      await tx.orgMember.update({
+        where: { id: memberId },
+        data: { removedAt: new Date() },
+      });
+      await deleteMemberKeysIn(tx, {
+        orgId,
+        userId: member.userId,
+        memberId,
+        actorUserId: ctx.userId,
+        reason: "removed",
+        ipAddress: getIpAddress(request),
+      });
     });
     // Nothing more goes to their Teams chat from this org (COSMOS-202 T2).
     await prisma.teamsConversation.deleteMany({ where: { orgId, userId: member.userId } });

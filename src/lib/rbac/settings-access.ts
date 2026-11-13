@@ -51,7 +51,9 @@ export const SETTINGS_ACCESS: Record<string, SettingsAccess> = {
   "/settings/runtime-config": { view: Permission.INTEGRATION_MANAGE },
   "/settings/integrations": { view: Permission.INTEGRATION_MANAGE },
   "/settings/webhooks": { view: Permission.WEBHOOK_MANAGE },
-  "/settings/api-keys": { view: Permission.API_KEY_MANAGE },
+  // Anyone who may make their own keys sees the page; API_KEY_MANAGE also sees
+  // and revokes everyone's (lib/auth/api-key-policy.ts).
+  "/settings/api-keys": { view: [Permission.API_KEY_CREATE, Permission.API_KEY_MANAGE], manage: Permission.API_KEY_MANAGE },
   "/settings/templates": { view: Permission.TEMPLATE_READ, manage: Permission.TEMPLATE_MANAGE },
   "/settings/custom-fields": { view: Permission.CUSTOM_FIELD_MANAGE },
   "/settings/classifications": { view: Permission.CLASSIFICATION_READ, manage: Permission.CLASSIFICATION_MANAGE },

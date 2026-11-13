@@ -17,8 +17,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { ctx } = await orgContext((await params).orgId, listKpis);
     const { params: { orgId, projectId } } = await parseRequest(listKpis, request, params);
     // ANALYTICS_READ for a session. No key scope carries it (it reaches every
-    // analytics and PM-register route), so a key reads KPIs with PROJECT_READ.
-    await requireProjectRead(ctx, projectId, ctx.isApiKey ? "PROJECT_READ" : "ANALYTICS_READ");
+    // analytics and PM-register route), so a key reads KPIs with PROJECT_READ,
+    // and only while its creator holds ANALYTICS_READ (keyMay).
+    await requireProjectRead(ctx, projectId, { key: "PROJECT_READ", session: "ANALYTICS_READ" });
 
     const project = await prisma.project.findFirst({
       where: { id: projectId, orgId },

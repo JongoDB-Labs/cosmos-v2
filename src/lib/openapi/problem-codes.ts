@@ -8,6 +8,9 @@ export const PROBLEM_CODES = {
   conflict: "Conflict",
   model_not_connected: "Claude isn't connected",
   rate_limited: "Too many requests",
+  // The database was too busy to start or finish the request's transaction in
+  // time (Prisma P2028); retry after `Retry-After` seconds.
+  server_busy: "Server busy",
   internal_error: "Internal server error",
   // A status change the project's workflow refused (src/lib/workflow/contract.ts).
   transition_not_allowed: "Transition not allowed",
