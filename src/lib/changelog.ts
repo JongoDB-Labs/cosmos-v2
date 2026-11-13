@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.556.1",
+    date: "2026-11-13",
+    title: "Cosmo's bulk changes report items in the order you gave them",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Cosmo changes several work items at once and skips some, it now lists the skipped items in the order you named them, each once, instead of in whatever order the database returned them.",
+      },
+    ],
+  },
+  {
     version: "2.556.0",
     date: "2026-11-13",
     title: "Search finds labels and custom fields, and objectives get due dates and dependencies",
