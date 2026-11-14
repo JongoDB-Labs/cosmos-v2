@@ -355,3 +355,119 @@ describe("a stream and the session it opened with", () => {
     }
   });
 });
+
+describe("a stream's chat channels while it is open", () => {
+  const hello = (e: Sse[]) => e.some((x) => x.type === "hello");
+  const chatIds = (events: Sse[]) => events.filter((x) => x.type === "chat.message.created").map((x) => x.data.id);
+  const PAST_REFRESH = AUDIENCE_TTL_MS + 25_000;
+  const fakeClock = () => vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"], shouldAdvanceTime: true });
+
+  /** Live subscriptions per topic on the in-process bus, counted through the stream's own subscribe calls. */
+  function countSubscriptions() {
+    const bus = getBus();
+    const live = new Map<string, number>();
+    const real = bus.subscribe.bind(bus);
+    const spy = vi.spyOn(bus, "subscribe").mockImplementation((list, handler) => {
+      for (const t of list) live.set(t, (live.get(t) ?? 0) + 1);
+      const off = real(list, handler);
+      let done = false;
+      return () => {
+        if (done) return;
+        done = true;
+        for (const t of list) live.set(t, (live.get(t) ?? 0) - 1);
+        off();
+      };
+    });
+    return { live: (topic: string) => live.get(topic) ?? 0, restore: () => spy.mockRestore() };
+  }
+
+  /** Wait (real time, as Date may be faked) for `ok()`, or fail after 5 s. */
+  async function settle(ok: () => boolean, what: string) {
+    const deadline = performance.now() + 5_000;
+    while (!ok()) {
+      if (performance.now() > deadline) throw new Error(`never: ${what}`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+
+  it("subscribes a channel joined after it opened, from their join on", async () => {
+    const late = await prisma.chatChannel.create({ data: { orgId, kind: "CHANNEL", name: `late-${stamp}`, createdById: users.insider } });
+    const subs = countSubscriptions();
+    const s = await open(await ctxOf(users.outsider), await sessionFor(users.outsider));
+    try {
+      await s.until(hello);
+      expect(subs.live(topics.channel(late.id))).toBe(0);
+
+      await prisma.chatChannelMember.create({ data: { channelId: late.id, userId: users.outsider } });
+      await getBus().publish(topics.user(users.outsider), "chat.channel.joined", { channelId: late.id });
+      // The join is forwarded only after the stream has followed it.
+      await s.until((e) => e.some((x) => x.type === "chat.channel.joined"));
+      expect(subs.live(topics.channel(late.id))).toBe(1);
+
+      await getBus().publish(topics.channel(late.id), "chat.message.created", { id: "late-1", channelId: late.id, content: "hi" });
+      expect(chatIds(await s.until((e) => chatIds(e).includes("late-1")))).toEqual(["late-1"]);
+    } finally {
+      await s.close();
+      subs.restore();
+      await prisma.chatChannel.deleteMany({ where: { id: late.id } });
+    }
+  });
+
+  it("lets go of a project's channel at the next refresh once they can't see the project, and takes it back when they can", async () => {
+    // A member of the team-scoped project and of its channel.
+    const moverId = (await prisma.user.create({ data: { email: `mover-${stamp}@sse.test`, displayName: "mover" } })).id;
+    const om = await prisma.orgMember.create({ data: { orgId, userId: moverId, role: "MEMBER", permissions: "0" } });
+    const pm = await prisma.projectMember.create({ data: { projectId: secId, orgMemberId: om.id } });
+    const proj = await prisma.chatChannel.create({ data: { orgId, kind: "CHANNEL", name: `proj-${stamp}`, projectId: secId, createdById: moverId } });
+    await prisma.chatChannelMember.create({ data: { channelId: proj.id, userId: moverId } });
+    const sid = await sessionFor(moverId);
+    const topic = topics.channel(proj.id);
+    const subs = countSubscriptions();
+    fakeClock();
+    let s: Awaited<ReturnType<typeof open>> | null = null;
+    try {
+      s = await open(await ctxOf(moverId), sid);
+      const first = (await s.until(hello)).find((x) => x.type === "hello")!;
+      expect(first.data.channels).toEqual([proj.id]);
+      expect(subs.live(topic)).toBe(1);
+      await getBus().publish(topic, "chat.message.created", { id: "p-before", channelId: proj.id, content: "x" });
+      await s.until((e) => chatIds(e).includes("p-before"));
+
+      await prisma.projectMember.delete({ where: { id: pm.id } });
+      await vi.advanceTimersByTimeAsync(PAST_REFRESH);
+      await settle(() => subs.live(topic) === 0, "the project's channel was let go");
+      await getBus().publish(topic, "chat.message.created", { id: "p-hidden", channelId: proj.id, content: "y" });
+      publishToOrg(orgId, "work-item.created", { id: "marker-p1", projectId: openId });
+      expect(chatIds(await s.until((e) => ids(e).includes("marker-p1")))).toEqual(["p-before"]);
+      expect(await s.ended()).toBe(false);
+
+      await prisma.projectMember.create({ data: { projectId: secId, orgMemberId: om.id } });
+      await vi.advanceTimersByTimeAsync(PAST_REFRESH);
+      await settle(() => subs.live(topic) === 1, "the project's channel was taken back");
+      await getBus().publish(topic, "chat.message.created", { id: "p-again", channelId: proj.id, content: "z" });
+      expect(chatIds(await s.until((e) => chatIds(e).includes("p-again")))).toEqual(["p-before", "p-again"]);
+    } finally {
+      vi.useRealTimers();
+      await s?.close();
+      subs.restore();
+      await prisma.session.deleteMany({ where: { userId: moverId } });
+      await prisma.chatChannel.deleteMany({ where: { id: proj.id } });
+      await prisma.projectMember.deleteMany({ where: { orgMemberId: om.id } });
+      await prismaUnfiltered.orgMember.deleteMany({ where: { id: om.id } });
+      await prisma.user.deleteMany({ where: { id: moverId } });
+    }
+  });
+
+  it("lets go of every channel topic when the client goes away", async () => {
+    const subs = countSubscriptions();
+    const s = await open(await ctxOf(users.insider));
+    try {
+      await s.until(hello);
+      expect(subs.live(topics.channel(channelId))).toBe(1);
+      await s.close();
+      expect(subs.live(topics.channel(channelId))).toBe(0);
+    } finally {
+      subs.restore();
+    }
+  });
+});

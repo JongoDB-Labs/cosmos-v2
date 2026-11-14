@@ -34,7 +34,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     });
     if (limited) return limited;
 
-    const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
+    const { channel, member } = await loadChannelAndMembership(ctx, channelId);
     if (!channel) return new Response("Not found", { status: 404 });
     if (!canPostToChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole })) {
       return new Response("Forbidden", { status: 403 });

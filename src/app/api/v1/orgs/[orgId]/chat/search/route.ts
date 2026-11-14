@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { mayUseChat } from "@/lib/chat/access";
+import { mayUseChat, visibleChannelProjectIds } from "@/lib/chat/access";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { z } from "zod";
 
@@ -91,8 +91,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     };
 
     // The chat_channel_members join keeps results to channels the user joined
-    // (private content stays private).
-    const conds: string[] = [`c.org_id = ${p(orgId)}::uuid`, `m.deleted_at IS NULL`];
+    // (private content stays private), and the project clause to channels whose
+    // project they can still see: membership outlives losing the project.
+    const conds: string[] = [
+      `c.org_id = ${p(orgId)}::uuid`,
+      `m.deleted_at IS NULL`,
+      `(c.project_id IS NULL OR c.project_id = ANY(${p(await visibleChannelProjectIds(ctx))}::uuid[]))`,
+    ];
     const userBind = p(ctx.userId);
 
     // Free-text FTS is now optional: an operators-only query (e.g. "from:alice

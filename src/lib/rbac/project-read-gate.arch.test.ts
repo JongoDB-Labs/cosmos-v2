@@ -170,10 +170,12 @@ const WRITES_ANYTHING = /\b(?:prisma|tx)\.\w+\.(?:create|createMany|update|updat
  * Saved views gate through the viewer's readable projects; list and bulk writes
  * through the hidden set (`hiddenProjectIds`, `visibleProjectRecordsWhere`);
  * feedback's by-id routes through `loadFeedbackRoute`, which 404s an item under
- * a hidden project (pinned below).
+ * a hidden project (pinned below); chat through lib/chat/access.ts, whose
+ * channel loader and list filters hide a channel on a project the caller can't
+ * see (pinned below too).
  */
 const VISIBLE_ANYWHERE = new RegExp(
-  `${VISIBLE.source}|\\b(?:getReadableProjectIds|getVisibleProjectIds|visibleProjectIdsForActor|viewerScope|hiddenProjectIds|visibleProjectRecordsWhere|loadFeedbackRoute)\\(`,
+  `${VISIBLE.source}|\\b(?:getReadableProjectIds|getVisibleProjectIds|visibleProjectIdsForActor|viewerScope|hiddenProjectIds|visibleProjectRecordsWhere|loadFeedbackRoute|loadChannelAndMembership|channelProjectVisible|visibleChannelWhere|visibleChannelProjectIds)\\(`,
 );
 
 /**
@@ -184,13 +186,6 @@ const VISIBLE_ANYWHERE = new RegExp(
  * 2026-10-24). Listed so none can be forgotten, and none added silently.
  */
 const NOT_TEAM_SCOPED = new Set([
-  // Chat channels: visible by channel membership, not by project.
-  "POST /v1/orgs/[orgId]/chat/channels/route.ts",
-  "PATCH /v1/orgs/[orgId]/chat/channels/[channelId]/route.ts",
-  "DELETE /v1/orgs/[orgId]/chat/channels/[channelId]/route.ts",
-  "POST /v1/orgs/[orgId]/chat/channels/[channelId]/commands/route.ts",
-  "POST /v1/orgs/[orgId]/chat/channels/[channelId]/join/route.ts",
-  "POST /v1/orgs/[orgId]/chat/channels/[channelId]/read/route.ts",
   // Data classifications: every member reads them, to render banners.
   "POST /v1/orgs/[orgId]/classifications/route.ts",
   "PUT /v1/orgs/[orgId]/classifications/[classificationId]/route.ts",
@@ -198,8 +193,10 @@ const NOT_TEAM_SCOPED = new Set([
   "DELETE /v1/orgs/[orgId]/classifications/[classificationId]/route.ts",
 ]);
 
-/** Writes the scan flags that write to no project the caller chooses, and why. */
+/** Writes the scan flags that write to no project the caller chooses, or check it another way, and why. */
 const NOT_A_PROJECT_WRITE: Record<string, string> = {
+  "POST /v1/orgs/[orgId]/chat/channels/route.ts": "creates a channel; foreignRef refuses a project the creator can't see",
+  "DELETE /v1/orgs/[orgId]/chat/channels/[channelId]/route.ts": "org owners and admins only, who see every project",
   "POST /v1/orgs/[orgId]/projects/route.ts": "creates the project; its creator is its first member",
   "DELETE /v1/orgs/[orgId]/api-keys/[keyId]/route.ts": "revokes a key; its projects are only written to the audit entry",
   "POST /v1/orgs/[orgId]/contracts/route.ts": "an org-level contract: the body can't name a project",
@@ -262,6 +259,14 @@ describe("writes outside projects/[projectId] that touch a project are gated too
     // getReadableProjectIds applies team scope and a key's project scope.
     expect(src).toMatch(/return \(await getReadableProjectIds\(ctx, "MEETING_READ"\)\)\.includes\(projectId\)/);
     expect(src).toMatch(/!\(await canReadMeeting\(ctx, meeting\.projectId\)\)/);
+  });
+
+  it("the chat access helpers, which the rule trusts, still hide a channel on a hidden project", () => {
+    const src = readFileSync("src/lib/chat/access.ts", "utf8");
+    expect(src).toMatch(/return !projectId \|\| isProjectVisible\(ctx, projectId\);/);
+    expect(src).toMatch(/if \(!row \|\| !\(await channelProjectVisible\(ctx, row\.projectId\)\)\) return \{ channel: null, member: null \};/);
+    expect(src).toMatch(/hiddenProjectIds\(ctx\)/);
+    expect(src).toMatch(/\{ projectId: \{ in: await visibleChannelProjectIds\(ctx\) \} \}/);
   });
 
   it("loadFeedbackRoute, which the rule trusts, still refuses an item under a hidden project", () => {

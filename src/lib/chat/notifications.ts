@@ -6,6 +6,7 @@ import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { channelPolicy } from "@/lib/integrations/channel-policy.server";
 import { mentionsToPlainText, userMentionLabels } from "@/lib/mentions/plain-text";
 import { chatDrawerHref } from "@/lib/chat/drawer-link";
+import { channelProjectReaders } from "@/lib/chat/access";
 
 export interface FanOutInput {
   /** Org id of the channel (used by createNotification + audit). */
@@ -40,10 +41,18 @@ export interface FanOutInput {
  * one bad recipient doesn't block fan-out to peers.
  */
 export async function fanOutChatMessage(input: FanOutInput): Promise<void> {
-  const members = await prisma.chatChannelMember.findMany({
-    where: { channelId: input.channelId },
-    select: { userId: true, notificationPref: true, mutedUntil: true },
-  });
+  const [rows, channel] = await Promise.all([
+    prisma.chatChannelMember.findMany({
+      where: { channelId: input.channelId },
+      select: { userId: true, notificationPref: true, mutedUntil: true },
+    }),
+    prisma.chatChannel.findUnique({ where: { id: input.channelId }, select: { projectId: true } }),
+  ]);
+  // A notification quotes the message, so it goes only to members who may still
+  // read the channel: one under a project they can't see is not theirs to read
+  // (lib/chat/access.ts), however long they have been in it.
+  const readers = await channelProjectReaders(input.orgId, channel?.projectId ?? null, rows.map((m) => m.userId));
+  const members = rows.filter((m) => readers.has(m.userId));
 
   const now = new Date();
   // Opens the Chat drawer at the message. A stored link has no page to stand

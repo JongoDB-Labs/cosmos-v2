@@ -36,7 +36,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     //  - Attached to a message → must see that channel
     //  - Orphan → only the uploader can fetch (during compose)
     if (att.message?.channelId) {
-      const { channel, member } = await loadChannelAndMembership(att.message.channelId, ctx.userId);
+      const { channel, member } = await loadChannelAndMembership(ctx, att.message.channelId);
       if (!channel || channel.orgId !== orgId) {
         return new Response("Not found", { status: 404 });
       }
