@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.561.10",
+    date: "2026-11-14",
+    title: "Boards answer the same way through the app and the assistant",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Opening, renaming or deleting a board in a project you cannot see now says the board was not found, the same answer as for a board that does not exist. Changing its columns already did; the rest said access was denied.",
+      },
+      {
+        kind: "improvement",
+        text: "The assistant now says which boards you made, the same way the board list in the app does, without naming who made the others. It reads a project's boards from the same list the app shows, so the two cannot disagree about which boards you can see.",
+      },
+    ],
+  },
+  {
     version: "2.561.0",
     date: "2026-11-14",
     title: "The board header takes less room",
