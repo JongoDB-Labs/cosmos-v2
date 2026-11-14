@@ -142,7 +142,9 @@ export function OutlookCalendarSection({ orgId }: { orgId: string }) {
         <div className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
             You&apos;ll sign in with your work Microsoft account and allow calendar access only. Cosmos writes
-            to a separate &quot;Cosmos&quot; calendar it creates, never your main one.
+            to a separate &quot;Cosmos&quot; calendar it creates, never your main one. It reads your main
+            calendar only when you turn on the Outlook overlay in Program Management, to show your own meetings
+            to you there.
           </p>
           <div>
             <a ref={connectRef} href={connectHref} className={cn(buttonVariants({ size: "sm" }))}>

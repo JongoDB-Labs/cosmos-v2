@@ -6,9 +6,12 @@ import {
   DEFAULT_TOGGLES,
   KIND_RANK,
   milestoneItems,
+  outlookItems,
   parseToggles,
   togglesStorageKey,
+  wallClock,
   type AgilePayload,
+  type OutlookPayload,
 } from "./overlays";
 
 const D = (iso: string) => new Date(iso);
@@ -112,7 +115,8 @@ describe("stored toggles are read defensively", () => {
   });
 
   it("a stored choice is honoured, key by key", () => {
-    expect(parseToggles(JSON.stringify({ events: false, agile: true }))).toEqual({ events: false, agile: true });
+    expect(parseToggles(JSON.stringify({ events: false, agile: true, outlook: true }))).toEqual({ events: false, agile: true, outlook: true });
+    expect(parseToggles(JSON.stringify({ events: false, agile: true }))).toEqual({ events: false, agile: true, outlook: false });
     expect(parseToggles(JSON.stringify({ agile: true }))).toEqual({ ...DEFAULT_TOGGLES, agile: true });
   });
 
@@ -124,11 +128,59 @@ describe("stored toggles are read defensively", () => {
   });
 
   it("unknown keys are not carried along", () => {
-    expect(Object.keys(parseToggles(JSON.stringify({ agile: true, extra: true })))).toEqual(["events", "agile"]);
+    expect(Object.keys(parseToggles(JSON.stringify({ agile: true, extra: true })))).toEqual(["events", "agile", "outlook"]);
+  });
+
+  it("Outlook is off on a first visit: a person's own mailbox is never shown until they ask", () => {
+    expect(DEFAULT_TOGGLES.outlook).toBe(false);
+    expect(parseToggles(JSON.stringify({ outlook: "yes" })).outlook).toBe(false);
   });
 
   it("the store is per org AND per person", () => {
     expect(togglesStorageKey("o1", "u1")).not.toBe(togglesStorageKey("o1", "u2"));
     expect(togglesStorageKey("o1", "u1")).not.toBe(togglesStorageKey("o2", "u1"));
+  });
+});
+
+describe("the viewer's Outlook events are drawn on the viewer's clock", () => {
+  it("an instant reads as its wall time in the zone, expressed as UTC", () => {
+    // 01:00 UTC on the 4th is 17:00 on the 3rd in Los Angeles (PST, UTC-8).
+    expect(wallClock(D("2027-12-04T01:00:00Z"), "America/Los_Angeles").toISOString()).toBe("2027-12-03T17:00:00.000Z");
+    // The zone's own rules, not a fixed offset: in summer it is UTC-7.
+    expect(wallClock(D("2027-07-04T01:00:00Z"), "America/Los_Angeles").toISOString()).toBe("2027-07-03T18:00:00.000Z");
+    // Control: in UTC nothing moves.
+    expect(wallClock(D("2027-12-04T01:00:00Z"), "UTC").toISOString()).toBe("2027-12-04T01:00:00.000Z");
+  });
+
+  const payload: OutlookPayload = {
+    status: "connected",
+    capped: false,
+    events: [
+      { id: "t", subject: "Program review", start: "2027-12-04T01:00:00.000Z", end: "2027-12-04T02:00:00.000Z", allDay: false, webLink: "https://outlook.example/1" },
+      { id: "a", subject: "Exercise A", start: "2027-12-08T00:00:00.000Z", end: "2027-12-10T00:00:00.000Z", allDay: true, webLink: null },
+    ],
+  };
+
+  it("a meeting late in the viewer's day stays on that day, at that time", () => {
+    const [t] = outlookItems(payload, "America/Los_Angeles");
+    expect(t.startsAt.toISOString()).toBe("2027-12-03T17:00:00.000Z");
+    expect(t.endsAt.toISOString()).toBe("2027-12-03T18:00:00.000Z");
+    expect(t).toMatchObject({ allDay: false, timeZone: "UTC", kind: "outlook", rank: KIND_RANK.outlook, href: "https://outlook.example/1" });
+    expect(t.description).toBe("Outlook: Program review, 17:00 to 18:00");
+  });
+
+  it("an all-day event keeps its dates in every zone, and with no link has none", () => {
+    for (const zone of ["America/Los_Angeles", "Asia/Tokyo", "UTC"]) {
+      const a = outlookItems(payload, zone)[1];
+      expect(a.startsAt.toISOString()).toBe("2027-12-08T00:00:00.000Z");
+      expect(a.endsAt.toISOString()).toBe("2027-12-10T00:00:00.000Z");
+      expect(a.allDay).toBe(true);
+      expect(a.href).toBeUndefined();
+    }
+  });
+
+  it("sits under the cadence and above due dates", () => {
+    expect(KIND_RANK.outlook).toBeGreaterThan(KIND_RANK.sprint);
+    expect(KIND_RANK.outlook).toBeLessThan(KIND_RANK.due);
   });
 });

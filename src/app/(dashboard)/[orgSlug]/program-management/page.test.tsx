@@ -64,6 +64,10 @@ vi.mock("@/lib/rbac/project-access", async (importOriginal) => ({
 vi.mock("@/lib/pm/schedule", () => ({ loadMilestonesWithDerived: loaders.milestones }));
 vi.mock("@/lib/pm/kpi-derive", () => ({ loadKpisWithDerived: loaders.kpis }));
 vi.mock("@/lib/pm/burn", () => ({ loadClinsWithBurn: loaders.clins }));
+// Not one of `loaders`: those all take the visible project ids, and the
+// viewer's Outlook status is about the viewer, not about any project.
+const outlookStatus = vi.hoisted(() => vi.fn(async (): Promise<string> => "not_connected"));
+vi.mock("@/lib/program-calendar/outlook.server", () => ({ outlookOverlayStatus: outlookStatus }));
 vi.mock("next/headers", () => ({ headers: async () => requestHeaders.value }));
 vi.mock("next/navigation", () => ({
   redirect: vi.fn(() => {
@@ -467,7 +471,12 @@ describe("Program Management — the calendar view", () => {
     projectId?: string;
     canCreate: boolean;
     deliverables: { id: string; name: string }[];
-    overlays: { storageKey: string; orgSlug: string; milestones: { id: string; projectKey: string; dueDate: string }[] };
+    overlays: {
+      storageKey: string;
+      orgSlug: string;
+      milestones: { id: string; projectKey: string; dueDate: string }[];
+      outlook: string;
+    };
   };
   async function calendarProps(searchParams: Promise<object>): Promise<CalendarProps> {
     const el = (await ProgramManagementContent({ params, searchParams })) as ReactElement;
@@ -563,6 +572,18 @@ describe("Program Management — the calendar view", () => {
     const props = await calendarProps(calendar);
     expect(props.overlays.storageKey).toBe("cosmos:pm-calendar-overlays:o1:u1");
     expect(props.overlays.orgSlug).toBe("acme");
+  });
+
+  it("hands the calendar the viewer's OWN Outlook status, asked for them and no one else", async () => {
+    signedInWith(PROGRAM_ONLY);
+    expect((await calendarProps(calendar)).overlays.outlook).toBe("not_connected");
+    expect(outlookStatus).toHaveBeenCalledWith("o1", "u1");
+    // Control: what the status says is what the calendar gets, so a connected
+    // viewer is not told to connect.
+    vi.clearAllMocks();
+    outlookStatus.mockResolvedValueOnce("connected");
+    signedInWith(PROGRAM_ONLY);
+    expect((await calendarProps(calendar)).overlays.outlook).toBe("connected");
   });
 
   it("offers New event only with BOARD_UPDATE, which is what the events API asks to create one", async () => {

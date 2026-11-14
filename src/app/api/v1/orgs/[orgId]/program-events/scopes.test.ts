@@ -24,6 +24,7 @@ import {
   createEventCategory,
 } from "../event-categories/route.contract";
 import { listAgileOverlay } from "../program-calendar/agile/route.contract";
+import { listOutlookOverlay } from "../program-calendar/outlook/route.contract";
 
 const CONTRACTS = [
   ["listProgramEvents", listProgramEvents],
@@ -34,6 +35,7 @@ const CONTRACTS = [
   ["listEventCategories", listEventCategories],
   ["createEventCategory", createEventCategory],
   ["listAgileOverlay", listAgileOverlay],
+  ["listOutlookOverlay", listOutlookOverlay],
 ] as const;
 
 const apiKey = (scopes: string[]) =>

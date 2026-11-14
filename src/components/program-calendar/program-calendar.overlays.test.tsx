@@ -21,7 +21,7 @@ vi.mock("@/lib/query/json-fetcher", async (orig) => ({
 
 import { ProgramCalendar, type CalendarOverlays } from "./program-calendar";
 import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
-import type { AgilePayload } from "@/lib/program-calendar/overlays";
+import type { AgilePayload, OutlookPayload, OutlookStatus } from "@/lib/program-calendar/overlays";
 
 const CATEGORY = { id: "c1", name: "Reviews", tintRgb: "99 102 241", tintAlpha: 0.2, textColor: "#3730A3" };
 const EVENT = {
@@ -40,17 +40,34 @@ const AGILE: AgilePayload = {
   dueCapped: false,
 };
 
+const OUTLOOK: OutlookPayload = {
+  status: "connected",
+  capped: false,
+  events: [
+    {
+      id: "o1", subject: "Exercise A planning call", start: "2027-01-13T15:00:00.000Z", end: "2027-01-13T15:30:00.000Z",
+      allDay: false, webLink: "https://outlook.example/item/o1",
+    },
+    {
+      id: "o2", subject: "Out of office", start: "2027-01-18T00:00:00.000Z", end: "2027-01-19T00:00:00.000Z",
+      allDay: true, webLink: null,
+    },
+  ],
+};
+
 let agileResponse: () => Promise<unknown> = async () => AGILE;
+let outlookResponse: () => Promise<unknown> = async () => OUTLOOK;
 let eventsResponse: () => unknown[] = () => [EVENT];
 
 const calls = (fragment: string) =>
   vi.mocked(jsonFetch).mock.calls.filter(([url]) => String(url).includes(fragment)).length;
 
-function overlays(storageKey = "cosmos:pm-calendar-overlays:o1:u1"): CalendarOverlays {
+function overlays(storageKey = "cosmos:pm-calendar-overlays:o1:u1", outlook: OutlookStatus = "not_connected"): CalendarOverlays {
   return {
     storageKey,
     orgSlug: "acme",
     milestones: [{ id: "m1", title: "Exercise A readiness", dueDate: "2027-01-20T00:00:00.000Z", projectKey: "WEB" }],
+    outlook,
   };
 }
 
@@ -74,7 +91,7 @@ function mount(
   );
 }
 
-const toggle = (name: "Events" | "Agile") =>
+const toggle = (name: "Events" | "Agile" | "Outlook") =>
   within(screen.getByRole("group", { name: "Overlays" })).getByRole("button", { name: new RegExp(`^${name}`) });
 
 beforeEach(() => {
@@ -83,12 +100,14 @@ beforeEach(() => {
   vi.setSystemTime(new Date("2027-01-15T12:00:00.000Z"));
   window.localStorage.clear();
   agileResponse = async () => AGILE;
+  outlookResponse = async () => OUTLOOK;
   eventsResponse = () => [EVENT];
   vi.mocked(jsonFetch).mockImplementation(async (url) => {
     const u = String(url);
     if (u.includes("/program-events?")) return eventsResponse() as never;
     if (u.includes("/event-categories?")) return [{ ...CATEGORY, count: 1 }] as never;
     if (u.includes("/program-calendar/agile?")) return (await agileResponse()) as never;
+    if (u.includes("/program-calendar/outlook?")) return (await outlookResponse()) as never;
     // Saving an event: POST to the list, PATCH to one event.
     if (/\/program-events(\/[^/?]+)?$/.test(u)) return {} as never;
     throw new Error(`unexpected fetch ${u}`);
@@ -339,5 +358,131 @@ describe("a picked project", () => {
     await waitFor(() => expect(saved("PATCH")).not.toBeNull());
     expect(saved("PATCH")!.url).toBe("/api/v1/orgs/o1/program-events/e1");
     expect(saved("PATCH")!.body).not.toHaveProperty("projectId");
+  });
+});
+
+describe("the Outlook overlay is the viewer's own calendar, and never silent", () => {
+  const OUTLOOK_HOME = "/acme/settings/preferences";
+  const note = () => screen.getByRole("status");
+
+  it("not connected: the toggle says so before it is pressed, and pressed, says how to connect; nothing is fetched", async () => {
+    mount(overlays(undefined, "not_connected"));
+    await screen.findByText("Program review");
+    expect(toggle("Outlook").textContent).toContain("(not connected)");
+    expect(toggle("Outlook").getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(toggle("Outlook"));
+    expect(await screen.findByText(/Your Outlook calendar isn.t connected/)).toBeTruthy();
+    expect(within(note()).getByRole("link", { name: "Settings, Preferences" }).getAttribute("href")).toBe(OUTLOOK_HOME);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls("/program-calendar/outlook")).toBe(0);
+    // The rest of the calendar is unaffected.
+    expect(screen.getByText("Program review")).toBeTruthy();
+  });
+
+  it("control: connected, it fetches and draws the viewer's meetings, each linked to Outlook; off removes them", async () => {
+    mount(overlays(undefined, "connected"));
+    await screen.findByText("Program review");
+    expect(toggle("Outlook").textContent).not.toContain("not connected");
+    expect(calls("/program-calendar/outlook")).toBe(0);
+
+    fireEvent.click(toggle("Outlook"));
+    const call = await screen.findByRole("link", { name: /^Outlook: Exercise A planning call, .* \(opens in a new tab\)$/ });
+    expect(call.getAttribute("href")).toBe("https://outlook.example/item/o1");
+    expect(call.getAttribute("target")).toBe("_blank");
+    expect(call.getAttribute("rel")).toContain("noopener");
+    expect(calls("/program-calendar/outlook")).toBe(1);
+    expect(within(screen.getByRole("list", { name: "Legend" })).getByText("Outlook")).toBeTruthy();
+    expect(screen.queryByText(/isn.t connected/)).toBeNull();
+
+    fireEvent.click(toggle("Outlook"));
+    await waitFor(() => expect(screen.queryByText("Exercise A planning call")).toBeNull());
+    expect(screen.getByText("Program review")).toBeTruthy();
+  });
+
+  it("asks for a day either side of the grid, so meetings late on the edge days are not lost", async () => {
+    mount(overlays(undefined, "connected"));
+    await screen.findByText("Program review");
+    fireEvent.click(toggle("Agile"));
+    fireEvent.click(toggle("Outlook"));
+    await screen.findByText("Exercise A planning call");
+    const query = (fragment: string) => {
+      const url = vi.mocked(jsonFetch).mock.calls.map(([u]) => String(u)).find((u) => u.includes(fragment))!;
+      const q = new URLSearchParams(url.split("?")[1]);
+      return { from: Date.parse(q.get("from")!), to: Date.parse(q.get("to")!) };
+    };
+    const grid = query("/program-calendar/agile?");
+    const asked = query("/program-calendar/outlook?");
+    expect(grid.from - asked.from).toBe(24 * 60 * 60 * 1000);
+    expect(asked.to - grid.to).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it("an event with no Outlook link is text, not a control that does nothing", async () => {
+    mount(overlays(undefined, "connected"));
+    await screen.findByText("Program review");
+    fireEvent.click(toggle("Outlook"));
+    const ooo = await screen.findByText("Out of office");
+    expect(ooo.closest("button")).toBeNull();
+    expect(ooo.closest("a")).toBeNull();
+    // Control: the one WITH a link is one.
+    expect(screen.getByText("Exercise A planning call").closest("a")).not.toBeNull();
+  });
+
+  it("a connection to renew says so, and where", async () => {
+    mount(overlays(undefined, "reconnect"));
+    await screen.findByText("Program review");
+    expect(toggle("Outlook").textContent).toContain("(reconnect)");
+    fireEvent.click(toggle("Outlook"));
+    expect(await screen.findByText(/Microsoft stopped accepting your Outlook connection/)).toBeTruthy();
+    expect(within(note()).getByRole("link", { name: "Settings, Preferences" }).getAttribute("href")).toBe(OUTLOOK_HOME);
+    expect(calls("/program-calendar/outlook")).toBe(0);
+  });
+
+  it("an organization without Outlook Calendar says who can turn it on, and where", async () => {
+    mount(overlays(undefined, "off"));
+    await screen.findByText("Program review");
+    fireEvent.click(toggle("Outlook"));
+    expect(await screen.findByText(/isn.t turned on for this organization/)).toBeTruthy();
+    expect(within(note()).getByRole("link", { name: "Settings, Integrations" }).getAttribute("href")).toBe(
+      "/acme/settings/integrations",
+    );
+  });
+
+  it("a connection that lapsed while the page was open is reported as such when read", async () => {
+    outlookResponse = async () => ({ status: "reconnect", events: [], capped: false });
+    mount(overlays(undefined, "connected"));
+    await screen.findByText("Program review");
+    fireEvent.click(toggle("Outlook"));
+    expect(await screen.findByText(/Microsoft stopped accepting your Outlook connection/)).toBeTruthy();
+    expect(toggle("Outlook").textContent).toContain("(reconnect)");
+  });
+
+  it("Microsoft not answering is said in words, as is a failed request", async () => {
+    outlookResponse = async () => ({
+      status: "unavailable", events: [], capped: false,
+      detail: "Microsoft is limiting requests from your account right now. Try again in a minute.",
+    });
+    const first = mount(overlays(undefined, "connected"));
+    await screen.findByText("Program review");
+    fireEvent.click(toggle("Outlook"));
+    expect(await screen.findByText(/Your Outlook calendar could not be loaded\. Microsoft is limiting requests/)).toBeTruthy();
+    first.unmount();
+    window.localStorage.clear();
+
+    outlookResponse = async () => {
+      throw new FetchError(500, { error: "Internal server error" }, "Internal server error");
+    };
+    mount(overlays(undefined, "connected"));
+    await screen.findByText("Program review");
+    fireEvent.click(toggle("Outlook"));
+    expect(await screen.findByText("Your Outlook calendar could not be loaded: Internal server error")).toBeTruthy();
+  });
+
+  it("a cut-off list says so", async () => {
+    outlookResponse = async () => ({ ...OUTLOOK, capped: true });
+    mount(overlays(undefined, "connected"));
+    await screen.findByText("Program review");
+    fireEvent.click(toggle("Outlook"));
+    expect(await screen.findByText(/Only the first 500 of your Outlook events in this period are shown/)).toBeTruthy();
   });
 });

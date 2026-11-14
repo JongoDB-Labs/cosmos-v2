@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
@@ -17,9 +18,14 @@ import {
   agileItems,
   DUE_CAP,
   milestoneItems,
+  outlookItems,
+  OUTLOOK_MAX_PAGES,
+  OUTLOOK_PAGE_SIZE,
   OVERLAY_STYLES,
   type AgilePayload,
   type CalendarMilestone,
+  type OutlookPayload,
+  type OutlookStatus,
   type OverlayKind,
 } from "@/lib/program-calendar/overlays";
 
@@ -53,6 +59,8 @@ export interface CalendarOverlays {
   orgSlug: string;
   /** Already limited, by the page, to the projects the viewer may read. */
   milestones: CalendarMilestone[];
+  /** Where the viewer's own Outlook connection stands, read by the page. */
+  outlook: OutlookStatus;
 }
 
 /** Lanes per week the Agile overlay adds, under the events' own three: room
@@ -61,6 +69,22 @@ export interface CalendarOverlays {
  *  out of a week; what does not fit is "+N more", which opens the Day view,
  *  where every item on the day is drawn. */
 const AGILE_EXTRA_LANES = 3;
+/** Lanes the Outlook overlay adds: a person's own day is often several
+ *  meetings, and the rest are "+N more" into the Day view, as above. */
+const OUTLOOK_EXTRA_LANES = 2;
+/** The Outlook read waits this long before asking Microsoft again for the same
+ *  window: paging back and forth should not cost a Graph call each time. */
+const OUTLOOK_STALE_MS = 60_000;
+
+/** The viewer's own time zone, for their own meetings. UTC where the browser
+ *  will not say (and on the server, which renders before any data loads). */
+function viewerTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
 
 /** `yyyy-mm-dd` from a UTC instant — never the local getters, which would
  *  shift the date for readers west of UTC. */
@@ -109,6 +133,11 @@ export function ProgramCalendar({
   // Without overlays the calendar is its events, always on.
   const eventsOn = !overlays || toggles.events;
   const agileOn = !!overlays && toggles.agile;
+  const outlookOn = !!overlays && toggles.outlook;
+  // Ask Microsoft only for someone whose connection can answer. Anyone else is
+  // told why, in words, instead (see the notes below).
+  const outlookStatus = overlays?.outlook;
+  const outlookLive = outlookOn && outlookStatus === "connected";
 
   const window = useMemo(() => {
     if (view === "month") return monthGridWindow(anchor);
@@ -207,9 +236,39 @@ export function ProgramCalendar({
     [overlays, agileOn, agileQuery.data],
   );
 
+  // A day wider on each side than the grid: the grid's days are dates on the
+  // viewer's clock, and a meeting late on the last day (or early on the first)
+  // is, as an instant, outside the UTC window. Cut back to the grid below.
+  const outlookParams = useMemo(() => {
+    const p = new URLSearchParams({
+      from: new Date(window.from.getTime() - DAY_MS).toISOString(),
+      to: new Date(window.to.getTime() + DAY_MS).toISOString(),
+    });
+    return p.toString();
+  }, [window]);
+  const outlookKey = useOrgQueryKey("program-calendar-outlook", outlookParams);
+  const outlookQuery = useQuery({
+    queryKey: outlookKey,
+    queryFn: () => jsonFetch<OutlookPayload>(`/api/v1/orgs/${orgId}/program-calendar/outlook?${outlookParams}`),
+    enabled: outlookLive,
+    staleTime: OUTLOOK_STALE_MS,
+  });
+  const outlook: CalendarEvent[] = useMemo(
+    () =>
+      outlookLive && outlookQuery.data
+        ? outlookItems(outlookQuery.data, viewerTimeZone()).filter(
+            (e) => e.startsAt < window.to && e.endsAt > window.from,
+          )
+        : [],
+    [outlookLive, outlookQuery.data, window],
+  );
+  // What the server said when asked, over what the page knew at render: a
+  // connection can lapse while the page is open.
+  const outlookNow: OutlookStatus | undefined = outlookQuery.data?.status ?? outlookStatus;
+
   const events: CalendarEvent[] = useMemo(
-    () => [...programEvents, ...milestones, ...agile],
-    [programEvents, milestones, agile],
+    () => [...programEvents, ...milestones, ...agile, ...outlook],
+    [programEvents, milestones, agile, outlook],
   );
 
   const ownerLanes = useMemo(() => {
@@ -239,16 +298,25 @@ export function ProgramCalendar({
       count: agileOn && agileQuery.data ? agile.length : null,
       loading: agileOn && agileQuery.isFetching,
     },
+    {
+      key: "outlook",
+      label: "Outlook",
+      swatchRgb: OVERLAY_STYLES.outlook.tintRgb,
+      count: outlookLive && outlookQuery.data?.status === "connected" ? outlook.length : null,
+      loading: outlookLive && outlookQuery.isFetching,
+      hint: OUTLOOK_HINT[outlookNow ?? "connected"],
+    },
   ];
 
   const legendKinds: OverlayKind[] = [
     ...(overlays && eventsOn ? (["milestone"] as const) : []),
     ...(agileOn ? (["increment", "sprint", "release", "due"] as const) : []),
+    ...(outlookLive && outlookNow === "connected" ? (["outlook"] as const) : []),
   ];
 
   // Anything the viewer is NOT being shown, said in words. A failed overlay
   // must never look like an empty one.
-  const notes: string[] = [];
+  const notes: ReactNode[] = [];
   if (overlays) {
     if (eventsOn && eventsQuery.isError) notes.push(`Program events could not be loaded: ${eventsQuery.error.message}`);
     if (agileOn && agileQuery.isError) notes.push(`The Agile overlay could not be loaded: ${agileQuery.error.message}`);
@@ -257,10 +325,23 @@ export function ProgramCalendar({
         `Only the first ${DUE_CAP} work items due in this period are shown. Pick a project above to see the rest.`,
       );
     }
-    if (!toggles.events && !toggles.agile) notes.push("Every overlay is off. Turn one on to fill the calendar.");
+    if (outlookOn) {
+      const note = outlookNote(overlays.orgSlug, outlookNow, outlookQuery.data?.detail);
+      if (note) notes.push(note);
+      if (outlookQuery.isError) notes.push(`Your Outlook calendar could not be loaded: ${outlookQuery.error.message}`);
+      if (outlookLive && outlookQuery.data?.capped) {
+        notes.push(
+          `Only the first ${OUTLOOK_PAGE_SIZE * OUTLOOK_MAX_PAGES} of your Outlook events in this period are shown. The Week and Day views show the rest.`,
+        );
+      }
+    }
+    if (!toggles.events && !toggles.agile && !toggles.outlook) {
+      notes.push("Every overlay is off. Turn one on to fill the calendar.");
+    }
   }
 
-  const visibleLanes = agileOn ? VISIBLE_LANES + AGILE_EXTRA_LANES : VISIBLE_LANES;
+  const visibleLanes =
+    VISIBLE_LANES + (agileOn ? AGILE_EXTRA_LANES : 0) + (outlookLive ? OUTLOOK_EXTRA_LANES : 0);
 
   const save = useOrgMutation({
     mutationFn: async (d: EventDraft) => {
@@ -436,6 +517,56 @@ export function ProgramCalendar({
       />
     </div>
   );
+}
+
+/** What the Outlook toggle says beside its name, when it cannot show anything yet. */
+const OUTLOOK_HINT: Record<OutlookStatus, string | undefined> = {
+  connected: undefined,
+  unavailable: undefined,
+  not_connected: "not connected",
+  reconnect: "reconnect",
+  off: "not set up",
+};
+
+/**
+ * Why the Outlook overlay shows nothing, with the way to fix it. Every state
+ * but a working connection says something: an overlay that is on and empty
+ * must never look the same as one that cannot load.
+ */
+function outlookNote(orgSlug: string, status: OutlookStatus | undefined, detail?: string): ReactNode {
+  const prefs = `/${encodeURIComponent(orgSlug)}/settings/preferences`;
+  const link = (href: string, text: string) => (
+    <Link href={href} className="font-medium underline underline-offset-2">
+      {text}
+    </Link>
+  );
+  switch (status) {
+    case "not_connected":
+      return (
+        <>
+          Your Outlook calendar isn&apos;t connected. Connect it under {link(prefs, "Settings, Preferences")}, and
+          your own meetings appear here. Only you see them.
+        </>
+      );
+    case "reconnect":
+      return (
+        <>
+          Microsoft stopped accepting your Outlook connection. Reconnect it under{" "}
+          {link(prefs, "Settings, Preferences")}.
+        </>
+      );
+    case "off":
+      return (
+        <>
+          Outlook Calendar isn&apos;t turned on for this organization. An admin can turn it on under{" "}
+          {link(`/${encodeURIComponent(orgSlug)}/settings/integrations`, "Settings, Integrations")}.
+        </>
+      );
+    case "unavailable":
+      return `Your Outlook calendar could not be loaded. ${detail ?? "Try again in a minute."}`;
+    default:
+      return null;
+  }
 }
 
 /** Form values to the API body. The single place a date STRING becomes an

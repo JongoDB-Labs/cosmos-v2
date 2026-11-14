@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.559.0",
+    date: "2026-11-13",
+    title: "Your own Outlook meetings on the Program Management calendar",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Program Management calendar has an Outlook overlay. It shows the meetings in your own main Outlook calendar beside the program's events. Only you see them, and it stays off until you turn it on.",
+      },
+      {
+        kind: "improvement",
+        text: "If your Outlook calendar isn't connected, the Outlook toggle says so and links to Settings, Preferences, where you connect it. If Microsoft is busy, doesn't answer or refuses, the calendar says that too, instead of showing an empty month, and it waits no more than about ten seconds on a busy Microsoft.",
+      },
+      {
+        kind: "improvement",
+        text: "Meetings show at your own local time, all-day events keep the dates they have in Outlook, and each one opens in Outlook. Cancelled meetings are left out.",
+      },
+      {
+        kind: "improvement",
+        text: "Settings, Preferences now explains that Cosmos reads your main calendar only for this overlay. It still writes only to its own Cosmos calendar.",
+      },
+    ],
+  },
+  {
     version: "2.558.0",
     date: "2026-11-13",
     title: "A calendar in Program Management, with overlays you switch on and off",

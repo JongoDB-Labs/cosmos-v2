@@ -45,6 +45,10 @@ vi.mock("@/lib/work-items/query/scope", () => ({ getReadableProjectIds: async ()
 vi.mock("@/lib/pm/schedule", () => ({ loadMilestonesWithDerived: loaders.milestones }));
 vi.mock("@/lib/pm/kpi-derive", () => ({ loadKpisWithDerived: loaders.kpis }));
 vi.mock("@/lib/pm/burn", () => ({ loadClinsWithBurn: loaders.clins }));
+// Not one of `loaders`: those all take the visible project ids, and the
+// viewer's Outlook status is about the viewer, not about any project.
+const outlookStatus = vi.hoisted(() => vi.fn(async (): Promise<string> => "not_connected"));
+vi.mock("@/lib/program-calendar/outlook.server", () => ({ outlookOverlayStatus: outlookStatus }));
 vi.mock("next/headers", () => ({
   headers: async () => new Headers({ "x-forwarded-host": "cosmos.example.com", "x-forwarded-proto": "https" }),
 }));

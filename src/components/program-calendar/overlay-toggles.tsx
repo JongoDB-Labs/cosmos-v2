@@ -70,6 +70,9 @@ export interface OverlayToggleSpec {
   /** Items it holds in the visible window, or null while off or loading. */
   count: number | null;
   loading?: boolean;
+  /** Why it has nothing to show yet ("not connected"), said on the button
+   *  itself, so the reason is there before anyone presses it. */
+  hint?: string;
 }
 
 /**
@@ -113,6 +116,7 @@ export function OverlayToggles({
               style={on ? { backgroundColor: `rgb(${s.swatchRgb})` } : undefined}
             />
             {s.label}
+            {s.hint ? <span className="font-normal text-muted-foreground">({s.hint})</span> : null}
             {on && s.count !== null ? (
               <span className="tabular-nums text-muted-foreground">{s.count}</span>
             ) : null}

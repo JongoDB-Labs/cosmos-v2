@@ -14,6 +14,7 @@ import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { ProgramCalendar } from "@/components/program-calendar/program-calendar";
 import { togglesStorageKey } from "@/lib/program-calendar/overlays";
+import { outlookOverlayStatus } from "@/lib/program-calendar/outlook.server";
 import { NoPageAccess } from "@/components/ui/no-page-access";
 import { PageShell, pageShellBoxClassName, type PageShellProps } from "@/components/ui/page-shell";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -381,6 +382,9 @@ async function programScope(ctx: AuthContext, requestedKey: string | null) {
  * - The event form's pickers, by the rules the project tab applies: teams on
  *   projects the reader can see, members still in the org, and deliverables on
  *   projects readable under ANALYTICS_READ, as the deliverables API asks.
+ * - Where the reader's OWN Outlook connection stands, so the Outlook toggle
+ *   can say "connect" before it is pressed. Their events are read by the
+ *   calendar, through the Outlook route, for them alone.
  */
 async function programCalendarView(ctx: AuthContext, orgSlug: string, requestedKey: string | null) {
   const embedded = programManagementEmbedUrl() !== null;
@@ -393,7 +397,7 @@ async function programCalendarView(ctx: AuthContext, orgSlug: string, requestedK
   const { all, analyticsIds, visibleProjects, selected, milestoneScopeIds } = scope;
   const keyById = new Map(all.map((p) => [p.id, p.key]));
 
-  const [teams, members, deliverables, milestones] = await Promise.all([
+  const [teams, members, deliverables, milestones, outlook] = await Promise.all([
     prisma.team.findMany({
       where: { orgId: ctx.orgId, ...(hidden.length ? { projectId: { notIn: hidden } } : {}) },
       select: { id: true, name: true },
@@ -412,6 +416,7 @@ async function programCalendarView(ctx: AuthContext, orgSlug: string, requestedK
       take: 500,
     }),
     loadMilestonesWithDerived(ctx.orgId, milestoneScopeIds),
+    outlookOverlayStatus(ctx.orgId, ctx.userId),
   ]);
 
   const owners = [
@@ -454,6 +459,7 @@ async function programCalendarView(ctx: AuthContext, orgSlug: string, requestedK
             dueDate: m.dueDate.toISOString(),
             projectKey: keyById.get(m.projectId) ?? "",
           })),
+          outlook,
         }}
       />
     </PageShell>
