@@ -20,15 +20,23 @@
 // here, and the board's scope shares a row rather than owning one.
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
+import type { ReactNode } from "react";
 
 // The real builder pulls in CodeMirror via next/dynamic. Stub it, but keep the
 // `variant` it was handed observable -- that IS the thing under test, and a
 // stub that swallowed it would make every assertion below vacuous.
+// It also renders `trailing` in a row of its own, the way the real builder
+// puts it in its last row: the scope and actions arrive through that slot now,
+// and a stub that dropped it would hide them from every assertion below.
 const seen: { variant?: string }[] = [];
 vi.mock("@/components/work-items/cql/query-builder", () => ({
-  QueryBuilder: (props: { variant?: string }) => {
+  QueryBuilder: (props: { variant?: string; trailing?: ReactNode }) => {
     seen.push({ variant: props.variant });
-    return <div data-testid="builder" data-variant={props.variant ?? "card"} />;
+    return (
+      <div data-testid="builder" data-variant={props.variant ?? "card"}>
+        <div className="flex flex-wrap">{props.trailing}</div>
+      </div>
+    );
   },
 }));
 
@@ -79,9 +87,10 @@ describe("the CQL band is one padded surface", () => {
     );
     const scope = screen.getByText(/This board shows/);
     const newIssue = screen.getByRole("button", { name: "New work item" });
-    // Same parent row. Previously the scope line was a sibling of the builder,
-    // one level up, and cost ~20px on every CQL board.
-    expect(scope.closest("div")).toBe(newIssue.closest("div"));
+    // Same row. Previously the scope line was a sibling of the builder, one
+    // level up, and cost ~20px on every CQL board. (The scope has a box of its
+    // own, for its More button, so compare the wrapping row, not the parent.)
+    expect(scope.closest(".flex-wrap")).toBe(newIssue.closest(".flex-wrap"));
   });
 
   it("keeps the long scope query readable without wrapping to more rows", () => {

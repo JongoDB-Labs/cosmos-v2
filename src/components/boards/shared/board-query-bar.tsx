@@ -1,14 +1,21 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { cn } from "@/lib/utils";
 import { QueryBuilder } from "@/components/work-items/cql/query-builder";
 import type { BoardQuery } from "./use-board-query";
 
 /**
  * The board's filter bar with the query language on: the same chips and
- * editor as Issues (query design §12.1), under a line naming the board's own
+ * editor as Issues (query design §12.1), with a line naming the board's own
  * scope, which the query narrows and "Clear" returns to. `children` holds
  * presentation controls that aren't filters (swimlanes).
+ *
+ * ONE row of the builder carries everything, not a row of its own under it:
+ * the scope line, `children` and `actions` go to the builder as `trailing`
+ * (see QueryBuilder), which puts them beside the search box in Filters mode
+ * and beside "Add filter" in CQL mode. They used to be this band's bottom row,
+ * the row that pushed a sprint board's columns furthest down.
  *
  * This owns its own band -- `border-b px-4 py-2`, matching `FilterBar`'s root
  * and the toolbars beneath it -- because the alternative is every board
@@ -26,10 +33,10 @@ export function BoardQueryBar({
   q: BoardQuery;
   children?: ReactNode;
   /**
-   * The board's own actions, in this band's bottom row beside the pending
-   * indicator. Same slot and same reason as `FilterBar`'s: these used to be a
-   * second `<BoardToolbar>` band stacked underneath, holding two controls with
-   * an empty middle. See ffe324aa.
+   * The board's own actions, at the end of the builder's last row. Same slot
+   * and same reason as `FilterBar`'s: these used to be a second
+   * `<BoardToolbar>` band stacked underneath, holding two controls with an
+   * empty middle. See ffe324aa.
    *
    * These must NOT be gated on `q.schema`. This band returns null until the
    * schema arrives (fetched, `retry: false`), and an earlier draft let the
@@ -40,22 +47,36 @@ export function BoardQueryBar({
    */
   actions?: ReactNode;
 }) {
-  // No schema yet: show the actions alone rather than nothing, so they survive
-  // a slow or failed /cql/schema. With nothing to put in it, still render
-  // nothing -- an empty bordered strip where the filter bar belongs is the
-  // failure `chrome-bands.arch.test.ts` was written about.
+  // No schema yet: show the board's own controls alone rather than nothing,
+  // so they survive a slow or failed /cql/schema. Swimlanes included: grouping
+  // the cards needs a schema no more than "New work item" does, and it used to
+  // vanish with the builder. With nothing to put in it, still render nothing
+  // -- an empty bordered strip where the filter bar belongs is the failure
+  // `chrome-bands.arch.test.ts` was written about.
   if (!q.schema) {
-    return actions ? (
+    return children || actions ? (
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-4 py-2">
+        {children}
         {actions}
       </div>
     ) : null;
   }
+  // A `problem` gets priority over the scope, and keeps role="alert". The
+  // scope itself is a ScopeLine (below).
+  const scope = q.problem ? (
+    <p role="alert" className="text-xs text-[var(--status-blocked-text)]">
+      This board shows nothing: {q.problem}.
+    </p>
+  ) : q.baselineCql ? (
+    <ScopeLine cql={q.baselineCql} />
+  ) : null;
   return (
-    <div className="space-y-1 border-b border-[var(--border)] px-4 py-2">
+    <div className="relative border-b border-[var(--border)] px-4 py-2">
       {/* `variant="inline"`: this band already draws the border and padding, so
           the builder's own card would be framing inside framing. Measured on
-          prod, that card cost 26 of the band's 147 vertical pixels. */}
+          prod, that card cost 26 of the band's 147 vertical pixels.
+          The builder's Clear (inside its search or query box) empties the
+          query: back to the board's scope. */}
       <QueryBuilder
         orgId={orgId}
         schema={q.schema}
@@ -65,30 +86,75 @@ export function BoardQueryBar({
         onModeChange={q.setMode}
         serverDiagnostics={q.diagnostics}
         variant="inline"
+        trailing={
+          <>
+            {scope}
+            {children}
+            {actions}
+          </>
+        }
       />
-      {/* One bottom row, not three stacked ones. The board's scope used to have
-          a line of its own above the builder; it is small muted text that reads
-          perfectly well beside the other small muted text, and a line to itself
-          cost ~20px on every CQL board. A `problem` still gets priority here,
-          and keeps role="alert".
-          The builder's own Clear empties the query: back to the board's scope. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {q.problem ? (
-          <p role="alert" className="text-xs text-[var(--status-blocked-text)]">
-            This board shows nothing: {q.problem}.
-          </p>
-        ) : q.baselineCql ? (
-          <p className="min-w-0 truncate text-xs text-[var(--text-muted)]" title={q.baselineCql}>
-            This board shows{" "}
-            <code className="rounded border border-[var(--border)] px-1">{q.baselineCql}</code>
-          </p>
-        ) : null}
-        {children}
-        <span aria-live="polite" className="text-xs text-[var(--text-muted)]">
-          {q.pending ? "Filtering…" : ""}
-        </span>
-        {actions}
-      </div>
+      {/* Out of the flow, on the band's bottom edge. In flow it was a word that
+          appeared and vanished with every query, and in a full row that is
+          enough to push the last control onto a line of its own and back --
+          moving the whole board down and up each time. Still the live region
+          a screen reader hears. Above the board's sticky header row (Table's
+          thead is z-10), which otherwise hid its lower half. Its top 2px under
+          the row's controls (they end 8px above the band's edge): centred on
+          the edge, it covered the bottom 2px of the last one. */}
+      <span
+        aria-live="polite"
+        className="pointer-events-none absolute right-4 top-[calc(100%-6px)] z-20 text-xs leading-none"
+      >
+        {q.pending ? (
+          <span className="inline-block rounded-full border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[var(--text-muted)]">
+            Filtering…
+          </span>
+        ) : (
+          ""
+        )}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The board's scope, as main showed it: at its own width, moving to the next
+ * line when this one is full, and cut off with an ellipsis only when it is
+ * longer than a whole line (a sentence-long saved query must not claim two or
+ * three rows above every board). When it is cut off, More shows the rest in
+ * place, by keyboard and touch too; `title` alone reached only a mouse.
+ */
+function ScopeLine({ cql }: { cql: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [cut, setCut] = useState(false);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => setCut(el.scrollWidth > el.clientWidth + 1);
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    measure();
+    return () => ro.disconnect();
+  }, [cql, open]);
+  return (
+    <div className="flex min-w-0 max-w-full items-baseline gap-1">
+      <p ref={ref} className={cn("min-w-0 text-xs text-[var(--text-muted)]", !open && "truncate")} title={cql}>
+        This board shows{" "}
+        <code className="rounded border border-[var(--border)] px-1 [overflow-wrap:anywhere]">{cql}</code>
+      </p>
+      {(cut || open) && (
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={open ? "Less of this board's scope" : "More of this board's scope"}
+          onClick={() => setOpen((o) => !o)}
+          className="shrink-0 text-xs text-[var(--text-muted)] underline underline-offset-2 hover:text-[var(--text)]"
+        >
+          {open ? "Less" : "More"}
+        </button>
+      )}
     </div>
   );
 }

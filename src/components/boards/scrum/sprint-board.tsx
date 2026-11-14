@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { KanbanBoard } from "@/components/boards/kanban/kanban-board";
@@ -90,6 +90,19 @@ export function SprintBoard({
     setSelectedId(id);
   }, []);
 
+  // What the board is scoped to, said in words. It continues the pill row
+  // rather than taking a row under it -- see SprintPicker's `trailing`.
+  const summary = shown ? (
+    <SprintSummaryLine sprint={shown} />
+  ) : (
+    <>
+      <p className="text-xs text-[var(--text-muted)]">No active sprint — showing the full board.</p>
+      <Link href={intervalsHref} className={cn(buttonVariants({ size: "sm" }), "ml-auto gap-1.5")}>
+        <Plus className="h-3.5 w-3.5" /> New sprint
+      </Link>
+    </>
+  );
+
   return (
     <div className="flex h-full flex-col">
       {/* ONE bar, where there used to be two.
@@ -103,40 +116,30 @@ export function SprintBoard({
           with dropdowns and such" (ffe324aa).
           Nothing was dropped to fix it. Every value that block showed is still
           here, on a single line that wraps only when it must — see
-          SprintSummaryLine. */}
+          SprintSummaryLine.
+          And that line is now the END of the pill row, not a second row: on a
+          wide screen the whole band is one line. */}
       {intervals === null ? (
         <div className="border-b border-[var(--border)] px-6 py-2">
           <Skeleton className="h-4 w-64" />
         </div>
       ) : (
-        <div className="flex flex-col gap-1 border-b border-[var(--border)] px-6 py-2">
+        <div className="border-b border-[var(--border)] px-6 py-2">
           {/* All sprints — click any to SCOPE THE BOARD to it. These used to
               open a read-only modal, which meant the one obvious way to move
               between sprints didn't move the board at all; the details they
-              showed now live on the summary line below, which follows the
+              showed now follow the pills on the same row, and follow the
               selection. */}
-          {intervals.length > 0 && (
+          {intervals.length > 0 ? (
             <SprintPicker
               intervals={intervals}
               shownId={shown?.id ?? null}
               onSelect={setSelectedId}
               onManage={() => setManageOpen(true)}
+              trailing={summary}
             />
-          )}
-          {shown ? (
-            <SprintSummaryLine sprint={shown} />
           ) : (
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-[var(--text-muted)]">
-                No active sprint — showing the full board.
-              </p>
-              <Link
-                href={intervalsHref}
-                className={cn(buttonVariants({ size: "sm" }), "gap-1.5")}
-              >
-                <Plus className="h-3.5 w-3.5" /> New sprint
-              </Link>
-            </div>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">{summary}</div>
           )}
         </div>
       )}
@@ -214,12 +217,19 @@ export function SprintPicker({
   onSelect,
   onManage,
   now: nowProp,
+  trailing,
 }: {
   intervals: Interval[];
   shownId: string | null;
   onSelect: (id: string | null) => void;
   onManage: () => void;
   now?: number;
+  /**
+   * What follows the pills on their row: the shown sprint's name, dates and
+   * summary. Placed as items of the row, so they wrap one unit at a time when
+   * the row is full instead of taking a row of their own every time.
+   */
+  trailing?: ReactNode;
 }) {
   // "Past" is judged once, when the board opens; a test can pin it.
   const [openedAt] = useState(() => Date.now());
@@ -265,7 +275,9 @@ export function SprintPicker({
     // "Manage" say what the row is, and the label cost horizontal space on the
     // row ffe324aa is about.
     <div>
-      <div className="flex flex-wrap items-center gap-1.5">
+      {/* 6px between pills, as on main: at 8px, "All items" no longer fit
+          beside them on a 360px phone and took a line of its own. */}
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
         <button
           type="button"
           onClick={onManage}
@@ -356,6 +368,7 @@ export function SprintPicker({
         >
           All items
         </button>
+        {trailing}
       </div>
       {/* The AA-safe amber token rather than Tailwind's amber-600, which is
           3.19:1 on the light page (2.88:1 on the darkest light skin) — and
@@ -406,6 +419,15 @@ function KanbanBoardMountSkeleton() {
  * The name stays an <h2>: it is the heading for the board underneath, and the
  * tests that assert the heading follows the selection are asserting something
  * real about orientation, not an implementation detail.
+ *
+ * It has no box of its own (`contents`): its parts are items of the pill row
+ * it ends, so on a wide screen pills and summary are ONE line. When the row is
+ * full they wrap in groups that each read as one thing, never word by word:
+ * what the sprint is (name, status, dates, item count), how far through it is
+ * (days left and the bar), how it closed (the report), and its goal. Measured
+ * at 1280px with the count as an item of its own, "0 items" wrapped alone onto
+ * a second line. The goal starts at 8rem, grows into what the row has left and
+ * truncates there, so a sentence-long goal costs one line at most.
  */
 function SprintSummaryLine({ sprint }: { sprint: IntervalWithCount }) {
   const start = new Date(sprint.startDate);
@@ -434,21 +456,31 @@ function SprintSummaryLine({ sprint }: { sprint: IntervalWithCount }) {
   } | null;
 
   const strong = "font-medium text-[var(--text)]";
+  const name = sprint.name || `Sprint ${sprint.number}`;
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-[var(--text-muted)]">
-      <h2 className="text-sm font-semibold text-[var(--text)]">
-        {sprint.name || `Sprint ${sprint.number}`}
-      </h2>
-      <Badge variant={variant} showDot={false}>
-        {statusLabel}
-      </Badge>
-      <span className="inline-flex items-center gap-1">
-        <CalendarDays className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        {formatDateShortStable(start)} – {formatDateShortStable(end)}
-      </span>
+    <div className="contents text-xs text-[var(--text-muted)]">
+      {/* `max-w-full` + a truncating name: on a phone a long sprint name ends
+          in an ellipsis inside the band rather than running off its edge. */}
+      <div className="ml-1.5 inline-flex min-w-0 max-w-full items-center gap-2 whitespace-nowrap">
+        <h2 className="min-w-0 truncate text-sm font-semibold text-[var(--text)]" title={name}>
+          {name}
+        </h2>
+        <Badge variant={variant} showDot={false}>
+          {statusLabel}
+        </Badge>
+        <span className="inline-flex items-center gap-1">
+          <CalendarDays className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          {formatDateShortStable(start)} – {formatDateShortStable(end)}
+        </span>
+        {typeof itemCount === "number" && (
+          <span>
+            {itemCount} item{itemCount === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
       {sprint.status === "ACTIVE" && (
-        <>
+        <span className="ml-0.5 inline-flex items-center gap-2 whitespace-nowrap">
           <span>
             {daysRemaining} day{daysRemaining === 1 ? "" : "s"} left
           </span>
@@ -468,18 +500,13 @@ function SprintSummaryLine({ sprint }: { sprint: IntervalWithCount }) {
               {elapsedDays}/{totalDays}d
             </span>
           </span>
-        </>
-      )}
-      {typeof itemCount === "number" && (
-        <span>
-          {itemCount} item{itemCount === 1 ? "" : "s"}
         </span>
       )}
       {/* Close-out numbers for a finished sprint. These used to live only in the
           per-sprint modal that the pills opened; the pills now scope the board,
           so the report follows the selection here instead of being lost. */}
       {report && (
-        <>
+        <span className="ml-0.5 inline-flex items-center gap-2 whitespace-nowrap">
           <span>
             Velocity <span className={strong}>{report.velocity ?? report.completedStoryPoints ?? 0} pts</span>
           </span>
@@ -489,10 +516,10 @@ function SprintSummaryLine({ sprint }: { sprint: IntervalWithCount }) {
           <span>
             Carried <span className={strong}>{report.incompleteItems ?? 0}</span>
           </span>
-        </>
+        </span>
       )}
       {sprint.goal ? (
-        <span className="inline-flex min-w-0 items-center gap-1" title={sprint.goal}>
+        <span className="ml-0.5 inline-flex min-w-0 grow basis-32 items-center gap-1" title={sprint.goal}>
           <Target className="h-3.5 w-3.5 shrink-0" aria-hidden />
           <span className="truncate">{sprint.goal}</span>
         </span>
