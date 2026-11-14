@@ -198,6 +198,7 @@ export async function apiKeyAuthContext(
   return {
     userId: key.createdById, orgId, orgRole: eff.orgRole,
     permissions: eff.permissions & mask, basePermissions: eff.basePermissions & mask,
+    unrestrictedBasePermissions: eff.unrestrictedBasePermissions & mask,
     // The creator's own bits, unmasked (as a key sees them: no break-glass):
     // what their session would be gated on. Only `keyMay` reads it, where a
     // route asks a key for a stand-in bit.

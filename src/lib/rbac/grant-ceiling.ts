@@ -18,6 +18,9 @@ export const CEILING_MESSAGE = "You can't grant a role with permissions you don'
 
 export type Granter = Pick<AuthContext, "orgRole" | "basePermissions">;
 
+/** A granter for the ceiling on current access, which also reads the base before restrictions. */
+export type CurrentAccessGranter = Pick<AuthContext, "orgRole" | "basePermissions" | "unrestrictedBasePermissions">;
+
 /**
  * Why `granter` may not give someone `role` (plus `extra` bits, e.g. a stored
  * per-member override or work-role grants that come back on reinstatement), or
@@ -81,15 +84,28 @@ export const CURRENT_ACCESS_MESSAGE = "You can't change or remove access beyond 
  * through a work role could demote or remove an admin they could never have
  * made. Every path that changes or removes a member runs both this (on the
  * current access) and {@link orgRoleGrantRefusal} (on the new access).
+ *
+ * Like with like: what the target holds is counted without the org's
+ * restrictions, so the caller's ceiling is too (`unrestrictedBasePermissions`).
+ * A restriction takes its bits from the caller's base and from the target
+ * alike; counted on one side only, a restriction on ITEM_CREATE, which a
+ * member's role holds, stopped every admin from managing any member. Masking
+ * BOTH sides instead would let a restriction hide what the target holds
+ * beyond the caller: restrict SECURITY_MANAGE and someone who manages members
+ * through a work role could remove a member whose work role grants it. Without
+ * the field (a context not built from a member), the restricted base is used.
+ * Granting does not change: {@link orgRoleGrantRefusal} stays on
+ * `basePermissions`, since a grant outlives the restriction.
  */
-export function currentAccessRefusal(granter: Granter, role: OrgRole, extra = 0n): string | null {
-  const refusal = orgRoleGrantRefusal(granter, role, extra);
+export function currentAccessRefusal(granter: CurrentAccessGranter, role: OrgRole, extra = 0n): string | null {
+  const ceiling = { orgRole: granter.orgRole, basePermissions: granter.unrestrictedBasePermissions ?? granter.basePermissions };
+  const refusal = orgRoleGrantRefusal(ceiling, role, extra);
   if (!refusal) return null;
   return refusal === OWNER_ONLY_MESSAGE ? OWNER_CHANGE_MESSAGE : CURRENT_ACCESS_MESSAGE;
 }
 
 /** Throwing form of {@link currentAccessRefusal}: a ForbiddenError (403). */
-export function assertCanChangeCurrentAccess(granter: Granter, role: OrgRole, extra = 0n): void {
+export function assertCanChangeCurrentAccess(granter: CurrentAccessGranter, role: OrgRole, extra = 0n): void {
   const refusal = currentAccessRefusal(granter, role, extra);
   if (refusal) throw new ForbiddenError(refusal);
 }

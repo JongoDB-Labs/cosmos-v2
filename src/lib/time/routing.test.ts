@@ -9,6 +9,9 @@ const { prisma } = vi.hoisted(() => ({
   prisma: {
     orgMember: { findMany: vi.fn() },
     employeeSupervisor: { findMany: vi.fn() },
+    // No security settings: no restrictions. Restrictions are covered against
+    // a real database in routing-restrictions.db.test.ts.
+    orgSecuritySettings: { findUnique: vi.fn(async () => null) },
   },
 }));
 vi.mock("@/lib/db/client", () => ({ prisma }));

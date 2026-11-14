@@ -37,6 +37,15 @@ export interface EffectivePermissions {
    * checks; `basePermissions` is only the grant ceiling.
    */
   basePermissions: bigint;
+  /**
+   * `basePermissions` before the org's unconditional restrictions take bits out:
+   * what the actor could grant were no restriction in force. Only the ceiling on
+   * CURRENT access reads it (grant-ceiling.ts `currentAccessRefusal`). A
+   * restriction limits what anyone may do, not whom they may manage, so the
+   * target's held bits are compared with this, like with like. Granting stays on
+   * `basePermissions`: a grant outlives the restriction.
+   */
+  unrestrictedBasePermissions: bigint;
   abacRules: AbacRule[];
 }
 
@@ -78,24 +87,67 @@ export async function loadEffectivePermissions(
   });
   if (!member) return null;
 
-  let grants = 0n;
-  const workRolePolicies: AbacRule[] = [];
-  for (const assignment of member.workRoles) {
-    grants |= maskFromDb(assignment.workRole.grants);
-    workRolePolicies.push(...coerceRules(assignment.workRole.policies));
-  }
-
+  const workRolePolicies = member.workRoles.flatMap((a) => coerceRules(a.workRole.policies));
   const restrictions = coerceRules(member.org.securitySettings?.actionRestrictions);
   const breakGlass = member.role === "OWNER" && !opts.forApiKey;
-  const removed = breakGlass ? 0n : unconditionalDenyMask(restrictions);
-
-  const basePermissions = resolvePermissions(member.role, maskFromDb(member.permissions)) & ~removed;
+  const { basePermissions, unrestrictedBasePermissions, permissions } = foldMemberMask(
+    member,
+    breakGlass ? 0n : unconditionalDenyMask(restrictions),
+  );
   return {
     orgRole: member.role,
-    permissions: (basePermissions | grants) & ~removed,
+    permissions,
     basePermissions,
+    unrestrictedBasePermissions,
     abacRules: [...coerceRules(member.abacRules), ...workRolePolicies, ...restrictions],
   };
+}
+
+/** The member fields {@link memberPermissions} reads, for a Prisma `select`. */
+export const MEMBER_MASK_FIELDS = {
+  role: true,
+  permissions: true,
+  workRoles: { select: { workRole: { select: { grants: true } } } },
+} as const;
+
+type MemberMaskRow = {
+  role: OrgRole;
+  permissions: string | null;
+  workRoles: { workRole: { grants: string } }[];
+};
+
+/** Role base | stored override, then | work-role grants, with `removed` taken out of both. */
+function foldMemberMask(member: MemberMaskRow, removed: bigint) {
+  let grants = 0n;
+  for (const assignment of member.workRoles) grants |= maskFromDb(assignment.workRole.grants);
+  const unrestrictedBasePermissions = resolvePermissions(member.role, maskFromDb(member.permissions));
+  const basePermissions = unrestrictedBasePermissions & ~removed;
+  return { basePermissions, unrestrictedBasePermissions, permissions: (basePermissions | grants) & ~removed };
+}
+
+/**
+ * What a member may do in their org, from their member row and the org's
+ * restrictions: the fold {@link loadEffectivePermissions} makes for one actor,
+ * for code that asks it of many members at once (who is asked to approve time,
+ * who may be named a supervisor). Select the row with {@link MEMBER_MASK_FIELDS}
+ * and read the restrictions once with {@link orgRestrictions}.
+ *
+ * There is no break-glass here. An owner gets restricted bits back only in their
+ * own session, and a member row does not say how its person will act, so an
+ * owner counts as restricted like everyone else. Use this, never a hand-written
+ * `role | override | grants`: that is how a restriction gets skipped.
+ */
+export function memberPermissions(member: MemberMaskRow, restrictions: AbacRule[]): bigint {
+  return foldMemberMask(member, unconditionalDenyMask(restrictions)).permissions;
+}
+
+/** The org's action restrictions (security settings), as the engine reads them. */
+export async function orgRestrictions(orgId: string): Promise<AbacRule[]> {
+  const settings = await prisma.orgSecuritySettings.findUnique({
+    where: { orgId },
+    select: { actionRestrictions: true },
+  });
+  return coerceRules(settings?.actionRestrictions);
 }
 
 /**
@@ -123,6 +175,7 @@ export async function loadMemberAuthContext(
     orgRole: eff.orgRole,
     permissions: eff.permissions,
     basePermissions: eff.basePermissions,
+    unrestrictedBasePermissions: eff.unrestrictedBasePermissions,
     abacRules: eff.abacRules,
   };
 }
