@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireAccess } from "@/lib/abac/require-access";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { roleCountsFor } from "@/lib/rbac/key-role";
 import { redactRates } from "@/lib/time/visibility";
 import { readableTimeUserIds, timeProjectCeiling, timeUserIdFilter } from "@/lib/time/scope";
@@ -75,9 +75,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     // An admin edits anyone's entries by role. A key's role counts only when
     // its scopes would grant TIME_APPROVE (none do), so an admin's time:write
-    // key stays on its owner's own drafts.
+    // key stays on its owner's own drafts. And only while the caller holds
+    // TIME_APPROVE: admins hold it by role, so lacking it means an
+    // unconditional org restriction took it, and the role must not hand it
+    // back (lib/rbac/effective-permissions.ts). An owner's own session keeps it.
     const isAdminOrOwner =
-      roleCountsFor(ctx, Permission.TIME_APPROVE) && (ctx.orgRole === "ADMIN" || ctx.orgRole === "OWNER");
+      roleCountsFor(ctx, Permission.TIME_APPROVE) &&
+      hasPermission(ctx.permissions, Permission.TIME_APPROVE) &&
+      (ctx.orgRole === "ADMIN" || ctx.orgRole === "OWNER");
     if (!isAdminOrOwner) {
       if (existing.userId !== ctx.userId) {
         return problem(403, "forbidden", "You can only update your own time entries", { request });
@@ -197,8 +202,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return problem(400, "invalid_request", "Only draft entries can be deleted", { request });
     }
 
+    // The same authority as PUT, held to the same restriction.
     const isAdminOrOwner =
-      roleCountsFor(ctx, Permission.TIME_APPROVE) && (ctx.orgRole === "ADMIN" || ctx.orgRole === "OWNER");
+      roleCountsFor(ctx, Permission.TIME_APPROVE) &&
+      hasPermission(ctx.permissions, Permission.TIME_APPROVE) &&
+      (ctx.orgRole === "ADMIN" || ctx.orgRole === "OWNER");
     if (existing.userId !== ctx.userId && !isAdminOrOwner) {
       return problem(403, "forbidden", "You can only delete your own time entries", { request });
     }

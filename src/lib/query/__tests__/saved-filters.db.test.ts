@@ -36,6 +36,8 @@ describe("saved filters v2 (e2e DB)", () => {
     return { userId, orgId: w.orgA, orgRole: role, permissions, basePermissions: permissions, abacRules: [] } as AuthContext;
   };
   const actor = (extra: bigint = 0n) => ({ ...w.ctx(), permissions: w.ctx().permissions | extra }) as AuthContext;
+  /** An org admin, holding the role's bits as every real admin context does. */
+  const admin = (userId: string) => user(userId, RolePermissions.ADMIN, OrgRole.ADMIN);
   const bob = () => user(w.bob.id);
   const params = () => Promise.resolve({ orgId: w.orgA });
   const vparams = (viewId: string) => Promise.resolve({ orgId: w.orgA, viewId });
@@ -259,7 +261,7 @@ describe("saved filters v2 (e2e DB)", () => {
     expect((await remove(req(`saved-views/${id}`, "DELETE"), { params: vparams(id) })).status).toBe(403);
     expect((await patch(req(`saved-views/${id}`, "PATCH", { ownerId: w.actor.id }), { params: vparams(id) })).status).toBe(403);
 
-    getAuthContext.mockImplementation(async () => ({ ...user(w.alex1.id), orgRole: OrgRole.ADMIN }) as AuthContext);
+    getAuthContext.mockImplementation(async () => admin(w.alex1.id));
     const moved = await patch(req(`saved-views/${id}`, "PATCH", { ownerId: w.actor.id }), { params: vparams(id) });
     expect(moved.status).toBe(200);
     expect((await prisma.savedView.findUniqueOrThrow({ where: { id } })).ownerId).toBe(w.actor.id);
@@ -338,7 +340,7 @@ describe("saved filters v2 (e2e DB)", () => {
     // An administrator an ABAC policy keeps out of P2 can still open (and
     // manage) the filter, but not learn P2's name through it.
     const fencedAdmin = () =>
-      ({ ...user(w.alex1.id), orgRole: OrgRole.ADMIN, abacRules: [{ effect: "deny", actions: ["ITEM_READ"], conditions: [{ attr: "projectId", op: "eq", value: w.P2.id }] }] }) as AuthContext;
+      ({ ...admin(w.alex1.id), abacRules: [{ effect: "deny", actions: ["ITEM_READ"], conditions: [{ attr: "projectId", op: "eq", value: w.P2.id }] }] }) as AuthContext;
     as(fencedAdmin);
     for (const id of [onP2, onTeam]) {
       const body = await opened(id);
@@ -386,7 +388,7 @@ describe("saved filters v2 (e2e DB)", () => {
   it("audits an owner change only once it has happened", async () => {
     const id = await seed(w.bob.id, "audit owner", q(null));
     const audited = () => prisma.auditLog.count({ where: { orgId: w.orgA, entityId: id, action: "saved_filter.owner_changed" } });
-    getAuthContext.mockImplementation(async () => ({ ...user(w.alex1.id), orgRole: OrgRole.ADMIN }) as AuthContext);
+    getAuthContext.mockImplementation(async () => admin(w.alex1.id));
     // Refused after the owner change was accepted: an editor who can't read P2.
     const refused = await patch(req(`saved-views/${id}`, "PATCH", { ownerId: ghost, visibility: "PROJECT", projectId: w.P2.id, editorIds: [w.actor.id] }), { params: vparams(id) });
     expect(refused.status).toBe(400);

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/client";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { z } from "zod";
 import { roleCountsFor } from "@/lib/rbac/key-role";
 import {
@@ -153,8 +153,14 @@ export async function deleteComment(
   if (existing.authorId !== ctx.userId) {
     const actor = await loadAuthContext(ctx);
     // A key acts as an admin only when its scopes grant ITEM_DELETE (rbac/key-role.ts).
+    // And only while the actor holds ITEM_DELETE: admins hold it by role, so
+    // lacking it means an unconditional org restriction took it, which the
+    // role must not hand back. The API's comment DELETE asks the same of an
+    // admin (canManageProject in rbac/scope.ts).
     const isPrivileged =
-      (actor?.orgRole === "OWNER" || actor?.orgRole === "ADMIN") && roleCountsFor(actor, Permission.ITEM_DELETE);
+      (actor?.orgRole === "OWNER" || actor?.orgRole === "ADMIN") &&
+      roleCountsFor(actor, Permission.ITEM_DELETE) &&
+      hasPermission(actor.permissions, Permission.ITEM_DELETE);
     if (!isPrivileged) {
       return { error: "Only the author or an admin can delete this comment" };
     }
