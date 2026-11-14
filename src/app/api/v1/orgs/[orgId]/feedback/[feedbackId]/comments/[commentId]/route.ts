@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { syncReferences } from "@/lib/mentions/references";
 import { parseMentions } from "@/lib/chat/mentions";
@@ -46,7 +46,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const blocked = threadWriteBlock(route);
     if (blocked) return blocked;
 
-    const body: unknown = await request.json();
+    const body: unknown = await readJsonBody(request);
     const staffChange = staffSchema.safeParse(body);
     if (staffChange.success) {
       if (!viewer.isStaff) return json(403, { error: "Only the feedback team can do that." });

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { SIGN_IN_METHODS } from "@/lib/auth/invite-credentials";
 import {
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_MANAGE_MEMBERS);
 
-    const body = bodySchema.parse(await request.json().catch(() => ({})));
+    const body = bodySchema.parse(await readJsonBody(request, { orElse: {} }));
     const actor = await getCurrentUser();
 
     const result = await approve({

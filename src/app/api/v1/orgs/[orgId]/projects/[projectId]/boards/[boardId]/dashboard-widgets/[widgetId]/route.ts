@@ -4,7 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
 import { requireBoardRead } from "@/lib/rbac/board-access";
-import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, noContent, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
@@ -54,7 +54,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     });
     if (!widget) return new Response("Not found", { status: 404 });
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = updateWidgetSchema.parse(body);
 
     // The same link rule the Link List draws with, so a direct API write cannot

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, noContent, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { sweepMarkedComments } from "@/lib/feedback/comments.server";
 import { z } from "zod";
@@ -55,7 +55,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     });
     if (!existing) return new Response("Not found", { status: 404 });
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = updateClassificationSchema.parse(body);
 
     const updated = await prisma.dataClassification.update({
@@ -107,7 +107,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     });
     if (!existing) return new Response("Not found", { status: 404 });
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = updateClassificationSchema.partial().parse(body);
 
     const updated = await prisma.dataClassification.update({

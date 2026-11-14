@@ -6,7 +6,7 @@ import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { roleCountsFor } from "@/lib/rbac/key-role";
 import { approvalAuthority } from "@/lib/time/approval";
 import { isManagerOf, hasManager } from "@/lib/time/timesheet-actions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = approveSchema.parse(body);
 
     const newStatus = data.action === "approve" ? "APPROVED" : "REJECTED";

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requestSupervisors } from "@/lib/org/supervisor-requests";
 import { notifySupervisorRequested } from "@/lib/org/notify";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { requireKeyMay } from "@/lib/rbac/key-role";
 
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // ever; a key needs TIME_CREATE (time:write), so time:read stays read-only.
     requireKeyMay(ctx, "TIME_CREATE", "TIME_READ");
 
-    const body = bodySchema.parse(await request.json());
+    const body = bodySchema.parse(await readJsonBody(request));
 
     const result = await requestSupervisors({
       orgId,

@@ -5,7 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission, maskFromDb } from "@/lib/rbac/permissions";
 import { currentWorkRoleRefusal, workRoleCeilingRefusal } from "@/lib/rbac/grant-ceiling";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string; roleId: string }> };
@@ -50,7 +50,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const r = await resolve(orgId, roleId);
     if (r.error) return r.error;
 
-    const { orgMemberIds } = setSchema.parse(await request.json());
+    const { orgMemberIds } = setSchema.parse(await readJsonBody(request));
 
     // Only accept ids that are genuinely members of THIS org (no cross-tenant
     // assignment, no dangling ids).

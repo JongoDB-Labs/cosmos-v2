@@ -6,7 +6,7 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { memberDisclosure, type MemberDisclosure } from "@/lib/members/scoped-roster.server";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; intervalId: string }> };
@@ -70,7 +70,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     });
     if (!interval) return new Response("Interval not found", { status: 404 });
 
-    const body = upsertSchema.parse(await request.json());
+    const body = upsertSchema.parse(await readJsonBody(request));
 
     // Upsert each entry; remove entries not in the payload
     const userIds = body.entries.map((e) => e.userId);

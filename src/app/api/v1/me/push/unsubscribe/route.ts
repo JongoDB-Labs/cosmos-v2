@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 
 const schema = z.object({
   endpoint: z.string().url(),
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     const user = await getCurrentUser();
     if (!user) return new Response("Unauthorized", { status: 401 });
 
-    const body = schema.parse(await request.json());
+    const body = schema.parse(await readJsonBody(request));
 
     const result = await prisma.pushSubscription.deleteMany({
       where: { userId: user.id, endpoint: body.endpoint },

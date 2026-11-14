@@ -3,7 +3,7 @@ import { requireInvoiceVisible } from "@/lib/invoicing/visibility.server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { sendInvoice } from "@/lib/invoicing/service";
 import { requireAccess } from "@/lib/abac/require-access";
 import { logAudit } from "@/lib/audit";
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     await requireAccess(ctx, "FINANCE_MANAGE");
     await requireInvoiceVisible(ctx, orgId, invoiceId);
 
-    const body = bodySchema.parse(await request.json().catch(() => ({})));
+    const body = bodySchema.parse(await readJsonBody(request, { orElse: {} }));
     const sent = await sendInvoice(orgId, invoiceId, ctx.userId, body.issueDate);
     await logAudit({
       orgId,

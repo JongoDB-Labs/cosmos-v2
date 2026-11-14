@@ -6,6 +6,7 @@ import {
   type AuthProvider,
 } from "@/lib/auth/provider-config";
 import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
+import { readJsonBody } from "@/lib/api-helpers";
 
 const PROVIDERS: AuthProvider[] = ["microsoft", "google"];
 
@@ -48,7 +49,7 @@ export async function PUT(request: NextRequest) {
   const me = await requireSystemAdmin();
   if (!me) return new Response("Forbidden", { status: 403 });
 
-  const parsed = putSchema.safeParse(await request.json().catch(() => null));
+  const parsed = putSchema.safeParse(await readJsonBody(request, { orElse: null }));
   if (!parsed.success) {
     // Surface WHICH field failed. A bare "Invalid request." made a missing tenant
     // indistinguishable from a malformed body during setup.

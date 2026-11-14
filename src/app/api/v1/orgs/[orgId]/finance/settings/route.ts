@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { financeSettings, MAX_MARKUP_PCT } from "@/lib/finance/markup";
 
@@ -51,7 +51,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.FINANCE_MANAGE);
 
-    const patch = putSchema.parse(await request.json());
+    const patch = putSchema.parse(await readJsonBody(request));
     const before = financeSettings(org.settings);
     // Merged in one statement, so a concurrent change to any other org setting
     // (or to the other finance field) is not overwritten by a stale read.

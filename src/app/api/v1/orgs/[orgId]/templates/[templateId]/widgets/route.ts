@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { ProblemError } from "@/lib/openapi/problem";
 import { z } from "zod";
@@ -75,7 +75,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const { widgets } = syncSchema.parse(body);
 
     const result = await prisma.$transaction(async (tx) => {

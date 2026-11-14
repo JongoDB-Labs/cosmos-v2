@@ -9,7 +9,7 @@ import {
   heldBeyondRole,
   orgRoleGrantRefusal,
 } from "@/lib/rbac/grant-ceiling";
-import { success, handleApiError, noContent, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, noContent, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { endMemberCredentialsIn } from "@/lib/members/credentials.server";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -60,7 +60,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const current = currentAccessRefusal(ctx, member.role, heldBeyondRole(member));
     if (current) return forbidden(current);
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = updateMemberSchema.parse(body);
 
     // Only an OWNER may grant the OWNER role, and nobody may grant a role with

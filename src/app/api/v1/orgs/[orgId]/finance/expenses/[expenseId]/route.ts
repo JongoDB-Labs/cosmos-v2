@@ -4,7 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireAccess } from "@/lib/abac/require-access";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
-import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, noContent, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { inVisibleProject, requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
@@ -109,7 +109,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = updateExpenseSchema.parse(body);
     // Moving it to a project is writing to that project.
     await requireProjectVisibleIf(ctx, data.projectId);

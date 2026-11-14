@@ -2,7 +2,7 @@ import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, created, handleApiError } from "@/lib/api-helpers";
+import { success, created, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { canSeeChannelGiven, canPostToChannelGiven, loadChannelAndMembership, mayUseChat } from "@/lib/chat/access";
 import { postServerMessage } from "@/lib/chat/system-message";
 import { getBus } from "@/lib/realtime/bus";
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (!canPostToChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole })) {
       return new Response("Forbidden", { status: 403 });
     }
-    const parsed = postSchema.safeParse(await req.json().catch(() => null));
+    const parsed = postSchema.safeParse(await readJsonBody(req, { orElse: null }));
     if (!parsed.success) return new Response("Bad Request", { status: 400 });
 
     const msg = await prisma.chatMessage.findFirst({

@@ -4,7 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/client";
 import { requirePermission, NotFoundError, ConflictError } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { availableEntityDefs, type EntityImportRequest } from "@/lib/import/entity-fields";
 import { mapRows, codeKeyError, runEntityImport } from "@/lib/import/entity-import";
 import { PluginRegistry, PluginServerRegistry } from "@/lib/plugins/registry";
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_IMPORT);
 
-    const req = importSchema.parse(await request.json()) as EntityImportRequest;
+    const req = importSchema.parse(await readJsonBody(request)) as EntityImportRequest;
 
     // Only entities the org can actually run: core's, plus those from plugins
     // this org has switched on. A disabled plugin's writer is not registered,

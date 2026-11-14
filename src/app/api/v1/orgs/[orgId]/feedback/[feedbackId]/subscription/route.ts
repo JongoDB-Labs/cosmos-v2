@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { loadFeedbackRoute } from "@/lib/feedback/route-context.server";
@@ -41,7 +41,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const { orgId, feedbackId } = await params;
     const route = await load(orgId, feedbackId);
     if (route instanceof Response) return route;
-    const { following } = putSchema.parse(await request.json());
+    const { following } = putSchema.parse(await readJsonBody(request));
     await setFollowing(prisma, {
       orgId,
       feedbackItemId: feedbackId,

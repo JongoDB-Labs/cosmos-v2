@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { success } from "@/lib/api-helpers";
+import { success, readJsonBody } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { cqlErrorResponse, cqlGate, cqlTooLong } from "@/lib/query/route.server";
 import { previewDashboardPanel } from "./route.contract";
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const limited = checkRateLimit(request, "dashboards.preview", gate.ctx.userId, { capacity: 30, refillPerSecond: 3 });
     if (limited) return limited;
 
-    const body = bodySchema.parse(await request.json().catch(() => ({})));
+    const body = bodySchema.parse(await readJsonBody(request, { orElse: {} }));
     if (body.cql !== undefined && body.query !== undefined) {
       return NextResponse.json({ error: "Send the query as `cql` or `query`, not both." }, { status: 400 });
     }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { readJsonBody } from "@/lib/api-helpers";
 
 const vitalSchema = z.object({
   // Covers Core Web Vitals (LCP, CLS, …) AND Next.js custom metrics like
@@ -22,7 +23,7 @@ const vitalSchema = z.object({
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => null);
+    const body = await readJsonBody(request, { orElse: null });
     const parsed = vitalSchema.safeParse(body);
     // Fire-and-forget telemetry: always answer 204 so a malformed or partial
     // beacon (sendBeacon bodies can arrive truncated as the page unloads)

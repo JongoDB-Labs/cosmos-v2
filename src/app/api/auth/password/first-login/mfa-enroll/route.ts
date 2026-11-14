@@ -12,7 +12,7 @@ import {
 } from "@/lib/auth/local-session";
 import { loadFirstLoginUser, FIRST_LOGIN_COOKIE } from "@/lib/auth/first-login";
 import { rateLimit } from "@/lib/rate-limit/bucket";
-import { getIpAddress } from "@/lib/api-helpers";
+import { getIpAddress, readJsonBody } from "@/lib/api-helpers";
 
 const schema = z.object({ code: z.string().min(1).max(20) });
 
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Start setup first." }, { status: 400 });
   }
 
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const parsed = schema.safeParse(await readJsonBody(request, { orElse: null }));
   if (!parsed.success) {
     return NextResponse.json({ error: "Enter your 6-digit code." }, { status: 400 });
   }

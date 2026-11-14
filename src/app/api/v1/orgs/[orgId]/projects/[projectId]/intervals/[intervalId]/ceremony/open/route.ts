@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { openCeremony } from "@/lib/intervals/ceremony.server";
 import { ceremonyAuth, isResponse, routeCaller } from "../_helpers";
 
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (isResponse(ctx)) return ctx;
 
     return success(
-      await openCeremony(ctx, { orgId, projectId, intervalId }, () => request.json(), routeCaller(request)),
+      await openCeremony(ctx, { orgId, projectId, intervalId }, () => readJsonBody(request), routeCaller(request)),
     );
   } catch (e) {
     return handleApiError(e);

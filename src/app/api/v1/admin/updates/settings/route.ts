@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { handleApiError, success } from "@/lib/api-helpers";
+import { handleApiError, success, readJsonBody, issueSentence } from "@/lib/api-helpers";
 import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 import { getUpdateSettings, setUpdateSettings } from "@/lib/updates/settings";
 import { describeReconcileHealth, getReconcileStatus } from "@/lib/updates/reconcile-status";
@@ -116,14 +116,13 @@ export async function PUT(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    const parsed = putSchema.safeParse(await request.json().catch(() => null));
+    const parsed = putSchema.safeParse(await readJsonBody(request, { orElse: null }));
     if (!parsed.success) {
       // Paths and messages only — never the offending INPUT, which for this
-      // route can be a registry password.
-      return NextResponse.json(
-        { error: "Invalid request", issues: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })) },
-        { status: 400 },
-      );
+      // route can be a registry password. The first one is the error, so the
+      // page says what to fix.
+      const issues = parsed.error.issues.map((i) => ({ path: i.path, message: i.message }));
+      return NextResponse.json({ error: issueSentence(issues) ?? "Invalid request", issues }, { status: 400 });
     }
     const { autoUpdate, registry } = parsed.data;
 

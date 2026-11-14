@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError } from "@/lib/api-helpers";
+import { success, created, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { z } from "zod";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Managing the org's meeting-type vocabulary is a meeting-creation capability.
     requirePermission(ctx, Permission.MEETING_CREATE);
 
-    const { label } = createSchema.parse(await request.json());
+    const { label } = createSchema.parse(await readJsonBody(request));
 
     // Idempotent on (orgId, label): reuse an existing type instead of erroring,
     // so "add custom type" from the form is safe to repeat.

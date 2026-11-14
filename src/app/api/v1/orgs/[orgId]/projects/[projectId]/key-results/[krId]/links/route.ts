@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
-import { success, created, handleApiError } from "@/lib/api-helpers";
+import { success, created, handleApiError, readJsonBody } from "@/lib/api-helpers";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; krId: string }>;
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (!(await loadKr(orgId, projectId, krId))) return new Response("Not found", { status: 404 });
 
-    const { workItemId } = bodySchema.parse(await request.json());
+    const { workItemId } = bodySchema.parse(await readJsonBody(request));
     // The work item must belong to this project (no cross-project links).
     const item = await prisma.workItem.findFirst({
       where: { id: workItemId, orgId, projectId },
@@ -98,7 +98,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     if (!(await loadKr(orgId, projectId, krId))) return new Response("Not found", { status: 404 });
 
-    const { workItemId } = bodySchema.parse(await request.json());
+    const { workItemId } = bodySchema.parse(await readJsonBody(request));
     await prisma.keyResultLink.deleteMany({ where: { keyResultId: krId, workItemId } });
     return success({ ok: true });
   } catch (e) {

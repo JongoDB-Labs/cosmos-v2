@@ -145,9 +145,35 @@ describe("handleApiError keeps every legacy body", () => {
     const res = handleApiError(zodErr!);
     const body = await res.json();
     expect(res.status).toBe(400);
-    expect(body.error).toBe("Invalid request");
     expect(body.code).toBe("invalid_request");
     expect(body.issues).toEqual(zodErr!.issues);
+  });
+
+  // The form's toast reads `error` (jsonFetch → notifyError), and "Invalid
+  // request" told the person nothing about what to fix. The first issue, with
+  // the field it is about, goes in `detail`, which `error` repeats.
+  it("Zod → the first issue, with its field, is the detail and the error", async () => {
+    const body = await handleApiError(zodErr!).json();
+    expect(body.title).toBe("Invalid request");
+    expect(body.detail).toBe("a: Invalid input: expected string, received undefined");
+    expect(body.error).toBe(body.detail);
+  });
+
+  it("Zod → a nested field is named by its path; a problem with the whole body has no field", async () => {
+    const schema = z.object({ items: z.array(z.object({ title: z.string().min(1, "Give it a title") })) });
+    const nested = schema.safeParse({ items: [{ title: "ok" }, { title: "" }] });
+    expect((await handleApiError(nested.error!).json()).detail).toBe("items[1].title: Give it a title");
+    const whole = schema.safeParse(null);
+    expect((await handleApiError(whole.error!).json()).detail).toBe("Invalid input: expected object, received null");
+  });
+
+  it("Zod → only the first of several issues, and never the input that failed", async () => {
+    const secret = "hunter2-not-long-enough";
+    const r = z.object({ name: z.string().min(1, "Name is required"), password: z.string().min(64) }).safeParse({ name: "", password: secret });
+    expect(r.error!.issues).toHaveLength(2);
+    const body = await handleApiError(r.error!).json();
+    expect(body.detail).toBe("name: Name is required");
+    expect(JSON.stringify(body)).not.toContain(secret);
   });
 
   it("puts the request id in the body when given the request", async () => {

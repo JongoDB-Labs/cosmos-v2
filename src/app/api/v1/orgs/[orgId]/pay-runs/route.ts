@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { createPayRun, listPayRuns } from "@/lib/payroll/service";
 import { payRunSchema } from "@/lib/payroll/validation";
 import { requireAccess } from "@/lib/abac/require-access";
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     await requireAccess(ctx, "FINANCE_MANAGE");
 
-    const input = payRunSchema.parse(await request.json());
+    const input = payRunSchema.parse(await readJsonBody(request));
     const run = await createPayRun(orgId, ctx.userId, input);
     await logAudit({
       orgId,

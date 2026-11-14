@@ -5,7 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireAccess } from "@/lib/abac/require-access";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, noContent, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { SYNCED_MEETING_FIELDS, syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { z } from "zod";
@@ -79,7 +79,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       projectId: existing.projectId,
     });
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = updateMeetingSchema.parse(body);
 
     const updated = await prisma.syncMeeting.update({

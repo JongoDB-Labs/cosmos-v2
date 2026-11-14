@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { readNavLayout, UNHIDEABLE_NAV_IDS } from "@/lib/nav/nav-layout";
 import { patchOrgSettings } from "@/lib/org/patch-settings.server";
@@ -40,7 +40,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_UPDATE);
 
-    const data = schema.parse(await request.json());
+    const data = schema.parse(await readJsonBody(request));
 
     // Refused, not silently filtered. An admin who ticks "hide Settings" has
     // misunderstood what the control does, and quietly ignoring it would leave

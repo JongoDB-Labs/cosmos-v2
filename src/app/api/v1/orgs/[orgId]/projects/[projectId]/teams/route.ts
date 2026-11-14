@@ -7,7 +7,7 @@ import { canManageProject } from "@/lib/rbac/scope";
 import { canReadProject } from "@/lib/rbac/project-access";
 import { memberDisclosure } from "@/lib/members/scoped-roster.server";
 import { ForbiddenError } from "@/lib/rbac/check";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       });
     }
 
-    const parsed = createSchema.safeParse(await request.json());
+    const parsed = createSchema.safeParse(await readJsonBody(request));
     if (!parsed.success) {
       return new Response(
         JSON.stringify({ error: "A team needs a name." }),

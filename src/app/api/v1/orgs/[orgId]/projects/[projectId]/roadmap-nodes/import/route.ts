@@ -5,7 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { roadmapImportSchema, ROADMAP_NODE_KINDS } from "@/lib/roadmap/types";
 import { upsertRoadmapNodes } from "@/lib/roadmap/import";
 
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });
 
-    const { mode, nodes } = roadmapImportSchema.parse(await request.json());
+    const { mode, nodes } = roadmapImportSchema.parse(await readJsonBody(request));
     const report = await upsertRoadmapNodes(prisma, orgId, projectId, nodes, mode);
     return success(report);
   } catch (e) {

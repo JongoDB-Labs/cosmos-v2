@@ -6,7 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { assertMilestoneInterval } from "@/lib/pm/milestone-interval";
 import { logPmFieldChanges } from "@/lib/pm/activity-log";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
@@ -52,7 +52,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     });
     if (!existing) return new Response("Not found", { status: 404 });
 
-    const data = updateSchema.parse(await request.json());
+    const data = updateSchema.parse(await readJsonBody(request));
     await assertMilestoneInterval(data.intervalId, orgId, projectId);
 
     // Build a typed update object to avoid Prisma discriminated-union TS errors

@@ -180,6 +180,17 @@ describe("PUT", () => {
     expect(listTags).not.toHaveBeenCalled();
   });
 
+  it("a body the schema refuses says what to fix, without echoing the input", async () => {
+    const empty = await put({});
+    expect(empty.status).toBe(400);
+    expect((await empty.json()).error).toBe("Nothing to change.");
+    const typo = await put({ registry: { password: "s3cret-typo" }, autoUpdat: true });
+    const body = await typo.json();
+    expect(body.error).toBe('Unrecognized key: "autoUpdat"');
+    expect(JSON.stringify(body)).not.toContain("s3cret-typo");
+    expect(prisma.updateSettings.upsert).not.toHaveBeenCalled();
+  });
+
   it("rejects a Docker Hub shorthand (no explicit registry host)", async () => {
     const res = await put({ registry: { imageRepo: "cosmos/app" } });
     expect(res.status).toBe(400);

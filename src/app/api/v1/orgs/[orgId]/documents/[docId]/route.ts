@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { resolveAuth } from "@/lib/auth/api-key";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { getStorage } from "@/lib/storage";
 import { readableDocument, canManageDocument } from "@/lib/files/access";
 import { withUploaders } from "@/lib/files/uploader";
@@ -99,7 +99,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (!(await canManageDocument(doc, ctx)))
       return new Response("You did not upload this file and cannot change it", { status: 403 });
 
-    const body = patchSchema.parse(await req.json());
+    const body = patchSchema.parse(await readJsonBody(req));
 
     // A file with no project has no project to validate a link against, and
     // the `doc.projectId ? … : {}` spreads below degrade their lookups to the

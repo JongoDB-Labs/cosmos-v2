@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { matchTransaction } from "@/lib/bank/reconcile";
 import { requireAccess } from "@/lib/abac/require-access";
 import { logAudit } from "@/lib/audit";
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     await requireAccess(ctx, "FINANCE_MANAGE");
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const { targetType, targetId } = schema.parse(body);
 
     const result = await matchTransaction(orgId, txnId, targetType, targetId);

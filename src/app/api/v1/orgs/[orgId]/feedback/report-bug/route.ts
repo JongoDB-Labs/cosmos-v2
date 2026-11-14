@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { projectKeyFromRoute } from "@/lib/feedback/route-project";
 import { ensureSubscribed } from "@/lib/feedback/subscriptions.server";
 
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_READ);
 
-    const data = reportSchema.parse(await request.json());
+    const data = reportSchema.parse(await readJsonBody(request));
     const sig = signature(data.message);
     const title = `[Bug] ${sig}`;
     const now = new Date();

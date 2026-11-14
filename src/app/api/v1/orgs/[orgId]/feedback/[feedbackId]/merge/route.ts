@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { requireAccess } from "@/lib/abac/require-access";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const route = await loadFeedbackRoute(orgId, feedbackId);
     if (route instanceof Response) return route;
     await requireAccess(route.ctx, "ORG_UPDATE", { createdById: route.item.authorId });
-    const { survivorId } = mergeSchema.parse(await request.json());
+    const { survivorId } = mergeSchema.parse(await readJsonBody(request));
     // A merge changes the survivor too (votes and followers land on it), so
     // ABAC rules on its author apply as well. Another org's id is simply not found.
     const survivorRow = await prisma.feedbackItem.findFirst({

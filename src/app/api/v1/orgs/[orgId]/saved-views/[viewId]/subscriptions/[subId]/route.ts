@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { success, noContent } from "@/lib/api-helpers";
+import { success, noContent, readJsonBody } from "@/lib/api-helpers";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import type { RouteContract } from "@/lib/openapi/contract";
 import { cqlErrorResponse, cqlGate } from "@/lib/query/route.server";
@@ -44,7 +44,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const { orgId, viewId, subId } = await params;
     const r = await load(orgId, viewId, subId, updateFilterSubscription);
     if ("response" in r) return r.response;
-    const body = patchBody.parse(await request.json().catch(() => ({})));
+    const body = patchBody.parse(await readJsonBody(request, { orElse: {} }));
     const sched = checkSchedule(body.cron ?? r.sub.cron, body.timezone ?? r.sub.timezone);
     if ("error" in sched) return NextResponse.json({ error: sched.error }, { status: 400 });
     return success({ subscription: await updateSubscription(r.s, r.sub, body, getPublicOrigin(request)) });

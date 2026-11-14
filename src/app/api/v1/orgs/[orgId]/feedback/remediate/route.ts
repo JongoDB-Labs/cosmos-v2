@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { resolveAuth } from "@/lib/auth/api-key";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { runFeedbackRemediation } from "@/lib/feedback/remediate";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return new Response("Forbidden", { status: 403 });
     }
 
-    const body = (await request.json().catch(() => ({}))) as { limit?: number };
+    const body = (await readJsonBody(request, { orElse: {} })) as { limit?: number };
     const summary = await runFeedbackRemediation(orgId, {
       actorUserId: ctx.userId,
       limit: typeof body.limit === "number" ? body.limit : undefined,

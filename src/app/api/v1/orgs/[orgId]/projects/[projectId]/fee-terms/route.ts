@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { financeSettings, resolveMarkup, MAX_MARKUP_PCT } from "@/lib/finance/markup";
 
@@ -64,7 +64,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     await requireProjectRead(ctx, projectId, "FINANCE_MANAGE");
 
-    const { markupPct } = putSchema.parse(await request.json());
+    const { markupPct } = putSchema.parse(await readJsonBody(request));
     const before = await prisma.projectFeeTerms.findUnique({ where: { projectId }, select: { markupPct: true } });
     const row = await prisma.projectFeeTerms.upsert({
       where: { projectId },

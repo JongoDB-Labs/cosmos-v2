@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { problem } from "@/lib/openapi/problem";
 import {
@@ -60,7 +60,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_MANAGE_SETTINGS);
 
-    const body = putSchema.parse(await request.json());
+    const body = putSchema.parse(await readJsonBody(request));
     // "" from a cleared field means off, the same as null.
     const patch: Record<string, string | null> = {};
     if (body.pattern !== undefined) patch.pattern = body.pattern || null;

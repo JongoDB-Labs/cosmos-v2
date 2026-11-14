@@ -7,7 +7,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { resolveLabels } from "@/lib/work-items/labels";
 import { z } from "zod";
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return problem(401, "unauthorized", undefined, { request });
     requirePermission(ctx, Permission.ITEM_UPDATE);
 
-    const data = createLabelSchema.parse(await request.json());
+    const data = createLabelSchema.parse(await readJsonBody(request));
 
     const [label] = await resolveLabels(prisma, orgId, [data.name]);
     if (!label) {

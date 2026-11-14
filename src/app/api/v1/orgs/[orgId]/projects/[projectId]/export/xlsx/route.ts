@@ -6,7 +6,7 @@ import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { ForbiddenError } from "@/lib/rbac/check";
 import { canSeeProjectMoney } from "@/lib/rbac/money-fields";
 import { mayReadContract } from "@/lib/crm/contract-scope";
-import { handleApiError } from "@/lib/api-helpers";
+import { handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { buildCombinedWorkbook } from "@/lib/pm/combined-export";
 import {
   buildPopulatedTemplate,
@@ -153,7 +153,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { orgId, projectId } = await params;
     const ctx = await resolveContext(orgId, projectId);
     if ("error" in ctx) return ctx.error;
-    const body = (await request.json().catch(() => ({}))) as {
+    const body = (await readJsonBody(request, { orElse: {} })) as {
       trackers?: string[] | string;
       mode?: string;
     };

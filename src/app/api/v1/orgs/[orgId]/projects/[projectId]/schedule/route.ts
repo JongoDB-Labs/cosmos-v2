@@ -7,7 +7,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { loadMilestonesWithDerived } from "@/lib/pm/schedule";
 import { assertMilestoneInterval } from "@/lib/pm/milestone-interval";
 import { logPmActivity } from "@/lib/pm/activity-log";
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });
 
-    const data = createSchema.parse(await request.json());
+    const data = createSchema.parse(await readJsonBody(request));
     await assertMilestoneInterval(data.intervalId, orgId, projectId);
     const dueDate = new Date(data.dueDate);
 

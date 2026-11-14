@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, noContent, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { deleteBoard, getBoard, updateBoard } from "@/lib/boards/board-service.server";
 
 // The gates, validation and audit for these handlers live in the board service,
@@ -31,7 +31,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    const body = await request.json().catch(() => null);
+    const body = await readJsonBody(request, { orElse: null });
     return success(await updateBoard(ctx, projectId, boardId, body, { ipAddress: getIpAddress(request) }));
   } catch (error) {
     return handleApiError(error, request);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getIpAddress } from "@/lib/api-helpers";
+import { getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { trustedClientIp } from "@/lib/auth/client-ip";
 import { rateLimit } from "@/lib/rate-limit/bucket";
 import { submitAccountRequest, recordSubmitOutcome } from "@/lib/auth/account-requests";
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const parsed = schema.safeParse(await readJsonBody(request, { orElse: null }));
   // A malformed body still gets the generic OK — never surface validation detail.
   if (!parsed.success) return NextResponse.json({ ok: true });
   const { orgSlug, email, note } = parsed.data;

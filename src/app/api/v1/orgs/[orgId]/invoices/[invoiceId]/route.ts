@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { getInvoice, updateInvoice } from "@/lib/invoicing/service";
 import { invoiceInputSchema } from "@/lib/invoicing/validation";
 import { inVisibleProject, requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
@@ -42,7 +42,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (ctx instanceof Response) return ctx;
     const existing = await prisma.invoice.findFirst({ where: { id: invoiceId, orgId }, select: { projectId: true } });
     if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
-    const input = invoiceInputSchema.parse(await request.json());
+    const input = invoiceInputSchema.parse(await readJsonBody(request));
     await requireProjectVisibleIf(ctx, input.projectId);
     const invoice = await updateInvoice(orgId, invoiceId, input);
     await logAudit({

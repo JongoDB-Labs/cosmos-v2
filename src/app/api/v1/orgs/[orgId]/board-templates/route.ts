@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { uniqueSlug } from "@/lib/templates/slugify";
 import { getEntitlements, filterBySector } from "@/lib/entitlements";
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_MANAGE_TEMPLATES);
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = createBoardTemplateSchema.parse(body);
     // Only the org's own project template: a built-in one is shared by every
     // org, and attaching a board to it would add that board to their projects.

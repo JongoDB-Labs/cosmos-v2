@@ -3,7 +3,7 @@ import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { ForbiddenError, NotFoundError, ConflictError } from "./rbac/check";
 import { serverReportError } from "./telemetry/server";
-import { problem, problemBody, ProblemError, PROBLEM_CONTENT_TYPE } from "./openapi/problem";
+import { problem, problemBody, ProblemError, PROBLEM_CONTENT_TYPE, INVALID_JSON_BODY } from "./openapi/problem";
 import { isNoModelCredentialError } from "./ai/egress/types";
 import { clientIpForRecords } from "./auth/client-ip";
 import { TransitionError, WorkflowEditError } from "@/lib/workflow/contract";
@@ -18,6 +18,32 @@ export function created<T>(data: T) {
 
 export function noContent() {
   return new NextResponse(null, { status: 204 });
+}
+
+/**
+ * Read a route's JSON body. Routes read it with this, never `request.json()`
+ * (request-json.arch.test.ts holds them to it).
+ *
+ * A body that isn't JSON (empty, cut short, or not JSON at all) throws the 400
+ * `invalid_request` problem, which the route's handleApiError answers. Read
+ * with `request.json()`, it threw a SyntaxError that handleApiError has no
+ * branch for, so it was a 500. Only the parse is the caller's fault: a failure
+ * to READ the body (one the route already read) still throws as it is, and
+ * stays a reported 500.
+ *
+ * `{ orElse }` is for a route whose body is optional: any failure, a missing
+ * body included, returns that value instead, exactly as
+ * `request.json().catch(() => value)` did.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- the type Request.json() has, so it replaces that call as is; validate the result with a schema
+export async function readJsonBody(request: Request, opts?: { orElse: unknown }): Promise<any> {
+  if (opts) return request.json().catch(() => opts.orElse);
+  const text = await request.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new ProblemError(400, "invalid_request", INVALID_JSON_BODY);
+  }
 }
 
 /**
@@ -119,12 +145,28 @@ export function handleApiError(error: unknown, request?: Request) {
   if (error instanceof ZodError) {
     // Input-validation failures are client errors, not server errors —
     // returning 500 here masked real bugs (and confused clients) for every
-    // route that did `schema.parse(body)` inside a try/catch.
-    return problem(400, "invalid_request", "Invalid request", { ...opts, issues: error.issues });
+    // route that did `schema.parse(body)` inside a try/catch. The first issue
+    // is the detail, so a form's toast says what to fix, not "Invalid request".
+    return problem(400, "invalid_request", issueSentence(error.issues) ?? "Invalid request", { ...opts, issues: error.issues });
   }
   console.error("[api:500]", error);
   serverReportError(error, { scope: "api" });
   return problem(500, "internal_error", undefined, opts);
+}
+
+/**
+ * A validation failure's first issue as one line a person can act on: the
+ * field it is about, then zod's message (`items[1].title: Give it a title`).
+ * An issue about the whole body has no field. Path and message only, never the
+ * input that failed. Undefined when there is no message to show.
+ */
+export function issueSentence(issues: readonly { path?: readonly PropertyKey[]; message?: unknown }[]): string | undefined {
+  const first = issues[0];
+  if (typeof first?.message !== "string" || !first.message.trim()) return undefined;
+  const field = (first.path ?? [])
+    .map((key, i) => (typeof key === "number" ? `[${key}]` : `${i === 0 ? "" : "."}${String(key)}`))
+    .join("");
+  return field ? `${field}: ${first.message}` : first.message;
 }
 
 export function getIpAddress(request: Request): string | undefined {

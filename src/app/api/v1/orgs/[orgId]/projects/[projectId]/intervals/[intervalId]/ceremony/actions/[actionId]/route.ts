@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { updateCeremonyAction, deleteCeremonyAction } from "@/lib/intervals/ceremony.server";
 import { ceremonyAuth, isResponse, routeCaller } from "../../_helpers";
 
@@ -20,7 +20,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (isResponse(ctx)) return ctx;
 
     return success(
-      await updateCeremonyAction(ctx, { orgId, projectId, intervalId }, actionId, () => request.json(), routeCaller(request)),
+      await updateCeremonyAction(ctx, { orgId, projectId, intervalId }, actionId, () => readJsonBody(request), routeCaller(request)),
     );
   } catch (e) {
     return handleApiError(e);

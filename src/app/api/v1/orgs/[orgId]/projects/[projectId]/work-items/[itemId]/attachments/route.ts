@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { resolveAuth } from "@/lib/auth/api-key";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { requireAccess } from "@/lib/abac/require-access";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { ingestDocument } from "@/lib/files/ingest";
 import { isExecutableUpload } from "@/lib/files/parsers";
 import { withUploaders } from "@/lib/files/uploader";
@@ -110,7 +110,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     let title: string | undefined;
 
     if (req.headers.get("content-type")?.includes("application/json")) {
-      const body = jsonUploadSchema.parse(await req.json());
+      const body = jsonUploadSchema.parse(await readJsonBody(req));
       filename = body.filename;
       contentType = body.contentType;
       // Rejected before decoding so a huge payload is never allocated: ~33.5 MB of

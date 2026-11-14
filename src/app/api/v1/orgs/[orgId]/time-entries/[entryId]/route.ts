@@ -10,7 +10,7 @@ import { readableTimeUserIds, timeProjectCeiling, timeUserIdFilter } from "@/lib
 import { timesheetIdForEntry, isTimesheetOpen } from "@/lib/time/timesheet";
 import { recordRevision } from "@/lib/time/revisions";
 import { checkInternalCategory, internalCategories } from "@/lib/time/internal-categories";
-import { noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { noContent, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
@@ -225,7 +225,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // was collected, and backfilling one would fabricate a record.
     let reason: string | null = null;
     try {
-      const parsed = (await request.json()) as { reason?: unknown };
+      const parsed = (await readJsonBody(request)) as { reason?: unknown };
       if (typeof parsed?.reason === "string" && parsed.reason.trim()) {
         reason = parsed.reason.trim().slice(0, 500);
       }

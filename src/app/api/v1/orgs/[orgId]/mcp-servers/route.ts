@@ -11,6 +11,7 @@ import {
   created,
   handleApiError,
   getIpAddress,
+  readJsonBody,
 } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { endpointUrlSchema } from "@/lib/security/endpoint-url";
@@ -85,7 +86,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     await requireAccess(ctx, "MCP_MANAGE");
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = createMcpServerSchema.parse(body);
 
     const server = await prisma.mcpServer.create({

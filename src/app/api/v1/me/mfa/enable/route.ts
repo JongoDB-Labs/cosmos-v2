@@ -7,6 +7,7 @@ import { isSsoSession } from "@/lib/auth/org-session-scope";
 import { verifyTotp, generateRecoveryCodes, hashRecoveryCode } from "@/lib/auth/totp";
 import { openSecret } from "@/lib/crypto/vault";
 import { SESSION_COOKIE } from "@/lib/auth/client";
+import { readJsonBody } from "@/lib/api-helpers";
 
 const schema = z.object({ code: z.string().min(1).max(20) });
 
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const parsed = schema.safeParse(await readJsonBody(request, { orElse: null }));
   if (!parsed.success) {
     return NextResponse.json({ error: "Enter your 6-digit code." }, { status: 400 });
   }

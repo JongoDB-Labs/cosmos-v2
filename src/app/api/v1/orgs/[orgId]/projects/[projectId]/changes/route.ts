@@ -6,7 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { logPmActivity } from "@/lib/pm/activity-log";
 import { canSeeProjectMoney, projectMoney, projectMoneyRows } from "@/lib/rbac/money-fields";
 
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });
 
-    const data = createSchema.parse(await request.json());
+    const data = createSchema.parse(await readJsonBody(request));
 
     const created = await prisma.changeRequest.create({
       data: {

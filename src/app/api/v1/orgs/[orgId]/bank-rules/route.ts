@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { requireAccess } from "@/lib/abac/require-access";
 import type { PermissionKey } from "@/lib/rbac/permissions";
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const auth = await authorize(orgId, "FINANCE_MANAGE");
     if (auth.error) return auth.error;
 
-    const input = createSchema.parse(await request.json());
+    const input = createSchema.parse(await readJsonBody(request));
     const rule = await prisma.bankRule.create({
       data: {
         orgId,

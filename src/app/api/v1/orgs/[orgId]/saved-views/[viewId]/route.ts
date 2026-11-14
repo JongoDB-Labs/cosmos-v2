@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, noContent } from "@/lib/api-helpers";
+import { success, noContent, readJsonBody } from "@/lib/api-helpers";
 import { deleteSavedView, getSavedView, updateSavedView } from "@/lib/query/saved-view-service.server";
 import { savedViewErrorResponse } from "@/lib/query/saved-view-response.server";
 import type { AuthContext } from "@/lib/rbac/check";
@@ -41,7 +41,7 @@ async function update(request: NextRequest, { params }: RouteParams) {
   const { orgId, viewId } = await params;
   const r = await authenticate(orgId);
   if ("error" in r) return r.error;
-  return success(await updateSavedView(r.ctx, r.org, viewId, () => request.json()));
+  return success(await updateSavedView(r.ctx, r.org, viewId, () => readJsonBody(request)));
 }
 
 export async function PATCH(request: NextRequest, ctx: RouteParams) {

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { ensureGeneralChannel, autoJoinGeneral } from "@/lib/chat/seed-general";
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = createOrgSchema.parse(body);
 
     if (isReservedSlug(data.slug)) {

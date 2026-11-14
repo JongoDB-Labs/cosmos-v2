@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { z, ZodError } from "zod";
 import { defineRoute } from "../contract";
 import { droppedKeys, parseRequest, respond, ResponseContractError, withoutPath } from "../respond";
-import { ProblemError } from "../problem";
+import { INVALID_JSON_BODY, ProblemError } from "../problem";
 import { buildDocument } from "../registry";
 
 vi.mock("@/lib/telemetry/server", () => ({ serverReportError: vi.fn() }));
@@ -71,7 +71,7 @@ describe("parseRequest", () => {
     expect(err).toBeInstanceOf(ProblemError);
     const res = handleApiError(err);
     expect(res.status).toBe(400);
-    expect((await res.json()).detail).toBe("Request body must be valid JSON");
+    expect((await res.json()).detail).toBe(INVALID_JSON_BODY);
   });
 
   it("an optional body may be left out; one that is sent is still parsed and still has to be JSON", async () => {

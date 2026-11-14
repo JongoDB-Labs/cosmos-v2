@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { getVapidPublicKey } from "@/lib/notifications/push";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = schema.parse(await request.json());
+    const body = schema.parse(await readJsonBody(request));
     const userAgent = request.headers.get("user-agent") ?? null;
 
     const sub = await prisma.pushSubscription.upsert({

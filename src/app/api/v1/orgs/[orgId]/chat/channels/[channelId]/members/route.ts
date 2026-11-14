@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { canManageChannelGiven, loadChannelAndMembership, mayUseChat } from "@/lib/chat/access";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return new Response("Forbidden", { status: 403 });
     }
 
-    const parsed = addSchema.safeParse(await req.json().catch(() => null));
+    const parsed = addSchema.safeParse(await readJsonBody(req, { orElse: null }));
     if (!parsed.success) return new Response("Bad Request", { status: 400 });
 
     const present = await prisma.orgMember.count({

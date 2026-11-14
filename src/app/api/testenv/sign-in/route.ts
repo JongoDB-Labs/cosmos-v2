@@ -5,6 +5,7 @@ import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
 } from "@/lib/auth/client";
+import { readJsonBody } from "@/lib/api-helpers";
 
 /**
  * Test-only sign-in. Disabled unless E2E_TEST_AUTH === "1" in the runtime env.
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
     return new Response("Disabled", { status: 404 });
   }
 
-  const body = await req.json().catch(() => null);
+  const body = await readJsonBody(req, { orElse: null });
   const email: string | undefined = body?.email;
   if (!email) {
     return new Response("Bad Request", { status: 400 });

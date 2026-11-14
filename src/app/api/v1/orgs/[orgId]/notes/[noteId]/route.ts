@@ -5,7 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { requireAccess } from "@/lib/abac/require-access";
 import { canReadNote } from "@/lib/notes/access";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, noContent, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { parseMentions } from "@/lib/chat/mentions";
@@ -77,7 +77,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = updateNoteSchema.parse(body);
 
     const updated = await prisma.note.update({

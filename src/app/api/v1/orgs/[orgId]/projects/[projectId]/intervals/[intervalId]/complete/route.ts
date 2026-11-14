@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { isDoneStatus } from "@/lib/work-items/done-state";
 import { loadStatusCategories } from "@/lib/boards/status-categories.server";
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const body = await request.json().catch(() => ({}));
+    const body = await readJsonBody(request, { orElse: {} });
     const data = completeSchema.parse(body);
     // The sprint the unfinished items move into is one of this project's.
     await assertRefsInScope({ orgId, projectId }, { interval: data.moveIncompleteToIntervalId });

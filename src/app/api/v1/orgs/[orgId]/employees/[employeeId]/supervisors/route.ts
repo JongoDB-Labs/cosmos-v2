@@ -7,7 +7,7 @@ import { setSupervisors } from "@/lib/org/supervisors";
 import { supervisorPickerOptions } from "@/lib/org/assignable-supervisors";
 import { pendingRequestsFor } from "@/lib/org/supervisor-requests";
 import { createNotification } from "@/lib/notifications/create";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 
 type RouteParams = {
@@ -99,7 +99,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const { supervisorIds } = bodySchema.parse(await request.json());
+    const { supervisorIds } = bodySchema.parse(await readJsonBody(request));
 
     // Only people who hold TIME_APPROVE may be NEWLY named, so the chart cannot
     // start routing weeks to someone the org has not trusted with approvals.

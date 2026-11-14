@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { meetingReader } from "@/lib/meetings/meeting-reader";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { InviteRefused, invitePreview, setMeetingInvite, type InvitePreview } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { teamsHostedMessage } from "@/lib/meetings/teams-messages";
 
@@ -65,7 +65,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!r) return new Response("Not found", { status: 404 });
     // Invitations go out from a person's own mailbox: never on an API key.
     if (r.ctx.isApiKey) return new Response("Forbidden", { status: 403 });
-    const { enabled } = body.parse(await request.json());
+    const { enabled } = body.parse(await readJsonBody(request));
     try {
       await setMeetingInvite(orgId, meetingId, r.ctx.userId, enabled);
     } catch (e) {

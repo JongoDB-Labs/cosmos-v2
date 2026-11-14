@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { handleApiError } from "@/lib/api-helpers";
+import { handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 
 const createSchema = z.object({
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const { email } = createSchema.parse(body);
     const normalized = email.toLowerCase();
 

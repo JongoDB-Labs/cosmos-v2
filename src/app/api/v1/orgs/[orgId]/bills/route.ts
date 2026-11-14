@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { MAX_MARKUP_PCT } from "@/lib/finance/markup";
 import { assertBillLinks } from "@/lib/payables/links.server";
 import { listBills, createBill } from "@/lib/payables/service";
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     await requireAccess(ctx, "FINANCE_MANAGE");
 
-    const input = billInputSchema.parse(await request.json());
+    const input = billInputSchema.parse(await readJsonBody(request));
     await assertBillLinks(ctx, orgId, input);
     const bill = await createBill(orgId, ctx.userId, input);
     await logAudit({

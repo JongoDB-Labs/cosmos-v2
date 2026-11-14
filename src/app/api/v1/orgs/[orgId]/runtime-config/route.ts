@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 import { govGuardrailViolation } from "@/lib/runtime-config/guardrails";
@@ -69,7 +69,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.INTEGRATION_MANAGE);
 
-    const data = patchSchema.parse(await request.json());
+    const data = patchSchema.parse(await readJsonBody(request));
 
     // ── GOV GUARDRAIL (server-side, independent of the UI) ─────────────────────────
     // A GOV org's PATCH may not enable breadth/mcp or list a commercial-only connector.

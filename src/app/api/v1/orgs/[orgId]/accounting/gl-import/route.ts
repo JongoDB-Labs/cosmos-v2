@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/client";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { ClosedPeriodError } from "@/lib/ledger/posting";
 import { GlImportError, planGlImport } from "@/lib/ledger/gl-import";
 import { currentBalances, importTrialBalance } from "@/lib/ledger/gl-import-service";
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     await requireAccess(ctx, "ACCOUNTING_MANAGE");
 
-    const body = bodySchema.parse(await request.json());
+    const body = bodySchema.parse(await readJsonBody(request));
     if (!body.csv && !body.rows) {
       return new Response(JSON.stringify({ error: "Send either csv or rows" }), {
         status: 400,

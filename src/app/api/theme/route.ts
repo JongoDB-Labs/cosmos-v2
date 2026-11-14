@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isValidThemeMode, THEME_COOKIE } from "@/lib/theme/cookie";
+import { readJsonBody } from "@/lib/api-helpers";
 
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => null);
+  const body = await readJsonBody(request, { orElse: null });
   const mode = body?.mode;
 
   // SYSTEM mode (null/"system") clears the cookie so the no-FOUC bootstrap

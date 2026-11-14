@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, noContent, handleApiError } from "@/lib/api-helpers";
+import { success, noContent, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { canDeleteMessageGiven, channelProjectVisible, loadChannelAndMembership } from "@/lib/chat/access";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
@@ -45,7 +45,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (message.deletedAt) return new Response("Gone", { status: 410 });
     if (message.authorId !== ctx.userId) return new Response("Forbidden", { status: 403 });
 
-    const parsed = editSchema.safeParse(await req.json().catch(() => null));
+    const parsed = editSchema.safeParse(await readJsonBody(req, { orElse: null }));
     if (!parsed.success) return new Response("Bad Request", { status: 400 });
 
     const now = new Date();

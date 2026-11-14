@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { runImport } from "@/lib/import/import-engine";
 import type { ImportRequest } from "@/lib/import/work-item-fields";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     if (!project) return new Response("Project not found", { status: 404 });
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const req = importSchema.parse(body) as ImportRequest;
 
     const report = await runImport(

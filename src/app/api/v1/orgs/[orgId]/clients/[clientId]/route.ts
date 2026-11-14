@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { ProblemError } from "@/lib/openapi/problem";
 
@@ -53,7 +53,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.CRM_UPDATE);
 
-    const data = updateSchema.parse(await request.json());
+    const data = updateSchema.parse(await readJsonBody(request));
 
     const existing = await prisma.client.findFirst({ where: { id: clientId, orgId }, select: { id: true } });
     if (!existing) return new Response("Not found", { status: 404 });

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { memberDisclosure } from "@/lib/members/scoped-roster.server";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { removeProjectMember, setProjectMember } from "@/lib/projects/membership.server";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -87,7 +87,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const { orgId, projectId } = await params;
     const r = await authenticate(orgId);
     if (r.error) return r.error;
-    const body = await request.json().catch(() => null);
+    const body = await readJsonBody(request, { orElse: null });
     return success(await setProjectMember(r.ctx, projectId, body, { ipAddress: getIpAddress(request) }));
   } catch (e) {
     return handleApiError(e);
@@ -99,7 +99,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const { orgId, projectId } = await params;
     const r = await authenticate(orgId);
     if (r.error) return r.error;
-    const body = await request.json().catch(() => null);
+    const body = await readJsonBody(request, { orElse: null });
     await removeProjectMember(r.ctx, projectId, body, { ipAddress: getIpAddress(request) });
     return success({ removed: true });
   } catch (e) {

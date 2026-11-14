@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { postEntry, ClosedPeriodError } from "@/lib/ledger/posting";
 import { requireAccess } from "@/lib/abac/require-access";
 import { logAudit } from "@/lib/audit";
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     await requireAccess(ctx, "ACCOUNTING_MANAGE");
 
-    const parsed = createSchema.safeParse(await request.json().catch(() => null));
+    const parsed = createSchema.safeParse(await readJsonBody(request, { orElse: null }));
     if (!parsed.success) return new Response("Bad Request", { status: 400 });
 
     const date = new Date(parsed.data.date);

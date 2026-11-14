@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { success, created } from "@/lib/api-helpers";
+import { success, created, readJsonBody } from "@/lib/api-helpers";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { cqlErrorResponse, cqlGate } from "@/lib/query/route.server";
 import { canSee, viewerScope } from "@/lib/query/saved-filters.server";
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const s = await viewerScope(gate.ctx);
     const view = await loadView(orgId, viewId);
     if (!view || !canSee(s, view)) return new Response("Not found", { status: 404 });
-    const body = subscriptionBody.parse(await request.json().catch(() => ({})));
+    const body = subscriptionBody.parse(await readJsonBody(request, { orElse: {} }));
     const problem = await subscriptionProblem(s, view, body);
     if (problem) return NextResponse.json({ error: problem }, { status: problem === "Filter not found" ? 404 : 400 });
     return created({ subscription: await createSubscription(s, view, body, getPublicOrigin(request)) });

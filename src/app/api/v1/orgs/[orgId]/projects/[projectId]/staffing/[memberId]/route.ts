@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { canManageProject } from "@/lib/rbac/scope";
 import { logPmFieldChanges } from "@/lib/pm/activity-log";
@@ -47,7 +47,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     });
     if (!member) return new Response("Not found", { status: 404 });
 
-    const data = updateSchema.parse(await request.json());
+    const data = updateSchema.parse(await readJsonBody(request));
 
     // A project role is access control, not a staffing detail: MANAGER runs the
     // project's members, teams, boards and registers. So changing one takes

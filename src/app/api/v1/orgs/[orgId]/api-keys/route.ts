@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { API_KEY_SCOPES, mintApiKey } from "@/lib/auth/api-key";
 import {
   API_KEY_LIMITS,
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const standing = await mintStanding(ctx, session?.idpConnId ?? null);
     if (standing.refusal) throw new ProblemError(403, "forbidden", standing.refusal);
 
-    const body = createSchema.parse(await request.json());
+    const body = createSchema.parse(await readJsonBody(request));
     const scopes = [...new Set(body.scopes)];
 
     const refused = refusedScopes(standing.permissions, scopes);

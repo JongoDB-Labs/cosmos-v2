@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { createTaxRate, listTaxRates } from "@/lib/tax/service";
 import { taxRateSchema } from "@/lib/tax/validation";
 import { requireAccess } from "@/lib/abac/require-access";
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     await requireAccess(ctx, "FINANCE_MANAGE");
 
-    const input = taxRateSchema.parse(await request.json());
+    const input = taxRateSchema.parse(await readJsonBody(request));
     const rate = await createTaxRate(orgId, ctx.userId, input);
     await logAudit({
       orgId,

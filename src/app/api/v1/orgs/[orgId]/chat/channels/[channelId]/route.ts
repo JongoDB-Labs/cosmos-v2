@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, noContent, handleApiError } from "@/lib/api-helpers";
+import { success, noContent, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { canSeeChannelGiven, canManageChannelGiven, loadChannelAndMembership, mayUseChat } from "@/lib/chat/access";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
@@ -78,7 +78,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return new Response("Forbidden", { status: 403 });
     }
 
-    const parsed = patchSchema.safeParse(await req.json().catch(() => null));
+    const parsed = patchSchema.safeParse(await readJsonBody(req, { orElse: null }));
     if (!parsed.success) return new Response("Bad Request", { status: 400 });
 
     const { name, description, topic, archive } = parsed.data;

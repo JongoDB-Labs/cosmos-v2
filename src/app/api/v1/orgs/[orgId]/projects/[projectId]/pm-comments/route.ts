@@ -5,7 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { requireAccess } from "@/lib/abac/require-access";
 import { canManageProject } from "@/lib/rbac/scope";
-import { success, created, handleApiError } from "@/lib/api-helpers";
+import { success, created, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { createNotification } from "@/lib/notifications/create";
 import { mentionsToPlainText, userMentionLabels } from "@/lib/mentions/plain-text";
 import { parseMentions } from "@/lib/chat/mentions";
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     await requireProjectVisible(ctx, projectId);
     await requireAccess(ctx, "COMMENT_CREATE", { createdById: ctx.userId, projectId });
 
-    const data = createSchema.parse(await request.json());
+    const data = createSchema.parse(await readJsonBody(request));
     if (!isPmSubjectType(data.subjectType)) return new Response("Bad request", { status: 400 });
 
     const subject = await resolvePmSubject(data.subjectType, data.subjectId, orgId, projectId);

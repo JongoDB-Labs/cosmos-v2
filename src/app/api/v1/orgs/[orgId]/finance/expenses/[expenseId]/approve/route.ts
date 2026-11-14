@@ -7,7 +7,7 @@ import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { roleCountsFor } from "@/lib/rbac/key-role";
 import { approvalAuthority } from "@/lib/time/approval";
 import { isManagerOf, hasManager } from "@/lib/time/timesheet-actions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { safeAutoPost, postExpenseToLedger } from "@/lib/ledger/auto-post";
 import { inVisibleProject } from "@/lib/rbac/require-project-read";
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const data = approveSchema.parse(await request.json());
+    const data = approveSchema.parse(await readJsonBody(request));
 
     // Status-scoped write so two racing approvers can't both pass the in-memory
     // SUBMITTED check and double-stamp. Only the approve path records an

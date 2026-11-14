@@ -5,7 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission, maskFromDb } from "@/lib/rbac/permissions";
 import { currentWorkRoleRefusal, workRoleCeilingRefusal } from "@/lib/rbac/grant-ceiling";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 
@@ -44,7 +44,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return new Response("Not found", { status: 404 });
     }
 
-    const { workRoleIds } = setSchema.parse(await request.json());
+    const { workRoleIds } = setSchema.parse(await readJsonBody(request));
     const requestedIds = [...new Set(workRoleIds)];
     const requestedSet = new Set(requestedIds);
 

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { getEntitlements, isSectorEnabled } from "@/lib/entitlements";
 import { PluginRegistry, PluginServerRegistry } from "@/lib/plugins/registry";
@@ -45,7 +45,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (!manifest) return new Response("Not found", { status: 404 });
     const hooks = PluginServerRegistry.get(slug);
 
-    const data = patchSchema.parse(await request.json());
+    const data = patchSchema.parse(await readJsonBody(request));
 
     // Validate config against the plugin's own schema before writing anything.
     let configUpdate: Record<string, unknown> | undefined;

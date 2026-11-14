@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { success } from "@/lib/api-helpers";
+import { success, readJsonBody } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { AI_PROMPT_MAX, AiUnavailableError, cqlFromText } from "@/lib/query/ai-filter.server";
 import { cqlErrorResponse, cqlGate } from "@/lib/query/route.server";
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const limited = checkRateLimit(request, "cql.ai", gate.ctx.userId, { capacity: 5, refillPerSecond: 0.2 });
     if (limited) return limited;
 
-    const body = bodySchema.parse(await request.json().catch(() => ({})));
+    const body = bodySchema.parse(await readJsonBody(request, { orElse: {} }));
     try {
       return success(await cqlFromText(gate.ctx, body.prompt, { tz: body.tz }));
     } catch (e) {

@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { teamsAppEnabled } from "@/lib/integrations/microsoft/teams-app/identity.server";
@@ -54,7 +54,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const r = await resolve((await params).orgId);
     if (!r) return new Response("Unauthorized", { status: 401 });
     if (r === "api_key") return new Response("Forbidden", { status: 403 });
-    const { notifyTypes } = bodySchema.parse(await request.json());
+    const { notifyTypes } = bodySchema.parse(await readJsonBody(request));
     const s = await settings(r.org.id, r.ctx.userId);
     if (!s.available || !s.chatReady) {
       return Response.json({ error: "Open Cosmos in Teams and send it a message first." }, { status: 409 });

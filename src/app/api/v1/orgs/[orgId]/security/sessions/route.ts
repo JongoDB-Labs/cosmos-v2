@@ -4,7 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { HELD_WORK_ROLES, assertCanChangeCurrentAccess, heldBeyondRole } from "@/lib/rbac/grant-ceiling";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { SESSION_COOKIE } from "@/lib/auth/client";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.SESSION_MANAGE);
 
-    const body = await request.json().catch(() => ({}));
+    const body = await readJsonBody(request, { orElse: {} });
     const data = revokeSessionsSchema.parse(body ?? {});
 
     const now = new Date();

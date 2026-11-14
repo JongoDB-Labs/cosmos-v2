@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { setOpenAiConfig } from "@/lib/ai/ai-credentials";
 import { endpointUrlSchema } from "@/lib/security/endpoint-url";
 
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_MANAGE_SETTINGS);
 
-    const { apiKey, baseUrl, model } = bodySchema.parse(await request.json());
+    const { apiKey, baseUrl, model } = bodySchema.parse(await readJsonBody(request));
     await setOpenAiConfig(orgId, { apiKey, baseUrl, model }, ctx.userId);
 
     return success({ configured: true, baseUrl, model });

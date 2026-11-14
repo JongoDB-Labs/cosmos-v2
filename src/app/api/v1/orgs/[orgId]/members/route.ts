@@ -11,7 +11,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { HELD_WORK_ROLES, assertCanGrantOrgRole, heldBeyondRole } from "@/lib/rbac/grant-ceiling";
-import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { endMemberCredentialsIn } from "@/lib/members/credentials.server";
 import { autoJoinGeneral } from "@/lib/chat/seed-general";
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return problem(401, "unauthorized", undefined, { request });
     requirePermission(ctx, Permission.ORG_MANAGE_MEMBERS);
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = addMemberSchema.parse(body);
 
     // Unfiltered on purpose: a previously-removed person still HAS a row (soft

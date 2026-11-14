@@ -6,7 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { logPmFieldChanges } from "@/lib/pm/activity-log";
 import { classificationOmit } from "@/lib/compliance/classification";
 import { assertOrgMember } from "@/lib/rbac/assert-org-member";
@@ -65,7 +65,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.deliverable.findFirst({ where: { id: deliverableId, orgId, projectId } });
     if (!existing) return new Response("Not found", { status: 404 });
 
-    const data = updateSchema.parse(await request.json());
+    const data = updateSchema.parse(await readJsonBody(request));
     // Client-supplied user id: check org membership or leak a foreign user.
     if (data.ownerUserId) await assertOrgMember(orgId, data.ownerUserId);
     // Same for the contract and the sprint: the FKs cannot express "in this

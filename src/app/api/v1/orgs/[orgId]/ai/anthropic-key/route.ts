@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { setAnthropicKey } from "@/lib/ai/ai-credentials";
 
 /**
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_MANAGE_SETTINGS);
 
-    const { apiKey } = bodySchema.parse(await request.json());
+    const { apiKey } = bodySchema.parse(await readJsonBody(request));
     await setAnthropicKey(orgId, apiKey, ctx.userId);
 
     return success({ configured: true });

@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { mayUseChat, visibleChannelWhere } from "@/lib/chat/access";
-import { success, created, handleApiError } from "@/lib/api-helpers";
+import { success, created, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { logAudit } from "@/lib/audit";
 import { getBus } from "@/lib/realtime/bus";
@@ -144,7 +144,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     });
     if (limited) return limited;
 
-    const json = await req.json().catch(() => null);
+    const json = await readJsonBody(req, { orElse: null });
     const parsed = createSchema.safeParse(json);
     if (!parsed.success) {
       return new Response(

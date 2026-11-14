@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { resolveAuth } from "@/lib/auth/api-key";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { readableDocument, canManageDocument } from "@/lib/files/access";
 import { uploadersByIds, FORMER_MEMBER } from "@/lib/files/uploader";
 import { logAudit } from "@/lib/audit";
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (!(await canManageDocument(doc, ctx)))
       return new Response("You did not upload this file and cannot share it", { status: 403 });
 
-    const { userId } = postSchema.parse(await req.json());
+    const { userId } = postSchema.parse(await readJsonBody(req));
 
     // Only somebody who is actually in this org. Without this the grant table
     // becomes a way to probe which user ids exist anywhere in the system, and a

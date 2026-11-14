@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { getAgentPolicy } from "@/lib/ai/policy";
 import { KNOWN_DOMAINS } from "@/lib/ai/policy/domains";
@@ -79,7 +79,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.AGENT_POLICY_MANAGE);
 
-    const data = patchSchema.parse(await request.json());
+    const data = patchSchema.parse(await readJsonBody(request));
 
     // Map the tri-state allowlists to the stored (flag + array) shape:
     //   null ⇒ flag OFF (no restriction, array cleared); array ⇒ flag ON with that subset;

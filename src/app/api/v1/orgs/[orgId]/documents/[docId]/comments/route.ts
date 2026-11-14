@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { resolveAuth } from "@/lib/auth/api-key";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { readableDocument } from "@/lib/files/access";
 import { uploadersByIds, FORMER_MEMBER } from "@/lib/files/uploader";
 
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const doc = await readableDocument(orgId, docId, ctx);
     if (!doc) return new Response("Not found", { status: 404 });
 
-    const { content } = postSchema.parse(await req.json());
+    const { content } = postSchema.parse(await readJsonBody(req));
     const row = await prisma.comment.create({
       data: { orgId, subjectType: SUBJECT, subjectId: docId, authorId: ctx.userId, content },
       select: { id: true, content: true, authorId: true, createdAt: true, updatedAt: true },

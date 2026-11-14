@@ -11,6 +11,7 @@ import {
   noContent,
   handleApiError,
   getIpAddress,
+  readJsonBody,
 } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { endpointUrlSchema } from "@/lib/security/endpoint-url";
@@ -72,7 +73,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     });
     if (!existing) return new Response("Not found", { status: 404 });
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = patchMcpServerSchema.parse(body);
 
     // Compute the post-patch transport + identifiers and enforce the

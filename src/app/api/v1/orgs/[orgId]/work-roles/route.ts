@@ -9,7 +9,7 @@ import {
   isPermissionSubset,
   maskToDb,
 } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { toWorkRoleDto, workRoleCreateSchema } from "@/lib/rbac/work-role";
 import { BUILTIN_KEY_PREFIX } from "@/lib/rbac/builtin-work-roles";
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_MANAGE_MEMBERS);
 
-    const body: unknown = await request.json();
+    const body: unknown = await readJsonBody(request);
 
     // Reserved key prefix: checked on the RAW body, not `data.key` post-parse.
     // The key-format regex below (lowercase letters/digits/underscores only)

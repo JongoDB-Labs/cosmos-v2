@@ -6,7 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission, ForbiddenError } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { applyGovGuardrails } from "@/lib/runtime-config/guardrails";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { sweepMarkedComments } from "@/lib/feedback/comments.server";
 import { isAtLeastAsProtective } from "@/lib/org/tenant-class";
@@ -52,7 +52,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       throw new ForbiddenError("Only the organization owner can change the tenant class.");
     }
 
-    const { tenantClass } = patchSchema.parse(await request.json());
+    const { tenantClass } = patchSchema.parse(await readJsonBody(request));
     const prior = org.tenantClass;
 
     // ASYMMETRIC GUARD — the compliance-preserving heart of this route. A tenant OWNER may only

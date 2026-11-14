@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth/session";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { openSecret } from "@/lib/crypto/vault";
 import { exchangeUserClaudeCode } from "@/lib/ai/user-claude-subscription";
 
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     const user = await getCurrentUser();
     if (!user) return new Response("Unauthorized", { status: 401 });
 
-    const { code } = bodySchema.parse(await request.json());
+    const { code } = bodySchema.parse(await readJsonBody(request));
 
     const pkceCookie = request.cookies.get(PKCE_COOKIE);
     if (!pkceCookie?.value) {
