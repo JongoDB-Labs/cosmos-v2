@@ -167,7 +167,8 @@ export async function deleteApiKeysIn(
  * Delete every key `userId` made in `orgId`, inside `tx`, and record it as
  * "member.api_keys_revoked" on their membership. Removing a member calls this,
  * and so does every path that reinstates one (re-adding them, or an SSO
- * sign-in the identity provider still vouches for). Reinstating clears
+ * sign-in the identity provider still vouches for), through
+ * endMemberCredentialsIn, which ends their calendar links with it. Reinstating clears
  * `removedAt` on the same row, so a key that survived the removal (one made by
  * someone removed before removal deleted keys) would otherwise work again.
  * Returns how many went.
@@ -180,7 +181,7 @@ export async function deleteMemberKeysIn(
     memberId: string;
     /** Who did it: the admin, or the person themselves on an SSO sign-in. */
     actorUserId: string;
-    reason: "removed" | "reinstated";
+    reason: "removed" | "reinstated" | "account_deleted";
     ipAddress?: string;
   },
 ): Promise<number> {

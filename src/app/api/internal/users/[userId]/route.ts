@@ -102,6 +102,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const result = await deleteUserAccount({
       userId: target.id,
       email: target.email,
+      actorUserId: admin.id,
+      ipAddress: getIpAddress(request),
     });
 
     // One audit row per org the user was a member of. Records the original email

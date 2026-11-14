@@ -16,7 +16,7 @@ import { readFeedOptions } from "@/lib/calendar/feed-settings";
 const ORG = "11111111-1111-4111-8111-111111111111";
 
 const h = vi.hoisted(() => ({ getAuthContext: vi.fn(), writes: [] as string[] }));
-vi.mock("@/lib/auth/session", () => ({ getAuthContext: h.getAuthContext }));
+vi.mock("@/lib/auth/session", () => ({ getAuthContext: h.getAuthContext, getCurrentUser: async () => null }));
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));
 vi.mock("@/lib/calendar/feed-settings", async (orig) => ({
   ...(await orig<typeof import("@/lib/calendar/feed-settings")>()),
@@ -25,6 +25,8 @@ vi.mock("@/lib/calendar/feed-settings", async (orig) => ({
 vi.mock("@/lib/db/client", () => ({
   prisma: {
     organization: { findUnique: async () => ({ id: ORG, slug: "acme", settings: {} }) },
+    // No IdP connection: the org doesn't require single sign-on (sso.db.test.ts covers one that does).
+    idpConnection: { findUnique: async () => null },
     calendarFeed: {
       count: async () => 0,
       findFirst: async () => ({ id: "f1" }),

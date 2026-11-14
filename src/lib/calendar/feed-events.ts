@@ -48,6 +48,19 @@ export interface FeedMeeting extends Restrictable {
   title: string;
   meetingDate: Date;
   updatedAt: Date;
+  /** Its Teams join link while it is a Teams meeting (it has a host), else null. */
+  teamsJoinUrl: string | null;
+  /** The video link someone set on it (any provider), else null. */
+  meetingUrl: string | null;
+}
+
+/** A meeting's join lines, one per link it has, or null when it has none. */
+function joinLines(m: FeedMeeting): string | null {
+  const lines = [
+    m.meetingUrl ? `Join: ${m.meetingUrl}` : null,
+    m.teamsJoinUrl ? `Join the Teams meeting: ${m.teamsJoinUrl}` : null,
+  ].filter((l): l is string => l !== null);
+  return lines.length > 0 ? lines.join("\n") : null;
 }
 
 export interface FeedInterval extends Restrictable {
@@ -56,7 +69,8 @@ export interface FeedInterval extends Restrictable {
   projectKey: string;
   startDate: Date;
   endDate: Date;
-  updatedAt: Date;
+  /** Null: the row records no change time (an Interval has none). */
+  updatedAt: Date | null;
 }
 
 /** Meetings carry a start time only; a calendar needs an end. */
@@ -112,6 +126,12 @@ export function feedEvents(args: {
       out.push({
         uid: `meeting-${m.id}@${uidHost}`,
         summary: label(m, m.title),
+        // The join links go in the description, as the Outlook sync writes
+        // them (the video link, then the Teams one): Google, Outlook and Apple
+        // Calendar all show a description and make a link in it clickable,
+        // while Google ignores URL (which is the meeting's page here) and
+        // treats LOCATION as a place. Never on a busy row.
+        description: hide(m) ? null : joinLines(m),
         url: link(m, entityUrl("meeting", { orgSlug, id: m.id })),
         start: m.meetingDate,
         end: new Date(m.meetingDate.getTime() + MEETING_MINUTES * 60_000),

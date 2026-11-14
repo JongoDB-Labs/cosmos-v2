@@ -49,6 +49,37 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.560.5",
+    date: "2026-11-14",
+    title: "Calendar feed links follow single sign-on and member removal, and show join links",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Where your organization requires single sign-on, a calendar feed link works only if you made it after signing in through the organization's single sign-on, as for an API key. Links made before, or through another sign-in, stop updating, and Settings, Preferences says so under each one. Sign in through single sign-on and create a new link there.",
+      },
+      {
+        kind: "fix",
+        text: "Removing someone from your organization now revokes their calendar feed links, as it already deleted their API keys. Adding them back, or their signing in again through single sign-on, doesn't bring the old links back. Deleting someone's account does the same in every organization they belong to. Turning on Require MFA revokes everyone's calendar feed links, and the save message says how many.",
+      },
+      {
+        kind: "fix",
+        text: "A calendar feed link is held to the organization's access restrictions for everyone, owners included. An owner's own session can still undo a restriction, but their link no longer gets past one.",
+      },
+      {
+        kind: "fix",
+        text: "Calendar feed links with sprints switched on now work. Until now such a link served nothing. A link shows only the sprints its owner may read: a rule that hides one project's sprints from someone hides them from their link too.",
+      },
+      {
+        kind: "improvement",
+        text: "A meeting in your calendar feed now carries its join links in the event's description: its video link, and its Teams link when it has one. Meetings the feed shows only as busy never do.",
+      },
+      {
+        kind: "fix",
+        text: "On a phone, screen readers now name the settings section picker, and the Revoke button on a calendar link has enough contrast to read.",
+      },
+    ],
+  },
+  {
     version: "2.560.4",
     date: "2026-11-14",
     title: "Exports show only what you could read in the app",

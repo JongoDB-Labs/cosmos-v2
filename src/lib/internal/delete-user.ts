@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/client";
+import { endMemberCredentialsIn } from "@/lib/members/credentials.server";
 
 /**
  * Platform-admin "delete a user account" — implemented as an in-place
@@ -18,7 +19,10 @@ import { prisma } from "@/lib/db/client";
  * That is explicitly out of scope, so we take the non-destructive route.
  *
  * WHAT THIS DOES, in one transaction:
- *   1. Revokes every access + identity grant — deletes the user's Sessions
+ *   1. Revokes every access + identity grant — ends the credentials they
+ *      hold in each org they belong to (API keys deleted, calendar links
+ *      revoked, audited on that membership, as removing a member does),
+ *      deletes the user's Sessions
  *      (kills live logins), OrgMembers (cascades ProjectMember +
  *      OrgMemberWorkRole), FederatedIdentities (no SSO re-match), and
  *      PushSubscriptions; plus their AllowedEmail rows and any pending
@@ -41,6 +45,8 @@ export type DeleteUserResult = {
   originalEmail: string;
   sentinelEmail: string;
   sessionsRevoked: number;
+  apiKeysRevoked: number;
+  calendarFeedsRevoked: number;
   membershipsRemoved: number;
   federatedIdentitiesRemoved: number;
   pushSubscriptionsRemoved: number;
@@ -51,8 +57,11 @@ export type DeleteUserResult = {
 export async function deleteUserAccount(params: {
   userId: string;
   email: string;
+  /** The platform admin deleting the account, for the credential audit rows. */
+  actorUserId: string;
+  ipAddress?: string;
 }): Promise<DeleteUserResult> {
-  const { userId } = params;
+  const { userId, actorUserId, ipAddress } = params;
   const originalEmail = params.email;
   const emailLower = originalEmail.trim().toLowerCase();
   // `.invalid` is RFC-2606 reserved (never routable); the id keeps it unique so
@@ -63,6 +72,20 @@ export async function deleteUserAccount(params: {
     // 1) Revoke access + identity. Sequential (not Promise.all): an interactive
     // transaction runs on a single connection and can't service parallel queries.
     const sessions = await tx.session.deleteMany({ where: { userId } });
+    // Their keys and links, in each org whose membership is deleted below, the
+    // way removing them from that org ends them. Deactivation already refuses
+    // both; this ends them, so every path that ends a person ends their
+    // credentials the same way. Removed memberships ended theirs when removed.
+    let apiKeysRevoked = 0;
+    let calendarFeedsRevoked = 0;
+    const ending = await tx.orgMember.findMany({ where: { userId }, select: { id: true, orgId: true } });
+    for (const m of ending) {
+      const ended = await endMemberCredentialsIn(tx, {
+        orgId: m.orgId, userId, memberId: m.id, actorUserId, reason: "account_deleted", ipAddress,
+      });
+      apiKeysRevoked += ended.apiKeys;
+      calendarFeedsRevoked += ended.calendarFeeds;
+    }
     const memberships = await tx.orgMember.deleteMany({ where: { userId } });
     const federatedIdentities = await tx.federatedIdentity.deleteMany({
       where: { userId },
@@ -112,6 +135,8 @@ export async function deleteUserAccount(params: {
       originalEmail,
       sentinelEmail,
       sessionsRevoked: sessions.count,
+      apiKeysRevoked,
+      calendarFeedsRevoked,
       membershipsRemoved: memberships.count,
       federatedIdentitiesRemoved: federatedIdentities.count,
       pushSubscriptionsRemoved: pushSubscriptions.count,

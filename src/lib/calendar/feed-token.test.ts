@@ -2,7 +2,7 @@
 // its hash is ever stored.
 import { describe, it, expect } from "vitest";
 import { feedPath, hashFeedToken, newFeedToken, parseFeedSegment } from "./feed-token";
-import { calendarFeedsEnabled, readFeedOptions, withCalendarFeedsEnabled } from "./feed-settings";
+import { calendarFeedsEnabled, readFeedOptions } from "./feed-settings";
 
 describe("feed tokens", () => {
   it("are 43 URL-safe characters, unique, stored only as their SHA-256", () => {
@@ -31,8 +31,10 @@ describe("feed settings", () => {
     expect(calendarFeedsEnabled({})).toBe(false);
     expect(calendarFeedsEnabled(null)).toBe(false);
     expect(calendarFeedsEnabled({ calendarFeeds: { enabled: "yes" } })).toBe(false);
-    expect(calendarFeedsEnabled(withCalendarFeedsEnabled({ other: 1 }, true))).toBe(true);
-    expect(withCalendarFeedsEnabled({ other: 1 }, true)).toMatchObject({ other: 1 });
+    // What the settings route stores (patchOrgSettings merges `enabled` into
+    // `calendarFeeds`, other keys kept). feed.server.test.ts writes it that way.
+    expect(calendarFeedsEnabled({ other: 1, calendarFeeds: { enabled: true } })).toBe(true);
+    expect(calendarFeedsEnabled({ other: 1, calendarFeeds: { enabled: false } })).toBe(false);
   });
 
   it("defaults each option on its own, so an old or odd row still reads", () => {

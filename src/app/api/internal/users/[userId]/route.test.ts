@@ -63,6 +63,8 @@ beforeEach(() => {
     originalEmail: "target@acme.com",
     sentinelEmail: `deleted-${TARGET_ID}@deleted.invalid`,
     sessionsRevoked: 1,
+    apiKeysRevoked: 0,
+    calendarFeedsRevoked: 0,
     membershipsRemoved: 1,
     federatedIdentitiesRemoved: 0,
     pushSubscriptionsRemoved: 0,
@@ -163,9 +165,12 @@ describe("happy path", () => {
     const res = await DELETE(del(TARGET_ID), params(TARGET_ID));
     expect(res.status).toBe(200);
 
+    // The admin is recorded on the keys and links the deletion ends.
     expect(deleteUserAccount).toHaveBeenCalledWith({
       userId: TARGET_ID,
       email: "target@acme.com",
+      actorUserId: ADMIN_ID,
+      ipAddress: undefined,
     });
     // Member of ORG_A (deduped) → exactly one audit row for that org.
     expect(logAudit).toHaveBeenCalledTimes(1);
