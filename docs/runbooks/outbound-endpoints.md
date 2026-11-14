@@ -1,12 +1,14 @@
 # Runbook: Outbound endpoints and private networks
 
-Cosmos calls URLs that someone other than the operator chose:
+Cosmos calls URLs that someone other than the operator chose, and the URLs an
+operator-chosen identity provider names in its discovery document:
 
 | Who chose it | What | May reach a private address? |
 |---|---|---|
 | Any project admin | Webhooks | Never |
 | Cosmo, from a chat | `fetch_url` | Never |
 | An org admin | OpenAI-compatible model endpoint, Jira site, MCP server URL | Only inside `OUTBOUND_ALLOW_PRIVATE_CIDRS` |
+| The operator, for an org | The org's SSO issuer, and every endpoint its discovery document names (token, userinfo, JWKS) | Only inside `OUTBOUND_ALLOW_PRIVATE_CIDRS` |
 
 Every one of these goes through `src/lib/security/outbound-post.server.ts`:
 
@@ -30,20 +32,26 @@ These are refused for every caller, whatever the operator configures:
   `instance-data`, `instance-data.ec2.internal`
 - any IPv4 address written as IPv6 (`::a.b.c.d`, `::ffff:a.b.c.d`, `::ffff:0:a.b.c.d`)
 
-## Allowing a self-hosted model or Jira on a private network
+## Allowing a self-hosted model, Jira or identity provider on a private network
 
 Set `OUTBOUND_ALLOW_PRIVATE_CIDRS` in the app's environment to the narrowest
-ranges that hold those services. With docker compose that is `.env`. The Helm
-chart has no value for it yet, so on Kubernetes add it to the `cosmos`
-container's `env` in `charts/cosmos/templates/app.yaml`.
+ranges that hold those services. With docker compose that is `.env`. With the
+Helm chart it is the `outbound.allowPrivateCidrs` value, which is empty by
+default.
+
+An SSO issuer whose host name resolves to a private address (an in-cluster
+Keycloak, an identity provider on an internal network) needs its range here too.
+Until it is listed, its sign-in fails at discovery and the server logs
+`[sso] discovery failed` with the refusal. Find the address from the app host or
+pod, and list it as a `/32` (or `/128`) when it is a single address.
 
 
 ```
 OUTBOUND_ALLOW_PRIVATE_CIDRS=10.20.30.0/24,fd12:3456:789a::/48
 ```
 
-- It applies only to endpoints an org admin configured. Webhooks and `fetch_url`
-  never use it.
+- It applies only to endpoints an org admin configured and to SSO issuers.
+  Webhooks and `fetch_url` never use it.
 - It is an instance setting, not an org setting: on a shared instance every org's
   admins can then point an endpoint into these ranges. List only what every
   tenant may reach.

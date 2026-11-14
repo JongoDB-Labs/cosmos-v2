@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.561.11",
+    date: "2026-11-14",
+    title: "Single sign-on checks where it connects, and the Microsoft setup note says only what's known",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Single sign-on now connects to an organization's identity provider under the same address rules as every other outside URL: never to link-local or cloud metadata addresses, and to a private address only inside the ranges the instance's operator lists in OUTBOUND_ALLOW_PRIVATE_CIDRS. That covers the discovery request and every later request to the provider. An operator whose identity provider is on a private network must list its range, or sign-in through it fails.",
+      },
+      {
+        kind: "improvement",
+        text: "The Helm chart can now set OUTBOUND_ALLOW_PRIVATE_CIDRS, through the outbound.allowPrivateCidrs value. It is empty by default, so existing installs render unchanged.",
+      },
+      {
+        kind: "fix",
+        text: "When MICROSOFT_TRUSTED_DOMAINS is unset, the note the server logs at start no longer tells you to add the xms_edov claim as if it were missing. The server can't see the app registration, so the note now says what linking rests on, and to act only if sign-ins are refused for it.",
+      },
+    ],
+  },
+  {
     version: "2.561.1",
     date: "2026-11-14",
     title: "Calendar feed links follow single sign-on and member removal, and show join links",
