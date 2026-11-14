@@ -51,10 +51,20 @@ export interface ExportDialogProps {
    * workbook is all money, so it is not offered; the server refuses it anyway.
    */
   moneyVisible?: boolean;
+  /**
+   * False when the viewer may not read contracts (CRM_READ). The vendor
+   * register is one row per contract, so it is not offered either; the server
+   * leaves it out anyway.
+   */
+  contractsVisible?: boolean;
 }
 
-export function ExportDialog({ orgId, projectId, open, onOpenChange, moneyVisible = true }: ExportDialogProps) {
-  const options = moneyVisible ? TRACKER_OPTIONS : TRACKER_OPTIONS.filter((t) => t.id !== "burn");
+export function ExportDialog({
+  orgId, projectId, open, onOpenChange, moneyVisible = true, contractsVisible = true,
+}: ExportDialogProps) {
+  const options = TRACKER_OPTIONS.filter(
+    (t) => (moneyVisible || t.id !== "burn") && (contractsVisible || t.id !== "vendors"),
+  );
   const optionIds = options.map((t) => t.id);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(optionIds));
   const [mode, setMode] = useState<ExportMode>("separate");
@@ -114,6 +124,7 @@ export function ExportDialog({ orgId, projectId, open, onOpenChange, moneyVisibl
             Choose which registers to export and the format. Live Cosmos data is
             written into your real tracker spreadsheets.
             {!moneyVisible && " Money columns read “Restricted” because you don't have Finance access to this project."}
+            {!contractsVisible && " The vendor register is left out because you don't have CRM access."}
           </DialogDescription>
         </DialogHeader>
 

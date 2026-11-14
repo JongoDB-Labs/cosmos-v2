@@ -1,7 +1,8 @@
 import type { Prisma } from "@prisma/client";
 import type { AuthContext } from "@/lib/rbac/check";
-import { Permission, hasPermission, maskFromDb, permissionNames } from "@/lib/rbac/permissions";
+import { Permission, hasPermission, maskFromDb, permissionNames, type PermissionKey } from "@/lib/rbac/permissions";
 import { ProblemError } from "@/lib/openapi/problem";
+import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { moneyGate, projectMoneyEach } from "@/lib/rbac/money-fields";
 import { redactRates } from "@/lib/time/visibility";
 import { logAudit } from "@/lib/audit";
@@ -11,8 +12,12 @@ import { logAudit } from "@/lib/audit";
  *
  * ORG_EXPORT says "may take data out of the product". It does not say which
  * data, and a work role can grant it to someone with no finance access. So the
- * export answers each record the way the screen for it would:
+ * export answers each entity, and each record, the way the screen for it would:
  *
+ *  - Each entity: the bit its own list asks for (`EXPORT_ENTITY_READ`), or it
+ *    is left out of the archive and its CSV is refused.
+ *  - Work items and sprints: from the projects their lists read them from.
+ *  - Meetings: the meeting list's rule (`readableMeetingsWhere`).
  *  - Notes: the exporter's own private notes, and shared ones. Never anyone
  *    else's private note -- the notes list refuses it, and so does this.
  *  - Time: every entry the export already carried, but a rate only on the
@@ -42,9 +47,60 @@ export function exportableNotesWhere(userId: string): Prisma.NoteWhereInput {
   };
 }
 
+/**
+ * The bit each entity's own list asks for, so the bit its export asks for. One
+ * table for both doors: the JSON archive leaves out an entity the exporter may
+ * not read, and the CSV for it is refused, as revenues and expenses always were
+ * without finance. Left out, never an empty list: that reads as "this org has
+ * none".
+ *
+ * ORG_EXPORT comes with ADMIN and up, who hold all of these. The table is for
+ * everyone else: a work role granting export to someone with less, or a work
+ * role restriction taking a module away from an admin. CRM data and meetings
+ * used to go to any exporter.
+ *
+ * Time entries ask TIME_READ for the module, but their rows stay org-wide, with
+ * rates redacted (`exportableTime`): that was decided when the export was scoped.
+ */
+export const EXPORT_ENTITY_READ = {
+  projects: "PROJECT_READ", // GET /projects
+  workItems: "ITEM_READ", // GET /work-items
+  intervals: "SPRINT_READ", // GET /projects/:id/intervals
+  crmContacts: "CRM_READ", // GET /crm/contacts
+  partners: "CRM_READ", // GET /partners
+  products: "CRM_READ", // GET /products
+  contracts: "CRM_READ", // GET /contracts
+  notes: "NOTE_READ", // GET /notes
+  meetings: "MEETING_READ", // GET /meetings
+  timeEntries: "TIME_READ", // GET /time-entries
+  revenues: "FINANCE_READ", // GET /finance/revenue
+  expenses: "FINANCE_READ", // GET /finance/expenses
+} as const satisfies Record<string, PermissionKey>;
+
+export type ExportEntity = keyof typeof EXPORT_ENTITY_READ;
+
+/** May this exporter take this entity out at all? Its list's bit (`EXPORT_ENTITY_READ`). */
+export function mayExportEntity(ctx: AuthContext, entity: ExportEntity): boolean {
+  return hasPermission(ctx.permissions, Permission[EXPORT_ENTITY_READ[entity]]);
+}
+
 /** Revenues and expenses: the same bit their own lists require. */
 export function mayExportFinance(ctx: AuthContext): boolean {
-  return hasPermission(ctx.permissions, Permission.FINANCE_READ);
+  return mayExportEntity(ctx, "revenues") && mayExportEntity(ctx, "expenses");
+}
+
+/**
+ * Work items and sprints come from the projects their lists read them from:
+ * the shared project-read rule asked about the entity's own action, so a key's
+ * project scope, a team-scoped project's team and a policy denying that action
+ * on a project all keep its rows out. Not visibility alone, which is all this
+ * used to ask.
+ */
+export async function exportableProjectRowsWhere(
+  ctx: AuthContext,
+  entity: "workItems" | "intervals",
+): Promise<{ projectId: { in: string[] } }> {
+  return { projectId: { in: await getReadableProjectIds(ctx, EXPORT_ENTITY_READ[entity]) } };
 }
 
 /** Time entries with rates the exporter may not see blanked, as the time screens do. */

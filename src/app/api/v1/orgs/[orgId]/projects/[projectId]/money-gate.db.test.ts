@@ -63,7 +63,10 @@ const CLIN_MONEY = ["value", "fundedValue", "laborCost", "expenseCost", "burned"
 const VENDOR_MONEY = ["value", "fundedValue", "invoicedValue", "remainingFunded", "pctBurnedFunded"];
 
 const base = { orgRole: "MEMBER" as const, abacRules: [], basePermissions: 0n };
-const READS = Permission.ORG_READ | Permission.PROJECT_READ | Permission.ANALYTICS_READ;
+// CRM_READ as a VIEWER has it: the vendor register's rows are contracts, which
+// the exports leave out without it (contract-gate.db.test.ts). Here only the
+// money is in question, so every reader may read the contracts themselves.
+const READS = Permission.ORG_READ | Permission.PROJECT_READ | Permission.ANALYTICS_READ | Permission.CRM_READ;
 const as = (who: string, permissions: bigint): AuthContext => ({ ...base, userId: users[who], orgId, permissions });
 
 /** A VIEWER's reads: ANALYTICS_READ and no finance bit. */

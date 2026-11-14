@@ -14,6 +14,13 @@ export function neutralizeFormula(text: string): string {
   return FORMULA_START.test(text) && !PLAIN_NUMBER.test(text) ? `'${text}` : text;
 }
 
+/**
+ * A Prisma Decimal (money, rates), told apart the way decimal.js itself does
+ * (`Decimal.isDecimal`) without importing it: this module is also bundled for
+ * the browser, and `@prisma/client` must not be.
+ */
+const isDecimal = (val: object): boolean => (val as { toStringTag?: unknown }).toStringTag === "[object Decimal]";
+
 // Minimal RFC-4180 CSV serializer. Every export goes through here, so the
 // formula guard lives here once rather than at each call site.
 export function toCSV(rows: Record<string, unknown>[]): string {
@@ -24,6 +31,8 @@ export function toCSV(rows: Record<string, unknown>[]): string {
     let s: string;
     if (val instanceof Date) s = val.toISOString();
     else if (typeof val === "bigint") s = val.toString();
+    // Before the object branch: JSON.stringify gives a Decimal its quotes.
+    else if (typeof val === "object" && isDecimal(val)) s = String(val);
     else if (typeof val === "object") s = JSON.stringify(val);
     else if (typeof val === "string") s = neutralizeFormula(val);
     else s = String(val);
