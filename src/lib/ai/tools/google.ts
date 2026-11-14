@@ -112,7 +112,8 @@ export const googleTools: ToolDefinition[] = [
   {
     name: "create_calendar_event",
     description:
-      "Create a Google Calendar event on the user's primary calendar. Automatically attaches a Google Meet link. Sends invites to attendees when provided.",
+      "Create a Google Calendar event on the user's primary calendar. Automatically attaches a Google Meet link. " +
+      "It is created with no one else on it and sends no invitations: to invite people, call share_calendar_event with its id next, which asks the user first.",
     input_schema: {
       type: "object",
       properties: {
@@ -132,11 +133,6 @@ export const googleTools: ToolDefinition[] = [
           type: "boolean",
           description: "True for all-day events",
         },
-        attendees: {
-          type: "array",
-          items: { type: "string" },
-          description: "List of attendee email addresses",
-        },
         timeZone: {
           type: "string",
           description: "IANA timezone (default America/New_York)",
@@ -148,7 +144,8 @@ export const googleTools: ToolDefinition[] = [
   {
     name: "update_calendar_event",
     description:
-      "Update an existing Google Calendar event. Only the fields you pass are changed.",
+      "Update an existing Google Calendar event. Only the fields you pass are changed. " +
+      "attendees can only take people off (pass the people to keep): to invite anyone new, use share_calendar_event, which asks the user first.",
     input_schema: {
       type: "object",
       properties: {
@@ -159,10 +156,25 @@ export const googleTools: ToolDefinition[] = [
         start: { type: "string" },
         end: { type: "string" },
         allDay: { type: "boolean" },
-        attendees: { type: "array", items: { type: "string" } },
+        attendees: { type: "array", items: { type: "string" }, description: "The attendees to keep; only to take people off" },
         timeZone: { type: "string" },
       },
       required: ["eventId"],
+    },
+  },
+  {
+    name: "share_calendar_event",
+    confirm: true,
+    description:
+      "Invite people to an existing Google Calendar event: adds them as attendees and emails them the invitation. " +
+      "Everyone already on it stays on it. Confirm with the user first.",
+    input_schema: {
+      type: "object",
+      properties: {
+        eventId: { type: "string", description: "Google Calendar event ID" },
+        attendees: { type: "array", items: { type: "string" }, description: "Email addresses to invite" },
+      },
+      required: ["eventId", "attendees"],
     },
   },
   {

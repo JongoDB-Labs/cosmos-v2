@@ -120,6 +120,13 @@ const AUTHORIZES_AFTER_PARSE = new Set([
   // `assertProjectManage` with the bulk route's ITEM_BULK_EDIT, runs per
   // project after parse. Behavioural cover: bulk.db.test.ts.
   "bulk_update_work_items",
+  // Intervals: the PUT route's own gate, requireProjectManage with SPRINT_UPDATE
+  // (the org-wide bit, or MANAGER of this project), through
+  // assertProjectManage. Asking for the bit first refused a project's manager
+  // the app admits. Behavioural cover: update-interval.db.test.ts drives a
+  // project manager without the bit, and a member who doesn't manage the
+  // project, through both the route and the tool.
+  "update_interval",
 ]);
 
 /**

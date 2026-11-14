@@ -18,34 +18,46 @@ export const noteTools: ToolDefinition[] = [
   {
     name: "create_note",
     description:
-      "Create a note. visibility=PRIVATE keeps it to the author; PROJECT or ORG share it. projectId is informational — the model passes it for context but it is not stored on the Note row in cosmos.",
+      "Create a note. It is always saved private to its author. To share it (PROJECT or ORG), call share_note next, which asks the user first. " +
+      "projectId is informational — the model passes it for context but it is not stored on the Note row in cosmos.",
     input_schema: {
       type: "object",
       properties: {
         title: { type: "string", description: "Note title" },
         content: { type: "string", description: "Note content (markdown allowed)" },
-        visibility: {
-          type: "string",
-          enum: ["PRIVATE", "PROJECT", "ORG"],
-          description: "Who can see this note (default PRIVATE)",
-        },
-        projectId: { type: "string", description: "Optional project context for PROJECT visibility" },
+        projectId: { type: "string", description: "Optional project context" },
       },
       required: ["title"],
     },
   },
   {
     name: "update_note",
-    description: "Update a note's fields. Only the author may update.",
+    description:
+      "Update a note's title or content, or make it visible to FEWER people (ORG to PROJECT or PRIVATE, PROJECT to PRIVATE). Only the author may update. " +
+      "To let more people see it, use share_note, which asks the user first.",
     input_schema: {
       type: "object",
       properties: {
         noteId: { type: "string" },
         title: { type: "string" },
         content: { type: "string" },
-        visibility: { type: "string", enum: ["PRIVATE", "PROJECT", "ORG"] },
+        visibility: { type: "string", enum: ["PRIVATE", "PROJECT", "ORG"], description: "Only to narrow who sees it" },
       },
       required: ["noteId"],
+    },
+  },
+  {
+    name: "share_note",
+    confirm: true,
+    description:
+      "Change who sees a note: PRIVATE (only its author), PROJECT or ORG (shared). Only its author can. Confirm with the user first.",
+    input_schema: {
+      type: "object",
+      properties: {
+        noteId: { type: "string", description: "The note's id (from list_notes)" },
+        visibility: { type: "string", enum: ["PRIVATE", "PROJECT", "ORG"], description: "Who sees it" },
+      },
+      required: ["noteId", "visibility"],
     },
   },
   {

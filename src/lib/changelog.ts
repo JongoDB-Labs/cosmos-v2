@@ -49,6 +49,45 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.560.5",
+    date: "2026-11-14",
+    title: "Cosmo follows the sprint and Program Increment rules, and asks before sharing",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Cosmo can now start a sprint inside a running Program Increment. It used to count the Program Increment as another active sprint and refuse.",
+      },
+      {
+        kind: "fix",
+        text: "Cosmo now follows the same Program Increment rules as the sprint pages. It won't start a Program Increment by hand, it won't complete one while a sprint inside it is unfinished, and starting a sprint inside a Program Increment starts the Program Increment too.",
+      },
+      {
+        kind: "fix",
+        text: "Cosmo now asks for your yes before it lets more people see a note. New notes it writes start private. Letting fewer people see a note needs no yes.",
+      },
+      {
+        kind: "fix",
+        text: "Cosmo now asks for your yes before it invites anyone to a Google Calendar event. New events it creates invite no one at first. Taking someone off an event needs no yes.",
+      },
+      {
+        kind: "fix",
+        text: "A Program Increment can no longer be completed while a sprint inside it is unfinished, whether from its Complete button or through Cosmo. The message names the sprints still open.",
+      },
+      {
+        kind: "fix",
+        text: "Starting a sprint while moving it into another Program Increment now starts the Program Increment it moves into. It used to start the one the sprint was leaving.",
+      },
+      {
+        kind: "fix",
+        text: "A project's manager can now change its sprints through Cosmo, as they already could in the app.",
+      },
+      {
+        kind: "fix",
+        text: "Access rules on notes now apply to Cosmo too. A person your admin has barred from editing a note can't edit it or share it through Cosmo either.",
+      },
+    ],
+  },
+  {
     version: "2.560.4",
     date: "2026-11-14",
     title: "Exports show only what you could read in the app",

@@ -17,7 +17,7 @@ import {
 } from "./executors/work-items";
 import { searchWorkItems, describeCql } from "./executors/cql";
 import { executePluginTool, pluginOwnerOf } from "./plugin-tools";
-import { listNotes, createNote, updateNote, deleteNote } from "./executors/notes";
+import { listNotes, createNote, updateNote, shareNote, deleteNote } from "./executors/notes";
 import { addComment, listComments, deleteComment } from "./executors/comments";
 import { logTime, listTimeEntries } from "./executors/time";
 import { logRevenue, logExpense, getFinanceSummary } from "./executors/finance";
@@ -407,6 +407,8 @@ async function dispatchTool(
       return createNote(input, ctx);
     case "update_note":
       return updateNote(input, ctx);
+    case "share_note":
+      return shareNote(input, ctx);
     case "delete_note":
       return deleteNote(input, ctx);
 
@@ -668,6 +670,7 @@ const ASSISTANT_AUDIT_ACTIONS: Record<string, { action: string; entity: string }
   delete_work_item: { action: "assistant.work_item.deleted", entity: "work_item" },
   create_note: { action: "assistant.note.created", entity: "note" },
   update_note: { action: "assistant.note.updated", entity: "note" },
+  share_note: { action: "assistant.note.shared", entity: "note" },
   delete_note: { action: "assistant.note.deleted", entity: "note" },
   add_comment: { action: "assistant.comment.added", entity: "comment" },
   delete_comment: { action: "assistant.comment.deleted", entity: "comment" },
@@ -739,6 +742,7 @@ const ASSISTANT_AUDIT_ACTIONS: Record<string, { action: string; entity: string }
   send_email: { action: "assistant.email.sent", entity: "email" },
   create_calendar_event: { action: "assistant.calendar_event.created", entity: "calendar_event" },
   update_calendar_event: { action: "assistant.calendar_event.updated", entity: "calendar_event" },
+  share_calendar_event: { action: "assistant.calendar_event.shared", entity: "calendar_event" },
   delete_calendar_event: { action: "assistant.calendar_event.deleted", entity: "calendar_event" },
   create_drive_folder: { action: "assistant.drive_folder.created", entity: "drive_folder" },
   jira_create_issue: { action: "assistant.jira_issue.created", entity: "jira_issue" },

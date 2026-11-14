@@ -84,7 +84,7 @@ export const projectTools: ToolDefinition[] = [
   {
     name: "update_interval",
     description:
-      "Update an interval's fields. To nest a sprint under a Program Increment, pass `parentId` (must be a PROGRAM_INCREMENT interval in the same project); pass null to detach. A Program Increment is always top-level and cannot be given a parent. Setting status to ACTIVE fails if another interval is already active.",
+      "Update an interval's fields. To nest a sprint under a Program Increment, pass `parentId` (must be a PROGRAM_INCREMENT interval in the same project); pass null to detach. A Program Increment is always top-level and cannot be given a parent. Setting status to ACTIVE fails while another sprint in the project is active, and starting a sprint also starts its Program Increment. A Program Increment is never started directly, and can be COMPLETED only once every interval inside it is.",
     input_schema: {
       type: "object",
       properties: {
@@ -106,7 +106,7 @@ export const projectTools: ToolDefinition[] = [
   {
     name: "complete_interval",
     description:
-      "Complete an ACTIVE interval. Computes a completion report (velocity, completed vs incomplete items/points). Incomplete items move to `moveIncompleteToIntervalId` when supplied, otherwise return to the backlog (interval cleared).",
+      "Complete an ACTIVE interval. Computes a completion report (velocity, completed vs incomplete items/points). Incomplete items move to `moveIncompleteToIntervalId` when supplied, otherwise return to the backlog (interval cleared). A Program Increment can be completed only once every interval inside it is.",
     input_schema: {
       type: "object",
       properties: {

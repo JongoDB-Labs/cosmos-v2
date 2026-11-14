@@ -316,7 +316,7 @@ const NATIVE_TOOL_ENTITY: Record<string, string> = {
   archive_work_item: "work_item",
   list_transitions: "work_item_transition", transition_item: "work_item",
   list_notes: "note",
-  create_note: "note", update_note: "note", delete_note: "note",
+  create_note: "note", update_note: "note", share_note: "note", delete_note: "note",
   add_comment: "comment", list_comments: "comment", delete_comment: "comment",
   log_time: "time_entry", list_time_entries: "time_entry",
   list_projects: "project",

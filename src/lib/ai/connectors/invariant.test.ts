@@ -64,6 +64,8 @@ const PRE_REFACTOR_GOOGLE_TOOL_NAMES = [
   "list_calendar_events",
   "create_calendar_event",
   "update_calendar_event",
+  // Added after the refactor: inviting people is its own confirm-class tool.
+  "share_calendar_event",
   "delete_calendar_event",
   "list_drive_files",
   "read_google_doc",
@@ -254,12 +256,12 @@ describe("INVARIANT LOCK — every connector tool declares read or write", () =>
     }
   });
 
-  it("the writes are exactly the tools that send, post, create, update or delete", async () => {
+  it("the writes are exactly the tools that send, post, create, update, share or delete", async () => {
     const { connectorToolAccess, connectorToolNames } = await import("./registry");
     const writes = [...connectorToolNames()].filter((n) => connectorToolAccess(n) === "write").sort();
     expect(writes).toEqual([
       "create_calendar_event", "create_drive_folder", "delete_calendar_event", "jira_create_issue",
-      "nango_proxy_request", "send_email", "slack_post_message", "update_calendar_event",
+      "nango_proxy_request", "send_email", "share_calendar_event", "slack_post_message", "update_calendar_event",
     ]);
     expect(connectorToolAccess("nango_proxy_request", { method: "GET" })).toBe("read");
     expect(connectorToolAccess("nango_proxy_request", {})).toBe("read"); // no method ⇒ GET, as the executor does

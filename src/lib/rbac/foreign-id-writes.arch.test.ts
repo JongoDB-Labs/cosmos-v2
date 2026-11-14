@@ -128,6 +128,8 @@ const VIA: Record<string, string> = {
   updateCeremonyAction: "src/lib/intervals/ceremony.server.ts",
   deleteCeremonyAction: "src/lib/intervals/ceremony.server.ts",
   promoteCeremonyAction: "src/lib/intervals/ceremony.server.ts",
+  // PUT /intervals/{id} and update_interval: the parentId lookup within the project.
+  writeIntervalChange: "src/lib/intervals/pi-lifecycle.server.ts",
   addTeamMember: "src/lib/projects/membership.server.ts",
   removeTeamMember: "src/lib/projects/membership.server.ts",
   createSavedView: "src/lib/query/saved-view-service.server.ts",

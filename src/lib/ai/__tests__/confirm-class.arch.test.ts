@@ -25,6 +25,8 @@ const EXPECTED = [
   "delete_work_item",
   "remove_project_member",
   "remove_team_member",
+  "share_calendar_event",
+  "share_note",
   "share_saved_view",
 ];
 
