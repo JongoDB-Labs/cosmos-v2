@@ -53,6 +53,9 @@ interface TeamRoleDialogProps {
   workRoleOptions: { id: string; name: string; isBuiltIn: boolean }[];
   /** Ids of `workRoleOptions` the actor may grant (subset-checked server-side). */
   grantableRoleIds: string[];
+  /** Ids the actor may take away from someone who holds them, which an org
+   *  restriction can make wider than `grantableRoleIds`. Defaults to that list. */
+  removableRoleIds?: string[];
   /** The viewer is an owner of the org: only they may make someone an owner. */
   viewerIsOwner: boolean;
   onClose: () => void;
@@ -90,14 +93,16 @@ async function readError(res: Response, fallback: string): Promise<string> {
  * the server component, and closes.
  *
  * The grant ceiling is advisory in the UI (the server enforces it): a role the
- * actor can't grant is disabled, and so is one the member already holds, since
- * the actor can't take it away either (the ceiling on current role).
+ * actor can't grant is disabled. One the member already holds is disabled when
+ * the actor can't take it away (the ceiling on current role), which under an
+ * org restriction may allow more than granting does.
  */
 export function TeamRoleDialog({
   orgId,
   member,
   workRoleOptions,
   grantableRoleIds,
+  removableRoleIds,
   viewerIsOwner,
   onClose,
 }: TeamRoleDialogProps) {
@@ -113,17 +118,22 @@ export function TeamRoleDialog({
   const [error, setError] = useState<string | null>(null);
 
   const grantable = useMemo(() => new Set(grantableRoleIds), [grantableRoleIds]);
+  const removable = useMemo(
+    () => new Set(removableRoleIds ?? grantableRoleIds),
+    [removableRoleIds, grantableRoleIds],
+  );
+  const held = useMemo(() => new Set(member.workRoleIds), [member.workRoleIds]);
 
   const options = useMemo(
     () =>
       workRoleOptions.map((wr) => ({
         value: wr.id,
         label: wr.isBuiltIn ? `${wr.name} · Built-in` : wr.name,
-        // Ungrantable → can't be added, and if held can't be taken away: the
-        // server refuses both, so lock it either way.
-        disabled: !grantable.has(wr.id),
+        // A held role is locked unless the actor may take it away; one not
+        // held, unless they may give it. The server checks the same two.
+        disabled: held.has(wr.id) ? !removable.has(wr.id) : !grantable.has(wr.id),
       })),
-    [workRoleOptions, grantable],
+    [workRoleOptions, grantable, removable, held],
   );
 
   const tierChanged = !isOwner && tier !== member.role;

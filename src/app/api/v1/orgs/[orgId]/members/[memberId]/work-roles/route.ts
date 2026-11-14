@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission, maskFromDb } from "@/lib/rbac/permissions";
-import { workRoleCeilingRefusal } from "@/lib/rbac/grant-ceiling";
+import { currentWorkRoleRefusal, workRoleCeilingRefusal } from "@/lib/rbac/grant-ceiling";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -84,15 +84,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // Taking a role away is checked the same way: only one the caller could
-    // have given.
+    // Taking a role away: only one the caller could have given, counted without
+    // the org's restrictions, as removing the member is (grant-ceiling.ts).
     if (removals.length > 0) {
       const roles = await prisma.workRole.findMany({
         where: { id: { in: removals } },
         select: { name: true, grants: true },
       });
       for (const role of roles) {
-        if (workRoleCeilingRefusal(ctx, maskFromDb(role.grants))) {
+        if (currentWorkRoleRefusal(ctx, maskFromDb(role.grants))) {
           return new Response(
             JSON.stringify({
               error: `You can't take away '${role.name}' — it exceeds your own permissions`,

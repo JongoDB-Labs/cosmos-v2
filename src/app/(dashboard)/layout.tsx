@@ -47,7 +47,9 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
   const user = await prisma.user.findUnique({
     where: { id: currentUser.id },
     include: {
+      // Removal keeps the row (removedAt); a nested read does not hide it.
       memberships: {
+        where: { removedAt: null },
         include: { org: true },
       },
     },

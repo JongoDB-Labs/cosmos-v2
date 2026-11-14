@@ -94,7 +94,7 @@ function mockFetch(overrides?: { rolesStatus?: number; rolesError?: string; tier
 
 type Member = { id: string; name: string; role: string; workRoleIds: string[] };
 
-function renderDialog(member: Member, viewerIsOwner = false) {
+function renderDialog(member: Member, viewerIsOwner = false, removableRoleIds?: string[]) {
   const onClose = vi.fn();
   render(
     <TeamRoleDialog
@@ -102,6 +102,7 @@ function renderDialog(member: Member, viewerIsOwner = false) {
       member={member}
       workRoleOptions={WORK_ROLE_OPTIONS}
       grantableRoleIds={GRANTABLE}
+      {...(removableRoleIds ? { removableRoleIds } : {})}
       viewerIsOwner={viewerIsOwner}
       onClose={onClose}
     />,
@@ -150,6 +151,35 @@ describe("TeamRoleDialog — unified tier + work-role assignment", () => {
     // Ungrantable AND not assigned → disabled.
     const root = screen.getByRole("option", { name: /Root Access/ });
     expect(root).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("lets a held role be taken away when the actor may take it away, though not give it (b2)", async () => {
+    // Under an org restriction an admin can't GIVE a role that grants the
+    // restricted action, but may take it away, as they may remove its holder.
+    mockFetch();
+    const user = userEvent.setup();
+    renderDialog(
+      { id: "m1", name: "Ada", role: "MEMBER", workRoleIds: ["wr-super"] },
+      false,
+      ["wr-analyst", "wr-lead", "wr-super", "wr-root"],
+    );
+
+    await user.click(screen.getByLabelText("Additional roles"));
+
+    // Held and removable → enabled, and still selected until unticked.
+    const superuser = await screen.findByRole("option", { name: /Superuser/ });
+    expect(superuser).not.toHaveAttribute("aria-disabled", "true");
+    expect(superuser).toHaveAttribute("aria-selected", "true");
+    // Removable but NOT held → still locked: adding it is a grant.
+    const root = screen.getByRole("option", { name: /Root Access/ });
+    expect(root).toHaveAttribute("aria-disabled", "true");
+
+    await user.click(superuser);
+    await user.click(screen.getByRole("button", { name: /save/i }));
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(puts()).toEqual([
+      expect.objectContaining({ url: expect.stringMatching(/\/members\/m1\/work-roles$/), body: { workRoleIds: [] } }),
+    ]);
   });
 
   it("shows an OWNER's tier as static text and never PUTs the tier on save (c)", async () => {
