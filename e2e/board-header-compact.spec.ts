@@ -14,16 +14,19 @@ import MAIN_HEIGHTS from "./board-header-compact.main.json";
  *
  * Height is checked two ways, both against main before this change:
  *
- *   - Within every load, a sweep from 360 to 1920px in 24px steps, in both
- *     modes: at no width taller than main. Main's heights are in
+ *   - Within every load, a sweep from 360 to 1920px in 24px steps, plus six
+ *     widths at the 640px edge, in both modes: at no width taller than main,
+ *     except where EXCEPTIONS names the board, mode and widths, and then by
+ *     no more than it allows. Main's heights are in
  *     `board-header-compact.main.json`, measured by this same sweep on main
  *     (`next dev`, the seeded gallery), once in Linux Chromium (CI's) and
  *     once on a Mac. The two set text a pixel or two apart, and that moves a
- *     wrap at some widths: main's heights differ between them at 114 of 1188
- *     points, and this layout in Linux came out taller than the Mac's main at
- *     5 of the 396 checked here (and than Linux's main at none). A review
- *     found the row a line taller than main on most boards between 768 and
- *     810px, where no fixed size here looked.
+ *     wrap at some widths: main's heights differ between them at about one
+ *     point in ten, and this layout in Linux came out taller than the Mac's
+ *     main at 5 of the 66-step sweep's 396 points. A review found the row a
+ *     line taller than main on most boards between 768 and 810px, where no
+ *     fixed size here looked; a later one found the 628-639px band in
+ *     EXCEPTIONS, between two 24px steps.
  *   - At each load's own size, a budget: main's height there, or this
  *     layout's own plus SLACK where that is less, so giving back what the
  *     change saved fails too (the scope on a line of its own at 1280: 126 ->
@@ -36,8 +39,8 @@ import MAIN_HEIGHTS from "./board-header-compact.main.json";
  * Runs against the seeded board gallery (`prisma/seed/test-fixtures.ts`). It
  * switches the query language on for the org (the bar measured here only
  * exists with it on) and off again afterwards, as `journey-board-cql.spec.ts`
- * does. Five page loads and 13 sweeps of about 4s each: about 75s in all
- * locally, on a Mac or in Linux Chromium.
+ * does. Five page loads and 13 sweeps of 72 widths: 80-90s in all locally,
+ * on a Mac or in Linux Chromium.
  */
 const ORG = process.env.E2E_ORG_SLUG ?? "test-org";
 const GALLERY = process.env.E2E_GALLERY_PROJECT_KEY ?? "GALLERY";
@@ -105,7 +108,6 @@ async function openBoard(page: Page, slug: keyof typeof READY, size: { width: nu
   // A fresh load at each size, not a resize of a loaded page: in headless
   // Chromium, after setViewportSize elementFromPoint answered <html> for every
   // point on the page (measured), which made every control read as covered.
-  // And a phone's CQL box is chosen at load, from the screen width.
   await page.setViewportSize(size);
   await page.goto(`/${ORG}/projects/${GALLERY}/boards/${slug}`, { waitUntil: "domcontentloaded" });
   await expect(page.getByRole("group", { name: "How to filter" })).toBeVisible({ timeout: 30_000 });
@@ -240,8 +242,34 @@ async function mainHere(page: Page): Promise<Main> {
   return MAIN[mac ? "darwin" : "linux"];
 }
 
-/** The sweep: 360-1920px in 24px steps, the widths main was measured at. */
-const WIDTHS = Array.from({ length: 66 }, (_, i) => 360 + 24 * i);
+/**
+ * Either side of 640px, where a CQL box goes from beside its buttons to a line
+ * of its own (`NARROW` in query-builder.tsx). The 24px steps pass from 624 to
+ * 648 and never saw what EXCEPTIONS allows.
+ */
+const EDGE = [627, 628, 633, 639, 640, 641];
+
+/** The sweep: 360-1920px in 24px steps, and the edge. Main was measured at each. */
+const WIDTHS = [...Array.from({ length: 66 }, (_, i) => 360 + 24 * i), ...EDGE].sort((a, b) => a - b);
+
+/**
+ * The one place this layout may be taller than main, and by how much.
+ *
+ * Under 640px a CQL box takes a line of its own, with Run query and the rest on
+ * the line under it. Main keeps the box beside the buttons, squeezed to about
+ * 157px with its placeholder wrapped over three lines, for as long as the
+ * buttons fit beside it. Just under 640px they still do, and there this header
+ * is 20px taller than main's: on Timeline and Dashboard, at 628-639px in Linux
+ * Chromium and 637-639px on a Mac. Accepted in review: the full-width box is
+ * the better layout. Of the boards swept here, only Timeline is in it.
+ */
+const EXCEPTIONS: readonly { name: string; boards: readonly string[]; mode: Mode; from: number; to: number; maxDelta: number }[] = [
+  { name: "CQL box on a line of its own under 640px", boards: ["timeline", "dashboard"], mode: "CQL", from: 628, to: 639, maxDelta: 20 },
+];
+
+/** How much taller than main a board may be in a mode at a width: 0 outside EXCEPTIONS. */
+const allowance = (board: Board, mode: Mode, width: number) =>
+  EXCEPTIONS.find((e) => e.boards.includes(board) && e.mode === mode && width >= e.from && width <= e.to)?.maxDelta ?? 0;
 
 /**
  * The header's height at every width of the sweep. It resizes the page, so it
@@ -256,22 +284,22 @@ async function sweep(page: Page): Promise<Heights> {
   return out;
 }
 
-/** The widths where `got` is taller than `than`, as "768px: 113 > 81". */
-const tallerThan = (got: Heights, than: Heights) =>
-  WIDTHS.filter((w) => !(got[w] <= than[w] + ROUNDING)).map((w) => `${w}px: ${got[w]} > ${than[w]}`);
+/** The widths where `got` is taller than `than` by more than its allowance, as "768px: 113 > 81". */
+const tallerThan = (got: Heights, than: Heights, board: Board, mode: Mode) =>
+  WIDTHS.filter((w) => !(got[w] <= than[w] + allowance(board, mode, w) + ROUNDING)).map((w) => `${w}px: ${got[w]} > ${than[w]}`);
 
 /** The widths where `got` differs from `was`, as "768px: 81 -> 113". */
 const changedFrom = (got: Heights, was: Heights) =>
   WIDTHS.filter((w) => !(Math.abs(got[w] - was[w]) <= ROUNDING)).map((w) => `${w}px: ${was[w]} -> ${got[w]}`);
 
-/** Sweep in the mode shown, then in the other: at no width taller than main. */
+/** Sweep in the mode shown, then in the other: at no width taller than main, but as EXCEPTIONS allows. */
 async function expectWithinMain(page: Page, slug: Board, at: string, first: Mode) {
   const main = (await mainHere(page))[slug];
   const got: Partial<Record<Mode, Heights>> = {};
   for (const mode of [first, first === "Filters" ? "CQL" : "Filters"] as const) {
     await useMode(page, mode);
     got[mode] = await sweep(page);
-    expect(tallerThan(got[mode], main[mode]), `${at} ${mode}: taller than main at`).toEqual([]);
+    expect(tallerThan(got[mode], main[mode], slug, mode), `${at} ${mode}: taller than main at`).toEqual([]);
   }
   return got as Record<Mode, Heights>;
 }

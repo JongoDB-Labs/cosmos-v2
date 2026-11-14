@@ -55,7 +55,7 @@ const RELEASES: Release[] = [
     highlights: [
       {
         kind: "improvement",
-        text: "The board header takes less room. With the query language on, a board's scope, Swimlanes, Select and New work item now sit in the filter bar's own row instead of a row underneath it. On a sprint board, the sprint's name, status, dates and progress continue the row of sprint pills. In CQL mode, Kanban and Table boards start a row higher, and a sprint board at 1280px up to two rows higher. On a phone in CQL mode the header is about half as tall. No board's header is taller than before at any screen width, and nothing was removed.",
+        text: "The board header takes less room. With the query language on, a board's scope, Swimlanes, Select and New work item now sit in the filter bar's own row instead of a row underneath it. On a sprint board, the sprint's name, status, dates and progress continue the row of sprint pills. In CQL mode, Kanban and Table boards start a row higher, and a sprint board at 1280px up to two rows higher. On a phone in CQL mode the header is about half as tall. Nothing was removed. The header is never taller than before, except in CQL mode on Timeline and Dashboard boards between 628 and 639px wide: there it is up to 20px taller, because the query box now gets a full line of its own instead of being squeezed beside its buttons.",
       },
       {
         kind: "improvement",
