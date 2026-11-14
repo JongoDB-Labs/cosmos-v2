@@ -23,6 +23,51 @@ vi.mock("../policy", () => ({
   getAgentPolicy: vi.fn().mockResolvedValue({ allowedTools: null, deniedTools: [], deniedDomains: [], maxResultLimit: null, allowedProjectIds: null }),
 }));
 
+// The user's Google Calendar, in memory: the calendar tools run for real
+// against it, and every WRITE is recorded with whether it emailed anyone.
+type CalEvent = { id: string; summary?: string; attendees?: { email: string; responseStatus?: string }[] } & Record<string, unknown>;
+type CalWrite = { op: "insert" | "update" | "patch"; eventId: string; sendUpdates?: string; requestBody: Partial<CalEvent> };
+const calendar = vi.hoisted(() => {
+  const events = new Map<string, CalEvent>();
+  const writes: CalWrite[] = [];
+  let n = 0;
+  const found = (eventId: string) => {
+    const e = events.get(eventId);
+    if (!e) throw new Error("Not Found");
+    return e;
+  };
+  type Req = { eventId: string; requestBody: Partial<CalEvent>; sendUpdates?: string };
+  const api = {
+    events: {
+      get: async ({ eventId }: { eventId: string }) => ({ data: structuredClone(found(eventId)) }),
+      insert: async ({ requestBody, sendUpdates }: Omit<Req, "eventId">) => {
+        const data = { ...structuredClone(requestBody), id: `ev-${++n}` } as CalEvent;
+        events.set(data.id, data);
+        writes.push({ op: "insert", eventId: data.id, sendUpdates, requestBody });
+        return { data };
+      },
+      update: async ({ eventId, requestBody, sendUpdates }: Req) => {
+        found(eventId);
+        const data = { ...structuredClone(requestBody), id: eventId } as CalEvent;
+        events.set(eventId, data);
+        writes.push({ op: "update", eventId, sendUpdates, requestBody });
+        return { data };
+      },
+      patch: async ({ eventId, requestBody, sendUpdates }: Req) => {
+        const data = { ...found(eventId), ...structuredClone(requestBody), id: eventId } as CalEvent;
+        events.set(eventId, data);
+        writes.push({ op: "patch", eventId, sendUpdates, requestBody });
+        return { data };
+      },
+    },
+  };
+  return { events, writes, api };
+});
+vi.mock("@/lib/integrations/google", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getCalendarClient: async () => calendar.api,
+}));
+
 import { prisma } from "@/lib/db/client";
 import { memberToolCtx } from "@/lib/testing/tool-auth";
 import { withCqlEnabled } from "@/lib/query/flag";
@@ -378,6 +423,142 @@ describe("a change of access needs the user's yes", () => {
     for (const n of ["add_project_member", "add_team_member", "share_saved_view"]) expect(offered).not.toContain(n);
     // Positive control: reading people still is.
     expect(offered).toContain("list_project_members");
+  });
+});
+
+describe("letting more people see something needs the user's yes", () => {
+  // Same preview / yes / replay steps as a change of access.
+  async function previewYesReplay(call: (token?: string) => ToolUse, written: () => Promise<boolean>) {
+    const conv = await conversation();
+    const first = await run(conv, [[call()]]);
+    expect(first.results[0].status).toBe("confirmation_required");
+    expect(first.results[0].confirmationToken).toMatch(/^cf1\./);
+    expect(await written()).toBe(false);
+
+    await say(conv, "yes");
+    const token = first.results[0].confirmationToken!;
+    const second = await run(conv, [[call(token)]]);
+    expect(second.results[0].error).toBeUndefined();
+    expect(await written()).toBe(true);
+
+    await say(conv, "and again");
+    const third = await run(conv, [[call(token)]]);
+    expect(third.results[0].error).toMatch(/already been used/i);
+  }
+
+  const note = async (visibility: "PRIVATE" | "PROJECT" | "ORG") =>
+    (await prisma.note.create({ data: { orgId, authorId: ownerId, title: `Note ${stamp}`, content: "body", visibility } })).id;
+  const noteRow = (id: string) => prisma.note.findUniqueOrThrow({ where: { id }, select: { visibility: true, title: true } });
+  const shareNote = (noteId: string, visibility: string) => (token?: string): ToolUse => ({
+    name: "share_note",
+    input: { noteId, visibility, ...(token ? { confirmationToken: token } : {}) },
+  });
+
+  it("share_note: the same steps", async () => {
+    const id = await note("PRIVATE");
+    await previewYesReplay(shareNote(id, "ORG"), async () => (await noteRow(id)).visibility === "ORG");
+  });
+
+  it("create_note saves private when asked to share, and sharing it still waits for a yes", async () => {
+    const conv = await conversation();
+    const made = await run(conv, [[{ name: "create_note", input: { title: `Asked ${stamp}`, content: "c", visibility: "ORG" } }]]);
+    // Not confirm-class, so it ran: the note is saved, private.
+    expect(made.results[0]).toMatchObject({ created: true, visibility: "PRIVATE", requestedVisibility: "ORG", nextStep: "share_note" });
+    const id = made.results[0].id as string;
+    expect((await noteRow(id)).visibility).toBe("PRIVATE");
+    await previewYesReplay(shareNote(id, "ORG"), async () => (await noteRow(id)).visibility === "ORG");
+  });
+
+  it("update_note narrows at once, and does not widen", async () => {
+    const id = await note("ORG");
+    const conv = await conversation();
+    // Narrowing: not confirm-class, so it runs with no preview.
+    const narrowed = await run(conv, [[{ name: "update_note", input: { noteId: id, visibility: "PRIVATE" } }]]);
+    expect(narrowed.results[0]).toMatchObject({ updated: true, visibility: "PRIVATE" });
+    expect((await noteRow(id)).visibility).toBe("PRIVATE");
+    // Unchanged visibility beside another edit: also at once.
+    const kept = await run(conv, [[{ name: "update_note", input: { noteId: id, title: "Renamed", visibility: "PRIVATE" } }]]);
+    expect(kept.results[0]).toMatchObject({ updated: true, title: "Renamed", visibility: "PRIVATE" });
+    // Widening: refused whole, pointing at share_note. The title beside it doesn't change either.
+    const widened = await run(conv, [[{ name: "update_note", input: { noteId: id, title: "Shared", visibility: "PROJECT" } }]]);
+    expect(widened.results[0]).toMatchObject({ nextStep: "share_note", requestedVisibility: "PROJECT" });
+    expect(widened.results[0].error).toMatch(/share_note/);
+    expect(await noteRow(id)).toEqual({ visibility: "PRIVATE", title: "Renamed" });
+  });
+
+  const event = (attendees: string[]) => {
+    const id = `seeded-${calendar.events.size + 1}`;
+    calendar.events.set(id, { id, summary: "Planning", attendees: attendees.map((email) => ({ email, responseStatus: "accepted" })) });
+    return id;
+  };
+  const attendeesOf = (id: string) => (calendar.events.get(id)?.attendees ?? []).map((a) => a.email).sort();
+  const shareEvent = (eventId: string, attendees: string[]) => (token?: string): ToolUse => ({
+    name: "share_calendar_event",
+    input: { eventId, attendees, ...(token ? { confirmationToken: token } : {}) },
+  });
+
+  it("share_calendar_event: the same steps, and the invitation goes out only on the yes", async () => {
+    const id = event(["ann@example.com"]);
+    calendar.writes.length = 0;
+    await previewYesReplay(shareEvent(id, ["bea@example.com"]), async () => attendeesOf(id).includes("bea@example.com"));
+    // ONE write, the confirmed one, and it emailed the invitation.
+    expect(calendar.writes).toEqual([expect.objectContaining({ op: "patch", eventId: id, sendUpdates: "all" })]);
+    // Who was already invited stays invited, with their answer.
+    expect(calendar.events.get(id)?.attendees).toEqual([
+      { email: "ann@example.com", responseStatus: "accepted" },
+      { email: "bea@example.com" },
+    ]);
+  });
+
+  it("create_calendar_event invites no one, and inviting them waits for a yes", async () => {
+    calendar.writes.length = 0;
+    const conv = await conversation();
+    const made = await run(conv, [[{
+      name: "create_calendar_event",
+      input: { summary: "Sync", start: "2026-12-01T10:00", end: "2026-12-01T10:30", attendees: ["cat@example.com"] },
+    }]]);
+    // Not confirm-class, so it ran: the event exists, with nobody on it and no email sent.
+    expect(made.results[0]).toMatchObject({ success: true, nextStep: "share_calendar_event" });
+    expect(calendar.writes).toHaveLength(1);
+    expect(calendar.writes[0]).toMatchObject({ op: "insert", sendUpdates: "none" });
+    expect(calendar.writes[0].requestBody.attendees).toBeUndefined();
+    const id = made.results[0].id as string;
+    expect(attendeesOf(id)).toEqual([]);
+    await previewYesReplay(shareEvent(id, ["cat@example.com"]), async () => attendeesOf(id).includes("cat@example.com"));
+  });
+
+  it("update_calendar_event takes someone off at once, and does not add anyone", async () => {
+    const id = event(["ann@example.com", "bea@example.com"]);
+    const conv = await conversation();
+    calendar.writes.length = 0;
+    const dropped = await run(conv, [[{ name: "update_calendar_event", input: { eventId: id, attendees: ["ann@example.com"] } }]]);
+    expect(dropped.results[0]).toMatchObject({ success: true });
+    expect(calendar.writes).toEqual([expect.objectContaining({ op: "update", eventId: id })]);
+    expect(attendeesOf(id)).toEqual(["ann@example.com"]);
+
+    // Adding someone, even beside a drop and a rename, is refused whole: nothing is written.
+    calendar.writes.length = 0;
+    const added = await run(conv, [[{
+      name: "update_calendar_event",
+      input: { eventId: id, summary: "Moved", attendees: ["ANN@example.com", "dan@example.com"] },
+    }]]);
+    expect(added.results[0]).toMatchObject({ nextStep: "share_calendar_event" });
+    expect(added.results[0].error).toMatch(/share_calendar_event/);
+    expect(calendar.writes).toEqual([]);
+    expect(attendeesOf(id)).toEqual(["ann@example.com"]);
+    expect(calendar.events.get(id)?.summary).toBe("Planning");
+
+    // Control: the same person in another case is no one new, so this is direct.
+    const recased = await run(conv, [[{ name: "update_calendar_event", input: { eventId: id, summary: "Moved", attendees: ["ANN@example.com"] } }]]);
+    expect(recased.results[0]).toMatchObject({ success: true });
+    expect(calendar.events.get(id)?.summary).toBe("Moved");
+  });
+
+  it("the sharing tools are not offered where the user can't be asked", async () => {
+    const { offered } = await run("00000000-0000-4000-8000-000000000000", [[]]);
+    for (const n of ["share_note", "share_calendar_event"]) expect(offered).not.toContain(n);
+    // Positive control: the direct tools still are.
+    for (const n of ["create_note", "update_note", "create_calendar_event", "update_calendar_event"]) expect(offered).toContain(n);
   });
 });
 

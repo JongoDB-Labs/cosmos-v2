@@ -275,6 +275,26 @@ function buildEventBody(args: ToolArgs): calendar_v3.Schema$Event {
   return event;
 }
 
+/**
+ * Adding someone to an event shows them its title, time, description and Meet
+ * link, and emails them the invitation. Cosmo does that only through
+ * `share_calendar_event`, which is confirm-class: the agent loop shows the user
+ * a preview and waits for their yes (confirmation.ts). Anything the assistant
+ * reads (an email, a doc, a ticket) can instruct the model, so a message that
+ * says "invite this address to my 1:1s" must not be able to on the model's
+ * word. So `create_calendar_event` invites no one and `update_calendar_event`
+ * may only take people off; both stay direct.
+ */
+function attendeeEmails(list: unknown): string[] {
+  return Array.isArray(list) ? list.map((e) => String(e).trim()).filter(Boolean) : [];
+}
+
+/** The people in `wanted` not already on `event` (case-insensitive: one mailbox). */
+function newAttendees(event: calendar_v3.Schema$Event, wanted: string[]): string[] {
+  const on = new Set((event.attendees ?? []).map((a) => (a.email ?? "").toLowerCase()));
+  return wanted.filter((e) => !on.has(e.toLowerCase()));
+}
+
 export async function listCalendarEvents(
   args: ToolArgs,
   ctx: GoogleToolContext,
@@ -325,7 +345,10 @@ export async function createCalendarEvent(
       return { error: "summary, start, and end are required" };
     }
     const cal = await getCalendarClient(ctx.userId, ctx.orgId);
-    const event = buildEventBody(args);
+    // Nobody else on it and no invitations: that is share_calendar_event (see
+    // attendeeEmails). Attendees the model sends anyway are read only to say so.
+    const { attendees: asked, ...fields } = args;
+    const event = buildEventBody(fields);
     // Auto-create a Google Meet link; if Meet provisioning fails, retry without.
     event.conferenceData = {
       createRequest: {
@@ -334,22 +357,20 @@ export async function createCalendarEvent(
       },
     };
 
-    const hasAttendees =
-      Array.isArray(args.attendees) && args.attendees.length > 0;
     let response;
     try {
       response = await cal.events.insert({
         calendarId: "primary",
         requestBody: event,
         conferenceDataVersion: 1,
-        sendUpdates: hasAttendees ? "all" : "none",
+        sendUpdates: "none",
       });
     } catch {
       delete event.conferenceData;
       response = await cal.events.insert({
         calendarId: "primary",
         requestBody: event,
-        sendUpdates: hasAttendees ? "all" : "none",
+        sendUpdates: "none",
       });
     }
 
@@ -368,6 +389,10 @@ export async function createCalendarEvent(
       message: `Created calendar event "${String(args.summary)}"${
         meetLink ? ` — Meet: ${meetLink}` : ""
       }`,
+      ...(attendeeEmails(asked).length > 0 && {
+        nextStep: "share_calendar_event",
+        note: "Created with no attendees and no invitations sent. Inviting people is a separate step the user confirms: call share_calendar_event with this id.",
+      }),
     };
   });
 }
@@ -387,6 +412,15 @@ export async function updateCalendarEvent(
       calendarId: "primary",
       eventId,
     });
+    // Taking people off is direct; adding anyone is share_calendar_event.
+    // Refused whole, so a change asked for beside it doesn't half-happen.
+    if (newAttendees(existing.data, attendeeEmails(args.attendees)).length > 0) {
+      return {
+        error:
+          "Inviting someone to an event needs the user's yes: call share_calendar_event with this eventId and the people to add. Nothing was changed.",
+        nextStep: "share_calendar_event",
+      };
+    }
     const merged: calendar_v3.Schema$Event = {
       ...existing.data,
       ...buildEventBody(args),
@@ -406,6 +440,43 @@ export async function updateCalendarEvent(
       id: response.data.id,
       htmlLink: response.data.htmlLink,
       message: `Updated calendar event "${response.data.summary ?? eventId}"`,
+    };
+  });
+}
+
+/**
+ * Invite people to an event — the one way Cosmo adds an attendee.
+ * Confirm-class (see attendeeEmails): the agent loop runs it only after the
+ * user has answered a preview. Everyone already invited stays, answer and all.
+ */
+export async function shareCalendarEvent(
+  args: ToolArgs,
+  ctx: GoogleToolContext,
+) {
+  return safeRun(async () => {
+    const eventId = String(args.eventId ?? "");
+    if (!eventId) return { error: "eventId is required" };
+    const wanted = attendeeEmails(args.attendees);
+    if (wanted.length === 0) return { error: "attendees is required: the email addresses to invite" };
+
+    const cal = await getCalendarClient(ctx.userId, ctx.orgId);
+    const existing = await cal.events.get({ calendarId: "primary", eventId });
+    const added = [...new Set(newAttendees(existing.data, wanted))];
+    if (added.length === 0) {
+      return { success: true, id: eventId, invited: 0, message: "Everyone listed is already on this event" };
+    }
+    const response = await cal.events.patch({
+      calendarId: "primary",
+      eventId,
+      requestBody: { attendees: [...(existing.data.attendees ?? []), ...added.map((email) => ({ email }))] },
+      sendUpdates: "all",
+    });
+    return {
+      success: true,
+      id: response.data.id,
+      htmlLink: response.data.htmlLink,
+      invited: added.length,
+      message: `Invited ${added.length} ${added.length === 1 ? "person" : "people"} to "${response.data.summary ?? eventId}"`,
     };
   });
 }
@@ -630,6 +701,8 @@ export async function executeGoogleTool(
       return createCalendarEvent(args, ctx);
     case "update_calendar_event":
       return updateCalendarEvent(args, ctx);
+    case "share_calendar_event":
+      return shareCalendarEvent(args, ctx);
     case "delete_calendar_event":
       return deleteCalendarEvent(args, ctx);
     case "list_drive_files":
@@ -656,6 +729,7 @@ export const GOOGLE_TOOL_NAMES: ReadonlySet<string> = new Set([
   "list_calendar_events",
   "create_calendar_event",
   "update_calendar_event",
+  "share_calendar_event",
   "delete_calendar_event",
   "list_drive_files",
   "read_google_doc",

@@ -22,7 +22,7 @@ import { stubAuth } from "@/lib/testing/tool-auth";
 
 const PERMISSIVE = { allowedTools: null, deniedTools: [], deniedDomains: [], maxResultLimit: null, allowedProjectIds: null };
 const CONNECTOR_WRITES = [
-  "send_email", "create_calendar_event", "update_calendar_event", "delete_calendar_event", "create_drive_folder",
+  "send_email", "create_calendar_event", "update_calendar_event", "share_calendar_event", "delete_calendar_event", "create_drive_folder",
   "jira_create_issue", "slack_post_message", "nango_proxy_request",
 ];
 

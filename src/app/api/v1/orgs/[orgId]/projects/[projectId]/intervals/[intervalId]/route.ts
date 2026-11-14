@@ -9,13 +9,7 @@ import { noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { channelPolicy } from "@/lib/integrations/channel-policy.server";
-import {
-  activationBlocker,
-  isProgramIncrement,
-  nestingRefusal,
-  programIncrementBlockers,
-  userMaySetStatus,
-} from "@/lib/intervals/pi-lifecycle";
+import { writeIntervalChange } from "@/lib/intervals/pi-lifecycle.server";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
@@ -66,85 +60,23 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.interval.findFirst({ where: { id: intervalId, projectId, orgId } });
     if (!existing) return problem(404, "not_found", undefined, { request });
 
-    // Validate a PI re-parent: target must be a PROGRAM_INCREMENT in this
-    // project, an interval can't be its own parent, and the interval being
-    // moved must not be a PI itself (a PI is always top-level).
-    if (data.parentId !== undefined && data.parentId !== null) {
-      if (data.parentId === intervalId) {
-        return problem(400, "invalid_request", "An interval can't be its own Program Increment", { request });
-      }
-      const parent = await prisma.interval.findFirst({
-        where: { id: data.parentId, projectId },
-        select: { intervalKind: true },
-      });
-      const refusal = nestingRefusal(existing.intervalKind, parent);
-      if (refusal) return problem(400, "invalid_request", refusal, { request });
-    }
-
-    // A Program Increment is a container: it spans its sprints rather than
-    // competing with them, so it is never started by hand.
-    if (
-      data.status !== undefined &&
-      !userMaySetStatus(existing.intervalKind, data.status)
-    ) {
-      return problem(409, "conflict", "A Program Increment starts when its first sprint starts — it is not started directly.", { request });
-    }
-
-    if (data.status === "ACTIVE") {
-      const others = await prisma.interval.findMany({
-        where: { projectId },
-        select: { id: true, name: true, intervalKind: true, status: true },
-      });
-      // Excludes Program Increments. Counting the parent PI as a competitor is
-      // what made a sprint unable to start until its own PI had finished — which
-      // could never happen, since a PI finishes when its sprints do.
-      const blocker = activationBlocker({ id: intervalId }, others);
-      if (blocker) {
-        return problem(409, "conflict", `${blocker.name} is still active — complete it first.`, { request });
-      }
-    }
-
-    // A PI is done only once everything inside it is. Named, so the refusal
-    // tells the user what to finish.
-    if (data.status === "COMPLETED" && isProgramIncrement(existing.intervalKind)) {
-      const children = await prisma.interval.findMany({
-        where: { parentId: intervalId },
-        select: { id: true, name: true, intervalKind: true, status: true },
-      });
-      const open = programIncrementBlockers(children);
-      if (open.length > 0) {
-        return problem(409, "conflict", `This Program Increment still has unfinished iterations: ${open
-              .map((i) => i.name)
-              .join(", ")}.`, { request });
-      }
-    }
-
-    const updated = await prisma.interval.update({
-      where: { id: intervalId },
-      data: {
-        ...(data.name !== undefined && { name: data.name }),
-        ...(data.goal !== undefined && { goal: data.goal ?? "" }),
-        ...(data.startDate !== undefined && data.startDate !== null && { startDate: new Date(data.startDate) }),
-        ...(data.endDate !== undefined && data.endDate !== null && { endDate: new Date(data.endDate) }),
-        ...(data.status !== undefined && { status: data.status }),
-        ...(data.parentId !== undefined && { parentId: data.parentId }),
-      },
-      include: { _count: { select: { workItems: true } } },
-    });
-
-    // Starting a sprint starts the increment that contains it. The PI has no
-    // start control of its own, so without this it would sit PLANNED while its
-    // sprints ran — and its own completion gate would read as already satisfied.
-    if (data.status === "ACTIVE" && existing.parentId) {
-      await prisma.interval.updateMany({
-        where: {
-          id: existing.parentId,
-          intervalKind: "PROGRAM_INCREMENT",
-          status: "PLANNED",
+    // The Program Increment rules (nesting, a PI is never started by hand, one
+    // running sprint, a PI completes after its sprints) and the PI a started
+    // sprint starts: one function, which Cosmo's update_interval calls too.
+    const updated = await writeIntervalChange(existing, data, () =>
+      prisma.interval.update({
+        where: { id: intervalId },
+        data: {
+          ...(data.name !== undefined && { name: data.name }),
+          ...(data.goal !== undefined && { goal: data.goal ?? "" }),
+          ...(data.startDate !== undefined && data.startDate !== null && { startDate: new Date(data.startDate) }),
+          ...(data.endDate !== undefined && data.endDate !== null && { endDate: new Date(data.endDate) }),
+          ...(data.status !== undefined && { status: data.status }),
+          ...(data.parentId !== undefined && { parentId: data.parentId }),
         },
-        data: { status: "ACTIVE" },
-      });
-    }
+        include: { _count: { select: { workItems: true } } },
+      }),
+    );
 
     // Teams notification (FR 8a162fe7): sprint lifecycle transitions.
     // The channel is read org-wide: nothing from a team-scoped or marked

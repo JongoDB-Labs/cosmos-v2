@@ -4,13 +4,13 @@ import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { IntervalKind, SprintStatus, type Prisma } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, loadAuthContext, serviceRefusal, type ToolContext } from "./_ctx";
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 import { DEFAULT_COLUMNS } from "@/lib/boards/default-columns";
 import { loadStatusCategories } from "@/lib/boards/status-categories.server";
 import { seedBoardColumns } from "@/lib/workflow/provision.server";
 import { buildIntervalReport } from "@/lib/intervals/interval-report";
-import { nestingRefusal } from "@/lib/intervals/pi-lifecycle";
+import { writeIntervalChange } from "@/lib/intervals/pi-lifecycle.server";
 import { isDoneStatus } from "@/lib/work-items/done-state";
 import { updateWorkItems } from "@/lib/work-items/write.server";
 
@@ -335,7 +335,7 @@ export async function updateInterval(input: Record<string, unknown>, ctx: ToolCo
 
   const existing = await prisma.interval.findFirst({
     where: { id: data.intervalId, orgId: ctx.orgId, projectId: data.projectId },
-    select: { id: true, projectId: true, intervalKind: true },
+    select: { id: true, projectId: true, intervalKind: true, parentId: true },
   });
   if (!existing) return { error: "Interval not found" };
 
@@ -345,42 +345,30 @@ export async function updateInterval(input: Record<string, unknown>, ctx: ToolCo
   const outOfScope = await assertProjectRead(ctx, existing.projectId, "SPRINT_UPDATE");
   if (outOfScope) return { error: "Interval not found" };
 
-  // Re-parent validation: target must be a PROGRAM_INCREMENT in this project,
-  // an interval can't be its own parent, and a PI is always top-level
-  // (mirrors the PUT route).
-  if (data.parentId !== undefined && data.parentId !== null) {
-    if (data.parentId === data.intervalId) {
-      return { error: "An interval can't be its own Program Increment" };
-    }
-    const parent = await prisma.interval.findFirst({
-      where: { id: data.parentId, projectId: data.projectId },
-      select: { intervalKind: true },
-    });
-    const refusal = nestingRefusal(existing.intervalKind, parent);
-    if (refusal) return { error: refusal };
+  // The PUT route's own rules, through the same function: nesting, a PI is
+  // never started by hand, one running sprint (a PI is not a competitor), a PI
+  // completes only after its sprints, and starting a sprint starts its PI.
+  let updated;
+  try {
+    updated = await writeIntervalChange(existing, data, () =>
+      prisma.interval.update({
+        where: { id: existing.id },
+        data: {
+          ...(data.name !== undefined && { name: data.name }),
+          ...(data.goal !== undefined && { goal: data.goal ?? "" }),
+          ...(data.startDate !== undefined && data.startDate !== null && { startDate: toCalendarNoonUTC(data.startDate)! }),
+          ...(data.endDate !== undefined && data.endDate !== null && { endDate: toCalendarNoonUTC(data.endDate)! }),
+          ...(data.status !== undefined && { status: data.status }),
+          ...(data.parentId !== undefined && { parentId: data.parentId }),
+        },
+        select: CYCLE_SELECT,
+      }),
+    );
+  } catch (e) {
+    const refusal = serviceRefusal(e);
+    if (refusal) return refusal;
+    throw e;
   }
-
-  // Only one ACTIVE interval per project.
-  if (data.status === "ACTIVE") {
-    const active = await prisma.interval.findFirst({
-      where: { projectId: data.projectId, status: "ACTIVE", id: { not: data.intervalId } },
-      select: { id: true },
-    });
-    if (active) return { error: "Another interval is already active" };
-  }
-
-  const updated = await prisma.interval.update({
-    where: { id: existing.id },
-    data: {
-      ...(data.name !== undefined && { name: data.name }),
-      ...(data.goal !== undefined && { goal: data.goal ?? "" }),
-      ...(data.startDate !== undefined && data.startDate !== null && { startDate: toCalendarNoonUTC(data.startDate)! }),
-      ...(data.endDate !== undefined && data.endDate !== null && { endDate: toCalendarNoonUTC(data.endDate)! }),
-      ...(data.status !== undefined && { status: data.status }),
-      ...(data.parentId !== undefined && { parentId: data.parentId }),
-    },
-    select: CYCLE_SELECT,
-  });
   return { updated: true, id: updated.id, interval: updated };
 }
 

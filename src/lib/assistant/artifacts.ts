@@ -68,6 +68,7 @@ const TOOL_ARTIFACT_TYPE: Record<string, EntityType> = {
   update_project: "project",
   create_note: "note",
   update_note: "note",
+  share_note: "note",
   delete_note: "note",
   create_meeting: "meeting",
   update_meeting: "meeting",

@@ -28,6 +28,7 @@ export const googleConnector: ConnectorDescriptor = {
     send_email: "write",
     create_calendar_event: "write",
     update_calendar_event: "write",
+    share_calendar_event: "write",
     delete_calendar_event: "write",
     create_drive_folder: "write",
     search_emails: "read",

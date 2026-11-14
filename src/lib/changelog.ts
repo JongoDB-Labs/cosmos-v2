@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.560.1",
+    date: "2026-11-14",
+    title: "Cosmo follows the sprint and Program Increment rules, and asks before sharing",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Cosmo can now start a sprint inside a running Program Increment. It used to count the Program Increment as another active sprint and refuse.",
+      },
+      {
+        kind: "fix",
+        text: "Cosmo now follows the same Program Increment rules as the sprint pages. It won't start a Program Increment by hand, it won't complete one while a sprint inside it is unfinished, and starting a sprint inside a Program Increment starts the Program Increment too.",
+      },
+      {
+        kind: "fix",
+        text: "Cosmo now asks for your yes before it lets more people see a note. New notes it writes start private. Letting fewer people see a note needs no yes.",
+      },
+      {
+        kind: "fix",
+        text: "Cosmo now asks for your yes before it invites anyone to a Google Calendar event. New events it creates invite no one at first. Taking someone off an event needs no yes.",
+      },
+    ],
+  },
+  {
     version: "2.559.0",
     date: "2026-11-13",
     title: "Your own Outlook meetings on the Program Management calendar",
