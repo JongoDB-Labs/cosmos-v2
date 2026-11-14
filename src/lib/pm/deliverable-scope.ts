@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db/client";
-import { NotFoundError, ConflictError } from "@/lib/rbac/check";
+import { NotFoundError, ConflictError, type AuthContext } from "@/lib/rbac/check";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
+import { mayReadContract } from "@/lib/crm/contract-scope";
 
 /**
  * Validate a deliverable's contract and sprint before they are written.
@@ -15,25 +17,37 @@ import { NotFoundError, ConflictError } from "@/lib/rbac/check";
  * copied: a CDRL is planned into a sprint, so narrowing the kind here would
  * reject the normal case.
  *
+ * A contract is also CRM data, so the caller must be able to read it, as the
+ * contract list would let them (`mayReadContract`). Every contract they can't
+ * link gets the same "not found": missing, another org's, another project's,
+ * or one they may not read. This used to say "belongs to a different project",
+ * which told anyone who could edit a deliverable that the id was a real
+ * contract elsewhere.
+ *
  * Passing `null`/`undefined` clears the link and is always allowed.
  */
 export async function assertDeliverableLinks(
+  ctx: AuthContext,
   links: { contractId?: string | null; intervalId?: string | null },
-  orgId: string,
   projectId: string,
 ): Promise<void> {
+  const orgId = ctx.orgId;
   if (links.contractId) {
     const contract = await prisma.contract.findFirst({
       where: { id: links.contractId, orgId },
       select: { projectId: true },
     });
-    if (!contract) throw new NotFoundError("Contract not found");
     // A contract with no project yet is accepted: `Contract.projectId` is
     // nullable and a commercial record routinely exists before it is tied to
     // delivery. A contract tied to a DIFFERENT project is a contradiction.
-    if (contract.projectId !== null && contract.projectId !== projectId) {
-      throw new ConflictError("Contract belongs to a different project");
-    }
+    // `mayReadContract` leaves the CRM bit to the route for an org-level
+    // contract, and the deliverable routes don't ask it, so this does.
+    const linkable =
+      contract !== null &&
+      (contract.projectId === null || contract.projectId === projectId) &&
+      hasPermission(ctx.permissions, Permission.CRM_READ) &&
+      (await mayReadContract(ctx, contract.projectId));
+    if (!linkable) throw new NotFoundError("Contract not found");
   }
 
   if (links.intervalId) {

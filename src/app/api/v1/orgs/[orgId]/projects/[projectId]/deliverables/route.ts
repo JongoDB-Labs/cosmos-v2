@@ -99,7 +99,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (data.ownerUserId) await assertOrgMember(orgId, data.ownerUserId);
     // Same reasoning for the contract and the sprint: the FKs cannot express
     // "in this org, for this project".
-    await assertDeliverableLinks(data, orgId, projectId);
+    await assertDeliverableLinks(ctx, data, projectId);
 
     const created = await prisma.deliverable.create({
       data: {

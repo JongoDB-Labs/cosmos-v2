@@ -13,6 +13,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { hiddenProjectIds } from "@/lib/rbac/project-access";
 import { readableContractsWhere } from "@/lib/crm/contract-scope";
+import { readableMeetingsWhere } from "@/lib/meetings/meeting-reader";
 import { getIpAddress, handleApiError } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
@@ -24,21 +25,28 @@ import {
   exportableContracts,
   exportableMember,
   exportableNotesWhere,
+  exportableProjectRowsWhere,
   exportableTime,
-  mayExportFinance,
+  mayExportEntity,
   mayExportSettings,
+  type ExportEntity,
 } from "@/lib/export/org-export-scope";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
-/** Who a member is, never how they sign in. A new User column stays out until listed here. */
+/**
+ * Who a member is, never how they sign in. A new User column stays out until listed here.
+ *
+ * Not `mfaEnabled` either: whether someone else has two-factor on is shown
+ * nowhere in the app, to an owner or anyone (only to the person, on their own
+ * security page), so the archive is no place to learn it.
+ */
 const EXPORTED_USER = {
   id: true,
   email: true,
   displayName: true,
   avatarUrl: true,
   isBot: true,
-  mfaEnabled: true,
   createdAt: true,
   deactivatedAt: true,
   lastActiveAt: true,
@@ -68,13 +76,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // Deep export — all entities scoped to this org, less any project the
     // exporter can't see (see the note above).
     const hidden = await hiddenProjectIds(ctx);
-    const inVisible = hidden.length ? { projectId: { notIn: hidden } } : {};
     const noneOrVisible = hidden.length ? { OR: [{ projectId: null }, { projectId: { notIn: hidden } }] } : {};
     // What each entity may carry is decided in lib/export/org-export-scope.ts,
-    // shared with the CSV export. Revenues and expenses are left OUT for an
-    // exporter without finance access, not exported as empty lists: an empty
-    // list reads as "this org has none".
-    const finance = mayExportFinance(ctx);
+    // shared with the CSV export. An entity whose list the exporter may not
+    // read (EXPORT_ENTITY_READ) is left OUT, not exported as an empty list: an
+    // empty list reads as "this org has none".
+    const may = (entity: ExportEntity) => mayExportEntity(ctx, entity);
     const where = { orgId: ctx.orgId };
     const data = {
       version: 1,
@@ -101,35 +108,58 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         )
       ).map(exportableMember),
       // Narrowed: `hidden` is hiddenProjectIds(ctx), above.
-      projects: await exportEntity(
-        "projects",
-        prisma.project.findMany({ where: { ...where, ...(hidden.length ? { id: { notIn: hidden } } : {}) } }),
-      ),
-      workItems: await exportEntity("work items", prisma.workItem.findMany({ where: { ...where, ...inVisible } })),
-      intervals: await exportEntity("intervals", prisma.interval.findMany({ where: { ...where, ...inVisible } })),
-      crmContacts: await exportEntity("CRM contacts", prisma.crmContact.findMany({ where })),
-      partners: await exportEntity("partners", prisma.partner.findMany({ where })),
-      products: await exportEntity("products", prisma.product.findMany({ where })),
+      ...(may("projects") && {
+        projects: await exportEntity(
+          "projects",
+          prisma.project.findMany({ where: { ...where, ...(hidden.length ? { id: { notIn: hidden } } : {}) } }),
+        ),
+      }),
+      // From the projects their own lists read them from, not visibility alone.
+      ...(may("workItems") && {
+        workItems: await exportEntity(
+          "work items",
+          exportableProjectRowsWhere(ctx, "workItems").then((scope) => prisma.workItem.findMany({ where: { ...where, ...scope } })),
+        ),
+      }),
+      ...(may("intervals") && {
+        intervals: await exportEntity(
+          "intervals",
+          exportableProjectRowsWhere(ctx, "intervals").then((scope) => prisma.interval.findMany({ where: { ...where, ...scope } })),
+        ),
+      }),
+      ...(may("crmContacts") && { crmContacts: await exportEntity("CRM contacts", prisma.crmContact.findMany({ where })) }),
+      ...(may("partners") && { partners: await exportEntity("partners", prisma.partner.findMany({ where })) }),
+      ...(may("products") && { products: await exportEntity("products", prisma.product.findMany({ where })) }),
       // The contract list's rule (lib/crm/contract-scope.ts), not only project
       // visibility: a rule denying CRM data on a project keeps its contracts out.
-      contracts: await exportableContracts(
-        ctx,
-        await exportEntity("contracts", readableContractsWhere(ctx).then((where) => prisma.contract.findMany({ where }))),
-      ),
-      notes: await exportEntity(
-        "notes",
-        prisma.note.findMany({ where: { ...where, ...exportableNotesWhere(ctx.userId) } }),
-      ),
-      meetings: await exportEntity("meetings", prisma.syncMeeting.findMany({ where: { ...where, ...noneOrVisible } })),
-      timeEntries: exportableTime(
-        ctx,
-        await exportEntity(
-          "time entries",
-          prisma.timeEntry.findMany({ where: { ...where, ...NOT_VOIDED, ...noneOrVisible } }),
+      ...(may("contracts") && {
+        contracts: await exportableContracts(
+          ctx,
+          await exportEntity("contracts", readableContractsWhere(ctx).then((where) => prisma.contract.findMany({ where }))),
         ),
-      ),
-      ...(finance && {
-        revenues: await exportEntity("revenues", prisma.revenue.findMany({ where })),
+      }),
+      ...(may("notes") && {
+        notes: await exportEntity(
+          "notes",
+          prisma.note.findMany({ where: { ...where, ...exportableNotesWhere(ctx.userId) } }),
+        ),
+      }),
+      // The meeting list's rule (lib/meetings/meeting-reader.ts): MEETING_READ
+      // on each meeting's project, policies included, not visibility alone.
+      ...(may("meetings") && {
+        meetings: await exportEntity("meetings", readableMeetingsWhere(ctx).then((where) => prisma.syncMeeting.findMany({ where }))),
+      }),
+      ...(may("timeEntries") && {
+        timeEntries: exportableTime(
+          ctx,
+          await exportEntity(
+            "time entries",
+            prisma.timeEntry.findMany({ where: { ...where, ...NOT_VOIDED, ...noneOrVisible } }),
+          ),
+        ),
+      }),
+      ...(may("revenues") && { revenues: await exportEntity("revenues", prisma.revenue.findMany({ where })) }),
+      ...(may("expenses") && {
         expenses: await exportEntity("expenses", prisma.expense.findMany({ where: { ...where, ...noneOrVisible } })),
       }),
     };
