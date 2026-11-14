@@ -80,6 +80,9 @@ const REFUSALS: Record<string, Kind[]> = {
   isPermissionSubset: ["grant"],
   currentAccessRefusal: ["change"],
   workRoleCeilingRefusal: ["grant", "change"],
+  // The ceiling on current role, counted without the org's restrictions: it
+  // may let a work role be taken away, edited or deleted, never given.
+  currentWorkRoleRefusal: ["change"],
 };
 
 const GRANT_ALLOWED: Record<string, string> = {
@@ -370,6 +373,14 @@ describe("the guard flags each shape that got past it before (fixtures)", () => 
       expect(check(`export async function DELETE() { ${call} await prisma.orgMember.delete({ where: { id } }); }`), call)
         .toEqual(["fixture.ts#DELETE:change"]);
     }
+  });
+
+  it("the ceiling on current role certifies taking a work role away, not giving one", () => {
+    expect(check(`export async function PUT() {
+      if (currentWorkRoleRefusal(ctx, grants)) return forbidden();
+      await prisma.orgMemberWorkRole.deleteMany({});
+      await prisma.orgMemberWorkRole.createMany({ data: [] });
+    }`)).toEqual(["fixture.ts#PUT:grant"]);
   });
 
   it("raw SQL and a nested create are writes", () => {

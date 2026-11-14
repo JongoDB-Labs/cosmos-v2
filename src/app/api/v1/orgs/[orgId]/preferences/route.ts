@@ -6,6 +6,7 @@ import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { isValidSkinId } from "@/lib/theme/cookie";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
 const updatePreferencesSchema = z.object({
   themeId: z.string().uuid().nullable().optional(),
@@ -70,6 +71,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = updatePreferencesSchema.parse(body);
+    // The rows a preference names: a board the caller may open (their project
+    // page lands on it), and a theme of this org or a built-in one. A missing
+    // id, another org's, and one they may not open all get the same 400.
+    await assertRefsInScope({ orgId: ctx.orgId, viewer: ctx }, { board: data.defaultBoardId, theme: data.themeId });
 
     const preferences = await prisma.userPreferences.upsert({
       where: { userId: ctx.userId },

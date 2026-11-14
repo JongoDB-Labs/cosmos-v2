@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createHash } from "node:crypto";
 import { OrgRole } from "@prisma/client";
 import { Permission, RolePermissions } from "@/lib/rbac/permissions";
+import type { EffectivePermissions } from "@/lib/rbac/effective-permissions";
 
 // --- I/O boundary mocks ------------------------------------------------------
 const { prisma, loadEffectivePermissions } = vi.hoisted(() => ({
@@ -46,11 +47,13 @@ const KEY_ID = "55555555-5555-5555-5555-555555555555";
 // All-bits effective permissions, as an OWNER would carry.
 const ALL_BITS = Object.values(Permission).reduce((acc, b) => acc | b, 0n);
 
-function effFor(permissions: bigint) {
+// Typed, so a field added to the real result can't go missing from this stand-in.
+function effFor(permissions: bigint): EffectivePermissions {
   return {
     orgRole: OrgRole.OWNER,
     permissions,
     basePermissions: permissions,
+    unrestrictedBasePermissions: permissions,
     abacRules: [],
   };
 }
@@ -170,6 +173,8 @@ describe("verifyApiKey", () => {
     expect(ctx!.orgRole).toBe(OrgRole.OWNER);
     expect(ctx!.permissions).toBe(ALL_BITS & scopeMask(scopes));
     expect(ctx!.basePermissions).toBe(ALL_BITS & scopeMask(scopes));
+    // The ceiling on current access is narrowed by the scopes too.
+    expect(ctx!.unrestrictedBasePermissions).toBe(ALL_BITS & scopeMask(scopes));
     // The creator's own bits ride along, unmasked, for keyMay (and only keyMay).
     expect(ctx!.ownerPermissions).toBe(ALL_BITS);
     // lastUsed is bumped (best-effort).

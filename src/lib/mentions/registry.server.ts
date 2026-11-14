@@ -34,6 +34,7 @@ import { entityUrl } from "./urls";
 import { parseTicketQuery } from "./ticket-query";
 import { ATTRIBUTE_BUDGET_MS, itemAttributeMatch, type AttributeMatch } from "./item-attributes.server";
 import { withStatementTimeout } from "@/lib/query/timeout.server";
+import { escapeLike } from "@/lib/query/like";
 import type { Prisma } from "@prisma/client";
 
 import { FEEDBACK_SUBJECT } from "@/lib/feedback/subject";
@@ -142,7 +143,8 @@ type Handler = {
   resolve(ids: string[], scope: SearchScope): Promise<Raw[]>;
 };
 
-const ci = (q: string) => ({ contains: q, mode: "insensitive" as const });
+/** A name match: case-insensitive, and the search text is text, `%` and `_` included. */
+const ci = (q: string) => ({ contains: escapeLike(q), mode: "insensitive" as const });
 
 /** Minimal structural view of a Prisma model delegate (avoids fighting the
  *  generated overloads while staying `any`-free). */

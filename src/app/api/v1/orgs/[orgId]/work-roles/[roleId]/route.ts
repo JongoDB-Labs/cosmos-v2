@@ -9,11 +9,12 @@ import {
   maskToDb,
   maskFromDb,
 } from "@/lib/rbac/permissions";
-import { workRoleCeilingRefusal } from "@/lib/rbac/grant-ceiling";
+import { currentWorkRoleRefusal } from "@/lib/rbac/grant-ceiling";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { toWorkRoleDto, workRoleUpdateSchema } from "@/lib/rbac/work-role";
 import { Prisma } from "@prisma/client";
+import { escapeLike } from "@/lib/query/like";
 
 type RouteParams = { params: Promise<{ orgId: string; roleId: string }> };
 
@@ -72,7 +73,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // who holds it, so the caller may edit only a role whose CURRENT grants they
     // could have given. Otherwise a member who manages members through a work
     // role could lower a role an owner made. New grants are checked below.
-    if (workRoleCeilingRefusal(ctx, maskFromDb(existing.grants))) return OVER_CEILING();
+    // Counted without the org's restrictions; new grants below stay strict.
+    if (currentWorkRoleRefusal(ctx, maskFromDb(existing.grants))) return OVER_CEILING();
 
     const data = workRoleUpdateSchema.parse(await request.json());
 
@@ -81,7 +83,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       // must not become a bypass. Excludes the role's own row so re-saving
       // your own name (or just its casing) isn't a false clash.
       const nameClash = await prisma.workRole.findFirst({
-        where: { orgId, name: { equals: data.name, mode: "insensitive" }, id: { not: roleId } },
+        where: { orgId, name: { equals: escapeLike(data.name), mode: "insensitive" }, id: { not: roleId } },
         select: { id: true },
       });
       if (nameClash) {
@@ -160,7 +162,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     }
     // The ceiling on current role, as in PUT: deleting a role takes it from
     // everyone who holds it.
-    if (workRoleCeilingRefusal(ctx, maskFromDb(existing.grants))) return OVER_CEILING();
+    if (currentWorkRoleRefusal(ctx, maskFromDb(existing.grants))) return OVER_CEILING();
 
     // Assignments cascade-delete via the FK.
     await prisma.workRole.delete({ where: { id: roleId } });

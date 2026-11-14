@@ -4,6 +4,8 @@ import { describe, it, expect } from "vitest";
 import { DEFAULT_FEED_OPTIONS, feedEvents, MEETING_MINUTES, type FeedOptions } from "./feed-events";
 
 const D = (s: string) => new Date(s);
+const JOIN = "https://teams.example.com/l/meetup-join/m1";
+const VIDEO = "https://video.example.com/j/123";
 const base = {
   origin: "https://example.com",
   orgSlug: "alpha",
@@ -13,7 +15,7 @@ const base = {
     { id: "w2", ticketNumber: 8, projectKey: "ALPHA", title: "Due only", startDate: null, dueDate: D("2026-10-30T00:00:00Z"), updatedAt: D("2026-10-01T00:00:00Z"), restricted: false },
     { id: "w3", ticketNumber: 9, projectKey: "ALPHA", title: "Undated", startDate: null, dueDate: null, updatedAt: D("2026-10-01T00:00:00Z"), restricted: false },
   ],
-  meetings: [{ id: "m1", title: "Standup", meetingDate: D("2026-10-23T14:30:00Z"), updatedAt: D("2026-10-01T00:00:00Z"), restricted: false }],
+  meetings: [{ id: "m1", title: "Standup", meetingDate: D("2026-10-23T14:30:00Z"), updatedAt: D("2026-10-01T00:00:00Z"), teamsJoinUrl: JOIN, meetingUrl: null, restricted: false }],
   intervals: [{ id: "i1", name: "Sprint 4", projectKey: "ALPHA", startDate: D("2026-10-19T00:00:00Z"), endDate: D("2026-11-01T00:00:00Z"), updatedAt: D("2026-10-01T00:00:00Z"), restricted: false }],
 };
 const run = (o: Partial<FeedOptions> = {}) => feedEvents({ ...base, options: { ...DEFAULT_FEED_OPTIONS, ...o } });
@@ -39,6 +41,38 @@ describe("feedEvents", () => {
     expect(m.allDay).toBe(false);
     expect(m.end.getTime() - m.start.getTime()).toBe(MEETING_MINUTES * 60_000);
     expect(m.url).toBe("https://example.com/alpha/meetings/m1");
+  });
+
+  it("gives a Teams meeting its join link, as a line of the description", () => {
+    const m = run().find((x) => x.uid === "meeting-m1@example.com")!;
+    expect(m.description).toBe(`Join the Teams meeting: ${JOIN}`);
+    // The link field stays the meeting's page here.
+    expect(m.url).toBe("https://example.com/alpha/meetings/m1");
+    const plain = feedEvents({ ...base, options: DEFAULT_FEED_OPTIONS, meetings: [{ ...base.meetings[0], teamsJoinUrl: null }] })
+      .find((x) => x.uid === "meeting-m1@example.com")!;
+    expect(plain.description ?? null).toBeNull();
+  });
+
+  it("gives a meeting its video link, and both lines in the Outlook sync's order when it has both", () => {
+    const meeting = (over: Record<string, unknown>) =>
+      feedEvents({ ...base, options: DEFAULT_FEED_OPTIONS, meetings: [{ ...base.meetings[0], ...over }] })
+        .find((x) => x.uid === "meeting-m1@example.com")!;
+    expect(meeting({ teamsJoinUrl: null, meetingUrl: VIDEO }).description).toBe(`Join: ${VIDEO}`);
+    expect(meeting({ meetingUrl: VIDEO }).description).toBe(`Join: ${VIDEO}\nJoin the Teams meeting: ${JOIN}`);
+  });
+
+  it("never gives the join link to a meeting the feed shows as busy", () => {
+    const withVideo = { ...base.meetings[0], meetingUrl: VIDEO };
+    const restricted = feedEvents({ ...base, options: DEFAULT_FEED_OPTIONS, meetings: [{ ...withVideo, restricted: true }] })
+      .find((x) => x.uid === "meeting-m1@example.com")!;
+    const busyOnly = feedEvents({ ...base, options: { ...DEFAULT_FEED_OPTIONS, busyOnly: true }, meetings: [withVideo] })
+      .find((x) => x.uid === "meeting-m1@example.com")!;
+    for (const m of [restricted, busyOnly]) {
+      expect(m.summary).toBe("Busy");
+      expect(m.description ?? null).toBeNull();
+      expect(JSON.stringify(m)).not.toContain("teams.example.com");
+      expect(JSON.stringify(m)).not.toContain("video.example.com");
+    }
   });
 
   it("includes sprints only when asked", () => {

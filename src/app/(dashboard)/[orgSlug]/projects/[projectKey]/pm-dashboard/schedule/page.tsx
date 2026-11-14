@@ -5,6 +5,7 @@ import { canReadProject } from "@/lib/rbac/project-access";
 import { canReadInProject } from "@/lib/rbac/require-project-read";
 import { redirect, notFound } from "next/navigation";
 import { ScheduleTracker } from "@/components/pm-dashboard/schedule-tracker";
+import { escapeLike } from "@/lib/query/like";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
@@ -14,7 +15,7 @@ export default async function SchedulePage({ params }: PageParams) {
   if (!ctx) redirect("/");
 
   const project = await prisma.project.findFirst({
-    where: { orgId: ctx.orgId, key: { equals: projectKey, mode: "insensitive" }, archived: false },
+    where: { orgId: ctx.orgId, key: { equals: escapeLike(projectKey), mode: "insensitive" }, archived: false },
     select: { id: true },
   });
   if (!project || !(await canReadProject(ctx, project.id))) notFound();

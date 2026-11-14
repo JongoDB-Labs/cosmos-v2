@@ -4,6 +4,7 @@ import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { canSeeProjectMoney } from "@/lib/rbac/money-fields";
 import { ChangeTracker } from "@/components/pm-dashboard/change-tracker";
+import { escapeLike } from "@/lib/query/like";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
@@ -13,7 +14,7 @@ export default async function ChangesPage({ params }: PageParams) {
   if (!ctx) redirect("/");
 
   const project = await prisma.project.findFirst({
-    where: { orgId: ctx.orgId, key: { equals: projectKey, mode: "insensitive" }, archived: false },
+    where: { orgId: ctx.orgId, key: { equals: escapeLike(projectKey), mode: "insensitive" }, archived: false },
     select: { id: true },
   });
   if (!project || !(await canReadProject(ctx, project.id))) notFound();

@@ -1,6 +1,7 @@
 import { Prisma, type User } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { isInternalAdmin } from "@/lib/internal/access";
+import { escapeLike } from "@/lib/query/like";
 
 /**
  * Account resolution for the FIRST-PARTY sign-in providers (Google, Microsoft):
@@ -76,7 +77,7 @@ export async function isEmailAllowlisted(email: string): Promise<boolean> {
   if (!e) return false;
   if (envAllowlist().includes(e)) return true;
   const row = await prisma.allowedEmail.findFirst({
-    where: { email: { equals: e, mode: "insensitive" } },
+    where: { email: { equals: escapeLike(e), mode: "insensitive" } },
     select: { id: true },
   });
   return row != null;
@@ -138,7 +139,7 @@ export async function resolveFirstPartyUser(input: {
 
   const holders = await prisma.user.findMany({
     where: {
-      email: { equals: email, mode: "insensitive" },
+      email: { equals: escapeLike(email), mode: "insensitive" },
       isBot: false,
       deactivatedAt: null,
     },
