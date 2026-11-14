@@ -41,7 +41,7 @@ import { applyRel, dayOf, durationSeconds, endOf, literalRange, periodOffset, st
 import { HISTORY_BY_FIELD, fnKey, varKey, type CompileEnv, type SqlSortKey, type StatusCategory } from "./env";
 import { HISTORY, historyKey, isHistoryColumn, type HistoryField, type HistorySpec, type HistoryValueSet } from "./history";
 // Shared with ⌘K's label lookup, which may not import the compiler (query.arch.test.ts).
-import { likeText } from "./like";
+import { escapeLike, likeText } from "./like";
 import type { CustomFieldType } from "./typecheck";
 
 type Where = Prisma.WorkItemWhereInput;
@@ -381,7 +381,7 @@ function stringCompiler(
     | "cancelNote",
 ): FieldCompiler {
   return {
-    match: (b) => or(...scalars(b).map((v) => nn(column, { equals: String(v), mode: "insensitive" }))),
+    match: (b) => or(...scalars(b).map((v) => nn(column, { equals: escapeLike(String(v)), mode: "insensitive" }))),
     isEmpty: or({ [column]: null } as Where, { [column]: "" } as Where),
     text: (q) => and(nn(column, {}), contains(column, q)),
   };

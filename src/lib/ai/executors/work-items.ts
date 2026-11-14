@@ -19,6 +19,7 @@ import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 import { allocateTicketNumber, allocateSortOrder } from "@/lib/work-items/allocate";
 import { intervalRequirementError } from "@/lib/work-items/interval-required.server";
 import { refsError } from "@/lib/rbac/foreign-refs";
+import { escapeLike } from "@/lib/query/like";
 
 // ─── Schemas ─────────────────────────────────────────────────────────────
 
@@ -218,7 +219,7 @@ async function resolveWorkItemTypeId(
 
   // Fallback: any builtin type ending in `.${normalized}`
   const fallback = await prisma.workItemType.findFirst({
-    where: { isBuiltIn: true, key: { endsWith: `.${normalized}` } },
+    where: { isBuiltIn: true, key: { endsWith: escapeLike(`.${normalized}`) } },
     select: { id: true },
   });
   return fallback?.id ?? null;
@@ -765,7 +766,7 @@ export async function listWorkItems(
   if (data.columnKey) where.columnKey = data.columnKey;
   if (data.assigneeId) where.assigneeId = data.assigneeId;
   if (data.createdById) where.createdById = data.createdById;
-  if (data.search) where.title = { contains: data.search, mode: "insensitive" };
+  if (data.search) where.title = { contains: escapeLike(data.search), mode: "insensitive" };
   if (data.parentId) where.parentId = data.parentId;
   if (data.teamId) {
     const team = await teamFilter(ctx.orgId, data.teamId, [data.projectId]);

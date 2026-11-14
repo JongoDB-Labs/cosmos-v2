@@ -26,6 +26,8 @@ const { getAuthContext, prisma, logAudit, publishToOrg } = vi.hoisted(() => {
     teamsConversation: { deleteMany: vi.fn() },
     // A removal deletes the member's keys in its transaction (member-keys.db.test.ts drives it for real).
     apiKey: { findMany: vi.fn(async () => [] as { id: string; prefix: string }[]), deleteMany: vi.fn() },
+    // ...and revokes their calendar links in it (lifecycle.db.test.ts drives that for real).
+    calendarFeed: { findMany: vi.fn(async () => [] as { id: string }[]), updateMany: vi.fn() },
     $queryRaw: vi.fn(async () => []),
     // The role change runs in a transaction; the mock runs it on this same client.
     $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
@@ -213,6 +215,10 @@ describe("DELETE /members/[memberId]: Teams chat forgotten", () => {
     // Their keys in this org are looked up for deletion, scoped to them and the org.
     expect(prisma.apiKey.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { orgId: ORG_ID, createdById: TARGET_USER_ID } }),
+    );
+    // So are their live calendar links, for revoking.
+    expect(prisma.calendarFeed.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { orgId: ORG_ID, userId: TARGET_USER_ID, revokedAt: null } }),
     );
   });
 });

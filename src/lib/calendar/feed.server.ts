@@ -1,15 +1,16 @@
 import { prisma } from "@/lib/db/client";
 import { getBrand } from "@/lib/brand";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
-import { isProjectVisible } from "@/lib/rbac/project-access";
+import { canReadInProject } from "@/lib/rbac/require-project-read";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { readableMeetingsWhere } from "@/lib/meetings/meeting-reader";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { createClassificationResolver } from "@/lib/classification/resolver";
+import { requiredIdpConnectionId } from "@/lib/auth/sso-enforcement";
 import type { AuthContext } from "@/lib/rbac/check";
 import { buildIcs } from "./ics";
 import { feedEvents } from "./feed-events";
-import { calendarFeedsEnabled, readFeedOptions } from "./feed-settings";
+import { calendarFeedsEnabled, feedInactiveReason, readFeedOptions, type FeedStanding } from "./feed-settings";
 import { hashFeedToken } from "./feed-token";
 
 const DAY = 86_400_000;
@@ -24,11 +25,17 @@ export interface RenderedFeed {
   lastModified: Date;
 }
 
+/** The org's rules today, for feedInactiveReason. */
+export async function loadFeedStanding(org: { id: string; settings: unknown }): Promise<FeedStanding> {
+  return { enabled: calendarFeedsEnabled(org.settings), requiredIdpConnId: await requiredIdpConnectionId(org.id) };
+}
+
 /**
  * The feed behind a token, or null for ANY reason it shouldn't be served: an
- * unknown or revoked token, calendar feeds switched off for the org, a
- * deactivated or removed person. The route turns null into a bare 404, so a
- * caller learns nothing about which check failed.
+ * unknown or revoked token, a deactivated or removed person, or a link the
+ * org's rules stop (feedInactiveReason: feeds switched off, or a link the
+ * org's single sign-on doesn't vouch for). The route turns null into a bare 404, so a caller learns
+ * nothing about which check failed.
  *
  * Access is re-derived on every fetch from the person's CURRENT membership,
  * exactly as if they were signed in, and each item's project is checked for
@@ -44,9 +51,11 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
     },
   });
   if (!feed || feed.revokedAt || feed.user.deactivatedAt) return null;
-  if (!calendarFeedsEnabled(feed.org.settings)) return null;
+  if (feedInactiveReason(await loadFeedStanding(feed.org), feed) !== null) return null;
   const { orgId, userId } = feed;
-  const eff = await loadEffectivePermissions(orgId, userId);
+  // forApiKey: no OWNER break-glass, so the org's restrictions bind an
+  // owner's link as they bind an owner's API key.
+  const eff = await loadEffectivePermissions(orgId, userId, { forApiKey: true });
   if (!eff) return null;
   const ctx: AuthContext = {
     userId,
@@ -104,7 +113,7 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
             meetingDate: { gte: from, lte: to },
             attendees: { some: { userId } },
           },
-          select: { id: true, title: true, meetingDate: true, updatedAt: true, projectId: true },
+          select: { id: true, title: true, meetingDate: true, updatedAt: true, projectId: true, teamsJoinUrl: true, meetingUrl: true },
           orderBy: { meetingDate: "asc" },
           take: FEED_MAX_EVENTS,
         })
@@ -119,8 +128,10 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
             endDate: { gte: from },
             project: { members: { some: { orgMember: { userId, orgId } } } },
           },
+          // No updatedAt: an Interval has none, and asking for it failed
+          // every feed that included sprints.
           select: {
-            id: true, name: true, goal: true, startDate: true, endDate: true, updatedAt: true,
+            id: true, name: true, goal: true, startDate: true, endDate: true,
             projectId: true, project: { select: { key: true } },
           },
           orderBy: { startDate: "asc" },
@@ -128,14 +139,14 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
         })
       : [];
 
-  // Sprints: the project must still be one this person can see (team-scoped
-  // projects), checked once per project. Meetings were read by their own rule.
-  const otherProjects = [
-    ...new Set(intervals.map((r) => r.projectId).filter((p): p is string => !!p)),
-  ];
-  const seen = new Set<string>();
-  for (const pid of otherProjects) if (await isProjectVisible(ctx, pid)) seen.add(pid);
-  const visible = <T extends { projectId: string | null }>(r: T) => !r.projectId || seen.has(r.projectId);
+  // Sprints by the sprint API's own rule (requireProjectRead): SPRINT_READ with
+  // any policy on it for that project (a member's rule, a work role's, a
+  // conditional org restriction), and the project visible to them. Checked
+  // once per project. Work items and meetings were read by their APIs' rules
+  // above (getReadableProjectIds, readableMeetingsWhere).
+  const sprintProjects = [...new Set(intervals.map((r) => r.projectId))];
+  const readable = new Set<string>();
+  for (const pid of sprintProjects) if (await canReadInProject(ctx, pid, "SPRINT_READ")) readable.add(pid);
   const keys = new Map(
     (await prisma.project.findMany({ where: { id: { in: [...new Set(workItems.map((w) => w.projectId))] } }, select: { id: true, key: true } })).map(
       (p) => [p.id, p.key] as const,
@@ -158,11 +169,17 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
     })),
     meetings: meetings.map((m) => ({
       id: m.id, title: m.title, meetingDate: m.meetingDate, updatedAt: m.updatedAt,
-      restricted: restricted(m.projectId, m.title),
+      // Null unless it is a Teams meeting: the database drops the link of a
+      // meeting with no host (trigger sync_meetings_teams_link_needs_host).
+      teamsJoinUrl: m.teamsJoinUrl,
+      meetingUrl: m.meetingUrl,
+      // The link is judged with the title, as the Outlook sync judges it: a
+      // marking in either makes the row busy.
+      restricted: restricted(m.projectId, m.title, m.meetingUrl),
     })),
-    intervals: intervals.filter(visible).map((i) => ({
+    intervals: intervals.filter((i) => readable.has(i.projectId)).map((i) => ({
       id: i.id, name: i.name, projectKey: i.project.key, startDate: i.startDate, endDate: i.endDate,
-      updatedAt: i.updatedAt, restricted: restricted(i.projectId, i.name, i.goal),
+      updatedAt: null, restricted: restricted(i.projectId, i.name, i.goal),
     })),
   }).slice(0, FEED_MAX_EVENTS);
 

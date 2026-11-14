@@ -11,7 +11,7 @@ import {
 } from "@/lib/rbac/grant-ceiling";
 import { success, handleApiError, noContent, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { deleteMemberKeysIn } from "@/lib/auth/api-key-manage.server";
+import { endMemberCredentialsIn } from "@/lib/members/credentials.server";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { z } from "zod";
 import { OrgRole } from "@prisma/client";
@@ -186,17 +186,18 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // one) are not destroyed. Reads filter `removedAt: null` by default in
     // src/lib/db/client.ts, so they stop counting as a member everywhere at once.
     //
-    // Their API keys in this org are DELETED with it, in one transaction. A
-    // removed member's keys already stop working, but only because the
-    // membership is hidden: re-adding them, or an SSO sign-in the identity
-    // provider still vouches for, clears `removedAt` on this same row, and every
-    // key they ever made would work again.
+    // Their API keys in this org are DELETED with it, and their calendar links
+    // revoked, in one transaction. A removed member's keys and links already
+    // stop working, but only because the membership is hidden: re-adding them,
+    // or an SSO sign-in the identity provider still vouches for, clears
+    // `removedAt` on this same row, and every key and link they ever made would
+    // work again.
     await prisma.$transaction(async (tx) => {
       await tx.orgMember.update({
         where: { id: memberId },
         data: { removedAt: new Date() },
       });
-      await deleteMemberKeysIn(tx, {
+      await endMemberCredentialsIn(tx, {
         orgId,
         userId: member.userId,
         memberId,

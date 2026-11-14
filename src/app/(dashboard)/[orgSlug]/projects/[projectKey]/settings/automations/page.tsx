@@ -9,6 +9,7 @@ import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { Skeleton } from "@/components/ui/skeleton";
 import { NoPageAccess } from "@/components/ui/no-page-access";
 import { AutomationsOverview } from "@/components/automation/automations-overview";
+import { escapeLike } from "@/lib/query/like";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
@@ -35,7 +36,7 @@ async function Content({ params }: PageParams) {
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
   const project = await prisma.project.findFirst({
-    where: { orgId: ctx.orgId, key: { equals: projectKey, mode: "insensitive" } },
+    where: { orgId: ctx.orgId, key: { equals: escapeLike(projectKey), mode: "insensitive" } },
     select: { id: true },
   });
   if (!project || !(await canReadProject(ctx, project.id))) notFound();

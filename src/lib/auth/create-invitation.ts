@@ -9,6 +9,7 @@ import {
 } from "@/lib/integrations/invitation-email";
 import { provisionEmailPasswordInvite, type SignInMethod } from "@/lib/auth/invite-credentials";
 import type { Invitation, OrgRole } from "@prisma/client";
+import { escapeLike } from "@/lib/query/like";
 
 export const ALREADY_A_MEMBER = "User is already a member";
 
@@ -111,7 +112,7 @@ export async function createOrgInvitation(
   // Case-insensitive so a differently-cased row can't slip past the guards
   // below (matches provisionEmailPasswordInvite's own lookup).
   const existingUser = await prisma.user.findFirst({
-    where: { email: { equals: email, mode: "insensitive" } },
+    where: { email: { equals: escapeLike(email), mode: "insensitive" } },
   });
   if (existingUser) {
     const existingMember = await prisma.orgMember.findUnique({

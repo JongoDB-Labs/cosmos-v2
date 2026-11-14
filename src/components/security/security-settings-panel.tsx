@@ -8,6 +8,7 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey, useOrgSlug, orgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { notifyError } from "@/lib/errors/notify";
+import { revokedOnSaveText } from "./revoked-on-save";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -248,7 +249,7 @@ export function SecuritySettingsPanel({
     qc.invalidateQueries({ queryKey: orgQueryKey(orgSlug, "security", "scim-tokens") });
   }
 
-  const saveSettings = useOrgMutation<{ apiKeysRevoked?: number }, Error, void>({
+  const saveSettings = useOrgMutation<{ apiKeysRevoked?: number; calendarFeedsRevoked?: number }, Error, void>({
     mutationFn: () =>
       jsonFetch(`/api/v1/orgs/${orgId}/security/settings`, {
         method: "PUT",
@@ -374,9 +375,10 @@ export function SecuritySettingsPanel({
       onSuccess: (saved) => {
         invalidateAll();
         // Turning on Require MFA revokes the keys of people who can't manage
-        // keys; say how many, since nothing else on this page shows it.
-        const n = saved?.apiKeysRevoked ?? 0;
-        if (n > 0) toast.success(`Saved. ${n} API ${n === 1 ? "key was" : "keys were"} revoked.`);
+        // keys, and every calendar link; say how many, since nothing else on
+        // this page shows it.
+        const text = revokedOnSaveText(saved);
+        if (text) toast.success(text);
       },
     });
   }
@@ -481,7 +483,7 @@ export function SecuritySettingsPanel({
               <p className="text-sm font-medium">Require MFA</p>
               <p className="text-xs text-muted-foreground">
                 All users must enable multi-factor authentication. Turning it on revokes the API keys of people who
-                can&apos;t manage keys.
+                can&apos;t manage keys, and everyone&apos;s calendar links.
               </p>
             </div>
             <Toggle

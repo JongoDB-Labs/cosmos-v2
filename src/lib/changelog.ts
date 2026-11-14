@@ -49,7 +49,7 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
-    version: "2.561.8",
+    version: "2.561.5",
     date: "2026-11-14",
     title: "Links between records stay inside your organization",
     highlights: [
@@ -76,7 +76,7 @@ const RELEASES: Release[] = [
     ],
   },
   {
-    version: "2.561.1",
+    version: "2.561.4",
     date: "2026-11-14",
     title: "Cosmo follows the sprint and Program Increment rules, and asks before sharing",
     highlights: [
@@ -115,6 +115,71 @@ const RELEASES: Release[] = [
       {
         kind: "fix",
         text: "Access rules on changing or completing a sprint now apply on the sprint pages and through Cosmo alike. The sprint pages used to ignore them.",
+      },
+    ],
+  },
+  {
+    version: "2.561.3",
+    date: "2026-11-14",
+    title: "Address and name lookups match exactly",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Signing in with a password, asking for a password reset, single sign-on, invitations, account requests and the sign-in allowlist now find an account by its exact email address, ignoring case only. The same goes for project keys and organization names in links, for label, role, partner and status names, for matching rows on import, and for `=` on text fields in queries.",
+      },
+    ],
+  },
+  {
+    version: "2.561.2",
+    date: "2026-11-14",
+    title: "Search finds % and _ as text, and retro writes are audited",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Searching for % or _ in the command palette (⌘K) or the @-mention picker finds only names that contain that character. Before, either one matched every name of every kind. The same goes for the workflow simulator's item picker, the assistant's searches, and the API's search filter on CRM contacts, partners, products and a project's work items. In chat search, from:% and in:_ now look for those characters in a name too, instead of matching every author or channel.",
+      },
+      {
+        kind: "fix",
+        text: "The command palette (⌘K) and the @-mention picker run the same search, and now share one rate limit, as the Issues search has. Ordinary typing stays well inside it.",
+      },
+      {
+        kind: "fix",
+        text: "A retro action item can't be given to someone whose account is deactivated. Editing an action already refused them; adding one now does too.",
+      },
+      {
+        kind: "fix",
+        text: "Adding, editing and deleting retro notes and action items now shows in the audit log, with who did it and when. The text of a note or action stays out of the log.",
+      },
+    ],
+  },
+  {
+    version: "2.561.1",
+    date: "2026-11-14",
+    title: "Calendar feed links follow single sign-on and member removal, and show join links",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Where your organization requires single sign-on, a calendar feed link works only if you made it after signing in through the organization's single sign-on, as for an API key. Links made before, or through another sign-in, stop updating, and Settings, Preferences says so under each one. Sign in through single sign-on and create a new link there.",
+      },
+      {
+        kind: "fix",
+        text: "Removing someone from your organization now revokes their calendar feed links, as it already deleted their API keys. Adding them back, or their signing in again through single sign-on, doesn't bring the old links back. Deleting someone's account does the same in every organization they belong to. Turning on Require MFA revokes everyone's calendar feed links, and the save message says how many.",
+      },
+      {
+        kind: "fix",
+        text: "A calendar feed link is held to the organization's access restrictions for everyone, owners included. An owner's own session can still undo a restriction, but their link no longer gets past one.",
+      },
+      {
+        kind: "fix",
+        text: "Calendar feed links with sprints switched on now work. Until now such a link served nothing. A link shows only the sprints its owner may read: a rule that hides one project's sprints from someone hides them from their link too.",
+      },
+      {
+        kind: "improvement",
+        text: "A meeting in your calendar feed now carries its join links in the event's description: its video link, and its Teams link when it has one. Meetings the feed shows only as busy never do.",
+      },
+      {
+        kind: "fix",
+        text: "On a phone, screen readers now name the settings section picker, and the Revoke button on a calendar link has enough contrast to read.",
       },
     ],
   },
