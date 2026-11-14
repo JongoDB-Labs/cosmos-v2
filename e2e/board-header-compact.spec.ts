@@ -45,7 +45,20 @@ async function headerHeight(page: Page) {
   return Math.round((q.y + q.height - (p ? p.y : q.y)) * 10) / 10;
 }
 
-async function openBoard(page: Page, slug: string, size: { width: number; height: number }) {
+/**
+ * What shows once a board's data is in. The header can change until then: a
+ * sprint board's scope line appears only when its sprints arrive, and on CI's
+ * slow server that came about 8s after the bar did. The row then took a second
+ * line, after the header had already been measured (reproduced locally by
+ * holding the sprints back 8s: the band's bottom went from 199 to 231px).
+ */
+const READY: Record<string, (p: Page) => Locator[]> = {
+  scrum: (p) => [p.getByText(/^This board shows/), p.getByText("Gallery item in progress").first()],
+  timeline: (p) => [p.getByText("Gallery item in backlog").first()],
+  table: (p) => [p.getByText("Gallery item in backlog").first()],
+};
+
+async function openBoard(page: Page, slug: keyof typeof READY, size: { width: number; height: number }) {
   // A fresh load at each size, not a resize of a loaded page: in headless
   // Chromium, after setViewportSize elementFromPoint answered <html> for every
   // point on the page (measured), which made every control read as covered.
@@ -54,6 +67,7 @@ async function openBoard(page: Page, slug: string, size: { width: number; height
   await page.goto(`/${ORG}/projects/${GALLERY}/boards/${slug}`, { waitUntil: "domcontentloaded" });
   await expect(page.getByRole("group", { name: "How to filter" })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0, { timeout: 30_000 });
+  for (const l of READY[slug](page)) await expect(l).toBeVisible({ timeout: 30_000 });
 }
 
 /** Switch mode (a click on the loaded page, as a person does it) and let the row settle. */
@@ -88,14 +102,18 @@ async function settle(page: Page) {
  */
 async function expectControls(page: Page, at: string, controls: [string, Locator][]) {
   const { query, pills } = bands(page);
-  const boxes = [(await query.boundingBox())!];
-  if (await pills.count()) boxes.push((await pills.boundingBox())!);
+  const box = (b: { x: number; y: number; width: number; height: number }) =>
+    `${Math.round(b.x)},${Math.round(b.y)} ${Math.round(b.width)}x${Math.round(b.height)}`;
   for (const [name, l] of controls) {
     const c = l.first();
     await expect(c, `${at}: ${name} is missing`).toBeVisible();
+    // The bands are read with the control, not once up front: a control that
+    // waited to appear above may have moved the others.
+    const boxes = [(await query.boundingBox())!];
+    if (await pills.count()) boxes.push((await pills.boundingBox())!);
     const b = (await c.boundingBox())!;
     const inside = boxes.some((k) => b.x >= k.x - 1 && b.y >= k.y - 1 && b.x + b.width <= k.x + k.width + 1 && b.y + b.height <= k.y + k.height + 1);
-    expect(inside, `${at}: ${name} is outside the header`).toBe(true);
+    expect(inside, `${at}: ${name} (${box(b)}) is outside the header (${boxes.map(box).join("; ")})`).toBe(true);
     // A disabled control takes no pointer events, so a hit test passes through
     // it. Retried for a few seconds: a View Transition that starts after the
     // wait in useMode (a Suspense reveal) puts its layer over everything for
