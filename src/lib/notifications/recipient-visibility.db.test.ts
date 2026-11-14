@@ -15,6 +15,9 @@
 // (canReadMeeting): its project's visibility and MEETING_READ, or MEETING_READ
 // alone for a meeting under no project. Anything else that names a project
 // (a plugin's notification, say) is held to that project's visibility.
+//
+// A mention in a note follows who can read the note (canReadNote): NOTE_READ,
+// and for a private note, being its author.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
@@ -43,6 +46,12 @@ vi.mock("@/lib/integrations/microsoft/teams-app/outbox.server", async (importOri
   };
 });
 
+// The note routes embed what they save; no model is needed to tell who hears of it.
+vi.mock("@/lib/rag/embed", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rag/embed")>()),
+  storeEmbedding: async () => undefined,
+}));
+
 // The attendee route asks for a calendar push after it answers; there is no
 // calendar here, and it would race the org's deletion at the end.
 vi.mock("@/lib/integrations/microsoft/calendar-sync.server", async (importOriginal) => ({
@@ -54,6 +63,8 @@ const { POST: comment } = await import("@/app/api/v1/orgs/[orgId]/projects/[proj
 const { PATCH: patchItem } = await import("@/app/api/v1/orgs/[orgId]/work-items/[itemId]/route");
 const { POST: pmComment } = await import("@/app/api/v1/orgs/[orgId]/projects/[projectId]/pm-comments/route");
 const { POST: addAttendee } = await import("@/app/api/v1/orgs/[orgId]/meetings/[meetingId]/attendees/route");
+const { POST: postNote } = await import("@/app/api/v1/orgs/[orgId]/notes/route");
+const { GET: getNote, PUT: putNote } = await import("@/app/api/v1/orgs/[orgId]/notes/[noteId]/route");
 const { getBus } = await import("@/lib/realtime/bus");
 const { createNotification } = await import("@/lib/notifications/create");
 const { topics } = await import("@/lib/realtime/topics");
@@ -327,5 +338,74 @@ describe("meeting and other non-item notifications (e2e DB)", () => {
     expect(await createNotification({ ...base, userId: insider })).not.toBeNull();
     expect(await reached(outsider)).toEqual(NOTHING);
     expect(await reached(insider)).toEqual(BELL_LIVE_PUSH);
+  });
+});
+
+describe("note mentions (e2e DB)", () => {
+  const BELL_LIVE_PUSH = { ...NOTHING, bell: 1, live: 1, push: 1 };
+  const create = async (visibility: string, content: string) => {
+    const res = await postNote(json("POST", { title: "Planning notes", content, visibility }), { params: Promise.resolve({ orgId }) });
+    expect(res.status).toBe(201);
+    return ((await res.json()) as { id: string }).id;
+  };
+  const edit = async (noteId: string, content: string) =>
+    expect((await putNote(json("PUT", { content }), { params: Promise.resolve({ orgId, noteId }) })).status).toBe(200);
+  /** Notices anywhere in the org whose text carries `marker`. */
+  const carrying = (marker: string) => prisma.notification.count({ where: { orgId, body: { contains: marker } } });
+
+  it("a mention notice follows who can read the note, on create", async () => {
+    await create("PRIVATE", `<@${insider}> first-marker`);
+    expect(await reached(insider)).toEqual(NOTHING);
+    expect(await carrying("first-marker")).toBe(0);
+
+    // Positive control: the same mention in a note the org can read.
+    await create("ORG", `<@${insider}> second-marker`);
+    expect(await reached(insider)).toEqual(BELL_LIVE_PUSH);
+    expect(await carrying("second-marker")).toBe(1);
+  });
+
+  it("a mention notice follows who can read the note, on edit", async () => {
+    const own = await create("PRIVATE", "draft");
+    await edit(own, `draft, <@${insider}> third-marker`);
+    expect(await reached(insider)).toEqual(NOTHING);
+    expect(await carrying("third-marker")).toBe(0);
+
+    const shared = await create("PROJECT", "draft");
+    await edit(shared, `draft, <@${insider}> fourth-marker`);
+    expect(await reached(insider)).toEqual(BELL_LIVE_PUSH);
+    expect(await carrying("fourth-marker")).toBe(1);
+  });
+
+  it("a member whose role can't read notes hears nothing about one the org can read", async () => {
+    const billing = await member("billing-note", "BILLING_ADMIN");
+    await create("ORG", `<@${billing}> <@${insider}> fifth-marker`);
+    expect(await reached(billing)).toEqual(NOTHING);
+    expect(await reached(insider)).toEqual(BELL_LIVE_PUSH);
+    expect(await prisma.notification.count({ where: { orgId, userId: billing } })).toBe(0);
+  });
+
+  it("the note's own page lets in the same people its mention notices reach", async () => {
+    const own = await create("PRIVATE", "draft");
+    const shared = await create("ORG", "draft");
+    const asInsider = { userId: insider, orgId, orgRole: "MEMBER", permissions: -1n, basePermissions: -1n, abacRules: [] } satisfies AuthContext;
+    const open = async (noteId: string) => (await getNote(json("GET", undefined), { params: Promise.resolve({ orgId, noteId }) })).status;
+    // The author reads both.
+    expect([await open(own), await open(shared)]).toEqual([200, 200]);
+    h.ctx = asInsider;
+    expect([await open(own), await open(shared)]).toEqual([404, 200]);
+  });
+
+  it("sends nothing about a note it can't find", async () => {
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const base = { orgId, userId: insider, type: "note.mentioned", title: "Mentioned", relatedType: "note" };
+    expect(await createNotification({ ...base })).toBeNull();
+    expect(await createNotification({ ...base, relatedId: "not-a-uuid" })).toBeNull();
+    expect(await createNotification({ ...base, relatedId: crypto.randomUUID() })).toBeNull();
+    expect(await reached(insider)).toEqual(NOTHING);
+    expect(warned.mock.calls.flat().join(" ")).toMatch(/note\.mentioned about note not sent/);
+    // Positive control: the same call about a note they can read goes through.
+    const readable = await prisma.note.create({ data: { orgId, authorId: owner, title: "Shared", visibility: "ORG" } });
+    expect(await createNotification({ ...base, relatedId: readable.id })).not.toBeNull();
+    warned.mockRestore();
   });
 });

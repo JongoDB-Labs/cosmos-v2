@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.561.9",
+    date: "2026-11-14",
+    title: "Everyone you assign is told",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Giving a work item several assignees at once, as its Assignees picker does, now tells each person newly added. Before, none of them were told. Nobody already assigned is told again, including someone moved to the front, and you're never told about your own change.",
+      },
+      {
+        kind: "fix",
+        text: "A mention in a note now follows who can read the note, the same people the note itself lets in.",
+      },
+      {
+        kind: "fix",
+        text: "Outlook Calendar now keeps a meeting only for the people its page lets in, including any access policy on reading meetings.",
+      },
+    ],
+  },
+  {
     version: "2.561.7",
     date: "2026-11-14",
     title: "Know when an assignee can't see the project",

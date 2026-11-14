@@ -535,6 +535,47 @@ describe("Outlook meeting sync (e2e DB)", () => {
     expect(g.eventsIn(((await credOf(org.id, bob.id)).meta as { calendarId: string }).calendarId)).toHaveLength(0);
   });
 
+  // The meeting pages' own rule (canReadMeeting): a policy on MEETING_READ
+  // takes a meeting out of someone's Outlook as it takes it off their page.
+  const denyMeetings = (orgId: string, userId: string, conditions: object[]) =>
+    prisma.orgMember.updateMany({ where: { orgId, userId }, data: { abacRules: [{ effect: "deny", actions: ["MEETING_READ"], conditions }] } });
+  const readsMeeting = async (orgId: string, userId: string, projectId: string | null) => {
+    const { loadMemberAuthContext } = await import("@/lib/rbac/effective-permissions");
+    const { canReadMeeting } = await import("@/lib/meetings/meeting-reader");
+    return canReadMeeting((await loadMemberAuthContext(orgId, userId))!, projectId);
+  };
+
+  it("gives no copy to an attendee a policy keeps from a project's meetings, and removes one when the policy comes in", async () => {
+    const { org, alice, bob, g, deps, meeting } = await setup();
+    const p = await prisma.project.create({ data: { orgId: org.id, key: `P${Math.random().toString(36).slice(2, 7).toUpperCase()}`, name: "Open" } });
+    await prisma.syncMeeting.update({ where: { id: meeting.id }, data: { projectId: p.id } });
+    await syncMeeting(org.id, meeting.id, deps);
+    const bEvent = (await linkOf(bob.id, meeting.id))!.externalEventId; // the project is open to him
+
+    await denyMeetings(org.id, bob.id, [{ attr: "projectId", op: "eq", value: p.id }]);
+    expect(await readsMeeting(org.id, bob.id, p.id)).toBe(false);
+    await syncMeeting(org.id, meeting.id, deps);
+    expect(g.events.get(bEvent)!.removed).toBe(true);
+    expect(await linkOf(bob.id, meeting.id)).toBeNull();
+    expect(await linkOf(alice.id, meeting.id)).toBeTruthy();
+    // Nor does Sync now bring it back for him.
+    await syncUserNow(org.id, bob.id, deps);
+    expect(await linkOf(bob.id, meeting.id)).toBeNull();
+  });
+
+  it("a policy on meetings under no project keeps them out of that person's Outlook too", async () => {
+    const { org, alice, bob, g, deps, meeting } = await setup();
+    await syncMeeting(org.id, meeting.id, deps);
+    const bEvent = (await linkOf(bob.id, meeting.id))!.externalEventId;
+
+    await denyMeetings(org.id, bob.id, []);
+    expect(await readsMeeting(org.id, bob.id, null)).toBe(false);
+    await pullChanges(org.id, bob.id, deps); // the reconcile pass
+    expect(g.events.get(bEvent)!.removed).toBe(true);
+    expect(await linkOf(bob.id, meeting.id)).toBeNull();
+    expect(await linkOf(alice.id, meeting.id)).toBeTruthy();
+  });
+
   // ── Review fixes: the Cosmos calendar survives reconnects ──────────────────
 
   const calendarPosts = (g: ReturnType<typeof fakeGraph>) => g.calls.filter((c) => c.method === "POST" && c.path === "/me/calendars").length;

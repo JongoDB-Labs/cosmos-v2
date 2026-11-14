@@ -1,3 +1,4 @@
+import type { Visibility } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
@@ -10,6 +11,7 @@ import { memberCanReadInProject } from "@/lib/rbac/require-project-read";
 import type { PermissionKey } from "@/lib/rbac/permissions";
 import { isPmSubjectType, PM_SUBJECT_READ, resolvePmSubject } from "@/lib/pm/subjects";
 import { canReadMeeting } from "@/lib/meetings/meeting-reader";
+import { canReadNote } from "@/lib/notes/access";
 
 export interface CreateNotificationInput {
   orgId: string;
@@ -43,6 +45,8 @@ const isUuid = (v: unknown): v is string =>
  *     belong to;
  *   - a meeting: the meeting pages' own rule (canReadMeeting), for the
  *     meeting's OWN project, looked up here, or none;
+ *   - a note: the note's own rule (canReadNote), for the note as it is
+ *     saved, looked up here;
  *   - anything else that names a project: that project's visibility;
  *   - anything else: nothing to check here ("open").
  * "unknown" is something that should name an item but whose item can't be
@@ -53,6 +57,7 @@ type Subject =
   | { kind: "unknown"; why: string }
   | { kind: "read"; projectId: string; action: PermissionKey }
   | { kind: "meeting"; projectId: string | null }
+  | { kind: "note"; note: { visibility: Visibility; authorId: string } }
   | { kind: "visible"; projectId: string };
 
 async function subjectOf(input: CreateNotificationInput): Promise<Subject> {
@@ -80,6 +85,12 @@ async function subjectOf(input: CreateNotificationInput): Promise<Subject> {
     if (!meeting) return { kind: "unknown", why: "no such meeting in this org" };
     return { kind: "meeting", projectId: meeting.projectId };
   }
+  if (t === "note") {
+    if (!isUuid(input.relatedId)) return { kind: "unknown", why: "no note id" };
+    const note = await prisma.note.findFirst({ where: { id: input.relatedId, orgId: input.orgId }, select: { visibility: true, authorId: true } });
+    if (!note) return { kind: "unknown", why: "no such note in this org" };
+    return { kind: "note", note };
+  }
   if (input.projectId != null) {
     return isUuid(input.projectId) ? { kind: "visible", projectId: input.projectId } : { kind: "unknown", why: "a malformed project id" };
   }
@@ -106,6 +117,7 @@ export async function recipientCanSeeNotification(input: CreateNotificationInput
   if (about.kind === "read") return memberCanReadInProject(input.orgId, input.userId, about.projectId, about.action);
   const ctx = await loadMemberAuthContext(input.orgId, input.userId);
   if (!ctx) return false;
+  if (about.kind === "note") return canReadNote(ctx, about.note);
   return about.kind === "meeting" ? canReadMeeting(ctx, about.projectId) : isProjectVisible(ctx, about.projectId);
 }
 
