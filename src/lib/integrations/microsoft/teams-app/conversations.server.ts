@@ -5,6 +5,7 @@ import { canAdministerProject } from "@/lib/rbac/require-project-manage";
 import { createClassificationResolver } from "@/lib/classification/resolver";
 import { isAllowedServiceUrl, sendToConversation, type ConnectorDeps } from "./bot-connector.server";
 import { teamsOrgsForTenant, teamsUsers, type TeamsOrg } from "./identity.server";
+import { escapeLike } from "@/lib/query/like";
 
 /**
  * COSMOS-202 T2: where the bot may write, as Teams tells us in VERIFIED inbound
@@ -140,7 +141,7 @@ export async function handleChannelMessage(a: InboundActivity, tenantId: string,
   // mapped in, each kept only if canAdministerProject(their own auth) passes
   // below; one they can't administer reads the same as a missing key.
   const candidates = await prisma.project.findMany({
-    where: { orgId: { in: users.map((u) => u.orgId) }, key: { equals: cmd.key, mode: "insensitive" }, archived: false },
+    where: { orgId: { in: users.map((u) => u.orgId) }, key: { equals: escapeLike(cmd.key), mode: "insensitive" }, archived: false },
     select: { id: true, orgId: true, key: true, name: true, teamScopedAccess: true },
   });
   for (const p of candidates) {

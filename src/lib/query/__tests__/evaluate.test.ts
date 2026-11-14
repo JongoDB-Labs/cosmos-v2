@@ -33,6 +33,12 @@ describe("evaluate: values", () => {
     expect(matches({ title: { contains: "50\\%", mode: "insensitive" } }, { title: "Save 500 now" })).toBe(false);
     expect(matches({ title: { startsWith: "a\\_b" } }, { title: "a_bc" })).toBe(true);
   });
+  it("an insensitive equals is ILIKE too: its operand is unescaped, then compared exactly, ignoring case", () => {
+    expect(matches({ k: { equals: "acme\\_2", mode: "insensitive" } }, { k: "ACME_2" })).toBe(true);
+    expect(matches({ k: { equals: "acme\\_2", mode: "insensitive" } }, { k: "ACME-2" })).toBe(false);
+    // Without the mode it is `=`, and the operand is the plain text.
+    expect(matches({ k: { equals: "a_b" } }, { k: "a_b" })).toBe(true);
+  });
   it("instants compare as time, whatever their ISO spelling", () => {
     expect(matches({ d: { gte: "2026-10-20T00:00:00.000Z" } }, { d: "2026-10-19T20:00:00-05:00" })).toBe(true);
     expect(matches({ d: { lt: new Date("2026-10-20T00:00:00Z") } }, { d: "2026-10-19T23:59:59.999Z" })).toBe(true);

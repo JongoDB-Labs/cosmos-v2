@@ -9,6 +9,7 @@ import { createPasswordResetToken } from "@/lib/auth/password-reset";
 import { sendPasswordResetEmail } from "@/lib/integrations/invitation-email";
 import { logAudit } from "@/lib/audit";
 import { maskEmail, truncateForLog } from "@/lib/auth/mask-email";
+import { escapeLike } from "@/lib/query/like";
 
 const schema = z.object({
   email: z.string().email().max(320),
@@ -88,7 +89,7 @@ export async function POST(request: NextRequest) {
       // change that decision.
       const eligible = await prisma.user.findFirst({
         where: {
-          email: { equals: normalized, mode: "insensitive" },
+          email: { equals: escapeLike(normalized), mode: "insensitive" },
           passwordHash: { not: null },
           isBot: false,
           deactivatedAt: null,
@@ -109,7 +110,7 @@ export async function POST(request: NextRequest) {
       const others = eligible
         ? []
         : await prisma.user.findMany({
-            where: { email: { equals: normalized, mode: "insensitive" } },
+            where: { email: { equals: escapeLike(normalized), mode: "insensitive" } },
             select: {
               id: true,
               passwordHash: true,

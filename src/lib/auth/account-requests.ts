@@ -6,6 +6,7 @@ import { maskEmail } from "@/lib/auth/mask-email";
 import { createOrgInvitation } from "@/lib/auth/create-invitation";
 import type { SignInMethod } from "@/lib/auth/invite-credentials";
 import { AccountRequestMode, AccountRequestStatus, OrgRole } from "@prisma/client";
+import { escapeLike } from "@/lib/query/like";
 
 /**
  * Why a request to join an org was or wasn't queued. For the OPERATOR and the
@@ -80,7 +81,7 @@ export async function submitAccountRequest(params: {
   // Someone who is already a member has nothing to ask for. Checked so the
   // queue doesn't fill with people who should be told to sign in instead.
   const existing = await prisma.user.findFirst({
-    where: { email: { equals: email, mode: "insensitive" } },
+    where: { email: { equals: escapeLike(email), mode: "insensitive" } },
     select: { id: true },
   });
   if (existing) {

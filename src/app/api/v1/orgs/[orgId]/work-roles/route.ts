@@ -13,6 +13,7 @@ import { success, created, handleApiError, getIpAddress } from "@/lib/api-helper
 import { logAudit } from "@/lib/audit";
 import { toWorkRoleDto, workRoleCreateSchema } from "@/lib/rbac/work-role";
 import { BUILTIN_KEY_PREFIX } from "@/lib/rbac/builtin-work-roles";
+import { escapeLike } from "@/lib/query/like";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -70,7 +71,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // uniqueness on { orgId, key }. Checked before the escalation guard below
     // so a name clash always reports 409, never masked by a 403.
     const nameClash = await prisma.workRole.findFirst({
-      where: { orgId, name: { equals: data.name, mode: "insensitive" } },
+      where: { orgId, name: { equals: escapeLike(data.name), mode: "insensitive" } },
       select: { id: true },
     });
     if (nameClash) {

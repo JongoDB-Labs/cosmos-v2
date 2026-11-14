@@ -28,6 +28,7 @@ import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { hiddenProjectIds } from "@/lib/rbac/project-access";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { normalizeRange } from "./time";
+import { escapeLike } from "@/lib/query/like";
 
 /** Mirrors `ProgramEvent.timeZone`'s column default (and the service's own
  *  fallback) — an event with no zone is assumed to be in the program's. */
@@ -535,7 +536,7 @@ async function categoryIdFor(
   if (cached) return cached;
 
   const found = await prisma.eventCategory.findFirst({
-    where: { orgId, name: { equals: name, mode: "insensitive" } },
+    where: { orgId, name: { equals: escapeLike(name), mode: "insensitive" } },
     select: { id: true, archivedAt: true },
   });
   if (found && !found.archivedAt) {

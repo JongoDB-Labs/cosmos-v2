@@ -14,6 +14,7 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { toWorkRoleDto, workRoleUpdateSchema } from "@/lib/rbac/work-role";
 import { Prisma } from "@prisma/client";
+import { escapeLike } from "@/lib/query/like";
 
 type RouteParams = { params: Promise<{ orgId: string; roleId: string }> };
 
@@ -81,7 +82,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       // must not become a bypass. Excludes the role's own row so re-saving
       // your own name (or just its casing) isn't a false clash.
       const nameClash = await prisma.workRole.findFirst({
-        where: { orgId, name: { equals: data.name, mode: "insensitive" }, id: { not: roleId } },
+        where: { orgId, name: { equals: escapeLike(data.name), mode: "insensitive" }, id: { not: roleId } },
         select: { id: true },
       });
       if (nameClash) {

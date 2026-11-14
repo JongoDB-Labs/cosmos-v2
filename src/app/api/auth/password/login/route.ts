@@ -16,6 +16,7 @@ import {
 import { sealSecret } from "@/lib/crypto/vault";
 import { rateLimit } from "@/lib/rate-limit/bucket";
 import { getIpAddress } from "@/lib/api-helpers";
+import { escapeLike } from "@/lib/query/like";
 
 const MFA_PENDING_TTL = 300; // 5 minutes to complete the second factor
 
@@ -43,10 +44,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid email or password." }, { status: 400 });
   }
   const { email, password } = parsed.data;
+  // The one spelling of the address both the brake and the lookup use, so the
+  // brake counts exactly the attempts made against the account found below.
+  const address = email.trim().toLowerCase();
 
   // Per-account brake (in addition to per-IP) so password spraying across many
   // accounts — or a spoofed X-Forwarded-For rotating the IP key — still throttles.
-  const acctRl = rateLimit(`pwlogin:acct:${email.trim().toLowerCase()}`, {
+  const acctRl = rateLimit(`pwlogin:acct:${address}`, {
     capacity: 5,
     refillPerSecond: 0.1,
   });
@@ -59,7 +63,7 @@ export async function POST(request: NextRequest) {
 
   const user = await prisma.user.findFirst({
     where: {
-      email: { equals: email.trim(), mode: "insensitive" },
+      email: { equals: escapeLike(address), mode: "insensitive" },
       passwordHash: { not: null },
       isBot: false,
     },

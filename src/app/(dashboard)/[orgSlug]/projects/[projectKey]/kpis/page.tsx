@@ -3,6 +3,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { KpisDashboard } from "@/components/kpis/kpis-dashboard";
+import { escapeLike } from "@/lib/query/like";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
@@ -15,7 +16,7 @@ export default async function KPIsPage({ params }: PageParams) {
   const project = await prisma.project.findFirst({
     where: {
       orgId: ctx.orgId,
-      key: { equals: projectKey, mode: "insensitive" },
+      key: { equals: escapeLike(projectKey), mode: "insensitive" },
       archived: false,
     },
     select: { id: true },

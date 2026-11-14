@@ -3,6 +3,7 @@ import type { AuthContext } from "@/lib/rbac/check";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { getReadableProjectIds } from "./scope";
 import { runWorkItemQuery, type IssueRow } from "./project";
+import { escapeLike } from "@/lib/query/like";
 
 /**
  * One work item, by key ("ACME-12") or id, if `auth` may read it: the item-read
@@ -21,7 +22,7 @@ export async function findReadableWorkItem(auth: AuthContext, orgId: string, ref
     // Same rule as the item deep link: a key only within readable projects,
     // and an ambiguous one (two readable projects with that key) not at all.
     const projects = await prisma.project.findMany({
-      where: { orgId, id: { in: readable }, key: { equals: key[1], mode: "insensitive" } },
+      where: { orgId, id: { in: readable }, key: { equals: escapeLike(key[1]), mode: "insensitive" } },
       select: { id: true },
       take: 2,
     });
