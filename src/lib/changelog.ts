@@ -79,11 +79,15 @@ const RELEASES: Release[] = [
       },
       {
         kind: "fix",
-        text: "A project's manager can now change its sprints through Cosmo, as they already could in the app.",
+        text: "A project's manager can now change and complete its sprints through Cosmo, as they already could in the app.",
       },
       {
         kind: "fix",
-        text: "Access rules on notes now apply to Cosmo too. A person your admin has barred from editing a note can't edit it or share it through Cosmo either.",
+        text: "Access rules on notes now apply to Cosmo too. A person your admin has barred from editing or deleting a note can't edit it, share it or delete it through Cosmo either.",
+      },
+      {
+        kind: "fix",
+        text: "Access rules on changing or completing a sprint now apply on the sprint pages and through Cosmo alike. The sprint pages used to ignore them.",
       },
     ],
   },

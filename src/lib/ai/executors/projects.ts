@@ -340,16 +340,20 @@ export async function updateInterval(input: Record<string, unknown>, ctx: ToolCo
 
   const existing = await prisma.interval.findFirst({
     where: { id: data.intervalId, orgId: ctx.orgId, projectId: data.projectId },
-    select: { id: true, projectId: true, intervalKind: true, parentId: true },
+    select: { id: true, orgId: true, projectId: true, intervalKind: true, parentId: true },
   });
   if (!existing) return { error: "Interval not found" };
+  // The caller, for the access rules on the action. assertProjectManage above
+  // already refused one with no auth context, so this is never null here.
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Project not found" };
 
   // The PUT route's own rules, through the same function: nesting, a PI is
   // never started by hand, one running sprint (a PI is not a competitor), a PI
   // completes only after its sprints, and starting a sprint starts its PI.
   let updated;
   try {
-    updated = await writeIntervalChange(existing, data, () =>
+    updated = await writeIntervalChange({ auth, action: "SPRINT_UPDATE" }, existing, data, () =>
       prisma.interval.update({
         where: { id: existing.id },
         data: {
@@ -379,32 +383,36 @@ const completeIntervalSchema = z.object({
 });
 
 export async function completeInterval(input: Record<string, unknown>, ctx: ToolContext) {
-  const denied = await assertPermission(ctx, Permission.SPRINT_COMPLETE);
-  if (denied) return denied;
-
   const parsed = completeIntervalSchema.safeParse(input);
   if (!parsed.success) {
     return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
   }
   const data = parsed.data;
 
+  // The complete route's own gate, in its order: the project is visible, then
+  // requireProjectManage with SPRINT_COMPLETE (the org-wide bit, or MANAGER of
+  // this project). Asking for the bit alone refused a project's own manager
+  // here while the app let them in. Before the row is read, so a refusal says
+  // nothing about which intervals exist.
+  const refused = await assertProjectManage(ctx, data.projectId, Permission.SPRINT_COMPLETE);
+  if (refused) return refused;
+
   const interval = await prisma.interval.findFirst({
     where: { id: data.intervalId, orgId: ctx.orgId, projectId: data.projectId },
     include: { workItems: true },
   });
   if (!interval) return { error: "Interval not found" };
-
-  // Completing an interval rolls incomplete work forward — a write on the
-  // project's plan. The org check above only proves the interval exists.
-  const outOfScope = await assertProjectRead(ctx, interval.projectId, "SPRINT_COMPLETE");
-  if (outOfScope) return { error: "Interval not found" };
   if (interval.status !== "ACTIVE") return { error: "Only active intervals can be completed" };
+  // The caller, for the access rules on the action. assertProjectManage above
+  // already refused one with no auth context, so this is never null here.
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Project not found" };
 
   // The Program Increment rules, through the same function as both routes: a
   // PI completes only once every interval inside it has.
   let completed;
   try {
-    completed = await writeIntervalChange(interval, { status: "COMPLETED" }, () => prisma.$transaction(async (tx) => {
+    completed = await writeIntervalChange({ auth, action: "SPRINT_COMPLETE" }, interval, { status: "COMPLETED" }, () => prisma.$transaction(async (tx) => {
       const items = interval.workItems;
       // The same report the Complete button records: done is the status's
       // CATEGORY, and the carried ids are kept for the review board.

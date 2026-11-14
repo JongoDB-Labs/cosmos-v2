@@ -7,8 +7,11 @@
 // asked only for the NOTE_UPDATE bit, so the same rule never reached it.
 //
 // The rule here is a member's own deny on their own notes (createdById is
-// them). MEMBER holds NOTE_UPDATE, so only the rule stands in the way, and a
-// second member without it is the control on every door.
+// them), for editing and for deleting. MEMBER holds NOTE_UPDATE, and both
+// members here are granted NOTE_DELETE on top (MEMBER lacks it), so only the
+// rule stands in the way, and a second member without it is the control on
+// every door. DELETE /notes/{noteId} asks
+// `requireAccess(ctx, "NOTE_DELETE", { createdById })` the same way.
 //
 // Own org and own users; the seeded ones are never touched.
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
@@ -22,9 +25,10 @@ vi.mock("@/lib/rag/embed", () => ({ storeEmbedding: vi.fn().mockResolvedValue(un
 
 import { prisma } from "@/lib/db/client";
 import { memberToolCtx } from "@/lib/testing/tool-auth";
+import { Permission, maskToDb } from "@/lib/rbac/permissions";
 import type { ToolContext } from "./_ctx";
-import { shareNote, updateNote } from "./notes";
-import { PUT as noteRoute } from "@/app/api/v1/orgs/[orgId]/notes/[noteId]/route";
+import { deleteNote, shareNote, updateNote } from "./notes";
+import { DELETE as noteDeleteRoute, PUT as noteRoute } from "@/app/api/v1/orgs/[orgId]/notes/[noteId]/route";
 
 const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const userIds: string[] = [];
@@ -41,6 +45,18 @@ async function noteBy(actor: ToolContext, visibility: Visibility) {
 
 const read = (id: string) =>
   prisma.note.findUniqueOrThrow({ where: { id }, select: { title: true, visibility: true } });
+
+async function routeDelete(actor: ToolContext, noteId: string) {
+  getAuthContext.mockResolvedValue(actor.auth);
+  const res = await noteDeleteRoute(new NextRequest("http://localhost/x", { method: "DELETE" }), {
+    params: Promise.resolve({ orgId, noteId }),
+  } as never);
+  if (res.status === 204) return { status: 204 };
+  const answer = (await res.json()) as { error?: string; detail?: string };
+  return { status: res.status, error: answer.error ?? answer.detail };
+}
+
+const exists = async (id: string) => (await prisma.note.count({ where: { id } })) === 1;
 
 async function routeStatus(actor: ToolContext, noteId: string, body: Record<string, unknown>) {
   getAuthContext.mockResolvedValue(actor.auth);
@@ -59,11 +75,13 @@ beforeAll(async () => {
   const member = async (name: string, rules?: (userId: string) => object[]) => {
     const u = await prisma.user.create({ data: { email: `${name}-${stamp}@example.com`, displayName: name } });
     userIds.push(u.id);
-    await prisma.orgMember.create({ data: { orgId, userId: u.id, role: "MEMBER", ...(rules ? { abacRules: rules(u.id) } : {}) } });
+    await prisma.orgMember.create({
+      data: { orgId, userId: u.id, role: "MEMBER", permissions: maskToDb(Permission.NOTE_DELETE), ...(rules ? { abacRules: rules(u.id) } : {}) },
+    });
     return memberToolCtx(orgId, u.id);
   };
   restricted = await member("restricted", (self) => [
-    { effect: "deny", actions: ["NOTE_UPDATE"], conditions: [{ attr: "createdById", op: "eq", value: self }] },
+    { effect: "deny", actions: ["NOTE_UPDATE", "NOTE_DELETE"], conditions: [{ attr: "createdById", op: "eq", value: self }] },
   ]);
   control = await member("control");
 }, 120_000);
@@ -74,11 +92,15 @@ afterAll(async () => {
 });
 
 describe("an access rule over a note binds Cosmo as it binds the app", () => {
-  it("the fixture is what it claims: both hold the bit, one carries the rule", () => {
+  it("the fixture is what it claims: both hold the bits, one carries the rule", () => {
     expect(restricted.auth).toBeDefined();
     expect(control.auth).toBeDefined();
     expect(restricted.auth!.abacRules).toHaveLength(1);
     expect(control.auth!.abacRules).toHaveLength(0);
+    for (const who of [restricted, control]) {
+      expect(who.auth!.permissions & Permission.NOTE_UPDATE).toBe(Permission.NOTE_UPDATE);
+      expect(who.auth!.permissions & Permission.NOTE_DELETE).toBe(Permission.NOTE_DELETE);
+    }
   });
 
   it("the route refuses the restricted member and lets the control through", async () => {
@@ -118,5 +140,25 @@ describe("an access rule over a note binds Cosmo as it binds the app", () => {
     const theirs = await noteBy(control, "PRIVATE");
     expect(await shareNote({ noteId: theirs, visibility: "ORG" }, control)).toMatchObject({ updated: true, visibility: "ORG" });
     expect((await read(theirs)).visibility).toBe("ORG");
+  });
+
+  it("the delete route refuses the restricted member and deletes the control's note", async () => {
+    const mine = await noteBy(restricted, "PRIVATE");
+    expect(await routeDelete(restricted, mine)).toEqual({ status: 403, error: "Access denied by policy" });
+    expect(await exists(mine)).toBe(true);
+
+    const theirs = await noteBy(control, "PRIVATE");
+    expect(await routeDelete(control, theirs)).toEqual({ status: 204 });
+    expect(await exists(theirs)).toBe(false);
+  });
+
+  it("delete_note refuses the restricted member, and deletes the control's note", async () => {
+    const mine = await noteBy(restricted, "PRIVATE");
+    expect(await deleteNote({ noteId: mine }, restricted)).toEqual({ error: "Access denied by policy" });
+    expect(await exists(mine)).toBe(true);
+
+    const theirs = await noteBy(control, "PRIVATE");
+    expect(await deleteNote({ noteId: theirs }, control)).toMatchObject({ deleted: true, id: theirs });
+    expect(await exists(theirs)).toBe(false);
   });
 });

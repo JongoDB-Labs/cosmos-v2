@@ -1,5 +1,7 @@
 import type { IntervalKind, SprintStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
+import { requirePolicy } from "@/lib/abac/require-access";
+import type { AuthContext } from "@/lib/rbac/check";
 import { ProblemError } from "@/lib/openapi/problem";
 import {
   activationBlocker,
@@ -34,12 +36,23 @@ import {
  * Refuses with a `ProblemError` carrying the route's status and words, so the
  * route's `handleApiError` answers exactly as before and a tool folds it with
  * `serviceRefusal`.
+ *
+ * `actor` is who is acting and which action the door is: SPRINT_UPDATE for a
+ * change, SPRINT_COMPLETE for a completion. Whether they may act at all is
+ * the door's own gate (`requireProjectManage`, before the row is read); here
+ * the access rules on that action apply, against this interval, the same on
+ * every door. A conditional restriction once bound the agent only, then
+ * neither door; it binds all four now.
  */
 export async function writeIntervalChange<T>(
-  existing: { id: string; projectId: string; intervalKind: IntervalKind; parentId: string | null },
+  actor: { auth: AuthContext; action: "SPRINT_UPDATE" | "SPRINT_COMPLETE" },
+  existing: { id: string; orgId: string; projectId: string; intervalKind: IntervalKind; parentId: string | null },
   change: { status?: SprintStatus; parentId?: string | null },
   write: () => Promise<T>,
 ): Promise<T> {
+  // Throws ForbiddenError, which both handleApiError and serviceRefusal answer.
+  await requirePolicy(actor.auth, actor.action, { orgId: existing.orgId, projectId: existing.projectId });
+
   // A re-parent: the target must be a PROGRAM_INCREMENT in this project, an
   // interval can't be its own parent, and a PI is always top-level.
   if (change.parentId !== undefined && change.parentId !== null) {

@@ -127,6 +127,9 @@ const AUTHORIZES_AFTER_PARSE = new Set([
   // project manager without the bit, and a member who doesn't manage the
   // project, through both the route and the tool.
   "update_interval",
+  // And completing: the complete route's requireProjectManage with
+  // SPRINT_COMPLETE, through assertProjectManage. Same behavioural cover.
+  "complete_interval",
 ]);
 
 /**

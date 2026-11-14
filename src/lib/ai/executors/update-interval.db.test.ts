@@ -280,15 +280,23 @@ describe.each(COMPLETE_DOORS)("completing an interval through %s", (_door, compl
   });
 });
 
-// Who may change a sprint. The route asks requireProjectManage: the org-wide
-// SPRINT_UPDATE bit, or MANAGER of this project. The agent asked for the bit
-// alone, so a project manager without it (an ordinary MEMBER) could rename
-// their own sprint in the app and not through Cosmo.
-describe("who may change a sprint", () => {
+// Who may change or complete a sprint. Both routes ask requireProjectManage:
+// the org-wide bit (SPRINT_UPDATE, SPRINT_COMPLETE), or MANAGER of this
+// project. The agent asked for the bit alone, so a project manager without it
+// (an ordinary MEMBER) could rename or complete their own sprint in the app and
+// not through Cosmo.
+//
+// And an access rule on the action binds both doors. `restricted` manages the
+// project but carries a deny on both actions WHERE projectId is this project;
+// `elsewhere` carries the same deny for another project, so its condition is
+// false here and only it shows the rule is read rather than applied blindly.
+describe("who may change or complete a sprint", () => {
   let projectId = "";
   let sprintId = "";
   let manager: ToolContext;
   let member: ToolContext;
+  let restricted: ToolContext;
+  let elsewhere: ToolContext;
 
   beforeAll(async () => {
     projectId = (await prisma.project.create({ data: { orgId, name: "Gate", key: `GT${k}` } })).id;
@@ -298,15 +306,20 @@ describe("who may change a sprint", () => {
           startDate: new Date("2026-07-01"), endDate: new Date("2026-07-14") },
       })
     ).id;
-    const join = async (name: string, projectRole: "MANAGER" | "MEMBER") => {
+    const join = async (name: string, projectRole: "MANAGER" | "MEMBER", denyOn?: string) => {
       const u = await prisma.user.create({ data: { email: `${name}-${stamp}@example.com`, displayName: name } });
       userIds.push(u.id);
-      const om = await prisma.orgMember.create({ data: { orgId, userId: u.id, role: "MEMBER" } });
+      const abacRules = denyOn
+        ? [{ effect: "deny", actions: ["SPRINT_UPDATE", "SPRINT_COMPLETE"], conditions: [{ attr: "projectId", op: "eq", value: denyOn }] }]
+        : undefined;
+      const om = await prisma.orgMember.create({ data: { orgId, userId: u.id, role: "MEMBER", ...(abacRules ? { abacRules } : {}) } });
       await prisma.projectMember.create({ data: { projectId, orgMemberId: om.id, role: projectRole } });
       return memberToolCtx(orgId, u.id);
     };
     manager = await join("pm", "MANAGER");
     member = await join("dev", "MEMBER");
+    restricted = await join("pm-restricted", "MANAGER", projectId);
+    elsewhere = await join("pm-elsewhere", "MANAGER", "00000000-0000-4000-8000-00000000e15e");
   }, 120_000);
 
   const nameOf = async () => (await prisma.interval.findUniqueOrThrow({ where: { id: sprintId }, select: { name: true } })).name;
@@ -322,13 +335,15 @@ describe("who may change a sprint", () => {
   const agentSays = async (who: ToolContext, name: string) =>
     (await updateInterval({ projectId, intervalId: sprintId, name }, who)) as { error?: string; updated?: boolean };
 
-  it("the fixture is what it claims: neither holds the org-wide bit", () => {
-    expect(manager.auth).toBeDefined();
-    expect(member.auth).toBeDefined();
-    expect(manager.auth!.orgRole).toBe("MEMBER");
-    expect(member.auth!.orgRole).toBe("MEMBER");
-    expect(manager.auth!.permissions & Permission.SPRINT_UPDATE).toBe(0n);
-    expect(member.auth!.permissions & Permission.SPRINT_UPDATE).toBe(0n);
+  it("the fixture is what it claims: none holds the org-wide bits, two carry a rule", () => {
+    for (const who of [manager, member, restricted, elsewhere]) {
+      expect(who.auth).toBeDefined();
+      expect(who.auth!.orgRole).toBe("MEMBER");
+      expect(who.auth!.permissions & (Permission.SPRINT_UPDATE | Permission.SPRINT_COMPLETE)).toBe(0n);
+    }
+    expect(restricted.auth!.abacRules).toHaveLength(1);
+    expect(elsewhere.auth!.abacRules).toHaveLength(1);
+    expect(manager.auth!.abacRules).toHaveLength(0);
   });
 
   it("refuses a project member who doesn't manage the project, through both", async () => {
@@ -342,5 +357,74 @@ describe("who may change a sprint", () => {
     expect(await nameOf()).toBe("renamed by the route");
     expect(await agentSays(manager, "renamed by the agent")).toMatchObject({ updated: true });
     expect(await nameOf()).toBe("renamed by the agent");
+  });
+
+  it("refuses a manager under a SPRINT_UPDATE deny for this project, through both", async () => {
+    const before = await nameOf();
+    expect(await routeStatus(restricted, "by the route")).toBe(403);
+    expect(await agentSays(restricted, "by the agent")).toEqual({ error: "Access denied by policy" });
+    expect(await nameOf()).toBe(before);
+  });
+
+  it("lets a manager whose deny names another project change it, through both", async () => {
+    expect(await routeStatus(elsewhere, "renamed elsewhere by the route")).toBe(200);
+    expect(await nameOf()).toBe("renamed elsewhere by the route");
+    expect(await agentSays(elsewhere, "renamed elsewhere by the agent")).toMatchObject({ updated: true });
+    expect(await nameOf()).toBe("renamed elsewhere by the agent");
+  });
+
+  // Completing, the same four people through the two complete doors. Each
+  // attempt gets its own ACTIVE sprint, since a completed one can't complete again.
+  let sprints = 0;
+  async function activeSprint() {
+    sprints += 1;
+    return (
+      await prisma.interval.create({
+        data: { orgId, projectId, number: 100 + sprints, name: `Run ${sprints}`, intervalKind: "SPRINT", status: "ACTIVE",
+          startDate: new Date("2026-08-01"), endDate: new Date("2026-08-14") },
+      })
+    ).id;
+  }
+  async function completeStatus(who: ToolContext, intervalId: string) {
+    getAuthContext.mockResolvedValue(who.auth);
+    const res = await completeRoute(
+      new NextRequest("http://localhost/x", { method: "POST", body: "{}", headers: { "Content-Type": "application/json" } }),
+      { params: Promise.resolve({ orgId, projectId, intervalId }) } as never,
+    );
+    return res.status;
+  }
+  const agentCompletes = async (who: ToolContext, intervalId: string) =>
+    (await completeInterval({ projectId, intervalId }, who)) as { error?: string; completed?: boolean };
+
+  it("lets the project's manager complete a sprint, through both", async () => {
+    const a = await activeSprint();
+    expect(await completeStatus(manager, a)).toBe(200);
+    expect(await statusOf(a)).toBe("COMPLETED");
+    const b = await activeSprint();
+    expect(await agentCompletes(manager, b)).toMatchObject({ completed: true });
+    expect(await statusOf(b)).toBe("COMPLETED");
+  });
+
+  it("refuses a project member who doesn't manage the project a completion, through both", async () => {
+    const a = await activeSprint();
+    expect(await completeStatus(member, a)).toBe(403);
+    expect(await agentCompletes(member, a)).toEqual({ error: "You do not have permission to change this project" });
+    expect(await statusOf(a)).toBe("ACTIVE");
+  });
+
+  it("refuses a manager under a SPRINT_COMPLETE deny for this project, through both", async () => {
+    const a = await activeSprint();
+    expect(await completeStatus(restricted, a)).toBe(403);
+    expect(await agentCompletes(restricted, a)).toEqual({ error: "Access denied by policy" });
+    expect(await statusOf(a)).toBe("ACTIVE");
+  });
+
+  it("lets a manager whose deny names another project complete a sprint, through both", async () => {
+    const a = await activeSprint();
+    expect(await completeStatus(elsewhere, a)).toBe(200);
+    expect(await statusOf(a)).toBe("COMPLETED");
+    const b = await activeSprint();
+    expect(await agentCompletes(elsewhere, b)).toMatchObject({ completed: true });
+    expect(await statusOf(b)).toBe("COMPLETED");
   });
 });

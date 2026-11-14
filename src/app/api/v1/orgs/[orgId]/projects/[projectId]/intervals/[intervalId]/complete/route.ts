@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
@@ -57,7 +56,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // The Program Increment rules, through the same function as PUT and the
     // agent: a PI completes only once every interval inside it has.
-    const completed = await writeIntervalChange(interval, { status: "COMPLETED" }, () => prisma.$transaction(async (tx) => {
+    const completed = await writeIntervalChange({ auth: ctx, action: "SPRINT_COMPLETE" }, interval, { status: "COMPLETED" }, () => prisma.$transaction(async (tx) => {
       const items = interval.workItems;
       // Done is the status's CATEGORY, so a team-named done lane counts.
       const statuses = await loadStatusCategories(tx, projectId);

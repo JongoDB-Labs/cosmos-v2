@@ -188,8 +188,9 @@ describe("projects + intervals executors (e2e DB)", () => {
     expect(await updateInterval({ projectId: NON_MEMBER, intervalId: NON_MEMBER }, denyCtx)).toEqual({
       error: "Project not found",
     });
+    // So does complete_interval (the complete route's gate, the same way).
     expect(await completeInterval({ projectId: NON_MEMBER, intervalId: NON_MEMBER }, denyCtx)).toEqual({
-      error: "Insufficient permissions",
+      error: "Project not found",
     });
   });
 });

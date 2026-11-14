@@ -169,16 +169,21 @@ export async function createNote(
 }
 
 /**
- * PUT /notes/{id}'s own gate over one note: NOTE_UPDATE through `requireAccess`,
- * with the note's author as `createdById`. That is what lets an access rule
- * over the note bind (a member barred from editing their own notes, say). The
- * agent asked only for the bit, so no such rule ever reached it.
+ * The note routes' own gate over one note: `requireAccess` with the action
+ * (NOTE_UPDATE for PUT, NOTE_DELETE for DELETE) and the note's author as
+ * `createdById`. That is what lets an access rule over the note bind (a member
+ * barred from editing or deleting their own notes, say). The agent asked only
+ * for the bit, so no such rule ever reached it.
  */
-async function noteUpdateRefusal(ctx: ToolContext, authorId: string): Promise<{ error: string } | null> {
+async function noteAccessRefusal(
+  ctx: ToolContext,
+  action: "NOTE_UPDATE" | "NOTE_DELETE",
+  authorId: string,
+): Promise<{ error: string } | null> {
   const auth = await loadAuthContext(ctx);
   if (!auth) return { error: "Insufficient permissions" };
   try {
-    await requireAccess(auth, "NOTE_UPDATE", { createdById: authorId });
+    await requireAccess(auth, action, { createdById: authorId });
     return null;
   } catch (e) {
     const refusal = serviceRefusal(e);
@@ -204,7 +209,7 @@ export async function updateNote(
     where: { id: data.noteId, orgId: ctx.orgId },
   });
   if (!existing) return { error: "Note not found" };
-  const ruled = await noteUpdateRefusal(ctx, existing.authorId);
+  const ruled = await noteAccessRefusal(ctx, "NOTE_UPDATE", existing.authorId);
   if (ruled) return ruled;
   if (existing.authorId !== ctx.userId) {
     return { error: "Only the author can update this note" };
@@ -258,7 +263,7 @@ export async function shareNote(
 
   const existing = await prisma.note.findFirst({ where: { id: noteId, orgId: ctx.orgId } });
   if (!existing) return { error: "Note not found" };
-  const ruled = await noteUpdateRefusal(ctx, existing.authorId);
+  const ruled = await noteAccessRefusal(ctx, "NOTE_UPDATE", existing.authorId);
   if (ruled) return ruled;
   if (existing.authorId !== ctx.userId) {
     return { error: "Only the author can change who sees this note" };
@@ -284,6 +289,8 @@ export async function deleteNote(
     where: { id: parsed.data.noteId, orgId: ctx.orgId },
   });
   if (!existing) return { error: "Note not found" };
+  const ruled = await noteAccessRefusal(ctx, "NOTE_DELETE", existing.authorId);
+  if (ruled) return ruled;
 
   if (existing.authorId !== ctx.userId) {
     const actor = await loadAuthContext(ctx);

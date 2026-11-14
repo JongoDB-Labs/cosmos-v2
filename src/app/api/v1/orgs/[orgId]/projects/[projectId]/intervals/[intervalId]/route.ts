@@ -63,7 +63,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // The Program Increment rules (nesting, a PI is never started by hand, one
     // running sprint, a PI completes after its sprints) and the PI a started
     // sprint starts: one function, which Cosmo's update_interval calls too.
-    const updated = await writeIntervalChange(existing, data, () =>
+    const updated = await writeIntervalChange({ auth: ctx, action: "SPRINT_UPDATE" }, existing, data, () =>
       prisma.interval.update({
         where: { id: intervalId },
         data: {
