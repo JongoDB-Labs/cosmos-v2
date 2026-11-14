@@ -70,6 +70,16 @@ describe("every chat handler applies the project rule for channels", () => {
     expect(all.filter((h) => APPLIES_RULE.test(h.code)).length).toBeGreaterThan(20);
   });
 
+  it("finds a handler in every chat route file", () => {
+    // The scan reads `export async function GET(`; a handler written another
+    // way (`export const GET = async …`) would be skipped, not failed.
+    const empty = routeFiles(ROOT).filter((file) => {
+      const src = readFileSync(file, "utf8");
+      return !METHODS.some((method) => handlerCode(src, method, file));
+    });
+    expect(empty.map((f) => f.slice(ROOT.length + 1))).toEqual([]);
+  });
+
   it("each one calls a shared form of the rule, or is exempt by name with a reason", () => {
     const missing = all.filter((h) => !APPLIES_RULE.test(h.code) && !(h.key in EXEMPT)).map((h) => h.key);
     expect(missing).toEqual([]);

@@ -25,6 +25,10 @@ vi.mock("@/lib/ai/agent-loop", () => ({
     return { text: "NO_GROUNDED_ANSWER", transcript: "" };
   },
 }));
+// An attachment's bytes: any will do, the test is whether they're served.
+vi.mock("@/lib/storage", () => ({
+  getStorage: () => ({ stream: async () => new Blob(["file"]).stream(), delete: async () => undefined }),
+}));
 vi.mock("@/lib/chat/ensure-bots", () => {
   const bot = (id: string) => ({ user: { id }, toolScope: "READONLY", persona: "", model: "sonnet" });
   return {
@@ -39,12 +43,14 @@ vi.mock("@/lib/chat/ensure-bots", () => {
 
 import { GET as listChannels } from "./channels/route";
 import { GET as browse } from "./channels/browse/route";
-import { GET as channelDetail } from "./channels/[channelId]/route";
+import { GET as channelDetail, PATCH as editChannel } from "./channels/[channelId]/route";
 import { GET as messages, POST as postMessage } from "./channels/[channelId]/messages/route";
 import { GET as replies } from "./channels/[channelId]/messages/[messageId]/replies/route";
 import { GET as pins, POST as pin } from "./channels/[channelId]/pins/route";
+import { DELETE as unpin } from "./channels/[channelId]/pins/[messageId]/route";
 import { GET as readState } from "./channels/[channelId]/read-state/route";
-import { GET as roster } from "./channels/[channelId]/members/route";
+import { GET as roster, POST as addMembers } from "./channels/[channelId]/members/route";
+import { DELETE as removeMember } from "./channels/[channelId]/members/[userId]/route";
 import { POST as join } from "./channels/[channelId]/join/route";
 import { POST as markRead } from "./channels/[channelId]/read/route";
 import { POST as typing } from "./channels/[channelId]/typing/route";
@@ -53,6 +59,7 @@ import { PATCH as editMessage, DELETE as deleteMessage } from "./messages/[messa
 import { POST as react } from "./messages/[messageId]/reactions/route";
 import { DELETE as unreact } from "./messages/[messageId]/reactions/[emoji]/route";
 import { GET as search } from "./search/route";
+import { GET as attachment } from "./attachments/[attachmentId]/route";
 import { resolveBacklinks } from "@/lib/mentions/registry.server";
 import { runChatBot } from "@/lib/chat/bot-runner";
 import { fanOutChatMessage } from "@/lib/chat/notifications";
@@ -63,7 +70,7 @@ const as = (f: unknown) => f as Handler;
 const stamp = Math.random().toString(36).slice(2, 8);
 let orgId = "", orgSlug = "", secId = "", openId = "";
 let secChan = "", openChan = "", plainChan = "";
-let secMsg = "", lapsedMsg = "";
+let secMsg = "", lapsedMsg = "", secAtt = "";
 // insider: in the project and the channel. lapsed: in the channel, not the
 // project (joined before the project was limited, or left its team). outsider:
 // in neither. joiner: in the project, not yet the channel. admin: an org ADMIN
@@ -125,6 +132,10 @@ beforeAll(async () => {
   });
   secMsg = (await prisma.chatMessage.create({ data: { channelId: secChan, authorId: u.insider, content: `secret${stamp} plans` } })).id;
   lapsedMsg = (await prisma.chatMessage.create({ data: { channelId: secChan, authorId: u.lapsed, content: `written before ${stamp}` } })).id;
+  secAtt = (await prisma.chatMessageAttachment.create({
+    data: { messageId: secMsg, kind: "file", url: "", storageKey: `k-${stamp}`, filename: "plan.txt", contentType: "text/plain", size: 4, uploadedById: u.insider },
+  })).id;
+  await prisma.chatPinnedMessage.create({ data: { channelId: secChan, messageId: secMsg, pinnedById: u.insider } });
   await prisma.chatMessage.create({ data: { channelId: plainChan, authorId: u.insider, content: `plain${stamp} lunch` } });
 });
 
@@ -205,6 +216,7 @@ const READS: [string, Handler, () => Record<string, string>][] = [
   ["read its pins", as(pins), () => ({ channelId: secChan })],
   ["read its read state", as(readState), () => ({ channelId: secChan })],
   ["list its members", as(roster), () => ({ channelId: secChan })],
+  ["fetch an attachment", as(attachment), () => ({ attachmentId: secAtt })],
 ];
 
 describe("reading a team-scoped project's channel", () => {
@@ -251,7 +263,15 @@ describe("writing to a team-scoped project's channel", () => {
     ["remove a reaction", () => ["lapsed", as(unreact), { messageId: secMsg, emoji: "+1" }, { method: "DELETE" }]],
     ["edit their own message", () => ["lapsed", as(editMessage), { messageId: lapsedMsg }, { method: "PATCH", body: { content: "edited" } }]],
     ["delete their own message", () => ["lapsed", as(deleteMessage), { messageId: lapsedMsg }, { method: "DELETE" }]],
+    // As the channel's ADMIN, which they still are.
+    ["change its topic", () => ["lapsed", as(editChannel), { channelId: secChan }, { method: "PATCH", body: { topic: "mine now" } }]],
+    ["add a member", () => ["lapsed", as(addMembers), { channelId: secChan }, { method: "POST", body: { userIds: [u.outsider] } }]],
+    ["remove a member", () => ["lapsed", as(removeMember), { channelId: secChan, userId: u.watcher }, { method: "DELETE" }]],
+    ["unpin a message", () => ["lapsed", as(unpin), { channelId: secChan, messageId: secMsg }, { method: "DELETE" }]],
   ];
+  const startingMembers = () => [u.insider, u.lapsed, u.watcher, u.mover].sort();
+  const membersOf = async (channelId: string) =>
+    (await prisma.chatChannelMember.findMany({ where: { channelId }, select: { userId: true } })).map((m) => m.userId).sort();
 
   it.each(WRITES)("a member of the channel who can't see the project may not %s", async (_n, args) => {
     expect(await statusOf(...args())).toBe(404);
@@ -262,9 +282,31 @@ describe("writing to a team-scoped project's channel", () => {
     const mine = await prisma.chatMessage.findUniqueOrThrow({ where: { id: lapsedMsg } });
     expect(mine.content).toBe(`written before ${stamp}`);
     expect(mine.deletedAt).toBeNull();
-    expect(await prisma.chatPinnedMessage.count({ where: { channelId: secChan } })).toBe(0);
+    // The insider's pin, from the start.
+    expect(await prisma.chatPinnedMessage.count({ where: { channelId: secChan } })).toBe(1);
     expect(await prisma.chatMessageReaction.count({ where: { messageId: secMsg } })).toBe(0);
     expect((await prisma.chatChannel.findUniqueOrThrow({ where: { id: secChan } })).topic).toBeNull();
+    expect(await membersOf(secChan)).toEqual(startingMembers());
+  });
+
+  it("a channel admin who can see the project changes its topic, adds and removes a member and unpins (positive control)", async () => {
+    try {
+      expect(await statusOf("insider", as(editChannel), { channelId: secChan }, { method: "PATCH", body: { topic: "ours" } })).toBe(200);
+      expect(await statusOf("insider", as(addMembers), { channelId: secChan }, { method: "POST", body: { userIds: [u.outsider] } })).toBe(200);
+      expect(await membersOf(secChan)).toContain(u.outsider);
+      expect(await statusOf("insider", as(removeMember), { channelId: secChan, userId: u.outsider }, { method: "DELETE" })).toBe(204);
+      expect(await statusOf("insider", as(unpin), { channelId: secChan, messageId: secMsg }, { method: "DELETE" })).toBe(204);
+      expect(await prisma.chatPinnedMessage.count({ where: { channelId: secChan } })).toBe(0);
+    } finally {
+      await prisma.chatChannel.update({ where: { id: secChan }, data: { topic: null } });
+      await prisma.chatChannelMember.deleteMany({ where: { channelId: secChan, userId: u.outsider } });
+      await prisma.chatPinnedMessage.upsert({
+        where: { channelId_messageId: { channelId: secChan, messageId: secMsg } },
+        create: { channelId: secChan, messageId: secMsg, pinnedById: u.insider },
+        update: {},
+      });
+    }
+    expect(await membersOf(secChan)).toEqual(startingMembers());
   });
 
   it("a member who can see the project posts, types, reacts and marks read (positive control)", async () => {

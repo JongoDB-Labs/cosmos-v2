@@ -2,8 +2,7 @@ import { OrgRole, type Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
-import { hiddenProjectIds, isProjectVisible } from "@/lib/rbac/project-access";
-import { loadMemberAuthContext } from "@/lib/rbac/effective-permissions";
+import { hiddenProjectIds, isProjectVisible, projectReaders } from "@/lib/rbac/project-access";
 
 /**
  * Chat, read or write, needs CHAT_USE: the bit the Chat page itself is gated
@@ -71,9 +70,10 @@ export async function visibleChannelWhere(ctx: AuthContext): Promise<Prisma.Chat
 
 /**
  * Of `userIds`, who may see a channel under `projectId`: the people a message
- * there may notify. `channelProjectVisible` judged as each of them, from their
- * own stored access (as createNotification judges a recipient), so someone no
- * longer in the org is no one's reader either.
+ * there may notify. `channelProjectVisible` as each of them would be told it,
+ * from their own stored access (as createNotification judges a recipient), so
+ * someone no longer in the org is no one's reader either. One set-based
+ * lookup for all of them (`projectReaders`), not one per recipient.
  */
 export async function channelProjectReaders(
   orgId: string,
@@ -81,13 +81,7 @@ export async function channelProjectReaders(
   userIds: string[],
 ): Promise<Set<string>> {
   if (!projectId) return new Set(userIds);
-  const sees = await Promise.all(
-    userIds.map(async (userId) => {
-      const ctx = await loadMemberAuthContext(orgId, userId);
-      return !!ctx && (await channelProjectVisible(ctx, projectId));
-    }),
-  );
-  return new Set(userIds.filter((_, i) => sees[i]));
+  return projectReaders(orgId, projectId, userIds);
 }
 
 /**

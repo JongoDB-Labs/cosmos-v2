@@ -170,13 +170,20 @@ const WRITES_ANYTHING = /\b(?:prisma|tx)\.\w+\.(?:create|createMany|update|updat
  * Saved views gate through the viewer's readable projects; list and bulk writes
  * through the hidden set (`hiddenProjectIds`, `visibleProjectRecordsWhere`);
  * feedback's by-id routes through `loadFeedbackRoute`, which 404s an item under
- * a hidden project (pinned below); chat through lib/chat/access.ts, whose
- * channel loader and list filters hide a channel on a project the caller can't
- * see (pinned below too).
+ * a hidden project (pinned below).
  */
 const VISIBLE_ANYWHERE = new RegExp(
-  `${VISIBLE.source}|\\b(?:getReadableProjectIds|getVisibleProjectIds|visibleProjectIdsForActor|viewerScope|hiddenProjectIds|visibleProjectRecordsWhere|loadFeedbackRoute|loadChannelAndMembership|channelProjectVisible|visibleChannelWhere|visibleChannelProjectIds)\\(`,
+  `${VISIBLE.source}|\\b(?:getReadableProjectIds|getVisibleProjectIds|visibleProjectIdsForActor|viewerScope|hiddenProjectIds|visibleProjectRecordsWhere|loadFeedbackRoute)\\(`,
 );
+
+/**
+ * Chat's own check, in lib/chat/access.ts: its channel loader and list filters
+ * hide a channel on a project the caller can't see (pinned below). It judges
+ * a CHANNEL's project, so it counts only in chat's handlers; elsewhere it says
+ * nothing about the project a write names.
+ */
+const CHAT_VISIBLE = /\b(?:loadChannelAndMembership|channelProjectVisible|visibleChannelWhere|visibleChannelProjectIds)\(/;
+const CHAT_ROUTES = "src/app/api/v1/orgs/[orgId]/chat/";
 
 /**
  * Modules whose READS aren't team-scoped either: anyone with the module's bit
@@ -216,6 +223,16 @@ const NOT_A_PROJECT_WRITE: Record<string, string> = {
   "POST /v1/orgs/[orgId]/webhooks/[webhookId]/test/route.ts": "a test delivery is about no project",
 };
 
+/** Whether a write handler (in `file`, with the helpers it calls) touches a project, and checks it's visible. */
+function judge(file: string, code: string): { touches: boolean; gated: boolean } {
+  const touches =
+    WRITES_A_PROJECT_MODEL.test(code) ||
+    /\bprojectIds?\b/.test(code) ||
+    (LOADS_A_PROJECT_MODEL.test(code) && WRITES_ANYTHING.test(code));
+  const gated = VISIBLE_ANYWHERE.test(code) || (file.startsWith(CHAT_ROUTES) && CHAT_VISIBLE.test(code));
+  return { touches, gated };
+}
+
 describe("writes outside projects/[projectId] that touch a project are gated too", () => {
   const API = "src/app/api";
   const flagged = routeFiles(API)
@@ -225,14 +242,24 @@ describe("writes outside projects/[projectId] that touch a project are gated too
       return WRITES.flatMap((m) => {
         const code = handlerCode(src, m, f);
         if (!code) return [];
-        const touches =
-          WRITES_A_PROJECT_MODEL.test(code) ||
-          /\bprojectIds?\b/.test(code) ||
-          (LOADS_A_PROJECT_MODEL.test(code) && WRITES_ANYTHING.test(code));
-        if (!touches) return [];
-        return [{ at: `${m} ${f.slice(API.length)}`, gated: VISIBLE_ANYWHERE.test(code) }];
+        const { touches, gated } = judge(f, code);
+        return touches ? [{ at: `${m} ${f.slice(API.length)}`, gated }] : [];
       });
     });
+
+  it("counts chat's check only in chat's own handlers", () => {
+    // A handler outside chat that loads some channel, then writes to a project
+    // named in its body: the channel's project says nothing about that one.
+    const elsewhere = `const { channel } = await loadChannelAndMembership(ctx, body.channelId);
+      if (!channel) return notFound();
+      await prisma.workItem.create({ data: { projectId: body.projectId, title: body.title } });`;
+    expect(judge("src/app/api/v1/orgs/[orgId]/work-items/route.ts", elsewhere)).toEqual({ touches: true, gated: false });
+    // Positive control: in a chat handler, the loader is the check.
+    const inChat = `const { channel } = await loadChannelAndMembership(ctx, channelId);
+      if (!channel) return notFound();
+      await prisma.chatChannel.update({ where: { id: channelId }, data: { topic } });`;
+    expect(judge(`${CHAT_ROUTES}channels/[channelId]/route.ts`, inChat)).toEqual({ touches: true, gated: true });
+  });
 
   it("read the schema and the real routes", () => {
     expect(PROJECT_MODELS).toEqual(expect.arrayContaining(["workItem", "syncMeeting", "timeEntry", "contract"]));

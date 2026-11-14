@@ -458,6 +458,47 @@ describe("a stream's chat channels while it is open", () => {
     }
   });
 
+  it("stops sending a project channel's messages once its refresh is due, even before a ping lets go of the channel", async () => {
+    // The refresh runs on the first event or ping after AUDIENCE_TTL_MS, so a
+    // message can't get through later than that; letting go of the topic can
+    // wait for the next ping (AUDIENCE_TTL_MS + 25 s at most).
+    const lateId = (await prisma.user.create({ data: { email: `late-${stamp}@sse.test`, displayName: "late" } })).id;
+    const om = await prisma.orgMember.create({ data: { orgId, userId: lateId, role: "MEMBER", permissions: "0" } });
+    const pm = await prisma.projectMember.create({ data: { projectId: secId, orgMemberId: om.id } });
+    const proj = await prisma.chatChannel.create({ data: { orgId, kind: "CHANNEL", name: `due-${stamp}`, projectId: secId, createdById: lateId } });
+    await prisma.chatChannelMember.create({ data: { channelId: proj.id, userId: lateId } });
+    const sid = await sessionFor(lateId);
+    const topic = topics.channel(proj.id);
+    const subs = countSubscriptions();
+    fakeClock();
+    let s: Awaited<ReturnType<typeof open>> | null = null;
+    try {
+      s = await open(await ctxOf(lateId), sid);
+      await s.until(hello);
+      await getBus().publish(topic, "chat.message.created", { id: "d-before", channelId: proj.id, content: "x" });
+      await s.until((e) => chatIds(e).includes("d-before"));
+
+      await prisma.projectMember.delete({ where: { id: pm.id } });
+      // The pings at 25 s and 50 s find the audience fresh; the one at 75 s hasn't come.
+      await vi.advanceTimersByTimeAsync(AUDIENCE_TTL_MS);
+      expect(subs.live(topic)).toBe(1);
+      await getBus().publish(topic, "chat.message.created", { id: "d-late", channelId: proj.id, content: "y" });
+      publishToOrg(orgId, "work-item.created", { id: "marker-d1", projectId: openId });
+      expect(chatIds(await s.until((e) => ids(e).includes("marker-d1")))).toEqual(["d-before"]);
+      // The message that found the refresh due also let go of the channel.
+      await settle(() => subs.live(topic) === 0, "the project's channel was let go");
+    } finally {
+      vi.useRealTimers();
+      await s?.close();
+      subs.restore();
+      await prisma.session.deleteMany({ where: { userId: lateId } });
+      await prisma.chatChannel.deleteMany({ where: { id: proj.id } });
+      await prisma.projectMember.deleteMany({ where: { orgMemberId: om.id } });
+      await prismaUnfiltered.orgMember.deleteMany({ where: { id: om.id } });
+      await prisma.user.deleteMany({ where: { id: lateId } });
+    }
+  });
+
   it("lets go of every channel topic when the client goes away", async () => {
     const subs = countSubscriptions();
     const s = await open(await ctxOf(users.insider));
