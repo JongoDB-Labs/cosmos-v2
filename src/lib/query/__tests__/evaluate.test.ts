@@ -39,6 +39,22 @@ describe("evaluate: values", () => {
     // Without the mode it is `=`, and the operand is the plain text.
     expect(matches({ k: { equals: "a_b" } }, { k: "a_b" })).toBe(true);
   });
+  it("an insensitive equals unescapes a backslash and a percent sign too", () => {
+    expect(matches({ k: { equals: "a\\\\b", mode: "insensitive" } }, { k: "A\\B" })).toBe(true);
+    expect(matches({ k: { equals: "a\\\\b", mode: "insensitive" } }, { k: "A\\\\B" })).toBe(false);
+    expect(matches({ k: { equals: "50\\%", mode: "insensitive" } }, { k: "50%" })).toBe(true);
+    expect(matches({ k: { equals: "50\\%", mode: "insensitive" } }, { k: "500" })).toBe(false);
+  });
+  it("an insensitive not is NOT ILIKE: its operand is unescaped, then compared exactly, ignoring case", () => {
+    expect(matches({ k: { not: "acme\\_2", mode: "insensitive" } }, { k: "ACME_2" })).toBe(false);
+    expect(matches({ k: { not: "acme\\_2", mode: "insensitive" } }, { k: "ACME-2" })).toBe(true);
+    expect(matches({ k: { not: "50\\%", mode: "insensitive" } }, { k: "50%" })).toBe(false);
+    // NOT ILIKE on NULL is NULL, so the row is left out.
+    expect(matches({ k: { not: "acme\\_2", mode: "insensitive" } }, { k: null })).toBe(false);
+    // Without the mode it is `<>`, and the operand is the plain text.
+    expect(matches({ k: { not: "a_b" } }, { k: "a_b" })).toBe(false);
+    expect(matches({ k: { not: "a_b" } }, { k: "A_B" })).toBe(true);
+  });
   it("instants compare as time, whatever their ISO spelling", () => {
     expect(matches({ d: { gte: "2026-10-20T00:00:00.000Z" } }, { d: "2026-10-19T20:00:00-05:00" })).toBe(true);
     expect(matches({ d: { lt: new Date("2026-10-20T00:00:00Z") } }, { d: "2026-10-19T23:59:59.999Z" })).toBe(true);

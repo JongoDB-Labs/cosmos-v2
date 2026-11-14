@@ -228,6 +228,66 @@ describe("single sign-on", () => {
   });
 });
 
+describe("addresses that contain a backslash or a percent sign", () => {
+  // An address may contain a backslash or a percent sign. Each lookup compares
+  // those as written, like every other character of the address.
+  const slashed = (tag: string) => `${tag}\\x.${stamp}@${DOM}`;
+  const percent = (tag: string) => ({ member: `${tag}zz${stamp}@${DOM}`, claimed: `${tag}%${stamp}@${DOM}` });
+
+  it("single sign-on links a member whose exact address contains a backslash, in another case", async () => {
+    const own = slashed("ssobs");
+    const uid = await mkUser(own);
+    await prisma.orgMember.create({ data: { orgId: org.id, userId: uid, role: OrgRole.MEMBER } });
+    // Control: the same address without the backslash is someone else.
+    const other = await completeSsoLogin(org.slug, conn, claims(`ssobs-x-${stamp}`, own.replace("\\", "")), {});
+    expect(other.ok && other.userId).not.toBe(uid);
+    const r = await completeSsoLogin(org.slug, conn, claims(`ssobs-${stamp}`, own.toUpperCase()), {});
+    expect(r.ok && r.userId).toBe(uid);
+  });
+
+  it("Google sign-in links an account whose exact address contains a backslash, in another case", async () => {
+    const own = slashed("googbs");
+    const uid = await mkUser(own);
+    await prisma.allowedEmail.create({ data: { email: own } });
+    // Control: the same address without the backslash is not on the allowlist.
+    expect(await isEmailAllowlisted(own.replace("\\", ""))).toBe(false);
+    const r = await resolveFirstPartyUser({
+      identity: { provider: "google", subject: `g-bs-${stamp}` },
+      verifiedEmails: [own.toUpperCase()],
+      profile: { displayName: "G" },
+    });
+    expect(r.ok && r.outcome).toBe("linked");
+    expect(r.ok && r.user.id).toBe(uid);
+  });
+
+  it("single sign-on compares an address that contains a percent sign exactly, ignoring case", async () => {
+    const { member, claimed } = percent("ssopct");
+    const uid = await mkUser(member);
+    await prisma.orgMember.create({ data: { orgId: org.id, userId: uid, role: OrgRole.MEMBER } });
+    const r = await completeSsoLogin(org.slug, conn, claims(`ssopct-${stamp}`, claimed), {});
+    expect(r.ok && r.userId).not.toBe(uid);
+    expect(await prisma.federatedIdentity.count({ where: { userId: uid } })).toBe(0);
+    // Positive control: the member's own address, in another case, links them.
+    const own = await completeSsoLogin(org.slug, conn, claims(`ssopct-own-${stamp}`, member.toUpperCase()), {});
+    expect(own.ok && own.userId).toBe(uid);
+  });
+
+  it("Google sign-in compares an address that contains a percent sign exactly, ignoring case", async () => {
+    const { member, claimed } = percent("googpct");
+    const uid = await mkUser(member);
+    await prisma.allowedEmail.createMany({ data: [{ email: member }, { email: claimed }] });
+    const signIn = (subject: string, email: string) =>
+      resolveFirstPartyUser({ identity: { provider: "google", subject }, verifiedEmails: [email], profile: { displayName: "G" } });
+    const r = await signIn(`g-pct-${stamp}`, claimed);
+    expect(r.ok && r.user.id).not.toBe(uid);
+    if (r.ok) userIds.push(r.user.id);
+    // Positive control: the account's own address, in another case, links it.
+    const own = await signIn(`g-pct-own-${stamp}`, member.toUpperCase());
+    expect(own.ok && own.outcome).toBe("linked");
+    expect(own.ok && own.user.id).toBe(uid);
+  });
+});
+
 describe("revoking an invitation", () => {
   const provisioned = { mustChangePassword: true, passwordHash: hashPassword(PASSWORD) };
 
@@ -352,7 +412,8 @@ describe("other address lookups", () => {
     await prisma.allowedEmail.createMany({ data: [{ email: own.toUpperCase() }, { email: other }] });
     await invite(own.toUpperCase());
     await invite(other);
-    const r = await deleteUserAccount({ userId: uid, email: own });
+    const actor = await mkUser(`gone-actor.${stamp}@${DOM}`);
+    const r = await deleteUserAccount({ userId: uid, email: own, actorUserId: actor });
     expect([r.allowlistEntriesRemoved, r.invitationsRemoved]).toEqual([1, 1]);
     expect(await prisma.allowedEmail.count({ where: { email: other } })).toBe(1);
     expect(await prisma.invitation.count({ where: { email: other } })).toBe(1);

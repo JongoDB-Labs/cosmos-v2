@@ -96,7 +96,7 @@ function cmp(a: unknown, b: unknown): number {
   return sa < sb ? -1 : sa > sb ? 1 : 0;
 }
 
-/** A LIKE operand back to plain text: Prisma's contains / startsWith, and an insensitive equals (ILIKE), take escaped `\%`, `\_`, `\\`. */
+/** A LIKE operand back to plain text: Prisma's contains / startsWith, and an insensitive equals or not (ILIKE / NOT ILIKE), take escaped `\%`, `\_`, `\\`. */
 const unescapeLike = (s: string) => s.replace(/\\([\\%_])/g, "$1");
 
 function evalScalar(f: unknown, value: unknown): Truth {
@@ -116,7 +116,7 @@ function evalScalar(f: unknown, value: unknown): Truth {
       case "not":
         if (arg === null) parts.push(!isNull);
         else if (isObj(arg)) parts.push(not(evalScalar({ ...arg, ...(insensitive ? { mode: "insensitive" } : {}) }, value)));
-        else parts.push(isNull ? null : cmp(value, arg) !== 0);
+        else parts.push(isNull ? null : insensitive ? text(value) !== text(unescapeLike(String(arg))) : cmp(value, arg) !== 0);
         break;
       case "in":
         // Prisma renders an empty IN as false, NULL or not.

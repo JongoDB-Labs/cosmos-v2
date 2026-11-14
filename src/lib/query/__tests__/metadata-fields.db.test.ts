@@ -14,6 +14,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { prisma } from "@/lib/db/client";
 import { executeCql, predicateCql } from "../execute.server";
 import { UNDECIDED, matches } from "../evaluate";
+import { escapeLike } from "../like";
 import { seedWorld, type World } from "./cql-fixture";
 
 const NOW = new Date("2026-10-15T15:00:00Z");
@@ -83,6 +84,26 @@ describe("CQL reaches imported + cancellation metadata (e2e DB)", () => {
         expect(got, `${cql} on ${row.title}`).toBe(db.has(row.id));
       }
     }
+  });
+
+  it("an insensitive not on a text field: the database and the board's interpreter agree", async () => {
+    const pick = [ids["p1-done"], ids["p1-coowned"]];
+    const rows = JSON.parse(JSON.stringify(await prisma.workItem.findMany({ where: { id: { in: pick } } })));
+    expect(rows).toHaveLength(2);
+    const seen: Record<string, string[]> = {};
+    for (const v of ["acme_2", "ACME_1", "acme-1"]) {
+      const filter = { externalKey: { not: escapeLike(v), mode: "insensitive" as const } };
+      const db = new Set(
+        (await prisma.workItem.findMany({ where: { id: { in: pick }, ...filter }, select: { id: true } })).map((x) => x.id),
+      );
+      seen[v] = rows.filter((r: { id: string }) => db.has(r.id)).map((r: { title: string }) => r.title).sort();
+      for (const row of rows) expect(matches(filter, row), `not ${v} on ${row.title}`).toBe(db.has(row.id));
+    }
+    // The database's answers, so the agreement above is about real rows.
+    const titleOf = (k: string) => rows.find((r: { id: string }) => r.id === ids[k]).title;
+    expect(seen["acme_2"]).toEqual([titleOf("p1-done")]);
+    expect(seen["ACME_1"]).toEqual([titleOf("p1-coowned"), titleOf("p1-done")].sort());
+    expect(seen["acme-1"]).toEqual([titleOf("p1-coowned")]);
   });
 
   it("IS EMPTY distinguishes an unset column from a set one", async () => {
