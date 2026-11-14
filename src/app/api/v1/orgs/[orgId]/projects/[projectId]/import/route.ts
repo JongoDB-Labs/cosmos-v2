@@ -9,6 +9,7 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { runEntityImport } from "@/lib/import/entity-import";
 import { ENTITY_DEFS, type EntityImportRequest } from "@/lib/import/entity-fields";
+import { escapeLike } from "@/lib/query/like";
 
 const MAX_ROWS = 5000;
 const MAX_CELL = 20_000; // chars per cell
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Resolve the org by id (the wizard sends a UUID) or by slug as a fallback,
     // mirroring the insensitive key-match other routes tolerate.
     const org = await prisma.organization.findFirst({
-      where: UUID_RE.test(orgId) ? { id: orgId } : { slug: { equals: orgId, mode: "insensitive" } },
+      where: UUID_RE.test(orgId) ? { id: orgId } : { slug: { equals: escapeLike(orgId), mode: "insensitive" } },
       select: { id: true, slug: true },
     });
     if (!org) return new Response("Not found", { status: 404 });
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         orgId: org.id,
         ...(UUID_RE.test(projectId)
           ? { id: projectId }
-          : { key: { equals: projectId, mode: "insensitive" } }),
+          : { key: { equals: escapeLike(projectId), mode: "insensitive" } }),
       },
       select: { id: true },
     });

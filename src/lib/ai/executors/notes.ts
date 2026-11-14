@@ -3,7 +3,8 @@ import { Permission } from "@/lib/rbac/permissions";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { Visibility } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, loadAuthContext, type ToolContext } from "./_ctx";
+import { assertPermission, loadAuthContext, serviceRefusal, type ToolContext } from "./_ctx";
+import { requireAccess } from "@/lib/abac/require-access";
 import { roleCountsFor } from "@/lib/rbac/key-role";
 
 const createNoteSchema = z.object({
@@ -25,6 +26,31 @@ const updateNoteSchema = z.object({
 const deleteNoteSchema = z.object({
   noteId: z.string().uuid(),
 });
+
+const shareNoteSchema = z.object({
+  noteId: z.string().uuid(),
+  visibility: z.nativeEnum(Visibility),
+});
+
+/**
+ * Who a visibility lets in, as a rank: PRIVATE is its author alone, and each
+ * step up lets more people read it. A move UP the ranks is a widening.
+ *
+ * Cosmo makes a note visible to more people only through `share_note`, which
+ * is confirm-class: the agent loop shows the user a preview and waits for
+ * their yes (confirmation.ts). Anything that reads a note's text is a way to
+ * instruct the model, so a note that says "make my notes public" must not be
+ * able to do it on the model's word. `create_note` therefore always saves
+ * private and `update_note` refuses to widen; narrowing, or leaving it as it
+ * is, takes effect at once. Same split as `create_saved_view` and
+ * `share_saved_view`.
+ */
+const VISIBILITY_RANK: Record<Visibility, number> = {
+  [Visibility.PRIVATE]: 0,
+  [Visibility.PROJECT]: 1,
+  [Visibility.ORG]: 2,
+};
+const widens = (from: Visibility, to: Visibility) => VISIBILITY_RANK[to] > VISIBILITY_RANK[from];
 
 const listNotesSchema = z.object({
   visibility: z.nativeEnum(Visibility).optional(),
@@ -107,15 +133,18 @@ export async function createNote(
   if (!parsed.success) {
     return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
   }
-  const data = parsed.data;
+  const { visibility: asked, ...data } = parsed.data;
 
+  // Always private: sharing is share_note, which waits for the user's yes (see
+  // VISIBILITY_RANK). A visibility the model sends anyway is read only to say
+  // what was not done.
   const note = await prisma.note.create({
     data: {
       orgId: ctx.orgId,
       authorId: ctx.userId,
       title: data.title,
       content: data.content ?? "",
-      visibility: data.visibility ?? Visibility.PRIVATE,
+      visibility: Visibility.PRIVATE,
     },
   });
 
@@ -130,7 +159,37 @@ export async function createNote(
     id: note.id,
     title: note.title,
     visibility: note.visibility,
+    // Enums at the top level, so the model learns this even where results are withheld.
+    ...(asked !== undefined && asked !== Visibility.PRIVATE && {
+      requestedVisibility: asked,
+      nextStep: "share_note",
+      note: "Saved as private. Sharing it is a separate step the user confirms: call share_note with this id.",
+    }),
   };
+}
+
+/**
+ * The note routes' own gate over one note: `requireAccess` with the action
+ * (NOTE_UPDATE for PUT, NOTE_DELETE for DELETE) and the note's author as
+ * `createdById`. That is what lets an access rule over the note bind (a member
+ * barred from editing or deleting their own notes, say). The agent asked only
+ * for the bit, so no such rule ever reached it.
+ */
+async function noteAccessRefusal(
+  ctx: ToolContext,
+  action: "NOTE_UPDATE" | "NOTE_DELETE",
+  authorId: string,
+): Promise<{ error: string } | null> {
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
+  try {
+    await requireAccess(auth, action, { createdById: authorId });
+    return null;
+  } catch (e) {
+    const refusal = serviceRefusal(e);
+    if (refusal) return refusal;
+    throw e;
+  }
 }
 
 export async function updateNote(
@@ -150,8 +209,19 @@ export async function updateNote(
     where: { id: data.noteId, orgId: ctx.orgId },
   });
   if (!existing) return { error: "Note not found" };
+  const ruled = await noteAccessRefusal(ctx, "NOTE_UPDATE", existing.authorId);
+  if (ruled) return ruled;
   if (existing.authorId !== ctx.userId) {
     return { error: "Only the author can update this note" };
+  }
+  // Refused whole, so a rename asked for beside it doesn't half-happen.
+  if (data.visibility !== undefined && widens(existing.visibility, data.visibility)) {
+    return {
+      error:
+        "Letting more people see a note needs the user's yes: call share_note with this noteId and visibility. Nothing was changed.",
+      requestedVisibility: data.visibility,
+      nextStep: "share_note",
+    };
   }
 
   const note = await prisma.note.update({
@@ -172,6 +242,37 @@ export async function updateNote(
   return { updated: true, id: note.id, title: note.title, visibility: note.visibility };
 }
 
+/**
+ * Change who sees a note — the one way Cosmo lets more people see it.
+ * Confirm-class (see VISIBILITY_RANK): the agent loop runs it only after the
+ * user has answered a preview. The same gate as `update_note`: NOTE_UPDATE,
+ * and only the note's author.
+ */
+export async function shareNote(
+  input: Record<string, unknown>,
+  ctx: ToolContext
+) {
+  const denied = await assertPermission(ctx, Permission.NOTE_UPDATE);
+  if (denied) return denied;
+
+  const parsed = shareNoteSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
+  }
+  const { noteId, visibility } = parsed.data;
+
+  const existing = await prisma.note.findFirst({ where: { id: noteId, orgId: ctx.orgId } });
+  if (!existing) return { error: "Note not found" };
+  const ruled = await noteAccessRefusal(ctx, "NOTE_UPDATE", existing.authorId);
+  if (ruled) return ruled;
+  if (existing.authorId !== ctx.userId) {
+    return { error: "Only the author can change who sees this note" };
+  }
+
+  const note = await prisma.note.update({ where: { id: noteId }, data: { visibility } });
+  return { updated: true, id: note.id, title: note.title, visibility: note.visibility };
+}
+
 export async function deleteNote(
   input: Record<string, unknown>,
   ctx: ToolContext
@@ -188,6 +289,8 @@ export async function deleteNote(
     where: { id: parsed.data.noteId, orgId: ctx.orgId },
   });
   if (!existing) return { error: "Note not found" };
+  const ruled = await noteAccessRefusal(ctx, "NOTE_DELETE", existing.authorId);
+  if (ruled) return ruled;
 
   if (existing.authorId !== ctx.userId) {
     const actor = await loadAuthContext(ctx);

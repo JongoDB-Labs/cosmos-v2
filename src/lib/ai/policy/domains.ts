@@ -84,6 +84,7 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   list_notes: "notes",
   create_note: "notes",
   update_note: "notes",
+  share_note: "notes",
   delete_note: "notes",
 
   // ── comments ────────────────────────────────────────────────────────────────
@@ -213,6 +214,7 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   list_calendar_events: "google",
   create_calendar_event: "google",
   update_calendar_event: "google",
+  share_calendar_event: "google",
   delete_calendar_event: "google",
   list_drive_files: "google",
   create_drive_folder: "google",

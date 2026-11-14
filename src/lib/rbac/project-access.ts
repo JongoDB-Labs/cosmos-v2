@@ -104,6 +104,38 @@ export async function isProjectVisible(
 }
 
 /**
+ * `isProjectVisible` across people instead of projects: of `userIds`, the
+ * org's current members who may see `projectId`, each judged as their own
+ * session would be (no API key, so no key ceiling). For fan-outs that ask it
+ * of every recipient, in three queries however many there are. Someone not
+ * in the org, or removed from it, sees nothing, as `loadMemberAuthContext`
+ * would find no member to judge.
+ */
+export async function projectReaders(
+  orgId: string,
+  projectId: string,
+  userIds: string[],
+): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set();
+  const [project, members] = await Promise.all([
+    prisma.project.findFirst({ where: { id: projectId, orgId }, select: { teamScopedAccess: true } }),
+    prisma.orgMember.findMany({ where: { orgId, userId: { in: userIds } }, select: { id: true, userId: true, role: true } }),
+  ]);
+  if (!project) return new Set();
+  if (!project.teamScopedAccess) return new Set(members.map((m) => m.userId));
+
+  const others = members.filter((m) => !isOrgAdministrator(m.role));
+  const team = others.length
+    ? await prisma.projectMember.findMany({
+        where: { projectId, orgMemberId: { in: others.map((m) => m.id) } },
+        select: { orgMemberId: true },
+      })
+    : [];
+  const onTeam = new Set(team.map((t) => t.orgMemberId));
+  return new Set(members.filter((m) => isOrgAdministrator(m.role) || onTeam.has(m.id)).map((m) => m.userId));
+}
+
+/**
  * Set form for list views, which cannot ask per project without an N+1.
  *
  * Resolves the actor's memberships ONCE and filters in memory. Unrestricted

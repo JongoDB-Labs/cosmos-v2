@@ -5,6 +5,7 @@ import { redirect, notFound } from "next/navigation";
 import { cqlEnabled } from "@/lib/query/flag";
 import { canManageBoardsInProject } from "@/lib/rbac/project-role";
 import { ProjectFilters } from "@/components/work-items/cql/project-filters";
+import { escapeLike } from "@/lib/query/like";
 
 type PageParams = {
   params: Promise<{ orgSlug: string; projectKey: string }>;
@@ -24,7 +25,7 @@ export default async function ProjectFiltersPage({ params }: PageParams) {
 
   const [project, org] = await Promise.all([
     prisma.project.findFirst({
-      where: { orgId: ctx.orgId, key: { equals: projectKey, mode: "insensitive" }, archived: false },
+      where: { orgId: ctx.orgId, key: { equals: escapeLike(projectKey), mode: "insensitive" }, archived: false },
       select: { id: true, key: true },
     }),
     prisma.organization.findUnique({ where: { id: ctx.orgId }, select: { settings: true } }),
